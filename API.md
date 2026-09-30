@@ -1077,13 +1077,43 @@ resolved lines with owned copies and USD unit prices, cost to acquire missing
 copies, and a normalized PTCG Live export. Unresolved names remain in `lines`
 with `resolved:false`; no deck or collection data is written.
 
+### POST /deckpal/api/decks/save
+Create a deck, or set an existing deck's card list, in ONE transaction. This is what
+`save_deck` (Deck-E and MCP) writes through. Body `{ "deckId"? (edit when present),
+"name"? (required to create), "formatCode"|"format"?, "glcType"?, "cards"?:
+[{ "cardId", "quantity" 1..60 }] (≤60 distinct; the whole intended list when present),
+"versionNote"?, "source"?, "idempotencyKey"? (≤200) }`. Every `cardId` (a TCGdex id or a
+catalogue id; two refs to one card are summed) is resolved before anything is written;
+one that does not resolve fails the whole request with `400` naming every bad id, and
+nothing is saved.
+- **An edit changes only what changed.** A card whose total is unchanged is not
+  touched — its printing and `pinExact` survive; a card held as one printing is
+  resized in place; a removed card's rows go; a new card gets its primary printing.
+  Changing the count of a card the deck holds as several printings would have to
+  guess which, so it fails the whole request with `400`.
+- **Format.** Restating the deck's current format changes nothing (a GLC deck keeps
+  its Pokémon type); a real change behaves like `PATCH /decks/:id`.
+- **Retries.** Without `idempotencyKey` the API derives one from the content (and, for
+  an edit, the deck's state before the write). A stored result is replayed (`200`,
+  `"replayed": true`) only while the deck it made is alive and unchanged since; once it
+  was deleted or edited the key moves to its next generation, so a later identical save
+  writes normally and a retry of THAT save replays it.
+
+`201` (create) or `200` returns the detail payload plus `replayed`.
+
 ### POST /deckpal/api/decks/import
 Paste a decklist and create a new deck from it. Body `{ "text" (required, ≤20000),
 "source"? = "ptcgl"\|"massentry" (the decklist syntax — defaults `ptcgl`),
 "writeSource"? (writer attribution, since `source` is taken), "formatCode"|
 "format"?, "glcType"?, "name"? (default "Imported Deck"), "dryRun"? }`. Mass Entry set codes
 (a third namespace — TCGplayer abbrevs) are resolved by name only. Same print on
-two lines is summed (clamped to 60). Unresolved lines are reported, not dropped.
+two lines is summed (clamped to 60). A non-dry-run import with ANY unresolved line
+writes nothing and returns `400` naming those lines (2026-09-29: they used to be
+dropped silently); the dry run below still reports them for the dialog to fix or
+remove; the web dialog removes the lines the reader chose to skip before it
+imports. The write is one transaction. With an `idempotencyKey` a retry returns the deck
+it already made (`"replayed": true`, same rule as `/decks/save`); without one — the web
+dialog — importing the same list twice on purpose still makes two decks.
 `201` returns the detail payload plus an `import` summary:
 ```json
 { …detail payload…,

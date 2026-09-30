@@ -952,21 +952,32 @@ export function buildTools(
         let checked: DeckCheckResult | null = null
         try {
           checked = opts?.checkDeck ? await opts.checkDeck({ format, cards }) : null
-        } catch {
-          checked = null
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error)
+          const summary = "Couldn't show that deck — the deck check failed"
+          onEvent?.({ phase: 'error', id: toolCallId, name: 'showDeck', title: 'Show a deck', summary })
+          return `${NO_WORK} NOT SHOWN — the deck check failed: ${reason}; ` +
+            'save with save_deck or try the deck check again.'
         }
         const checkedIds = new Set(
           (checked?.lines ?? []).flatMap((line) => line.resolved && line.card_id ? [line.card_id.trim().toLowerCase()] : []),
         )
         if (checkedIds.size) grounding?.observe([...checkedIds].join('\n'))
-        const unverified = cards
-          .map((card) => card.card_id)
-          .filter((id) => !checkedIds.has(id.trim().toLowerCase()) && !grounding?.seen(id))
+        // A check may deliberately substitute an owned/playable printing. Its
+        // resolved line is the authority and is what the widget renders; the
+        // requested id does not have to equal that printing's id. Only an
+        // unresolved checker line is unverified. Without a checker, retain the
+        // ordinary grounding protection for the ids supplied directly.
+        const unverified = checked
+          ? checked.lines.flatMap((line, index) => !line.resolved || !line.card_id
+              ? [cards[index]?.card_id ?? line.card_id ?? line.name]
+              : [])
+          : cards.map((card) => card.card_id).filter((id) => !grounding?.seen(id))
         if (unverified.length) {
           const summary = "Couldn't show that deck — some cards weren't verified"
           onEvent?.({ phase: 'error', id: toolCallId, name: 'showDeck', title: 'Show a deck', summary })
           return `${NO_WORK} NOT SHOWN — these card ids were not verified: ${unverified.join(', ')}. ` +
-            'Run check_deck for them, fix unresolved ids, then call showDeck again.'
+            'Fix the unresolved cards and call showDeck again; save_deck is still available even when the widget cannot render.'
         }
         const total = checked?.total ?? cards.reduce((sum, card) => sum + card.quantity, 0)
         const sections = checked

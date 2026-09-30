@@ -648,8 +648,14 @@ export async function checkDeckeStates(browser, server, out, engine) {
       await set(page, { asking: [{ approvalId: 'ap-3', toolCallId: 'save-2', title: 'Save this deck', name: 'save_deck', input: { name: 'Everything Deck' } }],
         preview: { toolCallId: 'save-2', tool: 'save_deck', title: 'Create or edit a deck', summary: long, ok: true, editable: false, rows: [], skipped: [] } })
       await card.waitFor()
-      const list = card.locator('[data-decke-dry-run]')
-      assert.ok(await list.evaluate(el => el.scrollHeight > el.clientHeight + 1), 'twelve lines did not become a scrolling region')
+      // A NEW deck is a thumbnail strip that opens inline to every card (the
+      // owner's ask, PR #270); the expanded set scrolls inside the card.
+      const strip = card.locator('[data-decke-card-change-preview]')
+      await strip.waitFor()
+      await strip.getByText('+4 more', { exact: true }).waitFor()
+      await strip.getByRole('button', { name: 'Show all 10 cards' }).click()
+      assert.equal(await strip.getByRole('button', { name: 'Show less' }).getAttribute('aria-expanded'), 'true')
+      assert.equal(await strip.getByRole('listitem').count(), 6 + 1 + 10, 'the expanded set lists every card')
       const viewportH = await page.evaluate(() => innerHeight)
       for (const name of ['Leave it', 'Go ahead']) {
         const b = await rect(card.getByRole('button', { name }))

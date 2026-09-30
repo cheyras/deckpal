@@ -188,6 +188,22 @@ test('no preview runs when nobody is listening', async () => {
   await tool?.onInputAvailable?.({ input: { dry_run: false, items: [] }, toolCallId: 'c1' } as never)
 })
 
+test('deck_strategy previews the complete guide without executing its write-only handler', async () => {
+  const previews: Array<{ title: string; summary: string }> = []
+  const tools = buildDataTools({
+    ...OPTS,
+    include: (d) => d.name === 'deck_strategy',
+    onApprovalPreview: (p) => previews.push(p),
+  })
+  const tool = (tools as Record<string, { onInputAvailable?: (o: never) => Promise<void> }>).deck_strategy
+  assert.ok(tool)
+  const markdown = '# Opening plan\n\nLead with Dragapult.\n\n## Matchups\n\nProtect the bench.'
+  await tool.onInputAvailable?.({ input: { deck_id: 'Hide & Seek', markdown }, toolCallId: 'strategy-1' } as never)
+  assert.equal(previews.length, 1)
+  assert.equal(previews[0]?.title, 'save a strategy guide for “Hide & Seek”')
+  assert.equal(previews[0]?.summary, markdown)
+})
+
 test('a preview that throws does not throw into the stream', async () => {
   // A preview that fails must NEVER take the held call down with it. The card
   // falls back to the plain dialog and the write is still approvable — a broken

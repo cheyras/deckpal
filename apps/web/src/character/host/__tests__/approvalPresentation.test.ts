@@ -109,6 +109,12 @@ const choice = (over: Partial<RowChoice> = {}): RowChoice => ({
 
 const choices = (...pairs: [number, RowChoice][]) => new Map(pairs)
 
+test('a preview title wins, and the old list fallback is neutral rather than falsely saying change', () => {
+  assert.equal(approvalHeadline('change this list', null), 'Can I save these list changes?')
+  assert.equal(approvalHeadline('change this list', { ...preview([], false), title: 'create a list called “Coin flips”' }), 'Can I create a list called “Coin flips”?')
+  assert.doesNotMatch(approvalHeadline('change this list', { ...preview([], false), title: 'create a list called “Coin flips”' }), /change this list/i)
+})
+
 // ── approvalQuestion ─────────────────────────────────────────────────────────
 //
 // HE ASKS IN THE FIRST PERSON NOW. "Let him ___?" became "Can I ___?"; the three
@@ -249,12 +255,12 @@ test('approvalHeadline refuses to name a direction a mixed batch does not have',
  */
 test('approvalHeadline falls back to the tool phrase when there are no rows', () => {
   assert.equal(approvalHeadline('Save this deck', null), 'Can I save this deck?')
-  assert.equal(approvalHeadline('Save this deck', preview([], false)), 'Can I save this deck?')
+  assert.equal(approvalHeadline('Save this deck', preview([], false)), 'Can I log cards?')
   // A preview carrying rows but NOT editable renders the plain dialog, so its
   // headline must be the plain one too.
   assert.equal(
     approvalHeadline('Save this deck', preview([row()], false)),
-    'Can I save this deck?',
+    'Can I log cards?',
   )
 })
 

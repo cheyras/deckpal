@@ -1,12 +1,16 @@
 import { Router } from 'express';
+import { createHash } from 'node:crypto';
 import type pg from 'pg';
 import { cardImages, dbHandle, q, q1, toMajor, tcgplayerUrl, withTx } from '../db.js';
-import { asyncHandler, badRequest, clampInt, notFound, oneOf, parseName, parseOptText, str, userCache, UUID_RE } from '../http.js';
+import { ApiError, asyncHandler, badRequest, clampInt, notFound, oneOf, parseName, parseOptText, str, userCache, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
 import { registerDeckImportFix } from './deckImportFix.js';
 import { recordDeckChange, recordStrategyChange, restoreSnapshot, type SnapshotEntry } from '../deck/versions.js';
 import { basicEnergyType, loadOwnedPrints, type OwnedSource } from '../deck/ownedPrints.js';
-import { closeBatch, openBatch, OPS, parseSource, recordEvents } from '../mutations.js';
+import {
+  closeBatch, findCommittedBatch, loadBatchResponse, openBatch, OPS, type StoredBatch,
+  parseSource, recordEvents, ReplayError,
+} from '../mutations.js';
 import { buildCart, productIdLine, tokenLine, type CartInput } from '../tcgplayer/massentry.js';
 import { mergeLogFields, parseBattleLog, scoreDeckMatch } from '../deck/battlelog.js';
 import {
@@ -552,6 +556,269 @@ decksRouter.post(
   }),
 );
 
+// ── POST /decks/save — create or replace a whole deck atomically ─────────────
+//
+// This is the write boundary used by save_deck. Resolving every id, writing the
+// deck row, replacing the card list and recording its first/next snapshot all
+// happen in ONE transaction. A bad id throws before the deck can exist, and a
+// deterministic idempotency key replays the deck id after an ambiguous timeout
+// instead of creating a twin.
+interface SaveDeckCardInput { cardId: string; quantity: number }
+
+function parseSaveDeckCards(value: unknown): SaveDeckCardInput[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw badRequest('cards must be an array');
+  const byId = new Map<string, number>();
+  for (const raw of value) {
+    const cardId = str((raw as { cardId?: unknown })?.cardId)?.trim();
+    const quantity = Number((raw as { quantity?: unknown })?.quantity);
+    if (!cardId) throw badRequest('every card needs cardId');
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 60) {
+      throw badRequest(`quantity for ${cardId} must be an integer 1..60`);
+    }
+    byId.set(cardId, Math.min(60, (byId.get(cardId) ?? 0) + quantity));
+  }
+  if (byId.size > 60) throw badRequest('cards may contain at most 60 distinct ids');
+  return [...byId].map(([cardId, quantity]) => ({ cardId, quantity }));
+}
+
+// ── Retry keys for whole-deck writes ─────────────────────────────────────────
+//
+// A key is derived from the request's CONTENT — no clock in it, so a retry is
+// recognised however long the first attempt took. What stops a content key
+// from replaying forever is the replay rule: a stored result is honoured only
+// while the deck it made is still alive and unchanged since that request
+// committed. Once it has been deleted or edited, the key is spent and the
+// request moves to the key's next GENERATION, derived from the spent batch —
+// so a retry of that later save lands on the same generation and replays it
+// instead of making a twin.
+const RETRY_HOPS = 8;
+
+function contentKey(prefix: string, content: unknown): string {
+  return `${prefix}:${createHash('sha256').update(JSON.stringify(content)).digest('hex')}`;
+}
+
+function saveDeckKey(input: {
+  deckId: string | null; name: string | null; format: FormatCode | null; glcType: PokemonType | null;
+  cards: SaveDeckCardInput[] | undefined;
+  // The deck's updated_at before this write. An edit's key must change when the
+  // deck does, or A → B → A would replay the first save and leave the deck on B.
+  state: string | null;
+}): string {
+  const cards = input.cards === undefined
+    ? null
+    : [...input.cards].sort((a, b) => a.cardId.localeCompare(b.cardId));
+  return contentKey('deck-save', { ...input, cards });
+}
+
+async function resolveRetryKey(userId: string, key: string): Promise<{ key: string; replay: StoredBatch | null }> {
+  let current = key;
+  for (let hop = 0; hop < RETRY_HOPS; hop++) {
+    const batch = await withTx((client) => findCommittedBatch(client, userId, [current]));
+    if (!batch) return { key: current, replay: null };
+    const deckId = (batch.response as { deckId?: string } | null)?.deckId;
+    // Compared in SQL against the batch row itself: a timestamptz that goes
+    // through a JS Date loses its microseconds, and then every deck looks
+    // "changed since" the request that made it.
+    const live = deckId
+      ? await q1<{ id: string }>(
+          `SELECT d.id FROM deck d JOIN mutation_batch b ON b.id = $3 AND b.user_id = $2
+            WHERE d.id = $1 AND d.user_id = $2 AND d.deleted_at IS NULL AND d.updated_at <= b.finished_at`,
+          [deckId, userId, batch.id],
+        )
+      : null;
+    if (live) return { key: current, replay: batch };
+    current = contentKey(`${key.slice(0, 60)}:gen`, { key, spent: batch.id });
+  }
+  throw badRequest('This exact save has been repeated too many times. Change the name or the list and try again.');
+}
+
+decksRouter.post(
+  '/save',
+  asyncHandler(async (req, res) => {
+    const body = req.body ?? {};
+    const userId = currentUserId(req);
+    const source = parseSource(body.source);
+    const versionNote = parseNoteText(body.versionNote, VERSION_NOTE_MAX, 'versionNote');
+    const deckId = body.deckId === undefined || body.deckId === null || String(body.deckId).trim() === ''
+      ? null
+      : parseDeckId(String(body.deckId));
+    const cards = parseSaveDeckCards(body.cards);
+    const requestedName = body.name === undefined ? null : parseName(body.name);
+    if (!deckId && !requestedName) throw badRequest('name is required to create a deck');
+    const formatGiven = body.formatCode !== undefined || body.format !== undefined;
+    const format = parseFormat(body.formatCode ?? body.format);
+    const glcGiven = body.glcType !== undefined ? parseGlcType(body.glcType) : null;
+    const before = deckId
+      ? await q1<{ updated_at: string }>(
+          `SELECT updated_at::text AS updated_at FROM deck WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
+          [deckId, userId],
+        )
+      : null;
+    if (deckId && !before) throw notFound(`No deck '${deckId}'`);
+    const requestedKey = typeof body.idempotencyKey === 'string' && body.idempotencyKey.trim()
+      ? body.idempotencyKey.trim()
+      : saveDeckKey({
+          deckId, name: requestedName, format: formatGiven ? format : null, glcType: glcGiven,
+          cards, state: before?.updated_at ?? null,
+        });
+    if (requestedKey.length > 200) throw badRequest('idempotencyKey must be 200 characters or fewer');
+    const { key: callerKey, replay } = await resolveRetryKey(userId, requestedKey);
+    const keys = [callerKey];
+
+    let outcome: { deckId: string; created: boolean; replayed: boolean };
+    if (replay) {
+      const stored = replay.response as { deckId?: string; created?: boolean } | null;
+      if (!stored?.deckId) throw badRequest('saved deck replay is missing its deck id');
+      outcome = { deckId: stored.deckId, created: stored.created === true, replayed: true };
+    } else {
+      try {
+        outcome = await withTx(async (client) => {
+          // FIRST write: reserve the key. A concurrent retry blocks here and
+          // replays after the winning transaction commits.
+          const batchId = await openBatch(client, {
+            userId, source, tool: 'deck.save', note: versionNote, idempotencyKey: callerKey,
+          });
+
+          // Resolve EVERY id before anything is written, and fold two refs to
+          // the same card (a TCGdex id and its catalogue id) into one line.
+          const want = new Map<number, { ref: string; quantity: number }>();
+          const badIds: string[] = [];
+          for (const card of cards ?? []) {
+            try {
+              const cardId = await resolveCardId(client, card.cardId);
+              const seen = want.get(cardId);
+              want.set(cardId, { ref: seen?.ref ?? card.cardId, quantity: Math.min(60, (seen?.quantity ?? 0) + card.quantity) });
+            } catch (error) {
+              if (error instanceof ApiError && error.status === 404) badIds.push(card.cardId);
+              else throw error;
+            }
+          }
+          if (badIds.length) {
+            throw badRequest(`Unresolved card ids: ${badIds.join(', ')}. Nothing was saved.`);
+          }
+
+          let id = deckId;
+          let created = false;
+          let formatChanged = false;
+          if (!id) {
+            const glcType = format === 'glc' ? (glcGiven ?? glcTypes()[0] ?? null) : null; // NOT NULL constraint for glc
+            const inserted = await client.query<{ id: string }>(
+              `INSERT INTO deck (user_id, format_code, glc_type, name)
+                    VALUES ($1, $2, $3, $4) RETURNING id`,
+              [userId, format, glcType, requestedName],
+            );
+            id = inserted.rows[0]!.id;
+            created = true;
+          } else {
+            await assertDeck(client, id, userId);
+            const current = (await client.query<{ format_code: FormatCode; glc_type: PokemonType | null }>(
+              `SELECT format_code, glc_type FROM deck WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`, [id, userId],
+            )).rows[0]!;
+            const sets: string[] = [];
+            const params: unknown[] = [id, userId];
+            const push = (column: string, value: unknown) => { params.push(value); sets.push(`${column} = $${params.length}`); };
+            if (requestedName !== null) push('name', requestedName);
+            // Restating the deck's own format changes nothing — above all not a
+            // GLC deck's Pokémon type, which the same logic as PATCH /decks/:id
+            // keeps unless the caller names a new one.
+            if (formatGiven && format !== current.format_code) {
+              formatChanged = true;
+              push('format_code', format);
+              push('glc_type', format === 'glc' ? (glcGiven ?? current.glc_type ?? glcTypes()[0] ?? null) : null);
+            } else if (glcGiven && current.format_code === 'glc' && glcGiven !== current.glc_type) {
+              formatChanged = true;
+              push('glc_type', glcGiven);
+            }
+            if (sets.length) {
+              await client.query(`UPDATE deck SET ${sets.join(', ')}, updated_at = now() WHERE id = $1 AND user_id = $2`, params);
+            }
+          }
+
+          if (cards !== undefined) {
+            if (created) {
+              for (const [cardId, line] of want) {
+                await client.query(
+                  `INSERT INTO deck_card (deck_id, card_id, card_variant_id, user_id, quantity) VALUES ($1, $2, $3, $4, $5)`,
+                  [id, cardId, await resolveVariantId(client, cardId, null), userId, line.quantity],
+                );
+              }
+            } else {
+              // AN EDIT CHANGES ONLY WHAT CHANGED. Since 051 a deck row is a
+              // PRINTING (2 normal + 1 reverse holo are two rows) and 076 can pin
+              // one; rewriting the list would put every card back on its primary
+              // printing and clear every pin. So a card whose total is unchanged
+              // is not touched, a single-printing card is resized in place, a
+              // removed card's rows go, and only a NEW card gets its primary.
+              const rows = (await client.query<{ card_id: string; card_variant_id: string; quantity: number }>(
+                `SELECT card_id, card_variant_id, quantity FROM deck_card WHERE deck_id = $1 AND user_id = $2`, [id, userId],
+              )).rows;
+              const held = new Map<number, Array<{ variantId: number; quantity: number }>>();
+              for (const row of rows) {
+                const list = held.get(Number(row.card_id)) ?? [];
+                list.push({ variantId: Number(row.card_variant_id), quantity: Number(row.quantity) });
+                held.set(Number(row.card_id), list);
+              }
+              for (const cardId of held.keys()) {
+                if (!want.has(cardId)) {
+                  await client.query(`DELETE FROM deck_card WHERE deck_id = $1 AND card_id = $2 AND user_id = $3`, [id, cardId, userId]);
+                }
+              }
+              for (const [cardId, line] of want) {
+                const printings = held.get(cardId);
+                if (!printings) {
+                  await client.query(
+                    `INSERT INTO deck_card (deck_id, card_id, card_variant_id, user_id, quantity) VALUES ($1, $2, $3, $4, $5)`,
+                    [id, cardId, await resolveVariantId(client, cardId, null), userId, line.quantity],
+                  );
+                  continue;
+                }
+                const total = printings.reduce((sum, p) => sum + p.quantity, 0);
+                if (total === line.quantity) continue;
+                if (printings.length > 1) {
+                  throw badRequest(
+                    `${line.ref} is in this deck as ${printings.length} printings, so changing its count would have to guess which one. ` +
+                    'Nothing was saved; change that card in the deck editor, or leave its count as it is.',
+                  );
+                }
+                await client.query(
+                  `UPDATE deck_card SET quantity = $4 WHERE deck_id = $1 AND card_variant_id = $2 AND user_id = $3`,
+                  [id, printings[0]!.variantId, userId, line.quantity],
+                );
+              }
+            }
+            await client.query(`UPDATE deck SET updated_at = now() WHERE id = $1 AND user_id = $2`, [id, userId]);
+          }
+
+          if (created || cards !== undefined || formatChanged) {
+            await recordDeckChange(client, id, { source, note: versionNote });
+          }
+          await recordEvents(client, batchId, userId, [{
+            entityType: 'deck', entityId: id, operation: OPS.deckCards,
+            before: created ? null : { cardsReplaced: cards !== undefined, formatChanged },
+            after: { name: requestedName, format: created || formatChanged ? format : null, cards: cards ?? null },
+          }]);
+          const stored = { deckId: id, created };
+          await closeBatch(client, batchId, stored, { cards: want.size, created });
+          return { ...stored, replayed: false };
+        });
+      } catch (error) {
+        if (!(error instanceof ReplayError)) throw error;
+        const stored = await withTx((client) => loadBatchResponse(client, userId, keys));
+        const response = stored.response as { deckId?: string; created?: boolean } | null;
+        if (!response?.deckId) throw badRequest('saved deck replay is missing its deck id');
+        outcome = { deckId: response.deckId, created: response.created === true, replayed: true };
+      }
+    }
+
+    const meta = await loadMeta(outcome.deckId, userId);
+    if (!meta) throw notFound(`No deck '${outcome.deckId}'`);
+    const payload = await detailPayload(meta, userId);
+    userCache(res);
+    res.status(outcome.created && !outcome.replayed ? 201 : 200).json({ ...payload, replayed: outcome.replayed });
+  }),
+);
+
 // ── GET /decks/:id — detail ───────────────────────────────────────────────────
 decksRouter.get(
   '/:id',
@@ -998,46 +1265,93 @@ decksRouter.post(
       return;
     }
 
+    if (unresolved.length > 0) {
+      throw badRequest(`Unresolved deck lines: ${summary.unresolvedLines.join('; ')}. Nothing was saved.`);
+    }
+
     if (format === 'glc' && !glcType) {
       throw badRequest('Cannot import a GLC deck until its Pokémon type is known. Edit the list so its Pokémon share one type, or choose another format.');
     }
 
-    const deckId = await withTx(async (client) => {
-      const row = await client.query<{ id: string }>(
-        `INSERT INTO deck (user_id, format_code, glc_type, name) VALUES ($1, $2, $3, $4) RETURNING id`,
-        [userId, format, glcType, name],
-      );
-      const id = row.rows[0]!.id;
-      // PTCG Live text has no printing information, so every imported line
-      // lands on the card's PRIMARY variant — the same representative the
-      // pre-051 read paths always assumed, resolved in one batch. Said in the
-      // response (`import.variantNote`) rather than silently.
-      const primaries = byCard.size
-        ? await client.query<{ card_id: string; id: string }>(
-            `SELECT DISTINCT ON (card_id) card_id, id FROM card_variant
-              WHERE card_id = ANY($1::bigint[])
-              ORDER BY card_id, is_primary DESC, sort_order`,
-            [[...byCard.keys()]],
-          )
-        : { rows: [] as { card_id: string; id: string }[] };
-      const primaryOf = new Map(primaries.rows.map((r) => [Number(r.card_id), Number(r.id)]));
-      for (const [cardId, quantity] of byCard) {
-        const variantId = primaryOf.get(cardId);
-        if (variantId === undefined) continue; // catalog corruption; unresolvable is already reported
-        await client.query(
-          `INSERT INTO deck_card (deck_id, card_id, card_variant_id, user_id, quantity) VALUES ($1, $2, $3, $4, $5)`,
-          [id, cardId, variantId, userId, quantity],
-        );
+    const canonicalCards = [...byCard].sort((a, b) => a[0] - b[0]);
+    // Only a caller that asks for retry safety gets it here. The web dialog
+    // sends no key, so importing the same list twice on purpose still makes two
+    // decks, as it always has; Deck-E's save path sends one.
+    const requestedKey = typeof body.idempotencyKey === 'string' && body.idempotencyKey.trim()
+      ? body.idempotencyKey.trim()
+      : null;
+    if (requestedKey && requestedKey.length > 200) throw badRequest('idempotencyKey must be 200 characters or fewer');
+    const resolvedKey = requestedKey
+      ? await resolveRetryKey(userId, requestedKey)
+      : { key: null, replay: null };
+    const callerKey: string | null = resolvedKey.key;
+    const keys = callerKey ? [callerKey] : [];
+    const replay = resolvedKey.replay;
+    let deckId: string;
+    let replayed = false;
+    if (replay) {
+      const stored = replay.response as { deckId?: string } | null;
+      if (!stored?.deckId) throw badRequest('import replay is missing its deck id');
+      deckId = stored.deckId;
+      replayed = true;
+    } else {
+      try {
+        deckId = await withTx(async (client) => {
+          const batchId = await openBatch(client, {
+            userId, source: writeSource, tool: 'deck.import', ...(callerKey ? { idempotencyKey: callerKey } : {}),
+          });
+          const row = await client.query<{ id: string }>(
+            `INSERT INTO deck (user_id, format_code, glc_type, name) VALUES ($1, $2, $3, $4) RETURNING id`,
+            [userId, format, glcType, name],
+          );
+          const id = row.rows[0]!.id;
+          // PTCG Live text has no printing information, so every imported line
+          // lands on the card's PRIMARY variant — the same representative the
+          // pre-051 read paths always assumed, resolved in one batch. Said in the
+          // response (`import.variantNote`) rather than silently.
+          const primaries = byCard.size
+            ? await client.query<{ card_id: string; id: string }>(
+                `SELECT DISTINCT ON (card_id) card_id, id FROM card_variant
+                  WHERE card_id = ANY($1::bigint[])
+                  ORDER BY card_id, is_primary DESC, sort_order`,
+                [[...byCard.keys()]],
+              )
+            : { rows: [] as { card_id: string; id: string }[] };
+          const primaryOf = new Map(primaries.rows.map((r) => [Number(r.card_id), Number(r.id)]));
+          const missingPrintings = [...byCard.keys()].filter((cardId) => !primaryOf.has(cardId));
+          if (missingPrintings.length) {
+            throw badRequest(`Cards without a resolvable printing: ${missingPrintings.join(', ')}. Nothing was saved.`);
+          }
+          for (const [cardId, quantity] of byCard) {
+            await client.query(
+              `INSERT INTO deck_card (deck_id, card_id, card_variant_id, user_id, quantity) VALUES ($1, $2, $3, $4, $5)`,
+              [id, cardId, primaryOf.get(cardId)!, userId, quantity],
+            );
+          }
+          await recordDeckChange(client, id, { source: writeSource }); // seed v1 with the imported list
+          await recordEvents(client, batchId, userId, [{
+            entityType: 'deck', entityId: id, operation: OPS.deckCards,
+            before: null, after: { name, format, cards: canonicalCards },
+          }]);
+          await closeBatch(client, batchId, { deckId: id }, { cards: byCard.size, created: true });
+          return id;
+        });
+      } catch (error) {
+        if (!(error instanceof ReplayError)) throw error;
+        const stored = await withTx((client) => loadBatchResponse(client, userId, keys));
+        const response = stored.response as { deckId?: string } | null;
+        if (!response?.deckId) throw badRequest('import replay is missing its deck id');
+        deckId = response.deckId;
+        replayed = true;
       }
-      await recordDeckChange(client, id, { source: writeSource }); // seed v1 with the imported list
-      return id;
-    });
+    }
 
     const meta = (await loadMeta(deckId, userId))!;
     const payload = await detailPayload(meta, userId);
     userCache(res);
     res.status(201).json({
       ...payload,
+      replayed,
       import: summary,
     });
   }),

@@ -68,7 +68,18 @@ import {
   toolReplayParts,
 } from './chat/toolReplay'
 import { kindOf } from './chat/toolKinds'
-import { createActivityAnimator, SLEEP_IDLE_MS, TYPING_IDLE_MS, type ActivityRequest } from './activityAnimation'
+import {
+  createActivityAnimator,
+  isWorkPose,
+  SLEEP_IDLE_MS,
+  TYPING_IDLE_MS,
+  workPoseAllowedAfterExpress,
+  workPoseDelay,
+  workPoseFor,
+  type ActivityRequest,
+  type ToolKind,
+  type WorkingState,
+} from './activityAnimation'
 import { staleQueries } from './chat/writeRefresh'
 import { ConversationTelemetry, shouldEnableTelemetry, type TelemetrySharingOverride } from './chat/telemetry'
 import {
@@ -458,21 +469,29 @@ export function useDeckeChat(
   // a stale array between renders.
   const currentRef = useRef<ChatMessage[]>([])
   currentRef.current = messages
-  // Did the MODEL set a state this turn? If not, the turn boundary has to leave
-  // `thinking` itself — see the `finally` below.
-  const movedRef = useRef(false)
   /** One policy instance owns every app-driven pose and talk transition. */
   const animatorRef = useRef<ReturnType<typeof createActivityAnimator> | null>(null)
+  const reducedMotionRef = useRef(
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      : false,
+  )
   if (!animatorRef.current) {
     animatorRef.current = createActivityAnimator({
       now: () => Date.now(),
-      reducedMotion:
-        typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-          ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
-          : false,
+      reducedMotion: reducedMotionRef.current,
     })
   }
   const idleTimerRef = useRef<number | null>(null)
+  const workTimerRef = useRef<number | null>(null)
+  const workKindRef = useRef<ToolKind | null>(null)
+  const lastWorkPoseRef = useRef<WorkingState | null>(null)
+  const expressAtRef = useRef<number | null>(null)
+  // Was the LAST posture of this turn a deliberate gesture (his own express,
+  // or an error posture)? Then the turn boundary leaves it standing. A work
+  // pose clears it: work poses are sustained, so one left over at the end
+  // has to be released to idle or he loops in it for the rest of the page.
+  const movedRef = useRef(false)
   const idleSinceRef = useRef(Date.now())
   const composerTypingRef = useRef(false)
   const savedDeckWireRef = useRef<ReturnType<typeof savedDeckRecord> | null>(null)
@@ -534,9 +553,10 @@ export function useDeckeChat(
       telemetryRef.current?.record(activeSeq, 'animation', { operation: 'overlay', state: null, source: 'animator' })
       decke.setOverlay(null)
     }
-    // An explicit `express` is the model's choice for this reply and outranks
-    // the host's generic work poses. Talk remains an overlay, so it still lands.
-    if (!request.state || movedRef.current) return
+    if (!request.state) return
+    // An explicit `express` gets time to finish, then ordinary work resumes.
+    // `movedRef` used to suppress every later pose for the whole turn.
+    if (isWorkPose(request.state) && !workPoseAllowedAfterExpress(expressAtRef.current, Date.now())) return
     try {
       telemetryRef.current?.record(activeSeq, 'animation', {
         operation: 'setState', state: request.state, mode: request.mode, then: request.then,
@@ -547,10 +567,36 @@ export function useDeckeChat(
         ...(request.then ? { then: request.then } : {}),
         ...(request.durationMs !== undefined ? { durationMs: request.durationMs } : {}),
       })
+      if (isWorkPose(request.state)) lastWorkPoseRef.current = request.state
+      if (isWorkPose(request.state)) movedRef.current = false
     } catch {
       /* an unknown state must never take a turn down */
     }
   }, [decke])
+
+  /** Vary a long-running turn even when no new tool event arrives for a while. */
+  useEffect(() => {
+    if (workTimerRef.current !== null) window.clearTimeout(workTimerRef.current)
+    if (!decke || !busy || reducedMotionRef.current) return
+    let cancelled = false
+    const cycle = () => {
+      workTimerRef.current = window.setTimeout(() => {
+        if (cancelled || !busyRef.current) return
+        const kind = workKindRef.current
+        if (kind) {
+          const state = workPoseFor(kind, lastWorkPoseRef.current, false, Math.random())
+          if (state) applyActivity({ state, mode: 'sustain', talk: false })
+        }
+        cycle()
+      }, workPoseDelay(Math.random()))
+    }
+    cycle()
+    return () => {
+      cancelled = true
+      if (workTimerRef.current !== null) window.clearTimeout(workTimerRef.current)
+      workTimerRef.current = null
+    }
+  }, [applyActivity, busy, decke])
 
   /** Sleep only while the hook is idle; composer activity resets the clock. */
   useEffect(() => {
@@ -666,7 +712,10 @@ export function useDeckeChat(
   const settleAll = useCallback((verdict: Verdict, forId?: string) => {
     const resolve = resolverRef.current
     const list = askingRef.current ?? []
-    if (list.length) applyActivity(animatorRef.current!.approvalAnswered())
+    if (list.length) {
+      workKindRef.current = 'other'
+      applyActivity(animatorRef.current!.approvalAnswered())
+    }
     resolverRef.current = null
     askingRef.current = null
     setAsking(null)
@@ -1024,7 +1073,10 @@ export function useDeckeChat(
       // ENGINE-DRIVEN, not model-driven: the app knows a request started before
       // the model could possibly say so, and knows it sooner. `thinking` is
       // sustained, so the turn boundary below is responsible for leaving it.
+      expressAtRef.current = null
       movedRef.current = false
+      workKindRef.current = 'other'
+      lastWorkPoseRef.current = 'thinking'
       if (idleTimerRef.current !== null) window.clearTimeout(idleTimerRef.current)
       applyActivity(animatorRef.current!.turnStarted())
 
@@ -1043,6 +1095,7 @@ export function useDeckeChat(
        */
       const askApproval = (list: PendingApproval[]): Promise<Map<string, Verdict>> =>
         new Promise((resolve) => {
+          workKindRef.current = null
           applyActivity(animatorRef.current!.approvalShown())
           approvalShownAtRef.current = Date.now()
           answeredRef.current = false
@@ -1152,7 +1205,10 @@ export function useDeckeChat(
         } : incoming
         turnChips.set(chip.id, chip)
         const kind = kindOf(chip.name)
-        if (chip.phase === 'start') applyActivity(animatorRef.current!.stepStarted(kind))
+        if (chip.phase === 'start') {
+          workKindRef.current = kind
+          applyActivity(animatorRef.current!.stepStarted(kind))
+        }
         else if (chip.phase === 'ok' || chip.phase === 'partial' || chip.phase === 'error' || chip.phase === 'declined') {
           applyActivity(animatorRef.current!.stepFinished(kind, chip.phase, { sources: chip.sources }))
         }
@@ -1251,6 +1307,7 @@ export function useDeckeChat(
             onText: (chunk) => {
               if (!legTextStarted) {
                 legTextStarted = true
+                workKindRef.current = 'other'
                 telemetryRef.current?.record(exchangeSeq, 'timing', { mark: 'first_token', leg, ms: Date.now() - legStartedAt })
                 applyActivity(animatorRef.current!.textStarted())
               }
@@ -1281,11 +1338,9 @@ export function useDeckeChat(
               // ONLY IF A REAL STATE CHANGE HAPPENED. A `card_stash` whose
               // every named card id is missing from the catalog is a
               // REJECTED command (see `apply`) — it calls `decke.setState`
-              // zero times. Setting `movedRef` regardless, as this used to,
-              // would tell the turn boundary below that he moved when he did
-              // not, and `thinking` is a SUSTAINED state: with nothing else
-              // to release it, he would rock in place for the rest of the
-              // page's life instead of settling back to idle.
+              // zero times. Only a real state change starts the grace window;
+              // otherwise ordinary work poses should continue uninterrupted.
+              if (moved) expressAtRef.current = Date.now()
               if (moved) movedRef.current = true
             },
             onScreen: (screen) => {
@@ -1802,15 +1857,14 @@ export function useDeckeChat(
         void telemetryRef.current?.flush()
         // TURN BOUNDARY. All three must happen on every exit path including an
         // abort: an un-released `talk` overlay chatters forever, a channel
-        // override left pinned permanently deforms him, and `thinking` is a
-        // SUSTAINED state, so if nothing replaced it he loops in it forever.
+        // override left pinned permanently deforms him, and every sustained
+        // work pose has to settle back to idle when the turn is over.
         //
         // That last one is easy to miss because `talk` masks it. The overlay is
         // additive on top of the body pose, so while he is speaking he looks
         // right; the moment the overlay releases he is still rocking in
-        // `thinking`. It only shows on a turn where the model set no state of
-        // its own — which the prompt explicitly encourages ("silence is a valid
-        // emission"), so it is the common case, not the rare one.
+        // `thinking`. An explicit gesture gets a grace period while work is live;
+        // if it was the last thing he did, it stands, and a work pose never does.
         //
         // ONLY IF THIS TURN IS STILL THE LIVE ONE. `busy` is React state, so two
         // sends dispatched in the same frame both pass the guard above; the
@@ -1858,6 +1912,7 @@ export function useDeckeChat(
         }
 
         if (abortRef.current === ac) {
+          workKindRef.current = null
           applyActivity(animatorRef.current!.turnEnded(movedRef.current))
           decke.setOverlay(null)
           decke.clearOverrides()
@@ -2706,15 +2761,10 @@ function isCardSlot(v: string | undefined): v is CardSlot {
  *
  * ── THE RETURN VALUE ──────────────────────────────────────────────────────
  *
- * `movedRef` (declared in the hook above `send`) exists so the turn boundary
- * can tell whether to force him back to `idle` once the turn ends. A
+ * The boolean return distinguishes a real gesture from a rejected command. A
  * `card_stash` whose every named id fails to resolve calls `decke.setState`
- * ZERO times, by the paragraph above — it is a rejected command, not a
- * degraded one. Reporting "he moved" regardless, the way this function used
- * to be treated by its one caller, would leave him rocking in the sustained
- * `thinking` state for the rest of the page's life instead of settling back
- * to idle, which is precisely the outcome the turn boundary exists to
- * prevent.
+ * zero times and must not pause the host's work-pose cycle as though an
+ * explicit gesture were playing.
  */
 async function apply(
   decke: DeckEInstance,

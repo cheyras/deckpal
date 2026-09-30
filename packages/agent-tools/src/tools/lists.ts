@@ -127,6 +127,7 @@ type AddCard = z.infer<typeof addCardSchema>;
 interface ResolvedAdd {
   ok: true;
   label: string;
+  cardId?: string;
   body: Record<string, unknown>;
 }
 interface FailedAdd {
@@ -226,6 +227,7 @@ async function resolveAdds(
       out[inputIdx] = {
         ok: true,
         label: `${card.name} (${card.tcgdexId}, ${vres.variant.displayName ?? vres.variant.kindCode})`,
+        cardId: card.tcgdexId,
         body,
       };
     });
@@ -510,7 +512,12 @@ const editListTool = defineTool({
         if (name !== undefined && name !== current.list.name) plan.push(`rename '${current.list.name}' → '${name}'`);
       }
       for (const a of adds) {
-        plan.push(a.ok ? `add ${a.label}` : `add ${a.label} — UNRESOLVABLE: ${a.error}`);
+        const qty = a.ok && listKind === 'static' && typeof a.body.staticQuantity === 'number'
+          ? a.body.staticQuantity
+          : 1;
+        plan.push(a.ok
+          ? a.cardId ? `add ${a.label} — card: add x${qty} ${a.cardId}` : `add ${a.label}`
+          : `add ${a.label} — UNRESOLVABLE: ${a.error}`);
         if (!a.ok && a.detail) for (const d of a.detail) plan.push(`     ${d}`);
       }
       if (missingPreview) {
@@ -520,7 +527,13 @@ const editListTool = defineTool({
       }
       const knownItems = new Set((current?.items ?? []).map((i) => i.itemId));
       for (const id of remove_item_ids ?? []) {
-        plan.push(`remove item ${id}${current && !knownItems.has(id) ? ' — NOT IN THIS LIST (will fail)' : ''}`);
+        const item = current?.items.find((i) => i.itemId === id);
+        if (item?.kind === 'card') {
+          plan.push(`remove item ${id}`);
+          plan.push(`     card: remove x${listKind === 'static' ? item.staticQuantity ?? 1 : 1} ${item.cardId} — ${item.name ?? item.cardId}`);
+        } else {
+          plan.push(`remove item ${id}${current && !knownItems.has(id) ? ' — NOT IN THIS LIST (will fail)' : ''}`);
+        }
       }
       if (plan.length === 0) return ok(`No changes — list '${current!.list.name}' already matches the requested state.`);
 

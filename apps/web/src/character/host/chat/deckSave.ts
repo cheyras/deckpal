@@ -9,7 +9,10 @@ export type WidgetDeck = {
 }
 
 export type DeckSaveApi = {
-  importDeck: (body: { text: string; name?: string; formatCode?: DeckFormat }) => Promise<{ deck: { id: string } }>
+  importDeck: (body: { text: string; name?: string; formatCode?: DeckFormat }) => Promise<{
+    deck: { id: string }
+    import?: { unresolved?: string[]; unresolvedLines?: string[] }
+  }>
 }
 
 export type DeckSaveResult =
@@ -28,9 +31,16 @@ export async function saveDeckFromWidget(block: WidgetDeck, api: DeckSaveApi): P
       name: block.name,
       formatCode: asDeckFormat(block.format),
     })
+    const unresolved = created.import?.unresolvedLines?.length
+      ? created.import.unresolvedLines
+      : created.import?.unresolved
+    if (unresolved?.length) {
+      return { ok: false, message: `Couldn't save this deck. Unresolved lines: ${unresolved.join('; ')}` }
+    }
     return { ok: true, id: created.deck.id, name: block.name, total: block.total }
-  } catch {
-    return { ok: false, message: "Couldn't save this deck. Please try again." }
+  } catch (error) {
+    const reason = error instanceof Error && /unresolved/i.test(error.message) ? ` ${error.message}` : ''
+    return { ok: false, message: `Couldn't save this deck.${reason || ' Please try again.'}` }
   }
 }
 

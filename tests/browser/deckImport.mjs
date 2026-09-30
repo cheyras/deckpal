@@ -211,7 +211,9 @@ export async function checkDeckImport(browser, server, fixture, out) {
       assert.equal(created.length, 3, 'editing the header must not silently skip the still-unresolved Iono line')
       await page.getByRole('button', { name: 'Import without them' }).click()
       await page.waitForFunction(() => location.pathname.endsWith('/decks/fixture-import'))
-      assert.equal(created.at(-1).text, 'Pokémon: 4\n2 Iono PAL 999\n2 Arven OBF 186')
+      // Skipped lines leave the text before the write: the API refuses a
+      // deck with unresolved lines rather than dropping them silently.
+      assert.equal(created.at(-1).text, 'Pokémon: 4\n2 Arven OBF 186')
       returnedFixes = fixes.slice(0, 1)
       await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
       await prepare(1)
@@ -220,7 +222,7 @@ export async function checkDeckImport(browser, server, fixture, out) {
       assert.equal(await page.getByRole('button', { name: 'Edit the line 2 Iono PAL 999' }).count(), 1)
       await page.getByRole('button', { name: 'Import without them' }).click()
       await page.waitForFunction(() => location.pathname.endsWith('/decks/fixture-import'))
-      assert.equal(created.at(-1).text, partial)
+      assert.equal(created.at(-1).text, '2 Iono PAL 185', 'the skipped Iono line is removed before the write')
       await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
       await prepare(1)
       novelUnresolved = true
@@ -232,7 +234,7 @@ export async function checkDeckImport(browser, server, fixture, out) {
       await prepare(1, originalWithWhitespace)
       await page.getByRole('button', { name: 'Import without them' }).click()
       await page.waitForFunction(() => location.pathname.endsWith('/decks/fixture-import'))
-      assert.equal(created.at(-1).text, partialWithWhitespace, 'spaces on the skipped line must not require a second click')
+      assert.equal(created.at(-1).text, '2 Iono PAL 185', 'spaces on the skipped line must not require a second click')
       returnedFixes = twoDifferentFixes
       await page.goto(server.origin + '/decks', { waitUntil: 'networkidle' })
       await prepare(2, twoDifferent)
@@ -294,7 +296,7 @@ export async function checkDeckImport(browser, server, fixture, out) {
       await page.screenshot({ path: path.join(out, `deck-import-undo-format-${width}.png`) })
       await page.getByRole('button', { name: 'Import without them' }).click()
       await page.waitForFunction(() => location.pathname.endsWith('/decks/fixture-import'))
-      assert.equal(created.at(-1).text, partlyRestored, 'the explicit skip imports the currently reviewed text')
+      assert.equal(created.at(-1).text, '2 Arven OBF 186', 'the explicit skip imports the currently reviewed text, minus the skipped line')
       assert.equal(created.at(-1).formatCode, 'expanded', 'the explicit skip imports the current format')
       assert.deepEqual(formatChecks.at(-1), { text: partlyRestored, formatCode: 'expanded' },
         'the explicit skip uses a dry run for this exact text and format')
@@ -498,7 +500,7 @@ async function checkLatestImport(page, server, width, out) {
   await text.fill('1 Squirtle SVI 54\n1 Bulbasaur SVI 999')
   await page.getByRole('button', { name: 'Import without them' }).click()
   await page.waitForFunction(() => location.pathname.endsWith('/decks/fixture-import'))
-  assert.equal(writes.at(-1).text, '1 Squirtle SVI 54\n1 Bulbasaur SVI 999')
+  assert.equal(writes.at(-1).text, '1 Squirtle SVI 54', 'the skipped Bulbasaur line is removed before the write')
   assert.equal(writes.at(-1).formatCode, 'expanded')
   console.log(JSON.stringify({ width, glcWater: true, glcGrass: true, glcAmbiguous: true,
     rapidEdits: 10, rapidChecks, canceled: true, latestTextAndFormat: true }))

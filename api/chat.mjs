@@ -1714,7 +1714,17 @@ function replayedText(messages) {
   return out
 }
 
-/** Only completed tool results may ground cards shown from prior turns. */
+/**
+ * Only completed tool results may ground cards shown from prior turns.
+ *
+ * Recent turns replay full `output-available` parts, which only a tool can
+ * produce. The compacted lookup record of an older turn is NOT accepted, even
+ * though it is marked: it travels as an ordinary text part, and the model sees
+ * that format in its own history, so a reply that merely starts with the
+ * marker would ground ids no tool ever returned (Astra, PR #270). A deck needs
+ * no help here — `showDeck` grounds the printings its own check resolves — and
+ * a card grid from a long-gone turn is re-searched.
+ */
 function replayedToolOutputs(messages) {
   if (!Array.isArray(messages)) return []
   const out = []

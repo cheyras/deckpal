@@ -12,9 +12,12 @@ import { test } from 'node:test'
 import { allTools } from '@deckpal/agent-tools'
 import {
   DEFAULT_MAX_TOOL_CHARS,
+  SEARCH_CARDS_MAX_TOOL_CHARS,
+  approvalPreviewTitle,
   buildDataTools,
   canPreviewSafely,
   clampToolText,
+  maxToolChars,
   dataToolSummary,
   requiresApproval,
   safeToolError,
@@ -95,6 +98,21 @@ test('the prompt summary matches the tools actually built', () => {
 test('output under the ceiling is returned untouched', () => {
   const text = 'Charizard ex | me05-84 | Double Rare | holo x2 | $31.20'
   assert.equal(clampToolText(text, DEFAULT_MAX_TOOL_CHARS), text)
+})
+
+test('search_cards alone gets enough room for compact comprehensive text results', () => {
+  assert.equal(maxToolChars('search_cards'), SEARCH_CARDS_MAX_TOOL_CHARS)
+  assert.equal(maxToolChars('get_card'), DEFAULT_MAX_TOOL_CHARS)
+  assert.equal(maxToolChars('search_cards', 777), 777, 'an explicit tier override still wins')
+})
+
+test('approval preview titles describe the actual list, deck, and strategy call', () => {
+  assert.equal(approvalPreviewTitle('edit_list', { mode: 'create', name: 'Coin flips' }), 'create a list called “Coin flips”')
+  assert.equal(approvalPreviewTitle('edit_list', { mode: 'edit', list_id: 'Coin flips', add_cards: [{}, {}] }), 'add 2 cards to “Coin flips”')
+  assert.equal(approvalPreviewTitle('edit_list', { mode: 'edit', list_id: 'Coin flips', remove_item_ids: ['a'] }), 'remove 1 card from “Coin flips”')
+  assert.equal(approvalPreviewTitle('save_deck', { mode: 'create', name: 'Hide & Seek' }), 'save “Hide & Seek” as a new deck')
+  assert.equal(approvalPreviewTitle('save_deck', { mode: 'edit', deck_id: 'Hide & Seek' }), 'change your deck “Hide & Seek”')
+  assert.equal(approvalPreviewTitle('deck_strategy', { deck_id: 'Hide & Seek', markdown: '# Plan' }), 'save a strategy guide for “Hide & Seek”')
 })
 
 test('truncation ANNOUNCES itself — a silent cut is a new way to lie', () => {

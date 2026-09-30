@@ -31,8 +31,8 @@ test('consecutive steps vary the sustained work pose', () => {
   policy.turnStarted()
   const first = policy.stepStarted('catalog')
   const second = policy.stepStarted('catalog')
-  assert.equal(first?.state, 'curious')
-  assert.equal(second?.state, 'thinking')
+  assert.equal(first?.state, 'card_show')
+  assert.equal(second?.state, 'curious')
   assert.notEqual(workingStateFor('research', 0), workingStateFor('research', 1))
 })
 
@@ -108,7 +108,7 @@ test('reduced motion leaves only the turn thinking and idle transitions', () => 
   assert.deepEqual(policy.turnEnded(false), { state: 'idle', mode: 'sustain', talk: false })
 })
 
-test('a model-selected pose is not overwritten at turn end', () => {
+test('a model-selected pose that ended the turn is not overwritten at turn end', () => {
   const { policy } = animator()
   policy.turnStarted()
   assert.equal(policy.turnEnded(true), null)

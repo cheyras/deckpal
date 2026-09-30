@@ -433,6 +433,171 @@ try {
         `INSERT INTO deck_card (deck_id, card_id, card_variant_id, user_id, quantity) VALUES ($1, $2, $3, $4, 1)
          ON CONFLICT (deck_id, card_variant_id) DO UPDATE SET quantity = LEAST(deck_card.quantity + 1, 60)`, [deck, card, variant, A]));
     });
+
+    // Deck-E feedback pass (2026-09-29): a half set with a DOTTED id, two cards
+    // that multiply damage by coin flips (one reprinted), and one that does not.
+    await db.query(`DO $half$
+      DECLARE s bigint; c bigint;
+      BEGIN
+       INSERT INTO card_set (series_id, tcgdex_id, slug, name)
+        SELECT series_id, 'rch2.5', 'rch2-5', 'Reach Two Point Five' FROM card_set WHERE tcgdex_id = 'reach1' RETURNING id INTO s;
+       FOR i IN 1..4 LOOP
+        INSERT INTO card (set_id, tcgdex_id, local_id, number_sort, name, name_normalized, category)
+         VALUES (s, 'rch2.5-00' || i, i::text, '00' || i,
+          (ARRAY['Flipper','Flipper','Doubler','Plain'])[i], lower((ARRAY['Flipper','Flipper','Doubler','Plain'])[i]), 'Pokemon')
+         RETURNING id INTO c;
+        INSERT INTO card_variant (card_id, variant_kind_code, sort_order) VALUES (c, 'reach-normal', 1);
+        INSERT INTO card_attack (card_id, ord, name, damage, effect) VALUES (c, 0,
+         (ARRAY['Fury Flip','Fury Flip','Double Down','Tackle'])[i],
+         (ARRAY['20×','20×','30x','30'])[i],
+         (ARRAY['Flip 3 coins. This attack does 20 damage for each heads.','Flip 3 coins. This attack does 20 damage for each heads.',
+                'Flip 2 coins. This attack does 30 damage for each heads.',NULL])[i]);
+       END LOOP;
+       -- The two identical Flippers are reprints (one gameplay fingerprint); a
+       -- third Flipper with the same attack but other stats is a different card.
+       UPDATE card SET playable_fingerprint = 'fp-flipper' WHERE tcgdex_id IN ('rch2.5-001', 'rch2.5-002');
+       INSERT INTO card (set_id, tcgdex_id, local_id, number_sort, name, name_normalized, category, playable_fingerprint)
+        VALUES (s, 'rch2.5-005', '5', '005', 'Flipper', 'flipper', 'Pokemon', 'fp-flipper-other') RETURNING id INTO c;
+       INSERT INTO card_variant (card_id, variant_kind_code, sort_order) VALUES (c, 'reach-normal', 1);
+       INSERT INTO card_attack (card_id, ord, name, damage, effect)
+        VALUES (c, 0, 'Fury Flip', '20×', 'Flip 3 coins. This attack does 20 damage for each heads.');
+       -- A second, non-primary printing of Doubler, for the printing-preservation case.
+       INSERT INTO variant_kind (code, display_name, finish, size, tier_derived, tier_rule_version)
+        VALUES ('reach-alt', 'Alt', 'normal', 'standard', 'standard', 1);
+       INSERT INTO card_variant (card_id, variant_kind_code, sort_order)
+        SELECT id, 'reach-alt', 2 FROM card WHERE tcgdex_id = 'rch2.5-003';
+      END $half$`);
+
+    await test('search_cards finds cards by printed attack text and multiplier, collapsing reprints', async () => {
+      const { catalogTools } = await import('../../../../packages/agent-tools/src/tools/catalog.ts');
+      const search = catalogTools.find((t) => t.name === 'search_cards');
+      const text = await as('authenticated', A, async (c) => {
+        // Parsed the way both transports parse it, so schema defaults (page 1,
+        // text_same_attack) apply exactly as they do for Deck-E and MCP.
+        const args = search.inputSchema.parse({ text: ['flip', 'for each heads'], damage: 'x' });
+        const out = await search.handler(args, { db: c, api: {}, userId: A });
+        assert.notEqual(out.isError, true, out.text);
+        return out.text;
+      });
+      assert.match(text, /Flipper/);
+      assert.match(text, /Doubler/, 'a literal "x" multiplier matches as well as "×"');
+      assert.doesNotMatch(text, /Plain/);
+      assert.match(text, /Flip 3 coins/, 'each row carries the matching attack line');
+      assert.match(text, /printings?:?\s*2|2 printings/i, 'the two identical Flippers are one row with a printing count');
+      assert.match(text, /rch2\.5-005/, 'a same-name card with other stats is its own row, not hidden as a printing');
+    });
+
+    await test('POST /decks/save writes a whole deck or nothing, replays a retry, and a deleted deck can be saved again', async () => {
+      const { default: express } = await import('express');
+      const database = await import('../db.ts');
+      const { decksRouter } = await import('../routes/decks.ts');
+      const { errorMiddleware } = await import('../http.ts');
+      const { requestAccessStore } = await import('../admin/access.ts');
+      const app = express();
+      app.use(express.json());
+      app.use(async (req, res, next) => {
+        req.user = { id: A };
+        req.authKind = 'jwt';
+        const c = await database.pool.connect();
+        await c.query(`BEGIN; SELECT set_config('request.jwt.claims', $$${JSON.stringify({ sub: A, role: 'authenticated', deckpal_auth_kind: 'jwt', deckpal_server_request: true })}$$, true); SET LOCAL role = 'authenticated'`);
+        let done = false;
+        const finish = async (sql) => { if (done) return; done = true; try { await c.query(sql); c.release(); } catch { c.release(true); } };
+        res.once('finish', () => void finish('COMMIT; RESET ROLE'));
+        res.once('close', () => void finish('ROLLBACK; RESET ROLE'));
+        database.rlsStore.run(c, () => requestAccessStore.run(new Map(), next));
+      });
+      app.use('/decks', decksRouter);
+      app.use(errorMiddleware);
+      const server = await new Promise((resolveServer) => { const s = app.listen(0, '127.0.0.1', () => resolveServer(s)); });
+      const post = async (path, body) => {
+        const r = await fetch(`http://127.0.0.1:${server.address().port}${path}`, {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(10000),
+        });
+        return { status: r.status, body: await r.json().catch(() => null) };
+      };
+      const decksNamed = async (name) => Number((await db.query(
+        'SELECT count(*) FROM deck WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL', [A, name])).rows[0].count);
+      try {
+        const good = [{ cardId: 'rch2.5-001', quantity: 3 }, { cardId: 'rch2.5-003', quantity: 2 }];
+        const bad = await post('/decks/save', { name: 'Atomic', cards: [...good, { cardId: 'rch2.5-999', quantity: 1 }] });
+        assert.equal(bad.status, 400, JSON.stringify(bad.body));
+        assert.match(JSON.stringify(bad.body), /rch2\.5-999/);
+        assert.equal(await decksNamed('Atomic'), 0, 'one bad id leaves no deck behind');
+        assert.equal(Number((await db.query(
+          "SELECT count(*) FROM mutation_batch WHERE user_id = $1 AND tool = 'deck.save' AND status = 'committed'", [A])).rows[0].count), 0);
+
+        const first = await post('/decks/save', { name: 'Atomic', cards: good });
+        assert.equal(first.status, 201, JSON.stringify(first.body));
+        const retry = await post('/decks/save', { name: 'Atomic', cards: good });
+        assert.equal(retry.status, 200);
+        assert.equal(retry.body.replayed, true);
+        assert.equal(await decksNamed('Atomic'), 1, 'a retry of the same save does not make a twin');
+        const deckId = (await db.query('SELECT id FROM deck WHERE user_id = $1 AND name = $2', [A, 'Atomic'])).rows[0].id;
+        const cardsNow = async () => (await db.query(
+          `SELECT c.tcgdex_id, dc.quantity FROM deck_card dc JOIN card c ON c.id = dc.card_id WHERE dc.deck_id = $1 ORDER BY 1, 2`, [deckId])).rows
+          .map((r) => `${r.tcgdex_id}x${r.quantity}`);
+        assert.deepEqual(await cardsNow(), ['rch2.5-001x3', 'rch2.5-003x2']);
+
+        // A → B → A on an existing deck applies every step; the third is not a replay of the first.
+        const b = [{ cardId: 'rch2.5-004', quantity: 4 }];
+        assert.equal((await post('/decks/save', { deckId, cards: b })).status, 200);
+        assert.deepEqual(await cardsNow(), ['rch2.5-004x4']);
+        const back = await post('/decks/save', { deckId, cards: good });
+        assert.equal(back.status, 200);
+        assert.deepEqual(await cardsNow(), ['rch2.5-001x3', 'rch2.5-003x2'], 'switching back to the first list applies it');
+
+        // An edit changes only what changed: a printing the owner chose and
+        // pinned survives an unrelated change to another card (Opus, PR #270).
+        const doubler = (await db.query("SELECT id FROM card WHERE tcgdex_id = 'rch2.5-003'")).rows[0].id;
+        const alt = (await db.query("SELECT id FROM card_variant WHERE card_id = $1 AND variant_kind_code = 'reach-alt'", [doubler])).rows[0].id;
+        await db.query('UPDATE deck_card SET card_variant_id = $3, pin_exact = true WHERE deck_id = $1 AND card_id = $2', [deckId, doubler, alt]);
+        const doublerRows = async () => (await db.query(
+          'SELECT card_variant_id::text AS v, quantity, pin_exact FROM deck_card WHERE deck_id = $1 AND card_id = $2 ORDER BY 1', [deckId, doubler])).rows;
+        const bump = await post('/decks/save', { deckId, cards: [{ cardId: 'rch2.5-001', quantity: 4 }, { cardId: 'rch2.5-003', quantity: 2 }] });
+        assert.equal(bump.status, 200, JSON.stringify(bump.body));
+        assert.deepEqual(await cardsNow(), ['rch2.5-001x4', 'rch2.5-003x2']);
+        assert.deepEqual(await doublerRows(), [{ v: String(alt), quantity: 2, pin_exact: true }], 'the pinned alt printing is untouched');
+
+        // A count change on a card held as two printings would have to guess:
+        // it fails whole, and nothing moves.
+        await db.query(
+          `INSERT INTO deck_card (deck_id, card_id, card_variant_id, user_id, quantity)
+           SELECT $1, $2, id, $3, 1 FROM card_variant WHERE card_id = $2 AND variant_kind_code = 'reach-normal'`, [deckId, doubler, A]);
+        const ambiguous = await post('/decks/save', { deckId, cards: [{ cardId: 'rch2.5-001', quantity: 3 }, { cardId: 'rch2.5-003', quantity: 2 }] });
+        assert.equal(ambiguous.status, 400, JSON.stringify(ambiguous.body));
+        assert.match(JSON.stringify(ambiguous.body), /printings/);
+        assert.deepEqual(await cardsNow(), ['rch2.5-001x4', 'rch2.5-003x1', 'rch2.5-003x2'], 'nothing was written');
+        await db.query("DELETE FROM deck_card WHERE deck_id = $1 AND card_id = $2 AND card_variant_id <> $3", [deckId, doubler, alt]);
+
+        // Restating a GLC deck's format keeps its Pokémon type.
+        const glc = await post('/decks/save', { name: 'Fire GLC', formatCode: 'glc', glcType: 'Fire', cards: [{ cardId: 'rch2.5-004', quantity: 1 }] });
+        assert.equal(glc.status, 201, JSON.stringify(glc.body));
+        const glcId = (await db.query("SELECT id FROM deck WHERE user_id = $1 AND name = 'Fire GLC'", [A])).rows[0].id;
+        assert.equal((await post('/decks/save', { deckId: glcId, formatCode: 'glc', cards: [{ cardId: 'rch2.5-004', quantity: 1 }, { cardId: 'rch2.5-001', quantity: 1 }] })).status, 200);
+        assert.equal((await db.query('SELECT glc_type FROM deck WHERE id = $1', [glcId])).rows[0].glc_type, 'Fire');
+        // The same name and list as a WATER deck is a different request, not a
+        // retry of the Fire one (Astra, PR #270 re-check).
+        const water = await post('/decks/save', { name: 'Shell', formatCode: 'glc', glcType: 'Water', cards: [{ cardId: 'rch2.5-004', quantity: 1 }] });
+        const fire = await post('/decks/save', { name: 'Shell', formatCode: 'glc', glcType: 'Fire', cards: [{ cardId: 'rch2.5-004', quantity: 1 }] });
+        assert.deepEqual([water.status, fire.status], [201, 201], JSON.stringify(fire.body));
+        assert.deepEqual((await db.query("SELECT glc_type FROM deck WHERE user_id = $1 AND name = 'Shell' AND deleted_at IS NULL ORDER BY glc_type", [A])).rows.map((r) => r.glc_type), ['Fire', 'Water']);
+
+        // Deleted, then the identical list saved again: a new deck, not the dead one's id.
+        await db.query('UPDATE deck SET deleted_at = now() WHERE id = $1', [deckId]);
+        const again = await post('/decks/save', { name: 'Atomic', cards: good });
+        assert.equal(again.status, 201, JSON.stringify(again.body));
+        assert.equal(await decksNamed('Atomic'), 1);
+        assert.notEqual((await db.query('SELECT id FROM deck WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL', [A, 'Atomic'])).rows[0].id, deckId);
+        // And a retry of THAT save replays it, however late (Astra, PR #270).
+        const againRetry = await post('/decks/save', { name: 'Atomic', cards: good });
+        assert.equal(againRetry.status, 200, JSON.stringify(againRetry.body));
+        assert.equal(againRetry.body.replayed, true);
+        assert.equal(await decksNamed('Atomic'), 1, 'the retry of a re-save does not make a twin');
+      } finally {
+        server.closeAllConnections();
+        await new Promise((resolveClose) => server.close(() => resolveClose()));
+      }
+    });
   }
   results.status = 'passed';
 } catch (error) {

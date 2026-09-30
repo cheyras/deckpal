@@ -42,6 +42,35 @@ test('the new conversation, memory, deck, and failure contracts are present', ()
   assert.doesNotMatch(flat(p), /Everything you looked up earlier.*still in front of you/)
 })
 
+test('card-text searches are local and comprehensive', () => {
+  const p = flat(buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS }))
+  assert.match(p, /Card-text questions come from DeckPal, not the web/)
+  assert.match(p, /search_cards.*text.*array of literal terms, all of which must match/)
+  assert.match(p, /damage: "x".*"\+".*"-"/)
+  assert.match(p, /"List", "every" and "all" mean comprehensive/)
+  assert.match(p, /Page through all matching results/)
+  assert.match(p, /Say how many cards matched and whether the list is complete/)
+})
+
+test('saving survives widget failure and a finished deck gets a strategy-guide offer', () => {
+  const p = flat(buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS }))
+  assert.match(p, /`save_deck` is always available to save or change a deck/)
+  assert.match(p, /Save button.*convenience, not the only way to save/)
+  assert.match(p, /If the widget fails, or the reader simply says "save it", call `save_deck`/)
+  assert.match(p, /Never tell the reader you have no save tool/)
+  assert.match(p, /After a deck is saved.*offer to write its strategy guide/)
+  assert.match(p, /call `deck_strategy` with the saved deck id/)
+  assert.match(p, /game plan and win condition.*opening\/setup priorities.*key cards and why/)
+  assert.doesNotMatch(p, /Save a strategy guide only when they ask you to save one/)
+})
+
+test('an announced action must happen in the same turn', () => {
+  const p = flat(buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS }))
+  assert.match(p, /Never announce work and then stop/)
+  assert.match(p, /look something up, open it, compare it or save it.*same turn/)
+  assert.match(p, /ending on an unperformed promise/)
+})
+
 test('retained body state list and automatic lifecycle states are still named', () => {
   const p = buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS })
   for (const state of ALLOWED_STATES) assert.match(p, new RegExp(`- ${state} —`))

@@ -43,6 +43,22 @@ test('a create names the new deck and its format', () => {
   assert.deepEqual(items[1], { kind: 'card', op: 'add', qty: 4, cardId: 'sv01-7' })
 })
 
+test('list dry runs carry parseable card ids while keeping their labels', () => {
+  const items = dryRunItems("CREATE a new static list called 'Coin flips'\nadd Goldeen (me05-013, Normal) — card: add x2 me05-013")
+  assert.deepEqual(items, [
+    { kind: 'list', name: 'Coin flips', created: true },
+    { kind: 'card', op: 'add', qty: 2, cardId: 'me05-013', label: 'Goldeen (me05-013, Normal)' },
+  ])
+  assert.deepEqual(dryRunCardIds(items), ['me05-013'])
+})
+
+test('list edits parse added and removed cards for the visual diff', () => {
+  const items = dryRunItems("ADD TO your existing list 'Coin flips' (16 item(s) already in it)\nadd Pikachu VMAX — card: add x1 swsh4-44\nremove item item-1\ncard: remove x2 me05-013 — Goldeen")
+  assert.deepEqual(items.map((item) => item.kind), ['list', 'card', 'card'])
+  assert.deepEqual(dryRunChange(items[1] as never), { text: '+1', down: false })
+  assert.deepEqual(dryRunChange(items[2] as never), { text: '−2', down: true })
+})
+
 test('nothing unrecognised is dropped, and the cut is marked', () => {
   const items = dryRunItems("(heads up: you already have a deck called 'X' — this makes a SECOND one)\nrename 'A' → 'B'\n…and 9 more")
   assert.deepEqual(items.map((i) => i.kind), ['text', 'text', 'text'])

@@ -430,6 +430,22 @@ const PREVIEW_ONE: ApprovalPreview = {
   rows: [PREVIEW.rows[0]],
 }
 
+function cardChangeFixture(tool: 'edit_list' | 'save_deck', title: string, header: string, count: number): ApprovalPreview {
+  const lines = Array.from({ length: count }, (_, i) => `add x1 ${CARD_IDS[i % CARD_IDS.length]}`)
+  return { toolCallId: `demo-${tool}-${count}`, tool, title, summary: [header, ...lines].join('\n'), ok: true, editable: false, rows: [], skipped: [] }
+}
+
+const LIST_CREATE_PREVIEW = cardChangeFixture('edit_list', 'create a list called “Coin flips”', "CREATE a new static list called 'Coin flips'", 16)
+const DECK_CREATE_PREVIEW = cardChangeFixture('save_deck', 'save “Hide & Seek” as a new deck', "CREATE a new deck called 'Hide & Seek' (standard)", 60)
+const DECK_EDIT_PREVIEW: ApprovalPreview = {
+  toolCallId: 'demo-deck-edit', tool: 'save_deck', title: 'change your deck “Hide & Seek”', ok: true, editable: false, rows: [], skipped: [],
+  summary: ["EDIT your existing deck 'Hide & Seek' (deck-demo), 18 distinct card(s) in it:", `add x2 ${CARD_IDS[0]}`, `set ${CARD_IDS[1]} x2 → x4`, `remove x3 ${CARD_IDS[2]}`].join('\n'),
+}
+const STRATEGY_PREVIEW: ApprovalPreview = {
+  toolCallId: 'demo-strategy', tool: 'deck_strategy', title: 'save a strategy guide for “Hide & Seek”', ok: true, editable: false, rows: [], skipped: [],
+  summary: '# Opening plan\n\nLead with Dragapult and use the bench to set up your next attacker.\n\n## Matchups\n\nProtect the support Pokémon against spread damage and save recovery for the late game.',
+}
+
 /* ── Page furniture ────────────────────────────────────────────────────────── */
 
 /* THE REAL OPENERS AND THE REAL GREETING, from the product's own pools, run
@@ -1024,6 +1040,18 @@ export default function ChatUi() {
                   onAccept={() => {}}
                   onDeny={() => {}}
                 />
+              </Specimen>
+              <Specimen label="list create · 16 cards" note="six-card strip, then the full list inline">
+                <ApprovalCard title="change this list" heldCalls={1} preview={LIST_CREATE_PREVIEW} choices={choices} onChoice={onChoice} onAccept={() => {}} onDeny={() => {}} />
+              </Specimen>
+              <Specimen label="deck create · 60 cards" note="a full deck stays compact until the reader opens it">
+                <ApprovalCard title="save this deck" heldCalls={1} preview={DECK_CREATE_PREVIEW} choices={choices} onChoice={onChoice} onAccept={() => {}} onDeny={() => {}} />
+              </Specimen>
+              <Specimen label="deck edit diff" note="unchanged cards are omitted; additions and removals separate inline">
+                <ApprovalCard title="save this deck" heldCalls={1} preview={DECK_EDIT_PREVIEW} choices={choices} onChoice={onChoice} onAccept={() => {}} onDeny={() => {}} />
+              </Specimen>
+              <Specimen label="strategy guide" note="the guide itself is visible before permission, with a bounded disclosure">
+                <ApprovalCard title="write a strategy guide" heldCalls={1} preview={STRATEGY_PREVIEW} choices={choices} onChoice={onChoice} onAccept={() => {}} onDeny={() => {}} />
               </Specimen>
             </Section>
 

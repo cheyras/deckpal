@@ -110,6 +110,7 @@ import { useCardArt, type CardArtMap } from './useCardArt'
 import { isShort, type DeepCost } from './deepRequest'
 import { dryRunCardIds, dryRunItems } from './dryRun'
 import { DryRunList } from './DryRunList'
+import { CardChangePreview, StrategyGuidePreview } from './CardChangePreview'
 import { TOP_UP_LABEL } from './creditState'
 import {
   acceptButtonLabel,
@@ -878,6 +879,14 @@ export function ApprovalCard({
   // A read-only write — a deck save, a list edit — shows the operations its dry
   // run printed. See `dryRun.ts`.
   const dryRun = editable ? [] : dryRunItems(preview?.summary)
+  // A NEW deck or list gets the thumbnail strip that opens into the whole set.
+  // An edit keeps the per-line diff rows: they already carry each card's art
+  // and its +N / −N / "3 → 4" change, which is the diff the owner asked to see.
+  const hasCardChangePreview = dryRun.some((item) => item.kind === 'card')
+    && dryRun.some((item) => (item.kind === 'deck' || item.kind === 'list') && item.created)
+  const remainingDryRun = hasCardChangePreview
+    ? dryRun.filter((item) => item.kind === 'text')
+    : dryRun
   // Short of credits, with somewhere to top up: Go ahead would be a guaranteed
   // refusal, so the primary becomes the way to fix that. Leave it is unchanged.
   const topUpInstead = isShort(cost) && Boolean(onTopUp)
@@ -933,7 +942,11 @@ export function ApprovalCard({
         embellished.
       */}
       {!editable ? (
-        <DryRunList items={dryRun} art={art} />
+        <>
+          {hasCardChangePreview ? <CardChangePreview items={dryRun} art={art} /> : null}
+          {preview?.tool === 'deck_strategy' ? <StrategyGuidePreview markdown={preview.summary} /> : null}
+          {preview?.tool !== 'deck_strategy' ? <DryRunList items={remainingDryRun} art={art} /> : null}
+        </>
       ) : (
         <div className="mt-[12px] flex flex-col gap-[14px]">
           {known.length > 0 ? (

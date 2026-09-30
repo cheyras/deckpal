@@ -107,7 +107,7 @@ test('showDeck checks and writes a deck screen with the contracted summary', asy
   assert.equal(events[1]?.summary, 'Showed "Sparks" · 60 cards')
 })
 
-test('showDeck falls back to ids when checking is absent or throws', async () => {
+test('showDeck reports a throwing deck check clearly and keeps save_deck available', async () => {
   const writes: Array<{ data: unknown }> = []
   const grounding = createGrounding()
   grounding.observe('sv01-1')
@@ -116,10 +116,28 @@ test('showDeck falls back to ids when checking is absent or throws', async () =>
     { checkDeck: async () => { throw new Error('offline') } },
   ) as unknown as Record<string, { execute: (input: unknown, opts: { toolCallId: string }) => Promise<string> }>
   const output = await tools.showDeck!.execute({ name: 'Draft', format: 'standard', cards: [{ card_id: 'sv01-1', quantity: 4 }] }, { toolCallId: 'deck-2' })
-  assert.match(output, /4 cards · could not be checked · own 0\/4 · missing cost unavailable/)
-  const payload = writes[0]?.data as { screen: { blocks: Array<{ legal: null; sections: Array<{ cards: Array<{ name: string }> }> }> } }
-  assert.equal(payload.screen.blocks[0]?.legal, null)
-  assert.equal(payload.screen.blocks[0]?.sections[0]?.cards[0]?.name, 'sv01-1')
+  assert.match(output, /deck check failed: offline/i)
+  assert.match(output, /save_deck/)
+  assert.equal(writes.length, 0)
+})
+
+test('showDeck accepts a printing substituted by check_deck and renders the resolved printing', async () => {
+  const writes: Array<{ data: unknown }> = []
+  const tools = buildTools(
+    { write: (part) => writes.push(part as { data: unknown }) }, undefined, undefined, undefined,
+    { checkDeck: async () => ({
+      format: 'standard', total: 4, legal: true, issues: [], evolution_gaps: [], owned: 4,
+      missing_cost_usd: 0, ptcgl: 'Pokémon: 4\n4 Pikachu SVI 1\n',
+      lines: [{ card_id: 'sv01-1', name: 'Pikachu', supertype: 'Pokémon', quantity: 4, owned: 4, unit_price_usd: 1, resolved: true }],
+    }) },
+  ) as unknown as Record<string, { execute: (input: unknown, opts: { toolCallId: string }) => Promise<string> }>
+  const output = await tools.showDeck!.execute(
+    { name: 'Resolved', format: 'standard', cards: [{ card_id: 'sv99-999', quantity: 4 }] },
+    { toolCallId: 'deck-substitution' },
+  )
+  assert.match(output, /4 cards · legal/)
+  const payload = writes[0]?.data as { screen: { blocks: Array<{ sections: Array<{ cards: Array<{ id: string }> }> }> } }
+  assert.equal(payload.screen.blocks[0]?.sections[0]?.cards[0]?.id, 'sv01-1')
 })
 
 test('showDeck writes no screen and reports ids omitted by its check', async () => {

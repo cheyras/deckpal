@@ -25,6 +25,13 @@ const pageSizeArg = z
   .max(200)
   .default(50)
   .describe('Rows per page (default 50, hard cap 200).');
+const searchPageSizeArg = z
+  .number()
+  .int()
+  .min(1)
+  .max(200)
+  .optional()
+  .describe('Rows per page. Defaults to 100 for rules-text/damage searches, otherwise 50; hard cap 200.');
 
 // ── search_cards — SPEC §5 #3 ──────────────────────────────────────────────
 export interface SearchRow {
@@ -39,6 +46,37 @@ export interface SearchRow {
   playable_fingerprint: string | null;
   hp: number | null;
 }
+
+interface TextSearchRow extends SearchRow {
+  match_kind: 'attack' | 'ability';
+  match_name: string;
+  match_damage: string | null;
+  match_effect: string | null;
+  match_cost: string | null;
+  printings: number;
+  other_ids: string[] | null;
+}
+
+/** `%` and `_` are user text here, never ILIKE syntax. */
+const literalLike = (term: string): string => `%${term.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
+
+const oneLine = (s: string | null | undefined): string | null =>
+  s ? s.replace(/\s+/g, ' ').trim() || null : null;
+
+const clipped = (s: string | null | undefined, max = 220): string | null => {
+  const clean = oneLine(s);
+  if (!clean || clean.length <= max) return clean;
+  return `${clean.slice(0, max - 1).trimEnd()}…`;
+};
+
+const textPagingFooter = (page: number, pageSize: number, total: number): string => {
+  const from = (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, total);
+  if (page === 1 && to >= total) return `${total} cards match; all shown`;
+  const shown = Math.max(0, to - from + 1);
+  return `${total} cards match; showing ${shown} on page ${page}` +
+    (to < total ? ` — call again with page ${page + 1}` : '; no more pages');
+};
 
 /**
  * Names on this page that are SEVERAL DIFFERENT CARDS, not several printings.
@@ -154,12 +192,14 @@ const searchCardsTool = defineTool({
     //
     // `set_id` now takes the NAME as well, so the recovery is one argument
     // rather than another tool.
-    'Search cards by NAME. `query` matches CARD names only — never a set name, ' +
+    'Search cards by NAME or by their PRINTED RULES TEXT. `query` matches CARD names only — never a set name, ' +
     'a series name or an artist. To narrow to a set, put the set in `set_id` — ' +
     'it takes the set NAME as readily as the id. Searching for a set name in ' +
     '`query` always returns nothing, however many ways you spell it. ' +
     'Accent-insensitive substring, with ' +
-    'optional filters: set, category, rarity, Standard legality, owned-only, not-owned (exclude_owned), ' +
+    '`text` searches attack names/effects and Ability names/effects. This — not web research — is how to answer ' +
+    '"which cards do X"; combine it with `damage` for attack damage modifiers. Optional filters: set, category, ' +
+    'rarity, Standard legality, owned-only, not-owned (exclude_owned), ' +
     'and minimum ' +
     'USD market value. Each row shows owned quantity and best USD market price. Rows sharing a ' +
     'name sort cheapest first. PREFER THE CHEAPEST PRINTING OF THE SAME CARD — a regular and a ' +
@@ -192,9 +232,28 @@ const searchCardsTool = defineTool({
           'A plain substring match, accent- and case-insensitive. ' +
           'NOT a search engine: OR, AND, quotes and wildcards are matched literally ' +
           'and will find nothing. ' +
-          'It can only see the NAME — not artwork, not rarity, not popularity, not ' +
+          'This field only sees the NAME — use `text` for printed attacks and Abilities. It does not see artwork, rarity, popularity, or ' +
           'whether a card is good or admired or a bargain. For any of those, research it.',
       ),
+    text: z
+      .array(z.string().trim().min(1))
+      .max(6)
+      .optional()
+      .describe(
+        'Up to 6 literal substrings from printed rules text (attack/Ability name or effect). Every term must match. ' +
+          'Use this, not web research, for "which cards do X" questions. `%` and `_` are literal characters.',
+      ),
+    text_same_attack: z
+      .boolean()
+      .default(true)
+      .describe(
+        'true (default) requires all text terms — and damage, when present — on one matching attack or Ability. ' +
+          'false allows terms to occur on different attacks/Abilities of the same card.',
+      ),
+    damage: z
+      .enum(['x', '+', '-'])
+      .optional()
+      .describe('Attack damage suffix: x matches either × or literal x; + and - match those literal suffixes.'),
     // 'sv3pt5' USED TO BE THE SECOND EXAMPLE HERE AND IT IS NOT A SET ID IN
     // THIS CATALOG. TCGdex writes Pokémon 151 that way in public; this database
     // stores `sv03.5` (see `apps/sync/src/prices/crossfill.ts`). The string came
@@ -250,12 +309,15 @@ const searchCardsTool = defineTool({
           '"only cards that have a price".',
       ),
     page: pageArg,
-    page_size: pageSizeArg,
+    page_size: searchPageSizeArg,
   }),
   annotations: { readOnlyHint: true, idempotentHint: true },
   handler: async (args, ctx) => {
     try {
       const query = args.query?.trim();
+      const textTerms = (args.text ?? []).map((term) => term.trim()).filter(Boolean);
+      const textSearch = textTerms.length > 0 || args.damage !== undefined;
+      const pageSize = args.page_size ?? (textSearch ? 100 : 50);
 
       // owned_only AND exclude_owned together is `qty > 0 AND qty = 0` — always
       // false, so it silently returns zero rows. The descriptions say "do not
@@ -339,6 +401,44 @@ const searchCardsTool = defineTool({
           sql: (p) => `b.best_minor >= ${p(Math.round(args.min_value_usd! * 100))}`,
         });
       }
+      const textClause = (alias: string, p: (v: unknown) => string): string => {
+        const body = `concat_ws(' ', ${alias}.name, ${alias}.effect)`;
+        return textTerms
+          .map((term) => `unaccent(${body}) ILIKE unaccent(${p(literalLike(term))}) ESCAPE '\\'`)
+          .join(' AND ');
+      };
+      const damageClause = (alias: string): string => {
+        if (args.damage === 'x') return `lower(rtrim(${alias}.damage)) ~ '(×|x)$'`;
+        return `rtrim(${alias}.damage) LIKE '%${args.damage}'`;
+      };
+      if (textSearch) {
+        filters.push({
+          label: [textTerms.length ? `text ${textTerms.map((x) => `'${x}'`).join(' AND ')}` : null, args.damage ? `damage ${args.damage}` : null]
+            .filter(Boolean)
+            .join(' AND '),
+          sql: (p) => {
+            if (args.text_same_attack !== false) {
+              const attacks = [textClause('ca', p), args.damage ? damageClause('ca') : ''].filter(Boolean).join(' AND ');
+              const abilities = args.damage ? null : textClause('cab', p);
+              return `(${[
+                `EXISTS (SELECT 1 FROM card_attack ca WHERE ca.card_id = c.id${attacks ? ` AND ${attacks}` : ''})`,
+                abilities ? `EXISTS (SELECT 1 FROM card_ability cab WHERE cab.card_id = c.id AND ${abilities})` : null,
+              ].filter(Boolean).join(' OR ')})`;
+            }
+            const terms = textTerms.map((term) => {
+              const like = p(literalLike(term));
+              return `EXISTS (
+                SELECT 1 FROM card_attack ca WHERE ca.card_id = c.id
+                 AND unaccent(concat_ws(' ', ca.name, ca.effect)) ILIKE unaccent(${like}) ESCAPE '\\'
+                UNION ALL
+                SELECT 1 FROM card_ability cab WHERE cab.card_id = c.id
+                 AND unaccent(concat_ws(' ', cab.name, cab.effect)) ILIKE unaccent(${like}) ESCAPE '\\')`;
+            });
+            if (args.damage) terms.push(`EXISTS (SELECT 1 FROM card_attack ca WHERE ca.card_id = c.id AND ${damageClause('ca')})`);
+            return terms.join(' AND ');
+          },
+        });
+      }
 
       /** Build WHERE + its params for a subset of the filters. */
       const build = (use: readonly Filter[]): { fromWhere: string; params: unknown[] } => {
@@ -348,6 +448,43 @@ const searchCardsTool = defineTool({
           return `$${ps.length}`;
         };
         const cs = [`c.lang = 'en'`, ...use.map((f) => f.sql(p))];
+        let matchingJoin = '';
+        if (textSearch) {
+          const anyAttackText = args.text_same_attack === false && textTerms.length
+            ? `(${textTerms.map((term) => {
+                const like = p(literalLike(term));
+                return `unaccent(concat_ws(' ', ma.name, ma.effect)) ILIKE unaccent(${like}) ESCAPE '\\'`;
+              }).join(' OR ')})`
+            : '';
+          const anyAbilityText = args.text_same_attack === false && textTerms.length
+            ? `(${textTerms.map((term) => {
+                const like = p(literalLike(term));
+                return `unaccent(concat_ws(' ', mb.name, mb.effect)) ILIKE unaccent(${like}) ESCAPE '\\'`;
+              }).join(' OR ')})`
+            : '';
+          const attackParts = [
+            args.text_same_attack !== false ? textClause('ma', p) : '',
+            args.damage ? damageClause('ma') : anyAttackText,
+          ].filter(Boolean);
+          const abilityText = !args.damage
+            ? args.text_same_attack !== false ? textClause('mb', p) : anyAbilityText
+            : '';
+          matchingJoin = `
+        JOIN LATERAL (
+          SELECT 'attack'::text AS match_kind, ma.name AS match_name, ma.damage AS match_damage,
+                 ma.effect AS match_effect, ma.cost AS match_cost,
+                 concat_ws(E'\\n', 'attack', ma.cost, ma.name, ma.damage, ma.effect) AS match_text,
+                 ma.ord AS match_ord
+            FROM card_attack ma
+           WHERE ma.card_id = c.id${attackParts.length ? ` AND ${attackParts.join(' AND ')}` : ''}
+          UNION ALL
+          SELECT 'ability'::text, mb.name, NULL::text, mb.effect, NULL::text,
+                 concat_ws(E'\\n', 'ability', mb.kind, mb.name, mb.effect), mb.ord
+            FROM card_ability mb
+           WHERE mb.card_id = c.id${abilityText ? ` AND ${abilityText}` : args.damage ? ' AND FALSE' : ''}
+          ORDER BY match_kind DESC, match_ord
+          LIMIT 1) mt ON TRUE`;
+        }
         return {
           // browsable_card, not card: Pokémon TCG Pocket is not browsable
           // anywhere in the product (DECISIONS 2026-08-10) — search_cards is
@@ -358,6 +495,7 @@ const searchCardsTool = defineTool({
         JOIN series se    ON se.id = cs.series_id
         LEFT JOIN owned o ON o.card_id = c.id
         LEFT JOIN best b  ON b.card_id = c.id
+        ${matchingJoin}
        WHERE ${cs.join(' AND ')}`,
           params: ps,
         };
@@ -385,28 +523,64 @@ const searchCardsTool = defineTool({
            GROUP BY cv.card_id)`;
 
       // Count first, with exactly the filter params bound so far.
-      const totalRow = await q1<{ total: string }>(ctx.db, `${ctes} SELECT count(*) AS total ${fromWhere}`, params);
+      const totalSql = textSearch
+        ? `${ctes} SELECT count(*) AS total FROM (SELECT 1 ${fromWhere} GROUP BY coalesce(c.playable_fingerprint::text, 'card:' || c.id::text)) collapsed`
+        : `${ctes} SELECT count(*) AS total ${fromWhere}`;
+      const totalRow = await q1<{ total: string }>(ctx.db, totalSql, params);
       const total = Number(totalRow?.total ?? 0);
 
       // Page query appends its own params (exact-match ranking, limit, offset).
       // Same-name rows (multiple printings of the same card) sort cheapest first
       // so an agent picking a card for a deck naturally lands on the cheap one;
       // genuinely different names keep the existing relevance/recency order (issue #31).
-      const orderBy = query
+      const orderBy = !textSearch && query
         ? `ORDER BY (lower(unaccent(c.name)) = lower(unaccent(${p(query)}))) DESC, length(c.name), lower(c.name), b.best_minor ASC NULLS LAST, cs.tcgdex_id, c.number_sort`
         : `ORDER BY c.released_on DESC NULLS LAST, lower(c.name), b.best_minor ASC NULLS LAST, cs.tcgdex_id, c.number_sort`;
-      const rows = await q<SearchRow>(
-        ctx.db,
-        `${ctes}
+      const rows = textSearch
+        ? await q<TextSearchRow>(
+            ctx.db,
+            `${ctes}, candidates AS (
+              SELECT c.name, c.tcgdex_id, c.rarity, o.qty AS owned_qty, b.best_minor,
+                     se.slug AS series_slug, c.playable_fingerprint, c.hp,
+                     mt.match_kind, mt.match_name, mt.match_damage, mt.match_effect, mt.match_cost,
+                     count(*) OVER (PARTITION BY coalesce(c.playable_fingerprint::text, 'card:' || c.id::text))::int AS printings,
+                     array_agg(c.tcgdex_id) OVER (
+                       PARTITION BY coalesce(c.playable_fingerprint::text, 'card:' || c.id::text)
+                       ORDER BY (COALESCE(o.qty, 0) > 0) DESC, c.legal_standard DESC,
+                                c.released_on DESC NULLS LAST, c.tcgdex_id
+                       ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS all_ids,
+                     row_number() OVER (
+                       PARTITION BY coalesce(c.playable_fingerprint::text, 'card:' || c.id::text)
+                       ORDER BY (COALESCE(o.qty, 0) > 0) DESC, c.legal_standard DESC,
+                                c.released_on DESC NULLS LAST, c.tcgdex_id) AS pick
+                ${fromWhere})
+             SELECT name, tcgdex_id, rarity, owned_qty, best_minor, series_slug,
+                    playable_fingerprint, hp, match_kind, match_name, match_damage,
+                    match_effect, match_cost, printings, all_ids[2:4] AS other_ids
+               FROM candidates WHERE pick = 1
+               ORDER BY lower(name), tcgdex_id
+               LIMIT ${p(pageSize)} OFFSET ${p((args.page - 1) * pageSize)}`,
+            params,
+          )
+        : await q<SearchRow>(
+            ctx.db,
+            `${ctes}
          SELECT c.name, c.tcgdex_id, c.rarity, o.qty AS owned_qty, b.best_minor, se.slug AS series_slug,
                 c.playable_fingerprint, c.hp
          ${fromWhere}
          ${orderBy}
-         LIMIT ${p(args.page_size)} OFFSET ${p((args.page - 1) * args.page_size)}`,
-        params,
-      );
+         LIMIT ${p(pageSize)} OFFSET ${p((args.page - 1) * pageSize)}`,
+            params,
+          );
 
       if (total === 0) {
+        if (textSearch) {
+          return ok(
+            `No cards match the printed-text filters: ${filters.map((f) => f.label).join(' AND ')}. ` +
+              'Try fewer or shorter text terms, text_same_attack: false, or drop a filter.',
+            { total: 0, page: args.page, pageSize },
+          );
+        }
         // ── "NO CARDS MATCH" WAS TRUE AND USELESS 41 TIMES ────────────────────
         //
         // Measured over the whole transcript history: 41 of 97 `search_cards`
@@ -530,34 +704,49 @@ const searchCardsTool = defineTool({
             .join('\n'),
         );
       }
-      const lines = rows.map((r) =>
-        row(
+      const lines = rows.map((r) => {
+        if (textSearch) {
+          const tr = r as TextSearchRow;
+          const line = tr.match_kind === 'attack'
+            ? row(tr.match_name, tr.match_cost ? `[${tr.match_cost}]` : null, tr.match_damage, clipped(tr.match_effect) ? `— ${clipped(tr.match_effect)}` : null)
+            : row(`Ability: ${tr.match_name}`, clipped(tr.match_effect) ? `— ${clipped(tr.match_effect)}` : null);
+          return row(
+            tr.name,
+            tr.tcgdex_id,
+            tr.rarity,
+            tr.owned_qty !== null && Number(tr.owned_qty) > 0 ? `owned x${tr.owned_qty}` : null,
+            line,
+            tr.printings > 1 ? `printings: ${tr.printings}` : null,
+            tr.other_ids?.length ? `also ${tr.other_ids.join(', ')}` : null,
+          );
+        }
+        return row(
           r.name,
           r.tcgdex_id,
           r.rarity,
           r.owned_qty !== null && Number(r.owned_qty) > 0 ? `owned x${r.owned_qty}` : null,
           money(r.best_minor),
           `series ${r.series_slug}`,
-        ),
-      );
+        );
+      });
       if (lines.length === 0) lines.push('(page past the end)');
       // ── WHEN A NAME ON THIS PAGE IS SEVERAL CARDS, SAY SO ────────────────
       //
       // Unlike `setNote` this goes BEFORE the paging footer and is not a
       // footnote: it changes which row the caller should pick, and a caller
       // that has already picked has already made the mistake.
-      const identityWarning = sameNameDifferentCard(rows);
+      const identityWarning = textSearch ? [] : sameNameDifferentCard(rows);
       // `setNote` LAST, not first. It is a footnote about how an argument was
       // read, and putting it above the rows would push the answer down the
       // model's context for every by-name call.
       return ok(
-        [...lines, ...identityWarning, pagingFooter(args.page, args.page_size, total), setNote]
+        [...lines, ...identityWarning, textSearch ? textPagingFooter(args.page, pageSize, total) : pagingFooter(args.page, pageSize, total), setNote]
           .filter(Boolean)
           .join('\n'),
         {
           total,
           page: args.page,
-          pageSize: args.page_size,
+          pageSize,
         },
       );
     } catch (err) {

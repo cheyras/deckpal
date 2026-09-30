@@ -57,6 +57,7 @@ import { api, type DeckeConversation } from '../../../lib/api'
 import { ActivityLine } from './ActivityLine'
 import { ChatMarkdown } from './ChatMarkdown'
 import { BuildStampChip } from './HistoryMenu'
+import { TranscriptFeedback } from './Feedback'
 import {
   buildStamp,
   conversationTitle,
@@ -268,6 +269,7 @@ export function TranscriptBody({ load, onRetry }: { load: TranscriptLoad; onRetr
     return <Centered>No turns were recorded in this conversation.</Centered>
   }
   const markers = deployMarkers(turns)
+  const conversationId = load.conversation.id
 
   return (
     <ul className="flex flex-col gap-[18px] pb-[8px] pt-[14px]">
@@ -322,11 +324,14 @@ export function TranscriptBody({ load, onRetry }: { load: TranscriptLoad; onRetr
                 <ChatMarkdown text={t.answered} tone="transcript" />
               </div>
             ) : null}
-            {t.feedback ? (
-              <div className="decke-shift text-[11px] leading-[16px] text-text-muted">
-                {t.feedback === 1 ? 'Good reply' : 'Bad reply'}
-                {t.feedbackComment ? ` · ${t.feedbackComment}` : ''}
-              </div>
+            {t.answered ? (
+              <TranscriptFeedback
+                conversationId={conversationId}
+                seq={t.seq}
+                initialVote={t.feedback ?? null}
+                comment={t.feedbackComment}
+                onSave={(id, seq, value) => api.deckeFeedback({ conversationId: id, seq, ...value }).then(() => undefined)}
+              />
             ) : null}
           </li>
         )
