@@ -283,7 +283,8 @@ function diffCards(current: DeckCardRow[], target: Map<string, number>): Op[] {
  */
 function atomicSaveRouteMissing(error: unknown): boolean {
   const message = errText(error);
-  return /unexpected send POST \/decks\/save|HTTP 404|route.*not found/i.test(message);
+  // The API's 404 body reads "No such route"; the client never says "HTTP 404".
+  return /unexpected send POST \/decks\/save|No such route|route.*not found/i.test(message);
 }
 
 async function runLegacyOp(ctx: Ctx, deckId: string, op: Op, versionNote?: string): Promise<void> {
@@ -310,12 +311,11 @@ async function runLegacyOps(ctx: Ctx, deckId: string, ops: Op[], versionNote?: s
   for (const op of ops) await runLegacyOp(ctx, deckId, op, versionNote);
 }
 
-// The key exists to make a RETRY safe (the model repeating a call after a
-// timeout), so it only lives for one ten-minute window, and an edit's key
-// includes the deck's state before the write — otherwise A → B → A would
-// replay the first save and silently leave the deck on B.
-const RETRY_WINDOW_MS = 10 * 60_000;
-
+// The key makes a RETRY safe (the model repeating a call after a timeout). It is
+// pure content — no clock, so a slow first attempt is still recognised — and
+// the API decides whether the deck it made may still be replayed (alive and
+// unchanged since) or the key has been spent. An edit's key includes the deck's
+// state before the write, so A → B → A applies every step.
 function saveDeckIdempotencyKey(input: {
   deckId?: string;
   name?: string;
@@ -329,7 +329,6 @@ function saveDeckIdempotencyKey(input: {
     format: input.format ?? null,
     cards: input.cards === undefined ? null : [...input.cards].sort(([a], [b]) => a.localeCompare(b)),
     state: input.state ?? null,
-    window: Math.floor(Date.now() / RETRY_WINDOW_MS),
   };
   return `save-deck:${createHash('sha256').update(JSON.stringify(canonical)).digest('hex')}`;
 }
@@ -675,7 +674,7 @@ const saveDeckTool = defineTool({
                 'DRY RUN — nothing executed. Would:',
                 `  import a PTCGL decklist (${lineCount} card line(s)) as new deck '${name ?? 'Imported Deck'}' (${format ?? 'standard'})`,
                 ...collisionNote('deck'),
-                'Card resolution happens at import time; unresolved lines will be reported.',
+                'Card resolution happens at import time; if any line does not resolve, nothing is saved and those lines are named.',
                 'Re-run with dry_run: false to execute.',
               ].join('\n'),
             );
@@ -775,7 +774,9 @@ const saveDeckTool = defineTool({
       const atomicBody = {
         deckId: deckRef,
         ...(name !== undefined ? { name } : {}),
-        ...(format !== undefined ? { formatCode: format } : {}),
+        // Only a real format change is sent: restating a GLC deck's format must
+        // not look like one (the API keeps the Pokémon type either way).
+        ...(format !== undefined && format !== current.deck.formatCode ? { formatCode: format } : {}),
         ...(target !== undefined
           ? { cards: [...target].map(([cardId, quantity]) => ({ cardId, quantity })) }
           : {}),

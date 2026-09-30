@@ -517,7 +517,8 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
    version_note?, dry_run? = true }`. Create or replace the list with ONE request to
    `POST /decks/save` (2026-09-29), which resolves every card first and writes the deck,
    its cards and its version snapshot in one transaction — a bad id saves nothing and is
-   named; a retry within ten minutes replays the deck it made. `ptcgl_text` still goes
+   named; an edit changes only the cards that changed (printings and pins survive); a
+   retried call replays the deck it made while that deck is alive and unchanged. `ptcgl_text` still goes
    through POST /decks/import. Every write is attributed `source: 'deckpal-mcp'`
    (`writeSource` on the import route, whose `source` names the decklist syntax). `version_note` rides as
    `versionNote` on card ops and format PATCH and lands on the deck_version snapshot (§6b).

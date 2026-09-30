@@ -524,7 +524,7 @@ const searchCardsTool = defineTool({
 
       // Count first, with exactly the filter params bound so far.
       const totalSql = textSearch
-        ? `${ctes} SELECT count(*) AS total FROM (SELECT 1 ${fromWhere} GROUP BY lower(c.name), mt.match_text) collapsed`
+        ? `${ctes} SELECT count(*) AS total FROM (SELECT 1 ${fromWhere} GROUP BY coalesce(c.playable_fingerprint::text, 'card:' || c.id::text)) collapsed`
         : `${ctes} SELECT count(*) AS total ${fromWhere}`;
       const totalRow = await q1<{ total: string }>(ctx.db, totalSql, params);
       const total = Number(totalRow?.total ?? 0);
@@ -543,14 +543,14 @@ const searchCardsTool = defineTool({
               SELECT c.name, c.tcgdex_id, c.rarity, o.qty AS owned_qty, b.best_minor,
                      se.slug AS series_slug, c.playable_fingerprint, c.hp,
                      mt.match_kind, mt.match_name, mt.match_damage, mt.match_effect, mt.match_cost,
-                     count(*) OVER (PARTITION BY lower(c.name), mt.match_text)::int AS printings,
+                     count(*) OVER (PARTITION BY coalesce(c.playable_fingerprint::text, 'card:' || c.id::text))::int AS printings,
                      array_agg(c.tcgdex_id) OVER (
-                       PARTITION BY lower(c.name), mt.match_text
+                       PARTITION BY coalesce(c.playable_fingerprint::text, 'card:' || c.id::text)
                        ORDER BY (COALESCE(o.qty, 0) > 0) DESC, c.legal_standard DESC,
                                 c.released_on DESC NULLS LAST, c.tcgdex_id
                        ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS all_ids,
                      row_number() OVER (
-                       PARTITION BY lower(c.name), mt.match_text
+                       PARTITION BY coalesce(c.playable_fingerprint::text, 'card:' || c.id::text)
                        ORDER BY (COALESCE(o.qty, 0) > 0) DESC, c.legal_standard DESC,
                                 c.released_on DESC NULLS LAST, c.tcgdex_id) AS pick
                 ${fromWhere})

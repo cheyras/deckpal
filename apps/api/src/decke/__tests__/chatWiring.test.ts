@@ -229,10 +229,10 @@ test('the charge reference carries the exchange, so two new exchanges with the s
 
 test('dropped replies\' evidence reaches the two ledgers and never the model', () => {
   assert.match(CODE, /const evidence = boundedEvidence\(body\?\.evidence\)/);
-  // Read by the failing ledger and by conversation-wide grounding, but never
-  // spread into what the model is shown.
+  // Read by the two ledgers and nothing else — in particular never spread into
+  // what the model is shown.
   const reads = CODE.match(/\.\.\.evidence\b/g) ?? [];
-  assert.equal(reads.length, 2, `evidence is read ${reads.length} times; only the failing ledger and grounding need it`);
+  assert.equal(reads.length, 1, `evidence is read ${reads.length} times; only the failing ledger needs it`);
   assert.doesNotMatch(CODE, /windowForModel\([^)]*evidence/);
 });
 
@@ -325,8 +325,7 @@ test('Anthropic prompt caching, deck checks and the expanded step budget are wir
   assert.match(CODE, /import \{ checkDeck \} from '\.\.\/apps\/api\/dist\/decke\/deckCheck\.js'/);
   assert.doesNotMatch(CODE, /from '@deckpal\/agent-tools'/);
   assert.match(CODE, /checkDeck: \(input\) => checkDeck\(toolCtx, input\)/);
-  assert.match(CODE, /createGrounding\(replayedToolOutputs\(\[\.\.\.evidence, \.\.\.messages\]\)\)/);
-  assert.match(CODE, /part\.text\.startsWith\(TOOL_RECORD_PREFIX\)/);
+  assert.match(CODE, /for \(const output of replayedToolOutputs\(messages\)\) grounding\.observe\(output\)/);
 });
 
 test('improvement capture receives identity, correlation and runs after usage finalization', () => {

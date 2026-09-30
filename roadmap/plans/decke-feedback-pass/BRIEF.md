@@ -141,7 +141,7 @@ fixes those problems. Every lane reads this file first.
   - The prompt tells him that card-text questions ("which cards do X") are
     answered from DeckPal, not the web, and that "list"/"every"/"all" means
     comprehensive.
-- **Grounding** accepts any card id a DeckPal tool returned anywhere in the
+- **Grounding** (as built: dotted ids fixed; only real tool results ground — see the decision record) accepts any card id a DeckPal tool returned anywhere in the
   conversation, including the replayed evidence of earlier turns. `showDeck`
   accepts an id when check_deck resolved that line, and renders the resolved
   printing. A check failure says so plainly.

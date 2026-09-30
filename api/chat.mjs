@@ -148,7 +148,7 @@ import {
   harvestObservedIds,
   seedObservedIds,
 } from '../apps/api/dist/decke/turnGuards.js'
-import { failingTools, readerAsksRetry, TOOL_RECORD_PREFIX } from '../apps/api/dist/decke/failing.js'
+import { failingTools, readerAsksRetry } from '../apps/api/dist/decke/failing.js'
 import { readReflex } from '../apps/api/dist/decke/reflex.js'
 import {
   auditTurn,
@@ -748,10 +748,11 @@ async function serve(request) {
       // ONE PER TURN, shared by every tool in it. What a data tool returns on
       // step one is what `showScreen` may draw on step three — evidence is a
       // property of the turn, not of a call.
-      const grounding = createGrounding(replayedToolOutputs([...evidence, ...messages]))
+      const grounding = createGrounding()
       // Finished tool outputs are evidence even when they came from an earlier
       // turn. This is the grounding used by sanitizeScreen/showDeck, not merely
       // the audit set below.
+      for (const output of replayedToolOutputs(messages)) grounding.observe(output)
       // The same evidence, as a Set, for the ungrounded-id guard below. Built by
       // TAPPING `grounding.observe` through a structural proxy that delegates
       // every method to the real grounding and harvests ids into this Set using
@@ -1716,11 +1717,13 @@ function replayedText(messages) {
 /**
  * Only completed tool results may ground cards shown from prior turns.
  *
- * Recent turns replay full `output-available` parts. Older turns have already
- * been compacted by the browser into the server-authored lookup record carried
- * in `evidence`; accepting that marked record is what makes grounding span the
- * whole conversation without treating ordinary assistant prose or tool inputs
- * as evidence.
+ * Recent turns replay full `output-available` parts, which only a tool can
+ * produce. The compacted lookup record of an older turn is NOT accepted, even
+ * though it is marked: it travels as an ordinary text part, and the model sees
+ * that format in its own history, so a reply that merely starts with the
+ * marker would ground ids no tool ever returned (Astra, PR #270). A deck needs
+ * no help here — `showDeck` grounds the printings its own check resolves — and
+ * a card grid from a long-gone turn is re-searched.
  */
 function replayedToolOutputs(messages) {
   if (!Array.isArray(messages)) return []
@@ -1728,10 +1731,6 @@ function replayedToolOutputs(messages) {
   for (const message of messages) {
     if (!Array.isArray(message?.parts)) continue
     for (const part of message.parts) {
-      if (part?.type === 'text' && typeof part.text === 'string' && part.text.startsWith(TOOL_RECORD_PREFIX)) {
-        out.push(part.text)
-        continue
-      }
       if (
         typeof part?.type !== 'string' ||
         !part.type.startsWith('tool-') ||

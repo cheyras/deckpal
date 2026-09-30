@@ -879,8 +879,11 @@ export function ApprovalCard({
   // A read-only write — a deck save, a list edit — shows the operations its dry
   // run printed. See `dryRun.ts`.
   const dryRun = editable ? [] : dryRunItems(preview?.summary)
+  // A NEW deck or list gets the thumbnail strip that opens into the whole set.
+  // An edit keeps the per-line diff rows: they already carry each card's art
+  // and its +N / −N / "3 → 4" change, which is the diff the owner asked to see.
   const hasCardChangePreview = dryRun.some((item) => item.kind === 'card')
-    && dryRun.some((item) => item.kind === 'deck' || item.kind === 'list')
+    && dryRun.some((item) => (item.kind === 'deck' || item.kind === 'list') && item.created)
   const remainingDryRun = hasCardChangePreview
     ? dryRun.filter((item) => item.kind === 'text')
     : dryRun

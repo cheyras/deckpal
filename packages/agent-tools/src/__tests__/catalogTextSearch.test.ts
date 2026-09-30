@@ -92,8 +92,11 @@ test('text results collapse identical reprints and prefer owned, then Standard, 
     ctx(calls, [textRow()]),
   );
 
-  assert.match(calls[0]!.sql, /GROUP BY lower\(c\.name\), mt\.match_text/);
-  assert.match(calls[1]!.sql, /PARTITION BY lower\(c\.name\), mt\.match_text/);
+  // Reprints collapse by the card's whole gameplay identity, never by one
+  // matching line: same-name cards that differ in HP or another attack stay
+  // separate rows (Astra, PR #270).
+  assert.match(calls[0]!.sql, /GROUP BY coalesce\(c\.playable_fingerprint::text, 'card:' \|\| c\.id::text\)/);
+  assert.match(calls[1]!.sql, /PARTITION BY coalesce\(c\.playable_fingerprint::text, 'card:' \|\| c\.id::text\)/);
   assert.match(calls[1]!.sql, /ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING/);
   assert.match(
     calls[1]!.sql,

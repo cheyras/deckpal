@@ -14,13 +14,15 @@ then listed what still broke.
 
 - **Card ids with a dot now count as real.** Ids like `sv08.5-071` come from half
   sets. The id pattern Deck-E uses to decide which card ids a tool really returned
-  now accepts them. The same pattern now also includes ids returned in earlier
-  replies.
+  now accepts them. (Tool results replayed from earlier replies already counted.)
 - **Deck saves are one write.** `save_deck` saves through a new `POST /decks/save`,
   which checks every card and then writes the deck, its cards and its first
   version in a single transaction.
-  - A save retried within ten minutes returns the deck already made, not a copy.
-  - If that deck has since been deleted, the save makes a new one.
+  - An edit changes only the cards that changed, so printings the owner chose and
+    pinned survive.
+  - A retried save returns the deck already made, not a copy, while that deck is
+    alive and unchanged. Once it has been deleted or edited, the same save makes a
+    new one, and a retry of that save replays it.
   - `/decks/import` refuses the whole deck when any line fails to resolve,
     instead of silently leaving lines out.
 - **`search_cards` searches printed card text.** It takes a `text` filter over
@@ -64,13 +66,18 @@ owner pasted the list into Claude to save it.
 **Implications:**
 - Any other code that reads card ids out of text should use the same dotted-set
   pattern (`grounding.ts`, `turnGuards.ts`).
-- Retried saves share an idempotency key that includes a ten-minute window and,
-  for an edit, the deck's state beforehand. So switching a deck from list A to B
-  and back to A applies every step.
+- Retried saves share a content key (for an edit, including the deck's state
+  beforehand). A key is honoured only while its deck is alive and unchanged, and
+  then moves to a next generation derived from the spent batch. So switching a deck
+  from list A to B and back to A applies every step, and no clock can split one
+  retry into two decks.
+- Compacted lookup records of old replies do NOT ground card ids. They travel as
+  ordinary text the model could imitate (Astra's review), so only real tool
+  results count.
 - Web research is kept for the metagame, tournament results and news.
 - Using Jev to pre-filter large result sets was considered and deferred. Deck-E
   reads up to 200 compact rows for about a cent, and is more reliable than a
   classifier on rules wording.
-- Not done: keeping card ids in the summaries of replies older than six turns.
-  Decks don't need it (the deck check grounds its own resolved cards), but a card
-  grid built from a much older reply may need a fresh search.
+- Not done: grounding ids from replies older than the replay window. Decks don't
+  need it (the deck check grounds its own resolved cards), but a card grid built
+  from a much older reply may need a fresh search.
