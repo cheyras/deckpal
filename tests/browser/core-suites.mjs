@@ -10,7 +10,7 @@ import { checkServiceWorkerPrivacy } from './admin-worker.mjs'
 import { checkFeedback } from './feedback.mjs'
 import { checkDeckImport } from './deckImport.mjs'
 import { checkA11y } from './a11y.mjs'
-import { chatAllowMutation, chatApi, checkChat, checkDeckeStates } from './chat.mjs'
+import { chatAllowMutation, chatApi, checkChat, checkDeckeStates, checkFeedbackCard } from './chat.mjs'
 import { checkOffline } from './offline.mjs'
 import { writesFixture, checkWrites } from './writes.mjs'
 import { checkAuthReturn } from './authReturn.mjs'
@@ -107,9 +107,13 @@ export function browserSuites({ browser, out, scratch, results, assets, logs }) 
           results.push(...await checkChat(browser, server, out))
           results.push(...await checkOffline(browser, server, out))
           results.push(...await checkDeckeStates(browser, server, out, 'chromium'))
+          results.push(...await checkFeedbackCard(browser, server, out, 'chromium'))
           const safari = await webkit.launch({ headless: true, ...(process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH
             ? { executablePath: process.env.PLAYWRIGHT_WEBKIT_EXECUTABLE_PATH } : {}) })
-          try { results.push(...await checkDeckeStates(safari, server, out, 'webkit')) } finally { await safari.close() }
+          try {
+            results.push(...await checkDeckeStates(safari, server, out, 'webkit'))
+            results.push(...await checkFeedbackCard(safari, server, out, 'webkit'))
+          } finally { await safari.close() }
           assert.deepEqual(server.unexpected, [], 'Rendered chat fixture: unexpected network/error events')
         } finally { await server.close() }
       },

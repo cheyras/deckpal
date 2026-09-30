@@ -1422,6 +1422,19 @@ body {
  * ring in the same colour, which paints 2px of saturated cyan around the whole
  * composer — far louder than the reference, where focus is a quiet shift. The
  * border moves to a muted accent and the ring carries the signal at low alpha. */
+/* THE "ANYTHING ELSE?" CARD looks like the composer card and must not BE one.
+ * `.decke-composer-card` carries "the card is the control" rules — its field
+ * is transparent and inner focus rings are removed — which premium.css
+ * extends. This card holds a real text box, a checkbox and two buttons, and
+ * each keeps its own border and focus ring. Same radius, surface, edge and
+ * shadow; none of the composer's field rules (Opus, PR #271). */
+.decke-feedback-form {
+  border-radius: 14px;
+  background: var(--color-surface-secondary);
+  border: 1px solid var(--color-surface-tertiary);
+  box-shadow: var(--shadow-elevated);
+}
+
 .decke-composer-card:focus-within {
   border-color: color-mix(in oklab, var(--color-action-primary-strong) 55%, transparent);
   box-shadow: var(--shadow-elevated),

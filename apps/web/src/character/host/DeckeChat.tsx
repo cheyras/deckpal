@@ -59,7 +59,7 @@ import { HistoryMenu } from './chat/HistoryMenu'
 import { TranscriptExit, TranscriptPane } from './chat/TranscriptView'
 import { ShareChoice } from './chat/ShareChoice'
 import { submitImprovementConsent } from './chat/improvementConsent'
-import { ReplyFeedback } from './chat/Feedback'
+import { FeedbackCard, ReplyFeedback } from './chat/Feedback'
 import type { FeedbackVote } from './chat/feedbackState'
 import {
   creditHeaderLabel,
@@ -1255,13 +1255,45 @@ export function DeckeChat({
     }
   }, [conversationId, decke, onConsent, queryClient])
 
-  const saveFeedback = useCallback(async (seq: number, value: { vote: FeedbackVote | null; comment: string; share: boolean }) => {
-    if (!conversationId) throw new Error('No conversation for feedback')
-    if (onFeedback) await onFeedback(seq, value)
-    else await api.deckeFeedback({ conversationId, seq, ...value })
-    if (value.share) {
-      window.dispatchEvent(new CustomEvent('deckpal:decke-shared', { detail: { conversationId } }))
-    }
+  // THE "ANYTHING ELSE?" CARD, docked where the approval card docks: a vote
+  // under any reply opens it; Send or Skip closes it, and so does a new turn.
+  // Not while he is working: a vote cast under an approval card would otherwise
+  // pop its question up mid-turn, after the approval clears the slot.
+  const [feedbackAsk, setFeedbackAsk] = useState<{ seq: number; vote: FeedbackVote } | null>(null)
+  const feedbackBusyRef = useRef(busy)
+  feedbackBusyRef.current = busy
+  const openFeedback = useCallback((seq: number, vote: FeedbackVote) => {
+    if (!feedbackBusyRef.current) setFeedbackAsk({ seq, vote })
+  }, [])
+  const closeFeedback = useCallback((seq: number) => {
+    setFeedbackAsk((current) => (current?.seq === seq ? null : current))
+  }, [])
+  const feedbackDone = useCallback(() => {
+    setFeedbackAsk(null)
+    // On desktop, back to where the reader types rather than <body>. Never on a
+    // phone: a programmatic composer focus raises the iOS keyboard without
+    // scrolling the composer into view (see the ruling at the composer's own
+    // autofocus below), which would bury him behind it (Opus, PR #271).
+    if (desktop) requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
+  }, [desktop])
+  useEffect(() => { if (busy) setFeedbackAsk(null) }, [busy])
+  useEffect(() => { setFeedbackAsk(null) }, [conversationId])
+
+  // ONE QUEUE PER REPLY. The vote is saved on the tap and the comment on Send;
+  // two independent requests could land in the wrong order and the vote-only
+  // write would blank the comment (Opus, PR #271).
+  const feedbackWrites = useRef(new Map<number, Promise<unknown>>())
+  const saveFeedback = useCallback((seq: number, value: { vote: FeedbackVote | null; comment: string; share: boolean }) => {
+    const write = (feedbackWrites.current.get(seq) ?? Promise.resolve()).then(async () => {
+      if (!conversationId) throw new Error('No conversation for feedback')
+      if (onFeedback) await onFeedback(seq, value)
+      else await api.deckeFeedback({ conversationId, seq, ...value })
+      if (value.share) {
+        window.dispatchEvent(new CustomEvent('deckpal:decke-shared', { detail: { conversationId } }))
+      }
+    })
+    feedbackWrites.current.set(seq, write.catch(() => undefined))
+    return write
   }, [conversationId, onFeedback])
 
   const endComposerActivity = useCallback(() => {
@@ -1588,7 +1620,7 @@ export function DeckeChat({
   // exit bar, and the panel observer measured "no composer" (0) meanwhile. The
   // composer that comes back is a new element; without re-measuring it, the
   // park box stayed at the not-measured fallback, 100 px low at 390x844.
-  }, [visible, shownMinimised, empty, spent, desktop, asking, viewing])
+  }, [visible, shownMinimised, empty, spent, desktop, asking, viewing, feedbackAsk])
 
 
   // HIS FOOTPRINT, from the one number that decides his size.
@@ -3149,6 +3181,8 @@ export function DeckeChat({
                         latest={m.id === lastAssistantId}
                         approvalPending={Boolean(asking?.length)}
                         onSave={saveFeedback}
+                        onOpenComment={openFeedback}
+                        onCloseComment={closeFeedback}
                       />
                     </>
                   ) : null}
@@ -3250,6 +3284,19 @@ export function DeckeChat({
             cost={deepCost(asking[0].name, quote)}
             onTopUp={onTopUp}
           />
+          </div>
+        ) : feedbackAsk && !viewing ? (
+          /* The same floor as the approval card: he stands on it, and on a
+             phone it is the composer's width instead of a box beside him. */
+          <div ref={askRef} data-decke-feedback-card="" className="mx-auto w-full max-w-[760px]">
+            <FeedbackCard
+              key={feedbackAsk.seq}
+              onSend={async (comment, share) => {
+                await saveFeedback(feedbackAsk.seq, { vote: feedbackAsk.vote, comment, share })
+                feedbackDone()
+              }}
+              onSkip={feedbackDone}
+            />
           </div>
         ) : null}
 

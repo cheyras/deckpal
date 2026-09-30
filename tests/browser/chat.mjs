@@ -590,6 +590,85 @@ async function assertClear(page, width, targets, label) {
   return null
 }
 
+/**
+ * ── "ANYTHING ELSE?" IS A CARD HE STANDS ON (owner, 2026-09-29) ─────────────
+ *
+ * On a phone the comment box used to open beside him at a fixed width, run off
+ * the screen and scroll the whole panel sideways. A vote now docks it where the
+ * approval card docks: full width, no sideways scroll, and he stands on it.
+ */
+export async function checkFeedbackCard(browser, server, out, engine) {
+  const results = []
+  for (const width of [390, 1440]) {
+    const { context, page } = await contextFor(browser, server, width)
+    const tag = engine + '-' + width
+    try {
+      await page.goto(server.origin + '/fixture.html', { waitUntil: 'networkidle' })
+      // The live default skin: its composer-card rules once blanked this card's
+      // text box and removed its focus rings (Opus, PR #271).
+      await page.evaluate(() => { document.documentElement.dataset.skin = 'premium' })
+      const panel = page.getByRole('dialog', { name: 'Chat with Deck-E' })
+      await panel.waitFor({ state: 'visible' })
+      await set(page, { busy: false, asking: null, preview: null, conversationId: '00000000-0000-4000-8000-00000000f00d', messages: [
+        { id: 'u1', role: 'user', parts: [{ kind: 'text', id: 'u1t', text: 'How many Charizards do I have?' }] },
+        { id: 'a1', role: 'assistant', seq: 1, parts: [{ kind: 'text', id: 'a1t', text: "Just the one. It's Mega Charizard X ex, and you own a single copy." }] },
+      ] })
+      // Sideways overflow of the page and of every scrolling box in the panel,
+      // with the widest offenders named, so a failure says what ran off.
+      const sideways = () => page.evaluate(() => {
+        const dialog = document.querySelector('[role="dialog"][aria-label="Chat with Deck-E"]')
+        const scroller = document.scrollingElement
+        const boxes = [scroller, ...(dialog ? [dialog, ...dialog.querySelectorAll('*')] : [])]
+          .filter(el => el.scrollWidth - el.clientWidth > 0 && ['auto', 'scroll'].includes(getComputedStyle(el).overflowX))
+        const right = dialog ? dialog.getBoundingClientRect().right : innerWidth
+        const past = dialog ? [...dialog.querySelectorAll('*')].filter(el => el.getBoundingClientRect().right > right + 0.5)
+          .slice(0, 4).map(el => `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 60)} → ${Math.round(el.getBoundingClientRect().right)}`) : []
+        return { page: scroller.scrollWidth - scroller.clientWidth, scrollers: boxes.length, past }
+      })
+      const before = await sideways()
+      await panel.getByRole('button', { name: 'Good reply' }).click()
+      const card = panel.locator('[data-decke-feedback-card]')
+      await card.waitFor()
+      await card.getByText('Anything else?').waitFor()
+      const after = await sideways()
+      // Nothing scrolls sideways, and the card adds nothing past the panel's
+      // edge (a header control that already overhangs it is not this card's).
+      assert.deepEqual({ page: after.page, scrollers: after.scrollers, added: after.past.filter(x => !before.past.includes(x)) },
+        { page: 0, scrollers: 0, added: [] }, `${tag}: the feedback card scrolls sideways (before it opened: ${JSON.stringify(before)})`)
+      const form = card.getByRole('group', { name: 'Tell us more about this reply' })
+      const box = await rect(form)
+      if (width < 1068) assert.ok(box.right - box.left >= width - 40, `${tag}: the card is ${box.right - box.left}px wide on a ${width}px phone`)
+      await assertClear(page, width, { card: form, Send: form.getByRole('button', { name: 'Send' }), Skip: form.getByRole('button', { name: 'Skip' }) }, tag + ' feedback')
+      const field = await form.getByRole('textbox').evaluate(el => {
+        const s = getComputedStyle(el)
+        return { border: s.borderTopColor, background: s.backgroundColor }
+      })
+      assert.ok(!/rgba\(0, 0, 0, 0\)|transparent/.test(field.border), `${tag}: the text box has no visible edge under premium (${JSON.stringify(field)})`)
+      await page.screenshot({ path: path.join(out, 'decke-feedback-card-' + tag + '.png') })
+      await form.getByRole('textbox').fill('Useful answer')
+      await form.getByRole('button', { name: 'Send' }).click()
+      await card.waitFor({ state: 'detached' })
+      const sent = await page.evaluate(() => window.fixture.events.feedback)
+      assert.deepEqual(sent.at(-1), { seq: 1, vote: 1, comment: 'Useful answer', share: false })
+      // Desktop returns focus to the composer; a phone must not (the iOS keyboard).
+      if (width >= 1068) await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Message Deck-E')
+      else assert.notEqual(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Message Deck-E', `${tag}: a phone focused the composer`)
+
+      // Taking a vote back takes the card with it; nothing re-sends the old vote.
+      await panel.getByRole('button', { name: 'Bad reply' }).click()
+      await card.waitFor()
+      await panel.getByRole('button', { name: 'Bad reply' }).click()
+      await card.waitFor({ state: 'detached' })
+      await page.waitForFunction(() => window.fixture.events.feedback.at(-1)?.vote === null)
+      assert.deepEqual((await page.evaluate(() => window.fixture.events.feedback)).at(-1), { seq: 1, vote: null, comment: '', share: false })
+      results.push({ case: 'decke-feedback-card', engine, width, feedbackCard: true })
+    } finally {
+      await context.close()
+    }
+  }
+  return results
+}
+
 const EDIT_SUMMARY = [
   "EDIT your existing deck 'Dragapult ex / Dusknoir' (deck-browser), 22 distinct card(s) in it:",
   'remove x1 sv04-160',

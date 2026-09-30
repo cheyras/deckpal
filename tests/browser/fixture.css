@@ -1,3 +1,6 @@
 @import "../../apps/web/src/theme.css";
+/* The app's default skin. Every rule in it is scoped to :root[data-skin='premium']
+   (plus a few animation utilities), so a case opts in by setting the attribute. */
+@import "../../apps/web/src/premium.css";
 /* Tailwind must see the real component classes, not only this test entry. */
 @source "../../apps/web/src";
