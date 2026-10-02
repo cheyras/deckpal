@@ -54,11 +54,11 @@ export interface ToolAnnotations {
   /** True when the tool cannot change any state. Required — see above. */
   readOnlyHint: boolean;
   /** True when the tool can destroy data that is not otherwise recoverable. */
-  destructiveHint?: boolean;
+  destructiveHint: boolean;
   /** True when calling twice with the same arguments has the same effect as once. */
   idempotentHint?: boolean;
   /** True when the tool touches the wider world rather than only DeckPal's data. */
-  openWorldHint?: boolean;
+  openWorldHint: boolean;
   /** Human-readable title; DeckPal sets `title` on the definition instead. */
   title?: string;
 }
@@ -117,5 +117,12 @@ interface NoArgToolSpec {
 export function defineTool<S extends AnyZodObject>(spec: ToolSpec<S>): ToolDefinition;
 export function defineTool(spec: NoArgToolSpec): ToolDefinition;
 export function defineTool(spec: ToolSpec<AnyZodObject> | NoArgToolSpec): ToolDefinition {
-  return spec as ToolDefinition;
+  return {
+    ...spec,
+    annotations: {
+      ...spec.annotations,
+      openWorldHint: spec.annotations.openWorldHint ?? false,
+      destructiveHint: spec.annotations.destructiveHint ?? false,
+    },
+  } as ToolDefinition;
 }
