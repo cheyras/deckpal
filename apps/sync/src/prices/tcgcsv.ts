@@ -5,7 +5,8 @@
 // append idempotent price_observation rows + upsert price_current. One transaction per group so a
 // crash resumes mid-list; captured_at = TCGCSV's own last-updated.txt stamp, never now().
 
-import { fetchText, fetchJson } from './http.js';
+import { fetchText, fetchJson, RateLimited } from './http.js';
+import { linkTcgcsvProducts } from './linkTcgcsv.js';
 import { toMinor, type TcgcsvPriceEnvelope, type TcgcsvPriceRow, type Metrics } from './types.js';
 import {
   type Queryable, type PricePoint, appendObservations, upsertCurrent, ensureObservationPartition,
@@ -72,6 +73,8 @@ export async function variantLookup(client: Queryable, setId: number): Promise<M
 export interface PriceIngestResult {
   sets: number; groupsFetched: number; observations: number; current: number;
   pricedVariants: number; unmatchedRows: number; skipped: boolean; stamp: string;
+  /** What the link pass did before the walk (linkTcgcsv.ts); zeros when it had nothing to do. */
+  linkedVariants: number; assignedGroups: number;
 }
 
 // Reusable per-set writer: given already-fetched price rows, join + write. Returns rows written.
@@ -99,28 +102,118 @@ export async function writeSetPrices(
   return { observations, matched: points.length, unmatched };
 }
 
-export interface IngestOpts { sets?: string[]; force?: boolean }
+export interface IngestOpts {
+  sets?: string[]; force?: boolean;
+  /** Run the link pass (default true). Off only for tests and for isolating a price bug. */
+  link?: boolean;
+}
 
-export async function ingestTcgcsvPrices(client: Queryable, opts: IngestOpts = {}): Promise<PriceIngestResult> {
+/** Test seams: the three things `ingestTcgcsvPrices` reaches over the network. */
+export interface IngestDeps {
+  fetchLastUpdated?: () => Promise<string>;
+  fetchGroupPrices?: (groupId: number) => Promise<TcgcsvPriceRow[]>;
+  linkProducts?: typeof linkTcgcsvProducts;
+}
+
+interface LinkStepResult { linked: number; assigned: number; failure: string | null }
+
+/**
+ * The link pass as its OWN sync_run job (`products-tcgcsv`), keyed on TCGCSV's stamp like the price
+ * ingest. That is what lets it retry independently: a failed link run is recorded `failed`, which
+ * `lastOkStamp` does not count, so the next 15-minute tick tries the link pass again instead of
+ * waiting for tomorrow's stamp — and a good one is recorded `ok`, so it costs one query per tick.
+ * A run restricted with `--sets` records no stamp, so it can never satisfy the full run.
+ */
+async function runLinkStep(
+  client: Queryable, stamp: string, filter: string[] | null, link: typeof linkTcgcsvProducts,
+): Promise<LinkStepResult> {
+  let runId: number | null = null;
+  try {
+    runId = await startRun(client, 'products-tcgcsv', filter ? null : stamp);
+    const r = await link(client, { sets: filter });
+    const failed = r.failedSets.length;
+    await finishRun(client, runId, failed ? 'failed' : 'ok', {
+      rowsWritten: r.variantsLinked, itemsSeen: r.setsScanned, itemsFailed: failed,
+      cursor: { groupsAssigned: r.groupsAssigned, unresolvedSets: r.unresolvedSets },
+      error: failed ? `${failed} set(s) failed: ${r.failedSets.slice(0, 5).map((f) => `${f.set}: ${f.error}`).join('; ')}` : undefined,
+    });
+    return {
+      linked: r.variantsLinked, assigned: r.groupsAssigned,
+      failure: failed ? `${failed} set(s) could not be linked (${r.failedSets[0]!.set}: ${r.failedSets[0]!.error})` : null,
+    };
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch { /* nothing open */ }
+    // Recording the failure is best-effort: if the database is what failed, the original error is
+    // the one to report, and the next run's sweep (below) clears whatever row was left behind.
+    if (runId != null) {
+      try { await finishRun(client, runId, 'failed', { error: err instanceof Error ? err.message : String(err) }); } catch { /* see above */ }
+    }
+    if (err instanceof RateLimited) throw err; // TCGCSV's policy is to stop the whole run
+    return { linked: 0, assigned: 0, failure: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * `sync_run_one_active` allows ONE `running` row per job, and nothing else ever clears one: a run
+ * that is cancelled, loses its runner or its connection leaves its row `running` forever, and every
+ * later `startRun` for that job then fails on the unique index. For the link pass that would have
+ * stopped ALL price ingestion (it runs in front of the walk) until someone edited the table by hand.
+ * Called only while holding the `prices-tcgcsv` advisory lock — the one lock both jobs run under — so
+ * a `running` row seen here cannot belong to a live run. `orphaned` is in the status CHECK and is not
+ * counted by `lastOkStamp`, so the interrupted work is retried.
+ */
+async function sweepInterruptedRuns(client: Queryable): Promise<void> {
+  await client.query(
+    `UPDATE sync_run SET status = 'orphaned', finished_at = now(),
+            error = 'left running by an interrupted run; cleared by the next run'
+      WHERE job = ANY($1::text[]) AND status = 'running'`,
+    [['prices-tcgcsv', 'products-tcgcsv']],
+  );
+}
+
+export async function ingestTcgcsvPrices(
+  client: Queryable, opts: IngestOpts = {}, deps: IngestDeps = {},
+): Promise<PriceIngestResult> {
   const filter = opts.sets && opts.sets.length ? opts.sets : null;
-  const stamp = await fetchLastUpdated();
+  const stamp = await (deps.fetchLastUpdated ?? fetchLastUpdated)();
   const capturedAt = new Date(stamp); // the source's own timestamp — NOT now()
   if (Number.isNaN(capturedAt.getTime())) throw new Error(`unparseable last-updated.txt: "${stamp}"`);
+  const walkPrices = deps.fetchGroupPrices ?? fetchGroupPrices;
 
   if (!(await tryLock(client, 'prices-tcgcsv'))) throw new Error('prices-tcgcsv already running (advisory lock held)');
   try {
+    await sweepInterruptedRuns(client);
     // Skip-if-unchanged: only gate a full run (no set filter). A targeted --sets run always proceeds.
-    if (!opts.force && !filter) {
-      const last = await lastOkStamp(client, 'prices-tcgcsv');
-      if (last === stamp) return { sets: 0, groupsFetched: 0, observations: 0, current: 0, pricedVariants: 0, unmatchedRows: 0, skipped: true, stamp };
+    const pricesUnchanged = !opts.force && !filter && (await lastOkStamp(client, 'prices-tcgcsv')) === stamp;
+
+    // Link first: the walk below starts from "sets that carry a groupId" and joins on "variants that
+    // carry a productId", so a link made after it prices the card a day late. It is decided apart
+    // from the price skip, so a failed link pass is retried on the next tick even though today's
+    // prices are already in. A failure is held and thrown once the prices that CAN be written are
+    // written, so the job goes red rather than cards staying unpriced behind a green dashboard.
+    let linkRun: LinkStepResult = { linked: 0, assigned: 0, failure: null };
+    if (opts.link !== false) {
+      const due = !!filter || !!opts.force || (await lastOkStamp(client, 'products-tcgcsv')) !== stamp;
+      if (due) linkRun = await runLinkStep(client, stamp, filter, deps.linkProducts ?? linkTcgcsvProducts);
     }
+    const linkFailed = (): Error =>
+      new Error(`the TCGCSV link pass failed, so cards TCGdex has no TCGplayer id for stay unpriced: ${linkRun.failure}`);
+
+    if (pricesUnchanged) {
+      if (linkRun.failure) throw linkFailed();
+      return {
+        sets: 0, groupsFetched: 0, observations: 0, current: 0, pricedVariants: 0, unmatchedRows: 0,
+        skipped: true, stamp, linkedVariants: linkRun.linked, assignedGroups: linkRun.assigned,
+      };
+    }
+
     const runId = await startRun(client, 'prices-tcgcsv', stamp);
     await ensureObservationPartition(client, capturedAt);
     const sets = await resolveSets(client, filter);
     let observations = 0, matched = 0, unmatched = 0, groupsFetched = 0, lastGroup: number | null = null;
     try {
       for (const s of sets) {
-        const prices = await fetchGroupPrices(s.groupId);
+        const prices = await walkPrices(s.groupId);
         groupsFetched++;
         await client.query('BEGIN');
         const r = await writeSetPrices(client, s.setId, prices, capturedAt, runId);
@@ -134,7 +227,11 @@ export async function ingestTcgcsvPrices(client: Queryable, opts: IngestOpts = {
       throw err;
     }
     await finishRun(client, runId, 'ok', { rowsWritten: observations, itemsSeen: groupsFetched, cursor: { lastGroup } });
-    return { sets: sets.length, groupsFetched, observations, current: matched, pricedVariants: matched, unmatchedRows: unmatched, skipped: false, stamp };
+    if (linkRun.failure) throw linkFailed();
+    return {
+      sets: sets.length, groupsFetched, observations, current: matched, pricedVariants: matched,
+      unmatchedRows: unmatched, skipped: false, stamp, linkedVariants: linkRun.linked, assignedGroups: linkRun.assigned,
+    };
   } finally {
     await unlock(client, 'prices-tcgcsv');
   }
