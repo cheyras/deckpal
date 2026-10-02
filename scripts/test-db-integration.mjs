@@ -339,6 +339,27 @@ try {
     assert.equal(evidence.status, 'passed');
     result.cases.push(evidence);
   }
+  // The TCGCSV link pass: every migration, the real UPDATE, fixtures for the two
+  // network reads. Its own database so its catalog rows never meet the route suites'.
+  {
+    assertNoEnvFile();
+    await run(join(bindir, 'psql'), ['-X', '-v', 'ON_ERROR_STOP=1', '-c',
+      'CREATE DATABASE deckpal_ci_pricelinks OWNER deckpal_ci_fixture']);
+    await run(join(bindir, 'psql'), ['-X', '-v', 'ON_ERROR_STOP=1', '-d',
+      'deckpal_ci_pricelinks', '-c', 'CREATE EXTENSION vector']);
+    const caseFile = join(scratch, 'price-links.json');
+    await run(process.execPath, ['--import', join(REPO, 'node_modules', 'tsx', 'dist', 'loader.mjs'),
+      join(REPO, 'apps', 'api', 'src', '__integration__', 'priceLinks.mjs')], {
+      timeoutMs: 240_000,
+      env: {
+        PGUSER: 'deckpal_ci_fixture', PGDATABASE: 'deckpal_ci_pricelinks',
+        DECKPAL_TEST_ROOT: scratch, DECKPAL_TEST_MARKER: marker, DECKPAL_TEST_RESULT: caseFile,
+      },
+    });
+    const evidence = JSON.parse(readFileSync(caseFile, 'utf8'));
+    assert.equal(evidence.status, 'passed');
+    result.cases.push(evidence);
+  }
   result.status = 'passed';
 } catch (error) {
   result.status = 'failed';

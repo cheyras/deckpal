@@ -1,5 +1,8 @@
 // Price + cross-fill CLI. `tsx src/prices/cli.ts <cmd> [flags]`
-//   tcgcsv      [--sets a,b] [--force]         daily TCGCSV price ingest
+//   tcgcsv      [--sets a,b] [--force]         daily TCGCSV price ingest (runs link-tcgcsv first)
+//   link-tcgcsv [--sets a,b] [--dry-run]       find the TCGplayer group/product for cards TCGdex
+//                                              has no id for, so they can be priced. --dry-run
+//                                              writes nothing and prints every set's outcome.
 //   cardmarket  [--sets a,b] [--force]         daily Cardmarket price ingest
 //   crossfill   [--series a,b] [--price]       reverse-holo cross-fill (+ recompute coverage)
 //   recompute   [--sets a,b]                   recompute set-progress denominators only
@@ -39,6 +42,7 @@
 
 import { makePool, loadEnv } from '@deckpal/db';
 import { ingestTcgcsvPrices, fetchLastUpdated } from './tcgcsv.js';
+import { linkTcgcsvProducts } from './linkTcgcsv.js';
 import { ingestCardmarket } from './cardmarket.js';
 import { crossFillReverse, AFFECTED_SERIES } from './crossfill.js';
 import { backfillPricesFromArchive } from './backfill.js';
@@ -107,6 +111,19 @@ async function main(): Promise<void> {
     if (cmd === 'tcgcsv') {
       const r = await ingestTcgcsvPrices(client, { sets: list('sets'), force: flag('force') != null });
       console.log(JSON.stringify(r, null, 2));
+    } else if (cmd === 'link-tcgcsv') {
+      const dryRun = flag('dry-run') != null;
+      const r = await withLocks(client, ['prices-tcgcsv'], () =>
+        linkTcgcsvProducts(client, { sets: list('sets'), dryRun }));
+      const { perSet, ...totals } = r;
+      console.log(JSON.stringify(totals, null, 2));
+      // One line per set, so a dry run can be read (and diffed) rather than only counted.
+      for (const s of perSet) {
+        console.log(
+          `${s.set}	group=${s.group ?? '-'}	${s.groupOutcome}	linked=${s.linked}	${JSON.stringify(s.skipped)}`,
+        );
+      }
+      if (dryRun) console.warn('[prices] dry run — nothing was written.');
     } else if (cmd === 'cardmarket') {
       const r = await ingestCardmarket(client, { sets: list('sets'), force: flag('force') != null });
       console.log(JSON.stringify(r, null, 2));
@@ -284,7 +301,7 @@ async function main(): Promise<void> {
       }
     } else {
       console.error(
-        'usage: cli.ts <tcgcsv|cardmarket|crossfill|recompute|backfill|rollup|snapshot|' +
+        'usage: cli.ts <tcgcsv|link-tcgcsv|cardmarket|crossfill|recompute|backfill|rollup|snapshot|' +
         'snapshot-backfill|value-parity> [flags]',
       );
       process.exitCode = 2;

@@ -555,6 +555,11 @@ ALTER TABLE card_variant
 --  70 = derived by numeric localId match within a known TCGplayer group  (DATA-LAYER §4.5 step 1)
 --  40 = cleanName equality within the group                              (step 2)
 --   0 = id_source='none' -> show NO price and NO buy link                (step 3)
+-- UPDATE 2026-10-01: the TCGCSV link pass (apps/sync/src/prices/linkTcgcsv.ts) now writes
+--   'number_match' rows where TCGdex had no id, requiring collector number AND name to agree:
+--   100 = number + name; 85 = the card's only variant, TCGplayer names the foil differently;
+--   80 = a lone finish-descriptor product ("Cosmos Holo"); 70 = a name unique on both sides.
+--   Stamped / event products and ambiguous matches stay 'none'. Nothing reads the confidence yet.
 CHECK ((id_source = 'none') = (tcgplayer_product_id IS NULL AND cardmarket_product_id IS NULL));
 ```
 

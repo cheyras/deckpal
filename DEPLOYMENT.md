@@ -1497,6 +1497,17 @@ UTC), so `ingestTcgcsvPrices` checks `last-updated.txt` first and returns
 `{skipped:true}` when the stamp is unchanged. ~95 of the ~96 daily ticks are one
 30-byte request and a single-row query.
 
+**Cards TCGdex has no TCGplayer id for are linked by the ingest itself.** Before
+the price walk, `ingestTcgcsvPrices` runs the link pass (`apps/sync/src/prices/
+linkTcgcsv.ts`), which derives `card_set.tcgplayer_group_id` and
+`card_variant.tcgplayer_product_id` from TCGCSV on collector number AND name, and
+refuses every ambiguity (stamped products, duplicates) rather than guess. No new
+secret or variable. A catalog refresh resets those columns to what TCGdex says, so
+the next price run re-derives them; to do it immediately, or to read what it would
+do, dispatch `price-refresh.yml` with job `link-tcgcsv`, or locally
+`pnpm --filter deckpal-sync prices link-tcgcsv --dry-run`. See
+`decisions/2026/2026-10-01-tcgplayer-ids-…`.
+
 **Verifying it is alive:** `GET /api/health` → `syncs` reports the last
 successful run per job, straight from `sync_run`. That block is what diagnosed
 the original outage and is the authoritative check — a green Actions run only

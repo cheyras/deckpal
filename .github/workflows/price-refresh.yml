@@ -60,7 +60,7 @@ on:
         description: 'Which job to run by hand'
         type: choice
         default: prices-tcgcsv
-        options: [prices-tcgcsv, prices-cardmarket, snapshot]
+        options: [prices-tcgcsv, link-tcgcsv, prices-cardmarket, snapshot]
       force:
         description: 'Ingest even when the upstream stamp is unchanged'
         type: boolean
@@ -168,6 +168,13 @@ jobs:
           else
             pnpm --filter deckpal-sync run-once prices-tcgcsv
           fi
+
+      # The link pass on its own: fills the TCGplayer group/product ids TCGdex lacks, so those
+      # cards can be priced. The daily ingest above runs it too; this is the way to run it NOW
+      # (after a catalog refresh reset the links, or to see what it would do).
+      - name: TCGCSV link pass
+        if: steps.what.outputs.job == 'link-tcgcsv'
+        run: pnpm --filter deckpal-sync prices link-tcgcsv
 
       - name: Cardmarket price ingest
         if: steps.what.outputs.job == 'prices-cardmarket'
