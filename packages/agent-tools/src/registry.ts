@@ -54,7 +54,7 @@ export interface ToolAnnotations {
   /** True when the tool cannot change any state. Required — see above. */
   readOnlyHint: boolean;
   /** True when the tool can destroy data that is not otherwise recoverable. */
-  destructiveHint: boolean;
+  destructiveHint?: boolean;
   /** True when calling twice with the same arguments has the same effect as once. */
   idempotentHint?: boolean;
   /** True when the tool touches the wider world rather than only DeckPal's data. */
