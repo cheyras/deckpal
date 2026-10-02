@@ -1503,14 +1503,15 @@ linkTcgcsv.ts`), which derives `card_set.tcgplayer_group_id` and
 `card_variant.tcgplayer_product_id` from TCGCSV on collector number AND name, and
 refuses every ambiguity (stamped products, duplicates) rather than guess. No new
 secret or variable. It is its own `sync_run` job, `products-tcgcsv`, keyed on the
-TCGCSV stamp: it runs on the first tick after a new stamp (and after a deploy),
+TCGCSV stamp: it runs on the first tick after a new stamp (and on the first tick after the
+feature first deploys, when no successful run exists),
 costs one query per tick once it has succeeded, and a failed run is retried on the
 next tick. A catalog refresh resets those columns to what TCGdex says, so the next
 stamp re-derives them. To run it now or read what it would do, dispatch
 `price-refresh.yml` with job `link-tcgcsv`, or locally
 `pnpm --filter deckpal-sync prices link-tcgcsv --dry-run`; a newly linked card's
 price arrives with the next price ingest. See
-`decisions/2026/2026\2026-10-01-tcgplayer-ids-tcgdex-lacks-are-now-derived-from-tcgcsv-so-those-cards-can-be-pri.md`.
+`decisions/2026/2026-10-01-tcgplayer-ids-tcgdex-lacks-are-now-derived-from-tcgcsv-so-those-cards-can-be-pri.md`.
 
 **Verifying it is alive:** `GET /api/health` → `syncs` reports the last
 successful run per job, straight from `sync_run`. That block is what diagnosed

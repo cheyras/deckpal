@@ -27,7 +27,15 @@ function fakeClient() {
         const last = [...runs].reverse().find((r) => r.job === params[0] && (r.status === 'ok' || r.status === 'partial'));
         return { rows: last ? [{ source_stamp: last.stamp }] : [] };
       }
+      if (text.includes("SET status = 'orphaned'")) {
+        for (const r of runs) if ((params[0] as string[]).includes(r.job) && r.status === 'running') r.status = 'orphaned';
+        return { rows: [] };
+      }
       if (text.includes('INSERT INTO sync_run')) {
+        // sync_run_one_active: one `running` row per job, enforced like the real unique index.
+        if (runs.some((r) => r.job === params[0] && r.status === 'running')) {
+          throw new Error('duplicate key value violates unique constraint "sync_run_one_active"');
+        }
         const run: Run = { id: runs.length + 1, job: String(params[0]), stamp: (params[1] as string | null) ?? null, status: 'running' };
         runs.push(run);
         return { rows: [{ id: String(run.id) }] };
@@ -125,4 +133,32 @@ test('a run restricted to some sets records no stamp, so it can never stand in f
   // The full run that follows still does its own link pass.
   await ingestTcgcsvPrices(c as never, {}, deps(async () => linkResult(), calls));
   assert.equal(calls.n, 2);
+});
+
+test('a link run killed mid-flight does not wedge price ingestion: its stale row is swept and the work retried', async () => {
+  const c = fakeClient(); const calls = { n: 0 };
+  // What a cancelled runner leaves behind, for BOTH jobs.
+  c.runs.push({ id: 100, job: 'products-tcgcsv', stamp: STAMP, status: 'running' });
+  c.runs.push({ id: 101, job: 'prices-tcgcsv', stamp: STAMP, status: 'running' });
+  const r = await ingestTcgcsvPrices(c as never, {}, deps(async () => linkResult(), calls));
+  assert.equal(r.skipped, false, 'prices were ingested, not blocked behind the stale rows');
+  assert.equal(calls.n, 1, 'and the interrupted link pass was retried');
+  assert.equal(c.runs.find((x) => x.id === 100)!.status, 'orphaned');
+  assert.equal(c.runs.find((x) => x.id === 101)!.status, 'orphaned');
+  assert.deepEqual(jobStatus(c, 'products-tcgcsv'), ['orphaned', 'ok']);
+});
+
+test('if even recording the link run fails, prices still run and the job fails loudly', async () => {
+  const c = fakeClient(); const calls = { n: 0 };
+  const realQuery = c.query.bind(c);
+  c.query = async (text: string, params: unknown[] = []) => {
+    if (text.includes('INSERT INTO sync_run') && params[0] === 'products-tcgcsv') throw new Error('connection terminated');
+    return realQuery(text, params);
+  };
+  await assert.rejects(
+    ingestTcgcsvPrices(c as never, {}, deps(async () => linkResult(), calls)),
+    /link pass failed.*connection terminated/s,
+  );
+  assert.equal(calls.n, 0);
+  assert.deepEqual(jobStatus(c, 'prices-tcgcsv'), ['ok']);
 });

@@ -127,8 +127,9 @@ interface LinkStepResult { linked: number; assigned: number; failure: string | n
 async function runLinkStep(
   client: Queryable, stamp: string, filter: string[] | null, link: typeof linkTcgcsvProducts,
 ): Promise<LinkStepResult> {
-  const runId = await startRun(client, 'products-tcgcsv', filter ? null : stamp);
+  let runId: number | null = null;
   try {
+    runId = await startRun(client, 'products-tcgcsv', filter ? null : stamp);
     const r = await link(client, { sets: filter });
     const failed = r.failedSets.length;
     await finishRun(client, runId, failed ? 'failed' : 'ok', {
@@ -142,10 +143,32 @@ async function runLinkStep(
     };
   } catch (err) {
     try { await client.query('ROLLBACK'); } catch { /* nothing open */ }
-    await finishRun(client, runId, 'failed', { error: err instanceof Error ? err.message : String(err) });
+    // Recording the failure is best-effort: if the database is what failed, the original error is
+    // the one to report, and the next run's sweep (below) clears whatever row was left behind.
+    if (runId != null) {
+      try { await finishRun(client, runId, 'failed', { error: err instanceof Error ? err.message : String(err) }); } catch { /* see above */ }
+    }
     if (err instanceof RateLimited) throw err; // TCGCSV's policy is to stop the whole run
     return { linked: 0, assigned: 0, failure: err instanceof Error ? err.message : String(err) };
   }
+}
+
+/**
+ * `sync_run_one_active` allows ONE `running` row per job, and nothing else ever clears one: a run
+ * that is cancelled, loses its runner or its connection leaves its row `running` forever, and every
+ * later `startRun` for that job then fails on the unique index. For the link pass that would have
+ * stopped ALL price ingestion (it runs in front of the walk) until someone edited the table by hand.
+ * Called only while holding the `prices-tcgcsv` advisory lock — the one lock both jobs run under — so
+ * a `running` row seen here cannot belong to a live run. `orphaned` is in the status CHECK and is not
+ * counted by `lastOkStamp`, so the interrupted work is retried.
+ */
+async function sweepInterruptedRuns(client: Queryable): Promise<void> {
+  await client.query(
+    `UPDATE sync_run SET status = 'orphaned', finished_at = now(),
+            error = 'left running by an interrupted run; cleared by the next run'
+      WHERE job = ANY($1::text[]) AND status = 'running'`,
+    [['prices-tcgcsv', 'products-tcgcsv']],
+  );
 }
 
 export async function ingestTcgcsvPrices(
@@ -159,6 +182,7 @@ export async function ingestTcgcsvPrices(
 
   if (!(await tryLock(client, 'prices-tcgcsv'))) throw new Error('prices-tcgcsv already running (advisory lock held)');
   try {
+    await sweepInterruptedRuns(client);
     // Skip-if-unchanged: only gate a full run (no set filter). A targeted --sets run always proceeds.
     const pricesUnchanged = !opts.force && !filter && (await lastOkStamp(client, 'prices-tcgcsv')) === stamp;
 

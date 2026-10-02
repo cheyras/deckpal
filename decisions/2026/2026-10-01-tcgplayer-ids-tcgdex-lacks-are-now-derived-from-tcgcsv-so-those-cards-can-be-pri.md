@@ -13,8 +13,8 @@ supersedes: []
 TCGdex's `thirdParty.tcgplayer`. Where TCGdex has no id the card was permanently `unpriced`, however
 well TCGplayer prices it. A new **link pass** (`apps/sync/src/prices/linkTcgcsv.ts`, matching rules in
 `linkMatch.ts`) derives the missing ids from TCGCSV, the same free mirror the price ingest already
-reads. It runs at the start of every non-skipped `prices-tcgcsv` ingest, before the price walk, and
-on its own as `prices link-tcgcsv [--sets a,b] [--dry-run]` (also a `workflow_dispatch` option on
+reads. It runs inside the `prices-tcgcsv` job, before the price walk, once per TCGCSV stamp (see
+Implications), and on its own as `prices link-tcgcsv [--sets a,b] [--dry-run]` (also a `workflow_dispatch` option on
 `price-refresh.yml`).
 
 - **A group is assigned to a set** (only where TCGdex gave none) when a TCGCSV group agrees with
@@ -26,8 +26,9 @@ on its own as `prices link-tcgcsv [--sets a,b] [--dry-run]` (also a `workflow_di
   `Unlimited` / `1st Edition` names). A sibling variant's id is NOT evidence: a stamped or
   patterned sibling never lends its product to a plain variant, and a plain sibling that already
   holds a different product blocks the link. A name unique on both sides is the one number-less
-  fallback (confidence 70), and only across different numbering schemes (CC-prefixed vs digits);
-  it never takes a qualified product or one whose number belongs to another of our cards.
+  fallback (confidence 70). It never takes a qualified product, a product whose number belongs to
+  another of our cards, or one whose number is also plain digits and differs from ours (in practice
+  it fires for CC-prefixed vs original-set numbering).
 - **Refused, left unpriced:** stamped or event products (`(Prerelease)`, `[Staff]`), ambiguous
   matches, stamped / jumbo / cosmos-foil variants, and any (product, printing) already owned.
   A lone finish-descriptor product such as `(Cosmos Holo)` is accepted at 80. The "only variant,
@@ -56,10 +57,16 @@ a second flaw let a tiny subset group be accepted for a large set. Both are pinn
   and does it; after that it costs one query per tick. `prices link-tcgcsv [--dry-run]` and the
   `link-tcgcsv` dispatch option run it on demand. Linking only writes ids: a newly linked card's price
   lands at the next price ingest (dispatch `prices-tcgcsv` with force to do it now).
+- **An interrupted run cannot wedge prices.** `sync_run_one_active` allows one `running` row per
+  job and nothing clears a stale one, so a link run killed mid-flight would have made every later
+  tick fail before the price walk. Both jobs' stale rows are now swept to `orphaned` under the
+  `prices-tcgcsv` lock, and a failure to even record the link run is held like any other link failure.
 - **A link failure is loud and retried.** One bad set costs that set, not all of them
   (`failedSets`). The run is recorded `failed` (not `partial`, which `lastOkStamp` counts as done), so
   the next tick retries the link pass even though today's prices are already in; prices that can be
   written still are; the job goes red. A TCGCSV rate limit aborts the whole run, per their policy.
+  The cost of a set that fails every run is the whole link pass (~150-250 requests) every 15 minutes
+  until fixed, bounded by the 100 ms request floor; noisy by design.
 - **Review found and fixed two wrong-price paths before merge.** A sibling's id had been copied onto a
   plain variant without identity checks (Umbreon `sv08.5-059`: a Poké Ball pattern's $3.69 instead of
   $0.47), and the name-only fallback accepted qualified or contradicting products (np-23 Metang).
