@@ -14,10 +14,13 @@
 //
 // IT NEVER OVERWRITES. Every UPDATE is guarded by `… IS NULL`: an id TCGdex (or the release
 // overlay) supplied is authoritative, and a link this pass wrote is simply re-derived next time.
+// It deliberately does NOT write `tcgplayer_url`: the API prefers a stored URL over the product id
+// (apps/api/src/db.ts `tcgplayerUrl`), and the importer never resets that column, so a stored URL
+// would outlive the link it was derived from and keep sending buyers to the old product.
 //
 // B8: idempotent, one transaction per set, 1 connection. B9: touches catalog price-link columns only.
 
-import { fetchJson } from './http.js';
+import { fetchJson, RateLimited } from './http.js';
 import type { Queryable } from './db.js';
 import type {
   TcgcsvPriceEnvelope, TcgcsvPriceRow, TcgcsvProductEnvelope, TcgcsvProductRow,
@@ -73,9 +76,12 @@ export interface LinkResult {
   dryRun: boolean;
   setsScanned: number;
   groupsAssigned: number;
+  /** Rows actually updated (a dry run reports what it would update). */
   variantsLinked: number;
   /** Sets we looked at and could not complete, by reason — the honest remainder. */
   unresolvedSets: number;
+  /** Sets that ERRORED (network, SQL). One bad set does not stop the others; the caller must fail loudly. */
+  failedSets: { set: string; error: string }[];
   perSet: SetLinkReport[];
 }
 
@@ -85,20 +91,22 @@ type SetRow = {
 };
 
 /**
- * Sets that have something to gain: no group at all, or a group but at least one plain variant
- * still lacking a product. Stamped / jumbo variants are excluded from the second test — they can
- * never be linked here, and counting them would refetch nearly every set on every run.
+ * Sets that have something to gain: no group at all, or a group but at least one LINKABLE variant
+ * (plain, or a 1st-Edition stamp — the kinds `linkablePrintings` knows) still lacking a product.
+ * Other stamped / jumbo variants are excluded from the second test — they can never be linked
+ * here, and counting them would refetch nearly every set on every run.
  */
 export async function setsWithGaps(client: Queryable, filter: string[] | null): Promise<SetRow[]> {
   const { rows } = await client.query<SetRow>(
     `SELECT s.id, s.tcgdex_id, s.name, s.abbreviation, s.ptcgl_code, s.tcgplayer_group_id AS g
        FROM card_set s
       WHERE ($1::text[] IS NULL OR s.tcgdex_id = ANY($1))
-        AND EXISTS (
+        AND (s.tcgplayer_group_id IS NULL OR EXISTS (
               SELECT 1 FROM card c JOIN card_variant cv ON cv.card_id = c.id
                WHERE c.set_id = s.id
                  AND cv.tcgplayer_product_id IS NULL
-                 AND cv.variant_kind_code IN ('normal','holo','reverse'))
+                 AND cv.variant_kind_code IN ('normal','holo','reverse',
+                                              'normal-stamp-1st-edition','holo-stamp-1st-edition')))
       ORDER BY s.id`,
     [filter],
   );
@@ -141,7 +149,7 @@ export async function linkTcgcsvProducts(client: Queryable, opts: LinkOpts = {})
   const sets = await setsWithGaps(client, filter);
   const result: LinkResult = {
     dryRun: !!opts.dryRun, setsScanned: sets.length, groupsAssigned: 0, variantsLinked: 0,
-    unresolvedSets: 0, perSet: [],
+    unresolvedSets: 0, failedSets: [], perSet: [],
   };
   if (sets.length === 0) return result;
 
@@ -154,7 +162,7 @@ export async function linkTcgcsvProducts(client: Queryable, opts: LinkOpts = {})
     return d;
   };
 
-  for (const s of sets) {
+  const linkOne = async (s: SetRow): Promise<void> => {
     const setId = Number(s.id);
     const cards = await loadCards(client, setId);
     let groupId = s.g == null ? null : Number(s.g);
@@ -179,7 +187,7 @@ export async function linkTcgcsvProducts(client: Queryable, opts: LinkOpts = {})
       if ('rejected' in verdict) {
         result.unresolvedSets++;
         result.perSet.push({ set: s.tcgdex_id, group: null, groupOutcome: verdict.rejected, linked: 0, skipped: {} });
-        continue;
+        return;
       }
       groupId = verdict.groupId;
       plan = verdict.plan;
@@ -187,33 +195,37 @@ export async function linkTcgcsvProducts(client: Queryable, opts: LinkOpts = {})
     }
 
     const links = plan.links;
+    let written = opts.dryRun ? links.length : 0;
+    let assignedNow = !!opts.dryRun;
 
     if (!opts.dryRun) {
       await client.query('BEGIN');
       try {
         if (outcome === 'assigned') {
-          await client.query(
-            `UPDATE card_set SET tcgplayer_group_id = $2 WHERE id = $1 AND tcgplayer_group_id IS NULL`,
+          const g = await client.query(
+            `UPDATE card_set SET tcgplayer_group_id = $2 WHERE id = $1 AND tcgplayer_group_id IS NULL RETURNING id`,
             [setId, groupId],
           );
+          assignedNow = g.rows.length > 0;
         }
         if (links.length) {
-          await client.query(
+          const upd = await client.query(
             `UPDATE card_variant cv
                 SET tcgplayer_product_id = v.pid,
                     tcgplayer_printing   = v.printing,
-                    tcgplayer_url        = COALESCE(cv.tcgplayer_url, v.url),
                     id_source            = CASE WHEN cv.id_source = 'none' THEN v.src ELSE cv.id_source END,
                     id_confidence        = CASE WHEN cv.id_source = 'none' THEN v.conf ELSE cv.id_confidence END,
                     last_synced_at       = now()
-               FROM unnest($1::bigint[], $2::int[], $3::text[], $4::text[], $5::text[], $6::smallint[])
-                    AS v(id, pid, printing, url, src, conf)
-              WHERE cv.id = v.id AND cv.tcgplayer_product_id IS NULL`,
+               FROM unnest($1::bigint[], $2::int[], $3::text[], $4::text[], $5::smallint[])
+                    AS v(id, pid, printing, src, conf)
+              WHERE cv.id = v.id AND cv.tcgplayer_product_id IS NULL
+          RETURNING cv.id`,
             [
               links.map((l) => l.variantId), links.map((l) => l.productId), links.map((l) => l.printing),
-              links.map((l) => l.url), links.map((l) => l.source), links.map((l) => l.confidence),
+              links.map((l) => l.source), links.map((l) => l.confidence),
             ],
           );
+          written = upd.rows.length;
         }
         await client.query('COMMIT');
       } catch (err) {
@@ -222,11 +234,24 @@ export async function linkTcgcsvProducts(client: Queryable, opts: LinkOpts = {})
       }
     }
 
-    if (outcome === 'assigned') result.groupsAssigned++;
-    result.variantsLinked += links.length;
+    if (outcome === 'assigned' && assignedNow) result.groupsAssigned++;
+    result.variantsLinked += written;
     result.perSet.push({
-      set: s.tcgdex_id, group: groupId, groupOutcome: outcome, linked: links.length, skipped: tally(plan),
+      set: s.tcgdex_id, group: groupId, groupOutcome: outcome, linked: written, skipped: tally(plan),
     });
+  };
+
+  for (const s of sets) {
+    try {
+      await linkOne(s);
+    } catch (err) {
+      // A rate limit aborts the whole run (TCGCSV's policy). Anything else costs ONE set, not all
+      // of them: the rest are still linked and the caller fails the run loudly afterwards.
+      if (err instanceof RateLimited) throw err;
+      try { await client.query('ROLLBACK'); } catch { /* nothing open */ }
+      result.failedSets.push({ set: s.tcgdex_id, error: err instanceof Error ? err.message : String(err) });
+      console.error(`[prices] link pass: set ${s.tcgdex_id} failed:`, err instanceof Error ? err.message : err);
+    }
   }
   return result;
 }

@@ -23,13 +23,18 @@ on its own as `prices link-tcgcsv [--sets a,b] [--dry-run]` (also a `workflow_di
   two groups tying is a refusal.
 - **A variant is linked** only when number AND name agree and the product is priced under the
   printing the variant kind means (`Normal`, `Holofoil`, `Reverse Holofoil`, and the WotC-era
-  `Unlimited` / `1st Edition` names). A name that is unique on both sides is the one number-less
-  fallback (confidence 70).
+  `Unlimited` / `1st Edition` names). A sibling variant's id is NOT evidence: a stamped or
+  patterned sibling never lends its product to a plain variant, and a plain sibling that already
+  holds a different product blocks the link. A name unique on both sides is the one number-less
+  fallback (confidence 70), and only across different numbering schemes (CC-prefixed vs digits);
+  it never takes a qualified product or one whose number belongs to another of our cards.
 - **Refused, left unpriced:** stamped or event products (`(Prerelease)`, `[Staff]`), ambiguous
   matches, stamped / jumbo / cosmos-foil variants, and any (product, printing) already owned.
-  A lone finish-descriptor product such as `(Cosmos Holo)` is accepted at 80.
-- **Never overwrites:** every write is guarded by `tcgplayer_product_id IS NULL`, and an existing
-  `id_source` (for example from a Cardmarket id) is preserved.
+  A lone finish-descriptor product such as `(Cosmos Holo)` is accepted at 80. The "only variant,
+  one printing" relabel is limited to Normal <-> Holofoil and never crosses an edition.
+- **Never overwrites:** every write is guarded by `tcgplayer_product_id IS NULL`, an existing
+  `id_source` (for example from a Cardmarket id) is preserved, and `tcgplayer_url` is NOT written
+  (the API builds it from product id + printing, so a later id reset cannot leave a stale link).
 
 **Why:** `svp-085` Pikachu with Grey Felt Hat showed no price while TCGplayer lists it at
 $1,031.27 (product 518861). The whole SVP set was in that state, and so was Jungle (`base2`).
@@ -45,18 +50,25 @@ a second flaw let a tiny subset group be accepted for a large set. Both are pinn
   `tcgplayer_product_id = EXCLUDED…` with no COALESCE on purpose (a stale id must not outlive its
   upstream; see `releasePriceLinks.ts`), so every catalog refresh puts affected cards back to NULL and
   the next price run re-derives them. `price_current` is keyed by variant id and is not touched by an
-  import, so nothing is lost in between. Run `link-tcgcsv` by hand after a refresh to close the gap
-  sooner.
-- **The first run has to be triggered.** The ingest skips when TCGCSV's stamp is unchanged, so after
-  deploy dispatch `price-refresh.yml` with job `link-tcgcsv` (use `--dry-run` locally first to read
-  every set's outcome), or wait for the next published stamp.
-- **A link failure is loud.** It does not stop the prices that can be written, but it marks the run
-  `partial` and throws after recording it, so the workflow goes red instead of cards staying unpriced
-  behind green dashboards. A TCGCSV rate limit aborts the run, per their policy.
+  import, so nothing is lost in between.
+- **No manual first run.** The link pass is its own `sync_run` job, `products-tcgcsv`, keyed on
+  TCGCSV's stamp. The first 15-minute tick after deploy sees no successful run for the current stamp
+  and does it; after that it costs one query per tick. `prices link-tcgcsv [--dry-run]` and the
+  `link-tcgcsv` dispatch option run it on demand. Linking only writes ids: a newly linked card's price
+  lands at the next price ingest (dispatch `prices-tcgcsv` with force to do it now).
+- **A link failure is loud and retried.** One bad set costs that set, not all of them
+  (`failedSets`). The run is recorded `failed` (not `partial`, which `lastOkStamp` counts as done), so
+  the next tick retries the link pass even though today's prices are already in; prices that can be
+  written still are; the job goes red. A TCGCSV rate limit aborts the whole run, per their policy.
+- **Review found and fixed two wrong-price paths before merge.** A sibling's id had been copied onto a
+  plain variant without identity checks (Umbreon `sv08.5-059`: a Poké Ball pattern's $3.69 instead of
+  $0.47), and the name-only fallback accepted qualified or contradicting products (np-23 Metang).
+  Both are pinned by tests, and the reviewer's real-data reproduction no longer fires.
 - **Not fixed here: art.** The ~950 cards with no art are a sourcing problem, not a linking one.
   TCGplayer and pkmn.gg are ruled out by the owner (`research/CARD-ART-SOURCES.md` §2.3, §8), and
   `images.scrydex.com` has not been approved. Nothing in this change touches the image tier.
-- **Tests:** `apps/sync/src/prices/__tests__/linkMatch.test.ts` (21 pure cases) and a real-Postgres
-  suite, `apps/api/src/__integration__/priceLinks.mjs`, run by `scripts/test-db-integration.mjs` with
-  every migration applied. It proves the link, the existing price writer producing a `price_current`
-  row for the linked card, idempotency, and that an upstream id is never overwritten.
+- **Tests:** `apps/sync/src/prices/__tests__/linkMatch.test.ts` (matching, 25 cases),
+  `tcgcsvLink.test.ts` (sequencing and retry, 7 cases), and a real-Postgres suite,
+  `apps/api/src/__integration__/priceLinks.mjs`, run by `scripts/test-db-integration.mjs` with every
+  migration applied. It proves the link, the existing price writer producing a `price_current` row for
+  the linked card, idempotency, per-set failure isolation, and that an upstream id is never overwritten.

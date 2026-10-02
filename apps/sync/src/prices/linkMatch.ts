@@ -25,6 +25,8 @@ import type { TcgcsvPriceRow, TcgcsvProductRow } from './types.js';
 // — a promo stamp, a jumbo, a cosmos foil — maps to a product we cannot identify from number+name,
 // so it stays unlinked rather than being pointed at the base card's price (SCHEMA §4.6: no
 // invented prices).
+const PLAIN_DIGITS = /^\d+$/;
+
 const PRINTINGS_BY_KIND: Readonly<Record<string, readonly string[]>> = {
   normal: ['Normal', 'Unlimited'],
   holo: ['Holofoil', 'Unlimited Holofoil'],
@@ -120,7 +122,6 @@ export interface PlannedLink {
   cardId: number;
   productId: number;
   printing: string;
-  url: string | null;
   source: LinkEvidence;
   confidence: number;
 }
@@ -190,6 +191,8 @@ export function planSetLinks(
     (byNumber.get(ip.numKey!) ?? byNumber.set(ip.numKey!, []).get(ip.numKey!)!).push(ip);
     (byName.get(ip.nameKey) ?? byName.set(ip.nameKey, []).get(ip.nameKey)!).push(ip);
   }
+  const cardNumbers = new Set<string>();
+  for (const c of cards) { const k = numberKey(c.localId); if (k) cardNumbers.add(k); }
   const cardsByName = new Map<string, number>();
   for (const c of cards) {
     const k = foldName(c.name);
@@ -218,19 +221,20 @@ export function planSetLinks(
     const nameKey = foldName(card.name);
     const numKey = numberKey(card.localId);
 
-    // A sibling variant that is already linked pins the card to its product.
-    const pinned = card.variants.find((v) => v.productId != null)?.productId ?? null;
+    // A sibling's id is NOT identity evidence for this card's product: a stamped or patterned
+    // variant (a Poké Ball pattern, a Master Ball foil) is a different product, and copying its id
+    // onto the plain variant priced Umbreon at its pattern's $3.69 instead of $0.47. The product is
+    // found the same way for every card, from number AND name. The only use of a sibling is as a
+    // cross-check: if a PLAIN sibling already holds a different product than the one we found,
+    // upstream and we disagree about which card this is, and the honest answer is no link.
+    const plainSiblingPid = card.variants.find((v) => v.productId != null && linkablePrintings(v.kind) != null)?.productId ?? null;
 
     let chosen: IndexedProduct | null = null;
     let source: LinkEvidence = 'number_match';
     let confidence = 100;
     let failure: SkipReason | null = null;
 
-    if (pinned != null) {
-      chosen = indexed.find((ip) => ip.row.productId === pinned) ?? null;
-      if (!chosen) failure = 'no-product';
-      else agreeing++;
-    } else {
+    {
       const sameNumber = numKey ? (byNumber.get(numKey) ?? []) : [];
       const named = sameNumber.filter((ip) => ip.nameKey === nameKey);
       if (named.length > 0) agreeing++;
@@ -249,16 +253,29 @@ export function planSetLinks(
       } else if (sameNumber.length > 0) {
         failure = 'name-mismatch';
       } else {
-        // No product shares this number. Fall back to a name that is unique on BOTH sides.
-        const sameName = byName.get(nameKey) ?? [];
+        // No product shares this number. Fall back to a name unique on BOTH sides, but only where
+        // the numbers genuinely cannot be compared: a product with a qualifier is a different
+        // printing; a product numbered like another card of ours is that card; and two plain-digit
+        // numbers that differ are CONTRARY evidence ("Pikachu #027" is not "Pikachu - 088").
+        const sameName = (byName.get(nameKey) ?? []).filter((ip) => ip.qualifiers.length === 0);
         if (sameName.length === 1 && cardsByName.get(nameKey) === 1) {
-          chosen = sameName[0]!;
-          source = 'name_match';
-          confidence = 70;
+          const cand = sameName[0]!;
+          const sameScheme = PLAIN_DIGITS.test(numKey ?? '') && PLAIN_DIGITS.test(cand.numKey ?? '');
+          if (sameScheme || (cand.numKey != null && cardNumbers.has(cand.numKey))) {
+            failure = 'name-mismatch';
+          } else {
+            chosen = cand;
+            source = 'name_match';
+            confidence = 70;
+          }
         } else {
           failure = sameName.length > 1 || (cardsByName.get(nameKey) ?? 0) > 1 ? 'ambiguous-product' : 'no-product';
         }
       }
+    }
+    if (chosen && plainSiblingPid != null && plainSiblingPid !== chosen.row.productId) {
+      chosen = null;
+      failure = 'ambiguous-product';
     }
 
     if (!chosen) {
@@ -278,9 +295,14 @@ export function planSetLinks(
       const hit = want.find((w) => chosen!.printings.has(w));
       if (hit) {
         printing = hit;
-      } else if (card.variants.length === 1 && chosen.printings.size === 1) {
-        // The card's only variant, and the product is priced under exactly one printing:
-        // TCGplayer and TCGdex disagree on the foil NAME, not on which card this is.
+      } else if (
+        card.variants.length === 1 && chosen.printings.size === 1
+        && (v.kind === 'normal' || v.kind === 'holo')
+        && ['Normal', 'Holofoil'].includes([...chosen.printings][0]!)
+      ) {
+        // The card's only variant, and the product is priced under exactly one printing: TCGplayer
+        // and TCGdex disagree on the foil NAME (Normal <-> Holofoil), not on which card this is.
+        // Never across an EDITION: a holo Unlimited card must not take a "1st Edition Holofoil" price.
         printing = [...chosen.printings][0]!;
         conf = Math.min(conf, 85);
       }
@@ -296,7 +318,7 @@ export function planSetLinks(
       taken.add(slot);
       links.push({
         variantId: v.id, cardId: card.cardId, productId: chosen.row.productId, printing,
-        url: chosen.row.url ?? null, source, confidence: conf,
+        source, confidence: conf,
       });
       linkedThisCard = true;
     }

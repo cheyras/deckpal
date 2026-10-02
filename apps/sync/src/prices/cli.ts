@@ -113,9 +113,12 @@ async function main(): Promise<void> {
       console.log(JSON.stringify(r, null, 2));
     } else if (cmd === 'link-tcgcsv') {
       const dryRun = flag('dry-run') != null;
-      const r = await withLocks(client, ['prices-tcgcsv'], () =>
-        linkTcgcsvProducts(client, { sets: list('sets'), dryRun }));
+      // A dry run writes nothing, so it takes no lock: holding `prices-tcgcsv` from a laptop would
+      // turn the next scheduled price tick red for no reason.
+      const run = () => linkTcgcsvProducts(client, { sets: list('sets'), dryRun });
+      const r = dryRun ? await run() : await withLocks(client, ['prices-tcgcsv'], run);
       const { perSet, ...totals } = r;
+      if (r.failedSets.length) process.exitCode = 1;
       console.log(JSON.stringify(totals, null, 2));
       // One line per set, so a dry run can be read (and diffed) rather than only counted.
       for (const s of perSet) {

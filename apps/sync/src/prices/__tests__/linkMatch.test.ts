@@ -128,15 +128,15 @@ test('two unqualified products at one number and name are ambiguous, not a coin 
 });
 
 test('name-only fallback needs a name unique on BOTH sides, and carries confidence 70', () => {
-  const unique = planSetLinks([card(1, '999', 'Rare Thing', 'normal')], [product(1, 'Rare Thing - 012', '012')], [price(1, 'Normal')]);
+  const unique = planSetLinks([card(1, 'CC9', 'Rare Thing', 'normal')], [product(1, 'Rare Thing - 012', '012')], [price(1, 'Normal')]);
   assert.deepEqual(unique.links.map((l) => [l.source, l.confidence]), [['name_match', 70]]);
   const dupCards = planSetLinks(
-    [card(1, '998', 'Pikachu', 'normal'), card(2, '999', 'Pikachu', 'normal')],
+    [card(1, 'CC8', 'Pikachu', 'normal'), card(2, 'CC9', 'Pikachu', 'normal')],
     [product(1, 'Pikachu - 012', '012')], [price(1, 'Normal')],
   );
   assert.equal(dupCards.links.length, 0, 'two cards share the name, so the name proves nothing');
   const dupProducts = planSetLinks(
-    [card(1, '999', 'Pikachu', 'normal')],
+    [card(1, 'CC9', 'Pikachu', 'normal')],
     [product(1, 'Pikachu - 012', '012'), product(2, 'Pikachu - 013', '013')], [price(1, 'Normal'), price(2, 'Normal')],
   );
   assert.equal(dupProducts.links.length, 0);
@@ -171,7 +171,7 @@ test('a variant whose printing the product lacks is skipped — unless it is the
   assert.deepEqual(sole.links.map((l) => [l.printing, l.confidence]), [['Holofoil', 85]]);
 });
 
-test('an existing id is authoritative: never planned over, its (product, printing) is reserved, and it pins siblings', () => {
+test('an existing id is authoritative: never planned over, and its (product, printing) is reserved', () => {
   const owned: LinkCard = {
     cardId: 1, localId: '001', name: 'Foo',
     variants: [
@@ -186,9 +186,72 @@ test('an existing id is authoritative: never planned over, its (product, printin
     [price(5000, 'Normal'), price(5000, 'Reverse Holofoil'), price(5001, 'Normal')],
   );
   assert.deepEqual(plan.links.map((l) => [l.variantId, l.productId, l.printing]), [
-    [11, 5000, 'Reverse Holofoil'], // pinned to the sibling's product
+    [11, 5000, 'Reverse Holofoil'], // found the normal way, and the plain sibling agrees
     [20, 5001, 'Normal'],
   ]);
+});
+
+test('the id of a SPECIAL sibling is not identity evidence (the Umbreon shape: Poké Ball pattern $3.69, base $0.47)', () => {
+  const umbreon: LinkCard = {
+    cardId: 1, localId: '059', name: 'Umbreon',
+    variants: [
+      { id: 10, kind: 'reverse', productId: null, printing: null },
+      { id: 11, kind: 'holo', productId: null, printing: null },
+      { id: 12, kind: 'reverse-foil-pokeball', productId: 610578, printing: 'Reverse Holofoil' },
+    ],
+  };
+  const plan = planSetLinks(
+    [umbreon],
+    [product(610414, 'Umbreon - 059/131', '059/131'), product(610578, 'Umbreon (Poke Ball Pattern) - 059/131', '059/131')],
+    [price(610414, 'Holofoil'), price(610414, 'Reverse Holofoil'), price(610578, 'Holofoil')],
+  );
+  // Both plain variants resolve to the plain product — never to the pattern's 610578.
+  assert.deepEqual(plan.links.map((l) => [l.variantId, l.productId, l.printing]), [
+    [10, 610414, 'Reverse Holofoil'],
+    [11, 610414, 'Holofoil'],
+  ]);
+});
+
+test('a PLAIN sibling that already holds a different product than the one we found blocks the link', () => {
+  const c: LinkCard = {
+    cardId: 1, localId: '044', name: 'Charmander',
+    variants: [
+      { id: 10, kind: 'holo', productId: 477182, printing: 'Holofoil' }, // upstream says another card entirely
+      { id: 11, kind: 'normal', productId: null, printing: null },
+    ],
+  };
+  const plan = planSetLinks([c], [product(500, 'Charmander - 044', '044')], [price(500, 'Normal')]);
+  assert.equal(plan.links.length, 0, 'upstream and we disagree about which card this is');
+});
+
+test('name-only fallback: refuses qualified products, same-scheme numbers and numbers owned by another card', () => {
+  // (Prerelease) is a different printing than the plain card.
+  assert.equal(
+    planSetLinks([card(1, '023', 'Metang', 'normal')], [product(1, 'Metang (Delta Species) - 49/113 (Prerelease)', '49/113')], [price(1, 'Normal')]).links.length,
+    0,
+  );
+  // "Pikachu #027" is not "Pikachu - 088": two plain-digit numbers that differ are contrary evidence.
+  const sameScheme = planSetLinks(
+    [card(1, '027', 'Pikachu', 'normal'), card(2, '088', 'Pikachu ex', 'normal')],
+    [product(9, 'Pikachu - 088', '088')], [price(9, 'Normal')],
+  );
+  assert.equal(sameScheme.links.length, 0);
+  // A product numbered like ANOTHER of our cards is that card.
+  const owned = planSetLinks(
+    [card(1, 'CC020', 'Rare Thing', 'normal'), card(2, '12', 'Other', 'normal')],
+    [product(9, 'Rare Thing - 12', '12'), product(10, 'Other - 12', '12')], [price(9, 'Normal'), price(10, 'Normal')],
+  );
+  assert.equal(owned.links.find((l) => l.cardId === 1), undefined);
+  // The legitimate use: a different numbering SCHEME (CC-prefixed vs the original set's digits).
+  const cc = planSetLinks([card(1, 'CC020', 'Rare Thing', 'normal')], [product(9, 'Rare Thing - 020/102', '020/102')], [price(9, 'Normal')]);
+  assert.deepEqual(cc.links.map((l) => [l.productId, l.source]), [[9, 'name_match']]);
+});
+
+test('the lone-variant relabel never crosses an edition or a foil family', () => {
+  const edition = planSetLinks([card(1, '8', 'Machamp', 'holo')], [product(1, 'Machamp - 8/102', '8/102')], [price(1, '1st Edition Holofoil')]);
+  assert.equal(edition.links.length, 0, 'an Unlimited holo must not take a 1st Edition price');
+  const reverse = planSetLinks([card(1, '8', 'Machamp', 'reverse')], [product(1, 'Machamp - 8/102', '8/102')], [price(1, 'Holofoil')]);
+  assert.equal(reverse.links.length, 0, 'a reverse is not relabelled to a holo');
 });
 
 test('two variants can never be planned onto one (product, printing)', () => {

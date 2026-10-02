@@ -6,7 +6,7 @@
 // crash resumes mid-list; captured_at = TCGCSV's own last-updated.txt stamp, never now().
 
 import { fetchText, fetchJson, RateLimited } from './http.js';
-import { linkTcgcsvProducts, type LinkResult } from './linkTcgcsv.js';
+import { linkTcgcsvProducts } from './linkTcgcsv.js';
 import { toMinor, type TcgcsvPriceEnvelope, type TcgcsvPriceRow, type Metrics } from './types.js';
 import {
   type Queryable, type PricePoint, appendObservations, upsertCurrent, ensureObservationPartition,
@@ -104,55 +104,92 @@ export async function writeSetPrices(
 
 export interface IngestOpts {
   sets?: string[]; force?: boolean;
-  /** Run the link pass first (default true). Off only for tests and for isolating a price bug. */
+  /** Run the link pass (default true). Off only for tests and for isolating a price bug. */
   link?: boolean;
 }
 
-export async function ingestTcgcsvPrices(client: Queryable, opts: IngestOpts = {}): Promise<PriceIngestResult> {
+/** Test seams: the three things `ingestTcgcsvPrices` reaches over the network. */
+export interface IngestDeps {
+  fetchLastUpdated?: () => Promise<string>;
+  fetchGroupPrices?: (groupId: number) => Promise<TcgcsvPriceRow[]>;
+  linkProducts?: typeof linkTcgcsvProducts;
+}
+
+interface LinkStepResult { linked: number; assigned: number; failure: string | null }
+
+/**
+ * The link pass as its OWN sync_run job (`products-tcgcsv`), keyed on TCGCSV's stamp like the price
+ * ingest. That is what lets it retry independently: a failed link run is recorded `failed`, which
+ * `lastOkStamp` does not count, so the next 15-minute tick tries the link pass again instead of
+ * waiting for tomorrow's stamp — and a good one is recorded `ok`, so it costs one query per tick.
+ * A run restricted with `--sets` records no stamp, so it can never satisfy the full run.
+ */
+async function runLinkStep(
+  client: Queryable, stamp: string, filter: string[] | null, link: typeof linkTcgcsvProducts,
+): Promise<LinkStepResult> {
+  const runId = await startRun(client, 'products-tcgcsv', filter ? null : stamp);
+  try {
+    const r = await link(client, { sets: filter });
+    const failed = r.failedSets.length;
+    await finishRun(client, runId, failed ? 'failed' : 'ok', {
+      rowsWritten: r.variantsLinked, itemsSeen: r.setsScanned, itemsFailed: failed,
+      cursor: { groupsAssigned: r.groupsAssigned, unresolvedSets: r.unresolvedSets },
+      error: failed ? `${failed} set(s) failed: ${r.failedSets.slice(0, 5).map((f) => `${f.set}: ${f.error}`).join('; ')}` : undefined,
+    });
+    return {
+      linked: r.variantsLinked, assigned: r.groupsAssigned,
+      failure: failed ? `${failed} set(s) could not be linked (${r.failedSets[0]!.set}: ${r.failedSets[0]!.error})` : null,
+    };
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch { /* nothing open */ }
+    await finishRun(client, runId, 'failed', { error: err instanceof Error ? err.message : String(err) });
+    if (err instanceof RateLimited) throw err; // TCGCSV's policy is to stop the whole run
+    return { linked: 0, assigned: 0, failure: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function ingestTcgcsvPrices(
+  client: Queryable, opts: IngestOpts = {}, deps: IngestDeps = {},
+): Promise<PriceIngestResult> {
   const filter = opts.sets && opts.sets.length ? opts.sets : null;
-  const stamp = await fetchLastUpdated();
+  const stamp = await (deps.fetchLastUpdated ?? fetchLastUpdated)();
   const capturedAt = new Date(stamp); // the source's own timestamp — NOT now()
   if (Number.isNaN(capturedAt.getTime())) throw new Error(`unparseable last-updated.txt: "${stamp}"`);
+  const walkPrices = deps.fetchGroupPrices ?? fetchGroupPrices;
 
   if (!(await tryLock(client, 'prices-tcgcsv'))) throw new Error('prices-tcgcsv already running (advisory lock held)');
   try {
     // Skip-if-unchanged: only gate a full run (no set filter). A targeted --sets run always proceeds.
-    if (!opts.force && !filter) {
-      const last = await lastOkStamp(client, 'prices-tcgcsv');
-      if (last === stamp) return { sets: 0, groupsFetched: 0, observations: 0, current: 0, pricedVariants: 0, unmatchedRows: 0, skipped: true, stamp, linkedVariants: 0, assignedGroups: 0 };
+    const pricesUnchanged = !opts.force && !filter && (await lastOkStamp(client, 'prices-tcgcsv')) === stamp;
+
+    // Link first: the walk below starts from "sets that carry a groupId" and joins on "variants that
+    // carry a productId", so a link made after it prices the card a day late. It is decided apart
+    // from the price skip, so a failed link pass is retried on the next tick even though today's
+    // prices are already in. A failure is held and thrown once the prices that CAN be written are
+    // written, so the job goes red rather than cards staying unpriced behind a green dashboard.
+    let linkRun: LinkStepResult = { linked: 0, assigned: 0, failure: null };
+    if (opts.link !== false) {
+      const due = !!filter || !!opts.force || (await lastOkStamp(client, 'products-tcgcsv')) !== stamp;
+      if (due) linkRun = await runLinkStep(client, stamp, filter, deps.linkProducts ?? linkTcgcsvProducts);
     }
+    const linkFailed = (): Error =>
+      new Error(`the TCGCSV link pass failed, so cards TCGdex has no TCGplayer id for stay unpriced: ${linkRun.failure}`);
+
+    if (pricesUnchanged) {
+      if (linkRun.failure) throw linkFailed();
+      return {
+        sets: 0, groupsFetched: 0, observations: 0, current: 0, pricedVariants: 0, unmatchedRows: 0,
+        skipped: true, stamp, linkedVariants: linkRun.linked, assignedGroups: linkRun.assigned,
+      };
+    }
+
     const runId = await startRun(client, 'prices-tcgcsv', stamp);
     await ensureObservationPartition(client, capturedAt);
-
-    // Link first: the walk below starts from "sets that carry a groupId" and joins on
-    // "variants that carry a productId", so a link made after it prices the card a day late.
-    // A failure here must not stop the prices that CAN be written, and must not be quiet either:
-    // it is held and thrown after the run is recorded, so the job goes red instead of the card
-    // staying unpriced with every dashboard green. A rate limit is different — TCGCSV's policy
-    // is to stop the whole run, so that one is not held.
-    let link: LinkResult | null = null;
-    let linkError: unknown = null;
-    if (opts.link !== false) {
-      try {
-        link = await linkTcgcsvProducts(client, { sets: filter });
-      } catch (err) {
-        try { await client.query('ROLLBACK'); } catch { /* nothing open */ }
-        if (err instanceof RateLimited) {
-          await finishRun(client, runId, 'failed', { error: err.message });
-          throw err;
-        }
-        linkError = err;
-        console.error('[prices] TCGCSV link pass failed (prices continue):', err instanceof Error ? err.stack ?? err.message : err);
-      }
-    }
-    const linkedVariants = link?.variantsLinked ?? 0;
-    const assignedGroups = link?.groupsAssigned ?? 0;
-
     const sets = await resolveSets(client, filter);
     let observations = 0, matched = 0, unmatched = 0, groupsFetched = 0, lastGroup: number | null = null;
     try {
       for (const s of sets) {
-        const prices = await fetchGroupPrices(s.groupId);
+        const prices = await walkPrices(s.groupId);
         groupsFetched++;
         await client.query('BEGIN');
         const r = await writeSetPrices(client, s.setId, prices, capturedAt, runId);
@@ -165,17 +202,12 @@ export async function ingestTcgcsvPrices(client: Queryable, opts: IngestOpts = {
       await finishRun(client, runId, 'partial', { rowsWritten: observations, itemsSeen: groupsFetched, cursor: { lastGroup }, error: (err as Error).message });
       throw err;
     }
-    await finishRun(client, runId, linkError ? 'partial' : 'ok', {
-      rowsWritten: observations, itemsSeen: groupsFetched, cursor: { lastGroup, linkedVariants, assignedGroups },
-      error: linkError ? `link pass failed: ${linkError instanceof Error ? linkError.message : String(linkError)}` : undefined,
-    });
-    if (linkError) {
-      throw new Error(
-        'TCGCSV prices were ingested, but the link pass failed, so cards TCGdex has no TCGplayer id for ' +
-        `stay unpriced: ${linkError instanceof Error ? linkError.message : String(linkError)}`,
-      );
-    }
-    return { sets: sets.length, groupsFetched, observations, current: matched, pricedVariants: matched, unmatchedRows: unmatched, skipped: false, stamp, linkedVariants, assignedGroups };
+    await finishRun(client, runId, 'ok', { rowsWritten: observations, itemsSeen: groupsFetched, cursor: { lastGroup } });
+    if (linkRun.failure) throw linkFailed();
+    return {
+      sets: sets.length, groupsFetched, observations, current: matched, pricedVariants: matched,
+      unmatchedRows: unmatched, skipped: false, stamp, linkedVariants: linkRun.linked, assignedGroups: linkRun.assigned,
+    };
   } finally {
     await unlock(client, 'prices-tcgcsv');
   }

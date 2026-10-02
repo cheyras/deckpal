@@ -80,6 +80,10 @@ try {
     return ids;
   };
 
+  // bad: processed FIRST (lowest id). Its candidate group will be made to throw in the isolation test.
+  const bad = await mkSet('bad', 'Bad Network Set', 'BAD', null);
+  await mkCard(bad, '001', 'Whatever', [{ kind: 'normal' }]);
+
   // svp: TCGdex gave NO group and NO product ids — the Pikachu-with-Grey-Felt-Hat shape.
   const svp = await mkSet('svp', 'SVP Black Star Promos', 'SVP', null);
   const [felt] = await mkCard(svp, '085', 'Pikachu with Grey Felt Hat', [{ kind: 'normal' }]);
@@ -108,6 +112,7 @@ try {
     { groupId: 22872, name: 'SV: Scarlet & Violet Promo Cards', abbreviation: 'SVP' },
     { groupId: 999, name: 'SV99: Fixture Set', abbreviation: 'FIX' },
     { groupId: 31337, name: 'ZZZ: A Different Expansion', abbreviation: 'ZZZ' },
+    { groupId: 31338, name: 'BAD: Bad Network Set', abbreviation: 'BAD' },
   ];
   const DATA = {
     22872: {
@@ -136,6 +141,7 @@ try {
         price(7000, 'Normal'), price(7000, 'Holofoil'), price(8000, 'Normal'),
       ],
     },
+    31338: { products: [], prices: [] },
     31337: {
       products: [product(9000, 'Some Other Card - 001/50', '001/50'), product(9001, 'Another - 002/50', '002/50'), product(9002, 'Third - 003/50', '003/50')],
       prices: [price(9000, 'Normal'), price(9001, 'Normal'), price(9002, 'Normal')],
@@ -169,7 +175,7 @@ try {
     assert.equal(v.printing, 'Normal');
     assert.equal(v.id_source, 'number_match');
     assert.equal(v.conf, 100);
-    assert.equal(v.url, 'https://www.tcgplayer.com/product/518861');
+    assert.equal(v.url, null, 'the stored URL is left alone: the API builds it from product id + printing, so a later id reset cannot leave a stale link behind');
   });
 
   await test('a stamped-only product is refused; a lone finish descriptor is accepted at lower confidence', async () => {
@@ -238,6 +244,17 @@ try {
     assert.equal(r.perSet.length, 1);
     assert.equal((await variant(felt)).pid, 518861);
     assert.equal((await variant(barN)).pid, null, 'sv99 was not in scope');
+  });
+
+  await test('one set failing does not stop the others, and is reported', async () => {
+    await db.query(`UPDATE card_variant SET tcgplayer_product_id = NULL, tcgplayer_printing = NULL, id_source = 'none', id_confidence = 0 WHERE id = $1`, [felt]);
+    const r = await linkTcgcsvProducts(db, {
+      ...seams,
+      loadGroupData: async (g) => { if (g === 31338) throw new Error('HTTP 503'); return DATA[g]; },
+    });
+    assert.deepEqual(r.failedSets, [{ set: 'bad', error: 'HTTP 503' }]);
+    assert.equal((await variant(felt)).pid, 518861, 'svp was processed after the failing set and still linked');
+    assert.equal(r.variantsLinked, 2, 'rows actually updated: svp-085 plus sv99 Bar, which the previous case left unlinked');
   });
 
   results.status = 'passed';
