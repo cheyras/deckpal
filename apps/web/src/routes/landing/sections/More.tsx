@@ -41,6 +41,7 @@ export function MoreSection() {
 }
 
 function Carousel({ cards, label }: { cards: Card[]; label: string }) {
+  const m = COPY.more
   const track = useRef<HTMLUListElement>(null)
   const box = useRef<HTMLDivElement>(null)
   const onScreen = useOnScreen(box)
@@ -112,7 +113,7 @@ function Carousel({ cards, label }: { cards: Card[]; label: string }) {
             type="button"
             className="lp-icon-btn"
             onClick={() => setPaused((p) => !p)}
-            aria-label={paused ? 'Play the carousel' : 'Pause the carousel'}
+            aria-label={paused ? m.play : m.pause}
           >
             <Icon name={paused ? 'play' : 'pause'} size={14} strokeWidth={2.4} />
           </button>
@@ -125,7 +126,7 @@ function Carousel({ cards, label }: { cards: Card[]; label: string }) {
             nudge()
             step(-1)
           }}
-          aria-label="Previous"
+          aria-label={m.prev}
         >
           <Icon name="chevron-left" size={18} />
         </button>
@@ -136,7 +137,7 @@ function Carousel({ cards, label }: { cards: Card[]; label: string }) {
             nudge()
             step(1)
           }}
-          aria-label="Next"
+          aria-label={m.next}
         >
           <Icon name="chevron-right" size={18} />
         </button>

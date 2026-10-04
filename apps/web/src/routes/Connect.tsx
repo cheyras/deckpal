@@ -12,6 +12,7 @@
 import { useEffect } from 'react'
 import { Link } from '@tanstack/react-router'
 import { BrandLogo, Icon } from '../components/Icon'
+import { useSignedIn } from '../lib/session'
 import { SkipLink } from '../components/SkipLink'
 import { AiSymbol } from './landing/aiLogos'
 import { COPY } from './landing/copy'
@@ -23,6 +24,8 @@ import './landing/page.css'
 export function Connect() {
   const c = COPY.connect
   const p = COPY.connectPage
+  // Signed-in readers came here to connect their own account; offer them the app, not a sign-up.
+  const signedIn = useSignedIn() === true
   const s = p.sections
   useEffect(() => {
     const prev = document.title
@@ -40,12 +43,20 @@ export function Connect() {
             <BrandLogo height={26} />
           </Link>
           <span className="flex-1" />
-          <Link to="/auth" className="lp-nav-signin">
-            {COPY.nav.signIn}
-          </Link>
-          <Link to="/auth" search={{ mode: 'signup' as const }} className="ls-cta lp-btn lp-btn-primary lp-btn-sm">
-            {COPY.nav.cta}
-          </Link>
+          {signedIn ? (
+            <Link to="/series" className="ls-cta lp-btn lp-btn-primary lp-btn-sm">
+              {COPY.nav.openApp}
+            </Link>
+          ) : (
+            <>
+              <Link to="/auth" className="lp-nav-signin">
+                {COPY.nav.signIn}
+              </Link>
+              <Link to="/auth" search={{ mode: 'signup' as const }} className="ls-cta lp-btn lp-btn-primary lp-btn-sm">
+                {COPY.nav.cta}
+              </Link>
+            </>
+          )}
         </nav>
       </header>
       <main id="main" tabIndex={-1} className="lp-doc">
@@ -171,7 +182,7 @@ export function Connect() {
           </section>
         </div>
       </main>
-      <SiteFooter />
+      <SiteFooter aiLogos />
     </div>
   )
 }

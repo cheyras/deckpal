@@ -125,6 +125,7 @@ export const COPY = {
     cta: 'Start free',
     github: 'DeckPal on GitHub',
     menu: 'Menu',
+    openApp: 'Open DeckPal',
   },
 
   exampleLabel: 'Example',
@@ -147,6 +148,7 @@ export const COPY = {
     photoAlt:
       "A league-night table from the player's seat: Mega Chandelure ex in the active spot, Litwick, Lampent, Duskull and Dusclops on the bench.",
     demoLabel: 'An example chat with an AI connected to DeckPal',
+    connected: 'DeckPal connected',
     pause: 'Pause the example chat',
     play: 'Play the example chat',
     // One conversation that runs the whole loop, each task to its end. Every
@@ -268,6 +270,7 @@ export const COPY = {
     draw: 'Draw an opening hand',
     redraw: 'Shuffle and draw again',
     handLabel: 'Opening hand',
+    sampleTag: 'Sample deck',
     deckLabel: 'From the sample deck: Mega Chandelure ex / Dusknoir',
     basics: (n: number) => (n === 1 ? '1 Basic Pokémon in hand' : `${n} Basic Pokémon in hand`),
     mulligan: 'No Basic Pokémon. That is a mulligan: shuffle and draw again.',
@@ -316,6 +319,7 @@ export const COPY = {
     ],
     photoAlt: 'Singles in toploaders spilling from a padded mailer on a kitchen counter, beside a phone.',
     listTitle: 'Missing from Mega Chandelure ex / Dusknoir',
+    exampleTag: 'Example account',
     total: 'Cart total',
     printingLabel: 'Mega Chandelure ex printing',
     printingNote: 'All three play the same.',
@@ -444,6 +448,8 @@ export const COPY = {
       approve: 'Approve',
       approved: 'Saved',
       undo: 'Most changes can be reverted later.',
+      ownedNow: 'Owned: 1',
+      ownedWillBe: 'Owned: 0, will be 1',
       again: 'Try it again',
       collection: 'Cards in collection',
       before: 1284,
@@ -453,6 +459,10 @@ export const COPY = {
   more: {
     eyebrow: 'And more',
     headline: 'What else can DeckPal do?',
+    pause: 'Pause the carousel',
+    play: 'Play the carousel',
+    prev: 'Previous',
+    next: 'Next',
     cells: {
       prices: {
         title: 'Prices',

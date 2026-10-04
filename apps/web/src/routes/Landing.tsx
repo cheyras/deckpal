@@ -23,7 +23,7 @@
  * anything else that is not generally released.
  * ───────────────────────────────────────────────────────────────────────────── */
 import { SkipLink } from '../components/SkipLink'
-import { Nav, useScrollReveal, useScrollY } from './landing/parts'
+import { Nav, useScrollReveal, useScrolledPast } from './landing/parts'
 import { SiteFooter } from './landing/SiteFooter'
 import { AskSection } from './landing/sections/Ask'
 import { Hero } from './landing/sections/Hero'
@@ -36,12 +36,12 @@ import './landing/landing.css'
 import './landing/page.css'
 
 export function Landing() {
-  const scrollY = useScrollY()
+  const scrolled = useScrolledPast(12)
   useScrollReveal()
   return (
     <div className="ls lp min-h-screen">
       <SkipLink />
-      <Nav scrolled={scrollY > 12} />
+      <Nav scrolled={scrolled} />
       <StageBar />
       <main id="main" tabIndex={-1}>
         <Hero />

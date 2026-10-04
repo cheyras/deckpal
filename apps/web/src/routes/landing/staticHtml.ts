@@ -1,8 +1,8 @@
 /* The landing page as plain, semantic HTML: what a crawler that does not run
  * JavaScript reads, generated from the SAME copy the React page renders.
  *
- * `vite-plugins/landing-prerender.ts` writes this into `dist/landing.html`, which
- * vercel.json serves for `/`. It sits inside `#root`, visually hidden with the
+ * `vite-plugins/landing-prerender.ts` writes this into `dist/landing.html`, the
+ * document meant for `/` (not served yet: see that plugin). It sits inside `#root`, visually hidden with the
  * standard screen-reader-only clip, and React's first commit replaces it
  * (createRoot, not hydrateRoot, so there is nothing to mismatch). It is the same
  * words the visitor sees, so it is a text alternative rather than hidden
@@ -101,8 +101,11 @@ export function renderLandingStatic(): string {
   return `<div id="seo-landing">${parts.join('')}</div>`
 }
 
-/** FAQPage + WebApplication JSON-LD for the landing document. Truthful fields only: no ratings, no reviews. */
-export function landingJsonLd(): string {
+const ldScript = (j: object): string =>
+  `<script type="application/ld+json">${JSON.stringify(j).replace(/</g, '\\u003c')}</script>`
+
+/** WebApplication JSON-LD. It describes the whole site, so the build puts it on every route's shell. Truthful fields only: no ratings, no reviews. */
+export function appJsonLd(): string {
   const c = COPY
   const app = {
     '@context': 'https://schema.org',
@@ -124,6 +127,12 @@ export function landingJsonLd(): string {
     codeRepository: 'https://github.com/cheyras/deckpal',
     author: { '@type': 'Person', name: 'cheyras', url: 'https://github.com/cheyras' },
   }
+  return ldScript(app)
+}
+
+/** FAQPage JSON-LD. Only the landing shows the FAQ, so only the landing document carries it. */
+export function faqJsonLd(): string {
+  const c = COPY
   const faq = {
     '@context': 'https://schema.org',
     '@type': 'FAQPage',
@@ -133,7 +142,12 @@ export function landingJsonLd(): string {
       acceptedAnswer: { '@type': 'Answer', text: f.a },
     })),
   }
-  return [app, faq].map((j) => `<script type="application/ld+json">${JSON.stringify(j).replace(/</g, '\\u003c')}</script>`).join('\n')
+  return ldScript(faq)
+}
+
+/** Both blocks, as the landing document ends up with them. */
+export function landingJsonLd(): string {
+  return `${appJsonLd()}\n${faqJsonLd()}`
 }
 
 /** llms-full.txt: the llms.txt summary followed by every section's words, as markdown. */

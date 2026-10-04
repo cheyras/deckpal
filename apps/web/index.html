@@ -37,10 +37,10 @@
 
          NO canonical and NO og:url here (2026-09-30). Every route serves this
          file, so a canonical on it told search engines that /series, /pokedex
-         and /privacy were all the homepage. The landing document
-         (dist/landing.html, written by vite-plugins/landing-prerender.ts and
-         served for `/` by vercel.json) adds its own canonical, og:url,
-         WebApplication + FAQPage JSON-LD and the landing copy as semantic HTML.
+         and /privacy were all the homepage. The build adds WebApplication
+         JSON-LD here, and writes dist/landing.html with the landing's own
+         canonical, og:url, FAQPage JSON-LD and copy as semantic HTML (not yet
+         served for `/`: see vite-plugins/landing-prerender.ts).
          The words below are the landing's own (routes/landing/copy.ts `meta`);
          src/lib/__tests__/landingCopy.test.ts fails if they drift.
 

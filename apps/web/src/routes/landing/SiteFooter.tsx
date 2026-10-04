@@ -20,7 +20,8 @@ const LICENSE = `${REPO}/blob/main/LICENSE`
 
 const LINK = 'inline-block py-[12px] text-text-body hover:text-link'
 
-export function SiteFooter({ onLanding = false }: { onLanding?: boolean }) {
+/** `aiLogos`: the page shows other companies' AI logos, so it says it is not affiliated with them. */
+export function SiteFooter({ onLanding = false, aiLogos = onLanding }: { onLanding?: boolean; aiLogos?: boolean }) {
   return (
     <footer className="border-t border-border-default bg-surface-footer">
       <div className="ls-wrap py-[48px]">
@@ -93,9 +94,10 @@ export function SiteFooter({ onLanding = false }: { onLanding?: boolean }) {
           DeckPal is an independent, fan-made project. Pokémon and all related names are trademarks of
           Nintendo, Creatures Inc. and GAME FREAK inc. DeckPal is not affiliated with, endorsed or sponsored
           by them.
+          {aiLogos &&
+            ' DeckPal is not affiliated with or endorsed by Anthropic, OpenAI, Google, xAI, Perplexity, Mistral or TCGplayer; their product names and logos belong to them and appear only to say what DeckPal works with.'}
           {onLanding &&
-            ' DeckPal is not affiliated with or endorsed by Anthropic, OpenAI, Google, xAI, Perplexity, Mistral or TCGplayer; their product names and logos belong to them and appear only to say what DeckPal works with. ' +
-              'The photographs on this page are generated scenes with real card images added. Interface pictures are simplified recreations of the product.'}
+            ' The photographs on this page are generated scenes with real card images added. Interface pictures are simplified recreations of the product.'}
         </p>
       </div>
     </footer>

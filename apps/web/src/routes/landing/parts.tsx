@@ -90,16 +90,17 @@ export function useScrollReveal(): void {
   }, [])
 }
 
-/** rAF-throttled scroll position, for the nav's backdrop. */
-export function useScrollY(): number {
-  const [y, setY] = useState(0)
+/** Whether the page has scrolled past `px`, for the nav's backdrop. A boolean,
+ * so scrolling re-renders the page only when it crosses the line. */
+export function useScrolledPast(px: number): boolean {
+  const [past, setPast] = useState(false)
   useEffect(() => {
     let frame = 0
     const onScroll = () => {
       if (frame) return
       frame = requestAnimationFrame(() => {
         frame = 0
-        setY(window.scrollY)
+        setPast(window.scrollY > px)
       })
     }
     onScroll()
@@ -108,8 +109,8 @@ export function useScrollY(): number {
       window.removeEventListener('scroll', onScroll)
       if (frame) cancelAnimationFrame(frame)
     }
-  }, [])
-  return y
+  }, [px])
+  return past
 }
 
 /** setTimeout that is cleared on unmount and on every re-arm. */

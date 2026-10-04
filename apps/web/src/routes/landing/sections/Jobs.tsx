@@ -65,7 +65,7 @@ function ApproveDemo() {
             </strong>
             <span className="lp-muted">{d.lineMeta}</span>
           </span>
-          <span className="lp-delta" aria-label={approved ? 'Owned: 1' : 'Owned: 0, will be 1'}>
+          <span className="lp-delta" aria-label={approved ? d.ownedNow : d.ownedWillBe}>
             <span className={approved ? 'lp-muted' : ''}>0</span>
             <Icon name="arrow-right" size={14} />
             <strong>1</strong>

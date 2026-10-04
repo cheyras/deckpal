@@ -123,11 +123,11 @@ function HeroPhone() {
   const ending = !reduced && tt > total - 500
 
   return (
-    <div ref={ref} className="lp-phone">
+    <div ref={ref} className={`lp-phone ${paused ? 'is-paused' : ''}`}>
       <div className="lp-phone-screen" role="img" aria-label={`${h.demoLabel}. ${lines.map((l) => l.text).join(' ')}`}>
         <div className="lp-phone-bar">
           <span className="lp-phone-dot" />
-          <span>DeckPal connected</span>
+          <span>{h.connected}</span>
           <span className="flex-1" />
           <ExampleTag />
         </div>

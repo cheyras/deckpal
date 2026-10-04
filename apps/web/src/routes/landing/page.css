@@ -728,6 +728,11 @@
   background: var(--color-text-secondary);
   animation: lp-dot 1s ease-in-out infinite;
 }
+/* Pausing a chat stops all of its motion, the caret and the thinking dots too (WCAG 2.2.2). */
+.is-paused .lp-caret,
+.is-paused .lp-dots i {
+  animation-play-state: paused;
+}
 .lp-dots i:nth-child(2) {
   animation-delay: 150ms;
 }

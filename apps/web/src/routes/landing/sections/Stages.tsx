@@ -225,7 +225,7 @@ function HandDraw() {
       <div className="lp-panel lp-panel-hand">
         <div className="lp-panel-top">
           <span className="lp-panel-title">{p.handLabel}</span>
-          <ExampleTag label="Sample deck" />
+          <ExampleTag label={p.sampleTag} />
         </div>
         <ol className="lp-fan" key={round} aria-label={`${p.handLabel}: ${hand.map((id) => NAME.get(id)).join(', ')}`}>
           {hand.map((id, i) => (
@@ -421,7 +421,7 @@ function BuildDemo() {
       <div className="lp-panel lp-panel-build">
         <div className="lp-panel-top">
           <span className="lp-panel-title">{b.listTitle}</span>
-          <ExampleTag label="Example account" />
+          <ExampleTag label={b.exampleTag} />
         </div>
         <ul className="lp-cart">
           {rows.map((r) => (

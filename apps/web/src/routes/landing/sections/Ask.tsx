@@ -110,7 +110,7 @@ function Playground() {
   }
 
   return (
-    <div className="lp-play" ref={ref}>
+    <div className={`lp-play ${paused || (finished && !auto) ? 'is-paused' : ''}`} ref={ref}>
       <div className="lp-play-window">
         <div className="lp-play-head">
           <span className="lp-phone-dot" aria-hidden="true" />
