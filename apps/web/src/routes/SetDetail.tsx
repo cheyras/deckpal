@@ -2,9 +2,9 @@ import { useDesktopTable } from '../lib/useDesktopTable'
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { useParams, useSearch, useNavigate } from '@tanstack/react-router'
-import { api, ApiError, type SetDetailResponse } from '../lib/api'
+import { api, type SetDetailResponse } from '../lib/api'
 import { fmtCalendarDate } from '../lib/format'
-import { usePageMeta, type PageMeta } from '../lib/seo'
+import { catalogPath, errorMeta, usePageMeta, type PageMeta } from '../lib/seo'
 import { Content, Spinner, ErrorState, BackPill } from '../components/ui'
 import { SetHeader } from '../components/SetHeader'
 import { OwnershipStrip, SearchBox, SortChips, VariantLegend, ViewToggle } from '../components/FilterControls'
@@ -117,6 +117,7 @@ function setMeta(data: SetDetailResponse): PageMeta {
   return {
     title: titles.find((t) => t.length <= TITLE_MAX) ?? titles[titles.length - 1]!,
     description: `${cards} from the ${series.name} series${released}${shows}`,
+    path: catalogPath('series', series.slug, data.set.setId),
   }
 }
 
@@ -172,7 +173,7 @@ export function SetDetail() {
     described
       ? setMeta(described)
       : error
-        ? { title: error instanceof ApiError && error.status === 404 ? 'Set not found' : 'Set unavailable', noindex: true }
+        ? errorMeta(error, 'Set')
         : null,
   )
 

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
-import { api, ApiError, type CardDetailResponse, type ValueRange, type Variant } from '../lib/api'
-import { usePageMeta, type PageMeta } from '../lib/seo'
+import { api, type CardDetailResponse, type ValueRange, type Variant } from '../lib/api'
+import { catalogPath, errorMeta, usePageMeta, type PageMeta } from '../lib/seo'
 import { Content, Spinner, ErrorState, BackPill, SetSymbolTile, Tabs } from '../components/ui'
 import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
@@ -447,7 +447,7 @@ function cardMeta(data: CardDetailResponse): PageMeta {
         DESCRIPTION_MAX,
       )
     : firstThatFits([`${from}. See its printings, card details and format legality.`, `${from}.`], DESCRIPTION_MAX)
-  return { title, description }
+  return { title, description, path: catalogPath('series', c.series.slug, c.set.setId, c.number) }
 }
 
 // Standalone route (deep links / direct navigation to /series/$series/$set/$number).
@@ -469,7 +469,7 @@ export function CardDetail() {
     data
       ? cardMeta(data)
       : error
-        ? { title: error instanceof ApiError && error.status === 404 ? 'Card not found' : 'Card unavailable', noindex: true }
+        ? errorMeta(error, 'Card')
         : null,
   )
   return (

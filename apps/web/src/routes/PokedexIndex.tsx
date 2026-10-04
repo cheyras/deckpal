@@ -239,7 +239,8 @@ export function PokedexIndex() {
     title: 'Pokédex: Pokémon TCG cards by species',
     description:
       'Browse every Pokémon in the National Pokédex by generation, then open any one to see every Pokémon TCG card it appears on.',
-    noindex: !!error && !data,
+    // A load error here is passing, not a missing page: no canonical, but no noindex.
+    canonical: !(error && !data),
   })
 
   // Completion is scoped to the selected generation, independent of the own/search

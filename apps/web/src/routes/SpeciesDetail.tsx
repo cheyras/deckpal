@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useParams, useSearch, useNavigate } from '@tanstack/react-router'
-import { api, ApiError, type CardRow, type SpeciesDetailCard, type SpeciesDetailResponse } from '../lib/api'
+import { api, type CardRow, type SpeciesDetailCard, type SpeciesDetailResponse } from '../lib/api'
 import { Content, Spinner, ErrorState, BackPill } from '../components/ui'
 import { GridView } from '../components/GridView'
 import { SpriteTile } from '../components/SpriteTile'
@@ -10,7 +10,7 @@ import { CardSheet } from './CardDetail'
 import { fmtNumber, typeColor } from '../lib/format'
 import { SignInPrompt } from '../components/SignInPrompt'
 import { useLateEntrance } from '../lib/lateEntrance'
-import { usePageMeta, type PageMeta } from '../lib/seo'
+import { errorMeta, usePageMeta, type PageMeta } from '../lib/seo'
 
 /**
  * This page's title and description, from the species header. `cardPool` is
@@ -92,7 +92,7 @@ export function SpeciesDetail() {
     data
       ? speciesMeta(data)
       : error
-        ? { title: error instanceof ApiError && error.status === 404 ? 'Pokémon not found' : 'Pokémon unavailable', noindex: true }
+        ? errorMeta(error, 'Pokémon')
         : null,
   )
   // Series slug map (tcgdexId → slug) for correct card-detail links.

@@ -16,6 +16,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { COPY } from '../../routes/landing/copy'
+import { SITE_DEFAULTS } from '../siteMeta'
 import { landingJsonLd, renderConnectStatic, renderLandingStatic, renderLlmsFull } from '../../routes/landing/staticHtml'
 
 const everything = JSON.stringify(COPY) + renderLandingStatic() + renderConnectStatic() + renderLlmsFull() + landingJsonLd()
@@ -87,6 +88,10 @@ test('the /connect prerender has one h1, the connector URL, every compatibility 
   for (const r of COPY.connect.table) assert.ok(html.includes(r.app), `connect prerender is missing ${r.app}`)
   assert.ok(html.includes(COPY.connect.disclaimer))
   assert.ok(COPY.connectPage.metaDescription.length <= 160, 'connect description fits a results page')
+})
+
+test("lib/seo.ts's site defaults are the landing meta, word for word", () => {
+  assert.deepEqual(SITE_DEFAULTS, COPY.meta)
 })
 
 test('example answers stay labelled', () => {

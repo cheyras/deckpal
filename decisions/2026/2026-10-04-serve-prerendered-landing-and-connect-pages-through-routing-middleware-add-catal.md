@@ -18,13 +18,13 @@ supersedes: []
 - **`/landing.html` no longer sends `X-Robots-Tag: noindex`.** Now that the middleware serves that file for `/`, a header keyed on the file risked noindexing the homepage. The document's canonical (`https://deckpal.app/`) already folds direct requests into `/`.
 - **Every public page sets its own metadata at runtime.** `lib/seo.ts` exports `usePageMeta`, which sets the title, description, og/twitter text, a canonical of origin plus path with no query string (cloud only), and `robots: noindex` where asked.
   - It is wired into the landing, `/connect`, `/privacy`, `/series`, series, set, card, `/pokedex` and species pages.
-  - Not-found and error states are noindex, and so are search results and the auth pages.
+  - A real 404 is noindex, and so are search results, the auth pages and unknown URLs (a router-wide `defaultNotFoundComponent`). A passing error (5xx, timeout) only drops the canonical, so a bad crawl does not drop an indexed page. Card and set canonicals are built from the record, not the address bar.
   - Before this, all twenty-odd thousand catalog pages shared the landing's title and description.
   - The card page sets its metadata in the route, not the shared card body, because that body is also the `?card=` sheet over other pages.
 - **Catalog sitemaps.** `apps/api/src/sitemaps.ts` serves `/sitemap-pages.xml`, `/sitemap-sets.xml`, `/sitemap-cards.xml` and `/sitemap-pokedex.xml` from the live catalog.
   - It reads the same `browsable_*` views and builds paths the way `CardLink` does.
   - They sit at the bare origin, because a sitemap may only list URLs at or below its own path. They are cloud-only and cached for a day at the CDN (`s-maxage=86400`).
-  - The query string is ignored. vercel.json's rewrite passes its `:file` parameter on as `?file=…`, so redirecting query strings to the clean URL looped on the preview. Query variants that dodge the CDN cache are bounded by the sitemaps' own 30/min per-IP limit, which they need anyway because they sit outside the `/api` flood guard.
+  - A visitor's query string is redirected to the clean URL, so query variants cannot dodge the CDN cache, and they have their own 30/min per-IP limit because they sit outside the `/api` flood guard. The vercel.json source is an unnamed group: a named `:file` param arrived as `?file=…`, and the redirect looped on the preview until it was changed.
   - `public/sitemap.xml` is now a sitemap index of the four, and robots.txt already points at it.
   - The Pocket-exclusion integration suite checks them against the real migrations.
 - **`DECKPAL_PUBLIC_ORIGIN` is documented** in DEPLOYMENT.md. The OAuth routes already read it, and now the sitemaps do too, with a default of `https://deckpal.app`.

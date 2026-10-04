@@ -139,7 +139,7 @@
       "destination": "/api"
     },
     {
-      "source": "/:file(sitemap-[a-z]+\\.xml)",
+      "source": "/(sitemap-[a-z]+\\.xml)",
       "destination": "/api"
     },
     {

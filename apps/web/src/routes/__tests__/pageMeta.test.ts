@@ -11,6 +11,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { catalogPath, errorMeta } from '../../lib/siteMeta'
 
 // CRLF on a Windows checkout; the region scan below looks for "\n}\n".
 const read = (rel: string) =>
@@ -59,23 +60,32 @@ test('every public catalog, privacy, search and auth page sets its own metadata'
   }
 })
 
-test('a record page that failed to find its record is not indexed', () => {
+test('a record page that failed to load uses errorMeta: noindex on a 404, no canonical otherwise', () => {
   const cases: [keyof typeof PAGES, string][] = [
-    ['SeriesDetail', 'Series not found'],
-    ['SetDetail', 'Set not found'],
-    ['CardDetail', 'Card not found'],
-    ['SpeciesDetail', 'Pokémon not found'],
+    ['SeriesDetail', 'Series'],
+    ['SetDetail', 'Set'],
+    ['CardDetail', 'Card'],
+    ['SpeciesDetail', 'Pokémon'],
   ]
-  for (const [name, title] of cases) {
-    const call = metaRegions(read(PAGES[name])).find((r) => r.includes(title))
-    assert.ok(call, `${name} must title its not-found state "${title}"`)
-    assert.match(call!, /error instanceof ApiError && error\.status === 404/, `${name} must key "${title}" off a 404`)
-    assert.match(call!, /noindex: true/, `${name}'s not-found state must pass noindex`)
+  for (const [name, thing] of cases) {
+    const call = metaRegions(read(PAGES[name])).find((r) => r.startsWith('('))
+    assert.ok(call?.includes(`errorMeta(error, '${thing}')`), `${name} must title its failed state with errorMeta(error, '${thing}')`)
   }
-  // The list pages have no single record, but a failed load is still not the list.
+  // A 404 is a page that does not exist; anything else is a bad moment that
+  // must not tell a search engine to forget an indexed page.
+  assert.deepEqual(errorMeta({ status: 404 }, 'Card'), { title: 'Card not found', noindex: true })
+  assert.deepEqual(errorMeta({ status: 503 }, 'Card'), { title: 'Card unavailable', canonical: false })
+  assert.deepEqual(errorMeta(new Error('timeout'), 'Set'), { title: 'Set unavailable', canonical: false })
+  // The list pages have no single record; a failed load drops the canonical only.
   for (const name of ['SeriesIndex', 'PokedexIndex'] as const) {
-    assert.match(read(PAGES[name]), /noindex: !!error && !data/, `${name} must not be indexed while showing a load error`)
+    assert.match(read(PAGES[name]), /canonical: !\(error && !data\)/, `${name} must drop its canonical while showing a load error`)
   }
+})
+
+test('card and set canonicals are built from the record, encoded like the sitemaps', () => {
+  assert.match(read(PAGES.CardDetail), /path: catalogPath\('series', c\.series\.slug, c\.set\.setId, c\.number\)/)
+  assert.match(read(PAGES.SetDetail), /path: catalogPath\('series', series\.slug, data\.set\.setId\)/)
+  assert.equal(catalogPath('series', 'ex', 'exu', '?'), '/series/ex/exu/%3F')
 })
 
 test('search results and the auth pages are never indexed', () => {

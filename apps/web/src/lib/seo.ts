@@ -11,45 +11,22 @@
  * The canonical is the cloud origin plus the path, never the query string, so a
  * set page with filters or a card sheet open still points at the one page. It
  * is cloud-only: a self-hosted DeckPal is not deckpal.app and is not crawled.
- * A page that failed to find its record passes `noindex`, so a mistyped card
- * URL (which the SPA still answers with 200) is not indexed as a page.
+ * A real 404 passes `noindex` (`errorMeta`), so a mistyped card URL, which the
+ * SPA still answers with 200, is not indexed as a page.
  *
- * On unmount everything returns to index.html's values, captured once at load,
- * so a page without this hook never inherits the previous page's title.
+ * On unmount everything returns to SITE_DEFAULTS (lib/siteMeta.ts), so a page
+ * without this hook never inherits the previous page's title. The defaults are
+ * not read back from the document, because the first document of a visit may
+ * be a prerendered one with another page's title (connect.html).
  * ───────────────────────────────────────────────────────────────────────────── */
 import { useEffect } from 'react'
+import { cleanPath, fullTitle, SITE_DEFAULTS, SITE_ORIGIN, type PageMeta } from './siteMeta'
 import { isCloudMode } from './supabase'
 
-export const SITE_ORIGIN = 'https://deckpal.app'
-export const SITE_NAME = 'DeckPal'
-
-export type PageMeta = {
-  /** The page's own title; " | DeckPal" is appended unless it already ends with it. */
-  title: string
-  /** One or two plain sentences that are true of what the page shows. */
-  description?: string
-  /** The path to canonicalize to. Defaults to the current pathname. */
-  path?: string
-  /** Keep this page out of search results (not-found states, search results, auth). */
-  noindex?: boolean
-}
-
-type Defaults = { title: string; description: string; ogTitle: string; ogDescription: string }
-
-let defaults: Defaults | null = null
+export { catalogPath, errorMeta, fullTitle, SITE_DEFAULTS, SITE_NAME, SITE_ORIGIN, type PageMeta } from './siteMeta'
 
 function meta(selector: string): HTMLMetaElement | null {
   return document.head.querySelector<HTMLMetaElement>(selector)
-}
-
-function captureDefaults(): Defaults {
-  defaults ??= {
-    title: document.title,
-    description: meta('meta[name="description"]')?.content ?? '',
-    ogTitle: meta('meta[property="og:title"]')?.content ?? '',
-    ogDescription: meta('meta[property="og:description"]')?.content ?? '',
-  }
-  return defaults
 }
 
 function upsertMeta(attr: 'name' | 'property', key: string, content: string | null): void {
@@ -80,15 +57,10 @@ function upsertCanonical(href: string | null): void {
   el.href = href
 }
 
-export function fullTitle(title: string): string {
-  return title.endsWith(`| ${SITE_NAME}`) || title === SITE_NAME ? title : `${title} | ${SITE_NAME}`
-}
-
 /** Apply a page's metadata now. Exported for tests; pages use `usePageMeta`. */
 export function applyPageMeta(m: PageMeta, pathname: string): void {
-  const d = captureDefaults()
   const title = fullTitle(m.title)
-  const description = m.description ?? d.description
+  const description = m.description ?? SITE_DEFAULTS.description
   document.title = title
   upsertMeta('name', 'description', description)
   upsertMeta('property', 'og:title', title)
@@ -96,13 +68,13 @@ export function applyPageMeta(m: PageMeta, pathname: string): void {
   upsertMeta('name', 'twitter:title', title)
   upsertMeta('name', 'twitter:description', description)
   upsertMeta('name', 'robots', m.noindex ? 'noindex' : null)
-  const url = isCloudMode && !m.noindex ? SITE_ORIGIN + (m.path ?? pathname) : null
+  const url = isCloudMode && !m.noindex && m.canonical !== false ? SITE_ORIGIN + cleanPath(m.path ?? pathname) : null
   upsertCanonical(url)
   upsertMeta('property', 'og:url', url)
 }
 
 export function resetPageMeta(): void {
-  const d = captureDefaults()
+  const d = SITE_DEFAULTS
   document.title = d.title
   upsertMeta('name', 'description', d.description)
   upsertMeta('property', 'og:title', d.ogTitle)
@@ -123,9 +95,10 @@ export function usePageMeta(m: PageMeta | null): void {
   const description = m?.description
   const path = m?.path
   const noindex = m?.noindex
+  const canonical = m?.canonical
   useEffect(() => {
     if (title === undefined) return
-    applyPageMeta({ title, description, path, noindex }, window.location.pathname)
-  }, [title, description, path, noindex])
+    applyPageMeta({ title, description, path, noindex, canonical }, window.location.pathname)
+  }, [title, description, path, noindex, canonical])
   useEffect(() => resetPageMeta, [])
 }

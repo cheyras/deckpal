@@ -297,7 +297,8 @@ export function SeriesIndex() {
     title: 'Pokémon TCG series and sets',
     description:
       "Browse every English Pokémon TCG series and its sets, with each era's first release date, set count and card count.",
-    noindex: !!error && !data,
+    // A load error here is passing, not a missing page: no canonical, but no noindex.
+    canonical: !(error && !data),
   })
 
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs)

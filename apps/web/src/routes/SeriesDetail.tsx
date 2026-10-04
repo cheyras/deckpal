@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
-import { api, ApiError, type SeriesDetailResponse, type SetSummary } from '../lib/api'
+import { api, type SeriesDetailResponse, type SetSummary } from '../lib/api'
 import { Content, Spinner, ErrorState, BackPill, SetSymbolTile, ProgressBar } from '../components/ui'
 import { SetLogo } from '../components/SetLogo'
 import { UpcomingSetRow } from '../components/UpcomingSetRow'
@@ -8,7 +8,7 @@ import { fmtCalendarDate, setLevelLabel, setLevelFromCounts } from '../lib/forma
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
 import { useLateEntrance } from '../lib/lateEntrance'
 import { bundledSetLogo } from '../lib/releasedSetAssets'
-import { usePageMeta, type PageMeta } from '../lib/seo'
+import { errorMeta, usePageMeta, type PageMeta } from '../lib/seo'
 
 /**
  * This page's title and description. Counts SETS the way the heading does
@@ -139,7 +139,7 @@ export function SeriesDetail() {
     data
       ? seriesMeta(data)
       : error
-        ? { title: error instanceof ApiError && error.status === 404 ? 'Series not found' : 'Series unavailable', noindex: true }
+        ? errorMeta(error, 'Series')
         : null,
   )
 

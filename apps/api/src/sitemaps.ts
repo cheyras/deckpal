@@ -87,11 +87,16 @@ export async function sitemapPaths(name: string): Promise<string[] | null> {
 }
 
 async function serve(req: Request, res: Response): Promise<void> {
-  // The query string is ignored, not redirected away: vercel.json's rewrite
-  // passes its `:file` parameter to this function as `?file=…`, so a redirect
-  // to the bare path answered every request with a 301 to itself (seen on the
-  // PR #277 preview). Query variants that dodge the CDN cache are bounded by
-  // sitemapRateLimit instead.
+  // A visitor's query string would give each variant its own CDN cache entry
+  // and send every one to the database, so it is redirected to the clean URL.
+  // Keys a Vercel rewrite adds itself are not a visitor's: an earlier named
+  // `:file` source arrived here as `?file=…`, and redirecting that answered
+  // every request with a 301 to itself (PR #277 preview). The source is an
+  // unnamed group now, which adds nothing; the allowance stays as a guard.
+  if (Object.keys(req.query).some((k) => !/^(?:file|\d+)$/.test(k))) {
+    res.redirect(301, req.path);
+    return;
+  }
   const name = /^\/sitemap-([a-z]+)\.xml$/.exec(req.path)?.[1] ?? '';
   if (!Object.hasOwn(BUILDERS, name)) {
     res.status(404).type('text/plain').send('Not found');
