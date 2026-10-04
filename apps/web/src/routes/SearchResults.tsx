@@ -8,6 +8,7 @@ import { Icon } from '../components/Icon'
 import { GridView } from '../components/GridView'
 import { type GlobalSearch, type GlobalSortKey } from './globalSearch'
 import { useLateEntrance } from '../lib/lateEntrance'
+import { usePageMeta } from '../lib/seo'
 
 const PAGE_SIZE = 60
 
@@ -75,6 +76,13 @@ export function SearchResults() {
   }, [term])
 
   const trimmed = search.q.trim()
+  // Never indexed: a results page per query is an endless set of near-copies
+  // of the set and card pages, which are the pages worth finding.
+  usePageMeta({
+    title: trimmed ? `Search results for “${trimmed}”` : 'Search',
+    description: 'Search every Pokémon TCG card by name or number.',
+    noindex: true,
+  })
   const { data, isLoading, error, isFetching } = useQuery({
     queryKey: ['globalSearch', trimmed, search.sort, search.dir, search.page],
     queryFn: ({ signal }) => {

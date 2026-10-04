@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
-import { api, type SetSummary } from '../lib/api'
+import { api, ApiError, type SeriesDetailResponse, type SetSummary } from '../lib/api'
 import { Content, Spinner, ErrorState, BackPill, SetSymbolTile, ProgressBar } from '../components/ui'
 import { SetLogo } from '../components/SetLogo'
 import { UpcomingSetRow } from '../components/UpcomingSetRow'
@@ -8,6 +8,27 @@ import { fmtCalendarDate, setLevelLabel, setLevelFromCounts } from '../lib/forma
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
 import { useLateEntrance } from '../lib/lateEntrance'
 import { bundledSetLogo } from '../lib/releasedSetAssets'
+import { usePageMeta, type PageMeta } from '../lib/seo'
+
+/**
+ * This page's title and description. Counts SETS the way the heading does
+ * (the Coming Soon row is not a set yet), and leaves the date out rather than
+ * printing fmtCalendarDate's dash when the series has none.
+ */
+function seriesMeta(data: SeriesDetailResponse): PageMeta {
+  const name = data.series.name
+  const count = data.sets.filter((s) => !s.upcoming).length
+  const first = fmtCalendarDate(data.series.firstReleaseOn)
+  const sets = count === 1 ? 'The one set' : `All ${count} sets`
+  const released = data.series.firstReleaseOn && first !== '—' ? `, first released ${first}` : ''
+  return {
+    title: `${name} Pokémon TCG sets`,
+    description:
+      count === 0
+        ? `The ${name} series of the Pokémon TCG. No sets in it have been released yet.`
+        : `${sets} in the ${name} series of the Pokémon TCG${released}, each with its release date and full card list.`,
+  }
+}
 
 function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
   // Absent for a logged-out visitor — the row then shows the set's own facts
@@ -113,6 +134,14 @@ export function SeriesDetail() {
     queryFn: ({ signal }) => api.seriesDetail(series, signal),
   })
   const enter = useLateEntrance(isLoading)
+
+  usePageMeta(
+    data
+      ? seriesMeta(data)
+      : error
+        ? { title: error instanceof ApiError && error.status === 404 ? 'Series not found' : 'Series unavailable', noindex: true }
+        : null,
+  )
 
   return (
     <Content cap={1200}>

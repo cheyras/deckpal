@@ -11,6 +11,7 @@ import { SignInPrompt } from '../components/SignInPrompt'
 import { tailwindGradientStops } from '../lib/gradientPalette'
 import { useLateEntrance } from '../lib/lateEntrance'
 import { pushSettings, SETTINGS_HYDRATED_EVENT } from '../lib/settingsSync'
+import { usePageMeta } from '../lib/seo'
 
 // ── Sort / group preferences (issue 14i8ys) ────────────────────────────────
 // Saved (via "Save as default") to the ACCOUNT — user_settings.series_* per
@@ -288,6 +289,16 @@ export function SeriesIndex() {
   const enter = useLateEntrance(isLoading)
   const signedIn = useSignedIn()
   const signedOut = signedIn === false
+
+  // The copy names nothing that comes from the response, so it is set at once
+  // rather than after the fetch. A failed fetch keeps the title but is not
+  // indexed: what renders then is an error, not the list.
+  usePageMeta({
+    title: 'Pokémon TCG series and sets',
+    description:
+      "Browse every English Pokémon TCG series and its sets, with each era's first release date, set count and card count.",
+    noindex: !!error && !data,
+  })
 
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs)
   // The account's values can land after this mounted (boot sync, or sign-in

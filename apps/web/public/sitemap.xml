@@ -1,12 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>https://deckpal.app/</loc>
-  </url>
-  <url>
-    <loc>https://deckpal.app/privacy</loc>
-  </url>
-  <url>
-    <loc>https://deckpal.app/connect</loc>
-  </url>
-</urlset>
+<!-- Sitemap index. The four sitemaps are generated from the live catalog by
+     apps/api/src/sitemaps.ts and cached for a day at the CDN. -->
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap>
+    <loc>https://deckpal.app/sitemap-pages.xml</loc>
+  </sitemap>
+  <sitemap>
+    <loc>https://deckpal.app/sitemap-sets.xml</loc>
+  </sitemap>
+  <sitemap>
+    <loc>https://deckpal.app/sitemap-cards.xml</loc>
+  </sitemap>
+  <sitemap>
+    <loc>https://deckpal.app/sitemap-pokedex.xml</loc>
+  </sitemap>
+</sitemapindex>

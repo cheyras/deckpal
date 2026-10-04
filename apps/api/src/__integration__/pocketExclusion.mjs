@@ -537,6 +537,31 @@ async function main() {
       assert.deepEqual(movers, []);
     });
 
+    // The search-engine sitemaps (apps/api/src/sitemaps.ts) list exactly the
+    // pages the web app renders, so they must leave Pocket out too, and each
+    // card URL must be the shape CardLink builds: series slug, set tcgdex id,
+    // collector number.
+    await check('sitemaps: list the physical set, card and species and nothing from Pocket', async () => {
+      const { sitemapPaths } = await import(pathToFileURL(join(REPO, 'apps/api/src/sitemaps.ts')));
+      const physical = (
+        await pool.query(
+          `SELECT s.slug, cs.tcgdex_id AS set, c.local_id FROM card c JOIN card_set cs ON cs.id = c.set_id JOIN series s ON s.id = cs.series_id WHERE c.tcgdex_id = $1`,
+          [fixture.physicalCardId],
+        )
+      ).rows[0];
+      const cardPath = `/series/${encodeURIComponent(physical.slug)}/${encodeURIComponent(physical.set)}/${encodeURIComponent(physical.local_id)}`;
+      const pages = await sitemapPaths('pages');
+      const sets = await sitemapPaths('sets');
+      const cards = await sitemapPaths('cards');
+      const dex = await sitemapPaths('pokedex');
+      assert.ok(pages.includes('/') && pages.includes('/connect') && pages.includes(`/series/${physical.slug}`), JSON.stringify(pages));
+      assert.deepEqual(sets, [`/series/${physical.slug}/${physical.set}`]);
+      assert.deepEqual(cards, [cardPath]);
+      assert.deepEqual(dex, ['/pokedex/6']);
+      assert.ok(![...pages, ...sets, ...cards].some((p) => /A1|tcgp|pocket/i.test(p)), 'no Pocket path in any sitemap');
+      assert.equal(await sitemapPaths('nope'), null);
+    });
+
     // LAST: mutates the fixture (zeroes the owned Pocket variant), so every
     // check above that depends on it still being owned (topMovers, the
     // owned-exception checks) must run first.

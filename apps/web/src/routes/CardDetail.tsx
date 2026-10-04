@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
-import { api, type ValueRange, type Variant } from '../lib/api'
+import { api, ApiError, type CardDetailResponse, type ValueRange, type Variant } from '../lib/api'
+import { usePageMeta, type PageMeta } from '../lib/seo'
 import { Content, Spinner, ErrorState, BackPill, SetSymbolTile, Tabs } from '../components/ui'
 import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
@@ -409,14 +410,71 @@ function TcgTab({ cardId }: { cardId: string }) {
 }
 
 
+/** Search results cut a title off at about this many characters. */
+const TITLE_MAX = 65
+const DESCRIPTION_MAX = 155
+
+function firstThatFits(candidates: string[], max: number): string {
+  return candidates.find((c) => c.length <= max) ?? candidates[candidates.length - 1]!
+}
+
+/**
+ * The card page's title and description. The name leads because it is what
+ * people search for; the number is the raw printed one ("4/102", not the page's
+ * padded "#004/102"), since that is what is typed. Prices, price history and
+ * printings are only claimed when a printing has a USD market price, which is
+ * what the variant rows show as TCGplayer's. Format legality is on every card's
+ * TCG tab. Long names shed words from the end rather than overrunning the cut.
+ */
+function cardMeta(data: CardDetailResponse): PageMeta {
+  const c = data.card
+  const num = c.printedTotal ? `${c.number}/${c.printedTotal}` : c.number
+  const lead = `${c.name} ${num}`
+  const priced = data.variants.some((v) => v.prices.some((p) => p.currency === 'USD' && p.market != null))
+  const title = firstThatFits(
+    priced
+      ? [`${lead} · ${c.set.name} price and details`, `${lead} · ${c.set.name} price`, `${lead} · ${c.set.name}`, lead]
+      : [`${lead} · ${c.set.name} card details`, `${lead} · ${c.set.name}`, lead],
+    TITLE_MAX,
+  )
+  const from = `${lead} from ${c.set.name}`
+  const description = priced
+    ? firstThatFits(
+        [
+          `${from}, with TCGplayer market prices, updated daily. See its printings, price history and format legality.`,
+          `${from}, with TCGplayer market prices, updated daily.`,
+        ],
+        DESCRIPTION_MAX,
+      )
+    : firstThatFits([`${from}. See its printings, card details and format legality.`, `${from}.`], DESCRIPTION_MAX)
+  return { title, description }
+}
+
 // Standalone route (deep links / direct navigation to /series/$series/$set/$number).
 // Renders the shared body inside the page Content column; on the set page the same
 // body is rendered inside CardSheet instead.
 export function CardDetail() {
   const { series, set, number } = useParams({ from: '/series/$series/$set/$number' })
+  const cardId = `${set}-${number}`
+  // The page's metadata is set HERE, not in CardDetailBody, because the body is
+  // also the card sheet over the set, species and deck pages: a sheet that set
+  // the title would relabel the page beneath it, and resetting on close would
+  // wipe that page's own title. Same key as the body's query, so this reads the
+  // one request rather than making a second.
+  const { data, error } = useQuery({
+    queryKey: ['card', cardId],
+    queryFn: ({ signal }) => api.card(cardId, signal),
+  })
+  usePageMeta(
+    data
+      ? cardMeta(data)
+      : error
+        ? { title: error instanceof ApiError && error.status === 404 ? 'Card not found' : 'Card unavailable', noindex: true }
+        : null,
+  )
   return (
     <Content cap={1165}>
-      <CardDetailBody cardId={`${set}-${number}`} backTo={{ series, set }} />
+      <CardDetailBody cardId={cardId} backTo={{ series, set }} />
     </Content>
   )
 }

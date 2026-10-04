@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useParams, useSearch, useNavigate } from '@tanstack/react-router'
-import { api, type CardRow, type SpeciesDetailCard } from '../lib/api'
+import { api, ApiError, type CardRow, type SpeciesDetailCard, type SpeciesDetailResponse } from '../lib/api'
 import { Content, Spinner, ErrorState, BackPill } from '../components/ui'
 import { GridView } from '../components/GridView'
 import { SpriteTile } from '../components/SpriteTile'
@@ -10,6 +10,28 @@ import { CardSheet } from './CardDetail'
 import { fmtNumber, typeColor } from '../lib/format'
 import { SignInPrompt } from '../components/SignInPrompt'
 import { useLateEntrance } from '../lib/lateEntrance'
+import { usePageMeta, type PageMeta } from '../lib/seo'
+
+/**
+ * This page's title and description, from the species header. `cardPool` is
+ * the header's own "N cards feature X" count. Prices are only mentioned when
+ * one of the tiles has one to show.
+ */
+function speciesMeta(data: SpeciesDetailResponse): PageMeta {
+  const { name, genus, speciesId, cardPool } = data.species
+  const who = genus ? `${name}, the ${genus}` : name
+  const priced = data.cards.some((c) => c.price?.market != null)
+  const prices = priced ? ', with TCGplayer market prices, updated daily' : ''
+  return {
+    title: `${name} Pokémon cards · Pokédex ${fmtNumber(String(speciesId))}`,
+    description:
+      cardPool === 0
+        ? `${who}. No Pokémon TCG cards feature ${name} yet.`
+        : cardPool === 1
+          ? `The one Pokémon TCG card featuring ${who}${prices}.`
+          : `All ${cardPool.toLocaleString('en-US')} Pokémon TCG cards featuring ${who}${prices}.`,
+  }
+}
 
 // The card-detail route param $series is a series SLUG (e.g. "scarlet-violet"),
 // but the species-detail cards only carry the serie tcgdexId (e.g. "sv") inside
@@ -65,6 +87,14 @@ export function SpeciesDetail() {
   })
   // Issue #49: the wrapper entrance fires while this is still a spinner.
   const enter = useLateEntrance(isLoading && !data)
+  // The ?card= sheet sets nothing, so this stays the page being described.
+  usePageMeta(
+    data
+      ? speciesMeta(data)
+      : error
+        ? { title: error instanceof ApiError && error.status === 404 ? 'Pokémon not found' : 'Pokémon unavailable', noindex: true }
+        : null,
+  )
   // Series slug map (tcgdexId → slug) for correct card-detail links.
   const seriesQ = useQuery({ queryKey: ['series'], queryFn: ({ signal }) => api.series(signal), staleTime: Infinity })
   const slugByTcgdex = useMemo(() => {

@@ -10,6 +10,7 @@ import { fmtNumber, typeColor } from '../lib/format'
 import { useSignedIn } from '../lib/session'
 import { SignInPrompt } from '../components/SignInPrompt'
 import { useLateEntrance } from '../lib/lateEntrance'
+import { usePageMeta } from '../lib/seo'
 
 type Own = 'all' | 'captured' | 'uncaptured'
 
@@ -230,6 +231,16 @@ export function PokedexIndex() {
     placeholderData: keepPreviousData,
   })
   const enter = useLateEntrance(isLoading && !data)
+
+  // Generation, search and filter are component state, not the URL, so there
+  // is one /pokedex page to describe whatever is selected. Nothing here comes
+  // from the response; a failed load keeps the title and is not indexed.
+  usePageMeta({
+    title: 'Pokédex: Pokémon TCG cards by species',
+    description:
+      'Browse every Pokémon in the National Pokédex by generation, then open any one to see every Pokémon TCG card it appears on.',
+    noindex: !!error && !data,
+  })
 
   // Completion is scoped to the selected generation, independent of the own/search
   // filters. We fetch the gen's full (own=all, no search) species list and count

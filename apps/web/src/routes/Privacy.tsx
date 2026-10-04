@@ -31,6 +31,7 @@ import { Link } from '@tanstack/react-router'
 import { BrandLogo } from '../components/Icon'
 import { SkipLink } from '../components/SkipLink'
 import { useAccess } from '../lib/access'
+import { usePageMeta } from '../lib/seo'
 import { REPO, SiteFooter } from './landing/SiteFooter'
 import './landing/landing.css'
 
@@ -285,6 +286,13 @@ function OnThisPage() {
 /* ── page ─────────────────────────────────────────────────────────────────── */
 
 export function Privacy() {
+  // The description is the page's own opening, so the two cannot drift apart
+  // in meaning. Change one, change the other.
+  usePageMeta({
+    title: 'Privacy',
+    description:
+      'DeckPal is a Pokémon TCG collection tracker. This page covers what deckpal.app collects, which outside services receive it, and what you can do about it.',
+  })
   return (
     <div className="ls min-h-screen bg-surface-primary">
       <SkipLink />

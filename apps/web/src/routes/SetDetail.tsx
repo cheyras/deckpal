@@ -2,7 +2,9 @@ import { useDesktopTable } from '../lib/useDesktopTable'
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { useParams, useSearch, useNavigate } from '@tanstack/react-router'
-import { api } from '../lib/api'
+import { api, ApiError, type SetDetailResponse } from '../lib/api'
+import { fmtCalendarDate } from '../lib/format'
+import { usePageMeta, type PageMeta } from '../lib/seo'
 import { Content, Spinner, ErrorState, BackPill } from '../components/ui'
 import { SetHeader } from '../components/SetHeader'
 import { OwnershipStrip, SearchBox, SortChips, VariantLegend, ViewToggle } from '../components/FilterControls'
@@ -87,6 +89,37 @@ function useCardReveal(setId: string): GridReveal | null {
   return reveal
 }
 
+/** Search results cut a title off at about this many characters. */
+const TITLE_MAX = 65
+
+/**
+ * This page's title and description, from the set header's own facts.
+ *
+ * "and prices" is only claimed when the set has a market value, which is the
+ * header's sign that its cards are priced; an unpriced set (old promos, a set
+ * released this week) is described by what its tiles do show. The title drops
+ * the series, then the prices, when a long set name would run it past the cut.
+ */
+function setMeta(data: SetDetailResponse): PageMeta {
+  const { name, series, cardCountTotal, releasedOn, marketValueUsd } = data.set
+  const priced = marketValueUsd != null
+  const listed = priced ? `${name} card list and prices` : `${name} card list`
+  const titles = [name === series.name ? listed : `${listed} · ${series.name}`, listed, `${name} card list`]
+  const date = fmtCalendarDate(releasedOn)
+  const cards =
+    cardCountTotal === 1
+      ? `The one card in ${name}`
+      : cardCountTotal > 0
+        ? `All ${cardCountTotal.toLocaleString('en-US')} cards in ${name}`
+        : `The ${name} card list`
+  const released = releasedOn && date !== '—' ? `, released ${date}` : ''
+  const shows = priced ? ', with TCGplayer market prices, updated daily.' : ", with each card's number and rarity."
+  return {
+    title: titles.find((t) => t.length <= TITLE_MAX) ?? titles[titles.length - 1]!,
+    description: `${cards} from the ${series.name} series${released}${shows}`,
+  }
+}
+
 export function SetDetail() {
   const { series, set } = useParams({ from: '/series/$series/$set' })
   const search = useSearch({ from: '/series/$series/$set' })
@@ -129,6 +162,19 @@ export function SetDetail() {
   })
   // Issue #49: the wrapper entrance fires while this is still a spinner.
   const enter = useLateEntrance(isLoading && !data)
+
+  // `keepPreviousData` holds the LAST set's rows while the next set loads, so a
+  // placeholder from a different set is not this page's to describe. A filter
+  // or sort change keeps the same set and keeps its title. The ?card= sheet
+  // sets nothing: this page stays the one being described underneath it.
+  const described = data && !(isPlaceholderData && data.set.setId !== set) ? data : null
+  usePageMeta(
+    described
+      ? setMeta(described)
+      : error
+        ? { title: error instanceof ApiError && error.status === 404 ? 'Set not found' : 'Set unavailable', noindex: true }
+        : null,
+  )
 
   const allCards = data?.cards ?? []
   const counts = useMemo(() => {
