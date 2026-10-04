@@ -19,6 +19,7 @@ const CHROMELESS_PATHS = new Set([
   '/auth/reset', // password-recovery link target
   '/signed-out', // post-sign-out confirmation
   '/privacy', // what DeckPal collects and who receives it — linked from the landing footer and sign-up, so it must read signed-out
+  '/connect', // how to connect an AI app — linked from the landing, read before anyone has an account
   '/authorize', // OAuth "Connect" consent screen — must render signed-out, see Authorize.tsx
   '/design', // design-system editor — no app chrome; owner-only in prod (gated in main.tsx via /me.designEditor)
   '/dev/decke', // Deck-E three.js preview — full-viewport canvas; owner-only in prod (gated in main.tsx via /me.owner)

@@ -63,6 +63,8 @@ export type IconName =
   | 'pencil'
   | 'panel'
   | 'arrow-right'
+  | 'pause'
+  | 'play'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   cards: (
@@ -348,6 +350,8 @@ const PATHS: Record<IconName, React.ReactNode> = {
   pencil: <><path d="M4 20l4.2-1 10.5-10.5a2.1 2.1 0 00-3-3L5.2 16z" /><path d="M14.5 6.5l3 3" /></>,
   panel: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M8 9v11" /></>,
   'arrow-right': <path d="M4 12h16M14 6l6 6-6 6" />,
+  pause: <path d="M9 5v14M15 5v14" />,
+  play: <path d="M7 5l12 7-12 7z" />,
 }
 
 export function Icon({

@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import designEditor from './vite-plugins/design-editor.ts'
+import { landingPrerender } from './vite-plugins/landing-prerender.ts'
 import { LIVE_ORIGIN, fetchPublicConfig } from './live-backend.ts'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,6 +142,7 @@ export default defineConfig(async ({ command }) => {
       react(),
       tailwindcss(),
       designEditor(),
+      landingPrerender(),
       devWriteGuard(!!live, process.env.DECKPAL_DEV_ALLOW_BUGS === '1'),
       // PWA — injectManifest (hand-written src/sw.ts) so we control the SSO
       // JSON guard, network-only mutations, and the LRU image cap (wiki: Frontend-Research §C.2).
@@ -258,6 +260,8 @@ export default defineConfig(async ({ command }) => {
           globIgnores: [
             'models/**',
             'assets/Decke-*.js',
+            // The prerendered landing document is served for `/` by vercel.json, not by the shell.
+            'landing.html',
             'dev-assets/**',
             'scan-assets/**',
             'logo/*-dark.svg',

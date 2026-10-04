@@ -24,6 +24,15 @@
   ],
   "headers": [
     {
+      "source": "/landing.html",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
+    },
+    {
       "source": "/assets/(.*)",
       "headers": [
         {
@@ -149,6 +158,10 @@
     {
       "source": "/.well-known/oauth-protected-resource",
       "destination": "/api"
+    },
+    {
+      "source": "/",
+      "destination": "/landing.html"
     },
     {
       "source": "/:path((?!assets/|.*\\.(?:png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|otf|css|js|mjs|map|txt|xml|json|webmanifest|glb|hdr|bin)$).*)",

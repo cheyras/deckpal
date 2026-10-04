@@ -1,5 +1,11 @@
 # Marketing imagery — credits and provenance
 
+> **Updated 2026-09-29.** The landing page no longer uses the abstract images below except
+> `og-image-1200.jpg`. It shows real Pokémon card art loaded from DeckPal's own image store
+> (nominative use; see the footer disclaimer and `decisions/2026/2026-09-29-landing-page-rewrite-*`).
+> The statement further down that nothing here depicts real trading cards describes these
+> generated files only, not the page.
+
 > **Status: shipped.** Generated 2026-08-10 with `bfl/flux-2-pro` through the Vercel AI
 > Gateway — 3 candidates per asset, 18 images, $0.83 total. (The earlier
 > `403 customer_verification_required` block was a team-level payment precondition on

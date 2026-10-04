@@ -31,60 +31,47 @@
 
     <!-- SEO / social. This document is the SPA shell for BOTH the marketing
          landing at / and the app behind it, and nothing in the app sets
-         document.title at runtime, so these are static and describe the
+         document.title at runtime, so these are static and describe the whole
          product. Absolute URLs: og:/twitter: crawlers do not resolve relative
-         ones. Self-host builds serve the app from /deckpal on a private host
-         where none of this is crawled — harmless there, correct on cloud. -->
-    <title>DeckPal — Connect Claude to your Pokémon TCG collection</title>
+         ones.
+
+         NO canonical and NO og:url here (2026-09-30). Every route serves this
+         file, so a canonical on it told search engines that /series, /pokedex
+         and /privacy were all the homepage. The landing document
+         (dist/landing.html, written by vite-plugins/landing-prerender.ts and
+         served for `/` by vercel.json) adds its own canonical, og:url,
+         WebApplication + FAQPage JSON-LD and the landing copy as semantic HTML.
+         The words below are the landing's own (routes/landing/copy.ts `meta`);
+         src/lib/__tests__/landingCopy.test.ts fails if they drift.
+
+         Only generally released features are named here; landingCopy.test.ts
+         enforces it. -->
+    <title>AI Deck Builder for the Pokémon TCG | DeckPal</title>
     <meta
       name="description"
-      content="Connect Claude to your own Pokémon TCG collection over MCP and ask what you can build from the cards you own, what is losing you games, and what to buy next. DeckPal tracks all 20,964 English cards down to the printing — set completion, price history and a PTCG Live deck builder. Free and open source."
+      content="Plan, playtest and tune Pokémon TCG decks with the AI you already use. It knows your whole collection. Pay what you want, $0 included."
     />
-    <!-- "a camera scanner" was in that sentence until 2026-09-07, and the JSON-LD
-         below said "a perceptual-hash card scanner". The scanner became
-         owner-only that day, so both were advertising to search engines and
-         social crawlers a feature that answers Not Found for every reader who
-         could arrive from them. Restore both phrases when it reopens. -->
-    <link rel="canonical" href="https://deckpal.app/" />
 
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="DeckPal" />
-    <meta property="og:url" content="https://deckpal.app/" />
-    <meta property="og:title" content="DeckPal — Connect Claude to your Pokémon TCG collection" />
+    <meta property="og:title" content="DeckPal: plan, playtest and tune your Pokémon TCG decks with AI" />
     <meta
       property="og:description"
-      content="Ask Claude what you can build from the cards you own. DeckPal hands your collection, decks, prices and battle logs to your own Claude over MCP — 21 tools, one connector. Free and open source."
+      content="Connect your AI to your cards, decks and PTCG Live battle logs. Then work on the deck together and show up to league night confident."
     />
     <meta property="og:image" content="https://deckpal.app/marketing/og-image-1200.jpg" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:type" content="image/jpeg" />
-    <meta property="og:image:alt" content="DeckPal — Pokémon TCG collection tracker" />
+    <meta property="og:image:alt" content="DeckPal, an AI deck-building companion for the Pokémon TCG" />
 
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="DeckPal — Connect Claude to your Pokémon TCG collection" />
+    <meta name="twitter:title" content="DeckPal: plan, playtest and tune your Pokémon TCG decks with AI" />
     <meta
       name="twitter:description"
-      content="Ask Claude what you can build from the cards you own. DeckPal hands your collection, decks, prices and battle logs to your own Claude over MCP — 21 tools, one connector. Free and open source."
+      content="Connect your AI to your cards, decks and PTCG Live battle logs. Then work on the deck together and show up to league night confident."
     />
     <meta name="twitter:image" content="https://deckpal.app/marketing/og-image-1200.jpg" />
-
-    <script type="application/ld+json">
-      {
-        "@context": "https://schema.org",
-        "@type": "SoftwareApplication",
-        "name": "DeckPal",
-        "url": "https://deckpal.app/",
-        "applicationCategory": "UtilitiesApplication",
-        "operatingSystem": "Web",
-        "description": "Open-source Pokémon TCG collection tracker with an MCP server: connect your own Claude to your collection, decks, prices and battle logs through 21 tools. Per-printing collection tracking with set completion goals, daily price history and collection value over time, a deck builder with PTCG Live import/export and version history, battle-log parsing, binders, lists and a Pokédex.",
-        "license": "https://www.gnu.org/licenses/agpl-3.0.html",
-        "isAccessibleForFree": true,
-        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-        "codeRepository": "https://github.com/cheyras/deckpal",
-        "author": { "@type": "Person", "name": "cheyras", "url": "https://github.com/cheyras" }
-      }
-    </script>
   </head>
   <body>
     <!--

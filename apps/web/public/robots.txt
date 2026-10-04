@@ -1,0 +1,12 @@
+# DeckPal. Crawlers and AI assistants are welcome on the public pages.
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /auth
+Disallow: /authorize
+Disallow: /profile
+
+# One group on purpose: a bot named in its own group would skip the
+# disallows above (robots.txt applies only the most specific matching group).
+
+Sitemap: https://deckpal.app/sitemap.xml

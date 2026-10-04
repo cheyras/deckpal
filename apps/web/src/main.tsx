@@ -78,6 +78,7 @@ const Insights = lazyRoute('./routes/Insights', () => import('./routes/Insights'
 const Profile = lazyRoute('./routes/Profile', () => import('./routes/Profile'), 'Profile')
 const Credits = lazyRoute('./routes/credits/Credits', () => import('./routes/credits/Credits'), 'Credits')
 const Privacy = lazyRoute('./routes/Privacy', () => import('./routes/Privacy'), 'Privacy')
+const Connect = lazyRoute('./routes/Connect', () => import('./routes/Connect'), 'Connect')
 const Scan = lazyRoute('./routes/Scan', () => import('./routes/Scan'), 'Scan')
 const Devtools = lazyRoute('./routes/Devtools', () => import('./routes/Devtools'), 'Devtools')
 const Admin = lazyRoute('./routes/admin/Admin', () => import('./routes/admin/Admin'))
@@ -598,6 +599,16 @@ const privacyRoute = createRoute({
   component: Privacy,
 })
 
+// How to connect an AI app: the detail behind the landing's Connect section.
+// Cloud-only for the same reason as /privacy: the connector URL it teaches is
+// deckpal.app's, not a self-hosted copy's.
+const connectRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/connect',
+  beforeLoad: cloudOnly,
+  component: Connect,
+})
+
 const coreRoutes = [
   indexRoute,
   authRoute,
@@ -605,6 +616,7 @@ const coreRoutes = [
   authResetRoute,
   signedOutRoute,
   privacyRoute,
+  connectRoute,
   seriesIndexRoute,
   seriesDetailRoute,
   setDetailRoute,
