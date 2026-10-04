@@ -1,0 +1,15 @@
+# DeckPal. Crawlers and AI assistants are welcome on the public pages.
+User-agent: *
+Allow: /
+Disallow: /auth
+Disallow: /authorize
+Disallow: /profile
+
+# One group on purpose: a bot named in its own group would skip the
+# disallows above (robots.txt applies only the most specific matching group).
+#
+# /api/ is NOT disallowed: the public catalog pages are drawn in the browser
+# from /api/series, /api/sets, /api/cards and friends, and a renderer that obeys
+# robots.txt would index them as empty shells. Private endpoints answer 401.
+
+Sitemap: https://deckpal.app/sitemap.xml

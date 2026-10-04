@@ -15,9 +15,11 @@
  *      scrolls to the top after every render it commits, so an in-page anchor
  *      that silently snapped back to the top is a real way for this to break.
  *
- * The page is static copy, so the fixture server answers exactly one API path,
- * the boot-time `/api/public-config` every page asks for. Any other request
- * the page starts making later fails this suite through `server.unexpected`
+ * The page is static copy, so the fixture server answers the boot-time
+ * `/api/public-config` every page asks for, plus the landing's own public reads
+ * (step 4 starts on `/`): the catalog totals from `/api/series`, card prices
+ * from `/api/cards/:id`, and card art from the object store. Any other request
+ * either page starts making later fails this suite through `server.unexpected`
  * instead of passing unnoticed.
  */
 import assert from 'node:assert/strict'
@@ -32,13 +34,25 @@ const HEADING = 'Privacy at DeckPal'
 // Every page asks for the deployment's display defaults at boot (lib/settingsSync.ts);
 // this is what production answered on 2026-09-27, minus its Supabase fields.
 const PUBLIC_CONFIG = { mode: 'cloud', bugReportsPublic: true, defaults: { skin: 'premium', topbar: 'cover' } }
+// The landing's anonymous catalog reads (routes/landing/data.ts), answered with
+// just enough shape for the page to render its live numbers.
+const SERIES = { series: [{ slug: 'mega-evolution', tcgdexId: 'me', name: 'Mega Evolution', firstReleaseOn: '2025-09-25',
+  sortOrder: 20, setCount: 205, cardCount: 21290, repSetId: 'me01', repHasLogo: true, repHasSymbol: true }] }
+const PIXEL = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64')
+function respond(rel) {
+  if (rel === '/api/public-config') return { body: PUBLIC_CONFIG }
+  if (rel === '/api/series') return { body: SERIES }
+  if (/^\/api\/cards\/[a-z0-9.]+-\d+[a-z]?$/i.test(rel)) return { body: { card: {}, variants: [] } }
+  if (rel.startsWith('/storage/v1/object/public/card-art/')) return { raw: PIXEL, type: 'image/png' }
+  return null
+}
 
 export function browserSuites({ browser, out, scratch, results, logs }) {
   return [{
     name: 'privacy',
     async run() {
       const dist = path.join(scratch, 'privacy')
-      const server = await serve(dist, '', (rel) => rel === '/api/public-config' ? { body: PUBLIC_CONFIG } : null)
+      const server = await serve(dist, '', respond)
       try {
         logs.push(await buildWeb(dist, true, server.origin))
         results.push(...await checkPrivacy(browser, server, out))

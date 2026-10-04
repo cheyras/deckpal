@@ -82,3 +82,27 @@ in Vercel's upload. A successful local build alone does not prove both.
 Keep the metadata path local (`/brand/pokemon-30th-celebration-logo.webp`).
 `SetLogo` prefixes it with `import.meta.env.BASE_URL` so the same asset loads
 at cloud `/` and self-host `/deckpal/`.
+
+## `ai/` — the AI apps DeckPal works with
+
+Logos for the "works with" strip, the compatibility table and the connect
+buttons on the landing page (`src/routes/landing/aiLogos.tsx`). Every file is the
+company's own, copied byte-for-byte; nothing was redrawn, recoloured or cropped.
+Added 2026-10-04 at the owner's instruction ("If they tell me to take them down
+I will"), knowing that four of the six companies' guidelines ask for permission
+first. The page carries a no-affiliation line next to the logos and in the
+footer. If a company asks, remove its files and the component falls back to the
+app's name.
+
+| File | Source | Variant | Their rule, briefly |
+|---|---|---|---|
+| `claude-symbol.svg`, `claude-lockup.svg` | Anthropic press kit (`anthropic.com/press-kit`) | Spark in Clay; logo in Ivory for dark grounds | Any use needs Anthropic's prior approval; no recolouring; no implied endorsement |
+| `chatgpt-symbol.svg` | OpenAI brand page, `cdn.openai.com/brand/openai-logos.zip` | Blossom, white | Conditional public use; "without permission" is on their Don't list; never pair their wordmark with the Blossom (we print "ChatGPT" in our own type instead; there is no ChatGPT mark) |
+| `gemini-symbol.png` | `gemini.google.com`'s own icon (`gstatic.com/lamda/images/gemini_sparkle_4g_512_lt_…png`), because Google's kit needs a partner login | 512 px sparkle | Google requires approval for product icons and for compatibility claims |
+| `grok-symbol.svg`, `grok-lockup.svg` | xAI brand guidelines, `data.x.ai/logos/SpaceXAI_Grok_Assets.zip` | "Light" (white) for dark grounds | Allowed to refer to Grok accurately, exactly as provided, no endorsement |
+| `perplexity-symbol.svg`, `perplexity-lockup.svg` | Perplexity brand guidelines (`live.standards.site/perplexity`) | Paper White | No third-party grant; partners are asked to get in touch |
+| `mistral-symbol.svg`, `mistral-lockup.svg` | `mistral.ai/brand`, `Mistral_Logos_2026.zip` | Gradient symbol, white wordmark | Open to partners; clear space = symbol height; lockup ≥100 px wide, symbol ≥20 px |
+
+Rules we keep for all of them: show them as shipped (no CSS filters or
+recolouring), keep them smaller than DeckPal's own mark, give each clear space,
+and never place them so they read as an endorsement.

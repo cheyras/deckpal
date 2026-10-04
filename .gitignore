@@ -41,6 +41,10 @@ assets/sprites/
 !apps/web/public/marketing/
 !apps/web/public/marketing/*.webp
 !apps/web/public/marketing/*.avif
+# The landing page's composited photographs (scripts/gen-landing-photos.mjs).
+!apps/web/public/marketing/landing/
+!apps/web/public/marketing/landing/*.webp
+!apps/web/public/marketing/landing/*.avif
 
 # And so is Deck-E's card back, for exactly the same reason and with exactly the
 # same failure when it is missing. `**/*.webp` above swallowed it silently: `git

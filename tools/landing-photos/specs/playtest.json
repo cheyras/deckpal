@@ -1,0 +1,28 @@
+{
+ "scene": "../../../.marketing-raw/landing/playtest/gemini-3-pro-image-r2a-muu9c2j5-0.png",
+ "out": "../../../.marketing-raw/landing/final/playtest.png",
+ "cards": [
+  {
+   "art": "../../../.marketing-raw/landing/cards/me05-038.webp",
+   "quad": [
+    [
+     1625,
+     1008
+    ],
+    [
+     1887,
+     1143
+    ],
+    [
+     1656,
+     1418
+    ],
+    [
+     1406,
+     1280
+    ]
+   ],
+   "snap": 6
+  }
+ ]
+}

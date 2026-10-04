@@ -18,12 +18,13 @@ export const REPO = 'https://github.com/cheyras/deckpal'
 const WIKI = `${REPO}/wiki`
 const LICENSE = `${REPO}/blob/main/LICENSE`
 
-const LINK = 'text-text-body hover:text-link'
+const LINK = 'inline-block py-[12px] text-text-body hover:text-link'
 
-export function SiteFooter({ onLanding = false }: { onLanding?: boolean }) {
+/** `aiLogos`: the page shows other companies' AI logos, so it says it is not affiliated with them. */
+export function SiteFooter({ onLanding = false, aiLogos = onLanding }: { onLanding?: boolean; aiLogos?: boolean }) {
   return (
     <footer className="border-t border-border-default bg-surface-footer">
-      <div className="ls-wrap py-[42px]">
+      <div className="ls-wrap py-[48px]">
         <div className="flex flex-col gap-[32px] md:flex-row md:justify-between">
           <div className="max-w-[320px]">
             <span className="flex items-center">
@@ -36,10 +37,10 @@ export function SiteFooter({ onLanding = false }: { onLanding?: boolean }) {
 
           <div className="flex gap-[48px]">
             <div>
-              <h2 className="mb-[10px] text-[12px] font-bold uppercase tracking-[0.1em] text-text-secondary">
+              <h2 className="mb-[8px] text-[12px] font-bold uppercase tracking-[0.1em] text-text-secondary">
                 Product
               </h2>
-              <ul className="flex flex-col gap-[8px] text-[14px]">
+              <ul className="flex flex-col text-[14px] leading-[20px]">
                 <li>
                   <Link to="/auth" search={{ mode: 'signup' as const }} className={LINK}>
                     Create account
@@ -65,10 +66,10 @@ export function SiteFooter({ onLanding = false }: { onLanding?: boolean }) {
               </ul>
             </div>
             <div>
-              <h2 className="mb-[10px] text-[12px] font-bold uppercase tracking-[0.1em] text-text-secondary">
+              <h2 className="mb-[8px] text-[12px] font-bold uppercase tracking-[0.1em] text-text-secondary">
                 Open source
               </h2>
-              <ul className="flex flex-col gap-[8px] text-[14px]">
+              <ul className="flex flex-col text-[14px] leading-[20px]">
                 <li>
                   <a href={REPO} target="_blank" rel="noreferrer" className={LINK}>
                     GitHub
@@ -89,10 +90,14 @@ export function SiteFooter({ onLanding = false }: { onLanding?: boolean }) {
           </div>
         </div>
 
-        <p className="mt-[36px] border-t border-border-default pt-[20px] text-[12px] leading-[1.6] text-text-muted">
+        <p className="mt-[32px] border-t border-border-default pt-[24px] text-[12px] leading-[1.6] text-text-muted">
           DeckPal is an independent, fan-made project. Pokémon and all related names are trademarks of
           Nintendo, Creatures Inc. and GAME FREAK inc. DeckPal is not affiliated with, endorsed or sponsored
-          by them.{onLanding && ' Interface illustrations on this page are stylised recreations of the product.'}
+          by them.
+          {aiLogos &&
+            ' DeckPal is not affiliated with or endorsed by Anthropic, OpenAI, Google, xAI, Perplexity, Mistral or TCGplayer; their product names and logos belong to them and appear only to say what DeckPal works with.'}
+          {onLanding &&
+            ' The photographs on this page are generated scenes with real card images added. Interface pictures are simplified recreations of the product.'}
         </p>
       </div>
     </footer>

@@ -1,0 +1,224 @@
+{
+ "scene": "../../../.marketing-raw/landing/plan/gemini-3-pro-image-r2a-muu9c2j5-0.png",
+ "out": "../../../.marketing-raw/landing/final/plan.png",
+ "grids": {
+  "L": {
+   "corners": [
+    [
+     217,
+     386
+    ],
+    [
+     916,
+     378
+    ],
+    [
+     920,
+     1283
+    ],
+    [
+     221,
+     1289
+    ]
+   ],
+   "gap": [
+    0.268,
+    0.142
+   ]
+  },
+  "R": {
+   "corners": [
+    [
+     1070,
+     377
+    ],
+    [
+     1774,
+     374
+    ],
+    [
+     1784,
+     1278
+    ],
+    [
+     1074,
+     1283
+    ]
+   ],
+   "gap": [
+    0.268,
+    0.142
+   ]
+  }
+ },
+ "cards": [
+  {
+   "art": "../../../.marketing-raw/landing/cards/me05-028.webp",
+   "grid": "L",
+   "cell": [
+    0,
+    0
+   ],
+   "snap": 10,
+   "blur": 0.85
+  },
+  {
+   "art": "../../../.marketing-raw/landing/cards/me05-029.webp",
+   "grid": "L",
+   "cell": [
+    0,
+    1
+   ],
+   "snap": 10,
+   "blur": 0.85
+  },
+  {
+   "art": "../../../.marketing-raw/landing/cards/me05-030.webp",
+   "grid": "L",
+   "cell": [
+    0,
+    2
+   ],
+   "snap": 10,
+   "blur": 0.85
+  },
+  {
+   "art": "../../../.marketing-raw/landing/cards/me05-031.webp",
+   "grid": "L",
+   "cell": [
+    1,
+    0
+   ],
+   "snap": 10
+  },
+  {
+   "art": "../../../.marketing-raw/landing/cards/me05-032.webp",
+   "grid": "L",
+   "cell": [
+    1,
+    1
+   ],
+   "snap": 10
+  },
+  {
+   "art": "../../../.marketing-raw/landing/cards/me05-033.webp",
+   "grid": "L",
+   "cell": [
+    1,
+    2
+   ],
+   "snap": 10
+  },
+  {
+   "art": "../../../.marketing-raw/landing/cards/me05-034.webp",
+   "grid": "L",
+   "cell": [
+    2,
+    0
+   ],
+   "snap": 10
+  },
+  {
+   "art": "../../../.marketing-raw/landing/cards/me05-035.webp",
+   "grid": "L",
+   "cell": [
+    2,
+    1
+   ],
+   "snap": 10
+  },
+  {
+   "art": "../../../.marketing-raw/landing/cards/me05-036.webp",
+   "grid": "L",
+   "cell": [
+    2,
+    2
+   ],
+   "snap": 10
+  },
+  {
+   "art": "../../../.marketing-raw/landing/cards/me05-037.webp",
+   "grid": "R",
+   "cell": [
+    0,
+    0
+   ],
+   "snap": 10,
+   "blur": 0.85
+  },
+  {
+   "art": "../../../.marketing-raw/landing/cards/me05-038.webp",
+   "grid": "R",
+   "cell": [
+    0,
+    1
+   ],
+   "snap": 10,
+   "blur": 0.85
+  },
+  {
+   "art": "../../../.marketing-raw/landing/cards/me05-039.webp",
+   "grid": "R",
+   "cell": [
+    0,
+    2
+   ],
+   "snap": 10,
+   "blur": 0.85
+  },
+  {
+   "art": "../../../.marketing-raw/landing/cards/me05-040.webp",
+   "grid": "R",
+   "cell": [
+    1,
+    0
+   ],
+   "snap": 10
+  },
+  {
+   "art": "../../../.marketing-raw/landing/cards/me05-041.webp",
+   "grid": "R",
+   "cell": [
+    1,
+    1
+   ],
+   "snap": 10
+  },
+  {
+   "art": "../../../.marketing-raw/landing/cards/me05-042.webp",
+   "grid": "R",
+   "cell": [
+    1,
+    2
+   ],
+   "snap": 10
+  },
+  {
+   "art": "../../../.marketing-raw/landing/cards/me05-043.webp",
+   "grid": "R",
+   "cell": [
+    2,
+    0
+   ],
+   "snap": 10
+  },
+  {
+   "art": "../../../.marketing-raw/landing/cards/me05-044.webp",
+   "grid": "R",
+   "cell": [
+    2,
+    1
+   ],
+   "snap": 10
+  },
+  {
+   "art": "../../../.marketing-raw/landing/cards/me05-045.webp",
+   "grid": "R",
+   "cell": [
+    2,
+    2
+   ],
+   "snap": 10
+  }
+ ]
+}

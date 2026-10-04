@@ -24,6 +24,15 @@
   ],
   "headers": [
     {
+      "source": "/landing.html",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
+    },
+    {
       "source": "/assets/(.*)",
       "headers": [
         {
