@@ -46,7 +46,7 @@ export function browserSuites({ browser, out, scratch, results, logs }) {
       const originServer = await serve(dist, '', (rel, url, req) => admin.response(rel, url, req) ?? null)
       try {
         logs.push(await buildWeb(dist, true, originServer.origin))
-        results.push(...await checkSecurityHeaders(browser, dist, '', 'cloud', admin, out))
+        results.push(...await checkSecurityHeaders(browser, dist, '', 'cloud', admin, out, originServer.origin))
       } finally {
         await originServer.close()
       }
@@ -90,7 +90,17 @@ const ROUTES = ['/', '/lists', '/collection', '/decks', '/dex', '/insights', '/p
 // call in this file) rather than launching its own -- a Playwright BROWSER
 // process is the expensive, contention-prone unit; a context is cheap. This
 // check alone would otherwise launch upward of a dozen browser processes.
-async function crawl(browser, server, mount, admin, actorLabel, signedIn) {
+// The build's Supabase origin here is a loopback http:// stand-in, so card art
+// that lib/cardArt.ts loads straight from Storage would trip img-src's https:
+// rule. Production Storage is https://<project>.supabase.co, which
+// checkAllowDenyProbe proves img-src allows, so only those image loads are
+// excused: any other blocked resource, including other loads from that origin,
+// still fails the crawl. The landing is the first route that shows card art
+// without API data.
+const isStandInCardArt = (text, supabaseOrigin) =>
+  !!supabaseOrigin && /img-src|Loading the image/.test(text) && text.includes(supabaseOrigin + '/storage/v1/object/public/')
+
+async function crawl(browser, server, mount, admin, actorLabel, signedIn, supabaseOrigin) {
   const found = []
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' })
   try {
@@ -106,11 +116,11 @@ async function crawl(browser, server, mount, admin, actorLabel, signedIn) {
     const consoleViolations = []
     for (const route of ROUTES) {
       const page = await context.newPage()
-      page.on('console', (m) => { if (/content.security.policy|refused to/i.test(m.text())) consoleViolations.push(`${route}: ${m.text().slice(0, 200)}`) })
+      page.on('console', (m) => { if (/content.security.policy|refused to/i.test(m.text()) && !isStandInCardArt(m.text(), supabaseOrigin)) consoleViolations.push(`${route}: ${m.text().slice(0, 200)}`) })
       await page.goto(server.origin + mount + route, { waitUntil: 'load', timeout: 20_000 }).catch((e) => found.push(`${route}: navigation error ${e.message.slice(0, 120)}`))
       await page.waitForTimeout(500)
       const v = await violationsOn(page)
-      for (const violation of v) found.push(`${route} (${actorLabel}): ${violation}`)
+      for (const violation of v) if (!isStandInCardArt(violation, supabaseOrigin)) found.push(`${route} (${actorLabel}): ${violation}`)
       await page.close()
     }
     found.push(...consoleViolations)
@@ -396,7 +406,7 @@ async function checkServiceWorkerRegistration(browser, server, mount, admin) {
   }
 }
 
-export async function checkSecurityHeaders(chromiumBrowser, dist, mount, label, admin, out) {
+export async function checkSecurityHeaders(chromiumBrowser, dist, mount, label, admin, out, supabaseOrigin) {
   if (label !== 'cloud') return []
   writeProbePage(dist)
   const results = []
@@ -413,8 +423,8 @@ export async function checkSecurityHeaders(chromiumBrowser, dist, mount, label, 
     admin.state.signedOut = true
     admin.state.actor = 'signed-out'
     admin.state.permissions = []
-    const signedOutChromium = await crawl(chromiumBrowser, server, mount, admin, 'signed-out', false)
-    const signedOutWebkit = await crawl(webkitBrowser, server, mount, admin, 'signed-out', false)
+    const signedOutChromium = await crawl(chromiumBrowser, server, mount, admin, 'signed-out', false, supabaseOrigin)
+    const signedOutWebkit = await crawl(webkitBrowser, server, mount, admin, 'signed-out', false, supabaseOrigin)
 
     admin.state.signedOut = false
     admin.state.actor = 'owner'
@@ -423,8 +433,8 @@ export async function checkSecurityHeaders(chromiumBrowser, dist, mount, label, 
     // gate, and diagnostics.view is what /dev/decke-compare and
     // /dev/scan-harness require to render their iframes for real.
     admin.state.permissions = ['decke.use', 'scanner.use', 'diagnostics.view']
-    const signedInChromium = await crawl(chromiumBrowser, server, mount, admin, 'signed-in-owner', true)
-    const signedInWebkit = await crawl(webkitBrowser, server, mount, admin, 'signed-in-owner', true)
+    const signedInChromium = await crawl(chromiumBrowser, server, mount, admin, 'signed-in-owner', true, supabaseOrigin)
+    const signedInWebkit = await crawl(webkitBrowser, server, mount, admin, 'signed-in-owner', true, supabaseOrigin)
 
     const allCrawlViolations = [...signedOutChromium, ...signedOutWebkit, ...signedInChromium, ...signedInWebkit]
     assert.deepEqual(allCrawlViolations, [], 'CSP violations found while crawling every route')
