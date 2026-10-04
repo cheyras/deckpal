@@ -23,6 +23,8 @@
  * anything else that is not generally released.
  * ───────────────────────────────────────────────────────────────────────────── */
 import { SkipLink } from '../components/SkipLink'
+import { usePageMeta } from '../lib/seo'
+import { COPY } from './landing/copy'
 import { Nav, useScrollReveal, useScrolledPast } from './landing/parts'
 import { SiteFooter } from './landing/SiteFooter'
 import { AskSection } from './landing/sections/Ask'
@@ -38,6 +40,7 @@ import './landing/page.css'
 export function Landing() {
   const scrolled = useScrolledPast(12)
   useScrollReveal()
+  usePageMeta({ title: COPY.meta.title, description: COPY.meta.description, path: '/' })
   return (
     <div className="ls lp min-h-screen">
       <SkipLink />

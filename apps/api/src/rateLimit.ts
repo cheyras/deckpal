@@ -372,4 +372,13 @@ export const preAuthFloodGuard: RequestHandler = rateLimit(boundedOptions('preau
  */
 export const clientErrorRateLimit: RequestHandler = rateLimit(boundedOptions('client-errors', 20, 60_000, req => ipKeyGenerator(resolveClientKey(req), false)));
 
+/**
+ * The search-engine sitemaps (`GET /sitemap-*.xml`, sitemaps.ts): 30 per 60s
+ * per source IP. They are mounted at the bare origin, outside the `/api`
+ * router and so outside `preAuthFloodGuard`, and the card sitemap reads the
+ * whole catalog. The CDN serves almost every fetch; this bounds the ones that
+ * reach the function.
+ */
+export const sitemapRateLimit: RequestHandler = rateLimit(boundedOptions('sitemaps', 30, 60_000, req => ipKeyGenerator(resolveClientKey(req), false)));
+
 export { RateLimitStore as _RateLimitStore };

@@ -29,18 +29,19 @@
     <link rel="icon" href="/favicon.ico" sizes="16x16 32x32" />
     <link rel="icon" type="image/png" href="/favicon-32.png" sizes="32x32" />
 
-    <!-- SEO / social. This document is the SPA shell for BOTH the marketing
-         landing at / and the app behind it, and nothing in the app sets
-         document.title at runtime, so these are static and describe the whole
-         product. Absolute URLs: og:/twitter: crawlers do not resolve relative
-         ones.
+    <!-- SEO / social. This document is the SPA shell for every route. These
+         are the defaults; public pages set their own title, description and
+         canonical at runtime (lib/seo.ts), which is what a crawler that runs
+         JavaScript indexes. Absolute URLs: og:/twitter: crawlers do not resolve
+         relative ones.
 
          NO canonical and NO og:url here (2026-09-30). Every route serves this
          file, so a canonical on it told search engines that /series, /pokedex
          and /privacy were all the homepage. The build adds WebApplication
-         JSON-LD here, and writes dist/landing.html with the landing's own
-         canonical, og:url, FAQPage JSON-LD and copy as semantic HTML (not yet
-         served for `/`: see vite-plugins/landing-prerender.ts).
+         JSON-LD here, and writes dist/landing.html and dist/connect.html, each
+         with its own canonical, og:url and copy as semantic HTML, which the
+         root middleware.ts serves for `/` and `/connect`
+         (vite-plugins/landing-prerender.ts).
          The words below are the landing's own (routes/landing/copy.ts `meta`);
          src/lib/__tests__/landingCopy.test.ts fails if they drift.
 

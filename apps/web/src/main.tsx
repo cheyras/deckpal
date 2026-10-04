@@ -27,6 +27,7 @@ import { lazyRoute, type LazyRoute } from './lib/lazyRoute'
 import { CARD_SEARCH_DEFAULTS } from './routes/setSearch'
 import { AppShell } from './components/AppShell'
 import { RootErrorBoundary, RouteErrorFallback } from './components/ErrorBoundary'
+import { usePageMeta } from './lib/seo'
 import { AuthGuard } from './components/AuthGuard'
 import { isPublicPathname, safeNextPath } from './lib/landingRoute'
 import { getAccess, hasPermission, useAccess, IDENTITY_CHANGED, ACCESS_CHANGED } from './lib/access'
@@ -879,7 +880,20 @@ const router = createRouter({
   // the route tree above the crash stay mounted and interactive. See
   // components/ErrorBoundary.tsx.
   defaultErrorComponent: RouteErrorFallback,
+  defaultNotFoundComponent: RouteNotFound,
 })
+
+/**
+ * TanStack's own fallback, plus noindex. The server answers every path with
+ * 200 (the SPA catch-all), so without this an unknown URL like `/foo` was a
+ * soft-404 copy of the homepage's title and description. Owner-only routes
+ * that throw notFound() for everyone else land here too, which is right: they
+ * are not pages for a search engine.
+ */
+function RouteNotFound() {
+  usePageMeta({ title: 'Page not found', noindex: true })
+  return <p>Not Found</p>
+}
 
 declare module '@tanstack/react-router' {
   interface Register {

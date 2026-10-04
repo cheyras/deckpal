@@ -32,6 +32,7 @@ import { Link, useSearch } from '@tanstack/react-router'
 import { supabase } from '../../lib/supabase'
 import { readSession, updatePasswordBounded } from '../../lib/authSession'
 import { safeNextPath } from '../../lib/landingRoute'
+import { usePageMeta } from '../../lib/seo'
 import { PASSWORD_MIN_LENGTH, friendlyAuthError, passwordProblem } from '../../lib/authErrors'
 import { Spinner } from '../../components/ui'
 import { Field } from '../../components/ui/Field'
@@ -76,6 +77,9 @@ export function ResetPassword() {
   // drive a real navigation.
   const search = useSearch({ strict: false }) as { next?: string }
   const next = safeNextPath(search.next)
+  // Above every early return below, so it runs in each phase. Never indexed:
+  // the page only means anything when opened from a reset email.
+  usePageMeta({ title: 'Set a new password', noindex: true })
   const [phase, setPhase] = useState<Phase>(CALLBACK_ERROR ? 'invalid' : 'checking')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')

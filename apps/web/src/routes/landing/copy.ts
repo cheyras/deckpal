@@ -642,6 +642,8 @@ export const COPY = {
   connectPage: {
     title: 'Connect your AI to DeckPal',
     metaTitle: 'Connect your AI to DeckPal | DeckPal',
+    metaDescription:
+      'Add DeckPal to Claude, ChatGPT or another AI app as a custom connector in about two minutes: the connector URL, the steps for each app, and which plans work.',
     lead: 'DeckPal plugs into AI apps as a custom connector, sometimes called an MCP server. Adding it takes about two minutes, and you can remove it any time.',
     back: 'Back to DeckPal',
     sections: {

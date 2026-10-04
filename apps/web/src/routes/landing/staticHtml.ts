@@ -101,6 +101,39 @@ export function renderLandingStatic(): string {
   return `<div id="seo-landing">${parts.join('')}</div>`
 }
 
+/** The /connect help page as plain HTML, for `dist/connect.html`. Same rules as the landing's. */
+export function renderConnectStatic(): string {
+  const c = COPY.connect
+  const cp = COPY.connectPage
+  const s = cp.sections
+  const ol = (items: readonly string[]): string => `<ol>${items.map((i) => `<li>${esc(i)}</li>`).join('')}</ol>`
+  const h2 = (t: string): string => `<h2>${esc(t)}</h2>`
+  const cols = [c.columns.app, c.columns.free, c.columns.lowest, c.columns.change, c.columns.notes]
+  const rows = c.table
+    .map(
+      (r) =>
+        `<tr><th scope="row">${esc(r.app)}</th><td>${esc(r.free)}</td><td>${esc(r.lowest)}</td><td>${esc(r.change)}</td>` +
+        `<td>${esc([r.notes, r.tested ? c.testedYes : c.testedNo].filter(Boolean).join(' '))}</td></tr>`,
+    )
+    .join('')
+  const parts = [
+    `<header><p>${esc(c.eyebrow)}</p><h1>${esc(cp.title)}</h1>${p(cp.lead)}</header>`,
+    `<section>${h2(s.need.title)}${list(s.need.items)}</section>`,
+    `<section>${h2(s.url.title)}${p(s.url.body)}<p><code>${esc(c.mcpUrl)}</code></p></section>`,
+    `<section>${h2(s.claude.title)}${ol(s.claude.steps)}${p(s.claude.note)}</section>`,
+    `<section>${h2(s.chatgpt.title)}${ol(s.chatgpt.steps)}${p(s.chatgpt.note)}</section>`,
+    `<section>${h2(s.others.title)}${p(s.others.body)}</section>`,
+    `<section>${h2(s.claudeCode.title)}${p(s.claudeCode.body)}<pre><code>${esc(c.claudeCode)}</code></pre></section>`,
+    `<section>${h2(s.access.title)}${p(s.access.body)}</section>`,
+    `<section>${h2(s.tools.title)}<dl>${s.tools.groups.map((g) => `<dt>${esc(g.name)}</dt><dd>${esc(g.tools)}</dd>`).join('')}</dl></section>`,
+    `<section>${h2(s.compat.title)}<table><thead><tr>${cols.map((x) => `<th scope="col">${esc(x)}</th>`).join('')}</tr></thead>` +
+      `<tbody>${rows}</tbody></table>${p(c.finePrint)}${p(c.disclaimer)}</section>`,
+    `<section>${h2(s.trouble.title)}${list(s.trouble.items)}</section>`,
+    `<footer><p><a href="/">${esc(cp.back)}</a> <a href="/auth?mode=signup">${esc(COPY.nav.cta)}</a> <a href="/privacy">Privacy</a></p></footer>`,
+  ]
+  return `<div id="seo-connect">${parts.join('')}</div>`
+}
+
 const ldScript = (j: object): string =>
   `<script type="application/ld+json">${JSON.stringify(j).replace(/</g, '\\u003c')}</script>`
 

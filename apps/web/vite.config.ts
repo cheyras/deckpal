@@ -260,8 +260,9 @@ export default defineConfig(async ({ command }) => {
           globIgnores: [
             'models/**',
             'assets/Decke-*.js',
-            // The prerendered landing document (vite-plugins/landing-prerender.ts) is never the shell.
+            // The prerendered documents (vite-plugins/landing-prerender.ts) are never the shell.
             'landing.html',
+            'connect.html',
             // The AI apps' logos appear only on the landing and /connect; signed-in app users never need them.
             'brand/ai/**',
             'dev-assets/**',

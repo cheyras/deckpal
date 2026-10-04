@@ -80,9 +80,12 @@ const assetPattern = new RegExp(`^${BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}
 // tests/browser/securityHeaders.mjs deliberately blocks service workers
 // (`serviceWorkers: 'block'`) and so never exercised this path.
 const specialHeadersPattern = new RegExp(`^${BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}dev/decke-compare(?:\\?.*)?$`)
+// Opening robots.txt, llms.txt or a sitemap in a browser this worker controls
+// must show the file, not the app: these are documents, never client routes.
+const documentFilePattern = /\.(?:xml|txt)(?:\?.*)?$/
 registerRoute(
   new NavigationRoute(shellHandler, {
-    denylist: [apiPattern, imgPattern, assetPattern, specialHeadersPattern],
+    denylist: [apiPattern, imgPattern, assetPattern, specialHeadersPattern, documentFilePattern],
   }),
 )
 

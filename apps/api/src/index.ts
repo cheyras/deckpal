@@ -50,6 +50,7 @@ import { tokensRouter } from './routes/tokens.js';
 import { avatarRouter } from './routes/avatar.js';
 import { oauthRouter } from './routes/oauth.js';
 import { mountOAuthServer } from './oauthServer.js';
+import { mountSitemaps } from './sitemaps.js';
 import { billingRateLimit, billingRouter } from './routes/billing.js';
 import { billingGateStatus, billingGateWarning, stripeMode } from './billing/stripe.js';
 import { mountStripeWebhook } from './billing/webhook.js';
@@ -210,6 +211,9 @@ export function createApp(): express.Express {
   // `oauth_client` INSERT — had none at all.
   if (SUPABASE_MODE) {
     mountOAuthServer(app);
+    // The search-engine sitemaps, also at the bare origin and also cloud-only:
+    // they list deckpal.app URLs, and a self-hosted catalog is private.
+    mountSitemaps(app);
   }
 
   const api = express.Router();

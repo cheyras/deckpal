@@ -43,6 +43,7 @@
   "dependencies": {
     "@ai-sdk/gateway": "4.0.91",
     "@deckpal/db": "workspace:*",
+    "@vercel/functions": "3.9.11",
     "ai": "7.0.113",
     "pg": "^8.23.0",
     "zod": "4.6.5"

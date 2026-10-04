@@ -24,15 +24,6 @@
   ],
   "headers": [
     {
-      "source": "/landing.html",
-      "headers": [
-        {
-          "key": "X-Robots-Tag",
-          "value": "noindex"
-        }
-      ]
-    },
-    {
       "source": "/assets/(.*)",
       "headers": [
         {
@@ -145,6 +136,10 @@
     },
     {
       "source": "/register",
+      "destination": "/api"
+    },
+    {
+      "source": "/(sitemap-[a-z]+\\.xml)",
       "destination": "/api"
     },
     {

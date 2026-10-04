@@ -16,9 +16,10 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { COPY } from '../../routes/landing/copy'
-import { landingJsonLd, renderLandingStatic, renderLlmsFull } from '../../routes/landing/staticHtml'
+import { SITE_DEFAULTS } from '../siteMeta'
+import { landingJsonLd, renderConnectStatic, renderLandingStatic, renderLlmsFull } from '../../routes/landing/staticHtml'
 
-const everything = JSON.stringify(COPY) + renderLandingStatic() + renderLlmsFull() + landingJsonLd()
+const everything = JSON.stringify(COPY) + renderLandingStatic() + renderConnectStatic() + renderLlmsFull() + landingJsonLd()
 
 test('the landing mentions nothing that is not generally released', () => {
   for (const banned of [/scanner/i, /deck-e/i, /simulat/i, /\breplay\b/i]) {
@@ -78,6 +79,19 @@ test('json-ld makes no rating or review claims and lists every FAQ', () => {
   const ld = landingJsonLd()
   assert.doesNotMatch(ld, /aggregateRating|"review"|ratingValue/)
   assert.equal((ld.match(/"@type":"Question"/g) ?? []).length, COPY.faq.items.length)
+})
+
+test('the /connect prerender has one h1, the connector URL, every compatibility row and the disclaimer', () => {
+  const html = renderConnectStatic()
+  assert.equal((html.match(/<h1>/g) ?? []).length, 1)
+  assert.ok(html.includes(COPY.connect.mcpUrl))
+  for (const r of COPY.connect.table) assert.ok(html.includes(r.app), `connect prerender is missing ${r.app}`)
+  assert.ok(html.includes(COPY.connect.disclaimer))
+  assert.ok(COPY.connectPage.metaDescription.length <= 160, 'connect description fits a results page')
+})
+
+test("lib/seo.ts's site defaults are the landing meta, word for word", () => {
+  assert.deepEqual(SITE_DEFAULTS, COPY.meta)
 })
 
 test('example answers stay labelled', () => {

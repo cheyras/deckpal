@@ -29,6 +29,7 @@ import { Field } from '../components/ui/Field'
 import { FormAlert } from '../components/ui/FormAlert'
 import { StatusPanel } from '../components/ui/StatusPanel'
 import { signInWithPasswordBounded, signUpBounded, resetPasswordForEmailBounded } from '../lib/authSession'
+import { usePageMeta } from '../lib/seo'
 
 type Mode = 'signin' | 'signup' | 'forgot'
 
@@ -63,6 +64,13 @@ export function Auth() {
   // value about to drive a real navigation. SEC-05: `safeNextPath` is the
   // one place that check happens; nothing here re-implements it.
   const next = safeNextPath(search.next)
+
+  // Named for the form on screen; never indexed, as a sign-in form is not a
+  // page anybody searches for.
+  usePageMeta({
+    title: mode === 'signup' ? 'Create your account' : mode === 'forgot' ? 'Reset your password' : 'Sign in',
+    noindex: true,
+  })
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')

@@ -9,9 +9,9 @@
  * (`connectPage`, plus the table in `connect`), so it cannot drift from the
  * landing. Cloud-only: the URL it teaches is deckpal.app's.
  * ───────────────────────────────────────────────────────────────────────────── */
-import { useEffect } from 'react'
 import { Link } from '@tanstack/react-router'
 import { BrandLogo, Icon } from '../components/Icon'
+import { usePageMeta } from '../lib/seo'
 import { useSignedIn } from '../lib/session'
 import { SkipLink } from '../components/SkipLink'
 import { AiSymbol } from './landing/aiLogos'
@@ -27,13 +27,7 @@ export function Connect() {
   // Signed-in readers came here to connect their own account; offer them the app, not a sign-up.
   const signedIn = useSignedIn() === true
   const s = p.sections
-  useEffect(() => {
-    const prev = document.title
-    document.title = p.metaTitle
-    return () => {
-      document.title = prev
-    }
-  }, [p.metaTitle])
+  usePageMeta({ title: p.metaTitle, description: p.metaDescription, path: '/connect' })
   return (
     <div className="ls lp min-h-screen">
       <SkipLink />
