@@ -1022,6 +1022,28 @@ cancels any read of the same data still in flight and asks it again afterwards.
 Nothing is queued offline — the service worker keeps mutations `NetworkOnly`,
 and the collection counters stay disabled offline.
 
+**Search engines see each public page as its own page (2026-10-04).** Every
+route is the same `index.html`, so this takes three pieces.
+- **Prerendered documents.** For crawlers that do not run JavaScript, the build
+  writes `landing.html` and `connect.html` (`vite-plugins/landing-prerender.ts`).
+  Each is that shell with the page's words in `#root` plus its own title,
+  description and canonical. The root `middleware.ts` (Vercel Routing
+  Middleware) rewrites `/` and `/connect` to them. A vercel.json rewrite cannot,
+  because Vercel serves the real `index.html` before applying rewrites. React
+  replaces the words on first commit like any other page.
+- **Runtime metadata.** For Google, which renders JavaScript, `lib/seo.ts`'s
+  `usePageMeta` gives every public page its own title, description and canonical.
+  The canonical is built from the record on card and set pages, and never
+  carries a query string. A real 404, search results, the auth pages and
+  unknown URLs are noindex. A passing error only drops the canonical.
+- **Sitemaps.** For discovery, `apps/api/src/sitemaps.ts` serves
+  `/sitemap-{pages,sets,cards,pokedex}.xml` from the live catalog (about 21,000
+  card URLs), listed by the static index `public/sitemap.xml` that robots.txt
+  names. They are cloud-only and cached for a day at the CDN.
+
+A new public page calls `usePageMeta`. If it is top-level, it also joins
+`PAGES` in `sitemaps.ts`.
+
 ## 14. Design system and the /design editor
 
 The visual language is a token system in `apps/web/src/theme.css`: three brand
