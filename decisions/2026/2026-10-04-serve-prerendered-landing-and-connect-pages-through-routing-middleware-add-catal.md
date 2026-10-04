@@ -24,7 +24,7 @@ supersedes: []
 - **Catalog sitemaps.** `apps/api/src/sitemaps.ts` serves `/sitemap-pages.xml`, `/sitemap-sets.xml`, `/sitemap-cards.xml` and `/sitemap-pokedex.xml` from the live catalog.
   - It reads the same `browsable_*` views and builds paths the way `CardLink` does.
   - They sit at the bare origin, because a sitemap may only list URLs at or below its own path. They are cloud-only and cached for a day at the CDN (`s-maxage=86400`).
-  - A request with a query string is redirected to the clean URL, so query variants cannot bypass the cache. They have their own 30/min per-IP limit, because they sit outside the `/api` flood guard.
+  - The query string is ignored. vercel.json's rewrite passes its `:file` parameter on as `?file=…`, so redirecting query strings to the clean URL looped on the preview. Query variants that dodge the CDN cache are bounded by the sitemaps' own 30/min per-IP limit, which they need anyway because they sit outside the `/api` flood guard.
   - `public/sitemap.xml` is now a sitemap index of the four, and robots.txt already points at it.
   - The Pocket-exclusion integration suite checks them against the real migrations.
 - **`DECKPAL_PUBLIC_ORIGIN` is documented** in DEPLOYMENT.md. The OAuth routes already read it, and now the sitemaps do too, with a default of `https://deckpal.app`.
