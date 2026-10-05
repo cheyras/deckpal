@@ -1,0 +1,12 @@
+# Everything large or machine-local stays out of git.
+.venv/
+__pycache__/
+*.pyc
+# fixture caches, parity dumps, training runs, checkpoints, exported models
+cache/
+runs/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.log
