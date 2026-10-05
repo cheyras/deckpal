@@ -352,20 +352,36 @@ def split_ts_prior(manifest: Path) -> Optional[dict]:
     digest = hashlib.sha256((corpus / s["manifest"]["file"]).read_bytes()).hexdigest()
     if digest != s["manifest"]["sha256"]:
         raise SystemExit(f"{p} was frozen from a different manifest (sha256 {s['manifest']['sha256'][:12]}, now {digest[:12]}); rerun split.ts --extend")
-    out: dict = {"train": [], "val": [], "test": []}
+    # `excluded` matters as much as the three splits: split.ts excludes a row
+    # precisely because it bridges into a test unit, so it is a near-copy of a
+    # test frame. Dropping it here (rather than letting make_split hand it its
+    # group's split) is what keeps "never scored on frames it trained on" true.
+    out: dict = {"train": [], "val": [], "test": [], "excluded": []}
     for i, where in s["assignments"].items():
         if where in out:
             out[where].append(int(i))
     return out
 
 
-def load_or_make_split(rows: list[Row], path: Path, manifest: Optional[Path] = None, **kw) -> dict:
+def load_or_make_split(rows: list[Row], path: Path, manifest: Optional[Path] = None, require_frozen: bool = False, **kw) -> dict:
     # The evaluator's split.json wins when it exists; the cache file is only a
-    # fallback for corpora split.ts has not frozen yet.
+    # fallback for corpora split.ts has not frozen yet, and training refuses
+    # that fallback unless asked (require_frozen), because eval.ts would then
+    # score on a split this run never saw.
     prior = split_ts_prior(manifest) if manifest is not None else None
+    if prior is None and require_frozen:
+        raise SystemExit(
+            "no split.json in the corpus: freeze one first with `node --import tsx scripts/quad-corpus/split.ts` "
+            "(training and eval.ts must share it), or pass --allow-own-split for a throwaway run"
+        )
+    excluded: set[int] = set()
+    if prior is not None and prior.get("excluded"):
+        excluded = {int(i) for i in prior["excluded"]}
+        rows[:] = [r for r in rows if r.id not in excluded]
     if prior is None:
         prior = json.loads(Path(path).read_text()) if Path(path).is_file() else None
     split = make_split(rows, prior=prior, **kw)
+    split["meta"]["excluded_by_split_ts"] = len(excluded)
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(json.dumps(split, indent=1))
     return split

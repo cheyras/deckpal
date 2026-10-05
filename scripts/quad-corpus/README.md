@@ -175,9 +175,18 @@ evaluator.
   whole units until it holds its share. The strata are: tight framings
   (fill >= 75%), card backs, every negative reason, every source, and every
   fill bucket. A unit is taken only if train keeps a unit of *every* stratum it
-  carries, and test may grow to at most 2x its target to buy coverage. Val
-  does the same where three units exist. Leftover units fill toward 70/10/20
-  in a fixed pseudo-random order: sha256(seed + unit key).
+  carries. Test may grow past its target to buy coverage: normally to at most
+  2x, but **past 2x when it holds no row yet of the stratum being filled**,
+  because coverage wins over size. Val does the same where three units exist.
+  Leftover units fill toward 70/10/20 in a fixed pseudo-random order:
+  sha256(seed + unit key).
+- **Lumpy on small corpora.** A labelling session is one long run of frames,
+  so units are big. The 2026-10-04 corpus (163 rows) has 9 units, the largest
+  47 rows, and splits 54/47/62 against a 114/16/33 target; a finer `--gap-min`
+  does not help. Re-freeze with `--force` once the labeler queue is labelled,
+  before any candidate model depends on the split.
+- `train.py` (`tools/quad-train`) reads this same `split.json`, drops the
+  `excluded` rows, and refuses to train on a corpus that has none.
 - **Frozen.** `split.json` stores the manifest's sha256, and both scripts
   refuse a changed manifest.
   - `--extend` keeps every existing assignment. New rows inherit the split of

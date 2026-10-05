@@ -240,6 +240,17 @@ owner's corpus will.
 
 #### How splits work
 
+**For the real corpus, the split is `scripts/quad-corpus/split.ts`'s `split.json`, in
+the corpus directory, and nothing else.** `dataset.py` and `train.py` read it as an
+authoritative prior, and refuse it if it was frozen from a different manifest (the
+sha256 is checked). Rows that split.ts marked `excluded` (they bridge into a test unit)
+are dropped from training entirely. `train.py` refuses to run on a corpus with no
+`split.json`, because `eval.ts` would then score a split the run never saw. Pass
+`--allow-own-split` only for throwaway runs such as the session-2 smoke test.
+
+Everything below describes the fallback split this tool makes for itself in that
+throwaway case.
+
 1. **Grouping.** Rows are grouped by **day**, which stands in for a labelling session:
    the same cards, the same table, the same light. The day groups are unioned with
    harvest's dHash near-duplicate `dupGroup`, so a re-upload on another day can't land
@@ -332,18 +343,30 @@ continues from step 40, and `--eval-only` works.
 # 0. the owner harvests (QA account; writes C:/Users/cheyr/deckpal-data/quad-corpus)
 node scripts/quad-corpus/harvest.mjs
 
+# 1. FREEZE the split once, shared with eval.ts (use --extend after a later harvest,
+#    so frozen rows never move; re-freeze with --force only before any candidate depends on it)
+node --import tsx scripts/quad-corpus/split.ts
+# 2. the shipping model's baseline on the locked test split
+node --import tsx scripts/quad-corpus/eval.ts
+
 cd tools/quad-train
-# 1. audit + FREEZE the split (cache/splits/quad-corpus.json); read the NOTE/LEAKS lines and the fill histogram
+# 3. look at the augmentation (reads the same split.json)
 .venv/Scripts/python.exe dataset.py --manifest C:/Users/cheyr/deckpal-data/quad-corpus --preview 16 --aug full
-# 2. train; epoch 0 in the log is the shipping model's score on the same val split
+# 4. train; epoch 0 in the log is the shipping model's score on the same val split
 .venv/Scripts/python.exe train.py --manifest C:/Users/cheyr/deckpal-data/quad-corpus \
     --epochs 60 --batch-size 64 --lr 1e-4 --aug full --num-workers 8 --run r1
 #    cheaper first try: add --freeze backbone (decoder + presence only, 842k params)
-# 3. score the locked test split once, at the end
-.venv/Scripts/python.exe train.py --manifest C:/Users/cheyr/deckpal-data/quad-corpus \
-    --init runs/r1/best.pt --val-on test --eval-only --run r1-test
-# 4. export + contract + shipping check
+# 5. export + contract + shipping check
 .venv/Scripts/python.exe export.py --checkpoint runs/r1/best.pt     # -> cache/export/r1.onnx
+cd ../..
+# 6. score the candidate ONCE on the locked test split, through the shipping engine path,
+#    with the same metric definitions as the baseline (train.py's own val metrics are a
+#    training signal: raw 14 px, fixed corner order, "tight" at fill >= 0.5)
+node --import tsx scripts/quad-corpus/eval.ts --model tools/quad-train/cache/export/r1.onnx
+# 7. and on real tight framings, plus the synthetic tight crops of held-out cards
+node scripts/quad-corpus/make-tight.mjs --split test
+node --import tsx scripts/quad-corpus/eval.ts --corpus C:/Users/cheyr/deckpal-data/quad-corpus-tight-test --split all \
+    --model tools/quad-train/cache/export/r1.onnx
 ```
 
 **Expected time on the 5080:** minutes, not hours. With `--aug full` the data loader is

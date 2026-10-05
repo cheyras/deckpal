@@ -45,7 +45,15 @@ try {
 }
 
 const split = JSON.parse(fs.readFileSync(path.join(SRC, 'split.json'), 'utf8'))
-const rows = fs.readFileSync(path.join(SRC, 'manifest.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+const manifestBytes = fs.readFileSync(path.join(SRC, split.manifest?.file ?? 'manifest.jsonl'))
+// The same check split.ts and dataset.py make: a split frozen from another
+// manifest could hand this script TRAIN cards labelled as test.
+const digest = (await import('node:crypto')).createHash('sha256').update(manifestBytes).digest('hex')
+if (digest !== split.manifest?.sha256) {
+  console.error(`split.json was frozen from a different manifest (${split.manifest?.sha256?.slice(0, 12)} vs ${digest.slice(0, 12)}); rerun split.ts --extend`)
+  process.exit(1)
+}
+const rows = manifestBytes.toString('utf8').trim().split('\n').map((l) => JSON.parse(l))
 const pick = rows.filter((r) => r.corners && (SPLIT === 'all' || split.assignments[String(r.id)] === SPLIT))
 fs.mkdirSync(path.join(OUT, 'raw'), { recursive: true })
 
@@ -85,7 +93,22 @@ for (const r of pick) {
     const corners = r.corners.map(([x, y]) => [(x * SIZE - ox) / s, (y * SIZE - oy) / s])
     let area = 0
     for (let i = 0; i < 4; i++) area += corners[i][0] * corners[(i + 1) % 4][1] - corners[(i + 1) % 4][0] * corners[i][1]
-    out.push({ ...r, id, png: `raw/${id}.png`, corners, fill: Math.abs(area) / 2, dupGroup: r.dupGroup ?? r.id, tightFrom: r.id, tightFill: fill })
+    out.push({
+      ...r,
+      id,
+      png: `raw/${id}.png`,
+      corners,
+      fill: Math.abs(area) / 2,
+      dupGroup: r.dupGroup ?? r.id,
+      // The recorded presence score belongs to the uncropped frame; carrying it
+      // over would make eval's presence-parity table describe a different image.
+      hasObj: null,
+      seedFallback: null,
+      tightFrom: r.id,
+      tightFill: fill,
+      tightSplit: SPLIT,
+      tightSplitManifest: digest,
+    })
     n++
   }
 }

@@ -178,6 +178,8 @@ def main() -> int:
     ap.add_argument("--manifest", type=Path, default=CORPUS_DIR)
     ap.add_argument("--split-file", type=Path, default=None)
     ap.add_argument("--split-by", default="auto", choices=["auto", "day", "dupGroup"])
+    ap.add_argument("--allow-own-split", action="store_true",
+                    help="train without the corpus's frozen split.json (throwaway runs only: eval.ts will not share the split)")
     ap.add_argument("--train-on", default="train", choices=["train", "train+val", "all"])
     ap.add_argument("--val-on", default="val", choices=["val", "test", "train", "all"])
     ap.add_argument("--exclude-mirror-padded", action="store_true")
@@ -224,7 +226,7 @@ def main() -> int:
     # ── data ────────────────────────────────────────────────────────────────
     rows, _ = load_manifest(args.manifest, exclude_mirror_padded=args.exclude_mirror_padded, exclude_reasons=tuple(args.exclude_reasons))
     split_file = args.split_file or (CACHE / "splits" / f"{args.manifest.resolve().name}.json")
-    split = load_or_make_split(rows, split_file, manifest=args.manifest, by=args.split_by)
+    split = load_or_make_split(rows, split_file, manifest=args.manifest, require_frozen=not args.allow_own_split, by=args.split_by)
     by_id = {r.id: r for r in rows}
 
     def pick(which: str):

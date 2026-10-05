@@ -24,7 +24,7 @@ STEPS = [
     ("dataset", [PY, "dataset.py", "--manifest", "cache/session2"]),
     ("preprocess-parity", [PY, "parity_preprocess.py"]),
     ("convert-parity", [PY, "convert.py", "--grad"]),
-    ("smoke-train", [PY, "train.py", "--manifest", "cache/session2", "--train-on", "all", "--val-on", "all", "--max-steps", "40",
+    ("smoke-train", [PY, "train.py", "--manifest", "cache/session2", "--allow-own-split", "--train-on", "all", "--val-on", "all", "--max-steps", "40",
                      "--batch-size", "8", "--lr", "1e-4", "--warmup-steps", "5", "--num-workers", "0", "--log-every", "10", "--run", "smoke"]),
     ("export-pristine", [PY, "export.py", "--pristine"]),
     ("export-smoke", [PY, "export.py", "--checkpoint", "runs/smoke/best.pt"]),
