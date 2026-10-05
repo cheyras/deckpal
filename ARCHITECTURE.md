@@ -1028,13 +1028,13 @@ route is the same `index.html`, so this takes three pieces.
   writes `landing.html` and `connect.html` (`vite-plugins/landing-prerender.ts`).
   Each is that shell with the page's words in `#root` plus its own title,
   description and canonical. The root `middleware.ts` (Vercel Routing
-  Middleware) rewrites `/` and `/connect` to them. A vercel.json rewrite cannot,
-  because Vercel serves the real `index.html` before applying rewrites. React
+  Middleware) rewrites `/` and `/connect` to them. A vercel.json rewrite cannot do
+  this for `/`, because Vercel serves the real `index.html` before applying rewrites. React
   replaces the words on first commit like any other page.
 - **Runtime metadata.** For Google, which renders JavaScript, `lib/seo.ts`'s
   `usePageMeta` gives every public page its own title, description and canonical.
   The canonical is built from the record on card and set pages, and never
-  carries a query string. A real 404, search results, the auth pages and
+  carries a query string. A real 404, search results, the sign-in pages and
   unknown URLs are noindex. A passing error only drops the canonical.
 - **Sitemaps.** For discovery, `apps/api/src/sitemaps.ts` serves
   `/sitemap-{pages,sets,cards,pokedex}.xml` from the live catalog (about 21,000
