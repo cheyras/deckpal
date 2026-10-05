@@ -34,7 +34,11 @@ MODEL = os.environ.get(
     "E:/users/cheyr/deckpal-wt/scan-harness/apps/api/assets/embed/clip-vit-b32-openai.onnx",
 )
 MODEL_SHA256 = "871a5a900b284ce0c1e5615fd43bf5c24828f003545df2a1a193947131421759"  # fetch-embed-model.mjs
-GALLERY = "E:/users/cheyr/deckpal/roadmap/plans/card-scanner-redesign/p2-work/embed-spike/gallery"
+# The phase-0 calibration gallery (card art + embeddings), kept outside git.
+GALLERY = os.environ.get(
+    "CHECK_A_GALLERY",
+    "E:/users/cheyr/deckpal/roadmap/plans/card-scanner-redesign/p2-work/embed-spike/gallery",
+)
 SIM_MIN, MARGIN_MIN, SIM_FLOOR = 0.74, 0.02, 0.55  # confidence.ts, clip-vit-b32-openai
 BATCH = 32
 

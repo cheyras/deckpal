@@ -40,7 +40,7 @@ supersedes: []
   - Across all 94 test cards, on-card went from 61 to 59. Interior lock fell from 6 to 0 and false outlines from 33% to 24%, but overhang rose from 13 to 21.
   - The fold trained on 65 rows got worse; the folds trained on 123–140 rows improved. More labels, not a different recipe, is the lever.
 - **A lower presence gate does not help:** at 0.3 instead of 0.8 it recovers 8 misses but only 2 more on-card frames, for 10 more false outlines.
-- **Corner accuracy is not the main identification loss** (`experiments/check-a*`). Detector crops are typically a few percent off (median mean corner error 3.4% of the diagonal). Perfect corners would add about 5 correct IDs out of 95 fronts. Rotated cards, never-detected cards, resolution and look-alikes cost more.
+- **Corner accuracy is not the main identification loss** (`experiments/check-a*`). Detector crops are typically a few percent off (median mean corner error 3.4% of the diagonal). Perfect corners would add about 5 correct IDs out of 88 fronts. Rotated cards, never-detected cards, resolution and look-alikes cost more.
 
 **Implications:**
 - **Not shipped:** the pilot model is not shipped. A production run waits for real data:

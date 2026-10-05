@@ -27,7 +27,7 @@
  *
  * STRATIFIED, SO THE TEST SET CAN ANSWER THE QUESTIONS IT IS FOR. Rarest stratum
  * first, test takes whole units until it holds its share of each of: tight
- * framings (fill >= 75%, the HARVEST.md §5 failure), card backs, every negative
+ * framings (card side >= 80% of the square, the HARVEST.md §5 failure), card backs, every negative
  * reason, every source, and every fill bucket — while leaving at least one unit
  * of that stratum for train whenever two exist. Val does the same where three
  * units exist. The remaining units fill toward the target sizes in a fixed

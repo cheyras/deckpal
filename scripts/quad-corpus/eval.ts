@@ -75,7 +75,7 @@ import {
   workImage,
   type RawModelOut,
 } from '../../apps/web/src/scan/engine/__tests__/offline-harness'
-import { arg, corpusDir, describe, flag, readManifest, readSplit, type ManifestRow } from './corpus'
+import { arg, composition, corpusDir, describe, flag, readManifest, readSplit, type ManifestRow } from './corpus'
 import {
   aggregate,
   FILL_ORDER,
@@ -499,7 +499,9 @@ async function main(): Promise<void> {
         )
       if (!['train', 'val', 'test'].includes(splitLabel)) throw new Error(`--split must be train|val|test|all`)
       rows = rows.filter((r) => split.assignments[String(r.id)] === splitLabel)
-      const comp = split.composition[splitLabel]
+      // Recomputed from the rows, not read from split.json: a split frozen under
+      // an older definition (tight was once an area cut) stores stale counts.
+      const comp = composition(rows)
       extra.push('## Split composition', '', '```', describe(splitLabel.toUpperCase(), comp, split.units[splitLabel as 'test']), '```', '')
       if (split.warnings.length) extra.push('Split warnings:', '', ...split.warnings.map((w) => `- ${w}`), '')
       // Hash of the ASSIGNMENTS, not the file: an identical re-deal (new
