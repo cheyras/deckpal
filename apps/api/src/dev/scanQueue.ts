@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { makePool } from '@deckpal/db';
-import { CaptureStorageError, captureStore, ensureCaptureBucket, hasStorageEnv, migrateLegacyCaptures, type CaptureStore } from '@deckpal/storage';
+import { CaptureStorageError, captureStore, ensureCaptureBucket, hasStorageEnv, migrateLegacyCaptures } from '@deckpal/storage';
 import { ApiError, asyncHandler, badRequest, notFound, str, userCache } from '../http.js';
 import { pool, SUPABASE_MODE } from '../db.js';
 import { labelerOnlyInProduction } from '../ownerGate.js';
@@ -49,7 +49,6 @@ import { createCaptureQueueStore } from './captureQueueStore.js';
 
 const QUEUE_ID_RE = /^(\d+)\.(jpg|json)$/;
 const ID_RE = /^\d+$/;
-const PREFIX = 'dev-queue/';
 
 /**
  * The decoded-photo cap.
@@ -107,7 +106,7 @@ function queueStore(): QueueStore {
 
 /**
  * The migration's lock for one object: a queued photo's family lock, the same
- * one listing, reading, repair, cleanup and discard take (queue-state.md), so a
+ * one reading, repair, cleanup and discard take (queue-state.md), so a
  * photo cannot be moved out from under a discard and resurrected by it. Labels
  * (`dev-flags/`) have no such lock and run bare.
  */
@@ -188,27 +187,15 @@ scanQueueRouter.get(
       res.json({ photos: [] });
       return;
     }
-    // Both buckets: the private one, plus any photo still waiting in the
-    // public one for `POST /migrate-captures` to move it.
-    let objects: Awaited<ReturnType<CaptureStore['list']>>;
-    try {
-      objects = await captureStore().list('dev-queue');
-    } catch (error) {
-      if (error instanceof CaptureStorageError) {
-        throw new ApiError(502, 'queue_storage_unavailable', 'Shared photo queue temporarily unavailable.');
-      }
-      throw error;
-    }
-    const ids = new Set<number>();
-    for (const obj of objects) {
-      const m = QUEUE_ID_RE.exec(obj.path.slice(PREFIX.length));
-      if (!m) continue;
-      ids.add(Number(m[1]));
-    }
+    // ONE object listing (both buckets) decides which photo each family shows
+    // and its size; only sidecars are read after it, lock-free. Taking the
+    // family lock per photo here cost ~0.5 s each and timed the whole route
+    // out at a few hundred photos (measured 2026-10-05 UTC). See listQueuePhotos.
+    //
     // OLDEST FIRST — the order they were shot, which is the order a reader
     // works a stack of cards in. (The corpus listing is newest-first; that one
     // is a review, this one is a work queue.)
-    const photos = (await listQueuePhotos(ids, queueStore())).map(({ id, size, meta }) => ({ id, size, ...meta }));
+    const photos = (await listQueuePhotos(queueStore())).map(({ id, size, meta }) => ({ id, size, ...meta }));
     photos.sort((a, b) => Date.parse(a.addedAt) - Date.parse(b.addedAt) || a.id - b.id);
     res.json({ photos });
   }),

@@ -12,6 +12,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -25,6 +26,9 @@ import {
 import { ApiError, errorMiddleware } from '../../http.js';
 import { createScanFlagsRouter } from '../scanFlags.js';
 import { createCaptureQueueStore } from '../captureQueueStore.js';
+import { listQueuePhotos } from '../queueRepair.js';
+
+const md5 = (bytes: Buffer | string) => createHash('md5').update(bytes).digest('hex');
 
 function bucket(name: string, initial: Record<string, string> = {}) {
   const objects = new Map<string, CaptureObject>(
@@ -46,7 +50,8 @@ function bucket(name: string, initial: Record<string, string> = {}) {
       guard();
       return [...objects]
         .filter(([k]) => k.startsWith(`${prefix}/`))
-        .map(([path, o]) => ({ path, byteSize: o.bytes.length, contentType: o.contentType, etag: null, cacheControl: null }));
+        // Storage's etag for a single-part upload is the MD5 of its bytes.
+        .map(([path, o]) => ({ path, byteSize: o.bytes.length, contentType: o.contentType, etag: md5(o.bytes), cacheControl: null }));
     },
     async read(path) {
       guard();
@@ -194,9 +199,132 @@ describe('the queue object layer over the private capture store', () => {
     const primary = bucket('dev-captures', { [`dev-queue/${OLD}.jpg`]: 'jpeg' });
     const queue = createCaptureQueueStore(createCaptureStore(primary, null), locked);
     primary.fail(true);
-    for (const op of [() => queue.photo(`dev-queue/${OLD}.jpg`), () => queue.size(`dev-queue/${OLD}.jpg`), () => queue.exists(`dev-queue/${OLD}.jpg`), () => queue.meta(`dev-queue/${OLD}.json`)]) {
+    for (const op of [() => queue.list(), () => queue.photo(`dev-queue/${OLD}.jpg`), () => queue.size(`dev-queue/${OLD}.jpg`), () => queue.exists(`dev-queue/${OLD}.jpg`), () => queue.meta(`dev-queue/${OLD}.json`)]) {
       await assert.rejects(op(), (error: unknown) => error instanceof ApiError && error.status === 502 && error.code === 'queue_storage_unavailable');
     }
+  });
+
+  it('a sidecar read retries a throttle, a 5xx or a timeout on a short clock, and fails fast on a refusal', async () => {
+    const sidecarPath = `dev-queue/${OLD}.json`;
+    const primary = bucket('dev-captures', { [sidecarPath]: '{"name":"a.jpg","source":"camera","addedAt":"x"}' });
+    const read = primary.read.bind(primary);
+    const timeouts: Array<number | undefined> = [];
+    let failures: number[] = [];
+    primary.read = async (path, options) => {
+      timeouts.push(options?.timeoutMs);
+      const status = failures.shift();
+      if (status !== undefined) throw new CaptureStorageError(`[storage] dev-captures read failed: HTTP ${status}`, status);
+      return read(path);
+    };
+    const queue = createCaptureQueueStore(createCaptureStore(primary, null), locked);
+    const unavailable = (error: unknown) => error instanceof ApiError && error.status === 502 && error.code === 'queue_storage_unavailable';
+
+    failures = [429, 0]; // a throttle, then a timeout or dropped connection
+    assert.deepEqual(await queue.meta(sidecarPath), { name: 'a.jpg', source: 'camera', addedAt: 'x' });
+    assert.deepEqual(timeouts, [5_000, 5_000, 5_000], 'each attempt on a 5 s clock, not the 20 s default');
+
+    timeouts.length = 0;
+    failures = [503, 503, 503, 503];
+    await assert.rejects(queue.meta(sidecarPath), unavailable);
+    assert.equal(timeouts.length, 3, 'three attempts, then the retryable 502');
+
+    timeouts.length = 0;
+    failures = [403];
+    await assert.rejects(queue.meta(sidecarPath), unavailable);
+    assert.equal(timeouts.length, 1, 'a refusal is not retried');
+  });
+
+  it('lists the queue from one snapshot of both buckets, with listed sizes and no lock', async () => {
+    const NEW = OLD + 5;
+    const primary = bucket('dev-captures', {
+      [`dev-queue/${NEW}.jpg`]: 'new-jpeg',
+      [`dev-queue/${NEW}.json`]: '{"name":"new.jpg","source":"camera","addedAt":"2026-09-30T00:00:00.000Z"}',
+      [`dev-flags/${NEW}.png`]: 'a label, not a queued photo',
+    });
+    const legacy = bucket('card-art', {
+      [`dev-queue/${OLD}.jpg`]: 'old-jpeg-bytes',
+      [`dev-queue/${OLD}.json`]: '{"name":"old.jpg","source":"upload","addedAt":"2026-09-01T00:00:00.000Z"}',
+    });
+    let locks = 0;
+    const queue = createCaptureQueueStore(createCaptureStore(primary, legacy), (id, work) => { locks++; return locked(id, work); });
+    const entry = (from: ReturnType<typeof bucket>, path: string) => {
+      const bytes = from.objects.get(path)!.bytes;
+      return { path, byteSize: bytes.length, etag: md5(bytes) };
+    };
+    assert.deepEqual((await queue.list()).sort((a, b) => a.path.localeCompare(b.path)), [
+      entry(legacy, `dev-queue/${OLD}.jpg`),
+      entry(legacy, `dev-queue/${OLD}.json`),
+      entry(primary, `dev-queue/${NEW}.jpg`),
+      entry(primary, `dev-queue/${NEW}.json`),
+    ]);
+    const photos = await listQueuePhotos(queue);
+    assert.deepEqual(photos.map((p) => [p.id, p.size, p.meta.name]).sort(), [[OLD, 'old-jpeg-bytes'.length, 'old.jpg'], [NEW, 'new-jpeg'.length, 'new.jpg']]);
+    assert.equal(locks, 0);
+  });
+
+  it('a re-list reads only the sidecars whose listed bytes it has not read before', async () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 500; i++) {
+      files[`dev-queue/${OLD + i}.jpg`] = `jpeg-${i}`;
+      files[`dev-queue/${OLD + i}.json`] = JSON.stringify({ name: `${i}.jpg`, source: 'camera', addedAt: new Date(OLD + i).toISOString() });
+    }
+    const primary = bucket('dev-captures', files);
+    const reads: string[] = [];
+    const read = primary.read.bind(primary);
+    primary.read = async (path, options) => { reads.push(path); return read(path, options); };
+    const queue = createCaptureQueueStore(createCaptureStore(primary, null), locked);
+
+    assert.equal((await listQueuePhotos(queue)).length, 500);
+    assert.equal(reads.length, 500, 'a cold listing reads every sidecar once');
+
+    reads.length = 0;
+    assert.equal((await listQueuePhotos(queue)).length, 500);
+    assert.equal(reads.length, 0, 'a warm re-list reads none');
+
+    // A rewritten sidecar (a repair, a fixed corrupt one) lists a new etag.
+    const changed = `dev-queue/${OLD + 7}.json`;
+    primary.objects.set(changed, { bytes: Buffer.from(JSON.stringify({ name: 'renamed.jpg', source: 'upload', addedAt: new Date(OLD + 7).toISOString() })), contentType: 'application/json' });
+    reads.length = 0;
+    const relisted = await listQueuePhotos(queue);
+    assert.deepEqual(reads, [changed]);
+    assert.equal(relisted.find((p) => p.id === OLD + 7)?.meta.name, 'renamed.jpg');
+
+    // A locked read never answers from memory.
+    reads.length = 0;
+    await queue.meta(`dev-queue/${OLD + 8}.json`);
+    assert.deepEqual(reads, [`dev-queue/${OLD + 8}.json`]);
+  });
+
+  it('remembers a sidecar only when the bytes read are the bytes the listing named', async () => {
+    const path = `dev-queue/${OLD}.json`;
+    const primary = bucket('dev-captures', { [path]: '{"name":"a.jpg","source":"camera","addedAt":"x"}' });
+    let reads = 0;
+    const read = primary.read.bind(primary);
+    primary.read = async (p, options) => { reads++; return read(p, options); };
+    const queue = createCaptureQueueStore(createCaptureStore(primary, null), locked);
+    // The sidecar changed between the listing and the read: an etag that does
+    // not match what was read must not vouch for it next time.
+    await queue.meta(path, md5('the bytes the listing saw'));
+    await queue.meta(path, md5('the bytes the listing saw'));
+    assert.equal(reads, 2);
+    // A multipart or otherwise non-MD5 etag never caches.
+    await queue.meta(path, 'not-an-md5-etag-1');
+    await queue.meta(path, 'not-an-md5-etag-1');
+    assert.equal(reads, 4);
+  });
+
+  it('a failed object listing is retried before the queue reports itself unavailable', async () => {
+    const primary = bucket('dev-captures', { [`dev-queue/${OLD}.jpg`]: 'jpeg', [`dev-queue/${OLD}.json`]: '{"name":"a.jpg","source":"camera","addedAt":"x"}' });
+    const list = primary.list.bind(primary);
+    let attempts = 0;
+    primary.list = async (prefix) => {
+      attempts++;
+      if (attempts === 1) throw new CaptureStorageError('[storage] dev-captures list failed for dev-queue: HTTP 429', 0);
+      return list(prefix);
+    };
+    const queue = createCaptureQueueStore(createCaptureStore(primary, null), locked);
+    assert.equal((await listQueuePhotos(queue)).length, 1);
+    assert.equal(attempts, 2);
   });
 
   it('a delete that leaves the photo in place fails loudly', async () => {

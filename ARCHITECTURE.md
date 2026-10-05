@@ -2077,15 +2077,20 @@ Local fixtures do not establish live Stripe delivery or production readiness.
 ### Labeler pending-photo queue
 
 The labeler's object-store queue groups an original timestamp ID and its
-HEIC-to-JPEG replacement into one logical photo. Listing, reads, repair,
-cleanup, and discard take the same per-original database advisory lock;
+HEIC-to-JPEG replacement into one logical photo. Reads, repair, cleanup, and
+discard take the same per-original database advisory lock;
 cloud uses a dedicated worker pool capped at three connections so a request
 disconnect cannot release the lock before storage work finishes. Queue work
-waits in a FIFO before database checkout; each listing advances at most two
-families concurrently. Self-host queue work uses one shared request-pool
-connection. Listing returns the original
-ID and reads whichever photo survives, preferring the replacement. Metadata
-alone is never evidence that a photo exists. The browser's IndexedDB outbox
+waits in a FIFO before database checkout. Self-host queue work uses one shared
+request-pool connection. The listing is one object-listing snapshot: each
+family it saw with a photo appears once under the original ID, as the
+replacement if listed, else the original, with the listed size; only sidecars
+are read after it, lock-free, at most 8 at a time, with a short retrying
+timeout, and a sidecar whose listed etag matches bytes already read is not
+read again. Families seen only as
+sidecars are rechecked under the lock, two at a time. Reads resolve whichever
+photo survives now, preferring the replacement. Metadata alone is never
+evidence that a photo exists. The browser's IndexedDB outbox
 continues to hold photos that have not uploaded; it does not decide which
 server photos to hide. See [the queue state contract](apps/api/src/dev/queue-state.md)
 for partial writes, deletion failures, and two-device interleavings.

@@ -32,6 +32,7 @@ export function queueFixture(mount) {
       locks.set(id, result.catch(() => {}))
       return result
     },
+    async list() { return [...objects].map(([key, bytes]) => ({ path: key, byteSize: bytes.length })) },
     async exists(key) { return objects.has(key) },
     async size(key) { return objects.get(key)?.length ?? null },
     async photo(key) { return objects.get(key) ?? null },
@@ -87,8 +88,7 @@ export function queueFixture(mount) {
           if (state.failList) {
             return { status: 502, body: { error: { message: 'Shared photo queue temporarily unavailable' } } }
           }
-          const candidates = [...objects.keys()].map(key => Number(/^dev-queue\/(\d+)\./.exec(key)?.[1])).filter(Number.isSafeInteger)
-          const photos = await listQueuePhotos(candidates, store)
+          const photos = await listQueuePhotos(store)
           return { body: { photos: photos.map(({ id, size, meta }) => ({ id, size, ...meta })).sort((a, b) => a.id - b.id) } }
         }
         if (req.method === 'GET' && tail.endsWith('.jpg') && Number.isSafeInteger(id)) {
