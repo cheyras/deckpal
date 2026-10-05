@@ -35,7 +35,6 @@ import { requireVerifiedCapability } from './lib/capabilities'
 import { Content, EmptyState } from './components/ui'
 import { isCloudMode } from './lib/supabase'
 import { readSession } from './lib/authSession'
-import { isReturningVisitor } from './lib/returningVisitor'
 import { Auth } from './routes/Auth'
 import { Authorize } from './routes/Authorize'
 import { ResetPassword } from './routes/auth/ResetPassword'
@@ -334,11 +333,10 @@ const rootRoute = createRootRoute({
 //     "Create your free account" button would be a cul-de-sac.
 //   • cloud + signed in         → straight into the app (preserves the old
 //     redirect for every existing user and every bookmarked deep link).
-//   • cloud + session lapsed    → the sign-in form. They have an account; the
-//     pitch to create one is the wrong page, and it is the page they got
-//     (issue #50). "Lapsed" means a session existed in this browser and was
-//     not deliberately signed out of — see lib/returningVisitor.ts.
-//   • cloud + signed out        → the public marketing landing.
+//   • cloud + signed out        → the public marketing landing, including for
+//     somebody who has signed in on this browser before. The owner's ruling
+//     (2026-10-04) reverses issue #50's: deckpal.app is the front door, and its
+//     nav carries Sign in for anyone who already has an account.
 //
 // THE READ IS BOUNDED, AND THIS IS THE ROUTE THAT PROVED IT HAD TO BE. A warm
 // read does resolve in a tick out of localStorage — which is what the comment
@@ -360,7 +358,6 @@ const indexRoute = createRoute({
     if (!isCloudMode) throw redirect({ to: '/series' })
     const { session, timedOut } = await readSession()
     if (session || timedOut) throw redirect({ to: '/series' })
-    if (isReturningVisitor()) throw redirect({ to: '/auth' })
   },
   component: Landing,
 })

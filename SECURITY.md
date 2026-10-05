@@ -527,14 +527,13 @@ deliberate act — a new entry plus a DECISIONS.md record of who approved it and
 what licensing basis.
 
 **What the browser persists.** Besides Supabase's own session (its
-`sb-<ref>-auth-token` key), the SPA writes two of its own `localStorage` keys,
-neither of which is a credential and neither of which is ever read as one:
-`deckpal:skin` (the visual skin preference) and `deckpal.returning` (a single
-bit, set once a session has existed in this browser, cleared by the explicit
-Sign out control). `deckpal.returning` exists only so `/` can send a visitor
-whose session has lapsed to the sign-in form instead of the marketing page
-(`lib/returningVisitor.ts`); it carries no email, user id or token, and no
-authorization decision anywhere consults it. Clearing site data resets both.
+`sb-<ref>-auth-token` key), the SPA writes its own `localStorage` key
+`deckpal:skin` (the visual skin preference), which is not a credential and is
+never read as one. Clearing site data resets it. Browsers that used DeckPal
+before 2026-10-04 may still hold `deckpal.returning`, a one-bit routing hint
+that sent a lapsed session from `/` to the sign-in form. It was removed when
+`/` became the marketing page for every signed-out visitor; nothing reads it,
+and it never held an email, user id or token.
 
 **HTTP security headers on the SPA (2026-09-26).** The Supabase session above,
 including its refresh token, lives in `localStorage` — the ordinary place for

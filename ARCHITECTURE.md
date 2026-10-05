@@ -1174,7 +1174,7 @@ fetched by every visitor anyway — not by the service worker but by
 `index.html`, as `<link rel="modulepreload">`, ahead of first paint. An
 `advancedChunks` group absorbs the DEPENDENCIES of the modules it matches, so
 `character/decke/cardSource.ts` importing `lib/api.ts` pulled `lib/api.ts`
-(and `supabase.ts`, `landingRoute.ts`, `returningVisitor.ts`) into the character
+(and `supabase.ts`, `landingRoute.ts`, and the since-removed `returningVisitor.ts`) into the character
 chunk; the entry imports those from ~50 places, so the entry gained a static
 edge to three.js and Vite preloaded it. Cold first content measured 6.3 s on a
 throttled connection against 0.3 s warm.
