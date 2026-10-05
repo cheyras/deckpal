@@ -257,13 +257,24 @@ describe('the HTTP capture handles', () => {
   it('a read can carry its own, shorter timeout, and a timeout is a failure (status 0), not "absent"', async () => {
     const hanging = ((_url: string, init?: RequestInit) =>
       new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason)))) as typeof fetch;
-    await withFetch(hanging, async () => {
-      const bucket = httpCaptureBucket({ bucket: CAPTURE_BUCKET, writable: true, allowConflicts: true });
-      const started = performance.now();
-      await assert.rejects(bucket.read('dev-queue/1700000000000.json', { timeoutMs: 30 }),
-        (error: unknown) => error instanceof CaptureStorageError && error.status === 0);
-      assert.ok(performance.now() - started < 5_000, 'aborted at the per-call timeout, not the 20 s default');
-    });
+    // AbortSignal.timeout's timer does not hold the event loop open, and a fake
+    // fetch that never settles holds nothing either, so on its own this test
+    // can leave node with no pending work before the 30 ms abort fires. The
+    // runner then cancels it ("event loop has already resolved"), which is how
+    // it failed on Linux CI after #280. A real server always has other handles
+    // open; the test holds one for the length of the wait.
+    const keepAlive = setTimeout(() => {}, 10_000);
+    try {
+      await withFetch(hanging, async () => {
+        const bucket = httpCaptureBucket({ bucket: CAPTURE_BUCKET, writable: true, allowConflicts: true });
+        const started = performance.now();
+        await assert.rejects(bucket.read('dev-queue/1700000000000.json', { timeoutMs: 30 }),
+          (error: unknown) => error instanceof CaptureStorageError && error.status === 0);
+        assert.ok(performance.now() - started < 5_000, 'aborted at the per-call timeout, not the 20 s default');
+      });
+    } finally {
+      clearTimeout(keepAlive);
+    }
   });
 
   it('tells a missing object from a refused request', async () => {
