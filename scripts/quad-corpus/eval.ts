@@ -84,7 +84,8 @@ import {
   quantile,
   scoreQuad,
   THRESHOLDS,
-  TIGHT_FILL,
+  TIGHT_EXTENT,
+  isTight,
   type GroupStats,
   type Rate,
   type RowResult,
@@ -420,7 +421,7 @@ function markdown(meta: Record<string, unknown>, overall: GroupStats, tight: Gro
     '',
   ]
   L.push(...block('Overall', overall))
-  L.push(...block(`Tight framing (fill >= ${TIGHT_FILL * 100}%) — the HARVEST.md §5 failure`, tight))
+  L.push(...block(`Tight framing (card side >= ${TIGHT_EXTENT * 100}% of the square) — the HARVEST.md §5 failure`, tight))
   L.push('## Breakdowns', '')
   L.push(...groupTable('By fill (positives)', groups.fill))
   L.push(...groupTable('By source', groups.source))
@@ -519,7 +520,7 @@ async function main(): Promise<void> {
   const t0 = Date.now()
   const rows = await evaluate(inputs, model, acquire)
   const overall = aggregate(rows)
-  const tight = aggregate(rows.filter((r) => r.positive && (r.fill ?? 0) >= TIGHT_FILL))
+  const tight = aggregate(rows.filter((r) => r.positive && r.gt != null && isTight(r.gt.map(([x, y]) => [x / CANONICAL_SIZE, y / CANONICAL_SIZE]))))
   const groups = {
     fill: groupBy(rows.filter((r) => r.positive), (r) => r.fillBucket, FILL_ORDER),
     source: groupBy(rows, (r) => r.source),

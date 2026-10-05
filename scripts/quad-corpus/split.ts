@@ -60,7 +60,7 @@ import {
   type SplitFile,
   type SplitName,
 } from './corpus'
-import { fillBucket, TIGHT_FILL } from './metrics'
+import { fillBucket, isTight } from './metrics'
 
 const SPLITS: Exclude<SplitName, 'excluded'>[] = ['train', 'val', 'test']
 
@@ -71,7 +71,7 @@ function strataOf(m: ManifestRow): string[] {
     return s
   }
   s.push('pos', `fill:${fillBucket(m.fill)}`)
-  if ((m.fill ?? 0) >= TIGHT_FILL) s.push('pos:tight')
+  if (isTight(m.corners)) s.push('pos:tight')
   if (m.verdict === 'back') s.push('face:back')
   return s
 }

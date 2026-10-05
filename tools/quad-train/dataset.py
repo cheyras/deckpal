@@ -712,9 +712,11 @@ def main() -> int:
         print(f"  NOTE: {split['meta']['note']}")
     if split["meta"]["leaks"]:
         print(f"  LEAKS: {split['meta']['leaks']}")
-    fills = [r.fill for r in rows if r.fill is not None]
-    if fills:
-        print(f"  card fill of frame (positives): median {np.median(fills):.2f}, >=0.5: {sum(f >= 0.5 for f in fills)}/{len(fills)}")
+    # Card SIDE share of the square (bbox long side), not area: an upright card
+    # covers at most ~72% of a square's area, so an area cut undercounts close-ups.
+    extents = [float(np.ptp(r.corners, axis=0).max()) for r in rows if r.corners is not None]
+    if extents:
+        print(f"  card extent of frame (positives): median {np.median(extents):.2f}, >=0.8 (tight): {sum(e >= 0.8 for e in extents)}/{len(extents)}")
     if a.preview:
         _preview(QuadDataset(rows, AugConfig.preset(a.aug), seed=1), CACHE / "preview" / a.aug, a.preview)
     return 0

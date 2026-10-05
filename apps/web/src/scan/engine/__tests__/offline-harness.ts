@@ -133,6 +133,7 @@ interface SharpInstance {
   removeAlpha(): SharpInstance
   raw(): SharpInstance
   png(): SharpInstance
+  jpeg(o?: Record<string, unknown>): SharpInstance
   toBuffer(o?: { resolveWithObject?: boolean }): Promise<Buffer>
   toFile(p: string): Promise<unknown>
 }

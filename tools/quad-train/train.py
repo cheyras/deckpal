@@ -20,7 +20,9 @@ describe the function the WASM runtime will compute):
   corner error in CANONICAL px (416 square), index-for-index and best-cyclic;
   <=8 / <=14 px rates; linear scale sqrt(area_pred/area_gt) -- the interior-lock
   tell (a text-panel lock reads ~0.6-0.9); the same on the TIGHT slice
-  (fill >= 0.5), which is the regime this whole effort is for; presence
+  (card bbox long side >= 80% of the square, the same TIGHT_EXTENT
+  scripts/quad-corpus/metrics.ts uses: an AREA cut cannot express it, since an
+  upright card covers at most ~72% of a square), the regime this effort is for; presence
   accuracy at 0.5, acquire rate at gate.ts's 0.80 on cards, false-acquire
   rate at 0.80 on negatives. Epoch 0 is the untouched pretrained LC050, so every
   run reports its improvement over the shipping model, not just a loss curve.
@@ -87,6 +89,10 @@ def _best_cyclic(pred: np.ndarray, gt: np.ndarray) -> float:
     return best
 
 
+# Same definition as scripts/quad-corpus/metrics.ts TIGHT_EXTENT.
+TIGHT_EXTENT = 0.8
+
+
 @torch.no_grad()
 def evaluate(model: nn.Module, loader, device, fills: dict[int, float], to_input) -> dict:
     tf32 = (torch.backends.cudnn.allow_tf32, torch.backends.cuda.matmul.allow_tf32)
@@ -110,7 +116,7 @@ def evaluate(model: nn.Module, loader, device, fills: dict[int, float], to_input
                 err.append(e)
                 err_cyc.append(_best_cyclic(pq, gq))
                 scale.append(s)
-                if fills.get(int(b["id"][i]), 0.0) >= 0.5:
+                if fills.get(int(b["id"][i]), 0.0) >= TIGHT_EXTENT:
                     tight_err.append(e)
                     tight_scale.append(s)
             else:
@@ -241,7 +247,8 @@ def main() -> int:
     aug = AugConfig.preset(args.aug)
     if args.aug_json:
         aug = aug.updated(json.loads(args.aug_json))
-    fills = {r.id: (r.fill or 0.0) for r in rows}
+    # card extent (bbox long side / square side), NOT area; see TIGHT_EXTENT
+    fills = {r.id: (float(np.ptp(r.corners, axis=0).max()) if r.corners is not None else 0.0) for r in rows}
     train_loader = make_loader(train_rows, aug, args, shuffle=True)
     val_loader = make_loader(val_rows, AugConfig(enabled=False), args, shuffle=False)
 

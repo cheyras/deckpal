@@ -141,8 +141,11 @@ orderings/reversals (`offline-harness.cornerDeltas`, which is the same as
    present and a human declined to quad it. Training should still teach
    "emit nothing" for those (HARVEST.md §6), so they are reported per reason
    and in an all-negatives rate, but they are not gated.
-7. **Tight framing** means label fill >= 75% of the canonical square, the
-   HARVEST.md §5 failure. It gets its own block in every summary.
+7. **Tight framing** means the label's bounding box spans >= 80% of the
+   canonical square's side (`TIGHT_EXTENT` in `metrics.ts`), the HARVEST.md §5
+   failure. It is a side measure, not area: an upright 63:88 card covers at
+   most about 72% of a square's area, so an area cut at 75% finds nothing. It
+   gets its own block in every summary.
 
 ## The gates
 
@@ -173,7 +176,7 @@ evaluator.
   `split.json` `params`.
 - **Stratified.** Strata are processed rarest first. For each one, test takes
   whole units until it holds its share. The strata are: tight framings
-  (fill >= 75%), card backs, every negative reason, every source, and every
+  (side >= 80%), card backs, every negative reason, every source, and every
   fill bucket. A unit is taken only if train keeps a unit of *every* stratum it
   carries. Test may grow past its target to buy coverage: normally to at most
   2x, but **past 2x when it holds no row yet of the stratum being filled**,

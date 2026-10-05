@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { fillBucket, FILL_ORDER, TIGHT_FILL } from './metrics'
+import { fillBucket, FILL_ORDER, isTight, TIGHT_EXTENT } from './metrics'
 
 /** One line of manifest.jsonl, exactly as harvest.mjs `audit()` writes it. */
 export interface ManifestRow {
@@ -115,7 +115,7 @@ export function composition(rows: readonly ManifestRow[]): Composition {
     front: pos.filter((m) => m.verdict === 'front').length,
     back: pos.filter((m) => m.verdict === 'back').length,
     faceUnknown: pos.filter((m) => m.verdict !== 'front' && m.verdict !== 'back').length,
-    tight: pos.filter((m) => (m.fill ?? 0) >= TIGHT_FILL).length,
+    tight: pos.filter((m) => isTight(m.corners)).length,
     negatives: rows.length - pos.length,
     negativeByReason: Object.fromEntries(
       Object.entries(tally((m) => (m.verdict === 'negative' ? (m.reason ?? '(none)') : null))).sort(),
@@ -132,7 +132,7 @@ export function describe(name: string, c: Composition, units?: number): string {
       .map(([k, v]) => `${k} ${v}`)
       .join(', ') || 'none'
   return [
-    `${name}: ${c.rows} rows${units != null ? ` in ${units} units` : ''} — ${c.positives} positives (front ${c.front}, back ${c.back}, face unknown ${c.faceUnknown}; tight >=75% fill ${c.tight}), ${c.negatives} negatives`,
+    `${name}: ${c.rows} rows${units != null ? ` in ${units} units` : ''} — ${c.positives} positives (front ${c.front}, back ${c.back}, face unknown ${c.faceUnknown}; tight (card side >= ${TIGHT_EXTENT * 100}% of the square) ${c.tight}), ${c.negatives} negatives`,
     `  negatives by reason: ${kv(c.negativeByReason)}`,
     `  fill: ${kv(c.fill)}`,
     `  source: ${kv(c.source)}`,

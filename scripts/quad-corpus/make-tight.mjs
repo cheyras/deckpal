@@ -4,12 +4,13 @@
  *
  *   node scripts/quad-corpus/make-tight.mjs [--split test] [--fill 0.85,0.92] [--out <dir>]
  *
- * The labelled corpus has no frames where the card fills >= 75% of the square,
- * which is exactly where LC050 outlines the text panel instead of the card
- * (HARVEST.md §5). Until real tight framings are labelled, this crops each
- * positive of the chosen split so the card's bounding box fills a target share
- * of a new square, resamples it to the canonical size, and maps the corners
- * exactly. Two crops per card (one per fill value).
+ * The labelled corpus has few close-ups (card bounding box spanning >= 80% of
+ * the square's side, metrics.ts TIGHT_EXTENT), which is exactly where LC050
+ * outlines the text panel instead of the card (HARVEST.md §5). Until more real
+ * tight framings are labelled, this crops each positive of the chosen split so
+ * the card's bounding box spans a target share of a new square's side,
+ * resamples it to the canonical size, and maps the corners exactly. Two crops
+ * per card (one per --fill value; a side share, not an area).
  *
  * CAVEAT, and it matters: the pixels are UPSCALED from a card that filled ~30%
  * of a 416 px frame, so they are softer than a real phone photo taken close up.

@@ -231,7 +231,25 @@ export function fillBucket(fill: number | null): string {
   return labels[labels.length - 1]
 }
 export const FILL_ORDER = ['<10%', '10-25%', '25-50%', '50-75%', '75-90%', '>=90%', 'n/a']
-export const TIGHT_FILL = 0.75
+// TIGHT FRAMING IS MEASURED BY SIDE, NOT AREA. A 63:88 card upright in a square
+// can never cover more than ~72% of its AREA, and the scanner reticle covers only
+// ~61%, so an area cut at 75% was unreachable by any fully visible card (the
+// 2026-10-04 audit reported "zero tight framings" for exactly that reason). The
+// card bounding box long side as a share of the square side is what "the card
+// fills the frame" means; the reticle spans 92% of it.
+export const TIGHT_EXTENT = 0.8
+
+/** The card bounding-box long side as a fraction of the square side (corners normalized to [0,1]). */
+export function cardExtent(corners: readonly (readonly number[])[] | null | undefined): number | null {
+  if (!corners || corners.length !== 4) return null
+  const xs = corners.map((p) => p[0]!)
+  const ys = corners.map((p) => p[1]!)
+  return Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys))
+}
+
+export function isTight(corners: readonly (readonly number[])[] | null | undefined): boolean {
+  return (cardExtent(corners) ?? 0) >= TIGHT_EXTENT
+}
 
 /** Wilson 95% interval — n is small enough everywhere that a bare rate lies. */
 export function wilson(k: number, n: number): [number, number] {

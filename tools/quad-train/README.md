@@ -294,7 +294,9 @@ throwaway case.
   - corner error in **canonical px**: median, mean, p90, best-cyclic, and the share of
     frames within 8 px and 14 px;
   - linear scale, `sqrt(area_pred/area_gt)`, which is what shows an interior lock;
-  - the same numbers on the **tight** slice (fill >= 0.5);
+  - the same numbers on the **tight** slice (card bounding box spans >= 80% of the
+    square's side, `TIGHT_EXTENT` in `scripts/quad-corpus/metrics.ts`; not area, which an
+    upright card caps at about 72%);
   - presence: accuracy at 0.5, the acquire rate at 0.80 on cards, the false-acquire rate
     at 0.80 on negatives, and BCE.
 - **Baseline:** epoch 0 is always the untouched pretrained LC050.
@@ -361,7 +363,7 @@ cd tools/quad-train
 cd ../..
 # 6. score the candidate ONCE on the locked test split, through the shipping engine path,
 #    with the same metric definitions as the baseline (train.py's own val metrics are a
-#    training signal: raw 14 px, fixed corner order, "tight" at fill >= 0.5)
+#    training signal: raw 14 px, fixed corner order)
 node --import tsx scripts/quad-corpus/eval.ts --model tools/quad-train/cache/export/r1.onnx
 # 7. and on real tight framings, plus the synthetic tight crops of held-out cards
 node scripts/quad-corpus/make-tight.mjs --split test
