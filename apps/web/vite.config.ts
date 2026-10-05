@@ -347,9 +347,10 @@ export default defineConfig(async ({ command }) => {
           // also absorbs their DEPENDENCIES, when nothing else has claimed them
           // first. `character/decke/cardSource.ts` imports `lib/api.ts`, so
           // `lib/api.ts` was pulled into the character group, and with it
-          // `lib/supabase.ts`, `lib/landingRoute.ts` and `lib/returningVisitor.ts`.
+          // `lib/supabase.ts`, `lib/landingRoute.ts` and `lib/returningVisitor.ts`
+          // (that last one since removed, 2026-10-04).
           //
-          // Those four are imported by roughly fifty modules the ENTRY reaches:
+          // Those four were imported by roughly fifty modules the ENTRY reaches:
           // `main.tsx`, `AppShell`, `AuthGuard`, every route. So the entry chunk
           // gained a static import of the character chunk, and Vite — correctly,
           // for a static entry dependency — wrote a `<link rel="modulepreload">`
