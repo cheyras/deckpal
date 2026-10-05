@@ -12,12 +12,26 @@ extension is historical: original bytes can be HEIC. The replacement is JPEG.
 | JPEG | Absent | Any | Original | Refused | Waits for complete replacement pair |
 | Any | Present | Any | Replacement | Completes missing/corrupt replacement sidecar | Removes original objects only after replacement pair is complete |
 
-The rules hold for two devices because listing, reading, repair, cleanup, and
-discard take the same family advisory lock. Object listing only discovers
-candidate families; each candidate is rechecked at its photo paths under that
-lock. Both physical IDs resolve to one logical listing ID and the same current
-photo. A sidecar is metadata, never evidence that its photo exists or that the
-other photo should be hidden. Missing metadata gets a deterministic fallback.
+The rules hold for two devices because reading, repair, cleanup, and discard
+take the same family advisory lock. Both physical IDs resolve to one logical
+listing ID and the same current photo. A sidecar is metadata, never evidence
+that its photo exists or that the other photo should be hidden. Missing
+metadata gets a deterministic fallback.
+
+The listing (since the 2026-10-04 decision) is built from ONE object listing
+of both buckets, which is its snapshot. A family whose snapshot holds a photo shows it
+once, under the original ID: the replacement if it was listed, else the
+original, with the size the listing reported. Only the shown photo's sidecar
+is read (else the original's), with no lock, at most 16 at a time. A family the
+snapshot saw only as sidecars is rechecked at its photo paths under its lock,
+at most two at a time, because a listing can miss a photo that exists (a page
+shifting under a concurrent delete, a migration between the two bucket
+listings); a sidecar alone is still not shown. So the listing never hides a
+photo its snapshot saw. Like any listing, it can show a photo removed after the
+snapshot was taken; opening that entry is a locked read that resolves the
+family's current photo or answers 404, and a discarded family cannot be
+repaired back. Holding the lock per family in the listing cost about half a
+second per photo and timed the route out at a few hundred photos.
 Storage reads bypass caches so a second device sees completed writes/deletes.
 The objects live in the private `dev-captures` bucket and every read uses the
 server's key. A photo still in the public `card-art` bucket from before
@@ -26,8 +40,8 @@ moves it (`POST /migrate-captures`) takes the same family lock, so a move can
 never race a discard into resurrecting a photo.
 New uploads also lock each candidate ID and check all four paths before writing,
 so two devices posting in one millisecond receive different IDs.
-Each listing advances at most two families at a time. All queue operations wait
-in one process-level FIFO before checking out a database connection; cloud has
+All locked queue operations wait in one process-level FIFO before checking
+out a database connection; cloud has
 three dedicated session connections, while self-host reserves only one shared
 request-pool connection for queue work. The advisory lock remains held through
 the storage operation even if the HTTP request ends.

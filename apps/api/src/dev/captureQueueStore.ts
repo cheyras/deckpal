@@ -44,6 +44,11 @@ function parseMeta(bytes: Buffer): QueueMeta | null {
 export function createCaptureQueueStore(store: CaptureStore, locked: QueueStore['locked']): QueueStore {
   return {
     locked,
+    // Both buckets: the private one, plus any photo still waiting in the
+    // public one for `POST /migrate-captures` to move it.
+    list: async () =>
+      (await storage(() => store.list('dev-queue'), 'Shared photo queue temporarily unavailable.'))
+        .map(({ path, byteSize }) => ({ path, byteSize })),
     exists: (path) => storage(() => store.exists(path)),
     size: async (path) => (await storage(() => store.stat(path)))?.byteSize ?? null,
     // Reads go through the service key, not a public CDN URL, so a photo

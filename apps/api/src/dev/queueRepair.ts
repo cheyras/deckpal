@@ -4,8 +4,16 @@ export interface QueueMeta {
   addedAt: string;
 }
 
+/** One object from a listing of the queue prefix, as the object store reported it. */
+export interface QueueObject {
+  path: string;
+  byteSize: number;
+}
+
 export interface QueueStore {
   locked<T>(id: number, work: () => Promise<T>): Promise<T>;
+  /** Every object under `dev-queue/`, in one listing: the snapshot the queue listing is built from. */
+  list(): Promise<QueueObject[]>;
   exists(path: string): Promise<boolean>;
   size(path: string): Promise<number | null>;
   photo(path: string): Promise<Buffer | null>;
@@ -35,6 +43,18 @@ export interface QueuePhoto {
   meta: QueueMeta;
 }
 
+// The chosen photo's sidecar, else the original's, else a deterministic
+// fallback. Metadata never decides whether a photo exists.
+async function familyMeta(original: number, photoId: number, store: QueueStore): Promise<QueueMeta> {
+  const meta = await store.meta(path(photoId, 'json')) ??
+    (photoId === original ? null : await store.meta(path(original, 'json')));
+  return meta ?? {
+    name: `photo-${original}.jpg`,
+    source: 'upload',
+    addedAt: new Date(original).toISOString(),
+  };
+}
+
 async function selectedPhoto(id: number, store: QueueStore): Promise<QueuePhoto | null> {
   const original = originalId(id);
   const replacement = replacementId(original);
@@ -42,34 +62,66 @@ async function selectedPhoto(id: number, store: QueueStore): Promise<QueuePhoto 
   const originalSize = replacementSize === null ? await store.size(path(original, 'jpg')) : null;
   const photoId = replacementSize !== null ? replacement : originalSize !== null ? original : null;
   if (photoId === null) return null;
-  const meta = await store.meta(path(photoId, 'json')) ?? await store.meta(path(original, 'json'));
-  return {
-    id: original,
-    photoId,
-    size: replacementSize ?? originalSize ?? 0,
-    meta: meta ?? {
-      name: `photo-${original}.jpg`,
-      source: 'upload',
-      addedAt: new Date(original).toISOString(),
-    },
-  };
+  return { id: original, photoId, size: replacementSize ?? originalSize ?? 0, meta: await familyMeta(original, photoId, store) };
 }
 
-// Object listings are only candidate discovery. Recheck both paths under the
-// family's lock so a stale sidecar or a concurrent repair cannot hide a photo.
-export async function listQueuePhotos(ids: Iterable<number>, store: QueueStore): Promise<QueuePhoto[]> {
-  const families = [...new Set([...ids].filter(validQueuePhotoId).map(originalId))];
-  const photos: Array<QueuePhoto | null> = new Array(families.length);
+/** Sidecar reads one listing keeps in flight. They take no lock and no database connection. */
+export const LISTING_META_CONCURRENCY = 16;
+/** Locked family rechecks one listing keeps in flight, leaving the FIFO room for a thumbnail or a mutation. */
+export const LISTING_LOCKED_CONCURRENCY = 2;
+
+const QUEUE_OBJECT_RE = /^dev-queue\/(\d+)\.(jpg|json)$/;
+
+async function eachBounded<T>(items: readonly T[], limit: number, work: (item: T) => Promise<void>): Promise<void> {
   let cursor = 0;
-  // A listing contributes at most two lock requests at once. Another listing,
-  // thumbnail, or mutation can enter the shared FIFO before this batch ends.
-  await Promise.all(Array.from({ length: Math.min(2, families.length) }, async () => {
-    while (cursor < families.length) {
-      const index = cursor++;
-      photos[index] = await store.locked(families[index]!, () => selectedPhoto(families[index]!, store));
-    }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) await work(items[cursor++]!);
   }));
-  return photos.filter((photo): photo is QueuePhoto => photo !== null);
+}
+
+/**
+ * Every queued photo, once per family, chosen from ONE object listing.
+ *
+ * The listing is the snapshot. A family whose snapshot holds a photo shows it:
+ * the replacement if it was listed, else the original, with the size the
+ * listing reported. Only its sidecar is read, lock-free and many at a time.
+ * A family the snapshot saw only as sidecars is rechecked under its lock,
+ * because the listing may have missed a photo that exists (a page that shifted
+ * under a concurrent delete, a migration between the two bucket listings).
+ *
+ * This cannot hide a photo the snapshot saw: nothing below drops a family with
+ * a listed photo. It can show one that went away after the snapshot, as any
+ * listing can by the time the reader looks; reads take the family lock and
+ * resolve the photo that exists now, or 404.
+ */
+export async function listQueuePhotos(store: QueueStore): Promise<QueuePhoto[]> {
+  const sizes = new Map<number, number>(); // physical photo ID → listed bytes
+  const families = new Set<number>();
+  for (const object of await store.list()) {
+    const match = QUEUE_OBJECT_RE.exec(object.path);
+    if (!match) continue;
+    const id = Number(match[1]);
+    if (!validQueuePhotoId(id)) continue;
+    families.add(originalId(id));
+    if (match[2] === 'jpg') sizes.set(id, object.byteSize);
+  }
+  const listed: number[] = [];
+  const sidecarOnly: number[] = [];
+  for (const family of families) {
+    (sizes.has(replacementId(family)) || sizes.has(family) ? listed : sidecarOnly).push(family);
+  }
+  const photos = new Map<number, QueuePhoto | null>();
+  await Promise.all([
+    eachBounded(listed, LISTING_META_CONCURRENCY, async (original) => {
+      const replacement = replacementId(original);
+      const photoId = sizes.has(replacement) ? replacement : original;
+      photos.set(original, { id: original, photoId, size: sizes.get(photoId)!, meta: await familyMeta(original, photoId, store) });
+    }),
+    eachBounded(sidecarOnly, LISTING_LOCKED_CONCURRENCY, async (original) => {
+      photos.set(original, await store.locked(original, () => selectedPhoto(original, store)));
+    }),
+  ]);
+  return [...families].map((family) => photos.get(family)).filter((photo): photo is QueuePhoto => !!photo);
 }
 
 // Resolve either physical ID to the current family photo while holding the

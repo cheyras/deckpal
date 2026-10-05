@@ -25,6 +25,7 @@ import {
 import { ApiError, errorMiddleware } from '../../http.js';
 import { createScanFlagsRouter } from '../scanFlags.js';
 import { createCaptureQueueStore } from '../captureQueueStore.js';
+import { listQueuePhotos } from '../queueRepair.js';
 
 function bucket(name: string, initial: Record<string, string> = {}) {
   const objects = new Map<string, CaptureObject>(
@@ -194,9 +195,33 @@ describe('the queue object layer over the private capture store', () => {
     const primary = bucket('dev-captures', { [`dev-queue/${OLD}.jpg`]: 'jpeg' });
     const queue = createCaptureQueueStore(createCaptureStore(primary, null), locked);
     primary.fail(true);
-    for (const op of [() => queue.photo(`dev-queue/${OLD}.jpg`), () => queue.size(`dev-queue/${OLD}.jpg`), () => queue.exists(`dev-queue/${OLD}.jpg`), () => queue.meta(`dev-queue/${OLD}.json`)]) {
+    for (const op of [() => queue.list(), () => queue.photo(`dev-queue/${OLD}.jpg`), () => queue.size(`dev-queue/${OLD}.jpg`), () => queue.exists(`dev-queue/${OLD}.jpg`), () => queue.meta(`dev-queue/${OLD}.json`)]) {
       await assert.rejects(op(), (error: unknown) => error instanceof ApiError && error.status === 502 && error.code === 'queue_storage_unavailable');
     }
+  });
+
+  it('lists the queue from one snapshot of both buckets, with listed sizes and no lock', async () => {
+    const NEW = OLD + 5;
+    const primary = bucket('dev-captures', {
+      [`dev-queue/${NEW}.jpg`]: 'new-jpeg',
+      [`dev-queue/${NEW}.json`]: '{"name":"new.jpg","source":"camera","addedAt":"2026-09-30T00:00:00.000Z"}',
+      [`dev-flags/${NEW}.png`]: 'a label, not a queued photo',
+    });
+    const legacy = bucket('card-art', {
+      [`dev-queue/${OLD}.jpg`]: 'old-jpeg-bytes',
+      [`dev-queue/${OLD}.json`]: '{"name":"old.jpg","source":"upload","addedAt":"2026-09-01T00:00:00.000Z"}',
+    });
+    let locks = 0;
+    const queue = createCaptureQueueStore(createCaptureStore(primary, legacy), (id, work) => { locks++; return locked(id, work); });
+    assert.deepEqual((await queue.list()).sort((a, b) => a.path.localeCompare(b.path)), [
+      { path: `dev-queue/${OLD}.jpg`, byteSize: 'old-jpeg-bytes'.length },
+      { path: `dev-queue/${OLD}.json`, byteSize: legacy.objects.get(`dev-queue/${OLD}.json`)!.bytes.length },
+      { path: `dev-queue/${NEW}.jpg`, byteSize: 'new-jpeg'.length },
+      { path: `dev-queue/${NEW}.json`, byteSize: primary.objects.get(`dev-queue/${NEW}.json`)!.bytes.length },
+    ]);
+    const photos = await listQueuePhotos(queue);
+    assert.deepEqual(photos.map((p) => [p.id, p.size, p.meta.name]).sort(), [[OLD, 'old-jpeg-bytes'.length, 'old.jpg'], [NEW, 'new-jpeg'.length, 'new.jpg']]);
+    assert.equal(locks, 0);
   });
 
   it('a delete that leaves the photo in place fails loudly', async () => {

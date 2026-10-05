@@ -1945,7 +1945,9 @@ These routes require labeler access in production. Cloud uses the `/api` prefix.
 - `GET /`: `{ photos: [{ id, name, source, addedAt, size }] }`, oldest first.
   Each logical photo appears once under its original ID, including when a
   repair has left both original and replacement objects. Sidecar-only remnants
-  do not appear as photos; missing metadata receives fallback values.
+  do not appear as photos; missing metadata receives fallback values. The list
+  is built from one object-listing snapshot, so a photo removed while it was
+  being built can appear once and then answer 404 when opened.
 - `GET /:id.jpg`: reads the surviving photo, preferring its JPEG replacement.
   Either physical ID resolves the same family. Missing bytes return 404;
   unavailable storage returns 502. Responses are not cached.
