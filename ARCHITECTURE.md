@@ -2085,7 +2085,9 @@ waits in a FIFO before database checkout. Self-host queue work uses one shared
 request-pool connection. The listing is one object-listing snapshot: each
 family it saw with a photo appears once under the original ID, as the
 replacement if listed, else the original, with the listed size; only sidecars
-are read after it, lock-free and at most 16 at a time. Families seen only as
+are read after it, lock-free, at most 8 at a time, with a short retrying
+timeout, and a sidecar whose listed etag matches bytes already read is not
+read again. Families seen only as
 sidecars are rechecked under the lock, two at a time. Reads resolve whichever
 photo survives now, preferring the replacement. Metadata alone is never
 evidence that a photo exists. The browser's IndexedDB outbox

@@ -8,6 +8,8 @@ export interface QueueMeta {
 export interface QueueObject {
   path: string;
   byteSize: number;
+  /** The object's etag as listed, when the store reports one. */
+  etag?: string | null;
 }
 
 export interface QueueStore {
@@ -17,7 +19,12 @@ export interface QueueStore {
   exists(path: string): Promise<boolean>;
   size(path: string): Promise<number | null>;
   photo(path: string): Promise<Buffer | null>;
-  meta(path: string): Promise<QueueMeta | null>;
+  /**
+   * A sidecar's metadata. `listedEtag` is what a listing snapshot reported for
+   * this path; a store may answer from a cache only for those exact bytes.
+   * Locked callers pass none and get a fresh read.
+   */
+  meta(path: string, listedEtag?: string | null): Promise<QueueMeta | null>;
   put(path: string, bytes: Buffer, contentType: string): Promise<void>;
   remove(path: string): Promise<boolean>;
 }
@@ -44,10 +51,11 @@ export interface QueuePhoto {
 }
 
 // The chosen photo's sidecar, else the original's, else a deterministic
-// fallback. Metadata never decides whether a photo exists.
-async function familyMeta(original: number, photoId: number, store: QueueStore): Promise<QueueMeta> {
-  const meta = await store.meta(path(photoId, 'json')) ??
-    (photoId === original ? null : await store.meta(path(original, 'json')));
+// fallback. Metadata never decides whether a photo exists. `listed` carries
+// the snapshot's sidecar etags on the lock-free listing path only.
+async function familyMeta(original: number, photoId: number, store: QueueStore, listed?: Map<number, string | null>): Promise<QueueMeta> {
+  const meta = await store.meta(path(photoId, 'json'), listed?.get(photoId)) ??
+    (photoId === original ? null : await store.meta(path(original, 'json'), listed?.get(original)));
   return meta ?? {
     name: `photo-${original}.jpg`,
     source: 'upload',
@@ -65,8 +73,13 @@ async function selectedPhoto(id: number, store: QueueStore): Promise<QueuePhoto 
   return { id: original, photoId, size: replacementSize ?? originalSize ?? 0, meta: await familyMeta(original, photoId, store) };
 }
 
-/** Sidecar reads one listing keeps in flight. They take no lock and no database connection. */
-export const LISTING_META_CONCURRENCY = 16;
+/**
+ * Sidecar reads one listing keeps in flight. They take no lock and no database
+ * connection. Supabase Storage throttles a 16-wide burst (on the PR preview the
+ * listing after one drew a 502); at 8, ~1000 never-seen sidecars take ~15 s,
+ * and a warm re-list reads only new or rewritten ones (captureQueueStore.ts).
+ */
+export const LISTING_META_CONCURRENCY = 8;
 /** Locked family rechecks one listing keeps in flight, leaving the FIFO room for a thumbnail or a mutation. */
 export const LISTING_LOCKED_CONCURRENCY = 2;
 
@@ -96,6 +109,7 @@ async function eachBounded<T>(items: readonly T[], limit: number, work: (item: T
  */
 export async function listQueuePhotos(store: QueueStore): Promise<QueuePhoto[]> {
   const sizes = new Map<number, number>(); // physical photo ID → listed bytes
+  const sidecarEtags = new Map<number, string | null>(); // physical photo ID → its listed sidecar's etag
   const families = new Set<number>();
   for (const object of await store.list()) {
     const match = QUEUE_OBJECT_RE.exec(object.path);
@@ -104,6 +118,7 @@ export async function listQueuePhotos(store: QueueStore): Promise<QueuePhoto[]> 
     if (!validQueuePhotoId(id)) continue;
     families.add(originalId(id));
     if (match[2] === 'jpg') sizes.set(id, object.byteSize);
+    else sidecarEtags.set(id, object.etag ?? null);
   }
   const listed: number[] = [];
   const sidecarOnly: number[] = [];
@@ -115,7 +130,7 @@ export async function listQueuePhotos(store: QueueStore): Promise<QueuePhoto[]> 
     eachBounded(listed, LISTING_META_CONCURRENCY, async (original) => {
       const replacement = replacementId(original);
       const photoId = sizes.has(replacement) ? replacement : original;
-      photos.set(original, { id: original, photoId, size: sizes.get(photoId)!, meta: await familyMeta(original, photoId, store) });
+      photos.set(original, { id: original, photoId, size: sizes.get(photoId)!, meta: await familyMeta(original, photoId, store, sidecarEtags) });
     }),
     eachBounded(sidecarOnly, LISTING_LOCKED_CONCURRENCY, async (original) => {
       photos.set(original, await store.locked(original, () => selectedPhoto(original, store)));

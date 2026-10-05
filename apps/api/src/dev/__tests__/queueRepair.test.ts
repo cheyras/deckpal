@@ -408,6 +408,7 @@ const metaOf = (name: string, source: QueueMeta['source'] = 'camera', addedAt = 
 // sections in flight. `listing` overrides what the object listing reports.
 function countingStore(files: Map<string, Buffer>, listing?: () => QueueObject[]) {
   const calls = { list: 0, locked: 0, exists: 0, size: 0, photo: 0, meta: 0, put: 0, remove: 0 };
+  const metaEtags: Array<[string, string | null | undefined]> = [];
   const inFlight = { meta: 0, locked: 0 };
   const peak = { meta: 0, locked: 0 };
   const enter = (kind: 'meta' | 'locked') => { inFlight[kind]++; peak[kind] = Math.max(peak[kind], inFlight[kind]); };
@@ -422,8 +423,9 @@ function countingStore(files: Map<string, Buffer>, listing?: () => QueueObject[]
     async exists(path) { calls.exists++; return files.has(path); },
     async size(path) { calls.size++; return files.get(path)?.length ?? null; },
     async photo(path) { calls.photo++; return files.get(path) ?? null; },
-    async meta(path) {
+    async meta(path, listedEtag) {
       calls.meta++;
+      metaEtags.push([path, listedEtag]);
       enter('meta');
       try {
         await tick();
@@ -433,8 +435,26 @@ function countingStore(files: Map<string, Buffer>, listing?: () => QueueObject[]
     async put(path, bytes) { calls.put++; files.set(path, bytes); },
     async remove(path) { calls.remove++; return files.delete(path); },
   };
-  return { store, calls, peak };
+  return { store, calls, peak, metaEtags };
 }
+
+test('the listing hands the store each sidecar\'s listed etag; the locked recheck reads fresh', async () => {
+  const files = new Map<string, Buffer>([
+    [original, Buffer.from('heic')], [`dev-queue/${ID}.json`, metaOf('IMG_5.HEIC')], [next, jpg], // replacement sidecar not listed
+    [`dev-queue/${ID + 1}.json`, metaOf('missed.jpg')], [`dev-queue/${ID + 1}.jpg`, jpg], // its photo missing from the listing
+  ]);
+  const etag = (path: string) => `etag-of-${path}`;
+  const { store, metaEtags } = countingStore(files, () =>
+    snapshot(files).filter((object) => object.path !== `dev-queue/${ID + 1}.jpg`).map((object) => ({ ...object, etag: etag(object.path) })));
+  const listed = await listQueuePhotos(store);
+  assert.deepEqual(listed.map((photo) => [photo.id, photo.meta.name]), [[ID, 'IMG_5.HEIC'], [ID + 1, 'missed.jpg']]);
+  assert.equal(metaEtags.length, 3);
+  assert.deepEqual(new Map(metaEtags), new Map([
+    [sidecar, undefined], // not in the snapshot: nothing to vouch for it
+    [`dev-queue/${ID}.json`, etag(`dev-queue/${ID}.json`)],
+    [`dev-queue/${ID + 1}.json`, undefined], // under the lock: always a fresh read
+  ]));
+});
 
 test('the listing takes no lock and probes no photo for a family whose photo was listed', async () => {
   const [a, b, c] = [ID, ID + 1, ID + 2];
@@ -557,7 +577,7 @@ test('one listing bounds its sidecar reads and its locked rechecks', async () =>
   assert.equal(calls.locked, 10, 'only the sidecar-only families lock');
   assert.equal(peak.meta, LISTING_META_CONCURRENCY);
   assert.equal(peak.locked, LISTING_LOCKED_CONCURRENCY);
-  assert.ok(LISTING_META_CONCURRENCY <= 16 && LISTING_LOCKED_CONCURRENCY <= 2);
+  assert.ok(LISTING_META_CONCURRENCY <= 8 && LISTING_LOCKED_CONCURRENCY <= 2);
 });
 
 test('a 500-photo queue lists with one object listing and one sidecar read per photo', async () => {
