@@ -200,6 +200,36 @@ describe('the queue object layer over the private capture store', () => {
     }
   });
 
+  it('a sidecar read retries a throttle, a 5xx or a timeout on a short clock, and fails fast on a refusal', async () => {
+    const sidecarPath = `dev-queue/${OLD}.json`;
+    const primary = bucket('dev-captures', { [sidecarPath]: '{"name":"a.jpg","source":"camera","addedAt":"x"}' });
+    const read = primary.read.bind(primary);
+    const timeouts: Array<number | undefined> = [];
+    let failures: number[] = [];
+    primary.read = async (path, options) => {
+      timeouts.push(options?.timeoutMs);
+      const status = failures.shift();
+      if (status !== undefined) throw new CaptureStorageError(`[storage] dev-captures read failed: HTTP ${status}`, status);
+      return read(path);
+    };
+    const queue = createCaptureQueueStore(createCaptureStore(primary, null), locked);
+    const unavailable = (error: unknown) => error instanceof ApiError && error.status === 502 && error.code === 'queue_storage_unavailable';
+
+    failures = [429, 0]; // a throttle, then a timeout or dropped connection
+    assert.deepEqual(await queue.meta(sidecarPath), { name: 'a.jpg', source: 'camera', addedAt: 'x' });
+    assert.deepEqual(timeouts, [5_000, 5_000, 5_000], 'each attempt on a 5 s clock, not the 20 s default');
+
+    timeouts.length = 0;
+    failures = [503, 503, 503, 503];
+    await assert.rejects(queue.meta(sidecarPath), unavailable);
+    assert.equal(timeouts.length, 3, 'three attempts, then the retryable 502');
+
+    timeouts.length = 0;
+    failures = [403];
+    await assert.rejects(queue.meta(sidecarPath), unavailable);
+    assert.equal(timeouts.length, 1, 'a refusal is not retried');
+  });
+
   it('lists the queue from one snapshot of both buckets, with listed sizes and no lock', async () => {
     const NEW = OLD + 5;
     const primary = bucket('dev-captures', {

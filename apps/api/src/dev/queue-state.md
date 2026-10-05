@@ -22,7 +22,8 @@ The listing (since the 2026-10-04 decision) is built from ONE object listing
 of both buckets, which is its snapshot. A family whose snapshot holds a photo shows it
 once, under the original ID: the replacement if it was listed, else the
 original, with the size the listing reported. Only the shown photo's sidecar
-is read (else the original's), with no lock, at most 16 at a time. A family the
+is read (else the original's), with no lock, at most 16 at a time; each read
+gets 5 s per attempt and retries a throttle, 5xx or timeout twice. A family the
 snapshot saw only as sidecars is rechecked at its photo paths under its lock,
 at most two at a time, because a listing can miss a photo that exists (a page
 shifting under a concurrent delete, a migration between the two bucket

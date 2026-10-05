@@ -74,6 +74,18 @@ describe('createCaptureStore (private first, public read-through)', () => {
     assert.deepEqual(await store.stat('dev-flags/1.json'), { byteSize: 'private'.length });
   });
 
+  it('passes a read\'s options to every bucket it reads through', async () => {
+    const seen: Array<[string, number | undefined]> = [];
+    const track = (bucket: ReturnType<typeof memoryBucket>) => {
+      const read = bucket.read.bind(bucket);
+      bucket.read = (path, options) => { seen.push([bucket.name, options?.timeoutMs]); return read(path, options); };
+      return bucket;
+    };
+    const store = createCaptureStore(track(memoryBucket('dev-captures')), track(memoryBucket('card-art')));
+    assert.equal(await store.read('dev-queue/1.json', { timeoutMs: 5_000 }), null);
+    assert.deepEqual(seen, [['dev-captures', 5_000], ['card-art', 5_000], ['dev-captures', 5_000]]);
+  });
+
   it('does not 404 an object the migration moves between the two reads', async () => {
     const primary = memoryBucket('dev-captures');
     const legacy = memoryBucket('card-art', { 'dev-flags/1.png': 'photo' });
@@ -240,6 +252,18 @@ describe('the HTTP capture handles', () => {
       assert.equal(await bucket.write('dev-flags/1.png', Buffer.from('second'), 'image/png', 'create'), 'exists');
     });
     assert.equal(storage.objects.get('dev-captures/dev-flags/1.png'), 'first', 'nothing overwritten');
+  });
+
+  it('a read can carry its own, shorter timeout, and a timeout is a failure (status 0), not "absent"', async () => {
+    const hanging = ((_url: string, init?: RequestInit) =>
+      new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason)))) as typeof fetch;
+    await withFetch(hanging, async () => {
+      const bucket = httpCaptureBucket({ bucket: CAPTURE_BUCKET, writable: true, allowConflicts: true });
+      const started = performance.now();
+      await assert.rejects(bucket.read('dev-queue/1700000000000.json', { timeoutMs: 30 }),
+        (error: unknown) => error instanceof CaptureStorageError && error.status === 0);
+      assert.ok(performance.now() - started < 5_000, 'aborted at the per-call timeout, not the 20 s default');
+    });
   });
 
   it('tells a missing object from a refused request', async () => {

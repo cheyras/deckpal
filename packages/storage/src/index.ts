@@ -97,6 +97,7 @@ export {
   type CaptureBucket,
   type CaptureObject,
   type CapturePrefix,
+  type CaptureReadOptions,
   type CaptureStore,
   type CaptureWriteMode,
   type PutCaptureInput,

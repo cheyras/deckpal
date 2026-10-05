@@ -101,6 +101,12 @@ export interface CaptureObject {
 
 export type CaptureWriteMode = 'upsert' | 'create';
 
+/** Per-call overrides for one read. */
+export interface CaptureReadOptions {
+  /** Abort this request after `timeoutMs` instead of the handle's default (20 s). */
+  timeoutMs?: number;
+}
+
 /**
  * One bucket, as the capture routes and the migration see it. Every method
  * distinguishes ABSENT (null / false / 'exists') from FAILED (throws), because
@@ -110,7 +116,7 @@ export type CaptureWriteMode = 'upsert' | 'create';
 export interface CaptureBucket {
   readonly name: string;
   list(prefix: CapturePrefix): Promise<StoredObject[]>;
-  read(path: string): Promise<CaptureObject | null>;
+  read(path: string, options?: CaptureReadOptions): Promise<CaptureObject | null>;
   stat(path: string): Promise<{ byteSize: number } | null>;
   /** `create` never overwrites: an existing object answers 'exists'. */
   write(path: string, bytes: Buffer, contentType: string, mode: CaptureWriteMode): Promise<'written' | 'exists'>;
@@ -259,11 +265,11 @@ export function httpCaptureBucket(options: HttpCaptureBucketOptions): CaptureBuc
   const failed = (op: string, path: string, detail: string, status: number) =>
     new CaptureStorageError(`[storage] ${bucket} ${op} failed for ${path}: ${detail}`, status);
 
-  async function request(op: string, path: string, init: RequestInit): Promise<Response> {
+  async function request(op: string, path: string, init: RequestInit, timeout = timeoutMs): Promise<Response> {
     const url = objectUrl(path, op);
     await before?.();
     try {
-      return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+      return await fetch(url, { ...init, signal: AbortSignal.timeout(timeout) });
     } catch (error) {
       throw failed(op, path, (error as Error).message, 0);
     }
@@ -285,8 +291,8 @@ export function httpCaptureBucket(options: HttpCaptureBucketOptions): CaptureBuc
     return /"statusCode"\s*:\s*"404"|not[_ ]?found/i.test(body);
   }
 
-  async function read(path: string): Promise<CaptureObject | null> {
-    const res = await request('read', path, { headers: auth() });
+  async function read(path: string, options?: CaptureReadOptions): Promise<CaptureObject | null> {
+    const res = await request('read', path, { headers: auth() }, options?.timeoutMs);
     if (!res.ok) {
       if (await absent(res)) return null;
       await res.body?.cancel().catch(() => {});
@@ -391,7 +397,7 @@ export interface CaptureStore {
   readonly legacy: CaptureBucket | null;
   /** Everything under `prefix` in either bucket; the private copy wins a tie. */
   list(prefix: CapturePrefix): Promise<StoredObject[]>;
-  read(path: string): Promise<CaptureObject | null>;
+  read(path: string, options?: CaptureReadOptions): Promise<CaptureObject | null>;
   stat(path: string): Promise<{ byteSize: number } | null>;
   exists(path: string): Promise<boolean>;
   /** Writes the PRIVATE bucket only. Overwrites (a comment re-POST is an edit). */
@@ -424,7 +430,7 @@ export function createCaptureStore(primary: CaptureBucket, legacy: CaptureBucket
       for (const o of own) byPath.set(o.path, o);
       return [...byPath.values()];
     },
-    read: (path) => readThrough((bucket) => bucket.read(path)),
+    read: (path, options) => readThrough((bucket) => bucket.read(path, options)),
     stat: (path) => readThrough((bucket) => bucket.stat(path)),
     async exists(path) {
       return (await readThrough((bucket) => bucket.stat(path))) !== null;

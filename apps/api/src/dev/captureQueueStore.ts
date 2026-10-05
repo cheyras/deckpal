@@ -25,6 +25,38 @@ async function storage<T>(work: () => Promise<T>, message = 'Queued photo storag
   }
 }
 
+/**
+ * ── A SIDECAR READ RETRIES A TRANSIENT FAILURE, QUICKLY ─────────────────────
+ *
+ * The listing reads one sidecar per queued photo — over a thousand on
+ * 2026-10-05, sixteen at a time — so one hung connection or one
+ * `429 too_many_connections` (object-store.ts measured Supabase throttling at
+ * six parallel requests) used to fail the whole listing. The first cold call
+ * on the preview did exactly that: a 502 after 32 s, a single read waiting out
+ * the 20 s default timeout. A sidecar is ~100 bytes and answers in ~0.1 s, so
+ * each attempt gets 5 s, and a throttle, a 5xx, a timeout or a dropped
+ * connection is retried twice with backoff. Anything else (a refusal) fails at
+ * once. Only reads retry: they are idempotent, and nothing destructive keys off
+ * a sidecar.
+ */
+const SIDECAR_TIMEOUT_MS = 5_000;
+const SIDECAR_ATTEMPTS = 3;
+
+function transient(error: unknown): boolean {
+  return error instanceof CaptureStorageError && (error.status === 0 || error.status === 429 || error.status >= 500);
+}
+
+async function readSidecar(store: CaptureStore, path: string) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await store.read(path, { timeoutMs: SIDECAR_TIMEOUT_MS });
+    } catch (error) {
+      if (attempt >= SIDECAR_ATTEMPTS || !transient(error)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 150 * 2 ** (attempt - 1) + Math.floor(Math.random() * 100)));
+    }
+  }
+}
+
 /** A sidecar, or null when it is absent or is not queue metadata at all. */
 function parseMeta(bytes: Buffer): QueueMeta | null {
   let data: Partial<QueueMeta>;
@@ -55,7 +87,7 @@ export function createCaptureQueueStore(store: CaptureStore, locked: QueueStore[
     // another device has just discarded cannot come back from an edge cache.
     photo: async (path) => (await storage(() => store.read(path)))?.bytes ?? null,
     meta: async (path) => {
-      const object = await storage(() => store.read(path), 'Could not read queued photo metadata.');
+      const object = await storage(() => readSidecar(store, path), 'Could not read queued photo metadata.');
       return object ? parseMeta(object.bytes) : null;
     },
     put: (path, bytes, contentType) =>
