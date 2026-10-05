@@ -162,7 +162,11 @@ test('a temporary storage failure is not reported as a missing photo', () => {
   // Absent vs failed is decided in packages/storage/src/capture-store.ts (and
   // tested there); the queue maps every failure to a retryable 502.
   assert.match(STORE_SRC, /error instanceof CaptureStorageError\) throw new ApiError\(502, 'queue_storage_unavailable'/)
-  assert.match(SERVER_SRC, /new ApiError\(502, 'queue_storage_unavailable'/)
+  // The listing's own object listing goes through that same mapping (it moved
+  // from the route into the queue store on 2026-10-04; privateCaptures.test.ts
+  // drives an outage through it).
+  assert.match(STORE_SRC, /list: async \(\) =>\s*\(await storage\(/)
+  assert.match(SERVER_SRC, /listQueuePhotos\(queueStore\(\)\)/)
 })
 
 test('the server refuses HEIC bytes disguised as JPEG', () => {
