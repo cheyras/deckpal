@@ -73,9 +73,21 @@ const components: Components = {
   td: ({ children }) => <td className="border border-border-default px-[10px] py-[6px] text-text-body">{children}</td>,
 }
 
-export default function MarkdownView({ markdown }: { markdown: string }) {
+// `compact`: the same map with headings stepped down, for markdown nested INSIDE
+// a section that already has its own small heading (a battle log's review). A
+// guide-sized 24px "## Turning point" there would outrank the page around it.
+// Only the headings change, so every safety rule above applies unchanged.
+const compactComponents: Components = {
+  ...components,
+  h1: ({ children }) => <h4 className="mb-[6px] mt-[14px] text-[16px] font-bold leading-[22px] text-text-primary first:mt-0">{children}</h4>,
+  h2: ({ children }) => <h4 className="mb-[6px] mt-[14px] text-[15px] font-bold leading-[21px] text-text-primary first:mt-0">{children}</h4>,
+  h3: ({ children }) => <h5 className="mb-[4px] mt-[12px] text-[14px] font-bold leading-[20px] text-text-primary first:mt-0">{children}</h5>,
+  h4: ({ children }) => <h5 className="mb-[4px] mt-[12px] text-[14px] font-semibold text-text-primary first:mt-0">{children}</h5>,
+}
+
+export default function MarkdownView({ markdown, compact = false }: { markdown: string; compact?: boolean }) {
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} urlTransform={chatUrlTransform}>
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={compact ? compactComponents : components} urlTransform={chatUrlTransform}>
       {markdown}
     </ReactMarkdown>
   )

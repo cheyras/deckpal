@@ -1220,17 +1220,34 @@ export interface RevertResult {
   skippedCards: { cardId: number; tcgdexId: string; name: string }[]
 }
 export type BattleResult = 'win' | 'loss' | 'tie'
+/** Where a game came from (migration 084): a pasted PTCG Live log, a game the
+ *  reader told Deck-E about, or anything else. Only `ptcgl` guarantees a raw log. */
+export type BattleLogOrigin = 'ptcgl' | 'in_person' | 'other'
 export interface BattleLogSummary {
   id: number
   deckVersion: number
   result: BattleResult | null
   opponent: string | null
   opponentDeck: string | null
+  /** Normalized, countable matchup key, e.g. `dragapult-ex` (lowercase words, hyphens). */
+  opponentArchetype: string | null
+  origin: BattleLogOrigin
   turns: number | null
   prizes: { me: number; opponent: number } | null
   notes: string | null
+  /** Deck-E's markdown analysis (≤12,000 chars), kept apart from the reader's `notes`. */
+  reviewMd: string | null
   playedAt: string
   source: string
+}
+/** One opponent archetype's record across ALL of a deck's logs (every version, every page). */
+export interface BattleArchetypeRecord {
+  opponentArchetype: string
+  games: number
+  wins: number
+  losses: number
+  ties: number
+  lastPlayedAt: string
 }
 export interface ParsedBattleLog {
   players: { me: string | null; opponent: string | null }
@@ -1245,7 +1262,8 @@ export interface ParsedBattleLog {
   opponentDeckGuess: string | null
 }
 export interface BattleLog extends BattleLogSummary {
-  rawLog: string
+  /** Null for a game with no log (`in_person`, and `other` when none was given). */
+  rawLog: string | null
   parsed: ParsedBattleLog | null
   createdAt: string
 }
@@ -1253,7 +1271,55 @@ export interface BattleLogsResponse {
   version: number | null
   logs: BattleLogSummary[]
   totals: VersionBattleRecord
+  /** Deck-wide per-archetype record — NOT scoped by `version` or the page, newest
+   *  encounter first; unclassified logs are left out. Optional only because a
+   *  response from before migration 084 lacks it. */
+  archetypes?: BattleArchetypeRecord[]
   pagination: { page: number; pageSize: number; total: number; pageCount: number }
+}
+// GET /decks/:id/logs/:logId/digest — a stored PTCG Live log read into a compact
+// timeline (apps/api/src/deck/battlelog.ts `BattleDigest`). 404 for a log with no
+// raw text (in-person games). Per-side fields are null when the log's owner could
+// not be identified — never a guessed split.
+export type BattleDigestSide = 'me' | 'opponent'
+export interface BattleDigestPrizeEvent {
+  /** Game turn, both players counted (1 = the first player's first turn; 0 = setup). */
+  turn: number
+  /** Who TOOK the prizes. */
+  side: BattleDigestSide
+  prizes: number
+  /** The Pokémon whose Knock Out paid for them, when the log names one. */
+  knockedOut: string | null
+  /** Prizes taken by each side once this line had happened. */
+  score: { me: number; opponent: number }
+}
+export interface BattleDigest {
+  players: { me: string | null; opponent: string | null }
+  playerNames: string[]
+  confidence: 'high' | 'low'
+  result: BattleResult | null
+  wentFirst: BattleDigestSide | null
+  totalTurns: number
+  turns: { me: number; opponent: number } | null
+  mulligans: { me: number; opponent: number } | null
+  firstAttackTurn: { me: number | null; opponent: number | null } | null
+  finalPrizes: { me: number; opponent: number } | null
+  prizeTimeline: BattleDigestPrizeEvent[]
+  opponentCards: { name: string; count: number }[]
+  myPokemonUsed: string[]
+  opponentArchetypeGuess: string | null
+  endReason: 'prizes' | 'concede' | 'deck-out' | 'other'
+  leadChanged: boolean
+  closeGame: boolean
+  unknowns: string[]
+}
+export interface BattleDigestResponse {
+  logId: number
+  deckVersion: number
+  origin: BattleLogOrigin
+  /** The STORED result (explicit corrections win); `digest.result` is the log text's own. */
+  result: BattleResult | null
+  digest: BattleDigest
 }
 export interface AddBattleLogBody {
   rawLog: string
@@ -2163,6 +2229,8 @@ export const api = {
   },
   battleLog: (id: string, logId: number, signal?: AbortSignal) =>
     get<{ log: BattleLog }>(`/decks/${encodeURIComponent(id)}/logs/${logId}`, signal),
+  battleDigest: (id: string, logId: number, signal?: AbortSignal) =>
+    get<BattleDigestResponse>(`/decks/${encodeURIComponent(id)}/logs/${logId}/digest`, signal),
   addBattleLog: (id: string, body: AddBattleLogBody) =>
     send<{ log: BattleLog; attachedToVersion: number }>('POST', `/decks/${encodeURIComponent(id)}/logs`, body),
   patchBattleLog: (id: string, logId: number, body: { result?: BattleResult | null; opponent?: string | null; opponentDeck?: string | null; notes?: string | null; playedAt?: string }) =>
