@@ -9,8 +9,10 @@
  */
 import { def, type Env } from './context.js';
 import { evalCond } from './eval.js';
-import { applyCondition, queueTriggers, run, swapActive } from './interp.js';
+import { applyCondition, queueStadiumBench, queueTriggers, run, swapActive } from './interp.js';
 import {
+  abilityLost,
+  extraPrizeFor,
   attackCost,
   canPay,
   cantAttack,
@@ -348,6 +350,8 @@ function turnStep(env: Env, s: GameState): void {
       return;
     case 'endTurn': {
       emit(env, { type: 'end_turn', player: s.current, turn: s.turn });
+      // lane:misc — "at the end of your turn" effects (Powerglass, Ignition Energy) resolve before Checkup.
+      for (const sl of allSlots(s.p[s.current])) queueTriggers(env, s, sl, s.current, 'endOfTurn');
       s.step = 'checkup';
       return;
     }
@@ -446,6 +450,7 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
       if (a.globalOncePerTurn && ps.globalAbilitiesUsed.includes(ab.name)) return;
       if (a.activeOnly && ps.active !== sl) return;
       if (a.when && !evalCond(env, s, { player: p, slot: sl.id, vars: {} }, a.when)) return;
+      if (abilityLost(env, s, sl, ab, all)) return; // lane:misc — Damp
       if (once(`ab${d.idx}:${i}:${a.globalOncePerTurn ? 'g' : sl.id}`)) out.push({ t: 'ability', slot: sl.id, idx: i });
     });
   }
@@ -495,6 +500,7 @@ function doAction(env: Env, s: GameState, a: Action): void {
       ps.bench.push(sl);
       emit(env, { type: 'play_to_bench', player: p, card: a.card, slot: sl.id });
       queueTriggers(env, s, sl, p, 'playToBench');
+      queueStadiumBench(env, s, sl, p); // lane:misc — Risky Ruins
       return;
     }
     case 'evolve': {
@@ -620,6 +626,7 @@ function knockOut(env: Env, s: GameState, owner: Player, sl: Slot): void {
   if (ps.active === sl) ps.active = null;
   else ps.bench = ps.bench.filter((b) => b !== sl);
   s.effects = s.effects.filter((x) => x.slot !== sl.id);
+  if (ps.lastKoTurn !== s.turn) ps.prevKoTurn = ps.lastKoTurn; // lane:misc
   ps.lastKoTurn = s.turn;
 }
 
@@ -632,11 +639,20 @@ function resolveKOs(env: Env, s: GameState): void {
     }
   }
   if (ko.length) {
+    // lane:misc — Wonder Kiss: "When your opponent's Active Pokémon is Knocked Out, flip a coin. If heads, take 1 more
+    // Prize card." Checked while the Pokémon are still in play; at most one per taker (it doesn't stack).
+    const extra: [number, number] = [0, 0];
+    const all = statics(env, s);
+    for (const taker of [0, 1] as Player[]) {
+      if (!ko.some((k) => k.owner !== taker && s.p[k.owner].active === k.slot)) continue;
+      const x = extraPrizeFor(env, s, taker, all);
+      if (x && (!(x.effect as { flip?: boolean }).flip || flipCoin(env, s, taker))) extra[taker] = 1;
+    }
     for (const k of ko) knockOut(env, s, k.owner, k.slot);
     // 2. Prize cards: the player whose turn is next takes first (Compendium, 2018).
     const order: Player[] = [opp(s.current), s.current];
     for (const taker of order) {
-      const n = ko.filter((k) => k.owner !== taker).reduce((a, k) => a + k.prizes, 0);
+      const n = ko.filter((k) => k.owner !== taker).reduce((a, k) => a + k.prizes, 0) + extra[taker];
       if (!n) continue;
       const tp = s.p[taker];
       let took = 0;
@@ -724,6 +740,10 @@ function checkup(env: Env, s: GameState): void {
     }
     // Paralyzed wears off during the Checkup after its owner's turn.
     if (sl.cond & PARALYZED && p === s.current) sl.cond &= ~PARALYZED;
+  }
+  // lane:misc — "During Pokémon Checkup" Abilities (Froslass) resolve after Special Conditions, before Knock Outs.
+  for (const p of [s.current, opp(s.current)] as Player[]) {
+    for (const sl of allSlots(s.p[p])) queueTriggers(env, s, sl, p, 'checkup');
   }
 }
 

@@ -176,7 +176,8 @@ export function buildDef(idx: number, f: CardFrame, script: CardScript | null, c
     coverage,
     hp: f.hp ?? 0,
     stage,
-    evolvesFrom: f.evolvesFrom ? normText(f.evolvesFrom) : null,
+    // lane:misc — fix.evolvesFrom fills a catalog gap (30th-123 Hisuian Zoroark).
+    evolvesFrom: script?.fix?.evolvesFrom ?? (f.evolvesFrom ? normText(f.evolvesFrom) : null),
     types: (f.types ?? []).filter((t) => TYPES[t]).map(parseType),
     weakness: weak && TYPES[weak.type] ? parseType(weak.type) : null,
     resistance:
