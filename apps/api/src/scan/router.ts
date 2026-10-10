@@ -6,7 +6,7 @@ import { pgCatalogPort } from './catalogPort.js';
 import { resolveCard, type FusionInput, type OcrFields, type PriorMatch, type RankedCard } from './resolve.js';
 import { scanEmbedGate } from './embedGate.js';
 import { CURRENT_STAMP, assertQueryVector, buildResponse, pgNeighbours } from './embedMatch.js';
-import { DEFAULT_CAPTURE_MARGIN, embedCrop } from './queryEmbed.js';
+import { DEFAULT_CAPTURE_MARGIN, embedCrop, warmEmbed } from './queryEmbed.js';
 import type { VectorMatch } from './fuse.js';
 import { ownerOnlyInProduction } from '../ownerGate.js';
 import { EMBED_MODEL_ID } from '@deckpal/matching';
@@ -665,6 +665,32 @@ scanRouter.post(
       return;
     }
     res.json(buildResponse(CURRENT_STAMP, indexSize, rows));
+  }),
+);
+
+/**
+ * GET /api/scan/warm — load and run the identity model on this instance before
+ * the first capture needs it (see `queryEmbed.warmEmbed`). The scanner calls it
+ * when it opens and every few minutes while it stays open.
+ *
+ * Always 200 with a status, never an error: a warm-up that could not warm is not
+ * a failed request — the capture that follows reports its own outcome, and the
+ * matcher being OFF on this deployment is simply `embed: 'off'`.
+ */
+scanRouter.get(
+  '/warm',
+  asyncHandler(async (_req, res) => {
+    if (scanEmbedGate() === 'off') {
+      res.json({ embed: 'off' });
+      return;
+    }
+    const t0 = Date.now();
+    try {
+      const { loadMs } = await warmEmbed();
+      res.json({ embed: 'warm', ms: Date.now() - t0, loadMs });
+    } catch {
+      res.json({ embed: 'error', ms: Date.now() - t0 });
+    }
   }),
 );
 

@@ -131,6 +131,14 @@ export const FRAME_TIMEOUT_MS = 500
 export const IDENTITY_BACKSTOP_MS = 12_000
 
 /**
+ * How often the open scanner re-warms the server's identity model
+ * (`GET /scan/warm`). Shorter than the few minutes an idle serverless instance
+ * survives, long enough to be noise next to the captures themselves: one tiny
+ * request every four minutes while the scanner is open.
+ */
+export const SCAN_WARM_INTERVAL_MS = 4 * 60_000
+
+/**
  * The resolve half of the sum above, named so the arithmetic is a thing a test
  * can assert rather than prose that can drift from the constant beside it. See
  * `__tests__/identity.test.ts`, "the backstop covers the worst honest chain".

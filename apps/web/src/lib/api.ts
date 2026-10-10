@@ -1898,6 +1898,11 @@ export const api = {
     })
   },
 
+  /** GET /scan/warm — load the identity model on the server before the first
+   *  capture needs it. Fire-and-forget: the answer is a status for the log. */
+  scanWarm: (signal?: AbortSignal) =>
+    get<{ embed: 'warm' | 'off' | 'error'; ms?: number; loadMs?: number }>('/scan/warm', signal),
+
   // The scanner's evidence channel — a captured frame + its detection state,
   // for the fix bench. Same endpoint `/dev/scan-harness`'s `uploadFlag()`
   // posts to (that page is a same-origin srcdoc iframe using a cookie

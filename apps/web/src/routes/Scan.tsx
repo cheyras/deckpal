@@ -43,6 +43,7 @@ import {
   IDENTIFY_TIMEOUT_MS,
   IDENTITY_BACKSTOP_MS,
   nextFrameSafe,
+  SCAN_WARM_INTERVAL_MS,
   settleWithin,
   withTimeout,
 } from '../scan/ui/deadline'
@@ -397,6 +398,22 @@ export function Scan() {
   useEffect(() => {
     ocrStageRef.current.update({ enabled: OCR_ENABLED, detectorReady: engineStatus === 'ready' })
   }, [engineStatus])
+
+  // WARM THE IMAGE RUNG while the reader is still framing the first card.
+  // Field telemetry (2026-09-07/08) put `/scan/embed` at ~1.5 s warm and 4-8 s
+  // on the first captures of a session — the server loading and compiling an
+  // 88 MB model on the capture being watched. One GET when the scanner opens
+  // moves that cost off it, and one every few minutes keeps the instance from
+  // idling back out while the scanner stays open. Fire-and-forget: a failed
+  // warm-up costs nothing the cold capture would not have paid anyway.
+  useEffect(() => {
+    const warm = () => {
+      if (!embedUnavailableRef.current) void api.scanWarm().catch(() => {})
+    }
+    warm()
+    const timer = window.setInterval(warm, SCAN_WARM_INTERVAL_MS)
+    return () => window.clearInterval(timer)
+  }, [])
 
   /**
    * THE CAPTURED-REGION REFRACTORY — duplicate captures. The policy, its
