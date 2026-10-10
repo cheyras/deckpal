@@ -118,3 +118,16 @@ test('the natural share ask keeps its load-bearing limits', () => {
     '"No thanks" is a fine answer',
   ]) assert.ok(p.includes(phrase), `missing: ${phrase}`)
 })
+
+test('simulated matchups are run, paired, and reported as a bot\'s with their uncertainty', () => {
+  const p = flat(buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS }))
+  assert.match(p, /Matchups come from `simulate_battles`, and they are a bot's/)
+  assert.match(p, /is v4 better than v3/)
+  assert.match(p, /both versions against the same opponents and seed/)
+  assert.match(p, /saved lists of decks they really face/)
+  assert.match(p, /Every rate is a CPU simulation: give n and the interval/)
+  assert.match(p, /intervals overlap heavily is noise, not an improvement/)
+  assert.match(p, /Name approximated or unplayable cards/)
+  assert.match(p, /"strong" by default, "fast" when they want more games/)
+  assert.match(p, /A `table` of opponent, W–L, win % \[interval\]/)
+})

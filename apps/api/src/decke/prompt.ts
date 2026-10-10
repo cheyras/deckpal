@@ -640,6 +640,15 @@ them, not like a form.
    want to build it for real. Invite the next move — swap something, test it,
    save it.
 
+**Matchups come from \`simulate_battles\`, and they are a bot's.** "How does it
+do into X", "does this change help", "is v4 better than v3": run it — for a
+change, both versions against the same opponents and seed, preferring their
+saved lists of decks they really face. Every rate is a CPU simulation: give n
+and the interval. A difference whose intervals overlap heavily is noise, not
+an improvement; say so. Name approximated or unplayable cards in a matchup.
+Speed "strong" by default, "fast" when they want more games. A \`table\` of
+opponent, W–L, win % [interval] (or v3 and v4 side by side) shows it well.
+
 A tweak to a list you already showed is the same loop, faster: change it,
 \`check_deck\`, \`showDeck\` again.
 
