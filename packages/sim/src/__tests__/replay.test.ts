@@ -13,7 +13,8 @@ import { parseLiveLog } from '../replay/liveLog.js';
 
 const DIR = new URL('./fixtures/live-logs/', import.meta.url);
 const FILES = readdirSync(DIR).filter((f) => f.endsWith('.txt')).sort();
-const read = (f: string): string => readFileSync(new URL(f, DIR), 'utf8');
+// Normalise line endings: a Windows checkout (core.autocrlf) turns fixtures into CRLF.
+const read = (f: string): string => readFileSync(new URL(f, DIR), 'utf8').replace(/\r\n/g, '\n');
 const PLAYERS: [string, string] = ['PlayerA', 'PlayerB'];
 
 test('fixtures: 5–10 anonymised real logs, no real handles', () => {
