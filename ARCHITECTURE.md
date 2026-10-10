@@ -650,6 +650,19 @@ API (`enforceTokenScope`). Tokens from before 075 are unchanged.
 When a newer web app reaches an older API, missing `trust` on `GET /oauth/client`
 limits the consent screen to full access because the older API ignores scope.
 
+### The battle simulator behind `simulate_battles`
+
+`packages/sim` (`@deckpal/sim`) is a pure, seeded Pokémon TCG rules engine with no I/O: game state is
+plain data, every decision is one "pick k of these numbered options" shape, and card behaviour comes
+from scripts keyed by a printing's game text (a card with no script is played approximately or not at
+all, and every report says which). Its batch runner plays PAIRED games (one seed, seats swapped) and
+reduces each to a compact summary off the event stream; `stats.ts` and `report.ts` turn those into
+Wilson-interval rates and a text of at most 5,000 characters that leads and ends with "simulated, not
+real". `apps/api` is its only caller: `POST /decks/simulate` (routes/deckSimulate.ts) loads the decks'
+frames through `fingerprintInputs` and runs the matchups in deck/simulate.ts inside a 25 s budget, and
+the read-only `simulate_battles` tool in `packages/agent-tools` calls it for both front-ends
+(DECISIONS 2026-10-10, "Battle simulator: simulate_battles for both assistants").
+
 ## 11. Correctness traps that shape the design
 
 These are verified findings that a reasonable implementation would otherwise get

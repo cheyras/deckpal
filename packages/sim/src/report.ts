@@ -194,7 +194,10 @@ function matchupLines(m: MatchupStats, i: number, detail: Detail): string[] {
 }
 
 function impactLines(r: SimReport, max: number): string[] {
-  const rows = r.cardImpact.cards.filter((c) => c.played).slice(0, max);
+  const rows = r.cardImpact.cards
+    .filter((c) => c.played)
+    .sort((x, y) => Math.abs(y.played!.deltaPts) - Math.abs(x.played!.deltaPts) || x.card.localeCompare(y.card))
+    .slice(0, max);
   if (!rows.length) {
     return [`Card impact: too few games to split any card (needs n≥${r.cardImpact.minN} on each side).`];
   }
