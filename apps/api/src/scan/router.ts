@@ -6,10 +6,10 @@ import { pgCatalogPort } from './catalogPort.js';
 import { resolveCard, type FusionInput, type OcrFields, type PriorMatch, type RankedCard } from './resolve.js';
 import { scanEmbedGate } from './embedGate.js';
 import { CURRENT_STAMP, assertQueryVector, buildResponse, pgNeighbours } from './embedMatch.js';
-import { DEFAULT_CAPTURE_MARGIN, embedCrop, warmEmbed } from './queryEmbed.js';
+import { DEFAULT_CAPTURE_MARGIN, cropTensor, embedTensor, rotateTensor, warmEmbed } from './queryEmbed.js';
 import type { VectorMatch } from './fuse.js';
 import { ownerOnlyInProduction } from '../ownerGate.js';
-import { EMBED_MODEL_ID } from '@deckpal/matching';
+import { EMBED_MODEL_ID, EMBED_SIZE, identityConfidence } from '@deckpal/matching';
 
 /**
  * Offline card scanner (Phase 8) — image → card matcher.
@@ -634,9 +634,11 @@ scanRouter.post(
     const k = clampInt(req.query.k, 5, 1, 25);
     const margin = readMargin(req.query.margin);
 
+    let tensor: Float32Array;
     let embedding: Float32Array;
     try {
-      embedding = await embedCrop(body, margin);
+      tensor = await cropTensor(body, margin);
+      embedding = await embedTensor(tensor);
     } catch (e) {
       // The two failures here are not the same and must not read as one. A
       // picture this server cannot decode is the caller's problem (400); a
@@ -664,9 +666,44 @@ scanRouter.post(
       });
       return;
     }
-    res.json(buildResponse(CURRENT_STAMP, indexSize, rows));
+
+    // THE SIDEWAYS CARD. When the upright answer is not decisive, try the crop
+    // turned a quarter, a half and three quarters, and keep whichever
+    // orientation the catalogue matches best. Real captures come back sideways
+    // or upside down when the detector's quad starts on the wrong corner (check
+    // A: 9 of 95 labelled positives), and an upright-only embedding cannot name
+    // those. Scan benchmark (2026-10-09), fine-tuned model: +3 decisive and
+    // right on 256 real crops, 0 wrong, 0 negatives named. Gated by model,
+    // because on the zero-shot checkpoint the same rule bought one right answer
+    // and one wrong one; and it costs nothing on a decisive capture.
+    let best = { rows, quarterTurns: 0 };
+    if (ROTATION_FALLBACK_MODELS.has(EMBED_MODEL_ID) && !isDecisive(rows)) {
+      for (const turns of [2, 1, 3]) {
+        const turned = await pgNeighbours(
+          assertQueryVector(await embedTensor(rotateTensor(tensor, EMBED_SIZE, turns))),
+          CURRENT_STAMP,
+          k,
+        );
+        if ((turned.rows[0]?.similarity ?? -1) > (best.rows[0]?.similarity ?? -1)) {
+          best = { rows: turned.rows, quarterTurns: turns };
+        }
+      }
+    }
+    res.json({
+      ...buildResponse(CURRENT_STAMP, indexSize, best.rows),
+      // Only when a turn won: the client and the record can see that this
+      // answer came from the card turned `quarterTurns` x 90 degrees.
+      ...(best.quarterTurns ? { quarterTurns: best.quarterTurns } : {}),
+    });
   }),
 );
+
+/** Checkpoints whose vector space the orientation fallback was measured on. */
+const ROTATION_FALLBACK_MODELS: ReadonlySet<string> = new Set(['deckpal-card-b32-v1']);
+
+function isDecisive(rows: readonly { cardId: string; similarity: number }[]): boolean {
+  return identityConfidence(rows.map((r) => ({ cardId: r.cardId, similarity: r.similarity })), EMBED_MODEL_ID).level === 'confident';
+}
 
 /**
  * GET /api/scan/warm — load and run the identity model on this instance before
