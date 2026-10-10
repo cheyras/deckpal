@@ -152,6 +152,23 @@ export const pgCatalogPort: CatalogPort = {
     return rows.map(shape);
   },
 
+  // The `name+denominator` rung: the printed set size of each candidate's set.
+  // Same column rung 3 joins on, read per set instead of joined, because the
+  // candidates arrive from the name lookup with their set ids already known.
+  async officialCounts(setIds) {
+    if (setIds.length === 0) return new Map();
+    // Scoped to sets that hold English cards, as every other read here is
+    // (`c.lang = 'en'`): a set tcgdex id is not unique across the whole table.
+    const rows = await q<{ tcgdex_id: string; card_count_official: number | null }>(
+      `SELECT cs.tcgdex_id, cs.card_count_official
+         FROM card_set cs
+        WHERE cs.tcgdex_id = ANY($1::text[])
+          AND EXISTS (SELECT 1 FROM card c WHERE c.set_id = cs.id AND c.lang = 'en')`,
+      [[...setIds]],
+    );
+    return new Map(rows.map((r) => [r.tcgdex_id, r.card_count_official]));
+  },
+
   // Rung 5b. A SUPERSET generator: the tiers are `nameTier`'s and are applied to
   // these rows in `resolve.ts`, so nothing about what counts as the same name is
   // decided in SQL. Two predicates, because they catch two different things and

@@ -130,14 +130,38 @@ export function judgeTie(matches: readonly ScanMatch[], margin: number = TIE_MAR
 }
 
 /**
+ * THE HASH MAY NAME A CARD ALONE ONLY WHEN IT IS NEARLY EXACT. 2026-10-09.
+ *
+ * `/scan`'s own bar is distance 9 (`router.ts` CONFIDENT_MAX), calibrated on
+ * synthetic degradations of catalogue art. On real phone crops the hash is a
+ * much weaker witness: over the scan benchmark's 256 real crops its top-1 was
+ * right 13 of 18 times at distance 8 and 14 of 31 at distance 9, against 7 of 7
+ * at 7 or less. With the tie gate it still claimed 15 captures at 8-9 and was
+ * wrong on 2 of them — the worst precision of any path to a confident answer,
+ * and the first answer to land, so it pre-empted a vector and an OCR read that
+ * both named the right card (a Mankey committed as a Togetic δ).
+ *
+ * Above this distance the hash's top-1 stays in the picker and the capture
+ * waits for the resolve leg, which is already on its way: the cost is the
+ * extra ~2 s of that leg on a minority of captures, and the gain is that a
+ * coincidental 9-bit agreement can no longer outrun the evidence.
+ */
+export const PHASH_SOLO_MAX = 7
+
+/**
  * Apply the gate to a whole scan response.
  *
  * Returns a response that is IDENTICAL except that `matched` may be turned off.
  * The ranked list is left completely intact, because the reader is about to pick
  * from it — suppressing the claim must never suppress the evidence.
  */
-export function gateScanResponse(res: ScanResponse | null, margin: number = TIE_MARGIN): ScanResponse | null {
+export function gateScanResponse(
+  res: ScanResponse | null,
+  margin: number = TIE_MARGIN,
+  soloMax: number = PHASH_SOLO_MAX,
+): ScanResponse | null {
   if (!res || !res.matched) return res
+  if ((res.matches[0]?.distance ?? 64) > soloMax) return { ...res, matched: false }
   const verdict = judgeTie(res.matches, margin)
   if (verdict.confident) return res
   return { ...res, matched: false }

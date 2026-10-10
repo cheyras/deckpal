@@ -471,6 +471,7 @@ export interface ScanResolveResponse {
     | 'badge+number'
     | 'number+denominator'
     | 'name+number'
+    | 'name+denominator'
     | 'name-family'
     | 'family-text'
     | 'vector'

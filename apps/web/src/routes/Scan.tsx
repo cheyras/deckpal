@@ -51,7 +51,7 @@ import { canonicalSquareMap, framePointToCss, quadPose } from '../scan/ui/coords
 import { bump, DURATION, flyArc, rectRelativeTo } from '../scan/ui/motion'
 import type { FeedEntry, FeedVariant, StackItem } from '../scan/ui/types'
 import type { Quad } from '../scan/engine/contract'
-import { gateScanResponse, judgeTie } from '../scan/ui/tieGate'
+import { gateScanResponse, judgeTie, TIE_MARGIN } from '../scan/ui/tieGate'
 import { createCapturedRegions, type CapturedRegions, type RegionTrack } from '../scan/ui/regions'
 import { useAccess } from '../lib/access'
 import { useScannerVoice } from '../scan/voice/useScannerVoice'
@@ -122,7 +122,11 @@ function matcherOutcomeFor(raw: ScanResponse | null): Record<string, unknown> {
   return {
     match: {
       matchedRaw: raw.matched,
-      matchedAfterTieGate: gateScanResponse(raw)?.matched ?? false,
+      // The TIE gate alone, as this column has always meant (soloMax 64 turns the
+      // 2026-10-09 distance gate off), so sessions either side stay comparable;
+      // the distance gate's effect is its own column.
+      matchedAfterTieGate: gateScanResponse(raw, TIE_MARGIN, 64)?.matched ?? false,
+      matchedAfterSoloGate: gateScanResponse(raw)?.matched ?? false,
       threshold: raw.threshold,
       indexSize: raw.indexSize,
       top: top ? { cardId: top.cardId, setId: top.setId, distance: top.distance, confidence: round3(top.confidence) } : null,
