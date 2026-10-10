@@ -752,6 +752,18 @@ export function identityRecord(s: IdentityState, msToResolve: number): Record<st
       // rescue a key, or did it fall through to the prose?
       bodyLines: s.read?.bodyLines?.length ?? null,
       ocrMs: s.read ? Math.round(s.read.ms) : null,
+      // WHAT WAS READ, not only whether a read happened (2026-10-09). The scan
+      // benchmark found the commonest OCR failure is a dropped digit (`03/182`
+      // for `063/182`), and a record that says only `ocr: 'roi'` cannot tell
+      // that apart from a clean read the ladder mishandled.
+      ocrRead: s.read
+        ? {
+            name: s.read.name ?? null,
+            number: s.read.number ?? null,
+            denominator: s.read.denominator ?? null,
+            setCode: s.read.setCode ?? null,
+          }
+        : null,
       // THE IMAGE RUNG'S TWO COLUMNS, riding the record exactly as `ocrMs`
       // does. `resolvedBy` already reports `vector` and `corroborated` when the
       // ladder answers on them — it is a passthrough of whatever the endpoint
