@@ -25,6 +25,14 @@ const WRITE_NAMES = new Set([
   'deck_history', 'revert',
 ])
 const DATA_TOOLS = new Set()
+// Mirrors apps/api/src/decke/stopRule.ts COSMETIC_TOOLS: every other tool call
+// makes a step a DATA step for the progress metrics below.
+const COSMETIC_TOOLS = new Set(['express', 'showScreen'])
+// The 'progress-between-batches' line. A turn shorter than LONG_TURN_DATA_STEPS
+// has no batches to speak between; SILENT_RUN_LIMIT is the run at which
+// apps/api/src/decke/progressNudge.ts (SILENT_DATA_STEPS) nudges in production.
+const LONG_TURN_DATA_STEPS = 3
+const SILENT_RUN_LIMIT = 4
 const STOPWORDS = new Set('a an and are as at be by current do doing for from how i in is it its look meta my of on or pokemon tcg the this to up was what with you your'.split(' '))
 
 function argvValue(argv, name, fallback) {
@@ -43,6 +51,10 @@ export function parseArgs(argv = process.argv.slice(2)) {
   const models = argvValue(argv, 'models', mock ? 'mock' : 'anthropic/claude-sonnet-5.5').split(',').filter(Boolean)
   const armsArg = argvValue(argv, 'arms', '')
   const arms = armsArg ? parseArms(armsArg) : models.map((model) => ({ model, effort: null, id: model }))
+  // On by default because production nudges (api/chat.mjs); `off` is the A/B
+  // control for measuring what the nudge itself buys.
+  const progressNudge = argvValue(argv, 'progress-nudge', 'on')
+  if (!['on', 'off'].includes(progressNudge)) throw new Error('--progress-nudge must be on or off')
   return {
     mock,
     replay,
@@ -50,6 +62,7 @@ export function parseArgs(argv = process.argv.slice(2)) {
     n,
     models,
     arms,
+    progressNudge: progressNudge === 'on',
     scenarios: argvValue(argv, 'scenarios', '').split(',').filter(Boolean),
     out: resolve(argvValue(argv, 'out', resolve(REPO, 'tmp/decke-replay-probe'))),
   }
@@ -108,11 +121,55 @@ function isDataRead(call) {
   return DATA_TOOLS.has(call.name) && !WRITE_NAMES.has(call.name) && call.name !== 'check_deck'
 }
 
+/**
+ * Does Deck-E speak between groups of lookups, or is it "a solid minute of tool
+ * calls then one response" (the owner, 2026-10-10)?
+ *
+ * Read from a turn's STEP timeline — `{ text, tools, nudged?, approval? }` per
+ * model step, in order — because a turn's joined text cannot say whether a
+ * sentence came before the fifth lookup or after the last one.
+ * - dataSteps: steps that call any tool beyond express/showScreen.
+ * - longestSilentRun: the longest run of data steps with no visible text in
+ *   any of them. Text ends a run; a silent cosmetic-only step neither ends nor
+ *   extends one — the same rule apps/api/src/decke/progressNudge.ts fires on.
+ *   An approval card ends a run too: the reader saw it and answered it.
+ * - interimLines: steps with visible text that are followed by a data step —
+ *   their own (text streams before a step's tool calls) or a later one. The
+ *   gateway probe's `visibleTextBeforeOrBetweenTools` draws the same line.
+ * - nudges: steps the progress nudge preceded.
+ */
+export function progressMetrics(timeline) {
+  const steps = Array.isArray(timeline) ? timeline : []
+  const spoke = (step) => String(step?.text ?? '').trim().length > 0
+  const isData = (step) => (step?.tools ?? []).some((name) => !COSMETIC_TOOLS.has(name))
+  let lastData = -1
+  let dataSteps = 0
+  let run = 0
+  let longestSilentRun = 0
+  let nudges = 0
+  steps.forEach((step, index) => {
+    if (isData(step)) {
+      dataSteps++
+      lastData = index
+    }
+    if (step?.nudged) nudges++
+    if (spoke(step)) run = 0
+    else if (isData(step)) longestSilentRun = Math.max(longestSilentRun, ++run)
+    if (step?.approval) run = 0
+  })
+  const interimLines = steps.filter((step, index) => spoke(step) && index <= lastData).length
+  return { dataSteps, longestSilentRun, interimLines, nudges }
+}
+
+/** The 'progress-between-batches' line; short turns pass trivially. */
+const progressHolds = (p) => p.dataSteps < LONG_TURN_DATA_STEPS || (p.interimLines >= 1 && p.longestSilentRun <= SILENT_RUN_LIMIT)
+
 export const METRIC_COLUMNS = [
   'tool_calls', 'feedback_tool_calls', 'web_research_calls', 'repeat_research_calls',
   'repeated_reads', 'expects_deck_turns', 'check_before_show', 'full_lists_proposed',
   'show_deck_for_full_list', 'show_deck_60', 'text_decklists', 'asks_for_tool_data',
-  'false_refusals', 'expects_write_turns', 'write_calls', 'ttft_ms', 'total_ms',
+  'false_refusals', 'expects_write_turns', 'write_calls',
+  'data_steps', 'interim_lines', 'longest_silent_run', 'progress_nudges', 'ttft_ms', 'total_ms',
   'input_tokens', 'output_tokens', 'cost_usd', 'cache_read_tokens', 'cache_write_tokens',
 ]
 
@@ -157,6 +214,12 @@ export function scoreTranscript(turns) {
       m.expects_write_turns++
       m.write_calls += calls.filter((call) => WRITE_NAMES.has(call.name)).length
     }
+    const progress = progressMetrics(turn.timeline)
+    m.data_steps += progress.dataSteps
+    m.interim_lines += progress.interimLines
+    // A maximum, not a sum: two short silences are not one long one.
+    m.longest_silent_run = Math.max(m.longest_silent_run, progress.longestSilentRun)
+    m.progress_nudges += progress.nudges
     m.ttft_ms += Number(turn.ttft_ms) || 0
     m.total_ms += Number(turn.total_ms) || 0
     m.input_tokens += Number(turn.input_tokens) || 0
@@ -358,6 +421,17 @@ export function gradeExpectation(tag, turn, turnIndex = 0, turns = [turn]) {
       pass = String(turn.text ?? '').trim().length > 0 && !calls.some((call) => WRITE_NAMES.has(call.name))
       detail = 'expected a non-empty answer with no data writes'
       break
+    case 'progress-between-batches': {
+      // No timeline is no evidence, and no evidence must not read as a pass.
+      if (!Array.isArray(turn.timeline)) {
+        detail = 'expected a recorded step timeline'
+        break
+      }
+      const p = progressMetrics(turn.timeline)
+      pass = progressHolds(p)
+      detail = `expected an interim line and at most ${SILENT_RUN_LIMIT} silent data steps in a row; found ${p.interimLines} interim line(s) and a silent run of ${p.longestSilentRun} across ${p.dataSteps} data steps`
+      break
+    }
     default:
       detail = `unknown expectation tag: ${tag}`
   }
@@ -423,6 +497,41 @@ export function summarizeArmResults(runs) {
       tier,
       group.turns ? Number((((group.tiers[tier] ?? 0) / group.turns) * 100).toFixed(4)) : 0,
     ])),
+  }))
+}
+
+/**
+ * Progress between batches per arm, over EVERY turn rather than only the
+ * tagged ones: a long silent turn in a scenario nobody tagged is still the
+ * owner's complaint. Only turns with LONG_TURN_DATA_STEPS or more data steps
+ * have batches to speak between, so the rate and the mean are over those.
+ */
+export function summarizeProgress(runs) {
+  const groups = new Map()
+  for (const run of runs) {
+    const arm = run.arm ?? run.model
+    const group = groups.get(arm) ?? { arm, turns: 0, long_turns: 0, long_turns_with_progress: 0, interim_lines: 0, longest_silent_run: 0, progress_nudges: 0 }
+    for (const turn of run.turns ?? []) {
+      const p = progressMetrics(turn.timeline)
+      group.turns++
+      group.progress_nudges += p.nudges
+      group.longest_silent_run = Math.max(group.longest_silent_run, p.longestSilentRun)
+      if (p.dataSteps < LONG_TURN_DATA_STEPS) continue
+      group.long_turns++
+      group.interim_lines += p.interimLines
+      if (progressHolds(p)) group.long_turns_with_progress++
+    }
+    groups.set(arm, group)
+  }
+  return [...groups.values()].map((group) => ({
+    arm: group.arm,
+    turns: group.turns,
+    long_turns: group.long_turns,
+    long_turns_with_progress: group.long_turns_with_progress,
+    progress_rate: group.long_turns ? Number((group.long_turns_with_progress / group.long_turns).toFixed(4)) : null,
+    interim_lines_per_long_turn: group.long_turns ? Number((group.interim_lines / group.long_turns).toFixed(4)) : null,
+    longest_silent_run: group.longest_silent_run,
+    progress_nudges: group.progress_nudges,
   }))
 }
 
@@ -650,6 +759,7 @@ async function loadRuntime(world, writes) {
   const triage = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/triage.js')).href)
   const models = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/models.js')).href)
   const pastedLog = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/pastedLog.js')).href)
+  const { createProgressNudges, progressNudgeMessage } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/progressNudge.js')).href)
   const { requiresApproval } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/adapters/aisdk.js')).href)
   let pathways = null
   try {
@@ -690,7 +800,7 @@ async function loadRuntime(world, writes) {
       system(prompt.buildVolatileContext({ route, signedIn: true })),
     ]
   }
-  return { buildInstructions, tools, dataToolList, ...routing, ...triage, ...models, ...pastedLog }
+  return { buildInstructions, tools, dataToolList, createProgressNudges, progressNudgeMessage, ...routing, ...triage, ...models, ...pastedLog }
 }
 
 // Mirrors api/chat.mjs: one breakpoint on the system prompt covers the tools too.
@@ -698,16 +808,18 @@ function cacheTools(modelId, tools) {
   return tools
 }
 
-// Mirrors api/chat.mjs cacheConversation.
+// Mirrors api/chat.mjs cacheConversation, including the 2026-10-10 rule that
+// the breakpoint sits on the newest NON-system message, never on the nudge.
 function cacheConversation(modelId, messages) {
   if (!modelId.startsWith('anthropic/') || messages.length === 0) return messages
+  const newest = messages.findLastIndex((message) => message.role !== 'system')
   return messages.map((message, index) => {
     const providerOptions = { ...(message.providerOptions ?? {}) }
     const anthropic = { ...(providerOptions.anthropic ?? {}) }
     delete anthropic.cacheControl
     if (Object.keys(anthropic).length) providerOptions.anthropic = anthropic
     else delete providerOptions.anthropic
-    if (index === messages.length - 1) providerOptions.anthropic = { ...(providerOptions.anthropic ?? {}), cacheControl: { type: 'ephemeral' } }
+    if (index === newest) providerOptions.anthropic = { ...(providerOptions.anthropic ?? {}), cacheControl: { type: 'ephemeral' } }
     return { ...message, providerOptions: Object.keys(providerOptions).length ? providerOptions : undefined }
   })
 }
@@ -761,9 +873,14 @@ async function routedChoice({ runtime, gateway, mock, priorTurns, scenario, scen
   return { route, triage, triageMs, triageUsage, decision, choice: runtime.TIERS[decision.tier] }
 }
 
-async function runTurn({ model, modelId, fallback, maxOutputTokens = 8000, effort, gateway, runtime, priorTurns, replay, pathways, route = '/', scenarioTurn, budget, routing }) {
+export async function runTurn({ model, modelId, fallback, maxOutputTokens = 8000, effort, gateway, runtime, priorTurns, replay, pathways, route = '/', scenarioTurn, budget, routing, progressNudge = true }) {
   const messages = [...(replay === 'full' ? fullHistory(priorTurns) : compactHistory(priorTurns)), { role: 'user', content: [{ type: 'text', text: scenarioTurn.user }] }]
   const calls = []
+  // One entry per model step, across approval legs: what he said and which
+  // tools he called, in order. `progressMetrics` reads it.
+  const timeline = []
+  let nudgePending = false
+  const anthropic = modelId.startsWith('anthropic/')
   const started = performance.now()
   let first = null
   let text = ''
@@ -783,19 +900,33 @@ async function runTurn({ model, modelId, fallback, maxOutputTokens = 8000, effor
     let observedStepCost = 0
     const generationIds = new Set()
     const resumedResults = []
+    // Mirrors api/chat.mjs PROGRESS BETWEEN BATCHES. Each approval leg here is
+    // a fresh HTTP request there, so each leg gets a fresh ledger.
+    const progressNudges = progressNudge && anthropic ? runtime.createProgressNudges() : null
     const result = streamText({
       model,
       instructions,
       messages: legMessages,
+      allowSystemInMessages: Boolean(progressNudges),
       tools: allTools,
-      ...((fallback || (modelId.startsWith('anthropic/') && effort)) ? { providerOptions: {
+      ...((fallback || (anthropic && effort)) ? { providerOptions: {
         ...(fallback ? { gateway: { models: [fallback] } } : {}),
-        ...(modelId.startsWith('anthropic/') && effort ? { anthropic: { effort, thinking: { type: 'adaptive' } } } : {}),
+        ...(anthropic && effort ? { anthropic: { effort, thinking: { type: 'adaptive' } } } : {}),
       } } : {}),
-      prepareStep: ({ messages: stepMessages }) => ({ messages: cacheConversation(modelId, stepMessages) }),
+      prepareStep: ({ steps, messages: stepMessages }) => {
+        const cached = cacheConversation(modelId, stepMessages)
+        nudgePending = Boolean(progressNudges?.next(steps))
+        return { messages: nudgePending ? [...cached, runtime.progressNudgeMessage()] : cached }
+      },
       stopWhen: stepCountIs(24),
       maxOutputTokens,
       onStepFinish(step) {
+        timeline.push({
+          text: step.text ?? '',
+          tools: (step.toolCalls ?? []).map((call) => call.toolName),
+          ...(nudgePending ? { nudged: true } : {}),
+        })
+        nudgePending = false
         const stepMeasured = readUsage(step.usage, step.providerMetadata)
         observedStepCost += stepMeasured.cost_usd
         budget.spent += stepMeasured.cost_usd
@@ -874,6 +1005,8 @@ async function runTurn({ model, modelId, fallback, maxOutputTokens = 8000, effor
     const approvals = legResponseMessages.flatMap((message) => Array.isArray(message.content) ? message.content : [])
       .filter((part) => part.type === 'tool-approval-request')
     if (!approvals.length) break
+    // The reader saw a card and answered it: that ends a silent run.
+    if (timeline.length) timeline[timeline.length - 1].approval = true
     for (const approval of approvals) {
       const found = calls.find((call) => call.id === approval.toolCallId)
       if (found) found.approval_requested = true
@@ -889,7 +1022,7 @@ async function runTurn({ model, modelId, fallback, maxOutputTokens = 8000, effor
     if (approvalRound === 7) throw new Error('Write approval loop exceeded 8 rounds')
   }
   return {
-    user: scenarioTurn.user, tags: scenarioTurn.tags, expectations: scenarioTurn.expectations ?? [], text: text.trim(), calls,
+    user: scenarioTurn.user, tags: scenarioTurn.tags, expectations: scenarioTurn.expectations ?? [], text: text.trim(), calls, timeline,
     ttft_ms: Math.round((first ?? performance.now()) - started), total_ms: Math.round(performance.now() - started),
     input_tokens: inputTokens + (routing?.triageUsage.input_tokens ?? 0),
     output_tokens: outputTokens + (routing?.triageUsage.output_tokens ?? 0),
@@ -915,17 +1048,21 @@ function annotateTurnMetrics(turns) {
     const metrics = Object.fromEntries(METRIC_COLUMNS.map((key) => [key,
       key === 'ttft_ms' || key === 'total_ms'
         ? Number(turn[key]) || 0
-        : Number((after[key] - before[key]).toFixed?.(8) ?? after[key] - before[key]),
+        // A running maximum does not difference into a per-turn value.
+        : key === 'longest_silent_run'
+          ? progressMetrics(turn.timeline).longestSilentRun
+          : Number((after[key] - before[key]).toFixed?.(8) ?? after[key] - before[key]),
     ]))
     before = after
     return { ...turn, metrics }
   })
 }
 
-function markdown(rows, scenarioResults, armResults) {
+function markdown(rows, scenarioResults, armResults, progressResults = []) {
   const cols = ['arm', 'replay', 'scenario', 'sample', 'pass', ...METRIC_COLUMNS]
   const outcomeCols = ['arm', 'replay', 'scenario', 'passed', 'samples', 'pass_rate', 'pass_k', 'mean_cost_usd', 'cost_per_passed_run_usd']
   const armCols = ['arm', 'passed', 'samples', 'pass_rate', 'pass_k', 'cost_per_scenario_usd', 'cost_per_passed_run_usd', 'quick_pct', 'standard_pct', 'deep_pct']
+  const progressCols = ['arm', 'turns', 'long_turns', 'long_turns_with_progress', 'progress_rate', 'interim_lines_per_long_turn', 'longest_silent_run', 'progress_nudges']
   const show = (value) => typeof value === 'number' && !Number.isInteger(value) ? value.toFixed(6) : String(value)
   const displayedArms = armResults.map((row) => ({
     ...row,
@@ -939,6 +1076,12 @@ function markdown(rows, scenarioResults, armResults) {
     `| ${armCols.join(' | ')} |`,
     `| ${armCols.map(() => '---').join(' | ')} |`,
     ...displayedArms.map((row) => `| ${armCols.map((key) => show(row[key] ?? '—')).join(' | ')} |`),
+    '',
+    '## Progress between batches', '',
+    `A long turn has ${LONG_TURN_DATA_STEPS}+ data steps; it shows progress with an interim line and no silent run over ${SILENT_RUN_LIMIT}.`, '',
+    `| ${progressCols.join(' | ')} |`,
+    `| ${progressCols.map(() => '---').join(' | ')} |`,
+    ...progressResults.map((row) => `| ${progressCols.map((key) => show(row[key] ?? '—')).join(' | ')} |`),
     '',
     '## Scenario outcomes', '',
     `| ${outcomeCols.join(' | ')} |`,
@@ -982,10 +1125,11 @@ export async function main(argv = process.argv.slice(2)) {
     const rows = aggregateRows(runs)
     const scenarioResults = summarizeScenarioResults(runs)
     const armResults = summarizeArmResults(runs)
-    const result = { generated_at: new Date().toISOString(), options: { ...opts, out: undefined }, spent_usd: Number(budget.spent.toFixed(8)), stopped: stopped ?? null, metrics: METRIC_COLUMNS, arm_results: armResults, scenario_results: scenarioResults, rows, runs, writes }
+    const progressResults = summarizeProgress(runs)
+    const result = { generated_at: new Date().toISOString(), options: { ...opts, out: undefined }, spent_usd: Number(budget.spent.toFixed(8)), stopped: stopped ?? null, metrics: METRIC_COLUMNS, arm_results: armResults, progress_results: progressResults, scenario_results: scenarioResults, rows, runs, writes }
     writeFileSync(resolve(opts.out, 'results.json'), `${JSON.stringify(result, null, 2)}
 `)
-    writeFileSync(resolve(opts.out, 'summary.md'), markdown(rows, scenarioResults, armResults))
+    writeFileSync(resolve(opts.out, 'summary.md'), markdown(rows, scenarioResults, armResults, progressResults))
   }
   try {
   for (const arm of opts.arms) {
@@ -1005,6 +1149,7 @@ export async function main(argv = process.argv.slice(2)) {
             gateway, runtime, priorTurns, replay: opts.replay,
             pathways: routing?.decision.pathways ?? [scenario.pathway ?? 'general'],
             route: routing?.route ?? scenario.route ?? scenario.page ?? '/', scenarioTurn, budget, routing,
+            progressNudge: opts.progressNudge,
           }))
         }
         const annotated = annotateTurnMetrics(priorTurns)
@@ -1023,6 +1168,9 @@ export async function main(argv = process.argv.slice(2)) {
   }
   save()
   process.stdout.write(`${outcomeTable(summarizeScenarioResults(runs))}\n`)
+  for (const row of summarizeProgress(runs)) {
+    process.stdout.write(`progress ${row.arm}: ${row.long_turns_with_progress}/${row.long_turns} long turns spoke between batches; longest silent run ${row.longest_silent_run}; ${row.progress_nudges} nudge(s)\n`)
+  }
   process.stdout.write(`wrote ${resolve(opts.out, 'summary.md')} and results.json; cost $${budget.spent.toFixed(6)}\n`)
 }
 

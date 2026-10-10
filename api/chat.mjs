@@ -92,16 +92,24 @@ function chatProviderOptions(choice, effort) {
  * newest message. With cached core + optional pathway this is at most three of
  * Anthropic's four allowed breakpoints while making all earlier tool results a
  * reusable prefix on the next step.
+ *
+ * The newest NON-SYSTEM message (2026-10-10). The progress nudge
+ * (`decke/progressNudge.ts`) is a system message appended after the newest
+ * tool result, and a system message mid-conversation is the one message whose
+ * translation the Gateway owns — so the breakpoint stays on the tool result
+ * before it, a position that is certain, and the nudge does not move the
+ * cached prefix. Callers append the nudge AFTER this runs.
  */
 function cacheConversation(choice, messages) {
   if (!isAnthropic(choice) || messages.length === 0) return messages
+  const newest = messages.findLastIndex((message) => message.role !== 'system')
   return messages.map((message, index) => {
     const providerOptions = { ...(message.providerOptions ?? {}) }
     const anthropic = { ...(providerOptions.anthropic ?? {}) }
     delete anthropic.cacheControl
     if (Object.keys(anthropic).length === 0) delete providerOptions.anthropic
     else providerOptions.anthropic = anthropic
-    if (index === messages.length - 1) {
+    if (index === newest) {
       providerOptions.anthropic = { ...(providerOptions.anthropic ?? {}), ...ANTHROPIC_CACHE.anthropic }
     }
     return {
@@ -183,6 +191,7 @@ import { autoShareAndRecordLeg } from '../apps/api/dist/decke/improvement.js'
 import { focusedTools } from '../apps/api/dist/decke/focus.js'
 import { askedThisStep, askedThisTurn, askPendingInstruction, spokeAndSettled } from '../apps/api/dist/decke/stopRule.js'
 import { followUpMessages } from '../apps/api/dist/decke/legMessages.js'
+import { createProgressNudges, progressNudgeMessage } from '../apps/api/dist/decke/progressNudge.js'
 import { createGrounding } from '../apps/api/dist/decke/grounding.js'
 import { RepairLog, clampStrings } from '../apps/api/dist/decke/repair.js'
 import {
@@ -1045,6 +1054,33 @@ async function serve(request) {
         ...(extra ? [systemMessage(choice, extra)] : []),
       ]
 
+      // ── PROGRESS BETWEEN BATCHES ────────────────────────────────────────────
+      //
+      // "A solid minute of tool calls then one response" (the owner,
+      // 2026-10-10). After four silent lookup steps in a row, `prepareStep`
+      // appends one system message asking for a sentence of progress — at most
+      // two per request, never after a step that already spoke. The decision is
+      // `decke/progressNudge.ts`; this ledger is per REQUEST, so the Quick
+      // tier's one Standard retry shares its limit.
+      //
+      // TURN-SCOPED. ai@7 carries a `prepareStep` messages override forward to
+      // later steps of the same call, so the nudge stays where it landed and
+      // the cached prefix behind it stays byte-stable. It is never part of a
+      // step's response messages, so the browser's history, the next HTTP leg
+      // and the corrective leg (built from `step.response.messages`) never see
+      // it.
+      //
+      // ANTHROPIC ONLY, and `allowSystemInMessages` with it. The remedy is
+      // Anthropic's; the AI SDK's own Google adapter refuses a system message
+      // after the first user turn, so a nudged step that the Gateway fails
+      // over to Standard's Gemini fallback may fail too — a step that was
+      // already failing on Anthropic. `scripts/decke-gateway-probe.mjs`
+      // (`mid_conversation_system_message`) is the live check that the Gateway
+      // carries the message to Claude. The flag lifts the SDK's guard against
+      // system messages in `messages`; the reader cannot use it, because
+      // `validateWire` admits only user and assistant roles from the browser.
+      const progressNudges = createProgressNudges()
+
       const startConversation = (choice, effort) => streamText({
         model: observeUsageModel(gateway(choice.id), meter),
         providerOptions: chatProviderOptions(choice, effort),
@@ -1059,6 +1095,8 @@ async function serve(request) {
         // `standardizePrompt` as "messages.some is not a function" — which
         // names neither this call nor the missing await.
         messages: preparedMessages,
+        // Only so `prepareStep` can append the progress nudge; see above.
+        allowSystemInMessages: isAnthropic(choice),
         // THE BODY AND THE DATA, in one set.
         //
         // `buildTools` is the cosmetic ones — express, showScreen, and the
@@ -1150,15 +1188,25 @@ async function serve(request) {
         // the SDK executes it before step 0, and that approval is the reader's
         // consent — but the model can only say what happened and stop. The
         // tools stay in view so the cached tools prefix does not change.
-        prepareStep: ({ stepNumber, messages }) => ({
-          messages: cacheConversation(choice, messages),
-          activeTools: focusedTools(allDeckeTools, stepNumber, (n) => deepRefusals.unavailable(n) || reflex.hide.includes(n)),
-          ...(askedEarlierThisTurn
-            ? { toolChoice: 'none' }
-            : stepNumber === 0 && reflex.force
-              ? { toolChoice: isAnthropic(choice) ? 'auto' : { type: 'tool', toolName: reflex.force } }
-              : {}),
-        }),
+        //
+        // AND, AFTER A LONG SILENCE, ONE LINE ASKING HIM TO SPEAK — appended
+        // after the cache breakpoint is placed, so it lands behind it. See
+        // PROGRESS BETWEEN BATCHES above.
+        prepareStep: ({ stepNumber, steps, messages }) => {
+          const cached = cacheConversation(choice, messages)
+          const nudge = !askedEarlierThisTurn && isAnthropic(choice) && progressNudges.next(steps)
+          // Counts only, so the logs can say how often it fires in production.
+          if (nudge) console.log('[deck-e] progress nudge', JSON.stringify({ step: steps.length, nth: progressNudges.count }))
+          return {
+            messages: nudge ? [...cached, progressNudgeMessage()] : cached,
+            activeTools: focusedTools(allDeckeTools, stepNumber, (n) => deepRefusals.unavailable(n) || reflex.hide.includes(n)),
+            ...(askedEarlierThisTurn
+              ? { toolChoice: 'none' }
+              : stepNumber === 0 && reflex.force
+                ? { toolChoice: isAnthropic(choice) ? 'auto' : { type: 'tool', toolName: reflex.force } }
+                : {}),
+          }
+        },
         // ── A CAPTION THAT IS TOO LONG IS NOT A LOST TURN ─────────────────
         //
         // Measured on a real gate run against production: `showScreen` failed

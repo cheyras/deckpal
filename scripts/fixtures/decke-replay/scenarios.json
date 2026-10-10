@@ -19,7 +19,7 @@
       {
         "user": "Log this — I lost a close one, what went wrong? My screen name is HarborKite.\n\nSetup\nQuartzFox chose to go first.\nQuartzFox drew 7 cards.\nHarborKite drew 7 cards.\nQuartzFox's Turn #1\nQuartzFox played Dreepy to the Bench.\nHarborKite's Turn #1\nHarborKite drew Slowpoke.\nHarborKite played Slowpoke to the Bench.\nQuartzFox's Turn #4\nQuartzFox attached Psychic Energy to Dragapult ex in the Active Spot.\nQuartzFox used Phantom Dive on HarborKite’s Slowking for 200 damage.\nHarborKite’s Slowking was Knocked Out!\nQuartzFox took 2 Prize cards.\nHarborKite's Turn #4\nHarborKite used Slow Beam on QuartzFox’s Dragapult ex for 120 damage.\nHarborKite took 1 Prize cards.\nQuartzFox's Turn #5\nQuartzFox used Phantom Dive on HarborKite’s Slowpoke for 200 damage.\nHarborKite’s Slowpoke was Knocked Out!\nQuartzFox took 1 Prize cards.\nOpponent conceded. QuartzFox wins.",
         "tags": ["expects-write"],
-        "expectations": ["battle-log-pasted", "approved-battle-log", "turning-point-from-log", "no-web-research"]
+        "expectations": ["battle-log-pasted", "approved-battle-log", "turning-point-from-log", "no-web-research", "progress-between-batches"]
       }
     ]
   },
@@ -47,7 +47,7 @@
     "turns": [{
       "user": "Review how my Slowking deck has actually performed and tell me the two biggest things to work on.",
       "tags": [],
-      "expectations": ["battle-review-evidence", "at-most-two-changes", "no-unapproved-save"]
+      "expectations": ["battle-review-evidence", "at-most-two-changes", "no-unapproved-save", "progress-between-batches"]
     }]
   },
   {
@@ -63,7 +63,7 @@
     "turns": [{
       "user": "Build me a Standard deck for casual PTCG Live games around Dragapult ex. Use cards I own where sensible, keep missing cards under $20 total, and favor a steady setup over clever techs. I have time to practice it.",
       "tags": ["expects-deck"],
-      "expectations": ["checked-deck-widget"]
+      "expectations": ["checked-deck-widget", "progress-between-batches"]
     }]
   },
   {
@@ -73,7 +73,7 @@
     "turns": [{
       "user": "My Slowking deck keeps losing to Dragapult. What should I change?",
       "tags": [],
-      "expectations": ["iteration-evidence", "at-most-two-changes", "no-unapproved-save"]
+      "expectations": ["iteration-evidence", "at-most-two-changes", "no-unapproved-save", "progress-between-batches"]
     }]
   },
   {
@@ -83,7 +83,7 @@
     "turns": [{
       "user": "What would it cost to finish the regular numbered Pitch Black set?",
       "tags": [],
-      "expectations": ["set-progress", "no-web-research"]
+      "expectations": ["set-progress", "no-web-research", "progress-between-batches"]
     }]
   },
   {
