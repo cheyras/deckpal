@@ -250,9 +250,9 @@ export class SearchPilot implements Pilot {
       this.nodes += r.nodes;
       for (let i = 0; i < n; i++) {
         const v = r.best[i] as number;
-        sum[i] += v === -Infinity ? -o.weights.win : v;
+        sum[i] = (sum[i] as number) + (v === -Infinity ? -o.weights.win : v);
         if (v >= o.weights.win / 2) {
-          wins[i]!++;
+          wins[i] = (wins[i] as number) + 1;
           if (!winLine) winLine = { world, line: r.lines[i] as number[] };
         }
       }

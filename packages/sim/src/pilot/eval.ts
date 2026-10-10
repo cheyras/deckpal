@@ -105,8 +105,10 @@ function offence(
   let ko = 0;
   let bestPower = 0;
   let bestMissing = 99;
+  const fx = facts(env.ctx);
   const consider = (sl: Slot, bench: boolean) => {
-    if (bench && me.bench.length === 0) return;
+    const di = env.ctx.cardDef[topCard(sl)] as number;
+    if (bench && !(fx.power[di] as number) && !fx.copier.has(di)) return; // no damage to estimate
     const t = bestAttack(env, s, sl, p, target, extra, all);
     const f = bench ? w.benchThreat : 1;
     if (t.dmg >= tLeft) ko = Math.max(ko, f);

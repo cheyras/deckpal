@@ -61,13 +61,14 @@ function defs(env: Env, cards: number[], sort: boolean): string {
   return out.join('.');
 }
 
-/** Canonical key of a position: card instances by definition, Bench as a multiset. */
+/** Canonical key of a position: card instances by definition, Bench as a multiset (collisions only merge near-identical lines). */
 export function hashState(env: Env, s: GameState): string {
   const parts: string[] = [String(s.turn), String(s.current), s.step, s.stadium ? `${env.ctx.cardDef[s.stadium.card]}@${s.stadium.owner}` : '-'];
   for (const ps of s.p) {
     parts.push(
       defs(env, ps.hand, true),
-      defs(env, ps.deck, false),
+      // The deck by length only: its order follows from the RNG state (hashed below) and what left it.
+      String(ps.deck.length),
       defs(env, ps.discard, true),
       String(ps.prizes.length),
       `${+ps.supporterPlayed}${+ps.stadiumPlayed}${+ps.energyAttached}${+ps.retreated}${+ps.stadiumAbilityUsed}${ps.globalAbilitiesUsed.join(',')}`,

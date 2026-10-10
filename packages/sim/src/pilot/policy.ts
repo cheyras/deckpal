@@ -18,7 +18,9 @@ import type { Op } from '../compile.js';
 import type { Step } from '../dsl.js';
 import { evalExpr } from '../eval.js';
 import { attackCost, energyUnits, retreatCost, statics, type LiveStatic } from '../query.js';
+import type { Game } from '../game.js';
 import { opp } from '../state.js';
+import type { Pilot } from './types.js';
 import type { Action, CardDef, Decision, Frame, GameState, Player, Slot } from '../types.js';
 import {
   allSlots,
@@ -570,10 +572,10 @@ export function policyChoose(env: Env, s: GameState, d: Decision, profile: Polic
 }
 
 /** A pilot that plays the policy directly: fast, no lookahead. */
-export class PolicyPilot {
+export class PolicyPilot implements Pilot {
   readonly name = 'policy';
   constructor(private profile: PolicyProfile = DEFAULT_PROFILE) {}
-  choose(game: { envForInternals: Env; state: GameState }, d: Decision): number[] {
+  choose(game: Game, d: Decision): number[] {
     return policyChoose(game.envForInternals, game.state, d, this.profile);
   }
 }
