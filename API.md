@@ -1486,6 +1486,22 @@ within the confidence threshold (9 — re-measured over 389 degraded scans, so
 hashes are indexed yet the response is `matched: false` with a `note` to run the
 scan indexer.
 
+### GET /deckpal/api/scan/warm
+
+Loads the identity model on the answering instance and runs it once on a blank
+crop, so the scanner's first capture does not pay for the model load (field
+telemetry: ~1.5 s warm against 4-8 s cold). The scanner calls it when it opens,
+every four minutes while it stays open and visible, and on returning to the tab.
+Same gate as every scan route. Always `200`:
+
+```json
+{ "embed": "warm", "ms": 512, "loadMs": 310 }
+```
+
+`embed` is `warm`, `off` (this deployment has no embedding matcher; the client
+stops asking), or `error` (logged server-side; the next capture reports its own
+outcome).
+
 ### POST /deckpal/api/scan/embed
 
 The embedding matcher. **404 unless `SCAN_EMBED_MATCH=true`** — an unset flag

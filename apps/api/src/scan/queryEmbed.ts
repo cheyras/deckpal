@@ -302,3 +302,34 @@ export async function embedCrop(bytes: Buffer, marginFrac = DEFAULT_CAPTURE_MARG
   // A fresh array, never the session's: ORT owns that buffer and reuses it.
   return l2Normalize(Float32Array.from(first.data));
 }
+
+/**
+ * WARM THIS INSTANCE: load the model and run it once, so the first real capture
+ * does not pay for either.
+ *
+ * Field telemetry (2026-09-07/08, 106 captures) put the image rung at ~1.5 s on
+ * a warm instance and 4-8 s on the first captures of every session — the 88 MB
+ * model read, the WASM compile and the first inference's JIT, all landing on
+ * the capture the reader is watching (the 8 s embed budget cut several off
+ * outright). `GET /api/scan/warm` calls this when the scanner opens, so that
+ * cost is paid while the reader is still framing the first card.
+ *
+ * A blank grey crop at the capture's own size: it exercises every stage
+ * `embedCrop` runs (decode, the spec's resample, the session) and its vector is
+ * thrown away.
+ */
+let warmCrop: Promise<Buffer> | null = null;
+export async function warmEmbed(): Promise<{ loadMs: number }> {
+  // Cached like the session is, and cleared on failure like the session is, so
+  // one bad attempt cannot poison every later warm-up on this instance.
+  warmCrop ??= sharp({ create: { width: 480, height: 670, channels: 3, background: { r: 128, g: 128, b: 128 } } })
+    .jpeg({ quality: 85 })
+    .toBuffer()
+    .catch((e: unknown) => {
+      warmCrop = null;
+      throw e;
+    });
+  const { info } = await loadEmbedSession();
+  await embedCrop(await warmCrop);
+  return { loadMs: info.loadMs };
+}
