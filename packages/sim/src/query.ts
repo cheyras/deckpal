@@ -242,6 +242,19 @@ export function effectsPrevented(
   return false;
 }
 
+/** lane:darkrai — are damage counters placed on this Pokémon by `fromPlayer`'s attack/Ability effects prevented (Battle Cage)? */
+export function countersPrevented(
+  env: Env,
+  s: GameState,
+  slot: Slot,
+  fromPlayer: Player,
+  kind: 'attack' | 'ability',
+  all = statics(env, s),
+): boolean {
+  if (ownerOf(s, slot) === fromPlayer) return false;
+  return onSlot(env, s, all, slot, 'preventCounters').some((x) => (x.effect as { from: string[] }).from.includes(kind));
+}
+
 /** Is damage from `fromPlayer`'s attack to this Pokémon prevented? */
 export function damagePrevented(
   env: Env,

@@ -932,6 +932,10 @@ class Renderer {
         return `${X} can't use ${e.attack}`;
       case 'noToolEffects':
         return `Pokémon Tools attached to ${x === 'each player' || x === 'you' || x === 'your opponent' ? "each Pokémon (both yours and your opponent's)" : x} have no effect`;
+      case 'preventCounters': { // lane:darkrai
+        const what = e.from.includes('attack') && e.from.includes('ability') ? 'attacks and Abilities' : e.from.includes('attack') ? 'attacks' : 'Abilities';
+        return `Prevent all damage counters from being placed on ${x} by effects of ${what} from the opponent's Pokémon`;
+      }
       default: {
         const unrendered: never = e;
         return `[unrendered static: ${(unrendered as StaticEffect).k}]`;
@@ -1418,6 +1422,15 @@ export const SIMILARITY_FLOOR = 0.4;
  * an entry is a claim that the script is right and the check is too blunt.
  */
 export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }> = {
+  // lane:darkrai
+  'me05-048|attack:Abyss Eye': {
+    problems: ['similarity'],
+    why: '"affected by a Special Condition" is a filter `any` of the five conditions, which renders as five clauses; the KO itself is the single `knockOut` the card prints.',
+  },
+  'me05-075|text': {
+    problems: ['similarity'],
+    why: '"Both Active non-{D} Pokémon" is one `if` per Active Pokémon (one for each player), so the one printed sentence renders as two.',
+  },
   'me05-029|attack:All-You-Can-Yeet': {
     problems: ['"may" is printed but not rendered'],
     why: '"You may discard any number of cards": choosing min 0 IS the option to discard none, so a `may` wrapper would only add a redundant yes/no decision.',

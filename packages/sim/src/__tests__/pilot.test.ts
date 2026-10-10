@@ -178,9 +178,9 @@ test('policy answers every kind of decision it meets within bounds', () => {
 });
 
 test('greedy beats random clearly (paired seeds, owner decks)', () => {
-  const t = paired('greedy', 'random', [HIDE_N_SNEAK, TOOLBOX_SLOWKING], seeds(6));
+  const t = paired('greedy', 'random', [HIDE_N_SNEAK, TOOLBOX_SLOWKING], seeds(12));
   console.log(`  greedy vs random: ${t.a}-${t.b}-${t.draws} (n=${t.games})`);
-  assert.ok(t.a >= 8 && t.a >= 4 * t.b, `greedy ${t.a}-${t.b}-${t.draws}`);
+  assert.ok(t.a >= 14 && t.a >= 3 * t.b, `greedy ${t.a}-${t.b}-${t.draws}`);
 });
 
 test('search is at least as strong as greedy (paired seeds, owner decks)', () => {

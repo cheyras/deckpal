@@ -16,6 +16,7 @@ import {
   damageIn,
   damageOut,
   damagePrevented,
+  countersPrevented, // lane:darkrai
   effectsPrevented,
   hasNoAbilities,
   maxHp,
@@ -486,6 +487,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
       const all = statics(env, s);
       for (const t of targetsOf(env, s, f, st.to)) {
         if ((f.kind === 'attack' || f.kind === 'ability') && effectsPrevented(env, s, t, f.player, kind, all)) continue;
+        if ((f.kind === 'attack' || f.kind === 'ability') && countersPrevented(env, s, t, f.player, kind, all)) continue; // lane:darkrai
         t.damage += n * 10;
         emit(env, { type: 'counters', player: ownerOf(s, t), slot: t.id, n });
       }
