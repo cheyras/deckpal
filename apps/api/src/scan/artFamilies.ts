@@ -54,6 +54,13 @@ export function artSiblings(cardId: string): readonly string[] {
   return fam ? fam.filter((id) => id !== cardId) : [];
 }
 
-export function artFamiliesAsOf(): string {
-  return FILE.as_of;
+/**
+ * POST /scan's half of the guard: is the printing of this hash top-1 still
+ * open? True when the card shares its picture with another printing, so a hash
+ * within its own bar names the family and not the printing. `router.ts` reports
+ * it as `printingOpen: true` with `matched: false`; the scan bench replays it.
+ * Undefined (no top-1) is never open.
+ */
+export function printingOpenFor(topCardId: string | undefined): boolean {
+  return topCardId != null && artSiblings(topCardId).length > 0;
 }

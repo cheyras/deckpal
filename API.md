@@ -1489,7 +1489,13 @@ so an indexer run takes effect immediately and the endpoint works identically on
 a long-lived server and a serverless function. Measured: 22.6k rows × 34 probes
 in ~69 ms of server time. `matched` is `true` only when the best distance is
 within the confidence threshold (9 — re-measured over 389 degraded scans, so
-96.9% of correct scans fire and every tested junk frame is rejected). Read-only.
+96.9% of correct scans fire and every tested junk frame is rejected) **and**
+the best card has no same-art printing (`apps/api/src/scan/artFamilies.ts` —
+e.g. Base Set and its Base Set 2 reprint, which a whole-card hash cannot tell
+apart). When the distance is within the threshold and only that same-art guard
+said no, the response is `matched: false` **with `printingOpen: true`**: the
+card is likely right, its printing is for the reader to choose from `matches`.
+`printingOpen` is absent in every other response. Read-only.
 ```json
 { "query": { "algo": "dhash8v3", "hash": "f0e1…08" },
   "matched": true, "threshold": 9, "indexSize": 23104,
@@ -1602,7 +1608,7 @@ same ordering.
 
 Response: `{ "matched", "confident", "resolvedBy":
 "badge+number"|"number+denominator"|"name+number"|"family-text"|"vector"|"corroborated"|"prior-only",
-"matches": [...same card shape as /scan...] }`. Contract deviations from
+"printingOpen"?: true, "matches": [...same card shape as /scan...] }`. Contract deviations from
 /scan: `distance`/`confidence` are `number|null` (a card resolved by its
 printed key was never nominated by phash — null means "no phash opinion",
 where 0 would claim an identical hash); a `similarity` field (`number|null`)
@@ -1626,6 +1632,20 @@ vector's own top-1 is one of the two. A confident OCR rung is never reviewed by
 the vector: where they disagree, the printed key wins and the response is
 identical to the flag being off. A phash distance <= 2 can CONFIRM the vector
 and can never substitute for it.
+
+**The printing guard (`printingOpen`).** When the top card shares its picture
+with another printing (`apps/api/src/scan/artFamilies.ts`), a confident answer
+that no printed key decided — `vector`, `corroborated`, `name-family`,
+`family-text` — comes back `matched: true`, `confident: false`, with the
+same-art printings listed right after the top match and `"printingOpen": true`.
+So `confident: false` on a `vector` or `corroborated` answer can now mean
+"right card, printing open", not only "unsure". The printed-key rungs
+(`badge+number`, `number+denominator`, `name+number`, `name+denominator`) are
+never reopened, nor is a `corroborated` tie-break inside such a key's
+candidates when the key already excluded every same-art printing (`87/114`
+names bw1-87 or xy11-87; a same-art 2011bw-12 prints another number).
+`printingOpen` is absent whenever the guard did not fire, so those responses
+are byte-identical to before it.
 
 Note: `setCode` here is the code PRINTED on 2023+ cards (SVI, DRI, ...) — a
 different namespace from PTCGL codes (`PR-SV` vs `SVP`), see

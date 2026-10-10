@@ -3,7 +3,7 @@ import { cardImages, q } from '../db.js';
 import { ApiError, asyncHandler, badRequest, clampInt, notFound, oneOf, toBuffer } from '../http.js';
 import { ALGO, hashQueryCandidates, hashToHex } from './phash.js';
 import { pgCatalogPort } from './catalogPort.js';
-import { artSiblings } from './artFamilies.js';
+import { artSiblings, printingOpenFor } from './artFamilies.js';
 import { resolveCard, type FusionInput, type OcrFields, type PriorMatch, type RankedCard } from './resolve.js';
 import { scanEmbedGate } from './embedGate.js';
 import { CURRENT_STAMP, assertQueryVector, buildResponse, pgNeighbours } from './embedMatch.js';
@@ -23,9 +23,9 @@ import { EMBED_MODEL_ID, EMBED_SIZE, identityConfidence } from '@deckpal/matchin
  *   Query: ?k=<1..25> top matches to return (default 5)
  *          ?quality=low|high  which indexed hash set to match against (default low)
  *   Response 200:
- *     { query: { algo, hash }, matched: bool, threshold, indexSize,
- *       matches: [ { cardId, name, setId, setName, number, rarity,
- *                    images:{low,high}, distance, confidence } ] }
+ *     { query: { algo, hash }, matched: bool, printingOpen?: true, threshold,
+ *       indexSize, matches: [ { cardId, name, setId, setName, number, rarity,
+ *                               images:{low,high}, distance, confidence } ] }
  *
  * How it matches: we compute the query image's 64-bit dHash (plus geometry
  * probes) and rank the whole indexed hash set by Hamming distance (0 = identical,
@@ -33,7 +33,10 @@ import { EMBED_MODEL_ID, EMBED_SIZE, identityConfidence } from '@deckpal/matchin
  * CONFIDENT_MAX — an honest "no confident match" for a photo of nothing in the
  * catalog — and the best card has no same-art reprint (artFamilies.ts): a hash
  * of the whole card cannot see the set symbol that tells two printings of one
- * picture apart. Read-only.
+ * picture apart. So `matched: false` no longer always means "too far": when the
+ * best distance IS within the bar and only the same-art guard said no, the
+ * response also carries `printingOpen: true` (absent in every other case).
+ * Read-only.
  *
  * 🔴 The ranking happens in Postgres, not in this process. The original scanner
  * read all ~23k hashes into a module-level typed array at first use and kept them
@@ -268,12 +271,17 @@ scanRouter.post(
         confidence: Math.round((1 - m.distance / 64) * 1000) / 1000,
       }));
 
+    // Within the hash's own bar AND not a card whose picture other printings
+    // share: a 9x8 hash cannot see a set symbol, so it names a family, not a
+    // printing (artFamilies.ts). The ranked list is untouched — it is the picker.
+    const withinBar = (matches[0]?.distance ?? 64) <= CONFIDENT_MAX;
+    const printingOpen = withinBar && printingOpenFor(matches[0]?.cardId);
     res.json({
       query: { algo: ALGO, hash: hashToHex(queryHash) },
-      // Within the hash's own bar AND not a card whose picture other printings
-      // share: a 9x8 hash cannot see a set symbol, so it names a family, not a
-      // printing (artFamilies.ts). The ranked list is untouched — it is the picker.
-      matched: (matches[0]?.distance ?? 64) <= CONFIDENT_MAX && !artSiblings(matches[0]!.cardId).length,
+      matched: withinBar && !printingOpen,
+      // Present only when the guard is what said no — absent, never false, so a
+      // response it did not touch is byte-identical to one from before it.
+      ...(printingOpen ? { printingOpen: true } : {}),
       threshold: CONFIDENT_MAX,
       indexSize,
       matches,
@@ -334,6 +342,27 @@ scanRouter.post(
  *   'prior-only'         OCR added no key, only a filter. The answer is the
  *                        existing phash path's, possibly narrowed to a set or a
  *                        number, and `confident` is always false.
+ *   'name+denominator'   the name plus the denominator, the numerator dropped —
+ *                        the rung for a misread digit (`03/182` for `063/182`).
+ *   'vector'             the image vector alone, on its calibrated gate.
+ *   'corroborated'       two independent signals named one card, neither
+ *                        sufficient alone (a printed key's tie broken by the
+ *                        vector; a decisive vector the printed name agrees with).
+ *
+ * ── `matched: true`, `confident: false`, `printingOpen: true` ─────────────
+ *
+ * THE PRINTING GUARD (artFamilies.ts, resolve.ts `openThePrinting`). When the
+ * answer's card shares its picture with another printing (Base Set and its Base
+ * Set 2 reprint), a confident answer no printed key decided — 'vector',
+ * 'corroborated', 'name-family', 'family-text' — is handed back UNCONFIDENT with
+ * the same-art printings right after the top match, and the response carries
+ * `printingOpen: true`. The card is identified; the printing is the reader's
+ * to choose. So `confident: false` on a 'vector' or 'corroborated' answer can
+ * now mean exactly this. A printed key that names one printing (badge+number,
+ * number+denominator, name+number, name+denominator) is never reopened, nor is
+ * a 'corroborated' tie-break inside such a key's list that already excluded
+ * every same-art sibling. `printingOpen` is ABSENT whenever the guard did not
+ * fire, so those responses are byte-identical to the ones before it.
  *
  * ── WHEN `matched` IS FALSE AND `matches` IS NOT EMPTY ─────────────────────
  *
@@ -574,6 +603,10 @@ scanRouter.post(
       matched: outcome.matched,
       confident: outcome.confident,
       resolvedBy: outcome.resolvedBy,
+      // The printing guard's flag: present only when it turned a confident
+      // answer unconfident, so every other response keeps its old bytes.
+      // (`keyedBy` and `badge` stay server-side.)
+      ...(outcome.printingOpen ? { printingOpen: true } : {}),
       matches: outcome.matches.map((m) => shapeResolved(m, fusion != null)),
     });
   }),

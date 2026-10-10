@@ -292,6 +292,24 @@ export interface ResolveOutcome {
   matches: RankedCard[];
   /** Not part of the wire response; kept for logging and tests. */
   badge: BadgeResolution;
+  /**
+   * Not part of the wire response either. Set only on a 'corroborated' answer
+   * that `done`/`familyDone` reached over a KEYED list: the rung whose key built
+   * the list the vector chose from — and only when that whole list is in
+   * `matches`, so a reader of this field can see every card the key allowed.
+   * The printing guard (`openThePrinting`) reads it: a printed key that already
+   * left every same-art sibling out has decided the printing by itself.
+   * Never set by `letDecisiveVectorSpeak`, whose list was not keyed.
+   */
+  keyedBy?: ResolvedBy;
+  /**
+   * THE PRINTING GUARD FIRED (`openThePrinting`): a confident answer was handed
+   * back unconfident because its card shares its picture with another printing
+   * that no printed key ruled out. ABSENT otherwise — never `false` — so a
+   * response the guard did not touch is byte-identical to one from before it.
+   * `router.ts` puts it on the wire as `printingOpen: true`.
+   */
+  printingOpen?: true;
 }
 
 export interface ResolveOptions {
@@ -324,7 +342,10 @@ export interface ResolveOptions {
    * with the siblings at the top of the list: the picture is right, the
    * printing is the reader's to say. A printed key (badge+number,
    * number+denominator, name+number, name+denominator) names one printing by
-   * itself and is left alone. Absent, the ladder behaves exactly as before.
+   * itself and is left alone — and so is a 'corroborated' answer whose keyed
+   * list (`keyedBy`) came from one of those rungs and holds none of the
+   * siblings: the key already ruled them out, and the vector only chose among
+   * cards with different pictures. Absent, the ladder behaves exactly as before.
    */
   artSiblings?: (cardId: string) => readonly string[];
 }
@@ -739,6 +760,12 @@ export async function resolveCard(
         : null,
   };
 
+  /** `keyedBy` for a corroboration over `cards` — only when the whole keyed
+   *  list survived the `MAX_MATCHES` cut, so the printing guard can see every
+   *  card the key allowed (no printed-key rung comes near 25 in practice). */
+  const keyedFrom = (resolvedBy: ResolvedBy, cards: readonly CatalogCard[]): { keyedBy?: ResolvedBy } =>
+    cards.length <= MAX_MATCHES ? { keyedBy: resolvedBy } : {};
+
   /**
    * Finish a rung.
    *
@@ -772,6 +799,7 @@ export async function resolveCard(
         // go, and that is the same list they would have been shown a moment ago.
         matches: [lead, ...matches.filter((m) => m.cardId !== winner)],
         badge,
+        ...keyedFrom(resolvedBy, cards),
       };
     }
     return { matched: true, confident: false, resolvedBy, matches, badge };
@@ -817,6 +845,7 @@ export async function resolveCard(
         resolvedBy: 'corroborated',
         matches: [lead, ...matches.filter((m) => m.cardId !== winner)],
         badge,
+        ...keyedFrom(resolvedBy, cards),
       };
     }
     return { matched: sole != null && matches.length > 0, confident: false, resolvedBy, matches, badge };
@@ -1063,7 +1092,8 @@ export async function resolveCard(
    * the wrong printing — Base Set named as Base Set 2 or Legendary Collection —
    * decided by the vector, the hash, or a name every printing carries. The
    * answer stays `matched` (the card IS identified); it stops being
-   * `confident`, and the printings the reader chooses between go first.
+   * `confident`, says so (`printingOpen`), and the printings the reader
+   * chooses between go first.
    */
   async function openThePrinting(
     prev: ResolveOutcome,
@@ -1075,12 +1105,28 @@ export async function resolveCard(
     const siblings = siblingsOf(top.cardId);
     if (!siblings.length) return prev;
     const have = new Set(prev.matches.map((m) => m.cardId));
+    // THE KEY ALREADY RULED THE SIBLINGS OUT. A vector that broke a tie inside
+    // a printed key's list — `87/114` is bw1-87 or xy11-87, two different
+    // pictures — chose between cards the key allowed, and a same-art sibling
+    // the key did NOT allow (2011bw-12 prints another number) is no rival.
+    // `keyedBy` guarantees `matches` is that whole keyed list. A sibling IN
+    // the list means the key could not tell the two printings apart, and the
+    // vector cannot either: that one stays open.
+    if (prev.keyedBy && PRINTED_KEYS.has(prev.keyedBy) && !siblings.some((id) => have.has(id))) return prev;
     const missing = siblings.filter((id) => !have.has(id));
-    const hydrated = missing.length ? rank(await port.byIds(missing), priors.distance, evidence.similarity) : [];
+    const hydratedRows = missing.length ? await port.byIds(missing) : [];
     const family = new Set(siblings);
     const listed = prev.matches.slice(1).filter((m) => family.has(m.cardId));
     const rest = prev.matches.slice(1).filter((m) => !family.has(m.cardId));
-    return { ...prev, confident: false, matches: [top, ...listed, ...hydrated, ...rest].slice(0, MAX_MATCHES) };
+    // Listed and hydrated siblings ranked together, so the reader's choice is
+    // in evidence order whichever of the two lists a sibling came from.
+    const open = rank([...listed, ...hydratedRows], priors.distance, evidence.similarity);
+    return {
+      ...prev,
+      confident: false,
+      printingOpen: true,
+      matches: [top, ...open, ...rest].slice(0, MAX_MATCHES),
+    };
   }
 
   /**

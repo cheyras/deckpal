@@ -29,7 +29,7 @@ import { fileURLToPath } from 'node:url'
 
 import sharp from 'sharp'
 
-import { artSiblings } from '../../apps/api/src/scan/artFamilies.js'
+import { artSiblings, printingOpenFor } from '../../apps/api/src/scan/artFamilies.js'
 import { resolveCard, type ResolveOutcome } from '../../apps/api/src/scan/resolve.js'
 import type { ScanResolveResponse, ScanResponse } from '../../apps/web/src/lib/api.js'
 import type { OcrRead } from '../../apps/web/src/scan/ocr/pipeline.js'
@@ -53,7 +53,10 @@ const FUSION_ON = arg('fusion', 'on') !== 'off'
 /** The printing guard (artFamilies.ts) — the shipping behaviour; `--guard off` replays without it. */
 const GUARD_ON = arg('guard', 'on') !== 'off'
 const VECTORS = arg('vectors', 'vit_base_patch32_clip_224.openai')!
-const LABEL = arg('label', `ocr-${OCR_ON ? 'on' : 'off'}_fusion-${FUSION_ON ? 'on' : 'off'}_${VECTORS}`)!
+const LABEL = arg(
+  'label',
+  `ocr-${OCR_ON ? 'on' : 'off'}_fusion-${FUSION_ON ? 'on' : 'off'}_guard-${GUARD_ON ? 'on' : 'off'}_${VECTORS}`,
+)!
 const OUT = arg('out', path.join(BENCH_DIR, 'runs'))!
 const DATASETS = arg('datasets')?.split(',') ?? listDatasets()
 const VECTOR_K = 5 // api.ts embedCard asks k=5
@@ -109,10 +112,11 @@ function vectorsFor(rowId: string, full: boolean) {
   return (vectorCache.get(`${full ? 'full' : 'crop'}:${rowId}`) ?? vectorCache.get(`crop:${rowId}`) ?? []).slice(0, VECTOR_K)
 }
 
-function scanResponse(matches: { cardId: string; distance: number }[], matched: boolean): ScanResponse {
+function scanResponse(matches: { cardId: string; distance: number }[], matched: boolean, printingOpen = false): ScanResponse {
   return {
     query: { algo: 'dhash8v3', hash: '' },
     matched,
+    ...(printingOpen ? { printingOpen: true } : {}),
     threshold: CONFIDENT_MAX,
     indexSize: 0,
     matches: matches.map((m) => {
@@ -137,6 +141,7 @@ function toWire(o: ResolveOutcome): ScanResolveResponse {
     matched: o.matched,
     confident: o.confident,
     resolvedBy: o.resolvedBy,
+    ...(o.printingOpen ? { printingOpen: true } : {}),
     matches: o.matches.map((m) => ({
       cardId: m.cardId,
       name: m.name,
@@ -180,9 +185,9 @@ async function runRow(r: BenchRow): Promise<RowResult> {
   const vec = FUSION_ON ? vectorsFor(r.id, full) : []
 
   let s: IdentityState = initialIdentity()
-  // router.ts /scan: within the bar AND no same-art reprint (artFamilies.ts) — unless --no-guard.
-  const phMatched = ph.matched && (!GUARD_ON || !ph.matches[0] || !artSiblings(ph.matches[0].cardId).length)
-  s = reduceIdentity(s, { type: 'phash', res: scanResponse(ph.matches, phMatched) })
+  // router.ts /scan: within the bar AND no same-art reprint (artFamilies.ts) — unless `--guard off`.
+  const phOpen = GUARD_ON && ph.matched && printingOpenFor(ph.matches[0]?.cardId)
+  s = reduceIdentity(s, { type: 'phash', res: scanResponse(ph.matches, ph.matched && !phOpen, phOpen) })
   s = reduceIdentity(s, { type: 'read', read })
   const body = toResolveBody(read, ph.matches, vec)
   let resolved: ScanResolveResponse | null = null

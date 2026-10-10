@@ -180,9 +180,43 @@ describe('identityRecord', () => {
       lateAnswerDropped: false,
       resolvedBy: 'badge+number',
       confident: true,
+      // The same-art guard did not fire, so the endpoint sent no flag.
+      printingOpen: false,
       cardId: 'sv10-161',
       msToResolve: 2_100,
     })
+  })
+
+  it('records when the SAME-ART GUARD reopened the printing, and only then', () => {
+    // The endpoint's `printingOpen: true` — a confident picture handed back as a
+    // question because another printing shares it. The column exists so device
+    // sessions can say how often that happens.
+    const reopened = identityRecord(
+      run([
+        { type: 'phash', res: TIED },
+        { type: 'read', read: read({ name: 'Gust of Wind' }) },
+        {
+          type: 'resolve',
+          resolved: resolveRes({ resolvedBy: 'vector', confident: false, printingOpen: true }),
+        },
+      ]),
+      2_400,
+    )?.identity as Record<string, unknown>
+    assert.equal(reopened.identityOutcome, 'needs-you')
+    assert.equal(reopened.resolvedBy, 'vector')
+    assert.equal(reopened.confident, false)
+    assert.equal(reopened.printingOpen, true)
+
+    // No resolve answer at all: null, the convention `resolvedBy` already uses.
+    const unasked = identityRecord(
+      run([
+        { type: 'phash', res: TIED },
+        { type: 'read', read: null },
+        { type: 'resolve', resolved: null },
+      ]),
+      900,
+    )?.identity as Record<string, unknown>
+    assert.equal(unasked.printingOpen, null)
   })
 
   it('RECORDS WHAT THE IMAGE RUNG COST AND WHETHER IT ANSWERED', () => {
@@ -427,6 +461,9 @@ describe('identityRecord', () => {
       'ocr',
       'ocrMs',
       'ocrRead',
+      // The same-art guard's column (2026-10-10): another column, not an
+      // outcome — a reopened printing still settles as one of the five.
+      'printingOpen',
       'resolvedBy',
     ])
   })

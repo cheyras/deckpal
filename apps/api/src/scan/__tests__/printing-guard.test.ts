@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { artSiblings } from '../artFamilies.js';
+import { artSiblings, printingOpenFor } from '../artFamilies.js';
 import { resolveCard, type CatalogCard, type CatalogPort, type OcrFields } from '../resolve.js';
 
 const MODEL = 'clip-vit-b32-openai'; // simMin 0.74 / marginMin 0.02
@@ -31,13 +31,39 @@ const CARDS: CatalogCard[] = [
   card('base1-20', 'Electabuzz', '20', 'base1'),
   card('base4-24', 'Electabuzz', '24', 'base4'),
   card('sv02-050', 'Marill', '050', 'sv02'),
+  // The review's regression (2026-10-10): Black & White Audino and its
+  // McDonald's 2011 reprint share a picture; Steam Siege ALSO prints /114.
+  card('bw1-87', 'Audino', '87', 'bw1'),
+  card('2011bw-12', 'Audino', '12', '2011bw'),
+  card('xy11-87', 'Hydreigon BREAK', '87', 'xy11'),
+  card('xy11-20', 'Audino', '20', 'xy11'), // synthetic: a second Audino in a /114 set
+  // Synthetic: a reprint set that kept the numbering AND the set size, so the
+  // printed key cannot tell the two printings apart; plus a third printing.
+  card('rs1-10', 'Pikachu', '10', 'rs1'),
+  card('rs2-10', 'Pikachu', '10', 'rs2'),
+  card('rsp-9', 'Pikachu', '9', 'rsp'),
 ];
-const OFFICIAL: Record<string, number> = { base1: 102, base4: 130, sv02: 193 };
+const OFFICIAL: Record<string, number> = {
+  base1: 102,
+  base4: 130,
+  sv02: 193,
+  bw1: 114,
+  xy11: 114,
+  '2011bw': 12,
+  rs1: 100,
+  rs2: 100,
+  rsp: 30,
+};
 const FAMILIES: Record<string, string[]> = {
   'base1-93': ['base4-120'],
   'base4-120': ['base1-93'],
   'base1-20': ['base4-24'],
   'base4-24': ['base1-20'],
+  'bw1-87': ['2011bw-12'],
+  '2011bw-12': ['bw1-87'],
+  'rs1-10': ['rs2-10', 'rsp-9'],
+  'rs2-10': ['rs1-10', 'rsp-9'],
+  'rsp-9': ['rs1-10', 'rs2-10'],
 };
 const siblings = (id: string) => FAMILIES[id] ?? [];
 
@@ -79,9 +105,12 @@ test('a decisive vector names the FAMILY, not the printing: the reader picks, si
   assert.equal(before.confident, true, 'without the guard the picture alone named a printing');
   assert.equal(before.matches[0]!.cardId, 'base4-120');
 
+  assert.equal(before.printingOpen, undefined);
+
   const after = await run({}, vector);
   assert.equal(after.confident, false, 'a picture shared by two printings does not name one');
   assert.equal(after.matched, true, 'the card is still identified — only the printing is open');
+  assert.equal(after.printingOpen, true, 'and the outcome says the guard is why');
   assert.deepEqual(
     after.matches.slice(0, 2).map((m) => m.cardId),
     ['base4-120', 'base1-93'],
@@ -107,6 +136,7 @@ test('a printed number with its denominator names the printing, and the guard le
   assert.equal(out.resolvedBy, 'number+denominator');
   assert.equal(out.confident, true);
   assert.equal(out.matches[0]!.cardId, 'base1-93');
+  assert.equal(out.printingOpen, undefined, 'untouched, so nothing new goes on the wire');
 });
 
 test('a card with no same-art sibling is untouched', async () => {
@@ -116,6 +146,98 @@ test('a card with no same-art sibling is untouched', async () => {
   ]);
   assert.equal(out.confident, true);
   assert.equal(out.matches[0]!.cardId, 'sv02-050');
+  assert.equal(out.printingOpen, undefined);
+});
+
+// ── A PRINTED KEY THAT ALREADY RULED THE SIBLINGS OUT (review, 2026-10-10) ──
+
+test('a vector tie-break inside a printed key that EXCLUDED every sibling stays confident', async () => {
+  // `87/114` is Black & White Audino or Steam Siege Hydreigon BREAK — two
+  // different pictures — and the vector picks Audino. Audino's same-art
+  // McDonald's reprint prints 12/12: the key already ruled it out.
+  const vector = [
+    { cardId: 'bw1-87', similarity: 0.7 },
+    { cardId: 'xy11-87', similarity: 0.6 },
+  ];
+  const before = await run({ number: '87', denominator: '114' }, vector, false);
+  assert.equal(before.resolvedBy, 'corroborated');
+  assert.equal(before.confident, true);
+  assert.deepEqual(before.matches.map((m) => m.cardId), ['bw1-87', 'xy11-87']);
+
+  const after = await run({ number: '87', denominator: '114' }, vector);
+  assert.equal(after.resolvedBy, 'corroborated');
+  assert.equal(after.keyedBy, 'number+denominator', 'the keyed rung is remembered (server-side only)');
+  assert.equal(after.confident, true, 'the guard leaves a key-settled printing alone');
+  assert.equal(after.printingOpen, undefined);
+  assert.deepEqual(
+    after.matches.map((m) => m.cardId),
+    ['bw1-87', 'xy11-87'],
+    'and does not put the excluded reprint into the picker',
+  );
+});
+
+test('the same, through the name+denominator family', async () => {
+  // Two Audinos in /114 sets; the McDonald's one is in a /12 set.
+  const out = await run({ name: 'Audino', denominator: '114' }, [
+    { cardId: 'bw1-87', similarity: 0.7 },
+    { cardId: 'xy11-87', similarity: 0.6 },
+  ]);
+  assert.equal(out.resolvedBy, 'corroborated');
+  assert.equal(out.keyedBy, 'name+denominator');
+  assert.equal(out.confident, true);
+  assert.equal(out.printingOpen, undefined);
+  assert.deepEqual(out.matches.map((m) => m.cardId), ['bw1-87', 'xy11-20']);
+});
+
+test('a sibling INSIDE the keyed list keeps the printing open', async () => {
+  // `10/100` names two printings of one picture; the key cannot tell them
+  // apart and neither can the vector, however wide its margin looks.
+  const out = await run({ number: '10', denominator: '100' }, [
+    { cardId: 'rs1-10', similarity: 0.7 },
+    { cardId: 'rsp-9', similarity: 0.6 },
+  ]);
+  assert.equal(out.keyedBy, 'number+denominator');
+  assert.equal(out.confident, false);
+  assert.equal(out.matched, true);
+  assert.equal(out.printingOpen, true);
+  assert.deepEqual(out.matches.map((m) => m.cardId).sort(), ['rs1-10', 'rs2-10', 'rsp-9']);
+});
+
+test('listed and hydrated siblings are ranked together, by evidence', async () => {
+  // rs2-10 was in the keyed list but no signal nominated it; rsp-9 was not in
+  // the list (hydrated) but is the vector's runner-up. Evidence goes first.
+  const out = await run({ number: '10', denominator: '100' }, [
+    { cardId: 'rs1-10', similarity: 0.7 },
+    { cardId: 'rsp-9', similarity: 0.6 },
+  ]);
+  assert.deepEqual(out.matches.map((m) => m.cardId), ['rs1-10', 'rsp-9', 'rs2-10']);
+});
+
+test("the decisive-vector rescue's list is not keyed, so the guard still opens it", async () => {
+  // `20/102` keys Base Set Electabuzz, the hash (distance 3) contradicts it, and
+  // a decisive vector the printed name agrees with names Gust of Wind instead
+  // — in the Base Set 2 printing. The key ruled out nothing about THAT card.
+  const out = await resolveCard(
+    { name: 'Gust of Wind', number: '20', denominator: '102' },
+    [{ cardId: 'base4-120', distance: 3 }],
+    port,
+    {
+      phashConfidentMax: 9,
+      fusion: {
+        vectorMatches: [
+          { cardId: 'base4-120', similarity: 0.83 },
+          { cardId: 'sv02-050', similarity: 0.6 },
+        ],
+        modelId: MODEL,
+      },
+      artSiblings: siblings,
+    },
+  );
+  assert.equal(out.resolvedBy, 'corroborated');
+  assert.equal(out.keyedBy, undefined, 'letDecisiveVectorSpeak carries no keyed rung');
+  assert.equal(out.confident, false);
+  assert.equal(out.printingOpen, true);
+  assert.deepEqual(out.matches.slice(0, 2).map((m) => m.cardId), ['base4-120', 'base1-93']);
 });
 
 test('the shipped table knows the Base Set reprints the owner photographed', () => {
@@ -130,4 +252,11 @@ test('the shipped table knows the Base Set reprints the owner photographed', () 
   ];
   for (const [a, b] of pairs) assert.ok(artSiblings(a).includes(b), `${a} and ${b} share a picture`);
   assert.deepEqual(artSiblings('no-such-card'), []);
+});
+
+test("POST /scan's guard: a hash top-1 with a same-art reprint leaves the printing open", () => {
+  assert.equal(printingOpenFor('base1-93'), true);
+  assert.equal(printingOpenFor('2011bw-12'), true);
+  assert.equal(printingOpenFor('no-such-card'), false);
+  assert.equal(printingOpenFor(undefined), false, 'no top-1 is never open');
 });
