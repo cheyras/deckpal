@@ -165,7 +165,10 @@ describe('the feature flag', () => {
   it('a typo in the override is not an instruction', () => {
     // It falls through to the defaults rather than silently meaning "off".
     assert.equal(ocrEnabled({ dev: true, hostname: 'localhost', override: 'yes please' }), true)
-    assert.equal(ocrEnabled({ dev: false, hostname: 'deckpal.app', override: 'yes please' }), false)
+    // A host whose default is OFF stays off under a typo…
+    assert.equal(ocrEnabled({ dev: false, hostname: 'cards.example.com', override: 'yes please' }), false)
+    // …and one whose default is ON stays on: the typo changed nothing.
+    assert.equal(ocrEnabled({ dev: false, hostname: 'deckpal.app', override: 'nah' }), true)
   })
 
   it('names the storage key once, so the probe page and the app agree', () => {
