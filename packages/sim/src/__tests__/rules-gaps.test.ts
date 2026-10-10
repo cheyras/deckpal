@@ -1,6 +1,7 @@
 /**
  * Rule tests for gaps the card lanes reported: paying a Retreat Cost and counting attached Energy
- * in Energy UNITS (a card providing {C}{C}{C} pays and counts 3), with synthetic multi-unit Energy.
+ * in Energy UNITS (a card providing {C}{C}{C} pays and counts 3), with synthetic multi-unit Energy;
+ * the Tera rule against damage counters; the order of both players' between-turns effects.
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -10,7 +11,8 @@ import { evalExpr } from '../eval.js';
 import { Game } from '../game.js';
 import { scenario, type SideLayout } from '../scenario.js';
 import type { CardFrame, Decision } from '../types.js';
-import { DOG, FIGHTING, PSYCHIC, PUP, deck } from './fixtures.js';
+import { POISONED } from '../types.js';
+import { DOG, FIGHTING, PSYCHIC, PUP, deck, pokemon } from './fixtures.js';
 
 function special(id: string, name: string): CardFrame {
   return {
@@ -140,4 +142,66 @@ test('"for each Energy attached" counts units; type checks count every-type Ener
   const bv = (e: Expr) => evalExpr(b.envForInternals, b.state, { player: 0, slot: bsl.id, vars: {} }, e);
   assert.equal(bv({ energyOn: 'self' }), 2);
   assert.equal(bv({ energyOn: 'self', type: 'Darkness' }), 0);
+});
+
+// ---------------------------------------------------------------- Tera on the Bench; Checkup order
+
+const SNIPER = pokemon('t-s01', 'Sniper', { hp: 100, attacks: [['Snipe', 'Colorless', null], ['Spray', 'Colorless', null]] });
+for (const a of SNIPER.attacks!) {
+  a.effect = a.name === 'Snipe' ? "This attack does 50 damage to 1 of your opponent's Pokémon." : "Put 3 damage counters on 1 of your opponent's Benched Pokémon.";
+}
+const TERA = pokemon('t-s02', 'Tera Pup ex', { hp: 200, suffix: 'ex' });
+const MEDIC = pokemon('t-s03', 'Medic', { hp: 60 });
+MEDIC.abilities = [{ kind: 'Ability', name: 'Field Care', effect: 'During Pokémon Checkup, heal 20 damage from your Active Pokémon.' }];
+const SCRIPTS2: CardScript[] = [
+  {
+    id: 't-s01',
+    name: 'Sniper',
+    attacks: {
+      Snipe: { program: [{ op: 'chooseSlots', from: 'oppPokemon', min: 1, max: 1, as: 't' }, { op: 'damage', amount: 50, to: { v: 't' } }] },
+      Spray: { program: [{ op: 'chooseSlots', from: 'oppBench', min: 1, max: 1, as: 't' }, { op: 'counters', n: 3, to: { v: 't' } }] },
+    },
+  },
+  { id: 't-s02', name: 'Tera Pup ex', fix: { tera: true } },
+  { id: 't-s03', name: 'Medic', abilities: [{ name: 'Field Care', triggers: [{ on: 'checkup', program: [{ op: 'heal', amount: 20, to: 'myActive' }] }] }] },
+];
+const C = deck('C', [
+  [SNIPER, 8],
+  [TERA, 8],
+  [MEDIC, 8],
+  [PUP, 12],
+  [FIGHTING, 24],
+]);
+function at2(sides: [SideLayout, SideLayout]): Game {
+  return scenario(C, C, sides, { scripts: SCRIPTS2 });
+}
+
+test('Tera rule: a Benched Tera Pokémon takes no damage from attacks, but damage counters from attacks are placed', () => {
+  const sides: [SideLayout, SideLayout] = [{ active: 'Sniper', energy: { active: ['Fighting Energy'] } }, { active: 'Pup', bench: ['Tera Pup ex'] }];
+  const dmg = at2(sides);
+  choose(dmg, 'Attack: Snipe');
+  choose(dmg, 'Tera Pup ex');
+  assert.equal(dmg.state.p[1].bench[0]!.damage, 0, 'attack damage to a Benched Tera Pokémon is prevented');
+  const ctr = at2(sides);
+  choose(ctr, 'Attack: Spray');
+  assert.equal(ctr.state.p[1].bench[0]!.damage, 30, 'damage counters are not damage: placed on the Benched Tera Pokémon');
+  // In the Active Spot the Tera rule gives no protection.
+  const act = at2([{ active: 'Sniper', energy: { active: ['Fighting Energy'] } }, { active: 'Tera Pup ex', bench: ['Pup'] }]);
+  choose(act, 'Attack: Snipe');
+  choose(act, 'Tera Pup ex');
+  assert.equal(act.state.p[1].active!.damage, 50);
+});
+
+test("p.15 between turns: both players' Special Conditions, then Checkup Abilities, then Knock Outs", () => {
+  // Both Actives Poisoned at 10 HP left. Poison brings both to 0; Field Care then heals P1's Active 20 before
+  // Knock Outs are checked, so only P2's Pup is Knocked Out.
+  const g = at2([
+    { active: 'Pup', bench: ['Medic'], damage: { active: 60 }, cond: POISONED },
+    { active: 'Pup', bench: ['Pup'], damage: { active: 60 }, cond: POISONED },
+  ]);
+  choose(g, 'End turn');
+  assert.equal(g.state.p[0].active!.damage, 50, 'Poison 10, then Field Care heals 20, before the Knock Out check');
+  assert.equal(g.state.p[0].prizesTaken, 1, "P2's Poisoned Pup is Knocked Out in the same Checkup");
+  assert.equal(g.state.p[1].prizesTaken, 0);
+  assert.equal(g.state.current, 1, 'the next turn is P2');
 });
