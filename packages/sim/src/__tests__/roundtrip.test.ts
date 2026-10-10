@@ -205,6 +205,7 @@ test('every static effect, scope and trigger renders', () => {
     loseSelfKoAbilities: { k: 'loseSelfKoAbilities' },
     cantUseAttack: { k: 'cantUseAttack', attack: 'Mega Brave' },
     noToolEffects: { k: 'noToolEffects' },
+    surviveKoAtFullHp: { k: 'surviveKoAtFullHp' }, // lane:zoroark
   };
   const SCOPES: Scope[] = ['self', 'myActive', 'myBench', 'myPokemon', 'oppActive', 'oppBench', 'oppPokemon', 'allPokemon', 'me', 'opp', 'both'];
   for (const [k, effect] of Object.entries(EFFECTS)) {

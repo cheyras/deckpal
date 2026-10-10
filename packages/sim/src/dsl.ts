@@ -167,7 +167,12 @@ export type StaticEffect =
   /** The affected Pokémon can't use this one attack ("this Pokémon can't use Mega Brave"). */ // lane:fighting
   | { k: 'cantUseAttack'; attack: string } // lane:fighting
   /** From a Stadium: Pokémon Tools attached to every Pokémon have no effect (Jamming Tower). */ // lane:fighting
-  | { k: 'noToolEffects' }; // lane:fighting
+  | { k: 'noToolEffects' } // lane:fighting
+  /**
+   * lane:zoroark — Survival Brace: if the affected Pokémon has full HP (no damage) and damage from an
+   * opponent's attack would Knock it Out, it is left with 10 HP instead; a Tool source is then discarded.
+   */
+  | { k: 'surviveKoAtFullHp' }; // lane:zoroark
 
 /** Parts of the damage pipeline an attack's damage skips ("isn't affected by Weakness or Resistance"). */ // lane:fighting
 export interface DamageIgnore {
