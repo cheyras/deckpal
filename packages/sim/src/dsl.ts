@@ -148,7 +148,13 @@ export type StaticEffect =
   /** The affected player can't play Item cards. */
   | { k: 'itemLock' }
   /** Damage counters on Pokémon can't be moved (Watchful Eye). */
-  | { k: 'countersFixed' };
+  | { k: 'countersFixed' }
+  // lane:misc — Togekiss, Wonder Kiss: "When your opponent's Active Pokémon is Knocked Out, (flip a coin. If heads,)
+  // take 1 more Prize card." Player-level (scope 'me'); never stacks.
+  | { k: 'extraPrize'; flip?: boolean }
+  // lane:misc — Psyduck, Damp: the affected Pokémon lose any Ability that Knocks Out the Pokémon using it
+  // (AbilityScript.selfKo, else detected from the printed text "this Pokémon is Knocked Out").
+  | { k: 'loseSelfKoAbilities' };
 
 /** Which Pokémon a static effect applies to, relative to its source's controller. */
 export type Scope =
@@ -284,7 +290,13 @@ export type TriggerOn =
   /** This Pokémon (or, for a Tool, the Pokémon it is attached to) was damaged by an opponent's attack while Active. */
   | 'damagedByAttackActive'
   /** This Pokémon was Knocked Out by damage from an opponent's attack. */
-  | 'knockedOutByAttack';
+  | 'knockedOutByAttack'
+  /** lane:misc — "During Pokémon Checkup": fires for every Pokémon in play (Abilities, Tools, Energy) at each Checkup. */
+  | 'checkup'
+  /** lane:misc — "At the end of your turn": the current player's Pokémon (Abilities, Tools, attached Energy), after any attack, before Checkup. */
+  | 'endOfTurn'
+  /** lane:misc — Stadium: a Pokémon was put onto its owner's Bench during that player's turn (frame slot = that Pokémon). */
+  | 'pokemonBenched';
 
 export interface TriggerScript {
   on: TriggerOn;
@@ -297,6 +309,8 @@ export interface TriggerScript {
 
 export interface AbilityScript {
   name: string;
+  /** lane:misc — the Ability Knocks Out the Pokémon using it (Damp). Default: detected from the printed text. */
+  selfKo?: boolean;
   /** Activated ("Once during your turn, you may...") */
   activated?: {
     program: Program;
@@ -339,10 +353,18 @@ export interface CardScript {
   stadiumAbility?: { program: Program; when?: Cond };
   /** Energy: the Energy it provides while attached (default: a Basic Energy's own type). */
   provides?: PType[];
+  /** lane:misc — Energy: provides this instead while the Pokémon it is attached to matches (Ignition Energy on an Evolution Pokémon). */
+  providesIf?: { filter: Filter; provides: PType[] };
   /** Energy: when discarded by an effect of the attached Pokémon's own attack, reattach it after attacking (Boomerang Energy). */
   reattachAfterOwnAttack?: boolean;
   /** Data corrections where the catalog is wrong (e.g. TCGdex marks some Special Energy "Normal"). */
-  fix?: { specialEnergy?: boolean; aceSpec?: boolean; tera?: boolean };
+  fix?: {
+    specialEnergy?: boolean;
+    aceSpec?: boolean;
+    tera?: boolean;
+    /** lane:misc — the catalog lists no "evolves from" for this Stage 1/2 card (TCGdex 30th-123 Hisuian Zoroark). */
+    evolvesFrom?: string;
+  };
   /** Free-text notes: rulings consulted, open questions. */
   notes?: string;
   /** Ruling status of the definition. */

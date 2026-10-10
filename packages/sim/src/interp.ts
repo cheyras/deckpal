@@ -247,9 +247,10 @@ export function queueTriggers(
   s: GameState,
   slot: Slot,
   owner: Player,
-  on: 'damagedByAttackActive' | 'knockedOutByAttack' | 'playToBench' | 'evolveFromHand',
+  // lane:misc — 'checkup' and 'endOfTurn' added; attached Energy are trigger sources too (Ignition Energy).
+  on: 'damagedByAttackActive' | 'knockedOutByAttack' | 'playToBench' | 'evolveFromHand' | 'checkup' | 'endOfTurn',
 ): void {
-  const sources = [topCard(slot), ...slot.tools];
+  const sources = [topCard(slot), ...slot.tools, ...slot.energy];
   const noAb = hasNoAbilities(env, s, slot);
   for (const c of sources) {
     const d = def(env.ctx, c);
@@ -265,12 +266,29 @@ export function queueTriggers(
         player: owner,
         src: c,
         slot: slot.id,
-        kind: isPokemon ? 'ability' : 'tool',
+        kind: isPokemon ? 'ability' : slot.tools.includes(c) ? 'tool' : 'energy',
       };
       if (t.t.when && !evalCond(env, s, ec(frame), t.t.when)) continue;
       if (t.t.optional) frame.vars.__optional = true;
       s.queued.push(frame);
     }
+  }
+}
+
+/**
+ * lane:misc — the Stadium in play reacts to a Pokémon put onto its owner's Bench during that
+ * player's turn (Risky Ruins). Called for Pokémon benched from hand and by effects (searches).
+ */
+export function queueStadiumBench(env: Env, s: GameState, slot: Slot, owner: Player): void {
+  if (!s.stadium || s.phase !== 'main' || s.current !== owner) return;
+  const d = def(env.ctx, s.stadium.card);
+  if (d.coverage !== 'full') return;
+  for (const t of d.triggers) {
+    if (t.t.on !== 'pokemonBenched') continue;
+    const frame: Frame = { code: t.code, pc: 0, vars: {}, player: owner, src: s.stadium.card, slot: slot.id, kind: 'stadium' };
+    if (t.t.when && !evalCond(env, s, ec(frame), t.t.when)) continue;
+    if (t.t.optional) frame.vars.__optional = true;
+    s.queued.push(frame);
   }
 }
 
@@ -296,6 +314,7 @@ function moveCards(env: Env, s: GameState, f: Frame, cards: number[], to: Dest, 
       const sl = newSlot(s, c);
       ops.bench.push(sl);
       emit(env, { type: 'play_to_bench', player: owner, card: c, slot: sl.id });
+      queueStadiumBench(env, s, sl, owner); // lane:misc
       moved.push(c);
       continue;
     }

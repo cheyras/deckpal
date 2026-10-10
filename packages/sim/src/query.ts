@@ -189,11 +189,19 @@ export function attackCost(env: Env, s: GameState, slot: Slot, idx: number, all 
 export function energyUnits(env: Env, slot: Slot): PType[] {
   const out: PType[] = [];
   for (const c of slot.energy) {
-    const p = def(env.ctx, c).provides;
+    const p = providesOn(env, slot, c);
     if (p.length) out.push(...p);
     else out.push('Colorless');
   }
   return out;
+}
+
+/** lane:misc — the Energy an attached card provides on this Pokémon (CardScript.providesIf, e.g. Ignition Energy). */
+export function providesOn(env: Env, slot: Slot, card: number): PType[] {
+  const d = def(env.ctx, card);
+  const alt = d.coverage === 'full' ? d.script?.providesIf : undefined;
+  if (alt && slotMatches(env, slot, alt.filter)) return alt.provides;
+  return d.provides;
 }
 
 /** Can these units pay this cost? Typed requirements first, Colorless from anything left. */
@@ -269,6 +277,24 @@ export function damageIn(env: Env, s: GameState, target: Slot, all = statics(env
 
 export function hasNoAbilities(env: Env, s: GameState, slot: Slot, all = statics(env, s)): boolean {
   return onSlot(env, s, all, slot, 'noAbilities').some((x) => x.slot !== slot.id);
+}
+
+/** lane:misc — Damp: "this Pokémon is Knocked Out" Abilities are lost while a loseSelfKoAbilities effect applies. */
+export const SELF_KO_TEXT = /this Pokémon is Knocked Out/i;
+export function abilityLost(
+  env: Env,
+  s: GameState,
+  slot: Slot,
+  ab: { text: string; script?: { selfKo?: boolean } },
+  all = statics(env, s),
+): boolean {
+  const selfKo = ab.script?.selfKo ?? SELF_KO_TEXT.test(ab.text);
+  return selfKo && onSlot(env, s, all, slot, 'loseSelfKoAbilities').length > 0;
+}
+
+/** lane:misc — Wonder Kiss: the extra-Prize effect that applies to a taker (at most one: it doesn't stack). */
+export function extraPrizeFor(_env: Env, _s: GameState, p: Player, all: LiveStatic[]): LiveStatic | undefined {
+  return all.find((x) => x.effect.k === 'extraPrize' && affectsPlayer(x, p));
 }
 
 export function cantAttack(env: Env, s: GameState, slot: Slot, all = statics(env, s)): boolean {

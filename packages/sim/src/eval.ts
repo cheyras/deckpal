@@ -189,7 +189,7 @@ export function evalCond(env: Env, s: GameState, ec: EvalCtx, c: Cond): boolean 
   }
   if ('koLastTurn' in c) {
     const p = side(ec, c.koLastTurn);
-    return s.p[p].lastKoTurn === s.turn - 1;
+    return s.p[p].lastKoTurn === s.turn - 1 || s.p[p].prevKoTurn === s.turn - 1; // lane:misc — prevKoTurn
   }
   if ('stadium' in c) {
     if (!s.stadium) return false;

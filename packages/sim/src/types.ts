@@ -156,6 +156,8 @@ export interface PlayerState {
   globalAbilitiesUsed: string[];
   /** Turn number of the most recent turn in which one of this player's Pokémon was Knocked Out. */
   lastKoTurn: number;
+  /** lane:misc — the KO turn before `lastKoTurn`, so a Knock Out on your own turn (Risky Ruins) doesn't hide one from the opponent's last turn. */
+  prevKoTurn?: number;
   // knowledge (for views and determinisation)
   /** The owner has looked through their deck since it was last shuffled into prizes → prizes are deducible. */
   prizesKnown: boolean;
