@@ -70,3 +70,21 @@ local dHash index against what production returned for the same field crops.
 - **Labels can be wrong.** Two were (2026-10-09, quad-check-a); rows carrying
   `relabelled: true` say why. When the scanner disagrees with a label with
   confidence, look at the crop before believing the label.
+
+## The auto-capture re-arm on the owner's sessions (`owner-rearm.ts`)
+
+A separate question from identification: on the owner's three recorded phone
+sessions, what does the look re-arm (`apps/web/src/scan/ui/rearm.ts`) do with
+the locks the duplicate policy refuses? It computes the shipping `cardLook` /
+`captureLook` off the recorded frames and capture crops, takes the refusals
+from the builds' own flags narrowed to the shipping region policy, and lets the
+shipping judge decide. Ground truth is the session-1 NCC measure plus
+`owner-rearm-labels.json`, labelled by eye from the sheets `--sheets` writes.
+
+```bash
+node --import tsx scripts/scan-bench/owner-rearm.ts --sheets --out <dir>
+```
+
+The frames live in the main checkout's untracked
+`roadmap/plans/card-scanner-redesign/p2-work` (override: `OWNER_SESSIONS`).
+The script's header has the method, its limits and the 2026-10-10 result.
