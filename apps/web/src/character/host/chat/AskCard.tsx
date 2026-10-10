@@ -43,8 +43,12 @@ export function AskCard({ questions, onSubmit, onSkip }: {
         {questions.map((question, index) => {
           const answer = answers[index] ?? { selected: [] }
           const inputId = `${baseId}-${index}-other`
+          const cueId = `${baseId}-${index}-cue`
           return (
-            <fieldset key={`${question.header}-${index}`} className="min-w-0">
+            // The group's DESCRIPTION says how many it takes, so its name stays
+            // the question. Multi-select shows it too: "Choose any" is the only
+            // thing that tells a sighted reader a second press adds, not swaps.
+            <fieldset key={index} className="min-w-0" aria-describedby={cueId}>
               <legend className="sr-only">{question.header}: {question.question}</legend>
               <div className="flex items-start gap-[9px]">
                 <span aria-hidden="true" className="decke-ask-header mt-[1px] shrink-0 rounded-full px-[8px] py-[2px] text-[10.5px] font-bold leading-[16px] uppercase tracking-[0.06em]">
@@ -54,12 +58,21 @@ export function AskCard({ questions, onSubmit, onSkip }: {
                   {question.question}
                 </p>
               </div>
+              {question.multi ? (
+                <p id={cueId} data-ask-cue="multi" className="mt-[4px] text-[11.5px] font-semibold leading-[16px] text-text-muted">
+                  Choose any
+                </p>
+              ) : (
+                <span id={cueId} className="sr-only">Choose one</span>
+              )}
               <div className="mt-[9px] flex flex-wrap gap-[7px]">
-                {question.options.map((option) => {
+                {question.options.map((option, optionAt) => {
                   const pressed = !otherOpen[index] && answer.selected.includes(option.label)
                   return (
                     <button
-                      key={option.label}
+                      // By POSITION: labels come from the model and may repeat,
+                      // and a repeated key makes React drop or reuse a button.
+                      key={optionAt}
                       type="button"
                       aria-pressed={pressed}
                       onClick={() => choose(index, option.label)}

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { answeringAsk, carriedFromHistory, decideTier } from '../tiers.js';
+import { answeringAsk, carriedFromHistory, continuationFloor, decideTier, quickRefusalRetry } from '../tiers.js';
 import type { Triage, TriageSignal } from '../triage.js';
 
 function triage(
@@ -103,6 +103,64 @@ test('ask-card answers carry a valid about pathway', () => {
     { role: 'user', parts: [] },
   ]), {});
   assert.equal(answeringAsk([{ role: 'assistant', parts: [] }, { role: 'user', parts: [] }]), null);
+});
+
+// ── S6: A PASTE ALWAYS BRINGS THE battle_log GUIDANCE ───────────────────────
+
+test('a pasted log adds battle_log beside the triage primary, at most two', () => {
+  const pasted = (t: Triage) => decideTier({ triage: t, carried: clear, deepApproved: false, pastedLog: true });
+  // Triage read "why did I lose?" as a review only; the @pasted rule lives in battle_log.
+  const review = pasted(triage('battle_review'));
+  assert.deepEqual(review.pathways, ['battle_review', 'battle_log']);
+  assert.equal(review.tier, 'standard', 'the review floor still holds');
+  assert.ok(review.reasons.includes('paste:battle_log'));
+  // A second triaged pathway gives way: battle_log plus the PRIMARY.
+  assert.deepEqual(pasted(triage('deck_iterate', { also: 'price_value' })).pathways, ['deck_iterate', 'battle_log']);
+  // `general` is not a primary worth keeping.
+  assert.deepEqual(pasted(triage('general')).pathways, ['battle_log']);
+  // Already there: unchanged, no duplicate, no reason.
+  const logged = pasted(triage('battle_log', { also: 'battle_review' }));
+  assert.deepEqual(logged.pathways, ['battle_log', 'battle_review']);
+  assert.ok(!logged.reasons.includes('paste:battle_log'));
+  // On Quick, effort follows the added pathway (small talk is low, logging medium).
+  const chat = pasted(triage('small_talk'));
+  assert.deepEqual([chat.tier, chat.effort, chat.pathways], ['quick', 'medium', ['small_talk', 'battle_log']]);
+  // Deep keeps it too.
+  assert.deepEqual(
+    decideTier({ triage: triage('general'), carried: clear, deepApproved: true, pastedLog: true }).pathways,
+    ['battle_log'],
+  );
+  // No paste, no change.
+  assert.deepEqual(decideTier({ triage: triage('battle_review'), carried: clear, deepApproved: false }).pathways, ['battle_review']);
+});
+
+test('a continuation with no usable echo is re-triaged but never below Standard', () => {
+  const quick = decideTier({ triage: triage('price_value'), carried: clear, deepApproved: false });
+  const floored = continuationFloor(quick);
+  assert.deepEqual([floored.tier, floored.effort], ['standard', 'medium']);
+  assert.deepEqual(floored.pathways, ['price_value'], 'the pathway is still the triage\'s');
+  assert.ok(floored.reasons.includes('continuation:no_echo'));
+  const standard = decideTier({ triage: triage('deck_build'), carried: clear, deepApproved: false });
+  assert.equal(continuationFloor(standard), standard, 'Standard is left exactly as decided');
+});
+
+test('a Quick refusal retries on Standard only when no data tool was invoked', () => {
+  const isDataTool = (name: string) => !['express', 'showScreen', 'ask_user', 'goTo'].includes(name);
+  const retry = (o: Partial<Parameters<typeof quickRefusalRetry>[0]>) => quickRefusalRetry({
+    tier: 'quick', finishReason: 'content-filter', steps: [], isDataTool, ...o,
+  });
+  // The progress line that killed the old "no text anywhere" condition is fine now.
+  assert.equal(retry({ steps: [{ toolCalls: [] }] }), true);
+  assert.equal(retry({ steps: [{ toolCalls: [{ toolName: 'express' }] }] }), true);
+  // A read (or a write held on its card) would be REPEATED by the retry.
+  assert.equal(retry({ steps: [{ toolCalls: [{ toolName: 'search_cards' }] }] }), false);
+  assert.equal(retry({ steps: [{ toolCalls: [{ toolName: 'log_cards' }] }] }), false);
+  // A call that failed its schema never ran.
+  assert.equal(retry({ steps: [{ toolCalls: [{ toolName: 'search_cards', invalid: true }] }] }), true);
+  // Only a refusal, and only on Quick.
+  assert.equal(retry({ finishReason: 'stop' }), false);
+  assert.equal(retry({ finishReason: 'tool-calls' }), false);
+  assert.equal(retry({ tier: 'standard' }), false);
 });
 
 test('every carried guard substring is pinned to the reader-facing server note', () => {

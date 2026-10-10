@@ -16,6 +16,8 @@ import { ROUTE_SHAPE_LINES } from '../prompt.js'
 import { createGrounding } from '../grounding.js'
 import type { Queryable } from '@deckpal/db'
 import { z } from 'zod'
+import { asSchema } from 'ai'
+import { RepairLog, clampStrings } from '../repair.js'
 
 /** `buildTools` only ever calls `write`; nothing here needs a real stream. */
 const noopWriter = { write: () => {} }
@@ -80,6 +82,55 @@ test('ask_user is a bounded strict server tool and returns the stop-turn result'
     status: 'shown',
     note: 'The questions are on screen. The reader will answer in their next message; end your turn now.',
   })
+})
+
+test('a near-miss ask is trimmed to its own schema, lands, and says what was cut', async () => {
+  // S1: the repair path `api/chat.mjs` runs for REPAIRABLE tools, against the
+  // REAL ask_user schema as the SDK hands it over (JSON Schema, via asSchema).
+  const repairs = new RepairLog()
+  const tools = buildTools(noopWriter, undefined, repairs) as unknown as Record<string, {
+    inputSchema: z.ZodTypeAny
+    execute: (input: unknown, options: { toolCallId: string }) => Promise<unknown>
+  }>
+  const ask = tools.ask_user!
+  const nearMiss = {
+    about: 'deck_build',
+    questions: [{
+      header: 'Deck format?', // 12 — fine
+      question: 'Which format should this deck be built for?',
+      options: [
+        { label: 'Standard, the current rotation for tournaments', description: 'x'.repeat(130) },
+        { label: 'Expanded' },
+      ],
+    }, {
+      header: 'Budget limit', // 12 — fine
+      question: 'q'.repeat(210),
+      options: [{ label: 'Under $50' }, { label: 'No limit' }],
+    }, {
+      header: 'Owned cards?!', // 13 — the measured failure shape
+      question: 'Only cards you own?',
+      options: [{ label: 'Yes' }, { label: 'No' }],
+    }],
+  }
+  assert.equal(ask.inputSchema.safeParse(nearMiss).success, false, 'premise: the raw call fails validation')
+
+  const schema = await asSchema(ask.inputSchema).jsonSchema
+  const { value, repairs: made } = clampStrings(nearMiss, schema as Parameters<typeof clampStrings>[1])
+  assert.deepEqual(made.map((r) => [r.path, r.now]).sort(), [
+    ['questions.0.options.0.description', 120],
+    ['questions.0.options.0.label', 40],
+    ['questions.1.question', 200],
+    ['questions.2.header', 12],
+  ])
+  const parsed = ask.inputSchema.safeParse(value)
+  assert.equal(parsed.success, true, 'the repaired ask must pass the schema it failed')
+
+  for (const r of made) repairs.note('ask-1', r)
+  const result = await ask.execute(parsed.data, { toolCallId: 'ask-1' }) as { status: string; trimmed?: string[] }
+  assert.equal(result.status, 'shown')
+  assert.equal(result.trimmed?.length, 4, 'every trim is reported to the model in the tool result')
+  assert.ok(result.trimmed!.some((line) => line.startsWith('questions.2.header was 13 characters')))
+  assert.equal(repairs.size, 0, 'the log is drained so the next call does not inherit it')
 })
 
 test('ask_to_share_chat draws one transient choice only when SQL allows it', async () => {

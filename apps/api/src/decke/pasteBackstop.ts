@@ -4,8 +4,8 @@
  * Production showed two pasted logs for which Deck-E performed reads (or
  * nothing) and never raised the `add_battle_log` consent card. This pure gate
  * runs only after an otherwise healthy first leg. It deliberately refuses to
- * compete with ANY held approval, a browser tool, another correction, or a
- * troubled turn; those paths already chose what happens next. A held approval
+ * compete with ANY held approval, a browser tool, another correction, a
+ * troubled turn, or an ask card; those paths already chose what happens next. A held approval
  * has no result yet, so starting another AI SDK leg would reject the replayed
  * prompt before the model could raise this card (measured 2026-10-10).
  */
@@ -17,6 +17,12 @@ export function pasteBackstopNeeded(o: {
   clientToolRan: boolean;
   correctiveChosen: boolean;
   turnTroubled: boolean;
+  /**
+   * The turn showed a valid `ask_user` card. Asking IS choosing what happens
+   * next: an approval card for a guessed log must not dock above the question
+   * — often "which deck was this?" — whose answer the log needs.
+   */
+  askedReader: boolean;
 }): boolean {
   return (
     o.pastedInLatestUserMessage &&
@@ -25,7 +31,8 @@ export function pasteBackstopNeeded(o: {
     !o.anyApprovalPending &&
     !o.clientToolRan &&
     !o.correctiveChosen &&
-    !o.turnTroubled
+    !o.turnTroubled &&
+    !o.askedReader
   );
 }
 

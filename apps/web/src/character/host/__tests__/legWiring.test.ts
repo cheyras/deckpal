@@ -75,12 +75,61 @@ test('recent turns replay complete bounded server results', () => {
 })
 
 test('a completed ask replays as the SDK tool part that keeps its question attached', () => {
+  // The wire SHAPE is unit-tested from a streamed input in
+  // `chat/__tests__/askState.test.ts`, and end to end against the real POST in
+  // tests/browser/askCard.mjs. These pin that the hook calls those helpers.
   const wire = HOOK.slice(HOOK.indexOf('function messagesToWire'))
   assert.match(
     wire,
-    /for \(const ask of m\.parts\)[\s\S]{0,240}ask\.kind === 'ask'[\s\S]{0,320}type: 'tool-ask_user'[\s\S]{0,200}toolCallId: ask\.toolCallId,[\s\S]{0,200}input: ask\.input,[\s\S]{0,200}output: ask\.output,/,
-    'a completed ask is not replayed as tool-ask_user with its input and output',
+    /for \(const ask of askWireParts\(m\.parts\)\) parts\.push\(ask\)/,
+    'a completed ask is not replayed as tool-ask_user',
   )
+  // On every turn — not only inside the recent-turn branch, where an ask-only
+  // reply compacted to an empty text part.
+  const replayed = wire.indexOf('askWireParts(m.parts)')
+  assert.ok(replayed > wire.indexOf('declineParts(chips,'), 'the ask replays only on recent turns')
+})
+
+test('an ask-only reply is kept on the wire (S3)', () => {
+  const wire = HOOK.slice(HOOK.indexOf('function messagesToWire'))
+  assert.match(
+    wire,
+    /const visible = msgs\.filter\(\(m\) => [^\n]*\|\| hasAsk\(m\.parts\)\)/,
+    'a reply that is only a question is filtered out, so its answers arrive with no question before them',
+  )
+})
+
+test('the ask is stored with its WHOLE input, about included (S2)', () => {
+  assert.match(
+    HOOK,
+    /const ask = askFromStream\(part\.toolCallId, approvalInputs\.get\(part\.toolCallId\), part\.output\)/,
+    'the stored ask is not built from the streamed input as-is',
+  )
+  assert.match(HOOK, /parts: \[\.\.\.message\.parts, \{ kind: 'ask' as const, id: nextId\(\), \.\.\.ask \}\]/)
+  assert.doesNotMatch(HOOK, /\{ questions: input\.questions/, 'the ask input is rebuilt as { questions } again, dropping about')
+})
+
+test("a continuation leg echoes this turn's route, and a new message never does", () => {
+  const leg = HOOK.slice(HOOK.indexOf('async function streamLeg'))
+  // Read off the stream, validated, handed up.
+  assert.match(
+    leg,
+    /part\.type === 'data-decke-route'\)[\s\S]{0,200}const route = readTierRoute\(part\.data\)\s*\n\s*if \(route\) handlers\.onRoute\(route\)/,
+    'the route part is not read, or not validated before it is kept',
+  )
+  // Sent under its own key: `route` is the page path the prompt reads.
+  assert.match(leg, /\.\.\.\(tierRoute \? \{ tierRoute \} : \{\}\)/, 'the echo is not in the POST body')
+  assert.match(leg, /route: window\.location\.pathname,/, 'the page path lost its key')
+  // Held per SEND, so a new reader message starts with none, and withheld from
+  // the first leg of a turn.
+  const send = HOOK.slice(HOOK.indexOf('const send = useCallback'), HOOK.indexOf('async function streamLeg'))
+  assert.match(send, /let tierRoute: TierRoute \| null = null/, 'the echo is not scoped to one turn')
+  assert.match(
+    send,
+    /streamLeg\(requestWire, evidence, exchangeConversation, exchangeId, exchangeSeq, leg === 0 \? null : tierRoute, ac\.signal, \{\s*\n\s*onRoute: \(route\) => \{ tierRoute = route \},/,
+    "the leg loop does not capture the route, or sends it on a turn's first leg",
+  )
+  assert.doesNotMatch(HOOK, /tierRouteRef|useRef<TierRoute/, 'a ref would outlive the turn it belongs to')
 })
 
 test('old compact turns still replay exact declines', () => {

@@ -27,16 +27,36 @@ const QUESTIONS = [
     ],
   },
 ]
+// The WHOLE tool input, as `ask_user` streams it. `about` is what the server's
+// `answeringAsk` reads off the replayed part to route the answer; the browser
+// used to keep only `questions`.
+const ASK_INPUT = { about: 'deck_build', questions: QUESTIONS }
 const ASK_OUTPUT = { shown: true }
 const SUBMITTED = 'Format — Standard\nPriorities — Speed, Sources'
 const SKIPPED = 'Skip those questions — go with your best judgment.'
+const ASKED = 'Deck-E asks: How much detail should I use? Plus 1 more question.'
+// What the server streams on a turn's first leg (`data-decke-route`).
+const ROUTE = { tier: 'standard', pathways: ['deck_build'], effort: 'medium' }
 
 const sse = (...chunks) =>
   chunks.map(chunk => 'data: ' + JSON.stringify(chunk) + '\n\n').join('') + 'data: [DONE]\n\n'
+const askChunks = id => [
+  { type: 'tool-input-available', toolCallId: id, toolName: 'ask_user', input: ASK_INPUT },
+  { type: 'tool-output-available', toolCallId: id, output: ASK_OUTPUT },
+]
 const askReply = () => sse(
   { type: 'text-delta', delta: 'I need two quick choices before I continue.' },
-  { type: 'tool-input-available', toolCallId: 'ask-browser', toolName: 'ask_user', input: { questions: QUESTIONS } },
-  { type: 'tool-output-available', toolCallId: 'ask-browser', output: ASK_OUTPUT },
+  ...askChunks('ask-browser'),
+)
+// A reply that is ONLY the question: no words, no tool row. It used to be
+// dropped from the next request's history, so the answers arrived bare.
+const askOnlyReply = () => sse({ type: 'data-decke-route', data: ROUTE }, ...askChunks('ask-only'))
+// A first leg that routes and then hands the browser a tool to run, so the turn
+// continues on a second leg that must echo the route.
+const routedLegReply = () => sse(
+  { type: 'data-decke-route', data: ROUTE },
+  { type: 'text-delta', delta: 'Let me get into view first.' },
+  { type: 'tool-input-available', toolCallId: 'scroll-1', toolName: 'scrollToMe', input: {} },
 )
 const answerReply = () => sse({ type: 'text-delta', delta: 'Thanks — I can continue now.' })
 
@@ -88,25 +108,45 @@ const textOfLastUser = body => {
   return user?.parts.find(part => part.type === 'text')?.text
 }
 
-function assertAskWire(body, expectedText) {
+function assertAskWire(body, expectedText, { askOnly = false } = {}) {
   assert.equal(textOfLastUser(body), expectedText)
   const usersWithAnswer = body.messages.filter(message => message.role === 'user')
     .flatMap(message => message.parts)
     .filter(part => part.type === 'text' && part.text === expectedText)
   assert.equal(usersWithAnswer.length, 1, 'the answer must be sent as exactly one user message')
   const lastUserAt = body.messages.findLastIndex(message => message.role === 'user')
-  const previous = body.messages.slice(0, lastUserAt).findLast(message => message.role === 'assistant')
-  assert.ok(previous, 'the answer request has no preceding assistant message')
+  // IMMEDIATELY before the answer: an ask-only reply that was dropped from the
+  // wire would leave an earlier assistant message (or none) in its place.
+  const previous = body.messages[lastUserAt - 1]
+  assert.equal(previous?.role, 'assistant', 'the answer is not preceded by the reply that asked')
   const ask = previous.parts.at(-1)
   assert.equal(ask?.type, 'tool-ask_user', 'the assistant message does not end in the ask_user tool part')
   assert.equal(ask?.state, 'output-available')
-  assert.deepEqual(ask?.input, { questions: QUESTIONS })
+  assert.deepEqual(ask?.input, ASK_INPUT, 'the replayed ask lost part of its input (about?)')
+  assert.equal(ask?.input?.about, 'deck_build')
   assert.deepEqual(ask?.output, ASK_OUTPUT)
+  if (askOnly) {
+    assert.deepEqual(previous.parts.map(part => part.type), ['tool-ask_user'],
+      'an ask-only reply should replay as exactly its ask, with no empty text part')
+  }
+  // A new reader message is routed fresh: the echo belongs to one turn's legs.
+  assert.equal('tierRoute' in body, false, 'a new reader message carried the previous turn\'s route')
 }
 
 async function waitForPosts(page, bodies, count) {
-  for (let i = 0; i < 100 && bodies.length < count; i += 1) await page.waitForTimeout(20)
+  for (let i = 0; i < 250 && bodies.length < count; i += 1) await page.waitForTimeout(20)
   assert.equal(bodies.length, count)
+}
+
+/** The live region that speaks the turn boundary has said exactly `text`. */
+async function waitForAnnouncement(page, text) {
+  await page.waitForFunction(expected => [...document.querySelectorAll('[role="status"][aria-live="polite"]')]
+    .some(node => node.textContent === expected), text, { timeout: 5000 })
+    .catch(async () => {
+      const said = await page.evaluate(() => [...document.querySelectorAll('[role="status"][aria-live="polite"]')]
+        .map(node => node.textContent))
+      assert.fail(`the docked ask was not announced as ${JSON.stringify(text)}; live regions said ${JSON.stringify(said)}`)
+    })
 }
 
 export async function checkAskCard(browser, server, out) {
@@ -114,6 +154,8 @@ export async function checkAskCard(browser, server, out) {
   for (const width of [1440, 390]) {
     const { context, page } = await contextFor(browser, server, width)
     const bodies = []
+    // One reply per POST, in order; anything past the script is a plain answer.
+    const replies = []
     await page.route('**/decke/history', route => route.fulfill({
       status: 200, contentType: 'application/json', body: '{"ok":true,"recorded":false}',
     }))
@@ -124,13 +166,14 @@ export async function checkAskCard(browser, server, out) {
         status: 200,
         contentType: 'text/event-stream',
         headers: { 'x-decke-credits': '2', 'cache-control': 'no-cache' },
-        body: bodies.length % 2 === 1 ? askReply() : answerReply(),
+        body: (replies.shift() ?? answerReply)(),
       })
     })
     try {
       await page.goto(server.origin + '/fixture.html?ask', { waitUntil: 'networkidle' })
       const panel = page.getByRole('dialog', { name: 'Chat with Deck-E' })
       await panel.waitFor({ state: 'visible' })
+      replies.push(askReply)
       await page.evaluate(() => window.askChat.send('Help me choose the response shape.'))
       await waitForPosts(page, bodies, 1)
       await page.waitForFunction(() => window.askChat.busy === false)
@@ -139,8 +182,18 @@ export async function checkAskCard(browser, server, out) {
       await card.waitFor()
       assert.equal(await card.locator('form[aria-label="A few questions from Deck-E"]').count(), 1,
         'the docked ask surface is not the labelled AskCard form')
+      // Words AND a card: both are said, the question read rather than focused.
+      await waitForAnnouncement(page, 'Deck-E replied. ' + ASKED)
       const format = card.getByRole('group', { name: 'Format: How much detail should I use?' })
       const priorities = card.getByRole('group', { name: 'Priorities: What should I optimize for?' })
+      // Multi-select says so where it can be seen, and describes its group with it.
+      const cue = priorities.getByText('Choose any', { exact: true })
+      assert.ok(await cue.isVisible(), 'the multi-select question has no visible "Choose any" cue')
+      assert.equal(await format.getByText('Choose any', { exact: true }).count(), 0, 'a single-choice question says "Choose any"')
+      const describedAs = group => group.evaluate(element => (element.getAttribute('aria-describedby') ?? '')
+        .split(/\s+/).map(id => document.getElementById(id)?.textContent ?? '').join(' ').trim())
+      assert.equal(await describedAs(priorities), 'Choose any')
+      assert.equal(await describedAs(format), 'Choose one')
       const optionButtons = [
         format.getByRole('button', { name: /^Quick/ }),
         format.getByRole('button', { name: /^Standard/ }),
@@ -183,6 +236,7 @@ export async function checkAskCard(browser, server, out) {
 
       await page.goto(server.origin + '/fixture.html?ask', { waitUntil: 'networkidle' })
       await panel.waitFor({ state: 'visible' })
+      replies.push(askReply)
       await page.evaluate(() => window.askChat.send('Ask me again so I can skip.'))
       await waitForPosts(page, bodies, 3)
       await page.waitForFunction(() => window.askChat.busy === false)
@@ -191,8 +245,52 @@ export async function checkAskCard(browser, server, out) {
       await card.waitFor({ state: 'detached' })
       await waitForPosts(page, bodies, 4)
       assertAskWire(bodies[3], SKIPPED)
+      await page.waitForFunction(() => window.askChat.busy === false)
 
-      results.push({ case: 'ask-card', width, docked: true, selection: true, submitWire: true, skipWire: true })
+      // ── AN ASK-ONLY REPLY ──────────────────────────────────────────────────
+      // No words before the question and no tool row, so nothing but the ask
+      // keeps it on the wire. It still docks, still speaks, and the answer's
+      // request still carries the ask — `about` and all — right before it.
+      await page.goto(server.origin + '/fixture.html?ask', { waitUntil: 'networkidle' })
+      await panel.waitFor({ state: 'visible' })
+      replies.push(askOnlyReply)
+      await page.evaluate(() => window.askChat.send('Build me a deck.'))
+      await waitForPosts(page, bodies, 5)
+      await page.waitForFunction(() => window.askChat.busy === false)
+      await card.waitFor()
+      await waitForAnnouncement(page, ASKED)
+      await card.getByRole('group', { name: 'Format: How much detail should I use?' })
+        .getByRole('button', { name: /^Standard/ }).click()
+      const askOnlyPriorities = card.getByRole('group', { name: 'Priorities: What should I optimize for?' })
+      await askOnlyPriorities.getByRole('button', { name: /^Speed/ }).click()
+      await askOnlyPriorities.getByRole('button', { name: /^Sources/ }).click()
+      await card.getByRole('button', { name: 'Submit' }).click()
+      await card.waitFor({ state: 'detached' })
+      await waitForPosts(page, bodies, 6)
+      assertAskWire(bodies[5], SUBMITTED, { askOnly: true })
+      await page.waitForFunction(() => window.askChat.busy === false)
+
+      // ── THE ROUTE ECHO ─────────────────────────────────────────────────────
+      // The first leg streams its route and hands the browser a tool; the
+      // continuation leg of the SAME turn sends the route back as `tierRoute`
+      // (with `route` still the page path), and the next reader message does not.
+      replies.push(routedLegReply)
+      await page.evaluate(() => window.askChat.send('Come over here.'))
+      await waitForPosts(page, bodies, 8)
+      await page.waitForFunction(() => window.askChat.busy === false)
+      const [firstLeg, continuation] = [bodies[6], bodies[7]]
+      assert.equal('tierRoute' in firstLeg, false, 'a first leg sent a route it had not been given yet')
+      assert.deepEqual(continuation.tierRoute, ROUTE, 'the continuation leg did not echo the route')
+      assert.equal(continuation.route, firstLeg.route, 'the echo displaced the page path')
+      assert.equal(typeof continuation.route, 'string')
+      assert.equal(continuation.exchangeId, firstLeg.exchangeId, 'the continuation is not the same turn')
+      await page.evaluate(() => window.askChat.send('Thanks.'))
+      await waitForPosts(page, bodies, 9)
+      await page.waitForFunction(() => window.askChat.busy === false)
+      assert.equal('tierRoute' in bodies[8], false, 'a new reader message carried the previous turn\'s route')
+
+      results.push({ case: 'ask-card', width, docked: true, selection: true, submitWire: true, skipWire: true,
+        askOnlyWire: true, announced: true, multiCue: true, routeEcho: true })
     } finally {
       await context.close()
     }

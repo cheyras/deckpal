@@ -56,3 +56,37 @@ export function spokeAndSettled(
   const settled = lastCalls.length > 0 && lastCalls.every((call) => COSMETIC_TOOLS.has(call.toolName));
   return spoke && settled;
 }
+
+type AskStep = {
+  toolCalls?: ReadonlyArray<{ toolName: string; invalid?: boolean }> | null;
+};
+
+/**
+ * Whether a step put an `ask_user` card on screen: a call that PASSED its
+ * schema.
+ *
+ * Not `hasToolCall('ask_user')`. In ai@7 a call that failed validation still
+ * sits in `step.toolCalls`, marked `invalid: true` (`parse-tool-call.ts`), and
+ * the SDK's helper counts it. A 13-character header therefore ended the turn
+ * on an error row with no card and no words, when the loop would otherwise
+ * have shown the model its validation error and let it ask again.
+ */
+function askedIn(step: AskStep | undefined): boolean {
+  return (step?.toolCalls ?? []).some((call) => call.toolName === 'ask_user' && call.invalid !== true);
+}
+
+/** Stop condition: the LAST step showed the reader a valid ask card. */
+export function askedThisStep(steps: ReadonlyArray<AskStep>): boolean {
+  return askedIn(steps.at(-1));
+}
+
+/**
+ * Whether ANY step of this request showed a valid ask card.
+ *
+ * A turn that asked has chosen what happens next — the reader's answer. Nothing
+ * after-turn (the audit's corrective leg, the pasted-log backstop) may dock a
+ * second card above the question it is waiting on.
+ */
+export function askedThisTurn(steps: ReadonlyArray<AskStep>): boolean {
+  return steps.some(askedIn);
+}

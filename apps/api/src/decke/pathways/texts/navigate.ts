@@ -1,4 +1,4 @@
-import { ROUTE_SHAPE_LINES } from '../../prompt.js'
+import { ADDRESSING_LINES, ROUTE_SHAPE_LINES } from '../../prompt.js'
 
 /**
  * The detailed navigation playbook is request-scoped because most conversations
@@ -45,9 +45,7 @@ Build URLs from retrieved data. A set page needs both series slug and set id, an
 
 These selectors can be constructed from returned ids:
 
-- \`[data-decke-nav="<route>"]\` — a sidebar row. \`/lists\`, \`/decks\`, \`/pokedex\` and \`/insights\` each have one.
-- \`[data-decke-series="<seriesSlug>"]\` — a series card on \`/series\`.
-- \`[data-decke-set="<setId>"]\` — a set row on \`/series/<seriesSlug>\`.
+${ADDRESSING_LINES.map((line) => `- ${line}`).join('\n')}
 
 There is no \`[data-decke-nav="/series"]\`: reach that page with \`goTo\`. Anything else may be named only by copying it verbatim from the current-page landmark list, with one exception: a card tile on a set page is \`[data-decke-card="<cardId>"]\`, using the full id and double quotes. The virtualized grid will scroll that tile into view.
 

@@ -62,7 +62,7 @@ import { submitImprovementConsent } from './chat/improvementConsent'
 import { FeedbackCard, ReplyFeedback } from './chat/Feedback'
 import type { FeedbackVote } from './chat/feedbackState'
 import { AskCard } from './chat/AskCard'
-import { formatAnswers, pendingAsk, SKIP_TEXT } from './chat/askState'
+import { askAnnouncement, formatAnswers, pendingAsk, SKIP_TEXT, type AskPart } from './chat/askState'
 import {
   creditHeaderLabel,
   creditState,
@@ -946,14 +946,8 @@ export type ChatPart =
   | { kind: 'tool'; id: string; chip: ToolChip }
   | { kind: 'screen'; id: string; spec: ScreenSpec }
   | { kind: 'consent'; id: string }
-  | {
-      kind: 'ask'
-      id: string
-      toolCallId: string
-      state: 'output-available'
-      input: { questions: import('./chat/askState').AskQuestion[] }
-      output: unknown
-    }
+  /** A completed `ask_user` call, input kept whole — see `AskInput`. */
+  | AskPart
   /**
    * A refusal, and it is a PART KIND rather than a string for one reason.
    *
@@ -1785,12 +1779,19 @@ export function DeckeChat({
     }
     if (!announceArmedRef.current) return
     announceArmedRef.current = false
-    const text = replyAnnouncement(lastAssistant?.parts ?? [])
+    // AND THE CARD THAT DOCKED, if one did. `replyAnnouncement` counts words
+    // and panels only, so a reply that was nothing but a question ended in
+    // silence while the card waited below. Its first question is read, never
+    // moved to: focus stays where the reader left it (no keyboard springs open
+    // on a phone).
+    const text = [replyAnnouncement(lastAssistant?.parts ?? []), askAnnouncement(askQuestions)]
+      .filter(Boolean)
+      .join(' ')
     if (!text) return
     setAnnouncement('')
     window.clearTimeout(announceTimerRef.current)
     announceTimerRef.current = window.setTimeout(() => setAnnouncement(text), 80)
-  }, [busy, lastAssistant])
+  }, [busy, lastAssistant, askQuestions])
 
   /**
    * ── THE PANEL COVERS WHAT CAN BE SEEN ─────────────────────────────────────

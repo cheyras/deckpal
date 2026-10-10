@@ -270,8 +270,12 @@ export const ALLOWED_STATES: readonly string[] = MODEL_STATES.map((s) => s.state
  * It is called out in the prompt rather than left to be discovered because the
  * discovery costs a wait that can only time out, in the middle of a journey,
  * with the reader watching.
+ *
+ * Rendered by the navigate pathway (`pathways/texts/navigate.ts`), which
+ * imports this list rather than restating it, so the selectors he is told
+ * about and the templates `escortPlan.test.ts` pins cannot drift apart.
  */
-const ADDRESSING_LINES: readonly string[] = [
+export const ADDRESSING_LINES: readonly string[] = [
   // `/scan` is absent from this list on purpose (2026-09-07): its sidebar row
   // is drawn only for the owner now, so for anybody else the landmark simply
   // is not in the document and a journey aimed at it could only time out.

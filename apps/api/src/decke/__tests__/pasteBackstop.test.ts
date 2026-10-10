@@ -14,6 +14,7 @@ const eligible = {
   clientToolRan: false,
   correctiveChosen: false,
   turnTroubled: false,
+  askedReader: false,
 };
 
 test('an untouched paste on a healthy first leg needs the backstop', () => {
@@ -28,6 +29,9 @@ const blockers: Array<[string, Partial<typeof eligible>]> = [
   ['client tool ran', { clientToolRan: true }],
   ['another correction won', { correctiveChosen: true }],
   ['turn was troubled', { turnTroubled: true }],
+  // S4: "which deck was this?" is on screen; a card for a guessed log must not
+  // dock above it.
+  ['the turn showed a valid ask card', { askedReader: true }],
 ];
 
 for (const [name, change] of blockers) {

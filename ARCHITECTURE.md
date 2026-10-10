@@ -1402,7 +1402,10 @@ request first gets a bounded Haiku 5.5 triage call; Haiku fills a typed rubric
 (pathway, signals, missing inputs and deep intent), and a deterministic heuristic
 fills it if triage times out, errors, refuses or returns an invalid call. Code in
 `tiers.ts`, not the classifier's confidence, then chooses the tier from pathway
-floors and carried guard state. This follows the measured design in
+floors and carried guard state, once per reader turn: the first HTTP leg streams
+its decision as a transient `data-decke-route` part and the browser echoes it as
+`tierRoute` on every continuation leg (`routeEcho.ts`), so an approval or a
+browser tool never re-routes a turn mid-way. This follows the measured design in
 [`roadmap/plans/decke-harness-v2/PLAN.md` §2](roadmap/plans/decke-harness-v2/PLAN.md):
 a small model is useful for classification/routing/extraction, while model
 self-grading is not a dependable escalation gate.

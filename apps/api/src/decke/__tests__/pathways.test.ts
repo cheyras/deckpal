@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { PATHWAY_NAMES, type PathwayName } from '../pathways/names.js'
 import { pathwayBlock, pathwayText } from '../pathways/index.js'
+import { ADDRESSING_LINES } from '../prompt.js'
 
 const flat = (value: string) => value.replace(/\s+/g, ' ')
 const SPECIFIC = PATHWAY_NAMES.filter((name) => name !== 'general')
@@ -84,6 +87,17 @@ test('navigation retains jump, escort, journey, route, and selector guidance', (
   assert.match(text, /use one hand-authored `journey`/)
   assert.match(text, /\/series\/<seriesSlug>\/<setId>/)
   assert.match(text, /There is no `\[data-decke-nav="\/series"\]`/)
+})
+
+test('the constructible selectors come from the one list in prompt.ts, not a hand copy', () => {
+  // `ADDRESSING_LINES` was dead code while navigate.ts restated it by hand;
+  // a change to one would silently not reach the other.
+  const text = pathwayText('navigate')
+  assert.ok(ADDRESSING_LINES.length >= 3)
+  for (const line of ADDRESSING_LINES) assert.ok(text.includes(`- ${line}\n`), `navigate lost: ${line}`)
+  const src = readFileSync(fileURLToPath(new URL('../pathways/texts/navigate.ts', import.meta.url)), 'utf8')
+  assert.match(src, /import \{ ADDRESSING_LINES, ROUTE_SHAPE_LINES \} from '\.\.\/\.\.\/prompt\.js'/)
+  assert.doesNotMatch(src, /^- \\`\[data-decke-series=/m, 'the hand-written copy came back')
 })
 
 test('all names are accepted by the block renderer without accidental text loss', () => {

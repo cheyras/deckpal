@@ -197,7 +197,7 @@ test('the same ledger narrows activeTools, so a spent tier leaves the model\'s v
 test('the model loop uses the post-lookup settling rule from the built module', () => {
   assert.match(
     SRC,
-    /import \{ spokeAndSettled \} from '\.\.\/apps\/api\/dist\/decke\/stopRule\.js'/,
+    /import \{ askedThisStep, askedThisTurn, spokeAndSettled \} from '\.\.\/apps\/api\/dist\/decke\/stopRule\.js'/,
     'the shared stop rule is no longer imported',
   );
   assert.match(CODE, /\(\{ steps \}\) => spokeAndSettled\(steps\)/);
@@ -238,6 +238,16 @@ test('a pending approval blocks every corrective model leg', () => {
   assert.match(CODE, /if \(fixable && !anyApprovalPending &&/);
   assert.match(CODE, /pasteBackstopNeeded\(\{[\s\S]*anyApprovalPending,/);
   assert.doesNotMatch(CODE, /content\.toolCallId/);
+});
+
+test('a valid ask card blocks the audit, its corrective leg and the paste backstop (S4)', () => {
+  // An approval for a guessed log must never dock above "which deck was this?".
+  assert.match(CODE, /const askedReader = askedThisTurn\(steps\)/);
+  assert.match(CODE, /const audit = calledToolNames\.some\(\(n\) => CLIENT_SET\.has\(n\)\) \|\| askedReader\s*\? null/);
+  assert.match(CODE, /if \(fixable && !anyApprovalPending && !askedReader && steps\.length \+ correctionSteps <= MAX_STEPS\)/);
+  assert.match(CODE, /pasteBackstopNeeded\(\{[\s\S]*turnTroubled,\s*askedReader,\s*\}\)/);
+  // Computed from THIS request's steps before either decision reads it.
+  assert.ok(CODE.indexOf('const askedReader = askedThisTurn(steps)') < CODE.indexOf('const audit = '));
 });
 
 test('an audit-chosen battle-log correction gets the three-step pasted-log recovery', () => {
@@ -282,7 +292,8 @@ test('the model is shown the window, and the prompt the bounded page context', (
 });
 
 test('the charge reference carries the exchange, so two new exchanges with the same window differ (Astra)', () => {
-  assert.match(CODE, /chatChargeReference\(conversationId, messages, route, landmarks, \{ exchangeId, seq \}\)/);
+  // And the validated route echo, which chooses the model the leg runs on.
+  assert.match(CODE, /chatChargeReference\(conversationId, messages, route, landmarks, \{ exchangeId, seq \}, tierRoute\)/);
 });
 
 test('dropped replies\' evidence reaches the two ledgers and never the model', () => {
@@ -324,12 +335,58 @@ test('the reflex read runs after the meter, from the built module, with the turn
 
 test('triage is metered beside reflex and code chooses the conversation tier', () => {
   assert.match(SRC, /import \{ runTriage \} from '\.\.\/apps\/api\/dist\/decke\/triage\.js'/);
-  assert.match(SRC, /import \{ answeringAsk, carriedFromHistory, decideTier \} from '\.\.\/apps\/api\/dist\/decke\/tiers\.js'/);
+  assert.match(SRC, /import \{ answeringAsk, carriedFromHistory, continuationFloor, decideTier, quickRefusalRetry \} from '\.\.\/apps\/api\/dist\/decke\/tiers\.js'/);
   assert.match(CODE, /runTriage\(\{[\s\S]*message: latestUserText\(messages\)[\s\S]*model: observeUsageModel\(gateway\(TRIAGE\.id\), meter\)/);
   assert.match(CODE, /answering: answeringAsk\(messages\)/);
-  assert.match(CODE, /const decision = decideTier\(\{ triage, carried: carriedFromHistory\(messages\), deepApproved: false \}\)/);
+  assert.match(CODE, /decision = decideTier\(\{ triage, carried: carriedFromHistory\(messages\), deepApproved: false, pastedLog: pastedNow \}\)/);
+  // Deep stays behind a signed reader choice that does not exist on this branch.
+  assert.doesNotMatch(CODE, /deepApproved: (?!false\b)/);
   assert.match(CODE, /const choice = TIERS\[decision\.tier\]/);
   assert.match(CODE, /console\.log\('\[deck-e\] route', JSON\.stringify\(\{/);
+});
+
+test('triage is advisory usage: its own operation key, and its failure never fails the request', () => {
+  assert.match(SRC, /runAdvisoryUsage/);
+  assert.match(CODE, /runAdvisoryUsage\(usage, 'triage', \(\) => runTriage\(\{/);
+  assert.doesNotMatch(CODE, /runAiUsage\(usage, \(\) => runTriage/);
+});
+
+test('a pasted log in the latest message reaches decideTier (S6), read from that message only', () => {
+  assert.match(CODE, /const pastedNow = extractPastedLog\(latestUserMessageForTriage \? \[latestUserMessageForTriage\] : \[\]\) !== null/);
+  assert.match(CODE, /pasted: pastedNow,/);
+  assert.match(CODE, /pastedLog: pastedNow/);
+});
+
+// ── ONE ROUTE PER TURN (S5) ─────────────────────────────────────────────────
+//
+// `routeEcho.ts` validates; these are the lines that make a continuation leg
+// run on the model and guidance its first leg chose.
+
+test('the echo is read from `tierRoute`, never from `route` (the page)', () => {
+  assert.match(SRC, /import \{ ROUTE_ECHO_PART, decisionFromEcho, readRouteEcho, routeEchoFor \} from '\.\.\/apps\/api\/dist\/decke\/routeEcho\.js'/);
+  assert.match(CODE, /const tierRoute = readRouteEcho\(body\?\.tierRoute\)/);
+  assert.doesNotMatch(CODE, /readRouteEcho\(body\?\.route\)/);
+  assert.match(CODE, /const route = boundedRoute\(body\?\.route\)/, 'the page pathname must stay `route`');
+});
+
+test('a first leg triages and writes the transient route part; a continuation reuses a valid echo', () => {
+  assert.match(CODE, /const firstLeg = turnToolNames\(messages\)\.length === 0/);
+  assert.match(CODE, /const echoed = firstLeg \? null : tierRoute/);
+  // Triage is SKIPPED, not merely overridden, when the echo is reused.
+  assert.match(CODE, /echoed \? null : runAdvisoryUsage\(usage, 'triage'/);
+  assert.match(CODE, /if \(echoed\) \{\s*decision = decisionFromEcho\(echoed\)/);
+  // No echo on a continuation: re-triage, never below Standard.
+  assert.match(CODE, /if \(!firstLeg\) decision = continuationFloor\(decision\)/);
+  // Only a first leg emits, through the same transient writer pattern as the
+  // other data-decke-* parts, before anything else on the stream.
+  assert.match(CODE, /const routeEcho = firstLeg \? routeEchoFor\(decision\) : null/);
+  assert.match(CODE, /writer\.write\(\{ type: ROUTE_ECHO_PART, data: routeEcho, transient: true \}\)/);
+  const execute = CODE.indexOf('execute: async ({ writer }) => runAiUsage(usage');
+  const write = CODE.indexOf('type: ROUTE_ECHO_PART');
+  assert.ok(execute > 0 && write > execute, 'the route part is written inside the stream');
+  assert.ok(write < CODE.indexOf('if (capReached) {'), 'the route part is the first thing written');
+  // The route log line says when the echo was reused.
+  assert.match(CODE, /triage: echoed \? 'echo' : triage\.source,/);
 });
 
 test('the selected pathway prompt is an instructions array with only stable regions cached', () => {
@@ -346,9 +403,17 @@ test('the selected pathway prompt is an instructions array with only stable regi
   assert.match(CODE, /messages: cacheConversation\(choice, messages\)/);
 });
 
-test('ask_user stops the loop and a textless Quick refusal retries once on Standard', () => {
-  assert.match(CODE, /hasToolCall\('ask_user'\)/);
-  assert.match(CODE, /quickFinish === 'content-filter'/);
+test('only a VALID ask_user stops the loop, and a Quick refusal before any data tool retries once on Standard', () => {
+  // S1: `hasToolCall` counts a call that failed its schema (`invalid: true`).
+  assert.match(CODE, /\(\{ steps \}\) => askedThisStep\(steps\)/);
+  assert.doesNotMatch(CODE, /hasToolCall\(/);
+  // A near-miss ask is trimmed, not failed — ask_user reports its trims.
+  assert.match(CODE, /const REPAIRABLE = new Set\(\['showScreen', 'ask_user'\]\)/);
+  // The refusal retry no longer waits for "no text anywhere".
+  assert.match(
+    CODE,
+    /if \(quickRefusalRetry\(\{\s*tier: decision\.tier,\s*finishReason: quickFinish,\s*steps: quickSteps,\s*isDataTool: \(name\) => !SERVER_SET\.has\(name\) && !CLIENT_SET\.has\(name\),\s*\}\)\) \{/,
+  );
   assert.match(CODE, /const retry = startConversation\(TIERS\.standard, 'medium'\)/);
 });
 
@@ -372,7 +437,7 @@ test('a read collection change forces the first step, and only the first step', 
 
 test('the audit reads the turn\'s whole tool record, and a handoff is never audited', () => {
   assert.match(SRC, /from '\.\.\/apps\/api\/dist\/decke\/audit\.js'/);
-  assert.match(CODE, /const audit = calledToolNames\.some\(\(n\) => CLIENT_SET\.has\(n\)\)\s*\? null\s*: await auditTurn\(\{/);
+  assert.match(CODE, /const audit = calledToolNames\.some\(\(n\) => CLIENT_SET\.has\(n\)\)( \|\| askedReader)?\s*\? null\s*: await auditTurn\(\{/);
   assert.match(
     CODE,
     /toolsRun: \[\.\.\.calledToolNames, \.\.\.guardEvents\.map\(\(e\) => e\.name\), \.\.\.turnToolNames\(messages\)\]/,
@@ -384,7 +449,7 @@ test('only a correctable phantom within the step budget gets a corrective leg; t
   assert.match(CODE, /const fixable = audit\?\.phantom \? CORRECTIVE_TOOLS\[audit\.phantom\] : undefined/);
   assert.match(
     CODE,
-    /if \(fixable && !anyApprovalPending && steps\.length \+ correctionSteps <= MAX_STEPS\) \{\s*corrective = fixable/,
+    /if \(fixable && !anyApprovalPending && !askedReader && steps\.length \+ correctionSteps <= MAX_STEPS\) \{\s*corrective = fixable/,
   );
   assert.match(CODE, /\} else if \(phantoms\.length > 0 \|\| audit\?\.phantom\) \{/);
 });

@@ -744,18 +744,20 @@ async function routedChoice({ runtime, gateway, mock, priorTurns, scenario, scen
     },
   })
   const started = performance.now()
+  const pasted = runtime.extractPastedLog([uiMessages.at(-1)]) !== null
   const triage = await runtime.runTriage({
     message: scenarioTurn.user,
     previousReply: String(priorTurns.at(-1)?.text ?? '').slice(-800),
     page: route,
-    pasted: runtime.extractPastedLog([uiMessages.at(-1)]) !== null,
+    pasted,
     answering: runtime.answeringAsk(uiMessages),
     model,
   })
   const triageMs = Math.round(performance.now() - started)
   budget.spent += triageUsage.cost_usd
   if (budget.spent > budget.limit + 1e-9) throw new Error(`Budget exceeded after a model call: $${budget.spent.toFixed(6)} > $${budget.limit.toFixed(6)}`)
-  const decision = runtime.decideTier({ triage, carried: runtime.carriedFromHistory(uiMessages), deepApproved: false })
+  // Mirrors api/chat.mjs: a paste in the latest message always brings battle_log.
+  const decision = runtime.decideTier({ triage, carried: runtime.carriedFromHistory(uiMessages), deepApproved: false, pastedLog: pasted })
   return { route, triage, triageMs, triageUsage, decision, choice: runtime.TIERS[decision.tier] }
 }
 

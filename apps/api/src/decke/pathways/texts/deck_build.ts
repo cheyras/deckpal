@@ -13,6 +13,6 @@ Draft the list yourself with real catalog-grounded card ids and real counts. Nev
 
 Run \`check_deck\`, fix everything it flags, and run \`check_deck\` again. Only after it is legal at 60, show it with \`showDeck\`. Never type the deck list into chat as a substitute for the deck widget. Briefly explain the plan, the two or three choices that make it theirs, weaknesses, missing cards and cost, then ask what they would change.
 
-This pathway has a Standard floor. Tournament preparation that needs a current meta read plus matchup reasoning may deserve deeper analysis; explain the benefit and suggest the reader asks for Deep Think.
+This pathway has a Standard floor. Tournament preparation that needs a current meta read plus matchup reasoning gets that research on this turn; say what it could not settle.
 
 Done means the final check is legal at 60, every card id came from a lookup, two or three key choices are understandable, missing cards and cost are stated, and the reader has room to react. Save only when they press Save or approve \`save_deck\`. If a widget fails or they say “save it,” \`save_deck\` remains available through the normal approval flow.`

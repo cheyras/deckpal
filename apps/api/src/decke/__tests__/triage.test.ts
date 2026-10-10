@@ -97,6 +97,42 @@ test('the deterministic heuristic covers its routing table', () => {
   }
 });
 
+test('the correction signal needs clear correction phrasing, not any "no" or "actually"', () => {
+  // `correction` raises a turn to Standard; the old pattern matched any "no "
+  // or "actually", which is most ordinary requests.
+  const corrects = (message: string) => heuristicTriage({ message, pasted: false }).signals.includes('correction');
+  for (const message of [
+    "That's wrong, it was Expanded",
+    'that is not right',
+    "that's not what I meant",
+    'No, I meant the Charizard ex from Obsidian Flames',
+    'actually I meant the other deck',
+    'Not what I asked for',
+    'You got it wrong',
+    "you're wrong about the rotation",
+    'I said Expanded, not Standard',
+    'No, not that one',
+    "Nope, it's not the Gardevoir deck",
+    'Correction: I went 3-1',
+    'that’s wrong', // curly apostrophe, as phones type it
+  ]) {
+    assert.equal(corrects(message), true, message);
+  }
+  for (const message of [
+    'Build me a deck with no ex',
+    "Actually, what's my Charizard worth?",
+    'actually can you show me my decks',
+    'no rush, whenever',
+    'No thanks',
+    'no',
+    'I have no idea what to play',
+    'Is there no Standard ban list yet?',
+    'I said hi',
+  ]) {
+    assert.equal(corrects(message), false, message);
+  }
+});
+
 test('heuristic triage preserves the ask-card pathway', () => {
   const result = heuristicTriage({
     message: '$50 and Standard',

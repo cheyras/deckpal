@@ -1070,10 +1070,19 @@ export function buildTools(
           multi: z.boolean().default(false),
         }).strict()).min(1).max(4),
       }).strict(),
-      execute: async () => ({
-        status: 'shown' as const,
-        note: 'The questions are on screen. The reader will answer in their next message; end your turn now.',
-      }),
+      // A near-miss ask (a 13-character header, a 41-character label) is
+      // trimmed by `repairToolCall` in `api/chat.mjs` rather than failing the
+      // card. Trimmed text is the model's own caption, not the reader's words,
+      // so it qualifies for that allowlist — on the condition, stated there,
+      // that the tool SAYS what was cut. This is where it says so.
+      execute: async (_input, options) => {
+        const trimmed = repairs?.take(options?.toolCallId ?? '') ?? []
+        return {
+          status: 'shown' as const,
+          note: 'The questions are on screen. The reader will answer in their next message; end your turn now.',
+          ...(trimmed.length ? { trimmed } : {}),
+        }
+      },
     }),
   }
 }

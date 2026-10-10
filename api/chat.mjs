@@ -40,7 +40,6 @@ import {
   convertToModelMessages,
   createUIMessageStream,
   createUIMessageStreamResponse,
-  hasToolCall,
   streamText,
   stepCountIs,
   toUIMessageStream,
@@ -135,10 +134,12 @@ const SERVER_SET = new Set(SERVER_TOOLS)
  * own result reports what was trimmed (`repairs.take(toolCallId)`). Both halves
  * are required: trimming a stored value is editing the reader's own words, and
  * trimming without reporting is the silent correction `decke/tools.ts` refuses
- * to make. `showScreen` draws a panel and says what it shortened; nothing else
- * qualifies today.
+ * to make. `showScreen` draws a panel and says what it shortened. `ask_user`
+ * draws a question card from the model's own captions (never the reader's
+ * words) and reports every trim in its `trimmed` result field, so a 13-character
+ * header lands as a 12-character one instead of failing the card.
  */
-const REPAIRABLE = new Set(['showScreen'])
+const REPAIRABLE = new Set(['showScreen', 'ask_user'])
 
 import { createGateway } from '@ai-sdk/gateway'
 
@@ -154,10 +155,11 @@ import { pathwayBlock } from '../apps/api/dist/decke/pathways/index.js'
 import { buildTools, CLIENT_TOOLS, SERVER_TOOLS } from '../apps/api/dist/decke/tools.js'
 import { TIERS, TRIAGE, budgetFor } from '../apps/api/dist/decke/models.js'
 import { runTriage } from '../apps/api/dist/decke/triage.js'
-import { answeringAsk, carriedFromHistory, decideTier } from '../apps/api/dist/decke/tiers.js'
+import { answeringAsk, carriedFromHistory, continuationFloor, decideTier, quickRefusalRetry } from '../apps/api/dist/decke/tiers.js'
+import { ROUTE_ECHO_PART, decisionFromEcho, readRouteEcho, routeEchoFor } from '../apps/api/dist/decke/routeEcho.js'
 import { creditWork } from '../apps/api/dist/credits/work.js'
 import { ensureAdminBootstrap } from '../apps/api/dist/admin/access.js'
-import { beginAiRequest, runAiUsage, observeUsageModel, finishAiRequest, meteredCapReached, safeUsageCode } from '../apps/api/dist/decke/usage.js'
+import { beginAiRequest, runAiUsage, runAdvisoryUsage, observeUsageModel, finishAiRequest, meteredCapReached, safeUsageCode } from '../apps/api/dist/decke/usage.js'
 import { assertDeckeAccess, beginMeteredCredits, readPolicy, reserveCredits, refundUnstarted, chatChargeReference, payloadHash } from '../apps/api/dist/credits/runtime.js'
 import { isMetered } from '../apps/api/dist/credits/policy.js'
 import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/decke/meter.js'
@@ -178,7 +180,7 @@ import { seedMeteredRefusals } from '../apps/api/dist/decke/meteredRefusals.js'
 import { createNarrationFilter, stripToolSyntax as stripToolSyntaxImpl } from '../apps/api/dist/decke/narration.js'
 import { autoShareAndRecordLeg } from '../apps/api/dist/decke/improvement.js'
 import { focusedTools } from '../apps/api/dist/decke/focus.js'
-import { spokeAndSettled } from '../apps/api/dist/decke/stopRule.js'
+import { askedThisStep, askedThisTurn, spokeAndSettled } from '../apps/api/dist/decke/stopRule.js'
 import { createGrounding } from '../apps/api/dist/decke/grounding.js'
 import { RepairLog, clampStrings } from '../apps/api/dist/decke/repair.js'
 import {
@@ -513,6 +515,12 @@ async function serve(request) {
   // conversation-wide ledgers below — failures and lookup records only, and
   // never shown to the model. See `boundedEvidence`.
   const evidence = boundedEvidence(body?.evidence)
+  // The first leg's model choice, echoed back by the browser on a continuation
+  // leg as `tierRoute` — never `route`, which is the page pathname above.
+  // Validated strictly (Quick or Standard only, never Deep) and null otherwise.
+  // Unsigned on purpose: it only picks which model the caller pays for. See
+  // `decke/routeEcho.ts`.
+  const tierRoute = readRouteEcho(body?.tierRoute)
 
   // ── AND WHAT THE METER ALREADY REFUSED IN THIS TURN ───────────────────────
   //
@@ -588,7 +596,7 @@ async function serve(request) {
   }
   try {
     quote = await readPolicy(chatPool(), user.id)
-    reference = chatChargeReference(conversationId, messages, route, landmarks, { exchangeId, seq })
+    reference = chatChargeReference(conversationId, messages, route, landmarks, { exchangeId, seq }, tierRoute)
     usage = await beginAiRequest(chatPool(), { userId: user.id, conversationId, exchangeId, seq, requestKey: reference.key, payloadHash: reference.hash, quote, messages, signal: request.signal })
     meter = await meterTurn(user.id, { tier: 'chat_turns', reason: 'chat_turn' })
   } catch (error) {
@@ -632,18 +640,35 @@ async function serve(request) {
   // above a threshold chosen on a labelled set. See `decke/jev.ts`.
   const gateway = createGateway({ apiKey: key })
   const latestUserMessageForTriage = messages.filter((message) => message?.role === 'user').at(-1)
+  const pastedNow = extractPastedLog(latestUserMessageForTriage ? [latestUserMessageForTriage] : []) !== null
+  // ── ONE ROUTE PER TURN, NOT PER HTTP LEG ──────────────────────────────────
+  //
+  // Every approval and every browser tool ends this request and the browser
+  // resumes the turn with a fresh POST. Triage on each of them re-read the same
+  // reader message beside a different previous reply, so a turn could start on
+  // Sonnet and finish on Haiku under another pathway. A FIRST leg has no tool
+  // part after the reader's latest message; it triages and writes its decision
+  // as a transient `data-decke-route` part. A CONTINUATION reuses the echo the
+  // browser sends back (`tierRoute`) and skips triage. With no valid echo it
+  // re-triages, floored at Standard (`continuationFloor` says why).
+  const firstLeg = turnToolNames(messages).length === 0
+  const echoed = firstLeg ? null : tierRoute
   const triageStarted = performance.now()
   let triageMs = 0
   // Both small front-door reads are paid work, so they run only after admission
   // and each travels through the request's usage observer. They are independent
   // and share no state, which makes serial latency pure waste.
+  //
+  // Triage is ADVISORY: recorded under its own `triage` operation key, and a
+  // provider error never marks the request failed — it falls back to the
+  // deterministic heuristic by design, and the reply it routes may succeed.
   const [reflex, triage] = await Promise.all([
     runAiUsage(usage, () => readReflex(messages, route, { key, signal: request.signal })),
-    runAiUsage(usage, () => runTriage({
+    echoed ? null : runAdvisoryUsage(usage, 'triage', () => runTriage({
       message: latestUserText(messages),
       previousReply: previousAssistantText(messages).slice(-800),
       page: route,
-      pasted: extractPastedLog(latestUserMessageForTriage ? [latestUserMessageForTriage] : []) !== null,
+      pasted: pastedNow,
       answering: answeringAsk(messages),
       model: observeUsageModel(gateway(TRIAGE.id), meter),
       signal: request.signal,
@@ -652,16 +677,27 @@ async function serve(request) {
       return value
     }),
   ])
-  // Deep Think approval will plug in here in its own phase. Until a signed
-  // reader choice exists, even a requested/beneficial deep analysis is Standard.
-  const decision = decideTier({ triage, carried: carriedFromHistory(messages), deepApproved: false })
+  // Deep Think approval will plug in here in its own phase, behind a signed
+  // reader choice; the echo can never carry it. Until then, even a
+  // requested/beneficial deep analysis is Standard.
+  let decision
+  if (echoed) {
+    decision = decisionFromEcho(echoed)
+  } else {
+    // `pastedLog`: a paste in the reader's latest message always brings the
+    // battle_log guidance, where the `@pasted` rule now lives.
+    decision = decideTier({ triage, carried: carriedFromHistory(messages), deepApproved: false, pastedLog: pastedNow })
+    if (!firstLeg) decision = continuationFloor(decision)
+  }
+  const routeEcho = firstLeg ? routeEchoFor(decision) : null
   const choice = TIERS[decision.tier]
   console.log('[deck-e] route', JSON.stringify({
     tier: decision.tier,
     pathways: decision.pathways,
     effort: decision.effort,
     reasons: decision.reasons,
-    triage: triage.source,
+    triage: echoed ? 'echo' : triage.source,
+    leg: firstLeg ? 'first' : 'continuation',
     triageMs,
   }))
   let capReached = await meteredCapReached(usage)
@@ -814,6 +850,21 @@ async function serve(request) {
       // whatever key happens to be in the environment. That is not a cosmetic
       // bug — this deployment has two keys with different billing, and the
       // failure mode is spending the wrong one while believing otherwise.
+      //
+      // ── THE ROUTE, FOR THE BROWSER TO ECHO ───────────────────────────────
+      //
+      // First leg only, first thing on the stream. TRANSIENT, like the chips:
+      // it is a fact about this turn, not conversation history the model
+      // should read back. The browser holds it and returns it as `tierRoute`
+      // on every continuation leg of the same turn. See `decke/routeEcho.ts`.
+      if (routeEcho) {
+        try {
+          writer.write({ type: ROUTE_ECHO_PART, data: routeEcho, transient: true })
+        } catch {
+          // A closed stream is the ordinary end of an aborted turn; the next
+          // leg simply re-triages at a Standard floor.
+        }
+      }
       if (capReached) {
         writer.write({ type: 'text-delta', id: 'metered-cap', delta: meteredCapText() })
         capLineWritten = true
@@ -1029,7 +1080,11 @@ async function serve(request) {
         // number does nothing at all for a journey.
         stopWhen: [
           stepCountIs(MAX_STEPS),
-          hasToolCall('ask_user'),
+          // A VALID ask card ends the turn: the reader's answer is the next
+          // message. Not `hasToolCall('ask_user')`, which in ai@7 also counts
+          // a call that FAILED its schema (`invalid: true`) and so ended the
+          // turn on an error row with no card and no words. See `stopRule.ts`.
+          ({ steps }) => askedThisStep(steps),
           ({ steps }) => spokeAndSettled(steps),
           // ── THE CIRCUIT BREAKER (c) ──────────────────────────────────────────
           //
@@ -1247,18 +1302,23 @@ async function serve(request) {
       )
 
       // Claude Haiku 5.5 has no server-side refusal fallback. A refusal is the
-      // SDK's unified `content-filter` finish reason; when Quick emitted no text
-      // at all, make one application-level Standard attempt and merge it into
-      // the same reader turn just like the corrective leg below.
+      // SDK's unified `content-filter` finish reason; when Quick refused before
+      // invoking any data tool, make one application-level Standard attempt and
+      // merge it into the same reader turn just like the corrective leg below.
+      // "No text anywhere" used to be the condition, and almost never held once
+      // the core prompt asked for a progress line first. The data-tool condition
+      // is there because the retry restarts from the reader's message: a retry
+      // after reads REPEATS them, and would re-raise a held write's card.
       const quickSteps = decision.tier === 'quick' ? await result.steps.catch(() => []) : []
       const quickFinish = decision.tier === 'quick'
         ? await result.finishReason.catch(() => undefined)
         : undefined
-      if (
-        decision.tier === 'quick' &&
-        quickFinish === 'content-filter' &&
-        !quickSteps.some((step) => (step.text ?? '').trim().length > 0)
-      ) {
+      if (quickRefusalRetry({
+        tier: decision.tier,
+        finishReason: quickFinish,
+        steps: quickSteps,
+        isDataTool: (name) => !SERVER_SET.has(name) && !CLIENT_SET.has(name),
+      })) {
         const retry = startConversation(TIERS.standard, 'medium')
         writer.merge(stripToolSyntax(toUIMessageStream({
           stream: retry.fullStream,
@@ -1440,6 +1500,13 @@ async function serve(request) {
           // the paste backstop hide the card the first leg already raised.
           const anyApprovalPending = steps.some((step) => (step.content ?? [])
             .some((content) => content.type === 'tool-approval-request'))
+          // A VALID ask card is the turn choosing what happens next: the
+          // reader's answer. Neither the audit's corrective leg nor the paste
+          // backstop may dock a card above the question — an approval for a
+          // guessed log above "which deck was this?" asks the reader to confirm
+          // the very thing they are being asked. The audit is skipped outright:
+          // a turn that ends on a question is not claiming anything was done.
+          const askedReader = askedThisTurn(steps)
 
           // THE NOTE IS READER-FACING. A text-delta renders in the transcript
           // as Deck-E's own words (exactly like the circles guard's line above)
@@ -1497,7 +1564,7 @@ async function serve(request) {
             // this TURN touched — an approved write runs at the start of this
             // request, before any step. Null (off, slow, unsure) is exactly the
             // chain below. See `decke/audit.ts`.
-            const audit = calledToolNames.some((n) => CLIENT_SET.has(n))
+            const audit = calledToolNames.some((n) => CLIENT_SET.has(n)) || askedReader
               ? null
               : await auditTurn({
                   message: latestUserText(messages),
@@ -1513,7 +1580,7 @@ async function serve(request) {
             // instruction model-side (measured 2026-10-10).
             const auditPasteRecovery = fixable === 'add_battle_log' && pastedInLatestUserMessage
             const correctionSteps = auditPasteRecovery ? 3 : 1
-            if (fixable && !anyApprovalPending && steps.length + correctionSteps <= MAX_STEPS) {
+            if (fixable && !anyApprovalPending && !askedReader && steps.length + correctionSteps <= MAX_STEPS) {
               corrective = fixable
               pasteRecovery = auditPasteRecovery
             } else if (phantoms.length > 0 || audit?.phantom) {
@@ -1536,8 +1603,9 @@ async function serve(request) {
           // Production had two first legs where a real Live log was pasted and
           // `add_battle_log` was never called. This is deliberately below the
           // ordinary audit: it is a backstop only when no other corrective leg
-          // won, only on the first HTTP leg, and never while another approval
-          // is pending. Approval and browser-tool continuations replay a tool
+          // won, only on the first HTTP leg, never while another approval is
+          // pending, and never above an ask card (`askedReader` above).
+          // Approval and browser-tool continuations replay a tool
           // part after the latest user message, so `turnToolNames` remains the
           // leg boundary while `anyApprovalPending` protects this first leg.
           if (
@@ -1549,6 +1617,7 @@ async function serve(request) {
               clientToolRan: [...calledToolNames, ...earlierTurnToolNames].some((name) => CLIENT_SET.has(name)),
               correctiveChosen: corrective !== null,
               turnTroubled,
+              askedReader,
             }) &&
             !capReached &&
             steps.length + 3 <= MAX_STEPS

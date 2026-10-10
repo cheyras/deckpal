@@ -92,6 +92,31 @@ game_details. Do not list facts Deck-E can look up.`;
 
 type HeuristicInput = string | Pick<TriageInput, 'message' | 'pasted' | 'answering'>;
 
+/**
+ * Clear correction phrasing only.
+ *
+ * `correction` raises the turn to Standard, so a false positive is a Sonnet
+ * bill for an ordinary request. The first pattern matched any "no " or
+ * "actually" — "build me a deck with no ex", "actually, what's it worth?" —
+ * which is most of the language. What remains is phrasing that only ever
+ * corrects: something was wrong, or the reader meant something else.
+ */
+const CORRECTION = new RegExp([
+  // "that's wrong", "that is not right", "that's not what I meant"
+  String.raw`\bthat(?:'s|’s| is| was)\s+(?:wrong|incorrect|not (?:right|correct|it|what i (?:meant|asked|said|wanted)))\b`,
+  // "you got it wrong", "you've got that wrong", "you're wrong"
+  String.raw`\byou(?:'ve|’ve| have)?\s+got (?:it|that|this) wrong\b`,
+  String.raw`\byou(?:'re|’re| are) wrong\b`,
+  String.raw`\bnot what i (?:asked|meant|said|wanted)\b`,
+  // "no, I meant…", "actually I meant…", "I meant the Expanded one"
+  String.raw`\bi meant\b`,
+  // "I said Expanded, not Standard"
+  String.raw`\bi said\b[^.?!\n]{0,60}\bnot\b`,
+  // A message that OPENS by refusing what was understood: "No, not that one"
+  String.raw`^(?:no|nope)[,.!]?\s+(?:not (?:that|this|the|it)|it(?:'s|’s| is)\s*(?:not|n(?:'|’)?t)|wrong)\b`,
+  String.raw`^correction\b`,
+].join('|'), 'i');
+
 function baseHeuristic(pathway: PathwayName, signals: TriageSignal[]): Triage {
   return {
     pathway,
@@ -118,7 +143,7 @@ export function heuristicTriage(input: HeuristicInput): Triage {
   if (/\b(deep(?:er)?|thorough|full analysis|in depth|detailed analysis)\b/i.test(text)) signals.push('asks_for_depth');
   if (/\b(budget|under \$?\d+|spend(?:ing)? limit)\b|\$\d+/i.test(text)) signals.push('budget_mentioned');
   if (/\b(only (?:use|with)|owned only|cards i (?:own|have))\b/i.test(text)) signals.push('owned_only');
-  if (/\b(no,? |actually|correction|i meant|that's wrong|that is wrong)\b/i.test(text)) signals.push('correction');
+  if (CORRECTION.test(text)) signals.push('correction');
   if (/\b(not what i asked|didn't help|did not help|try again|still wrong|unhappy)\b/i.test(text)) signals.push('dissatisfied');
 
   if (pasted) return baseHeuristic('battle_log', ['pasted_ptcgl_log', ...signals]);

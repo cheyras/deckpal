@@ -7,6 +7,27 @@ export type AskQuestion = {
   multi?: boolean
 }
 
+/**
+ * The `ask_user` tool input, KEPT WHOLE.
+ *
+ * Only `questions` drives the card, but the input is replayed to the server
+ * verbatim: `answeringAsk` in `apps/api/src/decke/tiers.ts` reads `about` (the
+ * pathway the question serves) off the replayed `tool-ask_user` part to route
+ * the reader's answer to the job that asked. Rebuilding the input as
+ * `{ questions }` silently dropped that, so the answer was routed from scratch.
+ */
+export type AskInput = { questions: AskQuestion[]; about?: string } & Record<string, unknown>
+
+/** The transcript's stored form of a completed ask (`ChatPart` of kind `ask`). */
+export type AskPart = {
+  kind: 'ask'
+  id: string
+  toolCallId: string
+  state: 'output-available'
+  input: AskInput
+  output: unknown
+}
+
 export type AskAnswer = {
   /** Option labels, in the same order the reader selected them. */
   selected: string[]
@@ -79,4 +100,57 @@ export function formatAnswers(
     if (value) lines.push(`${question.header} — ${value}`)
   }
   return lines.join('\n')
+}
+
+/**
+ * The stored ask for one streamed `ask_user` call, or null when its input is
+ * not one. The input object is retained AS STREAMED — see `AskInput` — and
+ * only checked for the one field the card cannot render without.
+ */
+export function askFromStream(
+  toolCallId: string,
+  input: unknown,
+  output: unknown,
+): Omit<AskPart, 'kind' | 'id'> | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  if (!Array.isArray((input as { questions?: unknown }).questions)) return null
+  return { toolCallId, state: 'output-available', input: input as AskInput, output }
+}
+
+/** Whether a message holds an ask. An ask-only reply is still a real turn. */
+export function hasAsk(parts: readonly { kind: string }[]): boolean {
+  return parts.some((part) => part.kind === 'ask')
+}
+
+/**
+ * A message's asks as the AI SDK tool parts the server reads back, in order.
+ * `input` and `output` go out exactly as they were stored.
+ */
+export function askWireParts(parts: readonly { kind: string }[]): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = []
+  for (const part of parts) {
+    if (part.kind !== 'ask') continue
+    const ask = part as AskPart
+    out.push({
+      type: 'tool-ask_user',
+      toolCallId: ask.toolCallId,
+      state: 'output-available',
+      input: ask.input,
+      output: ask.output,
+    })
+  }
+  return out
+}
+
+/**
+ * What a screen reader hears when the card docks: the first question, and how
+ * many follow it. Without this an ask-only reply ended its turn in silence,
+ * because `replyAnnouncement` counts only words and panels.
+ */
+export function askAnnouncement(questions: readonly AskQuestion[] | null | undefined): string {
+  const first = questions?.[0]?.question?.trim()
+  if (!first) return ''
+  const sentence = /[.?!…]$/.test(first) ? first : `${first}.`
+  const more = (questions?.length ?? 1) - 1
+  return `Deck-E asks: ${sentence}${more > 0 ? ` Plus ${more} more question${more === 1 ? '' : 's'}.` : ''}`
 }
