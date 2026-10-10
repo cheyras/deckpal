@@ -187,6 +187,7 @@ export async function withToolCtx<T>(
     db,
     api: abortableApi(makeApi(opts.apiBase, opts.jwt, opts.selfHopHeaders), opts.signal),
     userId: opts.userId,
+    source: 'deck-e',
   };
 
   try {

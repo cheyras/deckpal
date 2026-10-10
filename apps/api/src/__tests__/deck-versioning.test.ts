@@ -27,6 +27,7 @@ let deckId: string;
 let cardA: string; // tcgdex ids of two real catalog cards
 let cardB: string;
 let logId: number;
+let inPersonLogId: number;
 
 async function api(method: string, path: string, body?: unknown): Promise<{ status: number; json: any }> {
   const res = await fetch(`${base}/deckpal/api${path}`, {
@@ -304,6 +305,57 @@ test('PUT /decks/:id/strategy never bumps and lands on the current snapshot', as
   // Clearing: null empties the guide.
   const cleared = await api('PUT', `/decks/${deckId}/strategy`, { strategyMd: null });
   assert.equal(cleared.json.deck.strategyMd, null);
+});
+
+test('in-person battle logs store without rawLog and round-trip archetype + review', async () => {
+  const reviewMd = '## Turning point\n\nThe missed gust made the prize race unwinnable.';
+  const created = await api('POST', `/decks/${deckId}/logs`, {
+    origin: 'in_person',
+    result: 'loss',
+    opponent: 'League regular',
+    opponentDeck: 'Dragapult ex',
+    opponentArchetype: 'Dragapult EX',
+    notes: 'I would replay turn three.',
+    reviewMd,
+    source: 'deck-e',
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.json.log.origin, 'in_person');
+  assert.equal(created.json.log.result, 'loss');
+  assert.equal(created.json.log.rawLog, null);
+  assert.equal(created.json.log.opponentArchetype, 'dragapult-ex');
+  assert.equal(created.json.log.reviewMd, reviewMd);
+  assert.equal(created.json.log.source, 'deck-e');
+  inPersonLogId = created.json.log.id;
+
+  const detail = await api('GET', `/decks/${deckId}/logs/${inPersonLogId}`);
+  assert.equal(detail.status, 200);
+  assert.equal(detail.json.log.origin, 'in_person');
+  assert.equal(detail.json.log.rawLog, null);
+  assert.equal(detail.json.log.reviewMd, reviewMd);
+});
+
+test('PTCG Live origin still rejects a missing rawLog', async () => {
+  const { status, json } = await api('POST', `/decks/${deckId}/logs`, {
+    origin: 'ptcgl', result: 'win', source: 'test-suite',
+  });
+  assert.equal(status, 400);
+  assert.equal(json.error.message, 'rawLog is required');
+});
+
+test('battle-log list returns per-archetype records and v2 fields', async () => {
+  const { status, json } = await api('GET', `/decks/${deckId}/logs`);
+  assert.equal(status, 200);
+  const dragapult = json.archetypes.find((a: any) => a.opponentArchetype === 'dragapult-ex');
+  assert.deepEqual(
+    { games: dragapult.games, wins: dragapult.wins, losses: dragapult.losses, ties: dragapult.ties },
+    { games: 1, wins: 0, losses: 1, ties: 0 },
+  );
+  assert.ok(dragapult.lastPlayedAt);
+  const row = json.logs.find((l: any) => l.id === inPersonLogId);
+  assert.equal(row.origin, 'in_person');
+  assert.equal(row.opponentArchetype, 'dragapult-ex');
+  assert.match(row.reviewMd, /Turning point/);
 });
 
 test('battle log detail / patch / delete round-trip', async () => {

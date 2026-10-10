@@ -1670,17 +1670,26 @@ CREATE TABLE battle_log (
   id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   deck_id       UUID NOT NULL REFERENCES deck(id) ON DELETE CASCADE,
   deck_version  INTEGER NOT NULL,               -- the version current when the game was played
-  raw_log       TEXT NOT NULL CHECK (char_length(raw_log) <= 50000),
+  raw_log       TEXT CHECK (char_length(raw_log) <= 50000),
+  origin        TEXT NOT NULL DEFAULT 'ptcgl'
+                  CHECK (origin IN ('ptcgl','in_person','other')),
   result        TEXT CHECK (result IN ('win','loss','tie')),   -- NULL = undetermined
   opponent      TEXT, opponent_deck TEXT,
+  opponent_archetype TEXT CHECK (
+    char_length(opponent_archetype) <= 64
+    AND opponent_archetype ~ '^[a-z0-9]+(-[a-z0-9]+)*$'),
   notes         TEXT CHECK (char_length(notes) <= 2000),
+  review_md     TEXT CHECK (char_length(review_md) <= 12000),
   parsed        JSONB,                          -- parser output (players, turns, prizes, KOs, …)
   source        TEXT NOT NULL DEFAULT 'web' CHECK (source ~ '^[a-z0-9][a-z0-9._-]{0,39}$'),
   played_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (origin <> 'ptcgl' OR raw_log IS NOT NULL),
   FOREIGN KEY (deck_id, deck_version) REFERENCES deck_version (deck_id, version) ON DELETE CASCADE
 );
 CREATE INDEX battle_log_deck ON battle_log (deck_id, deck_version, played_at DESC);
+CREATE INDEX battle_log_user_deck_archetype
+  ON battle_log (user_id, deck_id, opponent_archetype);
 ```
 
 **The auto-bump rule** (the load-bearing decision, LOCKED — implemented in
@@ -1705,11 +1714,20 @@ handler inside its transaction, after the `deck_card` writes):
 - Deck create and import seed the v1 snapshot in the same transaction; migration
   019 backfilled a v1 snapshot for every pre-existing deck (`source = 'backfill'`).
 
-`source` reuses §9's attribution shape (`web`, `deckpal-mcp`, …) so both snapshot
+Migration 084 adds in-person/other games without inventing a PTCG Live paste,
+countable normalized `opponent_archetype` keys, and `review_md` for Deck-E's
+markdown analysis. Reader-authored words stay in `notes`. Existing rows are
+backfilled as `origin = 'ptcgl'`; simple confident `opponent_deck` labels are
+normalized (lowercase ASCII words, apostrophes removed, hyphen separators), and
+ambiguous old free text remains unclassified. The existing `battle_log_own` RLS
+policy is row-based on `user_id`, so it covers the new columns unchanged.
+
+`source` reuses §9's attribution shape (`web`, `deckpal-mcp`, `deck-e`, …) so both snapshot
 and log rows say who wrote them. `battle_log.result` is nullable on purpose: a
 truncated paste with no win/concede line stores as undetermined rather than
 guessing, and the API refuses (400) only when it can identify neither the deck
-owner nor an explicit result.
+owner nor an explicit result. In-person/other games always require that explicit
+result because no raw game log exists to infer it from.
 
 
 # 9. Collection, goals, and progress

@@ -1245,20 +1245,36 @@ Summaries only — never `rawLog`. `totals` covers the same filter scope.
 { "version": null,
   "logs": [ { "id": 7, "deckVersion": 1, "result": "win", "opponent": "Robni16",
               "opponentDeck": "Dragapult ex / Dusknoir", "turns": 14,
+              "opponentArchetype": "dragapult-ex", "origin": "ptcgl",
               "prizes": { "me": 6, "opponent": 5 }, "notes": null,
+              "reviewMd": "## Turning point\n…",
               "playedAt": "2026-07-30T…", "source": "web" } ],
   "totals": { "total": 4, "wins": 3, "losses": 1, "ties": 0 },
+  "archetypes": [ { "opponentArchetype": "dragapult-ex", "games": 3,
+                     "wins": 2, "losses": 1, "ties": 0, "lastPlayedAt": "…" } ],
   "pagination": { "page": 1, "pageSize": 50, "total": 4, "pageCount": 1 } }
 ```
+`archetypes` is the all-versions record for the deck (not only the current page
+or optional version filter), newest encounter first. Logs without a classified
+`opponentArchetype` are omitted from that summary.
 
 ### POST /deckpal/api/decks/:id/logs
-Body `{ "rawLog" (required, ≤50000), "result"?, "opponent"?, "opponentDeck"?,
-"notes"? (≤2000), "playedAt"? (ISO), "playerName"?, "source"?, "dryRun"? }`.
-Runs the PTCG Live parser; parser-derived `result` / `opponent` /
+Body `{ "rawLog"?, "origin"?: "ptcgl"|"in_person"|"other",
+"result"?, "opponent"?, "opponentDeck"?, "opponentArchetype"?,
+"notes"? (≤2000), "reviewMd"? (≤12000), "playedAt"? (ISO),
+"playerName"?, "source"?, "dryRun"? }`.
+`origin` defaults to `ptcgl`. PTCG Live requires a non-empty `rawLog` (≤50000)
+and runs the parser; `in_person` and `other` may omit `rawLog` but require an
+explicit `result` because there is no game log from which to infer it.
+Parser-derived `result` / `opponent` /
 `opponentDeck` (deck guess)
 fill any fields the caller omitted — **explicit caller values always win over
 the parser** (2026-08-29, `mergeLogFields`). Attaches to the deck's **current**
 version.
+`opponentArchetype` is normalized server-side to a lowercase ASCII word key
+(apostrophes removed, other separators collapsed to hyphens, ≤64 characters),
+for example `N's Zoroark ex` → `ns-zoroark-ex`. `notes` are the reader's own
+words; `reviewMd` is Deck-E's markdown analysis.
 `400` when the parser cannot tell which player owns the deck **and** neither
 `playerName` nor an explicit `result` was given (the message says which to pass).
 `"dryRun": true` performs that same validation, current-version resolution,
@@ -1271,8 +1287,10 @@ omitted, the preview reports its own clock and a later write uses its own `now()
                    "result": "win", "opponent": "Robni16",
                    "opponentDeck": "Dragapult ex / Dusknoir",
                    "opponentDeckGuess": "Dragapult ex / Dusknoir",
+                   "opponentArchetype": "dragapult-ex", "origin": "ptcgl",
                    "prizes": { "me": 6, "opponent": 5 }, "turns": 14,
-                   "notes": null, "playedAt": "…", "confidence": "high" },
+                   "notes": null, "reviewMd": "## Turning point\n…",
+                   "playedAt": "…", "confidence": "high" },
       "parsed": { "players": { "me": "cheyras", "opponent": "Robni16" }, "…": "…" } }
 ```
 The non-dry-run response remains:
@@ -1280,7 +1298,9 @@ The non-dry-run response remains:
 201 { "attachedToVersion": 2,
       "log": { "id": 7, "deckVersion": 2, "result": "win", "opponent": "Robni16",
                "opponentDeck": "Dragapult ex / Dusknoir", "turns": 14,
+               "opponentArchetype": "dragapult-ex", "origin": "ptcgl",
                "prizes": { "me": 6, "opponent": 5 }, "notes": null,
+               "reviewMd": null,
                "playedAt": "…", "source": "web", "createdAt": "…", "rawLog": "Setup…",
                "parsed": { "players": { "me": "cheyras", "opponent": "Robni16" },
                            "confidence": "high", "result": "win", "wentFirst": "opponent",
@@ -1317,13 +1337,15 @@ re-pasting the log. Consumed by the agent tool `add_battle_log` when `deck_id`
 is omitted.
 
 ### GET /deckpal/api/decks/:id/logs/:logId
-The full row — same `log` shape as the 201 above (summary fields + `rawLog` +
+The full row — same `log` shape as the 201 above (summary fields + nullable `rawLog` +
 `parsed` + `createdAt`).
 
 ### PATCH /deckpal/api/decks/:id/logs/:logId
-Body: any of `{ "result", "opponent", "opponentDeck", "notes", "playedAt" }`.
+Body: any of `{ "result", "opponent", "opponentDeck", "opponentArchetype",
+"notes", "reviewMd", "playedAt" }`.
 Metadata only — the raw log and its version attachment are immutable. Explicit
-`null` clears everything except `playedAt`. Returns `{ "log": … }` (full shape).
+`null` clears everything except `playedAt`; archetypes are normalized when set.
+Returns `{ "log": … }` (full shape).
 
 ### DELETE /deckpal/api/decks/:id/logs/:logId
 `{ "deleted": 7 }`.

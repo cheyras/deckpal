@@ -32,8 +32,9 @@ import type { Queryable } from './db.js';
  * to invent a port and a shared secret to satisfy the type — `cloud.ts` was
  * literally passing `{ port: 0, key: '' }` with a comment explaining that it
  * never listens. `McpConfig` now lives with the server that has a socket
- * (`apps/mcp/src/ctx.ts`), and this interface is the three fields a tool
- * actually uses.
+ * (`apps/mcp/src/ctx.ts`). The three transport fields remain required; the
+ * optional writer source lets Deck-E identify its writes without making MCP
+ * callers manufacture a value (they intentionally retain `deckpal-mcp`).
  */
 export interface Ctx {
   /** Pool (self-host) or the request's RLS-scoped client (cloud). */
@@ -44,4 +45,6 @@ export interface Ctx {
    * it as a bind parameter; in the cloud it is additionally enforced by RLS.
    */
   userId: string;
+  /** Writer attribution for shared tools; MCP omits this and keeps its default. */
+  source?: string;
 }

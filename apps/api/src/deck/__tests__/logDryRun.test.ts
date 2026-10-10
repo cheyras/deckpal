@@ -37,6 +37,7 @@ test('preparation returns the deck-specific parsed and merged fields', () => {
 
   assert.equal(prepared.result, 'win');
   assert.equal(prepared.opponent, 'Bob');
+  assert.ok(prepared.parsed);
   assert.equal(prepared.parsed.confidence, 'high');
   assert.equal(prepared.parsed.totalTurns, 2);
   assert.deepEqual(prepared.parsed.prizesTaken, { me: 2, opponent: 0 });
@@ -56,7 +57,26 @@ test('an omitted playedAt reaches the INSERT as null for database-precision now(
     source.lastIndexOf('decksRouter.post(', routePath),
     source.indexOf('// POST /decks/log-preview', routePath),
   );
-  assert.match(route, /COALESCE\(\$10::timestamptz, now\(\)\)/);
+  assert.match(route, /COALESCE\(\$13::timestamptz, now\(\)\)/);
   assert.match(route, /JSON\.stringify\(prepared\.parsed\), source, playedAt, userId/);
   assert.doesNotMatch(route, /JSON\.stringify\(prepared\.parsed\), source, resolvedPlayedAt, userId/);
+});
+
+test('in-person preparation needs no raw log but requires an explicit result', () => {
+  const prepared = prepareBattleLog(null, [], {
+    origin: 'in_person',
+    result: 'loss',
+    opponent: 'League regular',
+    opponentDeck: 'Dragapult ex',
+  });
+  assert.deepEqual(prepared, {
+    parsed: null,
+    result: 'loss',
+    opponent: 'League regular',
+    opponentDeck: 'Dragapult ex',
+  });
+  assert.throws(
+    () => prepareBattleLog(null, [], { origin: 'in_person' }),
+    /result is required when origin is 'in_person'/,
+  );
 });

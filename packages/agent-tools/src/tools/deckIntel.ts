@@ -83,9 +83,12 @@ interface LogSummary {
   result: 'win' | 'loss' | 'tie' | null;
   opponent: string | null;
   opponentDeck: string | null;
+  opponentArchetype: string | null;
+  origin: 'ptcgl' | 'in_person' | 'other';
   turns: number | null;
   prizes: { me: number; opponent: number } | null;
   notes: string | null;
+  reviewMd: string | null;
   playedAt: string;
   source: string;
 }
@@ -104,7 +107,7 @@ interface ParsedLog {
 }
 
 interface LogFull extends LogSummary {
-  rawLog: string;
+  rawLog: string | null;
   parsed: ParsedLog | null;
   createdAt: string;
 }
@@ -113,6 +116,14 @@ interface LogsPayload {
   version: number | null;
   logs: LogSummary[];
   totals: WinLossTotals;
+  archetypes: {
+    opponentArchetype: string;
+    games: number;
+    wins: number;
+    losses: number;
+    ties: number;
+    lastPlayedAt: string;
+  }[];
   pagination: { page: number; pageSize: number; total: number; pageCount: number };
 }
 
@@ -128,7 +139,7 @@ interface LogPreviewParsed {
   opponent: string | null;
   turns: number | null;
   prizes: { me: number; opponent: number } | null;
-  confidence: 'high' | 'low';
+  confidence: 'high' | 'low' | null;
   myPokemon: string[];
   opponentDeckGuess: string | null;
 }
@@ -206,6 +217,8 @@ function logRow(l: LogSummary): string {
     `#${l.id}`,
     `v${l.deckVersion}`,
     matchup(l),
+    `archetype ${l.opponentArchetype ?? 'unclassified'}`,
+    `origin ${l.origin}`,
     l.turns != null ? `${l.turns} turns` : null,
     l.prizes ? `prizes ${l.prizes.me}-${l.prizes.opponent}` : null,
     day(l.playedAt),
@@ -231,7 +244,7 @@ function previewParsedLine(p: LogPreviewParsed): string {
     `${res} vs ${opp}${p.opponentDeckGuess ? ` (${p.opponentDeckGuess})` : ''}`,
     p.turns != null ? `${p.turns} turns` : null,
     p.prizes ? `prizes ${p.prizes.me}-${p.prizes.opponent}` : null,
-    `confidence ${p.confidence}`,
+    p.confidence ? `confidence ${p.confidence}` : null,
   );
 }
 
@@ -271,7 +284,13 @@ function renderLogPreview(preview: LogPreviewResponse, dryRun?: boolean): ToolRe
 function renderAddDryRun(
   deck: { id: string; name: string; formatCode?: string; version?: number },
   parsed: LogPreviewParsed,
-  overrides: { result?: 'win' | 'loss' | 'tie'; opponent_deck?: string; notes?: string },
+  overrides: {
+    result?: 'win' | 'loss' | 'tie';
+    opponent_deck?: string;
+    opponent_archetype?: string;
+    notes?: string;
+    review?: string;
+  },
 ): ToolResult {
   const lines = [
     `Would attach to '${deck.name}'${deck.version != null ? ` (v${deck.version})` : ''}: ${previewParsedLine(parsed)}`,
@@ -279,7 +298,9 @@ function renderAddDryRun(
   ];
   if (overrides.result !== undefined) lines.push(`result override: ${overrides.result}`);
   if (overrides.opponent_deck !== undefined) lines.push(`opponent_deck override: ${overrides.opponent_deck}`);
+  if (overrides.opponent_archetype !== undefined) lines.push(`opponent_archetype: ${overrides.opponent_archetype}`);
   if (overrides.notes !== undefined) lines.push(`notes: ${trunc(overrides.notes, 80)}`);
+  if (overrides.review !== undefined) lines.push(`review: ${trunc(overrides.review, 80)}`);
   lines.push('Re-run with dry_run: false to log this game.');
   return ok(lines.join('\n'));
 }
@@ -362,7 +383,7 @@ const deckStrategyTool = defineTool({
       const previous = strategyLabel(before.deck.strategyMd);
       const after = (await ctx.api.send('PUT', `${deckPath(deckId)}/strategy`, {
         strategyMd: markdown.trim() ? markdown : null,
-        source: SOURCE,
+        source: ctx.source ?? SOURCE,
       })) as DeckDetailLite;
 
       const lines: string[] = [];
@@ -384,7 +405,7 @@ const addBattleLogTool = defineTool({
   name: 'add_battle_log',
   title: 'Add a battle log to a deck',
   description:
-    'Attach a raw PTCG Live battle log to a deck. The log is parsed server-side (result, ' +
+    'Attach a PTCG Live or in-person battle to a deck. A Live log is parsed server-side (result, ' +
     "opponent, turns, prizes, knockouts, opponent-deck guess) and attaches to the deck's " +
     'CURRENT version — the list the game was played with — so per-version win/loss records ' +
     'accumulate. Parser-derived fields fill anything you omit. OMIT deck_id to rank the log ' +
@@ -401,13 +422,21 @@ const addBattleLogTool = defineTool({
       .string()
       .optional()
       .describe('The deck, by UUID or by its exact name. OMIT to rank the log against your decks and pick — nothing is written.'),
-    log: z.string().max(50000).describe('The raw PTCG Live battle log text, pasted verbatim (max 50000 chars).'),
+    log: z
+      .string()
+      .max(50000)
+      .optional()
+      .describe('The raw PTCG Live battle log text, pasted verbatim (max 50000 chars). Optional only for in_person/other.'),
+    origin: z
+      .enum(['ptcgl', 'in_person', 'other'])
+      .optional()
+      .describe("Where the game was played. Defaults to 'ptcgl' when log is present; required when log is absent."),
     result: z
       .enum(['win', 'loss', 'tie'])
       .optional()
       .describe(
         "Explicit result from the deck owner's perspective. Usually omit — the parser derives it; " +
-          'required (or player_name) when the parser cannot identify the owner.',
+          'required for in_person/other, and required (or player_name) when a Live parser cannot identify the owner.',
       ),
     player_name: z
       .string()
@@ -419,7 +448,13 @@ const addBattleLogTool = defineTool({
       .max(200)
       .optional()
       .describe("Archetype label for the opponent's deck, e.g. 'Dragapult ex / Dusknoir'. The parser guesses when omitted."),
+    opponent_archetype: z
+      .string()
+      .max(200)
+      .optional()
+      .describe("Countable archetype key or label, e.g. 'dragapult-ex' or \"N's Zoroark ex\"; the API normalizes it."),
     notes: z.string().max(2000).optional().describe('Free-text notes about the game — misplays, key turns, matchup reads.'),
+    review: z.string().max(12000).optional().describe("Deck-E's markdown analysis. Keep the reader's own words in notes."),
     played_at: z.string().optional().describe('ISO-8601 timestamp of when the game was played. Omit for now.'),
     dry_run: z
       .boolean()
@@ -427,8 +462,18 @@ const addBattleLogTool = defineTool({
       .describe('true (default): parse and preview what would be logged, write nothing (works with or without deck_id). Re-call with dry_run: false to attach the log.'),
   }),
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
-  handler: async ({ deck_id: deckRef, log, result, player_name, opponent_deck, notes, played_at, dry_run }, ctx) => {
+  handler: async ({
+    deck_id: deckRef, log, origin, result, player_name, opponent_deck,
+    opponent_archetype, notes, review, played_at, dry_run,
+  }, ctx) => {
     try {
+      const effectiveOrigin = origin ?? (log !== undefined ? 'ptcgl' : undefined);
+      if (effectiveOrigin === undefined) {
+        return fail('add_battle_log: origin is required when log is omitted.');
+      }
+      if (effectiveOrigin === 'ptcgl' && log === undefined) {
+        return fail("add_battle_log: log is required when origin is 'ptcgl'.");
+      }
       // ── deck_id OMITTED → rank the log, write nothing ──────────────────────
       //
       // This is the path the owner's #1 ask opens up: a pasted battle log with
@@ -444,6 +489,9 @@ const addBattleLogTool = defineTool({
       // entities doctrine (a fuzzy-ish pick is a choice, never an action), and
       // log-preview itself does no write anywhere.
       if (deckRef === undefined) {
+        if (effectiveOrigin !== 'ptcgl' || log === undefined) {
+          return fail('add_battle_log: deck_id is required for an in-person or other game because there is no pasted log to rank against your decks.');
+        }
         const preview = (await ctx.api.send('POST', '/decks/log-preview', {
           log,
           ...(player_name !== undefined ? { player_name } : {}),
@@ -463,30 +511,36 @@ const addBattleLogTool = defineTool({
       // must exercise the exact owner-identification refusal the write will.
       if (dry_run) {
         const dry = (await ctx.api.send('POST', `${deckPath(deckId)}/logs`, {
-          rawLog: log,
+          ...(log !== undefined ? { rawLog: log } : {}),
+          origin: effectiveOrigin,
           ...(result !== undefined ? { result } : {}),
           ...(player_name !== undefined ? { playerName: player_name } : {}),
           ...(opponent_deck !== undefined ? { opponentDeck: opponent_deck } : {}),
+          ...(opponent_archetype !== undefined ? { opponentArchetype: opponent_archetype } : {}),
           ...(notes !== undefined ? { notes } : {}),
+          ...(review !== undefined ? { reviewMd: review } : {}),
           ...(played_at !== undefined ? { playedAt: played_at } : {}),
-          source: SOURCE,
+          source: ctx.source ?? SOURCE,
           dryRun: true,
         })) as LogDryRunResponse;
         return renderAddDryRun(
           { ...picked.value, name: dry.preview.deckName, version: dry.preview.version },
           dry.preview,
-          { result, opponent_deck, notes },
+          { result, opponent_deck, opponent_archetype, notes, review },
         );
       }
 
       const res = (await ctx.api.send('POST', `${deckPath(deckId)}/logs`, {
-        rawLog: log,
+        ...(log !== undefined ? { rawLog: log } : {}),
+        origin: effectiveOrigin,
         ...(result !== undefined ? { result } : {}),
         ...(player_name !== undefined ? { playerName: player_name } : {}),
         ...(opponent_deck !== undefined ? { opponentDeck: opponent_deck } : {}),
+        ...(opponent_archetype !== undefined ? { opponentArchetype: opponent_archetype } : {}),
         ...(notes !== undefined ? { notes } : {}),
+        ...(review !== undefined ? { reviewMd: review } : {}),
         ...(played_at !== undefined ? { playedAt: played_at } : {}),
-        source: SOURCE,
+        source: ctx.source ?? SOURCE,
       })) as { attachedToVersion: number; log: LogFull };
 
       const l = res.log;
@@ -519,7 +573,7 @@ const battleLogsTool = defineTool({
     "Read a deck's battle logs. Without log_id: a paged list, newest first (one compact row per " +
     'game) with the win/loss record; filter to one deck version with version — that is the ' +
     'synthesis read path ("how did v2 do?"). With log_id: full detail for one log including all ' +
-    'parsed fields. include_raw: true appends the raw PTCG Live log text — raw logs are LARGE ' +
+    'parsed fields plus the saved review. include_raw: true appends the raw PTCG Live log text when one exists — raw logs are LARGE ' +
     '(often thousands of lines each), so in list mode page_size then defaults to 10; keep it ' +
     'small to stay inside result-size budgets and page through the rest. Read-only. To record a ' +
     'game use add_battle_log; for version history use deck_history.',
@@ -558,7 +612,11 @@ const battleLogsTool = defineTool({
         const { log: l } = (await ctx.api.get(`${deckPath(deckId)}/logs/${encodeURIComponent(log_id)}`)) as { log: LogFull };
         const p = l.parsed;
         const lines = [
-          row(`battle log #${l.id}`, `v${l.deckVersion}`, matchup(l), `played ${day(l.playedAt)}`, `source ${l.source}`),
+          row(
+            `battle log #${l.id}`, `v${l.deckVersion}`, matchup(l),
+            `archetype ${l.opponentArchetype ?? 'unclassified'}`,
+            `origin ${l.origin}`, `played ${day(l.playedAt)}`, `source ${l.source}`,
+          ),
           row(
             l.turns != null ? `${l.turns} turns` : null,
             l.prizes ? `prizes me ${l.prizes.me} – opp ${l.prizes.opponent}` : null,
@@ -574,10 +632,14 @@ const battleLogsTool = defineTool({
           if (p.knockouts.byOpponent.length) lines.push(`KOs against me: ${p.knockouts.byOpponent.join(', ')}`);
         }
         if (l.notes) lines.push(`notes: ${l.notes}`);
+        if (l.reviewMd) lines.push('--- review ---', l.reviewMd);
         if (include_raw) {
-          lines.push(`--- raw log #${l.id} ---`, l.rawLog);
+          lines.push(
+            `--- raw log #${l.id} ---`,
+            l.rawLog ?? `(no raw log — ${l.origin} game)`,
+          );
         } else {
-          lines.push('(raw log omitted — pass include_raw: true to read it)');
+          lines.push(l.rawLog === null ? `(no raw log — ${l.origin} game)` : '(raw log omitted — pass include_raw: true to read it)');
         }
         return ok(lines.join('\n'));
       }
@@ -588,20 +650,25 @@ const battleLogsTool = defineTool({
       if (version !== undefined) qs.set('version', String(version));
       const res = (await ctx.api.get(`${deckPath(deckId)}/logs?${qs}`)) as LogsPayload;
 
+      const archetypes = res.archetypes ?? [];
+      const archetypeRecord = archetypes.length
+        ? `archetype record: ${archetypes.map((a) => `${a.opponentArchetype} ${a.wins}W–${a.losses}L–${a.ties}T (${a.games}, last ${day(a.lastPlayedAt)})`).join(' · ')}`
+        : 'archetype record: none classified';
       if (res.totals.total === 0) {
-        return ok(
+        return ok([
+          archetypeRecord,
           version !== undefined
             ? `No battle logs for v${version} of this deck yet — logs attach to the version that was current when the game was played.`
             : 'No battle logs for this deck yet — add one with add_battle_log.',
-        );
+        ].join('\n'));
       }
 
-      const lines: string[] = [];
+      const lines: string[] = [archetypeRecord];
       for (const l of res.logs) {
         lines.push(logRow(l));
         if (include_raw) {
           const full = (await ctx.api.get(`${deckPath(deckId)}/logs/${encodeURIComponent(l.id)}`)) as { log: LogFull };
-          lines.push(`--- raw log #${l.id} ---`, full.log.rawLog, '---');
+          lines.push(`--- raw log #${l.id} ---`, full.log.rawLog ?? `(no raw log — ${full.log.origin} game)`, '---');
         }
       }
       const scope = version !== undefined ? `v${version}` : 'all versions';
@@ -756,7 +823,7 @@ const deckHistoryTool = defineTool({
           toVersion: revert_to,
           includeStrategy: include_strategy,
           ...(note !== undefined ? { note } : {}),
-          source: SOURCE,
+          source: ctx.source ?? SOURCE,
         })) as RevertPayload;
         const r = res.revert;
         const lines = [
@@ -801,7 +868,7 @@ const editBattleLogTool = defineTool({
   title: 'Correct a battle log entry',
   description:
     "Fix a battle log's metadata after the fact: result (e.g. the parser missed a " +
-    'non-standard ending and left NO RESULT), opponent name, opponent-deck label, notes, or ' +
+    'non-standard ending and left NO RESULT), opponent name, opponent-deck label, countable archetype, notes, review, or ' +
     'played_at. The raw log text and the version it attaches to are immutable — this edits ' +
     'classification only, and per-version win/loss records recompute from it immediately. ' +
     'Passing null clears a field (not played_at). ' +
@@ -819,7 +886,9 @@ const editBattleLogTool = defineTool({
       .describe("Corrected result from the deck owner's perspective; null clears it back to NO RESULT."),
     opponent: z.string().max(100).nullable().optional().describe("Opponent's screen name; null clears."),
     opponent_deck: z.string().max(200).nullable().optional().describe("Archetype label, e.g. 'Dragapult ex / Dusknoir'; null clears."),
+    opponent_archetype: z.string().max(200).nullable().optional().describe('Normalized matchup key/label; the API normalizes it. null clears.'),
     notes: z.string().max(2000).nullable().optional().describe('Replacement notes; null clears.'),
+    review: z.string().max(12000).nullable().optional().describe("Replacement Deck-E markdown analysis; null clears. Reader words stay in notes."),
     played_at: z.string().optional().describe('Corrected ISO-8601 played-at timestamp.'),
     dry_run: z
       .boolean()
@@ -827,7 +896,7 @@ const editBattleLogTool = defineTool({
       .describe('true (default): preview the field-by-field would-change plan (current → new), change nothing. Re-call with dry_run: false to apply the edit.'),
   }),
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-  handler: async ({ deck_id: deckRef, log_id, result, opponent, opponent_deck, notes, played_at, dry_run }, ctx) => {
+  handler: async ({ deck_id: deckRef, log_id, result, opponent, opponent_deck, opponent_archetype, notes, review, played_at, dry_run }, ctx) => {
     try {
       // STRICT — edits a stored battle log, so an approximate name is a choice, never an action.
       const picked = await needDeck(ctx, deckRef, { strict: true });
@@ -838,7 +907,9 @@ const editBattleLogTool = defineTool({
       if (result !== undefined) body.result = result;
       if (opponent !== undefined) body.opponent = opponent;
       if (opponent_deck !== undefined) body.opponentDeck = opponent_deck;
+      if (opponent_archetype !== undefined) body.opponentArchetype = opponent_archetype;
       if (notes !== undefined) body.notes = notes;
+      if (review !== undefined) body.reviewMd = review;
       if (played_at !== undefined) body.playedAt = played_at;
       if (Object.keys(body).length === 0) return fail('edit_battle_log: pass at least one field to change.');
 
@@ -852,7 +923,9 @@ const editBattleLogTool = defineTool({
         if (result !== undefined) fields.push('result');
         if (opponent !== undefined) fields.push('opponent');
         if (opponent_deck !== undefined) fields.push('opponent_deck');
+        if (opponent_archetype !== undefined) fields.push('opponent_archetype');
         if (notes !== undefined) fields.push('notes');
+        if (review !== undefined) fields.push('review');
         if (played_at !== undefined) fields.push('played_at');
         const lines = [
           `Would change log #${l.id} on '${picked.value.name}': ${fields.join(', ')}`,
@@ -861,7 +934,9 @@ const editBattleLogTool = defineTool({
         if (result !== undefined) lines.push(`  result: ${l.result ? l.result.toUpperCase() : 'NO RESULT'} → ${result ? result.toUpperCase() : 'NO RESULT'}`);
         if (opponent !== undefined) lines.push(`  opponent: ${l.opponent ?? '(none)'} → ${opponent ?? '(none)'}`);
         if (opponent_deck !== undefined) lines.push(`  opponent_deck: ${l.opponentDeck ?? '(none)'} → ${opponent_deck ?? '(none)'}`);
+        if (opponent_archetype !== undefined) lines.push(`  opponent_archetype: ${l.opponentArchetype ?? '(none)'} → ${opponent_archetype ?? '(none)'}`);
         if (notes !== undefined) lines.push(`  notes: ${l.notes ? trunc(l.notes, 60) : '(none)'} → ${notes ? trunc(notes, 60) : '(none)'}`);
+        if (review !== undefined) lines.push(`  review: ${l.reviewMd ? trunc(l.reviewMd, 60) : '(none)'} → ${review ? trunc(review, 60) : '(none)'}`);
         if (played_at !== undefined) lines.push(`  played_at: ${day(l.playedAt)} → ${played_at}`);
         lines.push('Re-run with dry_run: false to apply these changes.');
         return ok(lines.join('\n'));
