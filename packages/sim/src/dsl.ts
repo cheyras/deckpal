@@ -48,6 +48,8 @@ export interface Filter {
   hasAbility?: string;
   /** In-play only: the Pokémon has at least one damage counter. */
   damaged?: boolean;
+  /** In-play only: the Pokémon has at least one Energy attached. */ // lane:ghost
+  energized?: boolean;
   not?: Filter;
   any?: Filter[];
 }
@@ -114,14 +116,21 @@ export type Cond =
   | { koLastTurn: Who }
   | { stadium: Filter | true }
   | { benchFull: Who }
-  | { firstTurn: true };
+  | { firstTurn: true }
+  /** lane:ghost — a named, tested predicate registered with `registerCustomCond` (customs.ts). */
+  | { custom: string; args?: Record<string, unknown> };
 
 /** A passive effect, from an Ability, a Tool, a Stadium, an Energy or a timed effect. */
 export type StaticEffect =
   /** Prevent effects (not damage) of the opponent's attacks/Abilities done to the affected Pokémon. */
   | { k: 'preventEffects'; from: ('attack' | 'ability')[] }
   /** Prevent damage (and optionally effects) from the opponent's attacks done to the affected Pokémon. */
-  | { k: 'preventDamage'; andEffects?: boolean }
+  | {
+      k: 'preventDamage';
+      andEffects?: boolean;
+      /** lane:ghost — only from attacking Pokémon with at most this much Energy attached (Bastiodon, Ancient Bulwark). */
+      attackerMaxEnergy?: number;
+    }
   /** Add to (or with `set`, replace) the affected Pokémon's Retreat Cost. */
   | { k: 'retreatCost'; delta?: number; set?: number }
   /** Change the Colorless part of one (or every) attack's cost on the affected Pokémon. */
@@ -269,7 +278,12 @@ export type TriggerOn =
   /** This Pokémon (or, for a Tool, the Pokémon it is attached to) was damaged by an opponent's attack while Active. */
   | 'damagedByAttackActive'
   /** This Pokémon was Knocked Out by damage from an opponent's attack. */
-  | 'knockedOutByAttack';
+  | 'knockedOutByAttack'
+  /**
+   * lane:ghost — the OPPONENT attached an Energy card from their hand to one of their Pokémon
+   * (Gengar ex, Gnawing Curse). The program sees that Pokémon's slot id in `__target`.
+   */
+  | 'oppAttachFromHand';
 
 export interface TriggerScript {
   on: TriggerOn;
@@ -325,7 +339,26 @@ export interface CardScript {
   /** Energy: when discarded by an effect of the attached Pokémon's own attack, reattach it after attacking (Boomerang Energy). */
   reattachAfterOwnAttack?: boolean;
   /** Data corrections where the catalog is wrong (e.g. TCGdex marks some Special Energy "Normal"). */
-  fix?: { specialEnergy?: boolean; aceSpec?: boolean; tera?: boolean };
+  fix?: {
+    specialEnergy?: boolean;
+    aceSpec?: boolean;
+    tera?: boolean;
+    /**
+     * lane:ghost — a Trainer played onto the Bench "as if it were a <hp>-HP Basic <type> Pokémon"
+     * (Antique fossils). It is still an Item in every other zone (searched, Item-locked, never placed
+     * during setup); in play it is a Basic Pokémon worth 1 Prize card.
+     */
+    playAsBasic?: {
+      hp: number;
+      type: PType;
+      /** "This card can't retreat." */
+      cantRetreat?: boolean;
+      /** "This card can't be affected by any Special Conditions." */
+      noConditions?: boolean;
+      /** "At any time during your turn, you may discard this card from play." */
+      discardable?: boolean;
+    };
+  };
   /** Free-text notes: rulings consulted, open questions. */
   notes?: string;
   /** Ruling status of the definition. */

@@ -9,7 +9,7 @@
  */
 import { def, type Env } from './context.js';
 import { evalCond } from './eval.js';
-import { applyCondition, queueTriggers, run, swapActive } from './interp.js';
+import { applyCondition, queueOppAttachTriggers, queueTriggers, run, swapActive } from './interp.js'; // lane:ghost (queueOppAttachTriggers)
 import {
   attackCost,
   canPay,
@@ -410,6 +410,11 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
     } else if (d.kind === 'trainer') {
       if (d.coverage === 'none') continue;
       if (d.playable && !evalCond(env, s, { player: p, slot: 0, vars: { __src: c } }, d.playable)) continue;
+      if (d.script?.fix?.playAsBasic) {
+        // lane:ghost — played onto the Bench as a Basic Pokémon; still an Item, so Item locks stop it.
+        if (!locked && ps.bench.length < 5 && once(`b${d.idx}`)) out.push({ t: 'bench', card: c });
+        continue;
+      }
       if (d.ttype === 'item') {
         if (!locked && once(`t${d.idx}`)) out.push({ t: 'trainer', card: c });
       } else if (d.ttype === 'supporter') {
@@ -523,6 +528,7 @@ function doAction(env: Env, s: GameState, a: Action): void {
         if (t.t.optional) f.vars.__optional = true;
         s.queued.push(f);
       }
+      queueOppAttachTriggers(env, s, p, sl); // lane:ghost (Gengar ex, Gnawing Curse)
       return;
     }
     case 'trainer': {

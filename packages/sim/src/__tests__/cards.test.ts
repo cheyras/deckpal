@@ -63,7 +63,8 @@ test('every script names a real card, and every effect-bearing text has a script
       assert.ok(s.abilities?.some((x) => x.name === b.name.trim()), `${s.id} ${s.name}: Ability "${b.name}" has no script`);
     }
     if (f.category === 'Trainer') {
-      assert.ok(s.play || s.statics || s.stadiumAbility || s.triggers, `${s.id} ${s.name}: Trainer with no behaviour`);
+      // lane:ghost — a Trainer played as a Basic Pokémon (fix.playAsBasic) behaves through its Abilities.
+      assert.ok(s.play || s.statics || s.stadiumAbility || s.triggers || s.fix?.playAsBasic, `${s.id} ${s.name}: Trainer with no behaviour`);
     }
   }
 });
