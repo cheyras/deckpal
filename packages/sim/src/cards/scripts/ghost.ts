@@ -270,7 +270,8 @@ export const GHOST: CardScript[] = [
       {
         // "As long as this Pokémon is in the Active Spot, all of your Pokémon take 10 less damage from attacks from your opponent's Pokémon (after applying Weakness and Resistance)."
         name: 'Protective Armor',
-        statics: [{ effect: { k: 'damageIn', amount: -10 }, scope: 'myPokemon', when: { inActive: 'self' } }],
+        // "from your opponent's Pokémon": fromOpp, or the reduction also applies to damage from your own attacks (found by the round trip).
+        statics: [{ effect: { k: 'damageIn', amount: -10, fromOpp: true }, scope: 'myPokemon', when: { inActive: 'self' } }],
       },
     ],
     status: 'needs_ruling',

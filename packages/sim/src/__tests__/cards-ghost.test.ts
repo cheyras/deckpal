@@ -11,7 +11,7 @@ import type { CardScript } from '../dsl.js';
 import { slotMatches } from '../eval.js';
 import { Game } from '../game.js';
 import { RandomPilot } from '../pilot/random.js';
-import { maxHp } from '../query.js';
+import { damageIn, maxHp, statics } from '../query.js';
 import { scenario, type SideLayout } from '../scenario.js';
 import { FRAMES, scriptFor } from '../cards/registry.js';
 import { textKey } from '../cards/frame.js';
@@ -343,6 +343,18 @@ test('Bastiodon, Ancient Bulwark: while Benched, no damage from attackers with 2
   ]);
   choose(act, 'Attack: Headbutt');
   assert.equal(act.state.p[1].active!.damage, 20, 'Ancient Bulwark worked from the Active Spot');
+});
+
+test("Antique Armor Fossil, Protective Armor: while Active, your Pokémon take 10 less from your opponent's attacks only", () => {
+  // "As long as this Pokémon is in the Active Spot, all of your Pokémon take 10 less damage from attacks from your opponent's Pokémon."
+  const g = scenario(SLK, FOSSIL, [{ active: 'Slowpoke', energy: { active: [P, P] } }, { active: 'Antique Armor Fossil', bench: ['Gastly'] }]);
+  choose(g, 'Attack: Headbutt');
+  assert.equal(g.state.p[1].active!.damage, 10, 'Headbutt 20 − 10');
+  // The reduction is limited to the opponent's attacks (the script once lacked fromOpp, so it also cut damage from its owner's own attacks).
+  const env = g.envForInternals;
+  const benched = g.state.p[1].bench[0]!;
+  assert.equal(damageIn(env, g.state, benched, statics(env, g.state), 0), -10, "from the opponent's attack");
+  assert.equal(damageIn(env, g.state, benched, statics(env, g.state), 1), 0, "from its owner's own attack");
 });
 
 test('Antique Armor Fossil: benched from hand as a 60-HP Basic Colorless Pokémon; an Item, so Item locks stop it', () => {
