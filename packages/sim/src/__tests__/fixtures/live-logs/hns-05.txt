@@ -1,0 +1,224 @@
+Setup
+PlayerB chose tails for the opening coin flip.
+PlayerA won the coin toss.
+PlayerA decided to go first.
+PlayerB drew 7 cards for the opening hand.
+- 7 drawn cards.
+PlayerA drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • (me2-5_184) Buddy-Buddy Poffin, (me4_80) Prism Tower, (me5_34) Banette, (me5_39) Dhelmise, (me5_5) Poltchageist, (me3_88) Telepathic Psychic Energy, (me5_39) Dhelmise
+PlayerB played (zsv10-5_6) Petilil to the Active Spot.
+PlayerA played (me5_5) Poltchageist to the Active Spot.
+PlayerA played (me5_39) Dhelmise to the Bench.
+
+PlayerA's Turn
+PlayerA drew (me5_78) Gwynn.
+PlayerA attached (me3_88) Telepathic Psychic Energy to (me5_5) Poltchageist in the Active Spot.
+PlayerA played (me4_80) Prism Tower to the Stadium spot.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (sv6_143) Bug Catching Set.
+- PlayerB drew 2 cards.
+   • (me5_85) Fomantis, (me5_4) Lurantis ex
+- PlayerB shuffled their deck.
+PlayerB played (me5_85) Fomantis to the Bench.
+PlayerB attached (mee_1) Basic Grass Energy to (me5_85) Fomantis on the Bench.
+PlayerB ended their turn.
+
+PlayerA's Turn
+PlayerA drew (sve_5) Basic Psychic Energy.
+PlayerA played (me5_78) Gwynn.
+- PlayerA discarded (me5_34) Banette.
+- PlayerA drew 3 cards.
+   • (sve_5) Basic Psychic Energy, (me2-5_184) Buddy-Buddy Poffin, (me1_130) Switch
+PlayerA attached (sve_5) Basic Psychic Energy to (me5_39) Dhelmise on the Bench.
+PlayerA played Prism Tower.
+- PlayerA discarded 2 cards.
+   • (me2-5_184) Buddy-Buddy Poffin, (me5_39) Dhelmise
+- PlayerA drew (me5_5) Poltchageist.
+PlayerA played (me2-5_184) Buddy-Buddy Poffin.
+- PlayerA drew 2 cards and played them to the Bench.
+   • (me5_33) Shuppet, (me5_33) Shuppet
+- PlayerA shuffled their deck.
+PlayerA's (me5_5) Poltchageist used Furtive Drop.
+- PlayerA put a damage counter on PlayerA's (zsv10-5_6) Petilil.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB evolved (me5_85) Fomantis to (me5_4) Lurantis ex on the Bench.
+PlayerB attached (me2-5_181) Air Balloon to (zsv10-5_6) Petilil in the Active Spot.
+PlayerB retreated (zsv10-5_6) Petilil to the Bench.
+PlayerB's (me5_4) Lurantis ex is now in the Active Spot.
+PlayerB played (sv10_10_ph) Shaymin to the Bench.
+PlayerB ended their turn.
+
+PlayerA's Turn
+PlayerA drew (me3_88) Telepathic Psychic Energy.
+PlayerA attached (me3_88) Telepathic Psychic Energy to (me5_33) Shuppet on the Bench.
+(me3_88) Telepathic Psychic Energy was activated.
+- PlayerA drew 2 cards and played them to the Bench.
+   • (me5_33) Shuppet, (me5_39) Dhelmise
+- PlayerA shuffled their deck.
+PlayerA played (me1_130) Switch.
+- PlayerA's (me5_33) Shuppet was switched with PlayerA's (me5_5) Poltchageist to become the Active Pokémon.
+PlayerA's (me5_33) Shuppet is now in the Active Spot.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB attached (me3_86) Growing Grass Energy to (me5_4) Lurantis ex in the Active Spot.
+PlayerB's (me5_4) Lurantis ex used Leaf Guard on PlayerA’s (me5_33) Shuppet for 140 damage.
+PlayerA's (me5_33) Shuppet was Knocked Out!
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's (me5_33) Shuppet is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (me5_78) Gwynn.
+PlayerA played (me5_78) Gwynn.
+- PlayerA discarded (me5_5) Poltchageist.
+- PlayerA drew 3 cards.
+   • (me5_5) Poltchageist, (zsv10-5_79) Air Balloon, (me1_131) Ultra Ball
+PlayerA attached (zsv10-5_79) Air Balloon to (me5_33) Shuppet in the Active Spot.
+PlayerA played (me1_131) Ultra Ball.
+- PlayerA discarded 2 cards.
+   • (sve_5) Basic Psychic Energy, (me5_5) Poltchageist
+- PlayerA drew (sv6-5_38) Fezandipiti ex.
+- PlayerA shuffled their deck.
+PlayerA played (sv6-5_38) Fezandipiti ex to the Bench.
+PlayerA retreated (me5_33) Shuppet to the Bench.
+PlayerA's (me5_39) Dhelmise is now in the Active Spot.
+PlayerA's (me5_39) Dhelmise used Vengeful Anchor on PlayerB’s (me5_4) Lurantis ex for 120 damage.
+- Damage breakdown:
+   • Base damage: 30 damage
+   • (Attack) Leaf Guard: -50 damage
+   • 4 discarded Pokémon: 140 damage
+   • Total damage: 120 damage
+
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB's (me5_4) Lurantis ex used Leaf Guard on PlayerA’s (me5_39) Dhelmise for 140 damage.
+PlayerA's (me5_39) Dhelmise was Knocked Out!
+(sve_5) Basic Psychic Energy was discarded from PlayerA's (me5_39) Dhelmise.
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's (me5_33) Shuppet is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (me3_88) Telepathic Psychic Energy.
+PlayerA attached (me3_88) Telepathic Psychic Energy to (me5_39) Dhelmise on the Bench.
+(me3_88) Telepathic Psychic Energy was activated.
+- PlayerA shuffled their deck.
+PlayerA's (sv6-5_38) Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
+   • (me1_114) Boss's Orders, (me5_34) Banette, (me5_6) Sinistcha
+PlayerA evolved (me5_33) Shuppet to (me5_34) Banette on the Bench.
+PlayerA retreated (me5_33) Shuppet to the Bench.
+PlayerA's (me5_34) Banette is now in the Active Spot.
+PlayerA evolved (me5_5) Poltchageist to (me5_6) Sinistcha on the Bench.
+PlayerA played (me1_114) Boss's Orders.
+- PlayerB's (sv10_10_ph) Shaymin was switched with PlayerB's (me5_4) Lurantis ex to become the Active Pokémon.
+PlayerB's (sv10_10_ph) Shaymin is now in the Active Spot.
+PlayerA's (me5_34) Banette used Puppet Pull on PlayerB’s (sv10_10_ph) Shaymin for 80 damage.
+- PlayerA drew (me5_34) Banette.
+- PlayerA shuffled their deck.
+PlayerB's (sv10_10_ph) Shaymin was Knocked Out!
+PlayerA took a Prize card.
+(me5_33) Shuppet was added to PlayerA's hand.
+PlayerB's (me5_4) Lurantis ex is now in the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB's (me5_4) Lurantis ex used Leaf Guard on PlayerA’s (me5_34) Banette for 140 damage.
+PlayerA's (me5_34) Banette was Knocked Out!
+- 2 cards were discarded from PlayerA's (me5_34) Banette.
+   • (me3_88) Telepathic Psychic Energy, (me5_33) Shuppet
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's (me5_39) Dhelmise is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (me1_131) Ultra Ball.
+PlayerA evolved (me5_33) Shuppet to (me5_34) Banette on the Bench.
+PlayerA's (sv6-5_38) Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
+   • (me3_81) Poké Pad, (me1_131) Ultra Ball, (sv8-5_101) Buddy-Buddy Poffin
+PlayerA played (sv8-5_101) Buddy-Buddy Poffin.
+- PlayerA drew (me5_5) Poltchageist and played it to the Bench.
+- PlayerA shuffled their deck.
+PlayerA played (me3_81) Poké Pad.
+- PlayerA drew (me5_6) Sinistcha.
+- PlayerA shuffled their deck.
+PlayerA's (me5_39) Dhelmise used Vengeful Anchor on PlayerB’s (me5_4) Lurantis ex for 120 damage.
+- Damage breakdown:
+   • Base damage: 30 damage
+   • (Attack) Leaf Guard: -50 damage
+   • 6 discarded Pokémon: 140 damage
+   • Total damage: 120 damage
+
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (me2-5_213) Ultra Ball.
+- PlayerB discarded 2 cards.
+   • (me5_4) Lurantis ex, (me3_76) Judge
+- PlayerB drew (rsv10-5_1) Sewaddle.
+- PlayerB shuffled their deck.
+PlayerB played (rsv10-5_1) Sewaddle to the Bench.
+PlayerB played (me4_120) AZ's Tranquility.
+- PlayerB's (zsv10-5_6) Petilil was switched with PlayerB's (me5_4) Lurantis ex to become the Active Pokémon.
+- PlayerB's (me5_4) Lurantis ex healed 80 damage.
+PlayerB's (zsv10-5_6) Petilil is now in the Active Spot.
+PlayerB retreated (zsv10-5_6) Petilil to the Bench.
+PlayerB's (me5_4) Lurantis ex is now in the Active Spot.
+PlayerB's (me5_4) Lurantis ex used Leaf Guard on PlayerA’s (me5_39) Dhelmise for 140 damage.
+PlayerA's (me5_39) Dhelmise was Knocked Out!
+(me3_88) Telepathic Psychic Energy was discarded from PlayerA's (me5_39) Dhelmise.
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's (me5_6) Sinistcha is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (me5_78) Gwynn.
+PlayerA's (sv6-5_38) Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
+   • (me3_88) Telepathic Psychic Energy, (sv8-5_101) Buddy-Buddy Poffin, (sve_5) Basic Psychic Energy
+PlayerA attached (me3_88) Telepathic Psychic Energy to (me5_34) Banette on the Bench.
+(me3_88) Telepathic Psychic Energy was activated.
+- PlayerA shuffled their deck.
+PlayerA evolved (me5_5) Poltchageist to (me5_6) Sinistcha on the Bench.
+PlayerA played (me1_131) Ultra Ball.
+- PlayerA discarded 2 cards.
+   • (sv8-5_101) Buddy-Buddy Poffin, (me1_131) Ultra Ball
+- PlayerA shuffled their deck.
+PlayerA's (me5_6) Sinistcha used Matcha Spin.
+- PlayerA put 4 damage counters on PlayerA's (me5_4) Lurantis ex.
+- PlayerA put 4 damage counters on PlayerA's (rsv10-5_1) Sewaddle.
+- PlayerA put 4 damage counters on PlayerA's (zsv10-5_6) Petilil.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB evolved (zsv10-5_6) Petilil to (sv9_7) Lilligant on the Bench.
+PlayerB evolved (rsv10-5_1) Sewaddle to (rsv10-5_2) Swadloon on the Bench.
+PlayerB's (rsv10-5_2) Swadloon used Healing Leaves.
+- PlayerB's (me5_4) Lurantis ex healed 20 damage.
+PlayerB played (me2-5_183) Boss's Orders.
+- PlayerA's (sv6-5_38) Fezandipiti ex was switched with PlayerA's (me5_6) Sinistcha to become the Active Pokémon.
+PlayerA's (sv6-5_38) Fezandipiti ex is now in the Active Spot.
+PlayerB's (me5_4) Lurantis ex used Lively Cutter on PlayerA’s (sv6-5_38) Fezandipiti ex for 280 damage.
+- Damage breakdown:
+   • Base damage: 60 damage
+   • (Ability) Sunny Day: 20 damage
+   • Was healed: 200 damage
+   • Total damage: 280 damage
+
+PlayerA's (sv6-5_38) Fezandipiti ex was Knocked Out!
+PlayerB took 2 Prize cards.
+A card was added to PlayerB's hand.
+A card was added to PlayerB's hand.
+Opponent took all of their Prize cards. PlayerB wins.
+
+PlayerA’s notes: that lurantis ex was just a piece of work! Total tank, could not kill that thing. It could one-shot every single pokemon in my deck.

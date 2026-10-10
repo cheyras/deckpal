@@ -1,0 +1,215 @@
+Setup
+PlayerB chose heads for the opening coin flip.
+PlayerB won the coin toss.
+PlayerB decided to go first.
+PlayerB drew 7 cards for the opening hand.
+- 7 drawn cards.
+PlayerA drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • (me2-5_184) Buddy-Buddy Poffin, (sv6-5_38) Fezandipiti ex, (me1_114) Boss's Orders, (me5_6) Sinistcha, (me3_88) Telepathic Psychic Energy, (me5_39) Dhelmise, (me4_82) Special Red Card
+PlayerB played (sv8-5_163) Pecharunt ex to the Active Spot.
+PlayerA played (me5_39) Dhelmise to the Active Spot.
+PlayerA played (sv6-5_38) Fezandipiti ex to the Bench.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (me5_116) Mega Darkrai ex to the Bench.
+PlayerB attached (mee_7) Basic Darkness Energy to (me5_116) Mega Darkrai ex on the Bench.
+PlayerB played (me2-5_198) Poké Pad.
+- PlayerB drew (me2_60) Carvanha.
+- PlayerB shuffled their deck.
+PlayerB played (me2_60) Carvanha to the Bench.
+PlayerB ended their turn.
+
+PlayerA's Turn
+PlayerA drew (me5_6) Sinistcha.
+PlayerA played (me2-5_184) Buddy-Buddy Poffin.
+- PlayerA drew 2 cards and played them to the Bench.
+   • (me5_33) Shuppet, (me5_5) Poltchageist
+- PlayerA shuffled their deck.
+PlayerA attached (me3_88) Telepathic Psychic Energy to (me5_39) Dhelmise in the Active Spot.
+(me3_88) Telepathic Psychic Energy was activated.
+- PlayerA drew (me5_39) Dhelmise and played it to the Bench.
+- PlayerA shuffled their deck.
+PlayerA's (me5_39) Dhelmise used Vengeful Anchor on PlayerB's (sv8-5_163) Pecharunt ex for 30 damage.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (me3_48_ph) Gastly to the Bench.
+PlayerB attached (mee_7) Basic Darkness Energy to (me5_116) Mega Darkrai ex on the Bench.
+PlayerB attached (swsh1_213) Air Balloon to (sv8-5_163) Pecharunt ex in the Active Spot.
+PlayerB retreated (sv8-5_163) Pecharunt ex to the Bench.
+PlayerB's (me5_116) Mega Darkrai ex is now in the Active Spot.
+PlayerB's (me5_116) Mega Darkrai ex used Dusk Raid on PlayerA's (me5_39) Dhelmise for 440 damage. PlayerA's (me5_39) Dhelmise took 220 more damage because of Darkness Weakness.
+- Damage breakdown:
+   • Base damage: 110 damage
+   • 3 damage counters: 110 damage
+   • Weakness to Darkness: 220 damage
+   • Total damage: 440 damage
+
+PlayerA's (me5_39) Dhelmise was Knocked Out!
+(me3_88) Telepathic Psychic Energy was discarded from PlayerA's (me5_39) Dhelmise.
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's (me5_5) Poltchageist is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (me4_82) Special Red Card.
+PlayerA's (sv6-5_38) Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
+   • (me4_80) Prism Tower, (me5_78) Gwynn, (me5_78) Gwynn
+PlayerA played (me5_78) Gwynn.
+- PlayerA discarded 2 cards.
+   • (me5_6) Sinistcha, (me5_6) Sinistcha
+- PlayerA drew 6 cards.
+   • (me5_78) Gwynn, (me3_81) Poké Pad, (sve_5) Basic Psychic Energy, (sve_5) Basic Psychic Energy, (me5_5) Poltchageist, (sv8-5_101) Buddy-Buddy Poffin
+PlayerA played (sv8-5_101) Buddy-Buddy Poffin.
+- PlayerA drew 2 cards and played them to the Bench.
+   • (me5_33) Shuppet, (me5_5) Poltchageist
+- PlayerA shuffled their deck.
+PlayerA played (me4_80) Prism Tower to the Stadium spot.
+PlayerA played Prism Tower.
+- PlayerA discarded 2 cards.
+   • (me5_5) Poltchageist, (me5_78) Gwynn
+- PlayerA drew (me5_33) Shuppet.
+PlayerA played (me3_81) Poké Pad.
+- PlayerA drew (me5_33) Shuppet.
+- PlayerA shuffled their deck.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (me2_67_ph) Toxel to the Bench.
+PlayerB played (sv2_265) Boss's Orders.
+- PlayerA's (me5_39) Dhelmise was switched with PlayerA's (me5_5) Poltchageist to become the Active Pokémon.
+PlayerA's (me5_39) Dhelmise is now in the Active Spot.
+PlayerB's (me5_116) Mega Darkrai ex used Dusk Raid on PlayerA's (me5_39) Dhelmise for 440 damage. PlayerA's (me5_39) Dhelmise took 220 more damage because of Darkness Weakness.
+- Damage breakdown:
+   • Base damage: 110 damage
+   • 3 damage counters: 110 damage
+   • Weakness to Darkness: 220 damage
+   • Total damage: 440 damage
+
+PlayerA's (me5_39) Dhelmise was Knocked Out!
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's (me5_5) Poltchageist is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (sve_5) Basic Psychic Energy.
+PlayerA's (sv6-5_38) Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
+   • (sv8-5_101) Buddy-Buddy Poffin, (me1_114) Boss's Orders, (zsv10-5_79) Air Balloon
+PlayerA played (me5_78) Gwynn.
+- PlayerA discarded 2 cards.
+   • (me5_33) Shuppet, (me5_33) Shuppet
+- PlayerA drew 6 cards.
+   • (sve_5) Basic Psychic Energy, (me3_88) Telepathic Psychic Energy, (me3_88) Telepathic Psychic Energy, (me5_78) Gwynn, (sv6-5_61) Night Stretcher, (zsv10-5_79) Air Balloon
+PlayerA played (sv6-5_61) Night Stretcher.
+- PlayerA moved PlayerA's (me5_6) Sinistcha to their hand.
+PlayerA evolved (me5_5) Poltchageist to (me5_6) Sinistcha in the Active Spot.
+PlayerA attached (me3_88) Telepathic Psychic Energy to (me5_6) Sinistcha in the Active Spot.
+PlayerA attached (zsv10-5_79) Air Balloon to (me5_6) Sinistcha in the Active Spot.
+PlayerA retreated (me5_6) Sinistcha to the Bench.
+PlayerA's (me5_5) Poltchageist is now in the Active Spot.
+PlayerA played Prism Tower.
+- PlayerA discarded 2 cards.
+   • (sv8-5_101) Buddy-Buddy Poffin, (sve_5) Basic Psychic Energy
+- PlayerA drew (me1_130) Switch.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB attached (mee_7) Basic Darkness Energy to (me2_60) Carvanha on the Bench.
+PlayerB played (sv2_265) Boss's Orders.
+- PlayerA's (sv6-5_38) Fezandipiti ex was switched with PlayerA's (me5_5) Poltchageist to become the Active Pokémon.
+PlayerA's (sv6-5_38) Fezandipiti ex is now in the Active Spot.
+PlayerB's (me5_116) Mega Darkrai ex used Dusk Raid on PlayerA's (sv6-5_38) Fezandipiti ex for 220 damage.
+- Damage breakdown:
+   • Base damage: 110 damage
+   • 3 damage counters: 110 damage
+   • Total damage: 220 damage
+
+PlayerA's (sv6-5_38) Fezandipiti ex was Knocked Out!
+PlayerB took 2 Prize cards.
+A card was added to PlayerB's hand.
+A card was added to PlayerB's hand.
+PlayerA's (me5_6) Sinistcha is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (me5_5) Poltchageist.
+PlayerA played (me1_114) Boss's Orders.
+- PlayerB's (me3_48_ph) Gastly was switched with PlayerB's (me5_116) Mega Darkrai ex to become the Active Pokémon.
+PlayerB's (me3_48_ph) Gastly is now in the Active Spot.
+PlayerA attached (me3_88) Telepathic Psychic Energy to (me5_33) Shuppet on the Bench.
+(me3_88) Telepathic Psychic Energy was activated.
+- PlayerA drew 2 cards and played them to the Bench.
+   • (me5_39) Dhelmise, (me5_39) Dhelmise
+- PlayerA shuffled their deck.
+PlayerA played (me4_82) Special Red Card.
+- PlayerB shuffled their hand.
+- PlayerA put 4 cards on the bottom of their deck.
+- PlayerA drew 3 cards.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB's (sv8-5_163) Pecharunt ex used Subjugating Chains.
+- PlayerB's (me5_116) Mega Darkrai ex was switched with PlayerB's (me3_48_ph) Gastly to become the Active Pokémon.
+- PlayerB's (me5_116) Mega Darkrai ex is now Poisoned.
+PlayerB's (me5_116) Mega Darkrai ex is now in the Active Spot.
+PlayerB attached (mee_7) Basic Darkness Energy to (me5_116) Mega Darkrai ex in the Active Spot.
+PlayerB played (sv2_265) Boss's Orders.
+- PlayerA's (me5_39) Dhelmise was switched with PlayerA's (me5_6) Sinistcha to become the Active Pokémon.
+PlayerA's (me5_39) Dhelmise is now in the Active Spot.
+PlayerB's (me5_116) Mega Darkrai ex used Dusk Raid on PlayerA's (me5_39) Dhelmise for 440 damage. PlayerA's (me5_39) Dhelmise took 220 more damage because of Darkness Weakness.
+- Damage breakdown:
+   • Base damage: 110 damage
+   • 3 damage counters: 110 damage
+   • Weakness to Darkness: 220 damage
+   • Total damage: 440 damage
+
+PlayerA's (me5_39) Dhelmise was Knocked Out!
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's (me5_39) Dhelmise is now in the Active Spot.
+
+Pokémon Checkup
+1 damage counter was placed on PlayerB's (me5_116) Mega Darkrai ex for the Special Condition Poisoned.
+
+PlayerA's Turn
+PlayerA drew (me1_119) Lillie's Determination.
+PlayerA attached (sve_5) Basic Psychic Energy to (me5_39) Dhelmise in the Active Spot.
+PlayerA's (me5_39) Dhelmise used Vengeful Anchor on PlayerB's (me5_116) Mega Darkrai ex for 170 damage.
+- Damage breakdown:
+   • Base damage: 30 damage
+   • 4 discarded Pokémon: 140 damage
+   • Total damage: 170 damage
+
+
+Pokémon Checkup
+1 damage counter was placed on PlayerB's (me5_116) Mega Darkrai ex for the Special Condition Poisoned.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (me1_171) Mega Signal.
+- PlayerB drew (me2_127) Mega Sharpedo ex.
+- PlayerB shuffled their deck.
+PlayerB evolved (me2_60) Carvanha to (me2_127) Mega Sharpedo ex on the Bench.
+PlayerB attached (mee_7) Basic Darkness Energy to (me2_127) Mega Sharpedo ex on the Bench.
+PlayerB's (sv8-5_163) Pecharunt ex used Subjugating Chains.
+- PlayerB's (me2_127) Mega Sharpedo ex was switched with PlayerB's (me5_116) Mega Darkrai ex to become the Active Pokémon.
+- PlayerB's (me2_127) Mega Sharpedo ex is now Poisoned.
+PlayerB's (me2_127) Mega Sharpedo ex is now in the Active Spot.
+PlayerB's (me2_127) Mega Sharpedo ex used Greedy Fang on PlayerA's (me5_39) Dhelmise for 140 damage. PlayerA's (me5_39) Dhelmise took 70 more damage because of Darkness Weakness.
+- Damage breakdown:
+   • Base damage: 70 damage
+   • Weakness to Darkness: 70 damage
+   • Total damage: 140 damage
+
+- PlayerB drew 2 cards.
+PlayerA's (me5_39) Dhelmise was Knocked Out!
+(sve_5) Basic Psychic Energy was discarded from PlayerA's (me5_39) Dhelmise.
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+Opponent took all of their Prize cards. PlayerB wins.
