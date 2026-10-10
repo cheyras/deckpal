@@ -11,3 +11,17 @@ export { FRAMES, allScripts, scriptById, scriptFor } from './cards/registry.js';
 export { RandomPilot, optionCount } from './pilot/random.js';
 export type { Pilot } from './pilot/types.js';
 export { Rng, deriveSeed } from './rng.js';
+export {
+  defaultPilotFactory, isTimeout, ownTurn, runSimulation, simulate, simulateAsync,
+  type FirstTurns, type GameSummary, type KoRecord, type PilotFactory, type Side, type SimulateOptions,
+  type Simulation, type SimulationResult,
+} from './runner.js';
+export {
+  UNCREDITED, cardImpact, matchupStats, overallStats, rate, recordOf, wilson,
+  type CardImpact, type CardImpactOptions, type ImpactSplit, type LossPatterns, type MatchupStats,
+  type OverallStats, type PrizeRow, type Rate, type Record4, type SideSetup,
+} from './stats.js';
+export {
+  CAVEAT, RANDOM_PILOT_WARNING, buildReport, deckCoverage, renderReport,
+  type BuildReportInput, type CoverageLine, type DeckCoverage, type SimReport,
+} from './report.js';
