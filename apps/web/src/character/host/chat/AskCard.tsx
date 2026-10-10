@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { Button } from '../../../components/ui/Button'
 import type { AskAnswer, AskQuestion } from './askState'
 
@@ -12,6 +12,13 @@ export function AskCard({ questions, onSubmit, onSkip }: {
     questions.map(() => ({ selected: [] })),
   )
   const [otherOpen, setOtherOpen] = useState<boolean[]>(() => questions.map(() => false))
+  /**
+   * The question whose Other field the reader just opened, so it can take
+   * focus when it mounts. Only a press on "Other…" sets it: the card itself
+   * never takes focus when it docks, which on a phone would raise the keyboard
+   * over a question nobody has read yet.
+   */
+  const focusOther = useRef<number | null>(null)
 
   const update = (index: number, next: AskAnswer) => {
     setAnswers((current) => current.map((answer, at) => at === index ? next : answer))
@@ -29,6 +36,7 @@ export function AskCard({ questions, onSubmit, onSkip }: {
   }
   const toggleOther = (index: number) => {
     const opening = !otherOpen[index]
+    focusOther.current = opening ? index : null
     setOtherOpen((current) => current.map((value, at) => at === index ? opening : value))
     update(index, { selected: [], ...(opening ? { other: answers[index]?.other ?? '' } : {}) })
   }
@@ -50,11 +58,13 @@ export function AskCard({ questions, onSubmit, onSkip }: {
             // thing that tells a sighted reader a second press adds, not swaps.
             <fieldset key={index} className="min-w-0" aria-describedby={cueId}>
               <legend className="sr-only">{question.header}: {question.question}</legend>
+              {/* The legend names the group with header AND question, so the
+                  visible copy below is for sight only — read once, not twice. */}
               <div className="flex items-start gap-[9px]">
                 <span aria-hidden="true" className="decke-ask-header mt-[1px] shrink-0 rounded-full px-[8px] py-[2px] text-[10.5px] font-bold leading-[16px] uppercase tracking-[0.06em]">
                   {question.header}
                 </span>
-                <p className="min-w-0 text-[14.5px] font-semibold leading-[21px] text-text-primary">
+                <p aria-hidden="true" className="min-w-0 text-[14.5px] font-semibold leading-[21px] text-text-primary">
                   {question.question}
                 </p>
               </div>
@@ -86,7 +96,9 @@ export function AskCard({ questions, onSubmit, onSkip }: {
                 <button
                   type="button"
                   aria-pressed={Boolean(otherOpen[index])}
-                  aria-controls={inputId}
+                  // Only while the field exists: an id that resolves to nothing
+                  // is a broken relationship, not a hint.
+                  aria-controls={otherOpen[index] ? inputId : undefined}
                   onClick={() => toggleOther(index)}
                   className="decke-ask-choice rounded-[10px] border px-[10px] py-[7px] text-left text-[13px] font-semibold leading-[18px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-action-primary/50"
                 >
@@ -98,6 +110,14 @@ export function AskCard({ questions, onSubmit, onSkip }: {
                   <label htmlFor={inputId} className="sr-only">Other answer for {question.header}</label>
                   <input
                     id={inputId}
+                    // Focus follows the press that opened it, once — never a
+                    // re-render, and never the card docking on its own.
+                    ref={(element) => {
+                      if (element && focusOther.current === index) {
+                        focusOther.current = null
+                        element.focus()
+                      }
+                    }}
                     type="text"
                     maxLength={200}
                     value={answer.other ?? ''}

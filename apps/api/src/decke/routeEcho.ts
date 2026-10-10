@@ -21,8 +21,12 @@
  *       `{ type: 'data-decke-route', data: { tier, pathways, effort } }`.
  *   - CONTINUATION leg: the browser sends that `data` back as the POST body's
  *     `tierRoute` field — NOT `route`, which is the page pathname the prompt
- *     reads. A valid echo is reused verbatim and triage is skipped. An absent
- *     or invalid one is re-triaged with a Standard floor (`continuationFloor`).
+ *     reads. A valid echo's tier and pathways are reused and triage is skipped;
+ *     its effort is re-derived (`decisionFromEcho`). An absent or invalid one
+ *     is re-triaged with a Standard floor (`continuationFloor`).
+ *   - A leg that ESCALATES mid-turn (the Quick refusal retry) writes a second
+ *     part with the Standard decision, which the browser's handler takes over
+ *     the first, so the turn's later legs stay on Standard.
  *
  * ══════════════════════════════════════════════════════════════════════════════
  * WHY IT IS NOT SIGNED
@@ -40,7 +44,7 @@
  */
 import { z } from 'zod';
 import { PATHWAY_NAMES, type Effort, type PathwayName } from './pathways/names.js';
-import type { TierDecision } from './tiers.js';
+import { effortFor, type TierDecision } from './tiers.js';
 
 /** The stream part type the browser listens for. */
 export const ROUTE_ECHO_PART = 'data-decke-route' as const;
@@ -81,12 +85,19 @@ export function routeEchoFor(decision: TierDecision): RouteEcho | null {
   });
 }
 
-/** The decision a continuation leg runs on when the echo was valid. */
+/**
+ * The decision a continuation leg runs on when the echo was valid.
+ *
+ * EFFORT IS RE-DERIVED, never taken from the echo. The schema still accepts the
+ * field, because browsers send it, but `decideTier` never produces `high` below
+ * Deep, and a hand-edited `{ tier: 'standard', effort: 'high' }` must not buy
+ * it. The tier and pathways are the echo's; the effort is `effortFor` of them.
+ */
 export function decisionFromEcho(echo: RouteEcho): TierDecision {
   return {
     tier: echo.tier,
     pathways: [...echo.pathways],
-    effort: echo.effort,
+    effort: effortFor(echo.tier, echo.pathways),
     reasons: ['echo'],
   };
 }

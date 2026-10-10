@@ -105,8 +105,29 @@ test('the ask is stored with its WHOLE input, about included (S2)', () => {
     /const ask = askFromStream\(part\.toolCallId, approvalInputs\.get\(part\.toolCallId\), part\.output\)/,
     'the stored ask is not built from the streamed input as-is',
   )
-  assert.match(HOOK, /parts: \[\.\.\.message\.parts, \{ kind: 'ask' as const, id: nextId\(\), \.\.\.ask \}\]/)
+  assert.match(HOOK, /const part: AskPart = \{ kind: 'ask', id: nextId\(\), \.\.\.ask \}/)
+  assert.match(HOOK, /parts: \[\.\.\.message\.parts, part\]/)
   assert.doesNotMatch(HOOK, /\{ questions: input\.questions/, 'the ask input is rebuilt as { questions } again, dropping about')
+})
+
+test('an ask shown on a leg rides into the next leg of the same turn (S-b)', () => {
+  // `ask_user` emits no chip, so `freshCalls` over `turnChips` never replayed
+  // it: an ask beside a held write or a browser tool reached the next leg
+  // missing, and that leg ran as if the questions had been answered.
+  const send = HOOK.slice(HOOK.indexOf('const send = useCallback'), HOOK.indexOf('async function streamLeg'))
+  const loop = send.slice(send.indexOf('for (let leg = 0;'))
+  // Per LEG (the wire already carries earlier legs' asks), captured synchronously.
+  assert.match(loop, /const legAsks: AskPart\[\] = \[\]/)
+  assert.ok(loop.indexOf('const legAsks') < loop.indexOf('await streamLeg('), 'legAsks must be fresh for each leg')
+  assert.match(loop, /onAskUser: \(ask\) => \{\s*const part: AskPart = [^\n]*\n\s*legAsks\.push\(part\)/)
+  // In the prefix, before the approval answers `replayLegParts` appends last.
+  assert.match(loop, /for \(const ask of askWireParts\(legAsks\)\) parts\.push\(ask\)/)
+  assert.ok(
+    loop.indexOf('askWireParts(legAsks)') < loop.indexOf('replayLegParts({'),
+    'the ask must be in the prefix, never after the signed approval answers',
+  )
+  // And the server reads it as an open question (api/chat.mjs).
+  assert.match(CHAT, /const askedEarlierThisTurn = turnToolNames\(messages\)\.includes\('ask_user'\)/)
 })
 
 test("a continuation leg echoes this turn's route, and a new message never does", () => {

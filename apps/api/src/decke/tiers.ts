@@ -78,14 +78,38 @@ export function decideTier(o: {
   if (o.triage.wantsDeep === 'offer') raise('deep:offer');
   if (o.triage.wantsDeep === 'requested') raise('deep:requested');
 
-  const effort = tier === 'standard'
-    ? 'medium'
-    : routed.reduce<Effort>((best, name) =>
-        EFFORT_RANK[PATHWAY_META[name].quickEffort] > EFFORT_RANK[best]
-          ? PATHWAY_META[name].quickEffort
-          : best,
-      'low');
-  return { tier, pathways, effort, reasons };
+  return { tier, pathways, effort: effortFor(tier, pathways), reasons };
+}
+
+/**
+ * The effort a tier runs at for these pathways — the ONE rule.
+ *
+ * Standard runs at `medium` and Deep at `high`; Quick takes the highest
+ * `quickEffort` among the pathways (`general` when there are none). Exported so
+ * a continuation leg re-derives effort from the echoed tier and pathways
+ * instead of trusting the browser's copy: `decideTier` never produces `high`
+ * below Deep, and an echo must not be able to buy it (`routeEcho.ts`).
+ */
+export function effortFor(tier: TierName, pathways: readonly PathwayName[]): Effort {
+  if (tier === 'deep') return 'high';
+  if (tier === 'standard') return 'medium';
+  const routed = pathways.length > 0 ? pathways : ['general'] as const;
+  return routed.reduce<Effort>((best, name) =>
+    EFFORT_RANK[PATHWAY_META[name].quickEffort] > EFFORT_RANK[best]
+      ? PATHWAY_META[name].quickEffort
+      : best,
+  'low');
+}
+
+/** The same decision on Standard, with the reason it was raised. Deep is left alone. */
+export function raisedToStandard(decision: TierDecision, reason: string): TierDecision {
+  if (decision.tier !== 'quick') return decision;
+  return {
+    ...decision,
+    tier: 'standard',
+    effort: effortFor('standard', decision.pathways),
+    reasons: [...decision.reasons, reason],
+  };
 }
 
 /**
@@ -102,13 +126,26 @@ export function decideTier(o: {
  * Standard job on Quick is the misroute the floors exist to prevent.
  */
 export function continuationFloor(decision: TierDecision): TierDecision {
-  if (decision.tier !== 'quick') return decision;
-  return {
-    ...decision,
-    tier: 'standard',
-    effort: 'medium',
-    reasons: [...decision.reasons, 'continuation:no_echo'],
-  };
+  return raisedToStandard(decision, 'continuation:no_echo');
+}
+
+/**
+ * Whether this request RESUMES an approval: the last model message is a tool
+ * message carrying a `tool-approval-response`.
+ *
+ * That is exactly where ai@7 looks (`collectToolApprovals` reads only the last
+ * message) before it EXECUTES every approved call ahead of step 0. A second
+ * `streamText` over the same messages therefore executes the approved write a
+ * second time. Deliberately conservative: any approval response counts, even
+ * one whose call already has a result, so this can only refuse a retry, never
+ * permit a double write.
+ */
+export function resumesApproval(
+  modelMessages: ReadonlyArray<{ role?: unknown; content?: unknown }>,
+): boolean {
+  const last = modelMessages.at(-1);
+  if (last?.role !== 'tool' || !Array.isArray(last.content)) return false;
+  return last.content.some((part) => (part as { type?: unknown } | null)?.type === 'tool-approval-response');
 }
 
 /**
@@ -125,13 +162,23 @@ export function continuationFloor(decision: TierDecision): TierDecision {
  * REPEATS them (twice the chips, twice the cost), and a write held on an
  * approval card would be raised a second time. A valid call counts whether it
  * ran or is held; a call that failed its schema never ran and does not.
+ *
+ * AND NEVER ON A LEG THAT RESUMES AN APPROVAL (`resumesApproval`). The approved
+ * write ran before Quick's first step and is in none of its `steps`, so the
+ * data-tool check cannot see it — and the retry, over the same messages, would
+ * run it again. Only `log_cards` is idempotent by call id; `add_battle_log`,
+ * `save_deck` and `edit_list` would write twice. This is narrower than "first
+ * legs only": a leg resumed from a browser tool (`goTo`, `journey`) re-executes
+ * nothing, so it keeps the safety net.
  */
 export function quickRefusalRetry(o: {
   tier: TierName;
   finishReason: unknown;
   steps: ReadonlyArray<{ toolCalls?: ReadonlyArray<{ toolName: string; invalid?: boolean }> | null }>;
   isDataTool: (toolName: string) => boolean;
+  resumingApproval: boolean;
 }): boolean {
+  if (o.resumingApproval) return false;
   if (o.tier !== 'quick' || o.finishReason !== 'content-filter') return false;
   return !o.steps.some((step) =>
     (step.toolCalls ?? []).some((call) => call.invalid !== true && o.isDataTool(call.toolName)),

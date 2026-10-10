@@ -90,3 +90,21 @@ export function askedThisStep(steps: ReadonlyArray<AskStep>): boolean {
 export function askedThisTurn(steps: ReadonlyArray<AskStep>): boolean {
   return steps.some(askedIn);
 }
+
+/**
+ * The system note for a leg that follows an ask card in the SAME turn.
+ *
+ * An ask can share its step with a held write or a browser tool. The reader
+ * approves the write (consent for that write, nothing more) or the browser
+ * finishes moving, and the turn resumes with the questions still unanswered.
+ * `api/chat.mjs` withholds new tool calls on that leg (`toolChoice: 'none'`);
+ * this says why, so the one thing left to write is not an answer to questions
+ * nobody has answered.
+ */
+export function askPendingInstruction(): string {
+  return (
+    'Earlier in this turn you asked the reader questions on a card, and they have not answered yet. ' +
+    'In one short line, say what just finished (a change they approved, or where you are now), ' +
+    'then stop. Do not assume their answers or continue the work the questions are for.'
+  );
+}

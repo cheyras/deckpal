@@ -59,6 +59,14 @@ const routedLegReply = () => sse(
   { type: 'tool-input-available', toolCallId: 'scroll-1', toolName: 'scrollToMe', input: {} },
 )
 const answerReply = () => sse({ type: 'text-delta', delta: 'Thanks — I can continue now.' })
+// An ask that shares its leg with a browser tool. The leg after the tool runs
+// must carry the ask, or the server cannot tell the question is still open.
+const askBesideToolReply = () => sse(
+  { type: 'data-decke-route', data: ROUTE },
+  { type: 'text-delta', delta: 'Two quick choices, and let me get into view.' },
+  ...askChunks('ask-beside'),
+  { type: 'tool-input-available', toolCallId: 'scroll-2', toolName: 'scrollToMe', input: {} },
+)
 
 const rect = locator => locator.evaluate(element => {
   const box = element.getBoundingClientRect()
@@ -218,10 +226,14 @@ export async function checkAskCard(browser, server, out) {
       assert.equal(await optionButtons[4].getAttribute('aria-pressed'), 'true', 'multi-select did not retain both choices')
 
       const other = format.getByRole('button', { name: 'Other…' })
+      assert.equal(await other.getAttribute('aria-controls'), null, 'a closed Other controls an input that is not there')
       await other.click()
       assert.equal(await other.getAttribute('aria-pressed'), 'true')
       const otherInput = format.getByRole('textbox', { name: 'Other answer for Format' })
       await otherInput.waitFor()
+      // The press that opened it moves focus in, and the control names it.
+      assert.ok(await otherInput.evaluate(element => element === document.activeElement), 'focus did not move into the Other field')
+      assert.equal(await other.getAttribute('aria-controls'), await otherInput.getAttribute('id'))
       assert.ok(await settledPark(page, card, width))
       await page.screenshot({ path: path.join(out, 'ask-card-' + width + '.png'), fullPage: true })
 
@@ -289,8 +301,30 @@ export async function checkAskCard(browser, server, out) {
       await page.waitForFunction(() => window.askChat.busy === false)
       assert.equal('tierRoute' in bodies[8], false, 'a new reader message carried the previous turn\'s route')
 
+      // ── AN ASK BESIDE A BROWSER TOOL ───────────────────────────────────────
+      // `ask_user` emits no chip, so the leg loop's chip replay never carried
+      // it: the continuation arrived without the question and ran as if it had
+      // been answered. The leg's own assistant message must hold the ask, with
+      // the browser tool's result still last.
+      replies.push(askBesideToolReply)
+      await page.evaluate(() => window.askChat.send('Show me, and ask what you need.'))
+      await waitForPosts(page, bodies, 11)
+      await page.waitForFunction(() => window.askChat.busy === false)
+      const resumed = bodies[10]
+      assert.deepEqual(resumed.tierRoute, ROUTE, 'the continuation leg did not echo the route')
+      const legMessage = resumed.messages.at(-1)
+      assert.equal(legMessage?.role, 'assistant')
+      const replayedAsk = legMessage.parts.find(part => part.type === 'tool-ask_user')
+      assert.ok(replayedAsk, 'the continuation leg dropped the ask its first leg showed')
+      assert.equal(replayedAsk.toolCallId, 'ask-beside')
+      assert.equal(replayedAsk.state, 'output-available')
+      assert.deepEqual(replayedAsk.input, ASK_INPUT, 'the replayed ask lost part of its input')
+      assert.equal(legMessage.parts.at(-1)?.type, 'tool-scrollToMe', 'the browser tool result is no longer last')
+      assert.equal(legMessage.parts.filter(part => part.type === 'tool-ask_user').length, 1, 'the ask was replayed twice')
+      await card.waitFor()
+
       results.push({ case: 'ask-card', width, docked: true, selection: true, submitWire: true, skipWire: true,
-        askOnlyWire: true, announced: true, multiCue: true, routeEcho: true })
+        askOnlyWire: true, announced: true, multiCue: true, routeEcho: true, askBesideTool: true })
     } finally {
       await context.close()
     }

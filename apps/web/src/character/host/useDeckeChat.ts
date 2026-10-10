@@ -1309,6 +1309,14 @@ export function useDeckeChat(
           applyActivity(animatorRef.current!.legStarted())
           let legTextStarted = false
           const legStartedAt = Date.now()
+          /**
+           * The asks THIS leg docked, synchronously, like `turnChips`. An ask
+           * emits no chip, so `freshCalls` below never replays it — and an ask
+           * that shared its step with a held write or a browser tool reached
+           * the next leg missing, which then ran as if the questions had been
+           * answered. Per leg because `wire` already carries earlier legs'.
+           */
+          const legAsks: AskPart[] = []
           const requestWire = fitCurrentTurn(wire, {
             isServerTool: (name) => !isClientTool(name),
             summaryFor: (toolCallId) => currentTurnSummaries.get(toolCallId),
@@ -1376,9 +1384,11 @@ export function useDeckeChat(
               ))
             },
             onAskUser: (ask) => {
+              const part: AskPart = { kind: 'ask', id: nextId(), ...ask }
+              legAsks.push(part)
               setMessages((all) => all.map((message) =>
                 message.id === replyId
-                  ? { ...message, parts: [...message.parts, { kind: 'ask' as const, id: nextId(), ...ask }] }
+                  ? { ...message, parts: [...message.parts, part] }
                   : message,
               ))
             },
@@ -1613,6 +1623,13 @@ export function useDeckeChat(
           if (record) {
             parts.push(record)
           }
+          // ── AND WHAT HE ASKED ON THIS LEG ─────────────────────────────────
+          //
+          // In the PREFIX, before the approval answers `replayLegParts` puts
+          // last. The server reads a replayed ask as a question still open in
+          // this turn: the leg after it finishes the approved write or the
+          // walk, says so, and stops, instead of proceeding as if answered.
+          for (const ask of askWireParts(legAsks)) parts.push(ask)
           const recordedIds = new Set([
             ...mark,
             ...answeredHere,

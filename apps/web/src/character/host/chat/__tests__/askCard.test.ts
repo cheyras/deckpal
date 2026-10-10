@@ -48,5 +48,25 @@ test('duplicate option labels both render, keyed by position', () => {
 
 test('nothing in the card takes focus on its own (iPhone keyboard rule)', () => {
   const src = readFileSync(new URL('../AskCard.tsx', import.meta.url), 'utf8')
-  assert.doesNotMatch(src, /autoFocus|\.focus\(/)
+  assert.doesNotMatch(src, /autoFocus/)
+  // The ONE focus call is the Other field taking focus after the reader pressed
+  // "Other…" — a keyboard they asked for, not one the docking card raised.
+  assert.equal(src.match(/\.focus\(/g)?.length, 1)
+  assert.match(src, /if \(element && focusOther\.current === index\) \{\s*focusOther\.current = null\s*element\.focus\(\)/)
+  assert.equal(src.match(/focusOther\.current = /g)?.length, 2, 'only the Other press (and the one-shot reset) may request focus')
+  assert.match(src, /const toggleOther = [\s\S]{0,120}focusOther\.current = opening \? index : null/)
+})
+
+test('the question is read once: the legend names it, the visible copy is hidden from AT', () => {
+  const first = group(render(questions), 0)
+  assert.match(first, /<legend class="sr-only">Format: Which format\?<\/legend>/)
+  assert.match(first, /<p aria-hidden="true"[^>]*>Which format\?<\/p>/)
+  assert.equal(first.match(/Which format\?/g)?.length, 2, 'legend + hidden visible copy, nothing else')
+})
+
+test('Other… controls its field only while the field exists', () => {
+  const html = render(questions)
+  assert.doesNotMatch(html, /aria-controls=/, 'a closed Other points at an input that is not rendered')
+  const src = readFileSync(new URL('../AskCard.tsx', import.meta.url), 'utf8')
+  assert.match(src, /aria-controls=\{otherOpen\[index\] \? inputId : undefined\}/)
 })

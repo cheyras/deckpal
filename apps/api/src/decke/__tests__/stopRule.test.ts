@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { generateText, hasToolCall, stepCountIs, type Tool } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
-import { COSMETIC_TOOLS, askedThisStep, askedThisTurn, spokeAndSettled } from '../stopRule.js';
+import { COSMETIC_TOOLS, askPendingInstruction, askedThisStep, askedThisTurn, spokeAndSettled } from '../stopRule.js';
 import { buildTools } from '../tools.js';
 
 const USAGE = {
@@ -97,4 +97,12 @@ test('in the real SDK a malformed ask no longer ends the turn; the corrected ask
   const ours = await generateText({ model, tools, prompt: 'build me a deck', stopWhen: [stepCountIs(5), ({ steps }) => askedThisStep(steps)] });
   assert.equal(ours.steps.length, 2, 'the loop continued past the invalid ask and stopped on the valid one');
   assert.equal(askedThisTurn(ours.steps), true);
+});
+
+test('a leg after an open ask is told it may not act on answers it has not been given (S-b)', () => {
+  const note = askPendingInstruction();
+  assert.match(note, /have not answered/);
+  assert.match(note, /one short line/i);
+  assert.match(note, /then stop/i);
+  assert.match(note, /Do not assume their answers/);
 });

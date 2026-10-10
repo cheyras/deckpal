@@ -2,7 +2,19 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { answeringAsk, carriedFromHistory, continuationFloor, decideTier, quickRefusalRetry } from '../tiers.js';
+import { convertToModelMessages, streamText, tool } from 'ai';
+import { MockLanguageModelV3 } from 'ai/test';
+import { z } from 'zod';
+import {
+  answeringAsk,
+  carriedFromHistory,
+  continuationFloor,
+  decideTier,
+  effortFor,
+  quickRefusalRetry,
+  raisedToStandard,
+  resumesApproval,
+} from '../tiers.js';
 import type { Triage, TriageSignal } from '../triage.js';
 
 function triage(
@@ -147,7 +159,7 @@ test('a continuation with no usable echo is re-triaged but never below Standard'
 test('a Quick refusal retries on Standard only when no data tool was invoked', () => {
   const isDataTool = (name: string) => !['express', 'showScreen', 'ask_user', 'goTo'].includes(name);
   const retry = (o: Partial<Parameters<typeof quickRefusalRetry>[0]>) => quickRefusalRetry({
-    tier: 'quick', finishReason: 'content-filter', steps: [], isDataTool, ...o,
+    tier: 'quick', finishReason: 'content-filter', steps: [], isDataTool, resumingApproval: false, ...o,
   });
   // The progress line that killed the old "no text anywhere" condition is fine now.
   assert.equal(retry({ steps: [{ toolCalls: [] }] }), true);
@@ -161,6 +173,89 @@ test('a Quick refusal retries on Standard only when no data tool was invoked', (
   assert.equal(retry({ finishReason: 'stop' }), false);
   assert.equal(retry({ finishReason: 'tool-calls' }), false);
   assert.equal(retry({ tier: 'standard' }), false);
+  // B1: never on a leg resuming an approval, even with no tool in any step.
+  assert.equal(retry({ resumingApproval: true }), false);
+});
+
+// ── B1: THE APPROVED WRITE RUNS BEFORE STEP 0, SO A RETRY RUNS IT AGAIN ──────
+
+const STOP_MODEL = () => new MockLanguageModelV3({
+  doStream: async () => ({
+    stream: new ReadableStream({
+      start(controller) {
+        controller.enqueue({ type: 'stream-start', warnings: [] });
+        controller.enqueue({
+          type: 'finish',
+          finishReason: { unified: 'content-filter', raw: 'refusal' },
+          usage: {
+            inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+            outputTokens: { total: 1, text: 1, reasoning: 0 },
+          },
+        });
+        controller.close();
+      },
+    }),
+  }),
+});
+
+test('a leg resuming an approval is read from the same model messages the SDK executes from', async () => {
+  let writes = 0;
+  const tools = {
+    add_battle_log: tool({
+      inputSchema: z.object({ log: z.string() }),
+      needsApproval: true,
+      execute: async () => { writes += 1; return 'logged'; },
+    }),
+  };
+  const user = { id: 'u1', role: 'user' as const, parts: [{ type: 'text' as const, text: 'log this game' }] };
+  const approved = {
+    id: 'a1',
+    role: 'assistant' as const,
+    parts: [{
+      type: 'tool-add_battle_log' as const,
+      toolCallId: 'call-1',
+      state: 'approval-responded' as const,
+      input: { log: '@pasted' },
+      approval: { id: 'approval-1', approved: true },
+    }],
+  };
+  const resumed = await convertToModelMessages([user, approved] as never, { tools });
+  assert.equal(resumesApproval(resumed), true);
+
+  // THE PREMISE, through ai@7 itself: a Quick leg that refuses has already run
+  // the write (outside its steps), and a retry over the same messages runs it again.
+  for (const _ of [0, 1]) {
+    const leg = streamText({ model: STOP_MODEL(), tools, messages: resumed });
+    await leg.consumeStream();
+    assert.deepEqual((await leg.steps).flatMap((step) => step.toolCalls), [], 'the write is in no step');
+  }
+  assert.equal(writes, 2, 'premise: each streamText over a resumed approval executes the write');
+
+  // Not a resume: a first leg, and a leg resumed from a browser tool.
+  assert.equal(resumesApproval(await convertToModelMessages([user] as never)), false);
+  const browser = {
+    id: 'a2',
+    role: 'assistant' as const,
+    parts: [{ type: 'tool-goTo' as const, toolCallId: 'call-2', state: 'output-available' as const, input: { route: '/decks' }, output: { ok: true } }],
+  };
+  assert.equal(resumesApproval(await convertToModelMessages([user, browser] as never)), false);
+  // A denial is a response too; refusing the retry there costs nothing.
+  const denied = { ...approved, parts: [{ ...approved.parts[0]!, approval: { id: 'approval-1', approved: false } }] };
+  assert.equal(resumesApproval(await convertToModelMessages([user, denied] as never, { tools })), true);
+});
+
+test('effort is one rule, and raising to Standard re-derives it', () => {
+  assert.equal(effortFor('quick', ['navigate']), 'low');
+  assert.equal(effortFor('quick', ['navigate', 'price_value']), 'medium');
+  assert.equal(effortFor('quick', []), 'medium', 'no pathway is general');
+  assert.equal(effortFor('standard', ['small_talk']), 'medium');
+  assert.equal(effortFor('deep', ['small_talk']), 'high');
+  const quick = decideTier({ triage: triage('navigate'), carried: clear, deepApproved: false });
+  const raised = raisedToStandard(quick, 'retry:refusal');
+  assert.deepEqual([raised.tier, raised.effort, raised.pathways], ['standard', 'medium', ['navigate']]);
+  assert.deepEqual(raised.reasons, ['floor:navigate', 'retry:refusal']);
+  const deep = decideTier({ triage: triage('navigate'), carried: clear, deepApproved: true });
+  assert.equal(raisedToStandard(deep, 'x'), deep, 'Deep is never lowered');
 });
 
 test('every carried guard substring is pinned to the reader-facing server note', () => {

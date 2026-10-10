@@ -197,7 +197,7 @@ test('the same ledger narrows activeTools, so a spent tier leaves the model\'s v
 test('the model loop uses the post-lookup settling rule from the built module', () => {
   assert.match(
     SRC,
-    /import \{ askedThisStep, askedThisTurn, spokeAndSettled \} from '\.\.\/apps\/api\/dist\/decke\/stopRule\.js'/,
+    /import \{ askedThisStep, askedThisTurn, askPendingInstruction, spokeAndSettled \} from '\.\.\/apps\/api\/dist\/decke\/stopRule\.js'/,
     'the shared stop rule is no longer imported',
   );
   assert.match(CODE, /\(\{ steps \}\) => spokeAndSettled\(steps\)/);
@@ -221,9 +221,21 @@ test('an untouched latest-message paste gets the bounded three-step logging back
   assert.match(CODE, /anyApprovalPending,/);
   assert.match(CODE, /corrective = 'add_battle_log'/);
   assert.match(CODE, /delta: pasteBackstop \? PASTE_BACKSTOP_LINE : CORRECTION_LINE/);
-  assert.match(CODE, /pasteRecovery \? pasteBackstopInstruction\(\) : correctiveInstruction\(corrective\)/);
+  assert.match(CODE, /pasteRecovery \? pasteBackstopInstruction\(\{ afterAsk: pasteAwaitingAnswer \}\) : correctiveInstruction\(corrective\)/);
   assert.match(CODE, /stopWhen: pasteRecovery \? stepCountIs\(3\) : stepCountIs\(1\)/);
   assert.match(CODE, /if \(!asked\) writer\.write\([^\n]*CORRECTION_FAILED_LINE/);
+});
+
+test('an ask raised over a paste DEFERS the backstop to the leg that answers it (S-a)', () => {
+  // On the paste turn `askedReader` suppresses it; on the answer turn the paste
+  // is no longer in the latest message. Without this the log could never land.
+  assert.match(SRC, /pastedBeforeAnsweredAsk,\s*\} from '\.\.\/apps\/api\/dist\/decke\/pasteBackstop\.js'/);
+  assert.match(CODE, /const pasteAwaitingAnswer = !pastedNow && pastedBeforeAnsweredAsk\(messages\)/);
+  assert.match(CODE, /pasteBackstopNeeded\(\{\s*pastedInLatestUserMessage,\s*pastedBeforeAnsweredAsk: pasteAwaitingAnswer,/);
+  // The answer leg routes with battle_log (the @pasted rule) and an audit-chosen
+  // log correction there gets the same three-step recovery.
+  assert.match(CODE, /pastedLog: pastedNow \|\| pasteAwaitingAnswer/);
+  assert.match(CODE, /const auditPasteRecovery = fixable === 'add_battle_log' && \(pastedInLatestUserMessage \|\| pasteAwaitingAnswer\)/);
 });
 
 test('a pending approval blocks every corrective model leg', () => {
@@ -242,7 +254,8 @@ test('a pending approval blocks every corrective model leg', () => {
 
 test('a valid ask card blocks the audit, its corrective leg and the paste backstop (S4)', () => {
   // An approval for a guessed log must never dock above "which deck was this?".
-  assert.match(CODE, /const askedReader = askedThisTurn\(steps\)/);
+  // An ask from an earlier leg of this turn (S-b) counts: it is still open.
+  assert.match(CODE, /const askedReader = askedThisTurn\(steps\) \|\| askedEarlierThisTurn/);
   assert.match(CODE, /const audit = calledToolNames\.some\(\(n\) => CLIENT_SET\.has\(n\)\) \|\| askedReader\s*\? null/);
   assert.match(CODE, /if \(fixable && !anyApprovalPending && !askedReader && steps\.length \+ correctionSteps <= MAX_STEPS\)/);
   assert.match(CODE, /pasteBackstopNeeded\(\{[\s\S]*turnTroubled,\s*askedReader,\s*\}\)/);
@@ -250,10 +263,22 @@ test('a valid ask card blocks the audit, its corrective leg and the paste backst
   assert.ok(CODE.indexOf('const askedReader = askedThisTurn(steps)') < CODE.indexOf('const audit = '));
 });
 
+test('a leg after an ask in the same turn finishes the approved work and ends (S-b)', () => {
+  // The browser replays the ask beside a held write or a browser tool; the
+  // reader's approval is consent for that write only, never an answer.
+  assert.match(CODE, /const askedEarlierThisTurn = turnToolNames\(messages\)\.includes\('ask_user'\)/);
+  assert.match(SRC, /import \{ askedThisStep, askedThisTurn, askPendingInstruction, spokeAndSettled \}/);
+  // No new tool calls (the approved write itself runs before step 0)...
+  assert.match(CODE, /\.\.\.\(askedEarlierThisTurn\s*\? \{ toolChoice: 'none' \}\s*: stepNumber === 0 && reflex\.force/);
+  // ...one step, and told why.
+  assert.match(CODE, /\(\) => askedEarlierThisTurn,/);
+  assert.match(CODE, /instructions: instructionsFor\(choice, askedEarlierThisTurn \? askPendingInstruction\(\) : undefined\)/);
+});
+
 test('an audit-chosen battle-log correction gets the three-step pasted-log recovery', () => {
   assert.match(
     CODE,
-    /const auditPasteRecovery = fixable === 'add_battle_log' && pastedInLatestUserMessage/,
+    /const auditPasteRecovery = fixable === 'add_battle_log' && \(pastedInLatestUserMessage \|\| pasteAwaitingAnswer\)/,
   );
   assert.match(CODE, /const correctionSteps = auditPasteRecovery \? 3 : 1/);
   assert.match(CODE, /pasteRecovery = auditPasteRecovery/);
@@ -292,8 +317,10 @@ test('the model is shown the window, and the prompt the bounded page context', (
 });
 
 test('the charge reference carries the exchange, so two new exchanges with the same window differ (Astra)', () => {
-  // And the validated route echo, which chooses the model the leg runs on.
-  assert.match(CODE, /chatChargeReference\(conversationId, messages, route, landmarks, \{ exchangeId, seq \}, tierRoute\)/);
+  // And the route echo — only when it is USED (a continuation leg), so a first
+  // leg's identity cannot depend on a body field it ignores.
+  assert.match(CODE, /chatChargeReference\(conversationId, messages, route, landmarks, \{ exchangeId, seq \}, echoed\)/);
+  assert.ok(CODE.indexOf('const echoed = firstLeg ? null : readRouteEcho(body?.tierRoute)') < CODE.indexOf('reference = chatChargeReference('));
 });
 
 test('dropped replies\' evidence reaches the two ledgers and never the model', () => {
@@ -335,10 +362,10 @@ test('the reflex read runs after the meter, from the built module, with the turn
 
 test('triage is metered beside reflex and code chooses the conversation tier', () => {
   assert.match(SRC, /import \{ runTriage \} from '\.\.\/apps\/api\/dist\/decke\/triage\.js'/);
-  assert.match(SRC, /import \{ answeringAsk, carriedFromHistory, continuationFloor, decideTier, quickRefusalRetry \} from '\.\.\/apps\/api\/dist\/decke\/tiers\.js'/);
+  assert.match(SRC, /import \{ answeringAsk, carriedFromHistory, continuationFloor, decideTier, quickRefusalRetry, raisedToStandard, resumesApproval \} from '\.\.\/apps\/api\/dist\/decke\/tiers\.js'/);
   assert.match(CODE, /runTriage\(\{[\s\S]*message: latestUserText\(messages\)[\s\S]*model: observeUsageModel\(gateway\(TRIAGE\.id\), meter\)/);
   assert.match(CODE, /answering: answeringAsk\(messages\)/);
-  assert.match(CODE, /decision = decideTier\(\{ triage, carried: carriedFromHistory\(messages\), deepApproved: false, pastedLog: pastedNow \}\)/);
+  assert.match(CODE, /decision = decideTier\(\{ triage, carried: carriedFromHistory\(messages\), deepApproved: false, pastedLog: pastedNow \|\| pasteAwaitingAnswer \}\)/);
   // Deep stays behind a signed reader choice that does not exist on this branch.
   assert.doesNotMatch(CODE, /deepApproved: (?!false\b)/);
   assert.match(CODE, /const choice = TIERS\[decision\.tier\]/);
@@ -364,14 +391,15 @@ test('a pasted log in the latest message reaches decideTier (S6), read from that
 
 test('the echo is read from `tierRoute`, never from `route` (the page)', () => {
   assert.match(SRC, /import \{ ROUTE_ECHO_PART, decisionFromEcho, readRouteEcho, routeEchoFor \} from '\.\.\/apps\/api\/dist\/decke\/routeEcho\.js'/);
-  assert.match(CODE, /const tierRoute = readRouteEcho\(body\?\.tierRoute\)/);
+  assert.match(CODE, /readRouteEcho\(body\?\.tierRoute\)/);
   assert.doesNotMatch(CODE, /readRouteEcho\(body\?\.route\)/);
   assert.match(CODE, /const route = boundedRoute\(body\?\.route\)/, 'the page pathname must stay `route`');
 });
 
 test('a first leg triages and writes the transient route part; a continuation reuses a valid echo', () => {
   assert.match(CODE, /const firstLeg = turnToolNames\(messages\)\.length === 0/);
-  assert.match(CODE, /const echoed = firstLeg \? null : tierRoute/);
+  // The echo is not even read on a first leg.
+  assert.match(CODE, /const echoed = firstLeg \? null : readRouteEcho\(body\?\.tierRoute\)/);
   // Triage is SKIPPED, not merely overridden, when the echo is reused.
   assert.match(CODE, /echoed \? null : runAdvisoryUsage\(usage, 'triage'/);
   assert.match(CODE, /if \(echoed\) \{\s*decision = decisionFromEcho\(echoed\)/);
@@ -399,7 +427,7 @@ test('the selected pathway prompt is an instructions array with only stable regi
   assert.match(CODE, /systemMessage\(choice, corePrompt, true\)/);
   assert.match(CODE, /systemMessage\(choice, requestPathway, true\)/);
   assert.match(CODE, /systemMessage\(choice, volatileContext\)/);
-  assert.match(CODE, /instructions: instructionsFor\(choice\)/);
+  assert.match(CODE, /instructions: instructionsFor\(choice, askedEarlierThisTurn \? askPendingInstruction\(\) : undefined\)/);
   assert.match(CODE, /messages: cacheConversation\(choice, messages\)/);
 });
 
@@ -412,9 +440,26 @@ test('only a VALID ask_user stops the loop, and a Quick refusal before any data 
   // The refusal retry no longer waits for "no text anywhere".
   assert.match(
     CODE,
-    /if \(quickRefusalRetry\(\{\s*tier: decision\.tier,\s*finishReason: quickFinish,\s*steps: quickSteps,\s*isDataTool: \(name\) => !SERVER_SET\.has\(name\) && !CLIENT_SET\.has\(name\),\s*\}\)\) \{/,
+    /if \(quickRefusalRetry\(\{\s*tier: decision\.tier,\s*finishReason: quickFinish,\s*steps: quickSteps,\s*isDataTool: \(name\) => !SERVER_SET\.has\(name\) && !CLIENT_SET\.has\(name\),\s*resumingApproval: resumesApproval\(preparedMessages\),\s*\}\)\) \{/,
   );
-  assert.match(CODE, /const retry = startConversation\(TIERS\.standard, 'medium'\)/);
+  assert.match(CODE, /const retry = startConversation\(TIERS\.standard, escalated\.effort\)/);
+});
+
+test('the refusal retry never re-runs an approved write, and moves the turn\'s echo to Standard (B1)', () => {
+  // ai@7 executes approved calls from the incoming messages before step 0; a
+  // second streamText over the same `preparedMessages` would execute them again.
+  // `resumesApproval` reads the SAME model messages the retry would send.
+  const retryBlock = CODE.slice(CODE.indexOf('if (quickRefusalRetry({'), CODE.indexOf('result = retry'));
+  assert.match(retryBlock, /resumingApproval: resumesApproval\(preparedMessages\)/);
+  assert.match(retryBlock, /const retry = startConversation\(TIERS\.standard, escalated\.effort\)/);
+  // A second route part, written BEFORE the retry starts, so the browser's echo
+  // (still Quick) is replaced and an approval the retry raises resumes on Standard.
+  assert.match(retryBlock, /const escalated = raisedToStandard\(decision, 'retry:refusal'\)/);
+  assert.match(retryBlock, /const escalatedEcho = routeEchoFor\(escalated\)/);
+  assert.match(retryBlock, /writer\.write\(\{ type: ROUTE_ECHO_PART, data: escalatedEcho, transient: true \}\)/);
+  assert.ok(retryBlock.indexOf('ROUTE_ECHO_PART') < retryBlock.indexOf('startConversation('));
+  // `[deck-e] route` stays one line per request.
+  assert.equal(CODE.match(/console\.log\('\[deck-e\] route',/g)?.length, 1);
 });
 
 test('only replayed approval denials reach the declined ledger', () => {
@@ -461,7 +506,7 @@ test('the corrective leg keeps Anthropic adaptive, signed and bounded to one aud
   assert.match(leg, /toolChoice: isAnthropic\(TIERS\.standard\) \? 'auto' : \{ type: 'tool', toolName: corrective \}/);
   assert.match(leg, /stopWhen: pasteRecovery \? stepCountIs\(3\) : stepCountIs\(1\)/);
   assert.match(leg, /experimental_toolApprovalSecret: process\.env\.DECKE_APPROVAL_SECRET/);
-  assert.match(leg, /instructions: instructionsFor\(\s*TIERS\.standard,\s*pasteRecovery \? pasteBackstopInstruction\(\) : correctiveInstruction\(corrective\),/);
+  assert.match(leg, /instructions: instructionsFor\(\s*TIERS\.standard,\s*pasteRecovery \? pasteBackstopInstruction\(\{ afterAsk: pasteAwaitingAnswer \}\) : correctiveInstruction\(corrective\),/);
   assert.match(leg, /model: observeUsageModel\(gateway\(TIERS\.standard\.id\), meter\)/, 'the leg must be metered like any step');
   assert.match(leg, /maxOutputTokens: budgetFor\(TIERS\.standard\)/);
 });
