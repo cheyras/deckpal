@@ -170,6 +170,10 @@ export const DECLINED_REASON =
   '[[NO_WORK]] The reader said no to this exact change. Nothing changed. Do not ask ' +
   'again for the same change; carry on with what they say next.'
 
+/** A Deep Think decline means answer this request on the ordinary tier. */
+export const DEEP_THINK_DECLINED_REASON =
+  '[[KEEP_QUICK]] The reader declined Deep Think for this request. Continue now with a useful quick answer; do not ask again.'
+
 /** What a denial says when the turn was abandoned rather than answered. */
 export const ABANDONED_REASON = 'the reader did not answer'
 
@@ -209,7 +213,7 @@ export function approvalReplayPart(
    * an empty reason reads to the model as no reason at all, which is the
    * silence this field exists to remove.
    */
-  reason: string = DECLINED_REASON,
+  reason: string = a.name === 'deep_think' ? DEEP_THINK_DECLINED_REASON : DECLINED_REASON,
 ): ApprovalReplayPart {
   return {
     type: `tool-${a.name}`,

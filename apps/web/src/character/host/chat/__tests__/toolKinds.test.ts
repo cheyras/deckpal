@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { activityIconFor, iconFor, kindOf, labelFor, motionFor } from '../toolKinds.js'
-const registry = ['health', 'collection_summary', 'collection_log', 'collection_value', 'search_cards', 'get_card', 'set_progress', 'decks', 'save_deck', 'delete_deck', 'check_deck', 'deck_odds', 'simulate_battles', 'deck_strategy', 'add_battle_log', 'battle_logs', 'deck_history', 'edit_battle_log', 'delete_battle_log', 'lists', 'edit_list', 'delete_list', 'log_cards', 'set_cart', 'mutation_history', 'revert']
+const registry = ['health', 'collection_summary', 'collection_log', 'collection_value', 'search_cards', 'get_card', 'set_progress', 'decks', 'save_deck', 'delete_deck', 'check_deck', 'deck_odds', 'simulate_battles', 'deck_strategy', 'add_battle_log', 'battle_logs', 'deck_history', 'edit_battle_log', 'delete_battle_log', 'lists', 'edit_list', 'delete_list', 'log_cards', 'set_cart', 'mutation_history', 'revert', 'deep_think']
 test('every registry tool has a meaningful activity kind', () => { for (const name of registry) assert.notEqual(kindOf(name), 'other', name) })
 test('labels are readable and switch tense when done', () => { const running = labelFor({ name: 'search_cards', phase: 'start', args: { name: 'Dragapult' } }); const done = labelFor({ name: 'search_cards', phase: 'ok', args: { name: 'Dragapult' } }); assert.equal(running, 'Looking up Dragapult'); assert.equal(done, 'Looked up Dragapult'); for (const label of [running, done]) assert.ok(!label.includes('_') && !label.includes('{')) })
 test('a server status label wins', () => assert.equal(labelFor({ name: 'web_research', phase: 'start', label: 'Searching: tournament results' }), 'Searching: tournament results'))
@@ -9,6 +9,7 @@ test('a finished server status label changes tense', () => assert.equal(labelFor
 test('declined work is skipped without claiming it finished', () => assert.equal(labelFor({ name: 'save_deck', phase: 'declined' }), 'Skipped that change'))
 test('set_cart is price work with its own running and finished labels', () => { assert.equal(kindOf('set_cart'), 'prices'); assert.equal(labelFor({ name: 'set_cart', phase: 'start' }), 'Building your cart'); assert.equal(labelFor({ name: 'set_cart', phase: 'ok' }), 'Built your cart') })
 test('deck_odds is deck checking with its own running and finished labels', () => { assert.equal(kindOf('deck_odds'), 'check'); assert.equal(labelFor({ name: 'deck_odds', phase: 'start' }), 'Working out the odds'); assert.equal(labelFor({ name: 'deck_odds', phase: 'ok' }), 'Worked out the odds') })
+test('Deep Think distinguishes the consent ask from an approved run', () => { assert.equal(labelFor({ name: 'deep_think', phase: 'start' }), 'Asking about Deep Think'); assert.equal(labelFor({ name: 'deep_think', phase: 'ok' }), 'Used Deep Think') })
 test('waiting for approval has its own static decision icon', () => {
   assert.equal(iconFor('collection'), 'cards')
   assert.equal(activityIconFor('collection', true), 'check-circle')

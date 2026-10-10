@@ -48,6 +48,7 @@ const KIND: Record<string, ToolKind> = {
   revert: 'write',
   deck_strategy: 'write',
   write_strategy_guide: 'write',
+  deep_think: 'check',
   set_cart: 'prices',
   showScreen: 'show',
   showDeck: 'show',
@@ -170,6 +171,8 @@ export function labelFor(chip: Chip): string {
       return pair('Simulating battles', 'Simulated battles')
     case 'deck_odds':
       return pair('Working out the odds', 'Worked out the odds')
+    case 'deep_think':
+      return pair('Asking about Deep Think', 'Used Deep Think')
     case 'web_research':
     case 'research_meta':
       return pair('Searching the web', 'Searched the web')

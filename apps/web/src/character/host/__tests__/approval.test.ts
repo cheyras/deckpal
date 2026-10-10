@@ -44,7 +44,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { convertToModelMessages } from 'ai'
-import { ABANDONED_REASON, DECLINED_REASON, MAX_APPROVAL_REPLAYS, MAX_LEGS, approvalReplayPart, legBudget, mayAskApproval, pendingApprovalFromChunk, type PendingApproval } from '../approval'
+import { ABANDONED_REASON, DECLINED_REASON, DEEP_THINK_DECLINED_REASON, MAX_APPROVAL_REPLAYS, MAX_LEGS, approvalReplayPart, legBudget, mayAskApproval, pendingApprovalFromChunk, type PendingApproval } from '../approval'
 
 /** The three per-leg lookups, filled from a `tool-input-available` chunk. */
 function lookups(toolCallId: string, name: string, input: Record<string, unknown>) {
@@ -152,6 +152,19 @@ test('an approval carries no `reason`; a denial carries one', () => {
   // either way; an unsigned "no" fails the same check an unsigned "yes" does,
   // and the reader's decline would surface as the same "brain glitched".
   assert.equal(no.approval.signature, 'sig_deadbeef')
+})
+
+test('declining Deep Think tells the resumed turn to keep this answer quick', () => {
+  const deep: PendingApproval = {
+    approvalId: 'apr_deep',
+    toolCallId: 'call_deep',
+    name: 'deep_think',
+    title: 'Deep Think',
+    input: { why: 'This season has enough games to compare.', plan: 'Find repeated matchup decisions.' },
+  }
+
+  assert.equal(approvalReplayPart(deep, false).approval.reason, DEEP_THINK_DECLINED_REASON)
+  assert.equal('reason' in approvalReplayPart(deep, true).approval, false)
 })
 
 test('the lookups fall back when the tool-input-available chunk never arrived', () => {
