@@ -167,7 +167,9 @@ export type StaticEffect =
   /** The affected Pokémon can't use this one attack ("this Pokémon can't use Mega Brave"). */ // lane:fighting
   | { k: 'cantUseAttack'; attack: string } // lane:fighting
   /** From a Stadium: Pokémon Tools attached to every Pokémon have no effect (Jamming Tower). */ // lane:fighting
-  | { k: 'noToolEffects' }; // lane:fighting
+  | { k: 'noToolEffects' } // lane:fighting
+  /** Prevent damage counters (not damage) placed on the affected Pokémon by effects of the opponent's attacks/Abilities (Battle Cage). */ // lane:darkrai
+  | { k: 'preventCounters'; from: ('attack' | 'ability')[] }; // lane:darkrai
 
 /** Parts of the damage pipeline an attack's damage skips ("isn't affected by Weakness or Resistance"). */ // lane:fighting
 export interface DamageIgnore {
