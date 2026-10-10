@@ -631,6 +631,7 @@ scanRouter.post(
     if (!body || body.length === 0) {
       throw badRequest('POST the raw crop bytes as the request body (Content-Type: image/*).');
     }
+    const startedAt = Date.now();
     const k = clampInt(req.query.k, 5, 1, 25);
     const margin = readMargin(req.query.margin);
 
@@ -668,35 +669,48 @@ scanRouter.post(
     }
 
     // THE SIDEWAYS CARD. When the upright answer is not decisive, try the crop
-    // turned a quarter, a half and three quarters, and keep whichever
-    // orientation the catalogue matches best. Real captures come back sideways
-    // or upside down when the detector's quad starts on the wrong corner (check
-    // A: 9 of 95 labelled positives), and an upright-only embedding cannot name
-    // those. Scan benchmark (2026-10-09), fine-tuned model: +3 decisive and
-    // right on 256 real crops, 0 wrong, 0 negatives named. Gated by model,
-    // because on the zero-shot checkpoint the same rule bought one right answer
-    // and one wrong one; and it costs nothing on a decisive capture.
+    // turned a half, a quarter and three quarters, and take a turn ONLY if the
+    // catalogue matches it DECISIVELY — otherwise the upright answer (and its
+    // shortlist, which OCR may still confirm) stands untouched. Real captures
+    // come back sideways or upside down when the detector's quad starts on the
+    // wrong corner (check A: 9 of 95 labelled positives), and an upright-only
+    // embedding cannot name those. Scan benchmark (2026-10-09), fine-tuned
+    // model: +3 decisive and right on 256 real crops, 0 wrong, 0 negatives
+    // named. Gated by model, because on the zero-shot checkpoint the rule
+    // bought one right answer and one wrong one; and it costs nothing on a
+    // decisive capture.
+    //
+    // TIME-BOXED. Each turn is an inference on this one-thread runtime, and the
+    // client drops the whole vector at EMBED_TIMEOUT_MS (8 s) — losing the
+    // upright shortlist too. So no new turn starts once the request is past
+    // ROTATION_BUDGET_MS; a cold instance simply answers upright.
     let best = { rows, quarterTurns: 0 };
     if (ROTATION_FALLBACK_MODELS.has(EMBED_MODEL_ID) && !isDecisive(rows)) {
       for (const turns of [2, 1, 3]) {
+        if (Date.now() - startedAt > ROTATION_BUDGET_MS) break;
         const turned = await pgNeighbours(
           assertQueryVector(await embedTensor(rotateTensor(tensor, EMBED_SIZE, turns))),
           CURRENT_STAMP,
           k,
         );
-        if ((turned.rows[0]?.similarity ?? -1) > (best.rows[0]?.similarity ?? -1)) {
+        if (!isDecisive(turned.rows)) continue;
+        if (best.quarterTurns === 0 || (turned.rows[0]?.similarity ?? -1) > (best.rows[0]?.similarity ?? -1)) {
           best = { rows: turned.rows, quarterTurns: turns };
         }
       }
     }
     res.json({
       ...buildResponse(CURRENT_STAMP, indexSize, best.rows),
-      // Only when a turn won: the client and the record can see that this
-      // answer came from the card turned `quarterTurns` x 90 degrees.
+      // Only when a turn won: this answer came from the card turned
+      // `quarterTurns` x 90 degrees.
       ...(best.quarterTurns ? { quarterTurns: best.quarterTurns } : {}),
     });
   }),
 );
+
+/** No orientation retry starts after this much of the request has elapsed
+ *  (the client gives the whole embed call 8 s). */
+const ROTATION_BUDGET_MS = 3_000;
 
 /** Checkpoints whose vector space the orientation fallback was measured on. */
 const ROTATION_FALLBACK_MODELS: ReadonlySet<string> = new Set(['deckpal-card-b32-v1']);
