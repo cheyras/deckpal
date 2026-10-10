@@ -10,8 +10,10 @@
 The diagnosis and implementation plan in
 `roadmap/plans/decke-chat-overhaul/PLAN.md` found that Deck-E lost tool evidence
 between turns, delegated the useful work to slow sub-agents, and made routine
-research feel like a permission interruption. The chat now uses Claude Sonnet 5
-to plan in its own tool loop; recent tool outputs, denied writes, source display,
+research feel like a permission interruption. The chat then moved to Claude Sonnet 5.5
+planning in its own tool loop (2026-10-10: each request is now triaged by Claude
+Haiku 5.5 and routed to Haiku 5.5 or Sonnet 5.5 by pathway — see
+`roadmap/plans/decke-harness-v2/PLAN.md` and that day's decision); recent tool outputs, denied writes, source display,
 deck checking and the live activity view make that work inspectable and available
 to the next turn. The sections below preserve the earlier decisions and mark the
 specific assumptions this revision replaces.

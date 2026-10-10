@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { resolve } from 'node:path'
 import { chdir, cwd, env } from 'node:process'
 import test from 'node:test'
 import { buildReport, formatTable, gatewayKey, parseArgs } from '../decke-gateway-probe.mjs'
@@ -7,10 +8,11 @@ test('parseArgs resolves output paths and rejects malformed arguments', () => {
   const original = cwd()
   try {
     chdir('/tmp')
-    assert.deepEqual(parseArgs([]), { out: '/tmp/tmp/gateway-probe.json', help: false })
-    assert.deepEqual(parseArgs(['--out', 'observations.json']), { out: '/tmp/observations.json', help: false })
-    assert.deepEqual(parseArgs(['--out=/tmp/report.json']), { out: '/tmp/report.json', help: false })
-    assert.deepEqual(parseArgs(['--help']), { out: '/tmp/tmp/gateway-probe.json', help: true })
+    // resolve() so the expectation holds on Windows (E:\tmp\…) as well as Linux CI.
+    assert.deepEqual(parseArgs([]), { out: resolve('/tmp/tmp/gateway-probe.json'), help: false })
+    assert.deepEqual(parseArgs(['--out', 'observations.json']), { out: resolve('/tmp/observations.json'), help: false })
+    assert.deepEqual(parseArgs(['--out=/tmp/report.json']), { out: resolve('/tmp/report.json'), help: false })
+    assert.deepEqual(parseArgs(['--help']), { out: resolve('/tmp/tmp/gateway-probe.json'), help: true })
     assert.throws(() => parseArgs(['--out']), /requires a path/)
     assert.throws(() => parseArgs(['--wat']), /Unknown argument/)
   } finally {

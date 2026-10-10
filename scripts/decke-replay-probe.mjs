@@ -194,19 +194,31 @@ export function proposedChangeCount(text) {
     .map((line) => line.replace(/^\s*(?:(?:[-*•])\s+|\d+[.)]\s+)/, '').trim())
     .filter(Boolean)
 
+  const labelDirection = (line) => line.match(/^(?:[*_~]+)?(in|out)(?:[*_~]+)?\s*:(?:[*_~]+)?\s*\S/i)?.[1]?.toLowerCase()
+  // A sign embedded in an identifier (for example `Sv04-160`) is not an edit.
+  const quantityIn = (line) => /(?:^|[\s,;(])\+\s*\d+\s+(?:x\s+)?\S/i.test(line)
+  const quantityOut = (line) => /(?:^|[\s,;(])[−–-]\s*\d+\s+(?:x\s+)?\S/i.test(line)
+
   let count = 0
   for (let i = 0; i < edits.length; i++) {
     const edit = edits[i]
 
-    // An explicit in/out pair describes one replacement, whether it is kept
-    // on one line or formatted as two adjacent list lines.
-    if (/^(?:in\s*:\s*\S.+?\s*(?:\/|\||;)\s*out\s*:\s*\S|out\s*:\s*\S.+?\s*(?:\/|\||;)\s*in\s*:\s*\S)/i.test(edit)) {
+    // A compact "+N this, -N that" swap is one proposed change, even when a
+    // heading precedes it or the subtraction uses a typographic minus sign.
+    if (quantityIn(edit) && quantityOut(edit)) {
       count++
       continue
     }
-    const direction = edit.match(/^(in|out)\s*:\s*\S/i)?.[1]?.toLowerCase()
+
+    // An explicit in/out pair describes one replacement, whether it is kept
+    // on one line or formatted as two adjacent list lines.
+    if (/^(?:[*_~]+)?(?:in|out)(?:[*_~]+)?\s*:(?:[*_~]+)?\s*\S.+?\s*(?:\/|\||;)\s*(?:[*_~]+)?(?:in|out)(?:[*_~]+)?\s*:(?:[*_~]+)?\s*\S/i.test(edit)) {
+      count++
+      continue
+    }
+    const direction = labelDirection(edit)
     if (direction) {
-      const nextDirection = edits[i + 1]?.match(/^(in|out)\s*:\s*\S/i)?.[1]?.toLowerCase()
+      const nextDirection = labelDirection(edits[i + 1] ?? '')
       count++
       if (nextDirection && nextDirection !== direction) i++
       continue
@@ -214,7 +226,7 @@ export function proposedChangeCount(text) {
 
     // These are deliberately line-shaped list edits. Do not count prose that
     // merely discusses a card being "in" hand, "out" of play, or a change.
-    if (/^[+-]\s*\d+\s+(?:x\s+)?\S/i.test(edit)
+    if (quantityIn(edit) || quantityOut(edit)
       || /^(?:add|cut)\b\s+(?:(?:\d+|one|two|three|four)\s+)?\S/i.test(edit)
       || /^(?:swap|replace)\b\s+.+\s+\b(?:for|with)\b\s+.+$/i.test(edit)
       || /^.{1,60}\s+(?:→|->)\s+.{1,60}$/.test(edit)

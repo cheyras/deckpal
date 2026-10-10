@@ -120,6 +120,21 @@ test('proposed changes count concrete edit forms and paired in/out as one change
   assert.equal(proposedChangeCount('In: Boss\'s Orders\nOut: Iono\nAdd 1 Night Stretcher'), 2)
 })
 
+test('proposed changes count live one-swap reply formats as one change', () => {
+  assert.equal(proposedChangeCount(
+    '**Proposed change (one swap):** +1 Counter Catcher, −1 Rare Candy. That gives 3 Counter Catcher and 3 Rare Candy.',
+  ), 1)
+  assert.equal(proposedChangeCount(
+    '**Proposed change for v4 (one in, one out, compared with v3):**\n' +
+    '- **In:** +1 Sv04-160 Counter Catcher, making 3.\n' +
+    '- **Out:** −1 Rare Candy, making 3.',
+  ), 1)
+  assert.equal(proposedChangeCount('- Test +1 Counter Catcher, and tell me which card you\'d cut for it.'), 1)
+  assert.equal(proposedChangeCount('+1 Counter Catcher, -1 Rare Candy'), 1)
+  assert.equal(proposedChangeCount('+1 Counter Catcher, –1 Rare Candy'), 1)
+  assert.equal(proposedChangeCount('- _In:_ +1 Counter Catcher\n- *Out:* −1 Rare Candy'), 1)
+})
+
 const call = (name, input = {}, extra = {}) => ({ name, input, ...extra })
 const turn = (text = '', calls = [], user = 'reader input') => ({ text, calls, user })
 
