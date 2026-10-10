@@ -516,7 +516,7 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
    gaps, and reports ownership, missing-copy cost and normalized PTCG Live text. Run it before
    showing or saving any proposed deck, fix its findings, and check again.
 8b. **`deck_odds`** — read-only (2026-10-10) `{ deck_id? | cards? | ptcgl_text?, queries?,
-   trials? = 50000 (1000–200000), seed? }`, with exactly one deck form: a saved deck (UUID or
+   trials? = 50000 (1000–200000), seed?, format? }`, with exactly one deck form: a saved deck (UUID or
    name, resolved by `needDeck`) or an unsaved list in check_deck's shapes, so a hypothetical
    change can be tested before it is saved. `POST /decks/odds` shuffles it `trials` times with
    a seeded mulberry32 (default seed fixed, so a repeat call agrees) under the Standard setup:
@@ -531,8 +531,12 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
    value for any single-group query, and the standing caveat that it is draw-only (search and
    draw cards are never played; name them in a group to count them as outs). An unknown card
    name fails with the deck's real names; a short, long or over-copied list is still computed
-   and says so; a list with no Basic fails. First of the simulation tools — the battle
-   simulator that plays cards will report the same way.
+   and says so; a list with no Basic fails. CPU is bounded twice: a list over 120 cards is
+   refused, and the games are cut to fit 2,000,000 dealt hands (a game deals 1/(1 − p) of them,
+   p the exact mulligan probability), the answer saying so (`trials_requested`). Margins are
+   Wilson; "every copy prized" is the closed form; notes are capped at 8 lines; `format?`
+   picks which printings an unsaved list's bare names resolve to. First of the simulation tools —
+   the battle simulator that plays cards will report the same way.
 9. **`save_deck`** — `{ deck_id?, name?, format?, cards?: [{card_id, quantity}], ptcgl_text?,
    version_note?, dry_run? = true }`. Create or replace the list with ONE request to
    `POST /decks/save` (2026-09-29), which resolves every card first and writes the deck,

@@ -39,6 +39,7 @@ export interface DeckOddsCardLine {
   opening: number
   by_turn: number
   prized_any: number
+  /** Closed form, not simulated: a 4-of is ~0.003%, which a sample mostly never sees. */
   prized_all: number | null
 }
 /** Mirrors `DeckOddsResult` in apps/api/src/deck/odds.ts. */
@@ -46,6 +47,7 @@ export interface DeckOddsResult {
   deck: { name: string | null; size: number; basics: number; distinct_names: number }
   method: string
   trials: number
+  trials_requested: number
   seed: number | null
   mulligan: { simulated: number; exact: number; avg_per_game: number }
   avg_basics_in_hand: number
@@ -87,6 +89,8 @@ export const deckOddsInputSchema = z.object({
     .describe('An unsaved list, the same lines check_deck takes ({name | card_id, quantity}). Use it to test a hypothetical change without saving it.'),
   ptcgl_text: z.string().trim().min(1).max(8_000).optional()
     .describe('An unsaved list as PTCG Live export text.'),
+  format: z.string().trim().min(1).max(24).optional()
+    .describe('Only with cards or ptcgl_text: the format whose printings a bare card name resolves to, as check_deck does it (default standard). It does not change the odds.'),
   queries: z.array(query).max(12).optional()
     .describe('Questions to answer. Omit for the default report: every card\'s chance to be in the opening hand, seen by turn 2, and prized.'),
   trials: z.number().int().min(1_000).max(200_000).default(50_000)
@@ -113,8 +117,8 @@ function pct(p: number, unit = '%'): string {
 }
 
 /** A closed-form value has no sampling noise, so a tiny one keeps two significant figures. */
-function exactPct(p: number): string {
-  return p > 0 && p < 0.001 ? `${(p * 100).toPrecision(2)}%` : pct(p)
+function exactPct(p: number, unit = '%'): string {
+  return p > 0 && p < 0.001 ? `${(p * 100).toPrecision(2)}${unit}` : pct(p, unit)
 }
 
 function zoneText(q: Pick<DeckOddsQueryResult, 'zone' | 'by_turn'>): string {
@@ -152,10 +156,11 @@ export function renderDeckOdds(r: DeckOddsResult): string {
   if (r.per_card) {
     lines.push(
       `Per card, % of games with at least one copy: opening hand / seen by your turn ${r.per_card_turn} / prized, ` +
-        `then / every copy prized for multiples (each ±${(r.max_margin95 * 100).toFixed(1)} or better at 95%):`,
+        `then / every copy prized (exact) for multiples (each simulated value ±${(r.max_margin95 * 100).toFixed(1)} or better at 95%):`,
     )
     for (const c of r.per_card) {
-      const cells = [c.opening, c.by_turn, c.prized_any, ...(c.prized_all === null ? [] : [c.prized_all])].map((p) => pct(p, ''))
+      const cells = [c.opening, c.by_turn, c.prized_any].map((p) => pct(p, ''))
+        .concat(c.prized_all === null ? [] : [exactPct(c.prized_all, '')])
       lines.push(`  ${c.copies} ${c.name}: ${cells.join(' / ')}`)
     }
   } else {
@@ -200,10 +205,10 @@ export const deckOddsTool: ToolDefinition = defineTool({
         if (!picked.ok) return fail(picked.message)
         body.deck_id = picked.value.id
         note = picked.note
-      } else if (input.cards !== undefined) {
-        body.cards = input.cards
       } else {
-        body.ptcgl_text = input.ptcgl_text
+        if (input.cards !== undefined) body.cards = input.cards
+        else body.ptcgl_text = input.ptcgl_text
+        if (input.format !== undefined) body.format = input.format
       }
       const result = await deckOddsCall(ctx, body)
       const text = renderDeckOdds(result)

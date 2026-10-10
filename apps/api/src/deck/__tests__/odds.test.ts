@@ -14,7 +14,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { deckOdds, foldCardName, kindMaskOf, OddsError, type OddsEntry, type OddsQuery } from '../odds.js'
+import { deckOdds, foldCardName, kindMaskOf, margin95, ODDS_MAX_DECK, ODDS_MAX_HANDS, ODDS_MAX_WARNINGS, OddsError, type OddsEntry, type OddsQuery } from '../odds.js'
 import { hypergeometricMulligan } from '../testhand.js'
 import { deckOddsInput } from '../../routes/deckOdds.js'
 import { ApiError } from '../../http.js'
@@ -114,7 +114,9 @@ test('a single non-Basic card in the opening hand matches inclusion-exclusion ov
   assert.equal(q.zone, 'hand')
   assert.ok(Math.abs(q.exact! - exact) < 1e-12, `engine exact ${q.exact} vs independent ${exact}`)
   assert.ok(Math.abs(q.p - exact) < tol(exact, n), `sim ${q.p} vs exact ${exact}`)
-  assert.ok(Math.abs(q.margin95 - 1.96 * Math.sqrt((q.p * (1 - q.p)) / n)) < 1e-12)
+  // Wilson score half-width: z·√(p(1−p)/n + z²/4n²) / (1 + z²/n).
+  const z = 1.96
+  assert.ok(Math.abs(q.margin95 - (z * Math.sqrt((q.p * (1 - q.p)) / n + (z * z) / (4 * n * n))) / (1 + (z * z) / n)) < 1e-12)
 })
 
 test('a Basic in the opening hand is P(≥1 of it) / P(≥1 Basic)', () => {
@@ -241,9 +243,12 @@ test('AND across groups, OR within one, and count', () => {
   assert.equal(labelled!.label, 'Turn-one Shuppet setup')
 })
 
-test('names fold case, accents and apostrophes', () => {
+test('names fold case, accents, spaces and punctuation', () => {
   assert.equal(foldCardName('Poké Pad'), foldCardName('POKE PAD'))
   assert.equal(foldCardName("Lillie's Determination"), foldCardName('lillie’s determination'))
+  assert.equal(foldCardName("Boss's Orders"), foldCardName('Bosss Orders'), 'an apostrophe is dropped, not turned into a space')
+  assert.equal(foldCardName("Farfetch'd"), foldCardName('Farfetchd'))
+  assert.equal(foldCardName('Buddy-Buddy Poffin'), foldCardName('Buddy Buddy Poffin'))
   const r = deckOdds(HNS, { trials: 2_000, queries: [{ all_of: [{ cards: ['POKE PAD', 'lillie’s determination'] }] }] })
   assert.equal(r.queries[0]!.label, "Poké Pad or Lillie's Determination", 'labels use the deck’s own spelling')
 })
@@ -312,7 +317,10 @@ test('the default report: one line per name, sorted, and each value agrees with 
   assert.ok(Math.abs(shuppet.opening - exact[0]!) < tol(exact[0]!, n))
   assert.ok(Math.abs(shuppet.by_turn - exact[1]!) < tol(exact[1]!, n))
   assert.ok(Math.abs(shuppet.prized_any - exact[2]!) < tol(exact[2]!, n))
-  assert.ok(shuppet.prized_all! < 0.001)
+  // Every copy prized is the closed form: C(4,4)·C(56,2)/C(60,6) shifted only slightly by the kept-hand condition.
+  assert.ok(shuppet.prized_all! > 0 && shuppet.prized_all! < 0.0001, `${shuppet.prized_all}`)
+  const fourPrized = deckOdds(HNS, { trials: 1_000, queries: [{ all_of: [{ cards: ['Shuppet'], count: 4 }], prized: true }] }).queries[0]!.exact!
+  assert.equal(shuppet.prized_all, fourPrized)
   assert.ok(r.max_margin95 > 0.004 && r.max_margin95 < 0.0045)
 })
 
@@ -358,7 +366,8 @@ test('the route takes exactly one deck form and bounded, well-formed queries', (
   assert.equal(status(() => deckOddsInput({ deck_id: id, cards: [{ name: 'Pikachu', quantity: 1 }] })), 400)
   assert.equal(status(() => deckOddsInput({ deck_id: 'my dhelmise deck' })), 404, 'names are resolved by the tool, not here')
   const ok = deckOddsInput({ deck_id: id })
-  assert.deepEqual(ok, { deckId: id, lines: null, queries: [], trials: 50_000, seed: 60 })
+  assert.deepEqual(ok, { deckId: id, lines: null, format: 'standard', queries: [], trials: 50_000, seed: 60 })
+  assert.equal(deckOddsInput({ cards: [{ name: 'Pikachu', quantity: 4 }], format: 'expanded' }).format, 'expanded', "names resolve under the caller's format")
   assert.equal(deckOddsInput({ cards: [{ name: 'Pikachu', quantity: 4 }] }).lines!.length, 1)
   assert.equal(deckOddsInput({ ptcgl_text: '4 Pikachu SVI 1' }).lines!.length, 1)
 
@@ -377,4 +386,71 @@ test('the route takes exactly one deck form and bounded, well-formed queries', (
   assert.equal(status(() => deckOddsInput({ deck_id: id, seed: -1 })), 400)
   const parsed = deckOddsInput({ deck_id: id, trials: 1_000, seed: 5, queries: [{ all_of: [{ cards: [' Shuppet '] }], prized: true }] })
   assert.deepEqual(parsed.queries, [{ all_of: [{ cards: ['Shuppet'], count: 1 }], by_turn: 0, prized: true }])
+})
+
+// ── The CPU guards (review of #295) ─────────────────────────────────────────
+
+/** `basics` copies of one Basic plus filler, `size` cards in all. */
+function lowBasic(size: number, basics: number): OddsEntry[] {
+  return [
+    { quantity: basics, card: mkCard({ id: 1, tcgdexId: 'g-1', name: 'Lone Basic', category: 'Pokemon', stage: 'Basic' }) },
+    { quantity: size - basics, card: mkCard({ id: 2, tcgdexId: 'g-2', name: 'Psychic Energy', category: 'Energy', energyType: 'Normal' }) },
+  ]
+}
+
+test('a list past ODDS_MAX_DECK is refused before anything is dealt', () => {
+  assert.equal(ODDS_MAX_DECK, 120)
+  assert.doesNotThrow(() => deckOdds(lowBasic(120, 12), { trials: 1_000 }))
+  for (const size of [121, 3_541, 17_941, 60_000]) {
+    const t0 = performance.now()
+    assert.throws(() => deckOdds(lowBasic(size, 1), { trials: 200_000 }),
+      (e: unknown) => e instanceof OddsError && e.message.includes(`${size} cards`) && e.message.includes('stop at 120'))
+    assert.ok(performance.now() - t0 < 50, `refusing ${size} cards must be immediate`)
+  }
+})
+
+test('the hands budget cuts the games for a list that mulligans a lot, and says so', () => {
+  // 120 cards, 1 Basic: p = 113/120, so a game deals 120/7 ≈ 17.1 hands.
+  const p = hypergeometricMulligan(120, 1) // 113/120
+  const t0 = performance.now()
+  const r = deckOdds(lowBasic(120, 1), { trials: 200_000, queries: [{ all_of: [{ cards: ['Lone Basic'] }], prized: true }] })
+  const ms = performance.now() - t0
+  assert.equal(r.trials_requested, 200_000)
+  assert.equal(r.trials, Math.floor(ODDS_MAX_HANDS * (1 - p)))
+  assert.ok(r.trials < 200_000 && r.trials > 110_000)
+  assert.ok(r.warnings.some((w) => w.startsWith(`Ran ${r.trials.toLocaleString('en-US')} of the 200,000 games`)))
+  assert.ok(Math.abs(r.mulligan.exact - 113 / 120) < 1e-12)
+  assert.ok(Math.abs(r.mulligan.avg_per_game - p / (1 - p)) < 0.3, 'the hands actually dealt match the budget model')
+  assert.ok(Math.abs(r.queries[0]!.margin95 - margin95(r.queries[0]!.p, r.trials)) < 1e-15, 'margins are for the games run')
+  assert.ok(ms < 2_000, `the worst list a request may send took ${ms.toFixed(0)} ms`)
+  // A normal deck is never cut.
+  const normal = deckOdds(HNS, { trials: 200_000 })
+  assert.equal(normal.trials, 200_000)
+  assert.ok(!normal.warnings.some((w) => w.startsWith('Ran ')))
+})
+
+test('Prize odds are conditioned on the kept hand holding a Basic', () => {
+  // Four Basics are the only Basics, so every kept hand holds at least one of
+  // them and fewer are left to be prized than in an unconditioned shuffle.
+  const deck4 = lowBasic(60, 4)
+  const n = 200_000
+  const q = deckOdds(deck4, { trials: n, seed: 31, queries: [{ all_of: [{ cards: ['Lone Basic'] }], prized: true }] }).queries[0]!
+  const unconditioned = 1 - choose(56, 6) / choose(60, 6)
+  const keep = 1 - choose(56, 7) / choose(60, 7)
+  let conditioned = 0
+  for (let k = 1; k <= 4; k++) {
+    const pk = (choose(4, k) * choose(56, 7 - k)) / choose(60, 7) / keep
+    conditioned += pk * (1 - choose(53 - (4 - k), 6) / choose(53, 6))
+  }
+  assert.ok(Math.abs(q.exact! - conditioned) < 1e-12, `engine ${q.exact} vs independent ${conditioned}`)
+  assert.ok(Math.abs(q.p - conditioned) < tol(conditioned, n), `sim ${q.p} vs conditioned ${conditioned}`)
+  assert.ok(unconditioned - q.p > 10 * tol(conditioned, n), `clearly below the unconditioned ${unconditioned}`)
+})
+
+test('warnings are capped so the answer stays under the chat clamp', () => {
+  const impossible: OddsQuery[] = Array.from({ length: 12 }, (_, i) => ({ label: `impossible ${i}`, all_of: [{ kinds: ['stadium'] }] }))
+  const r = deckOdds(neverMulligans(), { trials: 1_000, queries: impossible })
+  assert.equal(r.warnings.length, ODDS_MAX_WARNINGS)
+  // One over-copied name (54 Basic Mon) and twelve impossible queries: seven shown, six summarised.
+  assert.equal(r.warnings.at(-1), '…and 6 more notes like these.')
 })

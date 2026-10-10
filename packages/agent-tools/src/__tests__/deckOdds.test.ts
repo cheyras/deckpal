@@ -8,7 +8,7 @@ const DECK_ID = '6f1c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f'
 
 const base: Omit<DeckOddsResult, 'queries' | 'per_card'> = {
   deck: { name: "Hide 'n' Sneak", size: 60, basics: 16, distinct_names: 24 },
-  method: 'Monte Carlo, draw-only', trials: 50_000, seed: 60,
+  method: 'Monte Carlo, draw-only', trials: 50_000, trials_requested: 50_000, seed: 60,
   mulligan: { simulated: 0.1009, exact: 0.09922, avg_per_game: 0.11266 },
   avg_basics_in_hand: 2.0678, per_card_turn: 2, max_margin95: 0.00438, warnings: [],
 }
@@ -91,6 +91,13 @@ test('an unsaved list goes as cards, with no deck lookup and no queries key when
   assert.deepEqual(calls, [{ method: 'POST', path: '/decks/odds', body: { trials: 50_000, cards } }])
 })
 
+test('format travels with an unsaved list, so names resolve the way check_deck resolves them', async () => {
+  const { ctx, calls } = stubCtx({ ...base, queries: [], per_card: [] })
+  const cards = [{ name: 'Shuppet', quantity: 4 }]
+  await deckOddsTool.handler(deckOddsInputSchema.parse({ cards, format: 'expanded' }), ctx)
+  assert.deepEqual(calls, [{ method: 'POST', path: '/decks/odds', body: { trials: 50_000, cards, format: 'expanded' } }])
+})
+
 test('an API refusal comes back as a failure carrying its sentence', async () => {
   const { ctx } = stubCtx(new Error("Not in this deck: 'Rare Candy'. Use the deck's own card names: Banette, Shuppet."))
   const res = await deckOddsTool.handler(deckOddsInputSchema.parse({ cards: [{ name: 'Shuppet', quantity: 4 }] }), ctx)
@@ -126,8 +133,8 @@ test('rendering the default report stays compact even for sixty singletons', () 
   }))
   per_card[0] = { name: 'Shuppet', copies: 4, opening: 0.441, by_turn: 0.522, prized_any: 0.3456, prized_all: 0.00002 }
   const text = renderDeckOdds({ ...base, queries: [], per_card, warnings: ['This list has 59 cards, not 60.'] })
-  assert.match(text, /^Per card, % of games with at least one copy: opening hand \/ seen by your turn 2 \/ prized, then \/ every copy prized for multiples \(each ±0\.4 or better at 95%\):$/m)
-  assert.match(text, /^ {2}4 Shuppet: 44\.1 \/ 52\.2 \/ 34\.6 \/ <0\.1$/m)
+  assert.match(text, /^Per card, % of games with at least one copy: opening hand \/ seen by your turn 2 \/ prized, then \/ every copy prized \(exact\) for multiples \(each simulated value ±0\.4 or better at 95%\):$/m)
+  assert.match(text, /^ {2}4 Shuppet: 44\.1 \/ 52\.2 \/ 34\.6 \/ 0\.0020$/m, 'every copy prized is exact, so a tiny value keeps its digits')
   assert.match(text, /^ {2}1 A Fairly Long Card Name Number 1: 11\.7 \/ 15\.0 \/ 10\.0$/m)
   assert.match(text, /^Note: This list has 59 cards, not 60\.$/m)
   assert.ok(text.length < 5_000, `Deck-E clamps a tool result at 6,000 chars; this was ${text.length}`)

@@ -24,7 +24,11 @@
  * Pure: no DB, no I/O, and the RNG is injectable. Reuses `testhand.ts`'s
  * seeded `mulberry32`, `expandLibrary` and closed-form `hypergeometricMulligan`;
  * the per-trial shuffle is `partialShuffle` over ONE index array, so a trial
- * allocates nothing and costs the cards dealt (≤ 23), not the deck size.
+ * allocates nothing and costs the cards dealt, not the deck size: 7 per hand
+ * dealt (1/(1 − p) hands per game, p the mulligan probability) plus at most 16
+ * for the Prizes and ten draws. Both factors are capped — the list at
+ * ODDS_MAX_DECK cards, the hands at ODDS_MAX_HANDS per call (trials are cut
+ * to fit and the result says so) — so no request can run away with the CPU.
  */
 import { isBasicEnergy } from './names.js';
 import { expandLibrary, hypergeometricMulligan, mulberry32, partialShuffle, type Rng } from './testhand.js';
@@ -45,10 +49,26 @@ export const ODDS_MAX_TURN = 10;
 /** The default report's "seen by" column. */
 export const ODDS_REPORT_TURN = 2;
 export const ODDS_METHOD = 'Monte Carlo, draw-only';
+/**
+ * Largest list simulated. Odds for something that is not a deck mean nothing,
+ * and the size is what the work scales with: a 3,600-card list with one Basic
+ * redraws ~500 hands per game. 120 is twice a legal deck — room for "what if
+ * I played 61" and for a half-built pile — and nothing a real question needs more.
+ */
+export const ODDS_MAX_DECK = 120;
+/**
+ * The work budget, in 7-card hands dealt. A game deals 1/(1 − p) hands on
+ * average (p = the closed-form mulligan probability) before its Prizes and
+ * draws, so trials × that is the cost; `trials` is cut to fit, and the result
+ * says so. A normal deck (p ≈ 0.1–0.2) never comes near it.
+ */
+export const ODDS_MAX_HANDS = 2_000_000;
+/** Warnings beyond this are summarised in one line, keeping the answer under Deck-E's clamp. */
+export const ODDS_MAX_WARNINGS = 8;
 
 const HAND = 7;
 const PRIZES = 6;
-/** A deck with ≥1 Basic always terminates; this only stops a logic error spinning. */
+/** With ≤ ODDS_MAX_DECK cards and ≥1 Basic this is never reached; it only stops a logic error spinning. */
 const MULLIGAN_GUARD = 100_000;
 
 const KIND_BIT: Record<OddsKind, number> = {
@@ -112,14 +132,20 @@ export interface OddsCardLine {
   by_turn: number;
   /** P(≥1 copy prized). */
   prized_any: number;
-  /** P(every copy prized); null for a single copy (it equals prized_any). */
+  /**
+   * P(every copy prized), CLOSED FORM — a 4-of is about 0.003%, which 50,000
+   * games mostly never see, and "0" would be a false statement. Null for a
+   * single copy (it equals prized_any).
+   */
   prized_all: number | null;
 }
 
 export interface DeckOddsResult {
   deck: { name: string | null; size: number; basics: number; distinct_names: number };
   method: string;
+  /** Games actually simulated: `trials_requested`, cut to fit ODDS_MAX_HANDS when the list mulligans a lot. */
   trials: number;
+  trials_requested: number;
   seed: number | null;
   mulligan: {
     /** P(the FIRST 7 dealt hold no Basic) — simulated. */
@@ -148,15 +174,20 @@ export class OddsError extends Error {
   }
 }
 
-/** Fold a card name for matching: case, accents, apostrophes and punctuation ignored. */
+/**
+ * Fold a card name for matching: case, accents, spaces and punctuation are all
+ * DROPPED, not spaced, so "Boss's Orders", "Boss’s Orders" and "Bosss Orders"
+ * meet, as do "Farfetch'd"/"Farfetchd" and "Buddy-Buddy"/"Buddy Buddy". Only
+ * ever compared within one deck, where two names differing by punctuation
+ * alone do not occur.
+ */
 export function foldCardName(s: string): string {
   return s
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .normalize('NFC')
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim();
+    .replace(/[^\p{L}\p{N}]+/gu, '');
 }
 
 /** The kinds a card counts as, as a bitmask over KIND_BIT. */
@@ -171,9 +202,16 @@ export function kindMaskOf(card: Pick<CardFacts, 'category' | 'stage' | 'trainer
   return 0;
 }
 
-/** Half-width of the 95% normal-approximation interval for a simulated rate. */
+/**
+ * Half-width of the 95% Wilson score interval for a simulated rate. Wilson,
+ * not the normal approximation, because the rates asked about are often near 0
+ * or 1 (a card prized, a hand that always has a Pokémon), where the normal
+ * interval collapses to ±0 and claims a certainty the sample does not have.
+ */
 export function margin95(p: number, n: number): number {
-  return n > 0 ? 1.96 * Math.sqrt((p * (1 - p)) / n) : 0;
+  if (n <= 0) return 0;
+  const z2 = 1.96 * 1.96;
+  return (1.96 * Math.sqrt((p * (1 - p)) / n + z2 / (4 * n * n))) / (1 + z2 / n);
 }
 
 // ── Closed forms ─────────────────────────────────────────────────────────────
@@ -260,7 +298,7 @@ interface CompiledCheck {
  * cards give the same numbers whether they arrived as a saved deck or a list.
  */
 export function deckOdds(entries: OddsEntry[], opts: DeckOddsOptions = {}): DeckOddsResult {
-  const trials = Math.max(1, Math.min(ODDS_MAX_TRIALS, Math.floor(opts.trials ?? ODDS_DEFAULT_TRIALS)));
+  const trialsRequested = Math.max(1, Math.min(ODDS_MAX_TRIALS, Math.floor(opts.trials ?? ODDS_DEFAULT_TRIALS)));
   const seed = opts.rng ? null : (opts.seed ?? ODDS_DEFAULT_SEED) >>> 0;
   const rng = opts.rng ?? mulberry32(seed!);
 
@@ -268,11 +306,19 @@ export function deckOdds(entries: OddsEntry[], opts: DeckOddsOptions = {}): Deck
     .filter((e) => e.quantity > 0)
     .slice()
     .sort((x, y) => x.card.tcgdexId.localeCompare(y.card.tcgdexId) || x.card.id - y.card.id);
-  const library = expandLibrary(sorted);
-  const size = library.length;
+  // Sized BEFORE anything is expanded or allocated: the cap is what keeps a
+  // request's CPU bounded, so it cannot sit behind work proportional to size.
+  const size = sorted.reduce((s, e) => s + e.quantity, 0);
   if (size < HAND) {
     throw new OddsError(`This list has ${size} card${size === 1 ? '' : 's'}; drawing an opening hand needs at least ${HAND}.`);
   }
+  if (size > ODDS_MAX_DECK) {
+    throw new OddsError(
+      `This list has ${size} cards. Deck odds model a 60-card deck and stop at ${ODDS_MAX_DECK}; ` +
+        'cut it down to the deck you would actually play and ask again.',
+    );
+  }
+  const library = expandLibrary(sorted);
 
   // Per library slot: which name, which kinds, Basic or not.
   const names: Array<{ display: string; copies: number; basicEnergy: boolean }> = [];
@@ -304,6 +350,21 @@ export function deckOdds(entries: OddsEntry[], opts: DeckOddsOptions = {}): Deck
   const prizes = Math.min(PRIZES, size - HAND);
   const drawsLeft = size - HAND - prizes;
   const warnings: string[] = [];
+
+  // THE WORK BUDGET. A game deals 1/(1 − p) opening hands on average, p the
+  // exact mulligan probability, so a one-Basic list costs ~9× a normal one per
+  // game. Cut the games to fit ODDS_MAX_HANDS and say so; with ≤ 120 cards and
+  // ≥ 1 Basic, (1 − p) ≥ 7/120, so this never drops below ~116,000 games.
+  const mulliganExact = hypergeometricMulligan(size, basics);
+  const handsPerGame = 1 / (1 - mulliganExact);
+  const trials = Math.min(trialsRequested, Math.max(1, Math.floor(ODDS_MAX_HANDS * (1 - mulliganExact))));
+  if (trials < trialsRequested) {
+    warnings.push(
+      `Ran ${trials.toLocaleString('en-US')} of the ${trialsRequested.toLocaleString('en-US')} games asked for: this list ` +
+        `mulligans ${(mulliganExact * 100).toFixed(1)}% of hands (${handsPerGame.toFixed(1)} hands dealt per game), ` +
+        'so the work is capped. The margins reflect the games actually run.',
+    );
+  }
   if (size !== 60) warnings.push(`This list has ${size} cards, not 60. The odds are for the list exactly as given.`);
   for (const n of names) {
     if (n.copies > 4 && !n.basicEnergy) warnings.push(`${n.copies} copies of ${n.display}: a legal deck allows 4 (basic Energy excepted).`);
@@ -370,14 +431,14 @@ export function deckOdds(entries: OddsEntry[], opts: DeckOddsOptions = {}): Deck
       checks.push({ label, zone, byTurn, atDraw: zone === 'seen' ? atDrawFor(byTurn, label) : 0, reqs });
     }
   } else {
-    // The default report: four checks per distinct name.
+    // The default report: three simulated checks per distinct name. "Every
+    // copy prized" is filled from the closed form below, not simulated.
     const reportDraw = atDrawFor(ODDS_REPORT_TURN, `seen by turn ${ODDS_REPORT_TURN}`);
     names.forEach((n, i) => {
       const m = matcherFor([i], 0);
       checks.push({ label: n.display, zone: 'hand', byTurn: 0, atDraw: 0, reqs: [{ matcher: m, count: 1 }] });
       checks.push({ label: n.display, zone: 'seen', byTurn: ODDS_REPORT_TURN, atDraw: reportDraw, reqs: [{ matcher: m, count: 1 }] });
       checks.push({ label: n.display, zone: 'prized', byTurn: 0, atDraw: 0, reqs: [{ matcher: m, count: 1 }] });
-      if (n.copies > 1) checks.push({ label: n.display, zone: 'prized', byTurn: 0, atDraw: 0, reqs: [{ matcher: m, count: n.copies }] });
     });
   }
 
@@ -488,17 +549,15 @@ export function deckOdds(entries: OddsEntry[], opts: DeckOddsOptions = {}): Deck
       });
     });
   } else {
-    perCard = [];
-    let i = 0;
-    for (const n of names) {
-      const line: OddsCardLine = {
+    perCard = names.map((n, k): OddsCardLine => {
+      const i = 3 * k;
+      const prizedAny = checks[i + 2]!;
+      return {
         name: n.display, copies: n.copies,
         opening: rate(i), by_turn: rate(i + 1), prized_any: rate(i + 2),
-        prized_all: n.copies > 1 ? rate(i + 3) : null,
+        prized_all: n.copies > 1 ? exactFor({ ...prizedAny, reqs: [{ matcher: prizedAny.reqs[0]!.matcher, count: n.copies }] }) : null,
       };
-      i += n.copies > 1 ? 4 : 3;
-      perCard.push(line);
-    }
+    });
     perCard.sort((x, y) => y.copies - x.copies || x.name.localeCompare(y.name));
   }
 
@@ -515,14 +574,22 @@ export function deckOdds(entries: OddsEntry[], opts: DeckOddsOptions = {}): Deck
     }
   }
 
+  // Bounded, so a list with sixty over-copied names or twelve impossible
+  // queries cannot push the answer past Deck-E's 6,000-character clamp.
+  const distinct = [...new Set(warnings)];
+  const shown = distinct.length > ODDS_MAX_WARNINGS
+    ? [...distinct.slice(0, ODDS_MAX_WARNINGS - 1), `…and ${distinct.length - ODDS_MAX_WARNINGS + 1} more notes like these.`]
+    : distinct;
+
   return {
     deck: { name: opts.deckName ?? null, size, basics, distinct_names: names.length },
     method: ODDS_METHOD,
     trials,
+    trials_requested: trialsRequested,
     seed,
     mulligan: {
       simulated: firstHandMulligans / trials,
-      exact: hypergeometricMulligan(size, basics),
+      exact: mulliganExact,
       avg_per_game: totalMulligans / trials,
     },
     avg_basics_in_hand: basicsKept / trials,
@@ -530,6 +597,6 @@ export function deckOdds(entries: OddsEntry[], opts: DeckOddsOptions = {}): Deck
     per_card: perCard,
     per_card_turn: ODDS_REPORT_TURN,
     max_margin95: margin95(0.5, trials),
-    warnings: [...new Set(warnings)],
+    warnings: shown,
   };
 }

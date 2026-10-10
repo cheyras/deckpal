@@ -4,7 +4,8 @@ import {
   ODDS_MAX_TURN, ODDS_MIN_TRIALS, ODDS_DEFAULT_SEED, ODDS_DEFAULT_TRIALS,
   type OddsEntry, type OddsGroup, type OddsKind, type OddsQuery,
 } from '../deck/odds.js'
-import { asyncHandler, badRequest, notFound, userCache, UUID_RE } from '../http.js'
+import type { FormatCode } from '../deck/types.js'
+import { asyncHandler, badRequest, notFound, oneOf, userCache, UUID_RE } from '../http.js'
 import { currentUserId } from '../identity.js'
 import { deckCheckInputLines, resolveInputLines, type InputLine } from './deckCheck.js'
 import { loadDeckEntries } from './decks.js'
@@ -21,10 +22,13 @@ import { loadDeckEntries } from './decks.js'
  * change to a list without saving it and get the same cards check_deck saw.
  */
 export const deckOddsRouter: Router = Router()
+const FORMATS = ['standard', 'expanded', 'glc', 'unlimited'] as const
 
 export interface DeckOddsInput {
   deckId: string | null
   lines: InputLine[] | null
+  /** Which format's printings a bare name resolves to, as in POST /decks/check. */
+  format: FormatCode
   queries: OddsQuery[]
   trials: number
   seed: number
@@ -108,6 +112,7 @@ export function deckOddsInput(body: Record<string, unknown>): DeckOddsInput {
   return {
     deckId,
     lines,
+    format: oneOf<FormatCode>(body.format, FORMATS, 'standard'),
     queries,
     trials: intIn(body.trials, 'trials', ODDS_MIN_TRIALS, ODDS_MAX_TRIALS, ODDS_DEFAULT_TRIALS),
     seed: intIn(body.seed, 'seed', 0, 0xffffffff, ODDS_DEFAULT_SEED),
@@ -125,7 +130,7 @@ deckOddsRouter.post('/', asyncHandler(async (req, res) => {
     deckName = deck.name
     entries = deck.entries
   } else {
-    const rows = await resolveInputLines(input.lines!, 'standard', userId)
+    const rows = await resolveInputLines(input.lines!, input.format, userId)
     const missing = rows.filter((row) => !row.card).map((row) => `'${row.line.name ?? row.line.card_id}'`)
     if (missing.length) {
       // Guessing what an unknown card is would put a guess into every number
