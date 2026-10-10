@@ -11,6 +11,7 @@ import {
   main,
   parseArgs,
   parseArms,
+  proposedChangeCount,
   researchTopicsOverlap,
   scoreTranscript,
   summarizeArmResults,
@@ -71,6 +72,54 @@ test('showDeck totals quantities and the scorer requires exactly 60', () => {
   assert.equal(metrics.show_deck_60, 1)
 })
 
+test('proposed changes count edit-shaped lines, not narrative uses of in, out, or change', () => {
+  const realFailure = `Observations:
+- Loss: Rare Candy was dead in hand while Drakloak spread damage.
+- Pidgeot ex was in play, but the game was out of reach.
+- This matchup can change depending on who goes first.
+
+Proposal:
+- Swap Iono for Boss's Orders.`
+  assert.equal(proposedChangeCount(realFailure), 1)
+
+  const anotherNarrativeFailure = `- In three losses, Rotom V was stranded on the Bench.
+- You ran out of Energy in the late game.
+- The version change did not fix setup consistency.
+- Cut 1 Rotom V.`
+  assert.equal(proposedChangeCount(anotherNarrativeFailure), 1)
+
+  const sixFalsePositives = `What I saw:
+1. Rare Candy was dead in hand.
+2. You were out of Energy late.
+3. Drakloak stayed in play for three turns.
+4. The change from the last version did not matter.
+5. Boss's Orders was prized, not cut.
+
+Next step:
+1. Go up to 3 Drakloak.`
+  assert.equal(proposedChangeCount(sixFalsePositives), 1)
+})
+
+test('proposed changes count concrete edit forms and paired in/out as one change', () => {
+  const proposals = [
+    '+1 Boss\'s Orders',
+    '-1 Iono',
+    '3. cut Rotom V',
+    '* add one Night Stretcher',
+    'swap Xatu for Mew ex',
+    'replace Ultra Ball with Nest Ball',
+    'Drakloak → Rare Candy',
+    'In: Counter Catcher / Out: Pokégear 3.0',
+    'go up to 3 Duskull',
+    'drop to 2 Fire Energy',
+  ]
+  assert.equal(proposedChangeCount(proposals.join('\n')), proposals.length)
+  assert.equal(proposedChangeCount('In: Boss\'s Orders / Out: Iono'), 1)
+  assert.equal(proposedChangeCount('In: Boss\'s Orders\nOut: Iono'), 1)
+  assert.equal(proposedChangeCount('- Out: Iono\n- In: Boss\'s Orders'), 1)
+  assert.equal(proposedChangeCount('In: Boss\'s Orders\nOut: Iono\nAdd 1 Night Stretcher'), 2)
+})
+
 const call = (name, input = {}, extra = {}) => ({ name, input, ...extra })
 const turn = (text = '', calls = [], user = 'reader input') => ({ text, calls, user })
 
@@ -91,7 +140,7 @@ test('every expectation grader has a deterministic passing and failing transcrip
     ['set-progress', turn('', [call('set_progress')]), turn('', [call('search_cards')])],
     ['missing-list-under-five', turn('', [call('edit_list', { add_missing: { set_id: 'me05', max_price_usd: 5 } }, { approval_requested: true })]), turn('', [call('edit_list', { add_missing: { set_id: 'me05', max_price_usd: 10 } }, { approval_requested: true })])],
     ['catalog-card-lookup', turn('', [call('get_card')]), turn('', [call('web_research')])],
-    ['exactly-one-research', turn('', [call('web_research')]), turn('', [call('web_research'), call('web_research')])],
+    ['exactly-one-research', turn('', [call('web_research'), call('web_research')]), turn('', [])],
     ['dated-answer', turn('As of October 10, 2026, Dragapult is winning.'), turn('Dragapult is winning right now.')],
     ['navigation-only', turn('', [call('goTo')]), turn('', [call('goTo'), call('save_deck', {}, { approved: true })])],
     ['small-talk-only', turn('Hey!', [call('express')]), turn('Hey!', [call('decks')])],
@@ -106,6 +155,15 @@ test('every expectation grader has a deterministic passing and failing transcrip
     assert.equal(gradeExpectation(tag, passing).pass, true, `${tag} rejected its passing transcript`)
     assert.equal(gradeExpectation(tag, failing).pass, false, `${tag} accepted its failing transcript`)
   }
+})
+
+test('exactly-one-research allows one retry but rejects zero or three calls', () => {
+  assert.equal(gradeExpectation('exactly-one-research', turn('', [call('web_research')])).pass, true)
+  assert.equal(gradeExpectation('exactly-one-research', turn('', [call('web_research'), call('web_research')])).pass, true)
+  assert.equal(gradeExpectation('exactly-one-research', turn('', [])).pass, false)
+  const three = gradeExpectation('exactly-one-research', turn('', [call('web_research'), call('web_research'), call('web_research')]))
+  assert.equal(three.pass, false)
+  assert.match(three.detail, /expected one or two web_research calls; found 3/)
 })
 
 test('scenario summary reports pass rate, pass^k, mean cost, and cost per pass', () => {

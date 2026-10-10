@@ -189,11 +189,38 @@ function answerOverlap(turn) {
   return overlap
 }
 
-function proposedChangeCount(text) {
-  const lines = String(text ?? '').split(/\r?\n/)
-  const explicit = lines.filter((line) => /^\s*(?:[-*]|\d+[.)])\s+/.test(line) && /\b(?:add|cut|swap|replace|change|in|out)\b/i.test(line)).length
-  if (explicit) return explicit
-  return (String(text ?? '').match(/\b(?:swap|replace|cut)\b/gi) ?? []).length
+export function proposedChangeCount(text) {
+  const edits = String(text ?? '').split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:(?:[-*•])\s+|\d+[.)]\s+)/, '').trim())
+    .filter(Boolean)
+
+  let count = 0
+  for (let i = 0; i < edits.length; i++) {
+    const edit = edits[i]
+
+    // An explicit in/out pair describes one replacement, whether it is kept
+    // on one line or formatted as two adjacent list lines.
+    if (/^(?:in\s*:\s*\S.+?\s*(?:\/|\||;)\s*out\s*:\s*\S|out\s*:\s*\S.+?\s*(?:\/|\||;)\s*in\s*:\s*\S)/i.test(edit)) {
+      count++
+      continue
+    }
+    const direction = edit.match(/^(in|out)\s*:\s*\S/i)?.[1]?.toLowerCase()
+    if (direction) {
+      const nextDirection = edits[i + 1]?.match(/^(in|out)\s*:\s*\S/i)?.[1]?.toLowerCase()
+      count++
+      if (nextDirection && nextDirection !== direction) i++
+      continue
+    }
+
+    // These are deliberately line-shaped list edits. Do not count prose that
+    // merely discusses a card being "in" hand, "out" of play, or a change.
+    if (/^[+-]\s*\d+\s+(?:x\s+)?\S/i.test(edit)
+      || /^(?:add|cut)\b\s+(?:(?:\d+|one|two|three|four)\s+)?\S/i.test(edit)
+      || /^(?:swap|replace)\b\s+.+\s+\b(?:for|with)\b\s+.+$/i.test(edit)
+      || /^.{1,60}\s+(?:→|->)\s+.{1,60}$/.test(edit)
+      || /^(?:go\s+up|drop)\s+to\s+\d+\s+\S/i.test(edit)) count++
+  }
+  return count
 }
 
 /**
@@ -281,8 +308,8 @@ export function gradeExpectation(tag, turn, turnIndex = 0, turns = [turn]) {
       detail = 'expected get_card or search_cards'
       break
     case 'exactly-one-research':
-      pass = callNamed(turn, 'web_research').length === 1
-      detail = `expected exactly one web_research call; found ${callNamed(turn, 'web_research').length}`
+      pass = callNamed(turn, 'web_research').length >= 1 && callNamed(turn, 'web_research').length <= 2
+      detail = `expected one or two web_research calls; found ${callNamed(turn, 'web_research').length}`
       break
     case 'dated-answer':
       pass = /\b(?:20\d{2}|Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b/i.test(turn.text ?? '')

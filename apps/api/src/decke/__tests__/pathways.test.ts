@@ -34,6 +34,8 @@ test('battle logging preserves paste, ranking, depth, debrief, and hidden-info r
     'main attacker', 'who went first', 'first Knock Out', 'final prize score',
     'play that frustrated', 'turn they would replay', 'whiffed a Supporter',
   ]) assert.ok(text.includes(detail), `missing battle debrief detail: ${detail}`)
+  assert.match(text, /in-person or typed report.*ask_user.*before any .*add_battle_log.*Only after the reader answers.*add_battle_log.*once/)
+  assert.match(text, /Only a bare result with no story.*logged immediately/)
   assert.match(text, /hidden information are \*\*unknown\*\*, never guessed/)
   assert.match(text, /battle number, version and deck record/)
 })
@@ -52,6 +54,7 @@ test('deck iteration records evidence and sample-size limits in version history'
   const text = flat(pathwayText('deck_iterate'))
   assert.match(text, /sample size/)
   assert.match(text, /at most two changes/)
+  assert.match(text, /Keep observations separate from proposals.*END with at most two concrete next steps, one line each/)
   assert.match(text, /`version_note`.*evidence/)
   assert.match(text, /what to watch in the next games/)
 })
@@ -62,9 +65,15 @@ test('card rules and research keep mutable facts in the right sources', () => {
   assert.match(rules, /N's Zoroark ex is not Zoroark ex/)
 
   const research = flat(pathwayText('research'))
-  assert.match(research, /Date-stamp every claim about the meta/)
+  assert.match(research, /Every meta answer must state today's date.*date each source reports on.*“undated”/)
+  assert.match(research, /sources are thin, say plainly that the evidence is thin/)
   assert.match(research, /Standard format is H, I and J.*2026-04-10/)
   assert.match(research, /Card text, legality and DeckPal prices are not web-research questions/)
+})
+
+test('battle review ends with no more than two concrete next steps', () => {
+  const text = flat(pathwayText('battle_review'))
+  assert.match(text, /Keep observations separate from proposals.*END with at most two concrete next steps, one line each/)
 })
 
 test('navigation retains jump, escort, journey, route, and selector guidance', () => {
