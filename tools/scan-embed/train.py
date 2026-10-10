@@ -260,6 +260,8 @@ def main():
     ap.add_argument("--temp", type=float, default=0.05)
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--eval-every", type=int, default=2)
+    ap.add_argument("--holdout-sets", default="",
+                    help="comma-separated set ids left OUT of training (still in the eval gallery): measures cards the model never saw, e.g. a set released after training")
     ap.add_argument("--dim-out", type=int, default=0,
                     help="project to this many dims (768 keeps card_embedding's vector(768) schema for a non-ViT backbone)")
     a = ap.parse_args()
@@ -271,6 +273,7 @@ def main():
     torch.backends.cuda.matmul.allow_tf32 = True
 
     cat, cards = load_catalog()
+    holdout = {x for x in a.holdout_sets.split(",") if x}
     groups, by_name = art_groups(cards, a.art_dist)
     id_of = [c["cardId"] for c in cards]
     name_of = {c["cardId"]: c["name"].lower() for c in cards}
@@ -290,7 +293,13 @@ def main():
         opt, lambda s: min(1.0, s / max(1, steps_per_epoch)) * 0.5 * (1 + math.cos(math.pi * min(1.0, s / total))))
 
     ds = CardSet(cards, a.size)
-    sampler = FamilyBatches(by_name, a.batch, a.per_family, steps_per_epoch)
+    train_fams = by_name
+    if holdout:
+        train_fams = {k: [i for i in v if cards[i]["setId"] not in holdout] for k, v in by_name.items()}
+        train_fams = {k: v for k, v in train_fams.items() if v}
+        n_out = sum(1 for c in cards if c["setId"] in holdout)
+        print(f"holding out {sorted(holdout)}: {n_out} cards never trained on (still in the eval gallery)")
+    sampler = FamilyBatches(train_fams, a.batch, a.per_family, steps_per_epoch)
     dl = DataLoader(ds, batch_sampler=sampler, num_workers=a.workers, persistent_workers=a.workers > 0,
                     prefetch_factor=2 if a.workers else None, pin_memory=False)
 
