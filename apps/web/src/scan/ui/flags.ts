@@ -141,6 +141,34 @@ async function downscaledPngBase64(source: CanvasImageSource, w: number, h: numb
 }
 
 /**
+ * THE CROP THE IDENTIFIER READ, BYTE FOR BYTE — `meta.rectifiedJpeg`, 2026-10-09.
+ *
+ * `rectifiedPng` is a 320 px re-encode, fine for judging a crop by eye and too
+ * small to replay identification on: the device's OCR reads the 480×670 JPEG,
+ * and at 229×320 it reads almost nothing (`ocrNarrow.ts`). The scan benchmark
+ * (scripts/scan-bench) could score OCR on only 85 of 256 real crops for exactly
+ * this reason. So the capture's own JPEG rides along unchanged — the bytes
+ * `/api/scan` and the OCR lane were handed — and at ~40 KB it is SMALLER than
+ * the PNG beside it.
+ *
+ * Capped, because a non-camera path could hand over something large and the
+ * endpoint's post limit is ~3 MB for the whole record.
+ */
+const RECTIFIED_JPEG_MAX_BYTES = 400_000
+
+async function capturedJpegBase64(blob: Blob | null): Promise<string | null> {
+  if (!blob || blob.size === 0 || blob.size > RECTIFIED_JPEG_MAX_BYTES || !/jpe?g/i.test(blob.type)) return null
+  try {
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    let bin = ''
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+    return btoa(bin)
+  } catch {
+    return null
+  }
+}
+
+/**
  * How long the recorder will hold a snapshotted capture waiting for its
  * `outcome` before posting without one.
  *
@@ -202,6 +230,7 @@ export async function recordCaptureEvent(input: CaptureEventInput): Promise<void
         rectifiedPng = null
       }
     }
+    const rectifiedJpeg = await capturedJpegBase64(input.rectified)
     // THE SNAPSHOT IS DONE; only the POST waits. See `CaptureEventInput.outcome`.
     let outcome: Record<string, unknown> | null = null
     if (input.outcome) {
@@ -228,6 +257,7 @@ export async function recordCaptureEvent(input: CaptureEventInput): Promise<void
       // it; a record that does not carry it makes the next reader guess.
       pipelineVersion: PIPELINE_VERSION,
       rectifiedPng,
+      rectifiedJpeg,
       ...input.detail,
       ...(outcome ?? {}),
     })

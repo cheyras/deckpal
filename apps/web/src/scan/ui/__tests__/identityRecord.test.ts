@@ -165,6 +165,10 @@ describe('identityRecord', () => {
       ocr: 'roi',
       bodyLines: null,
       ocrMs: 340,
+      // The four fields themselves, so a needs-you row can be diagnosed from
+      // the record: "read 61/182 for 161/182" is a different bug from "read
+      // nothing".
+      ocrRead: { name: null, number: '161', denominator: '182', setCode: null },
       // No `embed` on this event, so both columns are null — the shape a capture
       // records on a build, or a backend, where the image rung is not in play.
       embedMs: null,
@@ -422,6 +426,7 @@ describe('identityRecord', () => {
       'msToResolve',
       'ocr',
       'ocrMs',
+      'ocrRead',
       'resolvedBy',
     ])
   })
