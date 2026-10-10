@@ -8,7 +8,7 @@
  */
 import { codeOf, def, type Env } from './context.js';
 import type { Op } from './compile.js';
-import type { CardZone, Dest, Filter, SlotRef, SlotZone, SpecialCondition, Step } from './dsl.js';
+import type { CardZone, DamageIgnore, Dest, Filter, SlotRef, SlotZone, SpecialCondition, Step } from './dsl.js';
 import { cardMatches, evalCond, evalExpr, resolveSlot, side, slotMatches, slotsIn, type EvalCtx } from './eval.js';
 import {
   attackCost,
@@ -20,6 +20,7 @@ import {
   maxHp,
   ownerOf,
   statics,
+  toolsDisabled, // lane:fighting
   weaknessOf,
 } from './query.js';
 import {
@@ -192,7 +193,7 @@ function attackDamage(env: Env, s: GameState, f: Frame): R {
   const amount = script?.damage !== undefined ? evalExpr(env, s, ec(f), script.damage) : atk.baseDamage;
   if (amount <= 0 && !script?.damage) return 'next';
   const to = script?.target ?? 'defender';
-  return dealDamage(env, s, f, amount, to);
+  return dealDamage(env, s, f, amount, to, script?.ignore); // lane:fighting (ignore)
 }
 
 function targetsOf(env: Env, s: GameState, f: Frame, to: SlotRef | { each: SlotZone; filter?: Filter } | { v: string }): Slot[] {
@@ -215,6 +216,7 @@ function dealDamage(
   f: Frame,
   base: number,
   to: SlotRef | { each: SlotZone; filter?: Filter } | { v: string },
+  ignore?: DamageIgnore, // lane:fighting
 ): R {
   const attacker = findSlot(s, f.slot)?.slot;
   const all = statics(env, s);
@@ -222,19 +224,23 @@ function dealDamage(
   for (const target of targetsOf(env, s, f, to)) {
     const owner = ownerOf(s, target);
     const isActive = s.p[owner].active === target;
+    // lane:fighting — "isn't affected by any effects on your opponent's Active Pokémon"
+    const noDefEffects = !!ignore?.defenderEffects && isActive && owner !== f.player;
     let dmg = base;
     if (dmg > 0 && attacker && owner !== f.player && isActive) dmg += damageOut(env, s, attacker, target, all);
     if (dmg > 0 && isActive && owner !== f.player) {
-      const w = weaknessOf(env, s, target, all);
-      if (w && atkTypes.includes(w)) dmg *= 2;
+      const w = noDefEffects ? def(env.ctx, topCard(target)).weakness : weaknessOf(env, s, target, all);
+      if (!ignore?.weakness && w && atkTypes.includes(w)) dmg *= 2;
       const r = def(env.ctx, topCard(target)).resistance;
-      if (r && atkTypes.includes(r.type)) dmg -= r.amount;
+      if (!ignore?.resistance && r && atkTypes.includes(r.type)) dmg -= r.amount;
     }
-    if (dmg > 0) dmg += damageIn(env, s, target, all);
+    if (dmg > 0 && !noDefEffects) dmg += damageIn(env, s, target, all, f.player); // lane:metal (fromOpp) + lane:fighting (ignore)
     if (dmg < 0) dmg = 0;
-    if (dmg > 0 && damagePrevented(env, s, target, f.player, all)) dmg = 0;
+    if (dmg > 0 && !noDefEffects && damagePrevented(env, s, target, f.player, all, attacker ?? undefined)) dmg = 0; // lane:ghost (attacker)
     if (dmg <= 0) continue;
     target.damage += dmg;
+    // lane:fighting — remember who this attack damaged (Legacy Energy: "Knocked Out by damage from an attack")
+    if (f.kind === 'attack' && owner !== f.player) s.attackHits = [...(s.attackHits ?? []), target.id];
     emit(env, { type: 'damage', player: owner, slot: target.id, amount: dmg, bySlot: f.slot });
     if (owner !== f.player && isActive) queueTriggers(env, s, target, owner, 'damagedByAttackActive');
   }
@@ -247,9 +253,12 @@ export function queueTriggers(
   s: GameState,
   slot: Slot,
   owner: Player,
-  on: 'damagedByAttackActive' | 'knockedOutByAttack' | 'playToBench' | 'evolveFromHand',
+  // lane:misc — 'checkup' and 'endOfTurn' added; attached Energy are trigger sources too (Ignition Energy).
+  on: 'damagedByAttackActive' | 'knockedOutByAttack' | 'playToBench' | 'evolveFromHand' | 'checkup' | 'endOfTurn' | 'oppAttachFromHand', // lane:ghost
+  /** lane:ghost — initial frame variables (e.g. `__target` for oppAttachFromHand). */
+  vars?: Record<string, Val>,
 ): void {
-  const sources = [topCard(slot), ...slot.tools];
+  const sources = [topCard(slot), ...(toolsDisabled(env, s) ? [] : slot.tools), ...slot.energy]; // lane:misc energy triggers; lane:fighting Jamming Tower
   const noAb = hasNoAbilities(env, s, slot);
   for (const c of sources) {
     const d = def(env.ctx, c);
@@ -261,17 +270,43 @@ export function queueTriggers(
       const frame: Frame = {
         code: t.code,
         pc: 0,
-        vars: {},
+        vars: { ...vars }, // lane:ghost
         player: owner,
         src: c,
         slot: slot.id,
-        kind: isPokemon ? 'ability' : 'tool',
+        kind: isPokemon ? 'ability' : slot.tools.includes(c) ? 'tool' : 'energy',
       };
       if (t.t.when && !evalCond(env, s, ec(frame), t.t.when)) continue;
       if (t.t.optional) frame.vars.__optional = true;
       s.queued.push(frame);
     }
   }
+}
+
+/**
+ * lane:misc — the Stadium in play reacts to a Pokémon put onto its owner's Bench during that
+ * player's turn (Risky Ruins). Called for Pokémon benched from hand and by effects (searches).
+ */
+export function queueStadiumBench(env: Env, s: GameState, slot: Slot, owner: Player): void {
+  if (!s.stadium || s.phase !== 'main' || s.current !== owner) return;
+  const d = def(env.ctx, s.stadium.card);
+  if (d.coverage !== 'full') return;
+  for (const t of d.triggers) {
+    if (t.t.on !== 'pokemonBenched') continue;
+    const frame: Frame = { code: t.code, pc: 0, vars: {}, player: owner, src: s.stadium.card, slot: slot.id, kind: 'stadium' };
+    if (t.t.when && !evalCond(env, s, ec(frame), t.t.when)) continue;
+    if (t.t.optional) frame.vars.__optional = true;
+    s.queued.push(frame);
+  }
+}
+
+/**
+ * lane:ghost — `owner` attached an Energy card from their hand to `target`: fire the
+ * opponent's "whenever your opponent attaches an Energy card from their hand" Abilities.
+ */
+export function queueOppAttachTriggers(env: Env, s: GameState, owner: Player, target: Slot): void {
+  const watcher = opp(owner);
+  for (const w of allSlots(s.p[watcher])) queueTriggers(env, s, w, watcher, 'oppAttachFromHand', { __target: target.id });
 }
 
 // ---------------------------------------------------------------------------
@@ -291,11 +326,13 @@ function moveCards(env: Env, s: GameState, f: Frame, cards: number[], to: Dest, 
     const ops = s.p[owner];
     if (to === 'bench') {
       const d = def(env.ctx, c);
-      if (d.kind !== 'pokemon' || d.stage !== 0 || ops.bench.length >= 5) continue;
+      const asBasic = d.kind === 'trainer' && !!d.script?.fix?.playAsBasic; // lane:ghost (Antique fossils)
+      if ((d.kind !== 'pokemon' && !asBasic) || d.stage !== 0 || ops.bench.length >= 5) continue;
       if (!takeFromZones(ops, c)) continue;
       const sl = newSlot(s, c);
       ops.bench.push(sl);
       emit(env, { type: 'play_to_bench', player: owner, card: c, slot: sl.id });
+      queueStadiumBench(env, s, sl, owner); // lane:misc
       moved.push(c);
       continue;
     }
@@ -425,9 +462,11 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
       if (!target) return 'next';
       for (const c of cards) {
         const owner = env.ctx.owner[c] as Player;
+        const fromHand = s.p[owner].hand.includes(c); // lane:ghost
         if (!takeFromZones(s.p[owner], c)) continue;
         target.energy.push(c);
         emit(env, { type: 'attach', player: owner, card: c, slot: target.id });
+        if (fromHand && def(env.ctx, c).kind === 'energy') queueOppAttachTriggers(env, s, ownerOf(s, target), target); // lane:ghost
       }
       return 'next';
     }
@@ -435,7 +474,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
       return discardEnergy(env, s, f, st);
     case 'damage': {
       const amount = evalExpr(env, s, e, st.amount);
-      return dealDamage(env, s, f, amount, st.to ?? 'defender');
+      return dealDamage(env, s, f, amount, st.to ?? 'defender', st.ignore); // lane:fighting (ignore)
     }
     case 'counters': {
       const n = evalExpr(env, s, e, st.n);
@@ -458,6 +497,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
       const t = resolveSlot(s, e, st.to);
       if (!t) return 'next';
       if ((f.kind === 'attack' || f.kind === 'ability') && effectsPrevented(env, s, t, f.player, f.kind)) return 'next';
+      if (def(env.ctx, topCard(t)).script?.fix?.playAsBasic?.noConditions) return 'next'; // lane:ghost
       applyCondition(t, st.cond);
       emit(env, { type: 'condition', player: ownerOf(s, t), slot: t.id, cond: st.cond });
       return 'next';
@@ -500,6 +540,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
           fromAttack: f.kind === 'attack',
           src: f.src,
           filter: st.filter,
+          ...(st.scope ? { scope: st.scope } : {}), // lane:metal
         });
       }
       return 'next';

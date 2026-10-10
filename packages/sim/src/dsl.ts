@@ -48,6 +48,14 @@ export interface Filter {
   hasAbility?: string;
   /** In-play only: the Pokémon has at least one damage counter. */
   damaged?: boolean;
+  /** In-play only: at least one attached Energy card matches (e.g. `{ basicEnergy: false }` = has Special Energy). */ // lane:metal
+  energy?: Filter;
+  /** In-play only: the Pokémon has a Tool attached (true) / none (false). */ // lane:metal
+  tool?: boolean;
+  /** In-play only: the Pokémon has this Special Condition. */ // lane:metal
+  condition?: SpecialCondition;
+  /** In-play only: the Pokémon has at least one Energy attached. */ // lane:ghost
+  energized?: boolean;
   not?: Filter;
   any?: Filter[];
 }
@@ -114,14 +122,21 @@ export type Cond =
   | { koLastTurn: Who }
   | { stadium: Filter | true }
   | { benchFull: Who }
-  | { firstTurn: true };
+  | { firstTurn: true }
+  /** lane:ghost — a named, tested predicate registered with `registerCustomCond` (customs.ts). */
+  | { custom: string; args?: Record<string, unknown> };
 
 /** A passive effect, from an Ability, a Tool, a Stadium, an Energy or a timed effect. */
 export type StaticEffect =
   /** Prevent effects (not damage) of the opponent's attacks/Abilities done to the affected Pokémon. */
   | { k: 'preventEffects'; from: ('attack' | 'ability')[] }
   /** Prevent damage (and optionally effects) from the opponent's attacks done to the affected Pokémon. */
-  | { k: 'preventDamage'; andEffects?: boolean }
+  | {
+      k: 'preventDamage';
+      andEffects?: boolean;
+      /** lane:ghost — only from attacking Pokémon with at most this much Energy attached (Bastiodon, Ancient Bulwark). */
+      attackerMaxEnergy?: number;
+    }
   /** Add to (or with `set`, replace) the affected Pokémon's Retreat Cost. */
   | { k: 'retreatCost'; delta?: number; set?: number }
   /** Change the Colorless part of one (or every) attack's cost on the affected Pokémon. */
@@ -132,8 +147,8 @@ export type StaticEffect =
   | { k: 'weaknessType'; type: PType }
   /** Damage the affected Pokémon's attacks do to the opponent's Active Pokémon (before W/R). */
   | { k: 'damageOut'; amount: number; vs?: Filter }
-  /** Damage the affected Pokémon takes from attacks (after W/R; negative = reduction). */
-  | { k: 'damageIn'; amount: number }
+  /** Damage the affected Pokémon takes from attacks (after W/R; negative = reduction). `fromOpp`: only from the opponent's attacks. */
+  | { k: 'damageIn'; amount: number; fromOpp?: boolean /* lane:metal */ }
   | { k: 'hp'; delta: number }
   | { k: 'cantAttack' }
   | { k: 'cantRetreat' }
@@ -142,7 +157,25 @@ export type StaticEffect =
   /** The affected player can't play Item cards. */
   | { k: 'itemLock' }
   /** Damage counters on Pokémon can't be moved (Watchful Eye). */
-  | { k: 'countersFixed' };
+  | { k: 'countersFixed' }
+  // lane:misc — Togekiss, Wonder Kiss: "When your opponent's Active Pokémon is Knocked Out, (flip a coin. If heads,)
+  // take 1 more Prize card." Player-level (scope 'me'); never stacks.
+  | { k: 'extraPrize'; flip?: boolean }
+  // lane:misc — Psyduck, Damp: the affected Pokémon lose any Ability that Knocks Out the Pokémon using it
+  // (AbilityScript.selfKo, else detected from the printed text "this Pokémon is Knocked Out").
+  | { k: 'loseSelfKoAbilities' }
+  /** The affected Pokémon can't use this one attack ("this Pokémon can't use Mega Brave"). */ // lane:fighting
+  | { k: 'cantUseAttack'; attack: string } // lane:fighting
+  /** From a Stadium: Pokémon Tools attached to every Pokémon have no effect (Jamming Tower). */ // lane:fighting
+  | { k: 'noToolEffects' }; // lane:fighting
+
+/** Parts of the damage pipeline an attack's damage skips ("isn't affected by Weakness or Resistance"). */ // lane:fighting
+export interface DamageIgnore {
+  weakness?: boolean;
+  resistance?: boolean;
+  /** "isn't affected by any effects on your opponent's Active Pokémon": no damageIn, no prevention, printed Weakness. */
+  defenderEffects?: boolean;
+}
 
 /** Which Pokémon a static effect applies to, relative to its source's controller. */
 export type Scope =
@@ -220,7 +253,7 @@ export type Step =
   /** Discard Energy from a Pokémon: all of it, or `count` chosen by the controller. */
   | { op: 'discardEnergy'; from: SlotRef; count: Expr | 'all'; filter?: Filter; as?: string }
   /** Attack damage, through Weakness, Resistance and every modifier. */
-  | { op: 'damage'; amount: Expr; to?: SlotRef | { each: SlotZone; filter?: Filter } | { v: string } }
+  | { op: 'damage'; amount: Expr; to?: SlotRef | { each: SlotZone; filter?: Filter } | { v: string }; ignore?: DamageIgnore /* lane:fighting */ }
   /** Place damage counters: no Weakness, Resistance or damage modifiers. */
   | { op: 'counters'; n: Expr; to: SlotRef | { each: SlotZone; filter?: Filter } }
   | { op: 'heal'; amount: Expr; to: SlotRef }
@@ -235,7 +268,16 @@ export type Step =
   /** "You may ..." -- a yes/no decision for the controller. */
   | { op: 'may'; body: Step[]; prompt?: string }
   /** Create a timed effect on a Pokémon or a player. */
-  | { op: 'effect'; static: StaticEffect; on?: SlotRef; onPlayer?: Who; duration: Duration; filter?: Filter }
+  | {
+      op: 'effect';
+      static: StaticEffect;
+      on?: SlotRef;
+      onPlayer?: Who;
+      duration: Duration;
+      filter?: Filter;
+      /** Player-level effect on Pokémon (Iron Defender: "all of your {M} Pokémon ... includes new Pokémon"): which of `onPlayer`'s Pokémon it covers, matched live. */ // lane:metal
+      scope?: Scope;
+    }
   | { op: 'knockOut'; target: SlotRef }
   /** Choose one of the attacks of the (Pokémon) card in the variable and use it as this attack. */
   | { op: 'useAttackOf'; card: string }
@@ -253,6 +295,8 @@ export interface AttackScript {
   damage?: Expr;
   /** Where the attack's damage goes. Defaults to the Defending Pokémon. */
   target?: SlotRef | { each: SlotZone; filter?: Filter } | { v: string };
+  /** Pipeline parts the printed damage skips. */ // lane:fighting
+  ignore?: DamageIgnore; // lane:fighting
   /** Steps after damage. */
   post?: Program;
   /** Replace the whole sequence (damage op included) with this program. */
@@ -269,7 +313,18 @@ export type TriggerOn =
   /** This Pokémon (or, for a Tool, the Pokémon it is attached to) was damaged by an opponent's attack while Active. */
   | 'damagedByAttackActive'
   /** This Pokémon was Knocked Out by damage from an opponent's attack. */
-  | 'knockedOutByAttack';
+  | 'knockedOutByAttack'
+  /** lane:misc — "During Pokémon Checkup": fires for every Pokémon in play (Abilities, Tools, Energy) at each Checkup. */
+  | 'checkup'
+  /** lane:misc — "At the end of your turn": the current player's Pokémon (Abilities, Tools, attached Energy), after any attack, before Checkup. */
+  | 'endOfTurn'
+  /** lane:misc — Stadium: a Pokémon was put onto its owner's Bench during that player's turn (frame slot = that Pokémon). */
+  | 'pokemonBenched'
+  /**
+   * lane:ghost — the OPPONENT attached an Energy card from their hand to one of their Pokémon
+   * (Gengar ex, Gnawing Curse). The program sees that Pokémon's slot id in `__target`.
+   */
+  | 'oppAttachFromHand';
 
 export interface TriggerScript {
   on: TriggerOn;
@@ -282,6 +337,8 @@ export interface TriggerScript {
 
 export interface AbilityScript {
   name: string;
+  /** lane:misc — the Ability Knocks Out the Pokémon using it (Damp). Default: detected from the printed text. */
+  selfKo?: boolean;
   /** Activated ("Once during your turn, you may...") */
   activated?: {
     program: Program;
@@ -314,6 +371,8 @@ export interface CardScript {
   play?: Program;
   /** Trainer: it can only be played when this holds. */
   playable?: Cond;
+  /** Supporter: "If you go first, you may use this card during your first turn." (Carmine) */ // lane:metal
+  firstTurnSupporter?: boolean;
   /** Trainer (Tool/Stadium) and Energy passives. */
   statics?: StaticDef[];
   /** Trainer (Tool) and Energy triggers. */
@@ -322,10 +381,37 @@ export interface CardScript {
   stadiumAbility?: { program: Program; when?: Cond };
   /** Energy: the Energy it provides while attached (default: a Basic Energy's own type). */
   provides?: PType[];
+  /** lane:misc — Energy: provides this instead while the Pokémon it is attached to matches (Ignition Energy on an Evolution Pokémon). */
+  providesIf?: { filter: Filter; provides: PType[] };
   /** Energy: when discarded by an effect of the attached Pokémon's own attack, reattach it after attacking (Boomerang Energy). */
   reattachAfterOwnAttack?: boolean;
+  /** Energy: "provides every type of Energy but provides only n Energy at a time" (while the holder matches `when`). */ // lane:fighting
+  providesAny?: { n: number; when?: Filter }; // lane:fighting
+  /** Energy: when the holder is Knocked Out by damage from an opponent's attack, that player takes `delta` more Prizes (negative = fewer). */ // lane:fighting
+  koPrizeDelta?: { delta: number; oncePerGame?: boolean }; // lane:fighting
   /** Data corrections where the catalog is wrong (e.g. TCGdex marks some Special Energy "Normal"). */
-  fix?: { specialEnergy?: boolean; aceSpec?: boolean; tera?: boolean };
+  fix?: {
+    specialEnergy?: boolean;
+    aceSpec?: boolean;
+    tera?: boolean;
+    /** lane:misc — the catalog lists no "evolves from" for this Stage 1/2 card (TCGdex 30th-123 Hisuian Zoroark). */
+    evolvesFrom?: string;
+    /**
+     * lane:ghost — a Trainer played onto the Bench "as if it were a <hp>-HP Basic <type> Pokémon"
+     * (Antique fossils). It is still an Item in every other zone (searched, Item-locked, never placed
+     * during setup); in play it is a Basic Pokémon worth 1 Prize card.
+     */
+    playAsBasic?: {
+      hp: number;
+      type: PType;
+      /** "This card can't retreat." */
+      cantRetreat?: boolean;
+      /** "This card can't be affected by any Special Conditions." */
+      noConditions?: boolean;
+      /** "At any time during your turn, you may discard this card from play." */
+      discardable?: boolean;
+    };
+  };
   /** Free-text notes: rulings consulted, open questions. */
   notes?: string;
   /** Ruling status of the definition. */

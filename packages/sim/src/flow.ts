@@ -9,8 +9,11 @@
  */
 import { def, type Env } from './context.js';
 import { evalCond } from './eval.js';
-import { applyCondition, queueTriggers, run, swapActive } from './interp.js';
+import { applyCondition, queueOppAttachTriggers, queueStadiumBench, queueTriggers, run, swapActive } from './interp.js';
 import {
+  abilityLost,
+  extraPrizeFor,
+  attackBlocked, // lane:fighting
   attackCost,
   canPay,
   cantAttack,
@@ -348,6 +351,8 @@ function turnStep(env: Env, s: GameState): void {
       return;
     case 'endTurn': {
       emit(env, { type: 'end_turn', player: s.current, turn: s.turn });
+      // lane:misc — "at the end of your turn" effects (Powerglass, Ignition Energy) resolve before Checkup.
+      for (const sl of allSlots(s.p[s.current])) queueTriggers(env, s, sl, s.current, 'endOfTurn');
       s.step = 'checkup';
       return;
     }
@@ -410,10 +415,16 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
     } else if (d.kind === 'trainer') {
       if (d.coverage === 'none') continue;
       if (d.playable && !evalCond(env, s, { player: p, slot: 0, vars: { __src: c } }, d.playable)) continue;
+      if (d.script?.fix?.playAsBasic) {
+        // lane:ghost — played onto the Bench as a Basic Pokémon; still an Item, so Item locks stop it.
+        if (!locked && ps.bench.length < 5 && once(`b${d.idx}`)) out.push({ t: 'bench', card: c });
+        continue;
+      }
       if (d.ttype === 'item') {
         if (!locked && once(`t${d.idx}`)) out.push({ t: 'trainer', card: c });
       } else if (d.ttype === 'supporter') {
-        if (!ps.supporterPlayed && s.turn !== 1 && once(`t${d.idx}`)) out.push({ t: 'trainer', card: c });
+        // lane:metal: `firstTurnSupporter` (Carmine) lifts the first player's turn-1 ban.
+        if (!ps.supporterPlayed && (s.turn !== 1 || d.script?.firstTurnSupporter) && once(`t${d.idx}`)) out.push({ t: 'trainer', card: c });
       } else if (d.ttype === 'stadium') {
         if (ps.stadiumPlayed) continue;
         if (s.stadium && def(env.ctx, s.stadium.card).name === d.name) continue;
@@ -446,6 +457,7 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
       if (a.globalOncePerTurn && ps.globalAbilitiesUsed.includes(ab.name)) return;
       if (a.activeOnly && ps.active !== sl) return;
       if (a.when && !evalCond(env, s, { player: p, slot: sl.id, vars: {} }, a.when)) return;
+      if (abilityLost(env, s, sl, ab, all)) return; // lane:misc — Damp
       if (once(`ab${d.idx}:${i}:${a.globalOncePerTurn ? 'g' : sl.id}`)) out.push({ t: 'ability', slot: sl.id, idx: i });
     });
   }
@@ -463,6 +475,7 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
     const d = def(env.ctx, topCard(act));
     const units = energyUnits(env, act);
     d.attacks.forEach((_atk, i) => {
+      if (attackBlocked(env, s, act, _atk.name, all)) return; // lane:fighting
       if (canPay(attackCost(env, s, act, i, all), units)) out.push({ t: 'attack', idx: i });
     });
   }
@@ -495,6 +508,7 @@ function doAction(env: Env, s: GameState, a: Action): void {
       ps.bench.push(sl);
       emit(env, { type: 'play_to_bench', player: p, card: a.card, slot: sl.id });
       queueTriggers(env, s, sl, p, 'playToBench');
+      queueStadiumBench(env, s, sl, p); // lane:misc — Risky Ruins
       return;
     }
     case 'evolve': {
@@ -523,6 +537,7 @@ function doAction(env: Env, s: GameState, a: Action): void {
         if (t.t.optional) f.vars.__optional = true;
         s.queued.push(f);
       }
+      queueOppAttachTriggers(env, s, p, sl); // lane:ghost (Gengar ex, Gnawing Curse)
       return;
     }
     case 'trainer': {
@@ -581,6 +596,7 @@ function doAction(env: Env, s: GameState, a: Action): void {
       const atk = d.attacks[a.idx];
       if (!atk) return;
       s.attacked = true;
+      s.attackHits = []; // lane:fighting
       emit(env, { type: 'attack', player: p, slot: act.id, name: atk.name });
       const defender = s.p[opp(p)].active;
       pushFrame(s, {
@@ -620,7 +636,32 @@ function knockOut(env: Env, s: GameState, owner: Player, sl: Slot): void {
   if (ps.active === sl) ps.active = null;
   else ps.bench = ps.bench.filter((b) => b !== sl);
   s.effects = s.effects.filter((x) => x.slot !== sl.id);
+  if (ps.lastKoTurn !== s.turn) ps.prevKoTurn = ps.lastKoTurn; // lane:misc
   ps.lastKoTurn = s.turn;
+}
+
+/**
+ * lane:fighting — Prize modifiers on attached Energy (Legacy Energy: "If the Pokémon this card is attached to is
+ * Knocked Out by damage from an attack from your opponent's Pokémon, that player takes 1 fewer Prize card. This
+ * effect ... can't be applied more than once per game."). Applies only to a Knock Out checked after an attack, of a
+ * Pokémon that attack damaged, owned by the non-attacking player -- not to Checkup Knock Outs or damage counters.
+ */
+function koPrizeDelta(env: Env, s: GameState, owner: Player, sl: Slot): number {
+  if (!s.attacked || s.afterKo === 'nextTurn' || owner === s.current) return 0;
+  if (!(s.attackHits ?? []).includes(sl.id)) return 0;
+  let delta = 0;
+  for (const c of sl.energy) {
+    const d = def(env.ctx, c);
+    const m = d.coverage === 'full' ? d.script?.koPrizeDelta : undefined;
+    if (!m) continue;
+    const used = s.p[owner].oncePerGame ?? [];
+    if (m.oncePerGame) {
+      if (used.includes(d.name)) continue;
+      s.p[owner].oncePerGame = [...used, d.name];
+    }
+    delta += m.delta;
+  }
+  return delta;
 }
 
 function resolveKOs(env: Env, s: GameState): void {
@@ -628,15 +669,27 @@ function resolveKOs(env: Env, s: GameState): void {
   const ko: { owner: Player; slot: Slot; prizes: number }[] = [];
   for (const p of [0, 1] as Player[]) {
     for (const sl of allSlots(s.p[p])) {
-      if (sl.damage >= maxHp(env, s, sl)) ko.push({ owner: p, slot: sl, prizes: def(env.ctx, topCard(sl)).prizeValue });
+      if (sl.damage >= maxHp(env, s, sl)) {
+        const prizes = Math.max(0, def(env.ctx, topCard(sl)).prizeValue + koPrizeDelta(env, s, p, sl)); // lane:fighting
+        ko.push({ owner: p, slot: sl, prizes });
+      }
     }
   }
   if (ko.length) {
+    // lane:misc — Wonder Kiss: "When your opponent's Active Pokémon is Knocked Out, flip a coin. If heads, take 1 more
+    // Prize card." Checked while the Pokémon are still in play; at most one per taker (it doesn't stack).
+    const extra: [number, number] = [0, 0];
+    const all = statics(env, s);
+    for (const taker of [0, 1] as Player[]) {
+      if (!ko.some((k) => k.owner !== taker && s.p[k.owner].active === k.slot)) continue;
+      const x = extraPrizeFor(env, s, taker, all);
+      if (x && (!(x.effect as { flip?: boolean }).flip || flipCoin(env, s, taker))) extra[taker] = 1;
+    }
     for (const k of ko) knockOut(env, s, k.owner, k.slot);
     // 2. Prize cards: the player whose turn is next takes first (Compendium, 2018).
     const order: Player[] = [opp(s.current), s.current];
     for (const taker of order) {
-      const n = ko.filter((k) => k.owner !== taker).reduce((a, k) => a + k.prizes, 0);
+      const n = ko.filter((k) => k.owner !== taker).reduce((a, k) => a + k.prizes, 0) + extra[taker];
       if (!n) continue;
       const tp = s.p[taker];
       let took = 0;
@@ -724,6 +777,10 @@ function checkup(env: Env, s: GameState): void {
     }
     // Paralyzed wears off during the Checkup after its owner's turn.
     if (sl.cond & PARALYZED && p === s.current) sl.cond &= ~PARALYZED;
+  }
+  // lane:misc — "During Pokémon Checkup" Abilities (Froslass) resolve after Special Conditions, before Knock Outs.
+  for (const p of [s.current, opp(s.current)] as Player[]) {
+    for (const sl of allSlots(s.p[p])) queueTriggers(env, s, sl, p, 'checkup');
   }
 }
 

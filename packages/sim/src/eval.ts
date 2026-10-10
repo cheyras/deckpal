@@ -3,9 +3,11 @@
  * the point of view of an effect's controller (`ec.player`) and source Pokémon.
  */
 import { def, type Env } from './context.js';
-import type { Cond, Expr, Filter, SlotRef, SlotZone, Who } from './dsl.js';
+import type { Cond, Expr, Filter, SlotRef, SlotZone, SpecialCondition, Who } from './dsl.js';
 import { allSlots, findSlot, opp, topCard } from './state.js';
+import { CUSTOM_CONDS } from './customs.js'; // lane:ghost
 import type { CardDef, GameState, Player, Slot, Val } from './types.js';
+import { ASLEEP, BURNED, CONFUSED, PARALYZED, POISONED } from './types.js'; // lane:metal
 
 export interface EvalCtx {
   player: Player;
@@ -61,10 +63,20 @@ export function cardMatches(env: Env, iid: number, f: Filter | undefined): boole
   return defMatches(def(env.ctx, iid), f);
 }
 
+// lane:metal: in-play-only filter keys `energy`, `tool`, `condition`.
+const COND_BIT: Record<SpecialCondition, number> = { asleep: ASLEEP, confused: CONFUSED, paralyzed: PARALYZED, poisoned: POISONED, burned: BURNED };
+
 export function slotMatches(env: Env, slot: Slot, f: Filter | undefined): boolean {
   if (!f) return true;
   if (f.damaged !== undefined && slot.damage > 0 !== f.damaged) return false;
-  return defMatches(def(env.ctx, topCard(slot)), { ...f, damaged: undefined });
+  if (f.energy && !slot.energy.some((c) => cardMatches(env, c, f.energy))) return false; // lane:metal
+  if (f.tool !== undefined && slot.tools.length > 0 !== f.tool) return false; // lane:metal
+  if (f.condition && !(slot.cond & COND_BIT[f.condition])) return false; // lane:metal
+  if (f.energized !== undefined && slot.energy.length > 0 !== f.energized) return false; // lane:ghost
+  let d = def(env.ctx, topCard(slot));
+  // lane:ghost — a Trainer in play was played as a Pokémon (Antique fossils): match it as one.
+  if (d.kind !== 'pokemon') d = { ...d, kind: 'pokemon', ttype: null };
+  return defMatches(d, { ...f, damaged: undefined, energized: undefined });
 }
 
 /** Slots in a zone relative to a player. */
@@ -182,7 +194,7 @@ export function evalCond(env: Env, s: GameState, ec: EvalCtx, c: Cond): boolean 
   }
   if ('koLastTurn' in c) {
     const p = side(ec, c.koLastTurn);
-    return s.p[p].lastKoTurn === s.turn - 1;
+    return s.p[p].lastKoTurn === s.turn - 1 || s.p[p].prevKoTurn === s.turn - 1; // lane:misc — prevKoTurn
   }
   if ('stadium' in c) {
     if (!s.stadium) return false;
@@ -193,5 +205,11 @@ export function evalCond(env: Env, s: GameState, ec: EvalCtx, c: Cond): boolean 
     return s.p[p].bench.length >= 5;
   }
   if ('firstTurn' in c) return s.turn === 1;
+  if ('custom' in c) {
+    // lane:ghost
+    const fn = CUSTOM_CONDS[c.custom];
+    if (!fn) throw new Error(`unknown custom condition ${c.custom}`);
+    return fn(env, s, ec, c.args ?? {});
+  }
   throw new Error(`unknown cond ${JSON.stringify(c)}`);
 }

@@ -37,9 +37,10 @@ export function statics(env: Env, s: GameState): LiveStatic[] {
     const d = def(ctx, s.stadium.card);
     for (const st of d.statics) out.push({ ...st, player: s.stadium.owner, slot: 0, bound: 0, src: s.stadium.card, kind: 'stadium' });
   }
+  const toolsOff = toolsDisabled(env, s); // lane:fighting
   for (const p of [0, 1] as Player[]) {
     for (const sl of allSlots(s.p[p])) {
-      for (const t of sl.tools) {
+      for (const t of toolsOff ? [] : sl.tools) {
         for (const st of def(ctx, t).statics) out.push({ ...st, player: p, slot: sl.id, bound: 0, src: t, kind: 'tool' });
       }
       for (const e of sl.energy) {
@@ -51,7 +52,7 @@ export function statics(env: Env, s: GameState): LiveStatic[] {
     if (te.until < s.turn) continue;
     out.push({
       effect: te.static,
-      scope: te.slot > 0 ? 'self' : 'me',
+      scope: te.slot > 0 ? 'self' : (te.scope ?? 'me'), // lane:metal: te.scope
       filter: te.filter,
       player: te.slot > 0 ? (findSlot(s, te.slot)?.owner ?? te.player) : te.player,
       slot: te.slot,
@@ -185,24 +186,43 @@ export function attackCost(env: Env, s: GameState, slot: Slot, idx: number, all 
   return cost;
 }
 
+/** One Energy unit: a type, or 'Any' for "provides every type of Energy" (Legacy Energy). */ // lane:fighting
+export type EnergyUnit = PType | 'Any'; // lane:fighting
+
 /** Energy units a Pokémon has: one entry per unit, each a type (Colorless = only Colorless). */
-export function energyUnits(env: Env, slot: Slot): PType[] {
-  const out: PType[] = [];
+export function energyUnits(env: Env, slot: Slot): EnergyUnit[] {
+  const out: EnergyUnit[] = [];
   for (const c of slot.energy) {
-    const p = def(env.ctx, c).provides;
+    const d = def(env.ctx, c);
+    // lane:fighting — "provides every type of Energy but provides only n Energy at a time"
+    const any = d.script?.providesAny;
+    if (any && (!any.when || slotMatches(env, slot, any.when))) {
+      for (let i = 0; i < any.n; i++) out.push('Any');
+      continue;
+    }
+    const p = providesOn(env, slot, c); // lane:misc
     if (p.length) out.push(...p);
     else out.push('Colorless');
   }
   return out;
 }
 
-/** Can these units pay this cost? Typed requirements first, Colorless from anything left. */
-export function canPay(cost: readonly PType[], units: readonly PType[]): boolean {
+/** lane:misc — the Energy an attached card provides on this Pokémon (CardScript.providesIf, e.g. Ignition Energy). */
+export function providesOn(env: Env, slot: Slot, card: number): PType[] {
+  const d = def(env.ctx, card);
+  const alt = d.coverage === 'full' ? d.script?.providesIf : undefined;
+  if (alt && slotMatches(env, slot, alt.filter)) return alt.provides;
+  return d.provides;
+}
+
+/** Can these units pay this cost? Typed requirements first (exact type, then an 'Any' unit), Colorless from anything left. */
+export function canPay(cost: readonly PType[], units: readonly EnergyUnit[]): boolean {
   if (cost.length > units.length) return false;
   const pool = units.slice();
   for (const t of cost) {
     if (t === 'Colorless') continue;
-    const i = pool.indexOf(t);
+    let i = pool.indexOf(t);
+    if (i < 0) i = pool.indexOf('Any'); // lane:fighting
     if (i < 0) return false;
     pool.splice(i, 1);
   }
@@ -238,12 +258,25 @@ export function effectsPrevented(
 }
 
 /** Is damage from `fromPlayer`'s attack to this Pokémon prevented? */
-export function damagePrevented(env: Env, s: GameState, slot: Slot, fromPlayer: Player, all = statics(env, s)): boolean {
+export function damagePrevented(
+  env: Env,
+  s: GameState,
+  slot: Slot,
+  fromPlayer: Player,
+  all = statics(env, s),
+  /** lane:ghost — the attacking Pokémon, for prevention that depends on it (Ancient Bulwark). */
+  attacker?: Slot,
+): boolean {
   const owner = ownerOf(s, slot);
   // Tera rule: while on the Bench, prevent all damage done to it by attacks (both players').
   if (def(env.ctx, topCard(slot)).tera && s.p[owner].active !== slot) return true;
   if (owner === fromPlayer) return false;
-  return onSlot(env, s, all, slot, 'preventDamage').length > 0;
+  return onSlot(env, s, all, slot, 'preventDamage').some((x) => {
+    // lane:ghost — "attacks from your opponent's Pokémon that have 2 or less Energy attached" (Energy units, as energyOn counts).
+    const max = (x.effect as { attackerMaxEnergy?: number }).attackerMaxEnergy;
+    if (max === undefined) return true;
+    return !!attacker && energyUnits(env, attacker).length <= max;
+  });
 }
 
 export function damageOut(env: Env, s: GameState, attacker: Slot, target: Slot, all = statics(env, s)): number {
@@ -256,9 +289,14 @@ export function damageOut(env: Env, s: GameState, attacker: Slot, target: Slot, 
   return n;
 }
 
-export function damageIn(env: Env, s: GameState, target: Slot, all = statics(env, s)): number {
+/** `fromPlayer`: whose attack it is (lane:metal) — a `fromOpp` reduction skips the target owner's own attacks. */
+export function damageIn(env: Env, s: GameState, target: Slot, all = statics(env, s), fromPlayer?: Player): number {
   let n = 0;
-  for (const x of onSlot(env, s, all, target, 'damageIn')) n += (x.effect as { amount: number }).amount;
+  for (const x of onSlot(env, s, all, target, 'damageIn')) {
+    const e = x.effect as { amount: number; fromOpp?: boolean };
+    if (e.fromOpp && fromPlayer !== undefined && fromPlayer === ownerOf(s, target)) continue; // lane:metal
+    n += e.amount;
+  }
   return n;
 }
 
@@ -266,12 +304,46 @@ export function hasNoAbilities(env: Env, s: GameState, slot: Slot, all = statics
   return onSlot(env, s, all, slot, 'noAbilities').some((x) => x.slot !== slot.id);
 }
 
+/** lane:misc — Damp: "this Pokémon is Knocked Out" Abilities are lost while a loseSelfKoAbilities effect applies. */
+export const SELF_KO_TEXT = /this Pokémon is Knocked Out/i;
+export function abilityLost(
+  env: Env,
+  s: GameState,
+  slot: Slot,
+  ab: { text: string; script?: { selfKo?: boolean } },
+  all = statics(env, s),
+): boolean {
+  const selfKo = ab.script?.selfKo ?? SELF_KO_TEXT.test(ab.text);
+  return selfKo && onSlot(env, s, all, slot, 'loseSelfKoAbilities').length > 0;
+}
+
+/** lane:misc — Wonder Kiss: the extra-Prize effect that applies to a taker (at most one: it doesn't stack). */
+export function extraPrizeFor(_env: Env, _s: GameState, p: Player, all: LiveStatic[]): LiveStatic | undefined {
+  return all.find((x) => x.effect.k === 'extraPrize' && affectsPlayer(x, p));
+}
+
 export function cantAttack(env: Env, s: GameState, slot: Slot, all = statics(env, s)): boolean {
   return onSlot(env, s, all, slot, 'cantAttack').length > 0;
 }
 
 export function cantRetreat(env: Env, s: GameState, slot: Slot, all = statics(env, s)): boolean {
+  if (def(env.ctx, topCard(slot)).script?.fix?.playAsBasic?.cantRetreat) return true; // lane:ghost (Antique fossils)
   return onSlot(env, s, all, slot, 'cantRetreat').length > 0;
+}
+
+/** "This Pokémon can't use <attack>" (Mega Brave, Accelerating Stab). */ // lane:fighting
+export function attackBlocked(env: Env, s: GameState, slot: Slot, attack: string, all = statics(env, s)): boolean {
+  return onSlot(env, s, all, slot, 'cantUseAttack').some((x) => (x.effect as { attack: string }).attack === attack);
+}
+
+/** Jamming Tower: while the Stadium in play says so, Pokémon Tools have no effect (no statics, no triggers). */ // lane:fighting
+export function toolsDisabled(env: Env, s: GameState): boolean {
+  return !!s.stadium && def(env.ctx, s.stadium.card).statics.some((x) => x.effect.k === 'noToolEffects');
+}
+
+/** lane:ghost — Watchful Eye: are damage counters on `p`'s Pokémon fixed in place? */
+export function countersFixed(env: Env, s: GameState, p: Player, all = statics(env, s)): boolean {
+  return all.some((x) => x.effect.k === 'countersFixed' && affectsPlayer(x, p));
 }
 
 export function itemLocked(env: Env, s: GameState, p: Player, all = statics(env, s)): boolean {

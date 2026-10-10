@@ -156,6 +156,8 @@ export interface PlayerState {
   globalAbilitiesUsed: string[];
   /** Turn number of the most recent turn in which one of this player's Pokémon was Knocked Out. */
   lastKoTurn: number;
+  /** lane:misc — the KO turn before `lastKoTurn`, so a Knock Out on your own turn (Risky Ruins) doesn't hide one from the opponent's last turn. */
+  prevKoTurn?: number;
   // knowledge (for views and determinisation)
   /** The owner has looked through their deck since it was last shuffled into prizes → prizes are deducible. */
   prizesKnown: boolean;
@@ -163,6 +165,8 @@ export interface PlayerState {
   knownTop: number;
   /** Hand cards the opponent has seen (revealed by a search), until they leave the hand. */
   revealed: number[];
+  /** Names of "can't be applied more than once per game" effects already applied (Legacy Energy). Replace, never mutate: clones share it. */ // lane:fighting
+  oncePerGame?: string[]; // lane:fighting
 }
 
 /** An interpreter frame: a program partway through. */
@@ -193,6 +197,8 @@ export interface TimedEffect {
   fromAttack: boolean;
   src: number;
   filter?: import('./dsl.js').Filter;
+  /** Player-level effect that covers that player's Pokémon (see the `effect` step's `scope`). */ // lane:metal
+  scope?: import('./dsl.js').Scope;
 }
 
 export type Phase = 'setup' | 'main' | 'over';
@@ -218,6 +224,8 @@ export interface GameState {
   effects: TimedEffect[];
   /** Set when an attack resolves: the turn ends once the stack empties. */
   attacked: boolean;
+  /** Slot ids the current attack has damaged (opposing Pokémon only). Replace, never mutate: clones share it. */ // lane:fighting
+  attackHits?: number[]; // lane:fighting
   /** Triggered effects waiting for the stack to empty. */
   queued: Frame[];
   /** A Trainer card being played: out of the hand, not yet in the discard pile. */
