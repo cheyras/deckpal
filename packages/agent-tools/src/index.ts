@@ -1,4 +1,5 @@
 import type { ToolDefinition } from './registry.js';
+import { battleDigestTools } from './tools/battleDigest.js';
 import { catalogTools } from './tools/catalog.js';
 import { collectionTools } from './tools/collection.js';
 import { deckIntelTools } from './tools/deckIntel.js';
@@ -43,6 +44,10 @@ const ALL: ToolDefinition[] = [
   ...deckTools,
   ...deckCheckTools,
   ...deckIntelTools,
+  // Deck intelligence too (2026-10-10), so it sits with battle_logs rather
+  // than at the end; every later tool moves down one, a one-off change to the
+  // advertised order on the deploy that adds it.
+  ...battleDigestTools,
   ...listTools,
   ...loggingTools,
   ...shoppingTools,

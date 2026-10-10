@@ -534,6 +534,40 @@ test('Anthropic prompt caching, deck checks and the expanded step budget are wir
   assert.match(CODE, /for \(const output of replayedToolOutputs\(messages\)\) grounding\.observe\(output\)/);
 });
 
+// ── THE CONSULT (2026-10-10) ────────────────────────────────────────────────
+//
+// `consult.ts` and `tools.ts` can be perfect and change nothing: the model it
+// asks, the meter it bills, the abort it obeys and the tier that may hold it
+// are four expressions in this file, each one easy to drop in an edit.
+
+test('the consult runs Sonnet through the request meter, with the turn\'s abort', () => {
+  assert.match(SRC, /import \{ runConsult \} from '\.\.\/apps\/api\/dist\/decke\/consult\.js'/);
+  assert.match(
+    CODE,
+    /consult: \(input\) => runConsult\(\{\s*\.\.\.input,\s*model: observeUsageModel\(gateway\(TIERS\.standard\.id\), meter\),\s*signal: abortSignal,\s*\}\)/,
+    'an unmetered consult is a Sonnet call the reader is never charged for — or one that ignores their stop',
+  );
+  // Built inside the call, never hoisted: observeUsageModel reads the usage
+  // context of the step that runs it.
+  assert.doesNotMatch(CODE, /const \w+ = observeUsageModel\(gateway\(TIERS\.standard\.id\)/);
+});
+
+test('the consult is held only on the Quick tier, decided once for the whole request', () => {
+  assert.match(SRC, /import \{ buildTools, CLIENT_TOOLS, SERVER_TOOLS, toolsForTier \} from '\.\.\/apps\/api\/dist\/decke\/tools\.js'/);
+  assert.match(
+    CODE,
+    /\.\.\.toolsForTier\(buildTools\(writer, groundingForTools, repairs, emitToolEvent\(writer\), \{[\s\S]*?\}\), decision\.tier\)/,
+    'without toolsForTier a Standard request would hold a consult that asks itself',
+  );
+  // Not per step: the set handed to streamText is the one built above.
+  assert.match(CODE, /tools: allDeckeTools,/);
+  assert.doesNotMatch(CODE, /prepareStep:[\s\S]{0,400}toolsForTier/);
+});
+
+test('a consult is not an answer: the empty-answer guard does not excuse it', () => {
+  assert.match(CODE, /const SERVER_SET = new Set\(SERVER_TOOLS\.filter\(\(name\) => name !== 'consult'\)\)/);
+});
+
 test('improvement capture receives identity, correlation and runs after usage finalization', () => {
   assert.match(SRC, /import \{ autoShareAndRecordLeg \} from '\.\.\/apps\/api\/dist\/decke\/improvement\.js'/)
   assert.match(CODE, /db: chatPool\(\),\s*userId: user\.id,\s*conversationId,/)

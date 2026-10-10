@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { extractPastedLog } from '../pastedLog.js';
+import { extractPastedLog, pastedLogCount } from '../pastedLog.js';
 
 const FIXTURE_PATH = fileURLToPath(
   new URL('../../deck/__tests__/fixtures/battle-log-fixture.txt', import.meta.url),
@@ -248,6 +248,70 @@ test('two complete games in one message return only the last game', () => {
     extractPastedLog([userMsg(`Game 1:\n${first}\n\nGame 2:\n${last}`)]),
     last,
   );
+  assert.equal(
+    pastedLogCount([userMsg(`Game 1:\n${first}\n\nGame 2:\n${last}`)]),
+    2,
+    'the companion count discloses that the first complete game was not carried',
+  );
+  assert.equal(pastedLogCount([userMsg(last)]), 1);
+});
+
+// 2026-10-10 (#291 review): the channel carries one game by design, and the
+// count is how the reader learns the rest were left behind. It must describe
+// the SAME message the extractor read, and count only real games.
+test('pastedLogCount counts the games in the message the extractor carried', () => {
+  const g = (name: string): string => SMALL_LOG.replaceAll('PlayerA', name);
+  const three = `${g('OneA')}\n\n${g('TwoA')}\n\n${g('ThreeA')}`;
+  assert.equal(extractPastedLog([userMsg(three)]), g('ThreeA'));
+  assert.equal(pastedLogCount([userMsg(three)]), 3);
+  // A closeout-shaped chat line between games is not a fourth game, and does
+  // not split one.
+  const chatty = `${g('OneA')}\n\nHonestly I should have conceded.\n\n${g('TwoA')}`;
+  assert.equal(extractPastedLog([userMsg(chatty)]), g('TwoA'));
+  assert.equal(pastedLogCount([userMsg(chatty)]), 2);
+  // No paste is zero; an unfinished game and a reverse-order game are one each.
+  assert.equal(pastedLogCount([userMsg('How do I beat Dragapult ex?')]), 0);
+  assert.equal(pastedLogCount(null), 0);
+  assert.equal(pastedLogCount([userMsg(SMALL_LOG.split('\n').slice(0, -1).join('\n'))]), 1);
+  assert.equal(pastedLogCount([userMsg(SMALL_LOG.split('\n').reverse().join('\n'))]), 1);
+  // The NEWEST paste is the one counted, as it is the one carried.
+  assert.equal(pastedLogCount([userMsg(three), userMsg(`Just this one:\n${SMALL_LOG}`)]), 1);
+});
+
+// Reviewer reproduction (a), on the real fixture: a normal-order paste with no
+// result yet and no Setup, under a preamble whose first line is closeout-shaped.
+// HEAD read it as Reverse Display Order — the span began at the preamble and
+// the parser was handed "Kingofslowbros conceded" as this game's result.
+test('closeout-shaped preamble does not turn a partial forward paste into reverse order', () => {
+  const partial = FIXTURE.split('\n')
+    .filter((line) => line !== 'Setup' && !/wins\.$/.test(line))
+    .join('\n');
+  const expected = partial.slice(partial.indexOf("PlayerB's Turn"));
+  const out = extractPastedLog([
+    userMsg(`Kingofslowbros conceded last time.\nHere's tonight's game so far:\n${partial}`),
+  ]);
+  assert.equal(out, expected);
+  assert.ok(out !== null && !out.startsWith('Kingofslowbros conceded'));
+  // The one-line form puts no prose line between the sentence and the log, so
+  // what refuses it is the opening: coin flip and opening hands sit ABOVE the
+  // first turn only in normal order.
+  assert.equal(
+    extractPastedLog([
+      userMsg(`Kingofslowbros conceded last time. Here's tonight's game so far:\n${partial}`),
+    ]),
+    expected,
+  );
+});
+
+test('an unfinished paste stops before closeout-shaped chat below it', () => {
+  // Without a result of its own the span used to run to the last log-shaped
+  // line anywhere — and "I should have conceded." is log-shaped, so the parser
+  // was handed the reader's sentence as the result of a game still in progress.
+  const partial = SMALL_LOG.split('\n').slice(0, -1).join('\n');
+  assert.equal(
+    extractPastedLog([userMsg(`${partial}\n\nHonestly I should have conceded.`)]),
+    partial,
+  );
 });
 
 test('post-closeout chat and a later closeout-shaped sentence stay out of raw_log', () => {
@@ -281,4 +345,44 @@ test('a Reverse Display Order paste without Setup still extracts the whole game'
     .reverse()
     .join('\n');
   assert.equal(extractPastedLog([userMsg(reversed)]), reversed);
+});
+
+// Reviewer reproduction (b): reader chat a blank line below a Reverse Display
+// Order paste. HEAD read the chat as a normal-order result: the span ran from
+// the first turn header to the chat, dropping the real result on line one, and
+// "Kingofslowbros conceded? no, I lost." flipped who won.
+test('reverse order without Setup ends before blank-separated closeout-shaped chat', () => {
+  const reversed = SMALL_LOG.split('\n')
+    .filter((line) => line !== 'Setup')
+    .reverse()
+    .join('\n');
+  // The real fixture, reversed: Live's blank lines between turns and its
+  // damage-breakdown bullets, so the run has to cross real paragraph breaks
+  // and still stop at the chat.
+  const realReversed = FIXTURE.split('\n')
+    .filter((line) => line !== 'Setup')
+    .reverse()
+    .join('\n');
+  // And with Setup, where HEAD returned nothing at all.
+  const withSetup = SMALL_LOG.split('\n').reverse().join('\n');
+  for (const chat of [
+    'Honestly I should have conceded.',
+    'Kingofslowbros conceded? no, I lost.',
+  ]) {
+    for (const log of [reversed, realReversed, withSetup]) {
+      const out = extractPastedLog([userMsg(`${log}\n\n${chat}`)]);
+      assert.equal(out, log, `reader chat was mistaken for the result: ${chat}`);
+    }
+  }
+});
+
+test('reverse order keeps the attached cleanup lines that sit above its result', () => {
+  // `slowking-vs-beedrill.log` ends with a Boomerang Energy activation AFTER
+  // the result; reversed, those lines sit directly above it and were dropped.
+  const cleanup = [
+    'Boomerang Energy was activated.',
+    '- PlayerA attached Boomerang Energy to Shuppet on the Bench.',
+  ];
+  const reversed = [...SMALL_LOG.split('\n'), ...cleanup].reverse().join('\n');
+  assert.equal(extractPastedLog([userMsg(`Log this one:\n\n${reversed}`)]), reversed);
 });

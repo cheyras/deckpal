@@ -1340,6 +1340,55 @@ is omitted.
 The full row — same `log` shape as the 201 above (summary fields + nullable `rawLog` +
 `parsed` + `createdAt`).
 
+### GET /deckpal/api/decks/:id/logs/:logId/digest
+Added 2026-10-10. `?playerName=` (optional). Reads the log's **stored raw PTCG
+Live log** into a compact, model-sized digest (`digestBattleLog` in
+`apps/api/src/deck/battlelog.ts`) — read-only, same ownership rules as the
+detail route above. The side is the owner the row was stored with
+(`parsed.players.me`) unless `playerName` names another; the deck's current
+card list is only used when the row has no stored owner.
+```json
+200 { "logId": 7, "deckVersion": 2, "origin": "ptcgl", "result": "win",
+      "digest": {
+        "players": { "me": "PlayerA", "opponent": "PlayerB" },
+        "playerNames": ["PlayerB", "PlayerA"], "confidence": "high",
+        "result": "win", "wentFirst": "opponent", "totalTurns": 14,
+        "turns": { "me": 7, "opponent": 7 },
+        "mulligans": { "me": 0, "opponent": 1 },
+        "firstAttackTurn": { "me": 4, "opponent": 3 },
+        "finalPrizes": { "me": 6, "opponent": 5 },
+        "prizeTimeline": [ { "turn": 3, "side": "opponent", "prizes": 1,
+                             "knockedOut": "Poltchageist", "score": { "me": 0, "opponent": 1 } }, "…" ],
+        "opponentCards": [ { "name": "Dragapult ex", "count": 16 }, { "name": "Judge", "count": 2 }, "…" ],
+        "myPokemonUsed": ["Poltchageist", "Shuppet", "…"],
+        "opponentArchetypeGuess": "Dragapult ex / Dusknoir",
+        "endReason": "prizes", "leadChanged": true, "closeGame": true,
+        "unknowns": ["the opponent's hand, and any card of theirs that was never shown",
+                     "which cards were prized, on either side"] } }
+```
+`turn` is the game's turn number counting both players (1 = the first
+player's first turn, 0 = setup). `firstAttackTurn` is the first turn that side
+dealt attack damage. `opponentCards` is every card the opponent showed —
+played, attached, evolved into, attacked or used an Ability with, Knocked Out,
+promoted, drawn or added to hand face-up, discarded face-up, or listed in a
+revealed group (mulligans, searches, discards) — deduped, most-seen first;
+using the Stadium already in play does not count as running it. `endReason` is
+`prizes` | `concede` | `deck-out` | `other` (timeouts and anything unrecognised).
+`closeGame` is true when the lead in prizes changed hands, or when the final
+prize gap is two or less once someone has taken at least three (so an early
+concession at 0–0 is not "close"). When the owner cannot be identified,
+`players` is null/null and the per-side fields (`turns`, `mulligans`,
+`firstAttackTurn`, `finalPrizes`) are `null`, never a guessed split;
+`unknowns` then names the players to choose between. `result` at the top level
+is the STORED result (explicit corrections win); `digest.result` is what the log
+text alone says.
+```json
+404 { "error": { "code": "not_found",
+                 "message": "no game log to digest — this game was reported in person" } }
+```
+Logs stored without raw text (`origin: in_person` or `other`) have nothing to
+digest. Consumed by the agent tool `battle_digest`.
+
 ### PATCH /deckpal/api/decks/:id/logs/:logId
 Body: any of `{ "result", "opponent", "opponentDeck", "opponentArchetype",
 "notes", "reviewMd", "playedAt" }`.

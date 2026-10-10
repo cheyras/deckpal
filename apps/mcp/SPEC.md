@@ -684,6 +684,83 @@ Numbered 15–20 so the earlier `§5 #N` references in code comments stay stable
 - **`collection://summary`** — same payload as `collection_summary` (text), so clients can pull
   context without a tool round-trip.
 
+### Server instructions and prompts (added 2026-10-10)
+
+**Why.** The owner, 2026-10-10: "even with just Claude, he will log the battle but do the bare
+minimum — he won't analyse the battle much, and won't write a great summary of the match." Until
+then the server sent no `instructions` and registered no prompts, so a connector client saw only
+tool descriptions, which say what a call does but not how to run the job. Deck-E gets that
+judgment from its routed pathway texts (`apps/api/src/decke/pathways/texts/*.ts`); the connector
+now has its own copy in `src/guidance.ts`.
+
+**Instructions.** `SERVER_INSTRUCTIONS` is passed as `ServerOptions.instructions` —
+`new McpServer(serverInfo, { instructions })`, the `@modelcontextprotocol/server` 2.1 shape — and
+the SDK returns it from `initialize` (and from 2026-era `server/discover`). Clients such as
+claude.ai put it in the model's system prompt on every turn, so it is capped at **4,000
+characters** (tested) and every connection, read-only included, gets the same text. It says:
+
+- DeckPal is the source of truth for card text, printings, legality, ownership, decks, battle logs
+  and prices; only changing metagame facts come from outside, with an as-of date.
+- Writes preview first (`dry_run` defaults true) and run with `dry_run: false` only after the
+  user agrees; `deck_strategy`, which has no preview, is shown and asked about first. If
+  `add_battle_log` / `save_deck` are absent, the connection is read-only — say so and hand the
+  user the text instead.
+- **Logging a battle.** A PTCG Live paste goes verbatim into `add_battle_log`'s `log` (omit
+  `deck_id` to rank the user's decks without writing). An in-person game, or any game told as a
+  story, is debriefed in chat **before** the first `add_battle_log` call: 3–5 questions, skipping
+  what was already said — the opponent's main attacker and notable cards, who went first, how
+  the prizes went, the most frustrating play, the turn they'd replay. A bare "log a win vs X" is
+  logged straight away. Then `origin: "in_person"`, an explicit `result` and `opponent_deck`.
+  The user's words go in `notes`, the assistant's markdown analysis in `review`.
+  `opponent_archetype` is always set (nothing derives it) and keyed by the main attacker, reusing
+  a key already in the deck's record so games count together. Depth is stated in one line and
+  chosen from `battle_logs`' per-archetype record: **light** (lopsided, dead draw, early
+  concession: 2–3 lines), **standard** (close game or "what went wrong?": turning point, one
+  cause — variance, misplay, list or matchup — and one lesson), **deep** (archetype new to the
+  deck or met ≥ 3 times, a losing streak, or a requested breakdown: fuller analysis with dated
+  research). Hidden information is never invented.
+- **Reviewing results.** Per-archetype record with the number of games, versions kept apart,
+  losses classified only where notes or reviews support it, new analysis of an old game into
+  `edit_battle_log`'s `review` (never over `notes`), at most two next steps.
+- **Building or iterating a deck.** Cards grounded with `search_cards` / `get_card` (cheapest
+  printing of the same card), at most two evidence-cited swaps when iterating, `check_deck`
+  repeated until legal at 60, the final list shown in chat (there is no deck widget over MCP),
+  then a `save_deck` preview and a save with an evidence-citing `version_note`.
+- **Planning a collection.** `set_progress` with the goal (complete / master / grandmaster)
+  named beside every count; never invented pull rates.
+
+**Prompts.** Registered with `McpServer.registerPrompt(name, { title, description, argsSchema },
+cb)`; registering any prompt makes the SDK advertise the `prompts` capability and answer
+`prompts/list` / `prompts/get`. `argsSchema` is a zod object of trimmed non-empty strings built
+from the same argument list the tests inspect, so `prompts/list`'s `required` flags come from one
+source and a blank required argument is refused by the SDK rather than rendered as "undefined".
+Each prompt returns one `user` message written in the reader's voice that carries the longer
+playbook; the instructions still apply on top. The tool catalogue is unchanged.
+
+| Prompt | Arguments | The message it produces |
+|---|---|---|
+| `log-battle` | `how` (required): the whole PTCG Live paste, an in-person description, or just `paste` / `in person` | The paste or story, then the logging playbook: verbatim paste, debrief before logging, `origin` / `result` / `opponent_archetype`, stated depth, `notes` vs `review`, dry-run then yes. |
+| `review-results` | `deck` (required) | Per-archetype and per-version record with game counts and sample-size honesty; losses classified from evidence; at most two next steps. |
+| `build-deck` | `format` (required), `budget_goal` (optional; when absent the prompt says "ask me") | Read decks and collection, ≤ 4 intake questions or two directions, catalog-grounded ids, `check_deck` until legal at 60, list in chat, `save_deck` preview with a `version_note`. |
+| `plan-collection` | `set` (required) | `set_progress` by goal, purchase order (singles first), `card_price_history` for chase cards, no invented pull rates; offer `edit_list` / `set_cart`. |
+
+**What it must never name.** Deck-E's pathway texts are not imported: they call `ask_user`
+cards, `showDeck`, `web_research`, `@pasted` log handles and Deep Think, none of which an MCP
+client has, and an instruction the client cannot follow either stalls it or tells the reader
+something is broken. (`check_deck`'s shared tool description still mentions `showDeck`; the
+instructions tell the client to show the list in chat instead.)
+
+**Verification.** `src/__tests__/guidance.test.ts` (run by `test:cloud`): the size bound; the
+playbook's load-bearing sentences (debrief before logging, `in_person` with an explicit result,
+`notes` vs `review`, `opponent_archetype`, the three depths); no Deck-E-only names; every
+backticked tool is in `allTools()`; every snake_case identifier in the instructions and rendered
+prompts is a real tool, or a property / enum value in a schema `tools/list` actually advertises;
+and an in-memory-transport round trip through the real SDK — `initialize` returns the
+instructions verbatim (read-only connections too), `prompts/list` matches the definitions,
+`prompts/get` renders each prompt's arguments and refuses a missing one. The test reads
+`@deckpal/agent-tools` through its package export (`dist/`), so that package must be built first,
+as CI's "Build @deckpal/agent-tools" step does.
+
 ## 6. Migration 018 + API attribution (prerequisite for 6/14)
 
 New file `packages/db/src/migrations/018_collection_event_attribution.sql` (shipped migrations

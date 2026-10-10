@@ -124,8 +124,13 @@ const CLIENT_SET = new Set(CLIENT_TOOLS)
  * and produced no text is NOT an empty-answer defect — the panel IS the answer.
  * Built from the real `SERVER_TOOLS` export so it cannot go stale. See
  * `decke/turnGuards.ts`.
+ *
+ * EXCEPT `consult` (2026-10-10). Its result goes to HIM, not to the reader —
+ * the reader sees only the chip. A turn that consulted and then said nothing
+ * left an empty bubble, which is precisely the defect the guard exists to
+ * catch, so it must not count as "the answer was on screen".
  */
-const SERVER_SET = new Set(SERVER_TOOLS)
+const SERVER_SET = new Set(SERVER_TOOLS.filter((name) => name !== 'consult'))
 
 /**
  * Tools whose over-long arguments may be trimmed by `repairToolCall`.
@@ -152,7 +157,8 @@ import { createGateway } from '@ai-sdk/gateway'
 import { verifySupabaseJwt, createSupabaseJwksProvider } from '../apps/api/dist/auth.js'
 import { buildCorePrompt, buildVolatileContext } from '../apps/api/dist/decke/prompt.js'
 import { pathwayBlock } from '../apps/api/dist/decke/pathways/index.js'
-import { buildTools, CLIENT_TOOLS, SERVER_TOOLS } from '../apps/api/dist/decke/tools.js'
+import { buildTools, CLIENT_TOOLS, SERVER_TOOLS, toolsForTier } from '../apps/api/dist/decke/tools.js'
+import { runConsult } from '../apps/api/dist/decke/consult.js'
 import { TIERS, TRIAGE, budgetFor } from '../apps/api/dist/decke/models.js'
 import { runTriage } from '../apps/api/dist/decke/triage.js'
 import { answeringAsk, carriedFromHistory, continuationFloor, decideTier, quickRefusalRetry, raisedToStandard, resumesApproval } from '../apps/api/dist/decke/tiers.js'
@@ -939,12 +945,35 @@ async function serve(request) {
         // compacted evidence the client replays into the next leg, so a turn
         // that drew a panel and then flew somewhere came back not knowing the
         // panel existed and narrated its contents a second time.
-        ...buildTools(writer, groundingForTools, repairs, emitToolEvent(writer), {
+        //
+        // ── AND, ON THE QUICK TIER ONLY, A CONSULT (2026-10-10) ─────────────
+        //
+        // Haiku asks Sonnet one question with a brief he writes — the owner's
+        // "Haiku prompting into Sonnet internally" — so a game worth learning
+        // from gets a real analysis without raising the whole request to
+        // Standard. `toolsForTier` removes it on Standard and Deep, where a
+        // consult would ask the same model or a weaker one. Decided once from
+        // `decision.tier`, never per step, so the tool set is constant across
+        // the request's steps and Anthropic's cached tools prefix holds. (The
+        // textless-refusal retry below reuses this set on Standard; it is rare
+        // and keeps the set constant, which matters more.)
+        //
+        // The model is built INSIDE the call, so `observeUsageModel` reads the
+        // usage context of the step that called it: the consult is metered on
+        // this request like every other model call, and credits stay
+        // actual-cost. Same abort as the turn: a reader who stops the turn
+        // stops the consult.
+        ...toolsForTier(buildTools(writer, groundingForTools, repairs, emitToolEvent(writer), {
           checkDeck: (input) => checkDeck(toolCtx, input),
+          consult: (input) => runConsult({
+            ...input,
+            model: observeUsageModel(gateway(TIERS.standard.id), meter),
+            signal: abortSignal,
+          }),
           db: chatPool(),
           userId: user.id,
           conversationId,
-        }),
+        }), decision.tier),
         // READS AND WRITES, because the approval round-trip now exists.
         //
         // `include: () => true` is not "no filter" — every write is still

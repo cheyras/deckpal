@@ -29,6 +29,8 @@ import {
   applyPastedLog,
   buildDataTools,
 } from '../adapters/aisdk.js';
+import { declinedCalls } from '../declined.js';
+import { extractPastedLog, pastedLogCount } from '../pastedLog.js';
 
 const OPTS = {
   pool: null as never,
@@ -273,4 +275,164 @@ test('@pasted with a paste still raises approval for the real write', async () =
     { toolCallId: 'approval-with-paste' },
   );
   assert.equal(needs, true, 'substitution makes the write runnable, so consent is still required');
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// A DECLINE NAMES THE GAME (2026-10-10, review of #291)
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// Wired exactly as `api/chat.mjs` wires it: `declinedCalls(messages)` from the
+// replayed history, `pastedLog: () => extractPastedLog(messages)`. Before the
+// fix, `@pasted` + deck was one key for every game, so after the reader said no
+// to game A's card, game B pasted later was refused as "already declined".
+
+type HeldTool = {
+  needsApproval: (a: unknown, c: { toolCallId: string }) => Promise<boolean>;
+  execute: (a: unknown, c: { toolCallId: string }) => Promise<string>;
+  onInputAvailable: (o: { input: unknown; toolCallId: string }) => Promise<void>;
+};
+const addBattleLog = (tools: unknown): HeldTool =>
+  (tools as Record<string, HeldTool>).add_battle_log!;
+const user = (text: string) => ({ role: 'user', parts: [{ type: 'text', text }] });
+
+test('declining pasted game A refuses A again but leaves a later pasted game B askable', async () => {
+  const input = { log: PASTED_LOG_SENTINEL, deck_id: 'd1', dry_run: false };
+  const gameB = PASTE.replaceAll('PlayerA', 'DifferentPlayer');
+  const declinedA = {
+    role: 'assistant',
+    parts: [{
+      type: 'tool-add_battle_log',
+      toolCallId: 'call-a',
+      input,
+      state: 'output-denied',
+      approval: { id: 'approval-a', approved: false, reason: 'the reader declined' },
+    }],
+  };
+  const build = (messages: unknown[]) => addBattleLog(buildDataTools({
+    ...OPTS,
+    include: () => true,
+    declined: declinedCalls(messages),
+    pastedLog: () => extractPastedLog(messages),
+  }));
+
+  // B pasted after A was declined: same sentinel, same deck, different game.
+  const thenB = build([user(`log this\n${PASTE}`), declinedA, user(`ok, this one\n${gameB}`)]);
+  assert.equal(
+    await thenB.needsApproval(input, { toolCallId: 'b' }),
+    true,
+    'game B was refused as "already declined" because game A was',
+  );
+
+  // No new paste: `@pasted` still means game A, which they already refused —
+  // by sentinel or by a truncated prefix the adapter would expand to it.
+  const againA = build([user(`log this\n${PASTE}`), declinedA, user('actually, log it after all')]);
+  assert.equal(await againA.needsApproval(input, { toolCallId: 'a2' }), false);
+  assert.match(await againA.execute(input, { toolCallId: 'a2' }), /reader said no to this exact/i);
+  const prefix = { ...input, log: PASTE.split('\n').slice(0, 10).join('\n') };
+  assert.match(await againA.execute(prefix, { toolCallId: 'a3' }), /reader said no to this exact/i);
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// A PASTE THAT HELD SEVERAL GAMES SAYS SO (2026-10-10, review of #291)
+// ═════════════════════════════════════════════════════════════════════════════
+
+const MODEL_NOTICE = /^This message held 2 games; only the last was carried — ask the reader to paste the others one at a time\.$/m;
+
+test('a multi-game paste is disclosed on the tool result, end to end from the message', async () => {
+  const orig = globalThis.fetch;
+  const calls: Array<{ body: string | undefined }> = [];
+  globalThis.fetch = fetchStub(calls);
+  try {
+    const older = PASTE.replaceAll('PlayerA', 'OlderA');
+    const messages = [user(`Game 1:\n${older}\n\nGame 2:\n${PASTE}`)];
+    const add = addBattleLog(buildDataTools({
+      ...OPTS,
+      include: () => true,
+      pastedLog: () => extractPastedLog(messages),
+      pastedLogCount: () => pastedLogCount(messages),
+    }));
+    const result = await add.execute({ log: PASTED_LOG_SENTINEL }, { toolCallId: 'multi' });
+    assert.equal(JSON.parse(calls[0]?.body ?? '{}').log, PASTE, 'the LAST game is the one carried');
+    assert.match(result, MODEL_NOTICE, 'the model was not told the first game was left behind');
+    // Last, not first: the chip summarises the first line, which stays the tool's.
+    assert.doesNotMatch(result.split('\n')[0]!, /games/);
+  } finally {
+    globalThis.fetch = orig;
+  }
+});
+
+test('the notice is only for a call that carried the paste, and only above one game', async () => {
+  const orig = globalThis.fetch;
+  const calls: Array<{ body: string | undefined }> = [];
+  globalThis.fetch = fetchStub(calls);
+  try {
+    const one = addBattleLog(buildDataTools({
+      ...OPTS, include: () => true, pastedLog: () => PASTE, pastedLogCount: () => 1,
+    }));
+    assert.doesNotMatch(await one.execute({ log: PASTED_LOG_SENTINEL }, { toolCallId: 'one' }), /games/);
+    // The model typed its own log, not the paste: nothing was carried, so the
+    // paste's other games are not this call's business.
+    const typed = addBattleLog(buildDataTools({
+      ...OPTS, include: () => true, pastedLog: () => PASTE, pastedLogCount: () => 2,
+    }));
+    const own = PASTE.replaceAll('PlayerA', 'TypedA');
+    assert.doesNotMatch(await typed.execute({ log: own }, { toolCallId: 'typed' }), /games/);
+    assert.equal(JSON.parse(calls.at(-1)?.body ?? '{}').log, own);
+  } finally {
+    globalThis.fetch = orig;
+  }
+});
+
+test('the approval card says it in the reader\'s words, under the game it would log', async () => {
+  const orig = globalThis.fetch;
+  const deck = {
+    id: 'deck-1',
+    name: 'Slowking Toolbox',
+    formatCode: 'standard',
+    version: 3,
+    totalCount: 60,
+    valueUsd: 42,
+    legal: true,
+    updatedAt: '2026-09-01T00:00:00Z',
+    record: { wins: 2, losses: 1, ties: 0 },
+  };
+  const bodies: unknown[] = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
+    if (typeof init?.body === 'string') bodies.push(JSON.parse(init.body));
+    if (url.pathname.endsWith('/decks')) return Response.json({ decks: [deck] });
+    // The write route asked to prepare, not insert — the dry run the card shows.
+    return Response.json({
+      dryRun: true,
+      attachedToVersion: 3,
+      preview: {
+        result: 'win', opponent: 'PlayerB', turns: 2, prizes: { me: 6, opponent: 0 },
+        confidence: 'high', myPokemon: ['Shuppet'], opponentDeckGuess: null,
+        deckName: 'Slowking Toolbox', version: 3, notes: null, playedAt: '2026-10-10T00:00:00Z',
+      },
+    });
+  }) as typeof fetch;
+  try {
+    const previews: Array<{ summary: string }> = [];
+    const add = addBattleLog(buildDataTools({
+      ...OPTS,
+      include: () => true,
+      pastedLog: () => PASTE,
+      pastedLogCount: () => 2,
+      onApprovalPreview: (preview) => previews.push(preview),
+    }));
+    await add.onInputAvailable({
+      input: { log: PASTED_LOG_SENTINEL, deck_id: 'Slowking Toolbox', dry_run: false },
+      toolCallId: 'card',
+    });
+    assert.equal(previews.length, 1, 'no card preview was emitted');
+    const [what, games, ...rest] = previews[0]!.summary.split('\n');
+    assert.match(what!, /^Would attach to 'Slowking Toolbox' \(v3\): WIN vs PlayerB/, 'the card lost the game it would log');
+    assert.equal(games, 'Your message held 2 games; only the last one is logged here. Paste the others one at a time.');
+    assert.deepEqual(rest, []);
+    assert.doesNotMatch(previews[0]!.summary, /ask the reader/, 'a model instruction leaked onto the reader\'s card');
+    assert.ok(bodies.some((b) => (b as { rawLog?: string; dryRun?: boolean }).rawLog === PASTE && (b as { dryRun?: boolean }).dryRun === true));
+  } finally {
+    globalThis.fetch = orig;
+  }
 });

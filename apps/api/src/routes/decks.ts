@@ -13,7 +13,7 @@ import {
 } from '../mutations.js';
 import { buildCart, productIdLine, tokenLine, type CartInput } from '../tcgplayer/massentry.js';
 import {
-  normalizeOpponentArchetype, parseBattleLog, prepareBattleLog, scoreDeckMatch,
+  digestBattleLog, normalizeOpponentArchetype, parseBattleLog, prepareBattleLog, scoreDeckMatch,
   type BattleLogOrigin,
 } from '../deck/battlelog.js';
 import {
@@ -2342,6 +2342,70 @@ decksRouter.get(
     if (!row) throw notFound(`No battle log '${logId}'`);
     userCache(res);
     res.json({ log: shapeLogFull(row) });
+  }),
+);
+
+// GET /decks/:id/logs/:logId/digest?playerName= — one STORED PTCG Live log read
+// into a compact timeline (deck/battlelog.ts `digestBattleLog`): prizes by turn
+// and what they paid for, first attacks, mulligans, the opponent's cards seen,
+// how it ended, whether it was close, and what the log cannot tell. Read-only,
+// and the same ownership gate as the detail route above: the deck must be the
+// caller's (loadMeta) and the log must hang off that deck.
+//
+// WHY A ROUTE AND NOT THE STORED `parsed` (2026-10-10). The stored parse is
+// frozen at insert time and was never asked for a timeline; this re-reads the
+// immutable raw log on demand, so the digest improves for every past game the
+// day the digest does, with no backfill.
+//
+// WHOSE SIDE. `?playerName=` wins; otherwise the owner the row was STORED with
+// (`parsed.players.me`) — that is the identification the battle's result and
+// record already rest on, made against the list the game was played with.
+// Re-identifying against today's list could pick the other chair for a deck
+// that has since changed. The current list is only the last resort, for a row
+// stored without an owner.
+decksRouter.get(
+  '/:id/logs/:logId/digest',
+  asyncHandler(async (req, res) => {
+    const deckId = parseDeckId(String(req.params.id));
+    const userId = currentUserId(req);
+    const meta = await loadMeta(deckId, userId);
+    if (!meta) throw notFound(`No deck '${deckId}'`);
+    const logId = parseLogId(String(req.params.logId));
+    const playerName = parseOptText(str(req.query.playerName), 100, 'playerName') ?? undefined;
+    const row = await q1<Pick<LogRow, 'id' | 'deck_version' | 'raw_log' | 'origin' | 'result' | 'parsed'>>(
+      `SELECT id, deck_version, raw_log, origin, result, parsed
+         FROM battle_log WHERE id = $1 AND deck_id = $2`,
+      [logId, deckId],
+    );
+    if (!row) throw notFound(`No battle log '${logId}'`);
+    if (row.raw_log === null || !row.raw_log.trim()) {
+      // 404, not 400: the request is well-formed and the THING asked for — a
+      // game log — does not exist for this battle. Worded for the model that
+      // will read it, which should fall back to the notes and review.
+      throw notFound(
+        row.origin === 'in_person'
+          ? 'no game log to digest — this game was reported in person'
+          : 'no game log to digest — this game was logged without one',
+      );
+    }
+    const storedMe = (row.parsed as { players?: { me?: unknown } } | null)?.players?.me;
+    const names = await q<{ name: string }>(
+      `SELECT c.name FROM deck_card dc JOIN card c ON c.id = dc.card_id WHERE dc.deck_id = $1`,
+      [deckId],
+    );
+    const digest = digestBattleLog(row.raw_log, names.map((r) => r.name), {
+      playerName: playerName ?? (typeof storedMe === 'string' && storedMe ? storedMe : undefined),
+    });
+    userCache(res);
+    res.json({
+      logId: Number(row.id),
+      deckVersion: row.deck_version,
+      origin: row.origin,
+      // The STORED result, which explicit corrections may have set; the
+      // digest's own `result` is what the log text alone says.
+      result: row.result,
+      digest,
+    });
   }),
 );
 
