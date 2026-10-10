@@ -11,6 +11,7 @@ import { def, type Env } from './context.js';
 import { evalCond } from './eval.js';
 import { applyCondition, queueTriggers, run, swapActive } from './interp.js';
 import {
+  attackBlocked, // lane:fighting
   attackCost,
   canPay,
   cantAttack,
@@ -463,6 +464,7 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
     const d = def(env.ctx, topCard(act));
     const units = energyUnits(env, act);
     d.attacks.forEach((_atk, i) => {
+      if (attackBlocked(env, s, act, _atk.name, all)) return; // lane:fighting
       if (canPay(attackCost(env, s, act, i, all), units)) out.push({ t: 'attack', idx: i });
     });
   }
@@ -581,6 +583,7 @@ function doAction(env: Env, s: GameState, a: Action): void {
       const atk = d.attacks[a.idx];
       if (!atk) return;
       s.attacked = true;
+      s.attackHits = []; // lane:fighting
       emit(env, { type: 'attack', player: p, slot: act.id, name: atk.name });
       const defender = s.p[opp(p)].active;
       pushFrame(s, {
@@ -623,12 +626,39 @@ function knockOut(env: Env, s: GameState, owner: Player, sl: Slot): void {
   ps.lastKoTurn = s.turn;
 }
 
+/**
+ * lane:fighting — Prize modifiers on attached Energy (Legacy Energy: "If the Pokémon this card is attached to is
+ * Knocked Out by damage from an attack from your opponent's Pokémon, that player takes 1 fewer Prize card. This
+ * effect ... can't be applied more than once per game."). Applies only to a Knock Out checked after an attack, of a
+ * Pokémon that attack damaged, owned by the non-attacking player -- not to Checkup Knock Outs or damage counters.
+ */
+function koPrizeDelta(env: Env, s: GameState, owner: Player, sl: Slot): number {
+  if (!s.attacked || s.afterKo === 'nextTurn' || owner === s.current) return 0;
+  if (!(s.attackHits ?? []).includes(sl.id)) return 0;
+  let delta = 0;
+  for (const c of sl.energy) {
+    const d = def(env.ctx, c);
+    const m = d.coverage === 'full' ? d.script?.koPrizeDelta : undefined;
+    if (!m) continue;
+    const used = s.p[owner].oncePerGame ?? [];
+    if (m.oncePerGame) {
+      if (used.includes(d.name)) continue;
+      s.p[owner].oncePerGame = [...used, d.name];
+    }
+    delta += m.delta;
+  }
+  return delta;
+}
+
 function resolveKOs(env: Env, s: GameState): void {
   // 1. Every Pokémon with damage ≥ its HP is Knocked Out (simultaneously).
   const ko: { owner: Player; slot: Slot; prizes: number }[] = [];
   for (const p of [0, 1] as Player[]) {
     for (const sl of allSlots(s.p[p])) {
-      if (sl.damage >= maxHp(env, s, sl)) ko.push({ owner: p, slot: sl, prizes: def(env.ctx, topCard(sl)).prizeValue });
+      if (sl.damage >= maxHp(env, s, sl)) {
+        const prizes = Math.max(0, def(env.ctx, topCard(sl)).prizeValue + koPrizeDelta(env, s, p, sl)); // lane:fighting
+        ko.push({ owner: p, slot: sl, prizes });
+      }
     }
   }
   if (ko.length) {

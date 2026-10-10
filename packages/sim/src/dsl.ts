@@ -142,7 +142,19 @@ export type StaticEffect =
   /** The affected player can't play Item cards. */
   | { k: 'itemLock' }
   /** Damage counters on Pokémon can't be moved (Watchful Eye). */
-  | { k: 'countersFixed' };
+  | { k: 'countersFixed' }
+  /** The affected Pokémon can't use this one attack ("this Pokémon can't use Mega Brave"). */ // lane:fighting
+  | { k: 'cantUseAttack'; attack: string } // lane:fighting
+  /** From a Stadium: Pokémon Tools attached to every Pokémon have no effect (Jamming Tower). */ // lane:fighting
+  | { k: 'noToolEffects' }; // lane:fighting
+
+/** Parts of the damage pipeline an attack's damage skips ("isn't affected by Weakness or Resistance"). */ // lane:fighting
+export interface DamageIgnore {
+  weakness?: boolean;
+  resistance?: boolean;
+  /** "isn't affected by any effects on your opponent's Active Pokémon": no damageIn, no prevention, printed Weakness. */
+  defenderEffects?: boolean;
+}
 
 /** Which Pokémon a static effect applies to, relative to its source's controller. */
 export type Scope =
@@ -220,7 +232,7 @@ export type Step =
   /** Discard Energy from a Pokémon: all of it, or `count` chosen by the controller. */
   | { op: 'discardEnergy'; from: SlotRef; count: Expr | 'all'; filter?: Filter; as?: string }
   /** Attack damage, through Weakness, Resistance and every modifier. */
-  | { op: 'damage'; amount: Expr; to?: SlotRef | { each: SlotZone; filter?: Filter } | { v: string } }
+  | { op: 'damage'; amount: Expr; to?: SlotRef | { each: SlotZone; filter?: Filter } | { v: string }; ignore?: DamageIgnore /* lane:fighting */ }
   /** Place damage counters: no Weakness, Resistance or damage modifiers. */
   | { op: 'counters'; n: Expr; to: SlotRef | { each: SlotZone; filter?: Filter } }
   | { op: 'heal'; amount: Expr; to: SlotRef }
@@ -235,7 +247,16 @@ export type Step =
   /** "You may ..." -- a yes/no decision for the controller. */
   | { op: 'may'; body: Step[]; prompt?: string }
   /** Create a timed effect on a Pokémon or a player. */
-  | { op: 'effect'; static: StaticEffect; on?: SlotRef; onPlayer?: Who; duration: Duration; filter?: Filter }
+  | {
+      op: 'effect';
+      static: StaticEffect;
+      on?: SlotRef;
+      onPlayer?: Who;
+      duration: Duration;
+      filter?: Filter;
+      /** A player-level effect that applies to that player's Pokémon (Premium Power Pro: 'myPokemon'). Default 'me'. */ // lane:fighting
+      scope?: Scope; // lane:fighting
+    }
   | { op: 'knockOut'; target: SlotRef }
   /** Choose one of the attacks of the (Pokémon) card in the variable and use it as this attack. */
   | { op: 'useAttackOf'; card: string }
@@ -253,6 +274,8 @@ export interface AttackScript {
   damage?: Expr;
   /** Where the attack's damage goes. Defaults to the Defending Pokémon. */
   target?: SlotRef | { each: SlotZone; filter?: Filter } | { v: string };
+  /** Pipeline parts the printed damage skips. */ // lane:fighting
+  ignore?: DamageIgnore; // lane:fighting
   /** Steps after damage. */
   post?: Program;
   /** Replace the whole sequence (damage op included) with this program. */
@@ -324,6 +347,10 @@ export interface CardScript {
   provides?: PType[];
   /** Energy: when discarded by an effect of the attached Pokémon's own attack, reattach it after attacking (Boomerang Energy). */
   reattachAfterOwnAttack?: boolean;
+  /** Energy: "provides every type of Energy but provides only n Energy at a time" (while the holder matches `when`). */ // lane:fighting
+  providesAny?: { n: number; when?: Filter }; // lane:fighting
+  /** Energy: when the holder is Knocked Out by damage from an opponent's attack, that player takes `delta` more Prizes (negative = fewer). */ // lane:fighting
+  koPrizeDelta?: { delta: number; oncePerGame?: boolean }; // lane:fighting
   /** Data corrections where the catalog is wrong (e.g. TCGdex marks some Special Energy "Normal"). */
   fix?: { specialEnergy?: boolean; aceSpec?: boolean; tera?: boolean };
   /** Free-text notes: rulings consulted, open questions. */

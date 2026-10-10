@@ -163,6 +163,8 @@ export interface PlayerState {
   knownTop: number;
   /** Hand cards the opponent has seen (revealed by a search), until they leave the hand. */
   revealed: number[];
+  /** Names of "can't be applied more than once per game" effects already applied (Legacy Energy). Replace, never mutate: clones share it. */ // lane:fighting
+  oncePerGame?: string[]; // lane:fighting
 }
 
 /** An interpreter frame: a program partway through. */
@@ -193,6 +195,8 @@ export interface TimedEffect {
   fromAttack: boolean;
   src: number;
   filter?: import('./dsl.js').Filter;
+  /** Player-level effects that apply to Pokémon: the scope (default 'me'). */ // lane:fighting
+  scope?: import('./dsl.js').Scope; // lane:fighting
 }
 
 export type Phase = 'setup' | 'main' | 'over';
@@ -218,6 +222,8 @@ export interface GameState {
   effects: TimedEffect[];
   /** Set when an attack resolves: the turn ends once the stack empties. */
   attacked: boolean;
+  /** Slot ids the current attack has damaged (opposing Pokémon only). Replace, never mutate: clones share it. */ // lane:fighting
+  attackHits?: number[]; // lane:fighting
   /** Triggered effects waiting for the stack to empty. */
   queued: Frame[];
   /** A Trainer card being played: out of the hand, not yet in the discard pile. */
