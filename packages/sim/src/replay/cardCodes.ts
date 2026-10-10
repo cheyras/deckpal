@@ -16,6 +16,7 @@
  *     `(rsv10-5_84) Hilda` = sv10.5w-084, both matching the frame snapshot.
  */
 import { FRAMES } from '../cards/frames-all.js';
+import { FRAMES as BASE_FRAMES } from '../cards/frames.js'; // lane:excadrill
 import { normText, textKey } from '../cards/frame.js';
 import type { CardFrame } from '../types.js';
 
@@ -77,6 +78,13 @@ export function resolveFrame(name: string, id?: string | null): { frame: CardFra
   const list = nameIndex().get(canonicalName(name)) ?? [];
   if (!list.length) return { frame: null, via: 'none' };
   // Catalog noise outside game text (a Basic Energy's "stage") doesn't split a name.
-  const keys = new Set(list.map((f) => textKey({ ...f, stage: f.category === 'Pokemon' ? f.stage : null })));
-  return keys.size === 1 ? { frame: list[0]!, via: 'name' } : { frame: null, via: 'none' };
+  const keyOf = (f: CardFrame) => textKey({ ...f, stage: f.category === 'Pokemon' ? f.stage : null });
+  const keys = new Set(list.map(keyOf));
+  if (keys.size === 1) return { frame: list[0]!, via: 'name' };
+  // lane:excadrill — a meta lane's frames-extra snapshot can add a same-named card with other text (Metang sv05-114
+  // beside me04-060). Codeless logs predate the meta lanes and come from the decks the base snapshot covers, so a
+  // name still resolves when the base snapshot alone has one text for it. REVIEW: a heuristic, flagged at merge.
+  const base = list.filter((f) => BASE_FRAMES[f.cardId]);
+  if (base.length && base.length < list.length && new Set(base.map(keyOf)).size === 1) return { frame: base[0]!, via: 'name' };
+  return { frame: null, via: 'none' };
 }
