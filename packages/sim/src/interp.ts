@@ -12,6 +12,7 @@ import type { CardZone, DamageIgnore, Dest, Filter, SlotRef, SlotZone, SpecialCo
 import { cardMatches, evalCond, evalExpr, resolveSlot, side, slotMatches, slotsIn, type EvalCtx } from './eval.js';
 import {
   attackCost,
+  cardUnits,
   damageIn,
   damageOut,
   damagePrevented,
@@ -635,7 +636,19 @@ function discardEnergy(env: Env, s: GameState, f: Frame, st: Extract<Step, { op:
   const pool = t.energy.filter((c) => cardMatches(env, c, st.filter));
   let chosen: number[];
   if (st.count === 'all') chosen = pool;
-  else {
+  else if (st.units && pool.some((c) => cardUnits(env, t, c).length !== 1)) {
+    // Paying in units with a multi-unit card attached: offer each minimal covering set.
+    const n = evalExpr(env, s, e, st.count);
+    const covers = unitCovers(env, t, pool, n);
+    const a = takeAnswer(f);
+    if (a !== undefined) chosen = covers[(a as number[])[0] ?? 0] ?? pool;
+    else if (covers.length <= 1) chosen = covers[0] ?? pool; // none covers it: discard what there is
+    else {
+      const labels = covers.map((set) => `Discard ${set.map((c) => def(env.ctx, c).name).join(' + ')}`);
+      ask(s, { player: f.player, kind: 'option', prompt: `Discard Energy to pay ${n}`, min: 1, max: 1, labels }, 'index');
+      return 'wait';
+    }
+  } else {
     const n = evalExpr(env, s, e, st.count);
     const a = takeAnswer(f);
     if (a !== undefined) chosen = a as number[];
@@ -659,6 +672,47 @@ function discardEnergy(env: Env, s: GameState, f: Frame, st: Extract<Step, { op:
     }
   }
   return 'next';
+}
+
+/**
+ * Every way to pay `n` Energy units from `pool` (cards attached to `t`) with no card to spare:
+ * the set covers `n`, and dropping any one card would not. Identical cards are interchangeable, so
+ * each distinct set appears once. Order = the default choice first: fewest Special Energy given
+ * up, then least overpaid, then fewest cards.
+ */
+function unitCovers(env: Env, t: Slot, pool: number[], n: number): number[][] {
+  const groups = new Map<number, { units: number; special: boolean; cards: number[] }>();
+  for (const c of pool) {
+    const d = def(env.ctx, c);
+    let g = groups.get(d.idx);
+    if (!g) groups.set(d.idx, (g = { units: cardUnits(env, t, c).length, special: !d.basicEnergy, cards: [] }));
+    g.cards.push(c);
+  }
+  const gs = [...groups.values()];
+  const pick = gs.map(() => 0);
+  const out: { set: number[]; special: number; over: number }[] = [];
+  const rec = (i: number, sum: number): void => {
+    if (i === gs.length) {
+      if (sum < n) return;
+      let least = Infinity;
+      gs.forEach((g, j) => {
+        if (pick[j]) least = Math.min(least, g.units);
+      });
+      if (sum - least >= n) return; // a card to spare
+      const set = gs.flatMap((g, j) => g.cards.slice(0, pick[j]));
+      out.push({ set, special: gs.reduce((a, g, j) => a + (g.special ? (pick[j] as number) : 0), 0), over: sum - n });
+      return;
+    }
+    const g = gs[i] as (typeof gs)[number];
+    for (let k = 0; k <= g.cards.length; k++) {
+      pick[i] = k;
+      rec(i + 1, sum + k * g.units);
+    }
+    pick[i] = 0;
+  };
+  rec(0, 0);
+  out.sort((x, y) => x.special - y.special || x.over - y.over || x.set.length - y.set.length);
+  return out.map((x) => x.set);
 }
 
 function switchStep(env: Env, s: GameState, f: Frame, st: Extract<Step, { op: 'switch' }>): R {

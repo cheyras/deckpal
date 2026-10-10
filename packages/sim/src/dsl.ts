@@ -92,7 +92,12 @@ export type Expr =
   | { pokemon: { zone: SlotZone; filter?: Filter } }
   | { prizesLeft: Who }
   | { prizesTaken: Who }
-  | { energyOn: SlotRef; type?: PType }
+  /**
+   * Energy attached to a Pokémon, counted in units provided ("for each Energy attached": a card
+   * providing {C}{C}{C} counts 3; one providing every type counts for `type`). `cards: true` counts
+   * Energy CARDS instead, for text that says "Energy card(s)".
+   */
+  | { energyOn: SlotRef; type?: PType; cards?: boolean }
   | { countersOn: SlotRef }
   | { handSize: Who }
   | { deckSize: Who }
@@ -250,8 +255,13 @@ export type Step =
   | { op: 'shuffle'; who?: Who }
   /** Attach the Energy cards in `cards` to the Pokémon in `to`. */
   | { op: 'attach'; cards: string; to: SlotRef }
-  /** Discard Energy from a Pokémon: all of it, or `count` chosen by the controller. */
-  | { op: 'discardEnergy'; from: SlotRef; count: Expr | 'all'; filter?: Filter; as?: string }
+  /**
+   * Discard Energy from a Pokémon: all of it, or `count` chosen by the controller. `count` is Energy
+   * CARDS ("discard an Energy" is one card, however much it provides) unless `units` is set: then
+   * the cards discarded must provide at least `count` Energy, with no card to spare (paying a
+   * Retreat Cost: a card providing {C}{C}{C} pays 3 points).
+   */
+  | { op: 'discardEnergy'; from: SlotRef; count: Expr | 'all'; filter?: Filter; as?: string; units?: boolean }
   /** Attack damage, through Weakness, Resistance and every modifier. */
   | { op: 'damage'; amount: Expr; to?: SlotRef | { each: SlotZone; filter?: Filter } | { v: string }; ignore?: DamageIgnore /* lane:fighting */ }
   /** Place damage counters: no Weakness, Resistance or damage modifiers. */

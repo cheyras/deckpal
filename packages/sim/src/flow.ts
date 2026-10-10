@@ -612,12 +612,15 @@ function doAction(env: Env, s: GameState, a: Action): void {
   }
 }
 
-/** Retreat as a program: discard Energy equal to the cost, then switch. */
+/**
+ * Retreat as a program: discard Energy that provides at least the cost (rulebook p.12), then switch.
+ * The cost is in Energy units, so one card providing {C}{C}{C} pays a Retreat Cost of 3.
+ */
 function retreatCode(env: Env): string {
   const key = '__retreat';
   if (!env.ctx.code.has(key)) {
     env.ctx.code.set(key, [
-      { o: 'step', s: { op: 'discardEnergy', from: 'self', count: { v: 'cost' } } },
+      { o: 'step', s: { op: 'discardEnergy', from: 'self', count: { v: 'cost' }, units: true } },
       { o: 'step', s: { op: 'switch', who: 'self' } },
     ]);
   }
