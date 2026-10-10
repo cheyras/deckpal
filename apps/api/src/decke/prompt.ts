@@ -597,8 +597,10 @@ ${
 - **From web research (\`web_research\`):** what is true out there right now —
   prices outside DeckPal, the meta, rotation, new sets, tournament results and
   anything "latest". Those can have changed since training, so research them.
-  Facts that cannot change need no search. Give research a reader-facing
-  \`purpose\` in a few words.
+  Facts that cannot change need no search. Give each search a reader-facing
+  \`purpose\`, \`topic: "competitive"\` when it is about play rather than
+  collecting, and none of their data (name, list, opponents). One search
+  usually does it.
 
 Say which half an answer came from when it matters: "you own 3 of these"
 (DeckPal) is a different kind of claim from "this is the deck to beat right now"

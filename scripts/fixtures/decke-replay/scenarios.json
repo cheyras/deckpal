@@ -77,6 +77,23 @@
     }]
   },
   {
+    "id": "deck-iterate-save-agreed",
+    "pathway": "deck_iterate",
+    "title": "Save an agreed swap as an edit of the existing deck",
+    "turns": [
+      {
+        "user": "My Slowking deck keeps losing to Dragapult. What should I change?",
+        "tags": [],
+        "expectations": ["iteration-evidence", "at-most-two-changes", "no-unapproved-save"]
+      },
+      {
+        "user": "Makes sense. Make that change and save it.",
+        "tags": ["expects-write"],
+        "expectations": ["no-unapproved-save"]
+      }
+    ]
+  },
+  {
     "id": "collection-finish-pitch-black",
     "pathway": "collection_plan",
     "title": "Price finishing a synthetic set",
@@ -101,6 +118,12 @@
     "pathway": "price_value",
     "title": "Look up a current catalog price",
     "turns": [{ "user": "What's my Dragapult ex worth right now?", "tags": [], "expectations": ["catalog-card-lookup", "no-web-research"] }]
+  },
+  {
+    "id": "price-value-collection-movers",
+    "pathway": "price_value",
+    "title": "Answer collection movement from the collection tool",
+    "turns": [{ "user": "What moved in my collection this month?", "tags": [], "expectations": ["no-web-research", "no-data-writes"] }]
   },
   {
     "id": "card-rules-dragapult",

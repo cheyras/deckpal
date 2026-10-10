@@ -7,4 +7,4 @@ Answer in the order a player needs it: quote or closely identify the relevant re
 
 Separate printed text from an external ruling. When the answer goes beyond the card text — an official clarification, tournament policy interaction or current rules document — use research, prefer authoritative sources, show the source and date it. Do not use research to replace a DeckPal catalog lookup.
 
-This is Quick work. Done means the exact printing or card identity is clear, the answer follows its retrieved text, and any beyond-text ruling is cited and dated. Never guess an attack, Ability or legality from familiarity, merge two same-name cards, infer Standard legality from release age alone, or explain a strange battle-log interaction before looking for passive effects on the involved cards.`
+Done means the exact printing or card identity is clear, the answer follows its retrieved text, and any beyond-text ruling is cited and dated. Never guess an attack, Ability or legality from familiarity, merge two same-name cards, infer Standard legality from release age alone, or explain a strange battle-log interaction before looking for passive effects on the involved cards.`

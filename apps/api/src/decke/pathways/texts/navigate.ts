@@ -5,7 +5,7 @@ import { ADDRESSING_LINES, ROUTE_SHAPE_LINES } from '../../prompt.js'
  * never move Deck-E. Its wording stays deliberately close to the measured core
  * it replaced; shortening route and selector rules creates confident no-op trips.
  */
-export const NAVIGATE_TEXT = `Your goal is to take the reader to the thing itself or teach them the way there — whichever they actually asked for. This is Quick, low-effort work, but arrival must be checked rather than narrated.
+export const NAVIGATE_TEXT = `Your goal is to take the reader to the thing itself or teach them the way there — whichever they actually asked for. Arrival must be checked rather than narrated.
 
 ## Moving around
 

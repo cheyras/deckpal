@@ -43,6 +43,12 @@ test('the conversation, memory, progress, asking, and failure contracts are pres
     assert.ok(p.includes(phrase), `missing: ${phrase}`)
   }
   assert.ok(p.includes('`web_research`'))
+  // One core line instead of one per pathway: the competitive mode keeps to
+  // results sites and dates against rotation (researchSources.ts), research is
+  // metered, and the query leaves the product.
+  assert.match(flat(p), /`topic: "competitive"` when it is about play rather than collecting/)
+  assert.match(flat(p), /none of their data \(name, list, opponents\)/)
+  assert.match(flat(p), /One search usually does it/)
   assert.match(flat(p), /older work may survive only as a one-line record/)
   assert.match(flat(p), /correction to what they want.*is not a request for data/)
   assert.match(flat(p), /If they correct a FACT.*verify it before you repeat/)
