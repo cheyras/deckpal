@@ -1427,6 +1427,11 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
     problems: ['"up to', 'similarity'],
     why: '"Attach up to 3 … in any way you like" is `repeat 3` of an optional (min 0) pick that ends the loop when declined; each pick chooses its own Benched Pokémon. The loop renders long, hence the low score.',
   },
+  // lane:grimmsnarl — same shape as Aura Jab, from the deck.
+  'sv10-136|ability:Punk Up': {
+    problems: ['"up to'],
+    why: '"search your deck for up to 5 Basic {D} Energy cards and attach them to your Marnie\'s Pokémon in any way you like" is `repeat 5` of an optional (min 0) deck pick, each attached to its own chosen Marnie\'s Pokémon; declining shuffles and ends the loop.',
+  },
   'me02-041|attack:Garland Ray': {
     problems: ['"up to'],
     why: '"Discard up to 2 Energy cards" is a 3-way chooseOption (2, 1 or none) followed by discarding 2 minus the choice; the damage counts what was actually discarded.',
