@@ -1,0 +1,316 @@
+Setup
+PlayerA chose tails for the opening coin flip.
+PlayerB won the coin toss.
+PlayerB decided to go first.
+PlayerA drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • (me5_6) Sinistcha, (me5_39) Dhelmise, (me5_34) Banette, (me1_119) Lillie's Determination, (sv5_129) Dudunsparce, (me5_34) Banette, (me5_5) Poltchageist
+PlayerB drew 7 cards for the opening hand.
+- 7 drawn cards.
+PlayerA played (me5_5) Poltchageist to the Active Spot.
+PlayerA played (me5_39) Dhelmise to the Bench.
+PlayerB played (me3_53) Yveltal ex to the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB attached (mee_7) Basic Darkness Energy to (me3_53) Yveltal ex in the Active Spot.
+PlayerB ended their turn.
+
+PlayerA's Turn
+PlayerA drew (me1_119) Lillie's Determination.
+PlayerA played (me1_119) Lillie's Determination.
+- PlayerA shuffled 5 cards into their deck.
+   • (me5_6) Sinistcha, (me5_34) Banette, (me1_119) Lillie's Determination, (sv5_129) Dudunsparce, (me5_34) Banette
+- PlayerA drew 8 cards.
+   • (me1_114) Boss's Orders, (me5_34) Banette, (me5_39) Dhelmise, (zsv10-5_79) Air Balloon, (me1_131) Ultra Ball, (me1_119) Lillie's Determination, (me3_81) Poké Pad, (sv8-5_101) Buddy-Buddy Poffin
+PlayerA played (me3_81) Poké Pad.
+- PlayerA drew (me5_33) Shuppet.
+- PlayerA shuffled their deck.
+PlayerA played (me5_33) Shuppet to the Bench.
+PlayerA played (sv8-5_101) Buddy-Buddy Poffin.
+- PlayerA drew 2 cards and played them to the Bench.
+   • (sv5_128) Dunsparce, (me5_33) Shuppet
+- PlayerA shuffled their deck.
+PlayerA played (me1_131) Ultra Ball.
+- PlayerA discarded 2 cards.
+   • (me5_34) Banette, (zsv10-5_79) Air Balloon
+- PlayerA drew (sv6-5_38) Fezandipiti ex.
+- PlayerA shuffled their deck.
+PlayerA played (sv6-5_38) Fezandipiti ex to the Bench.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB attached (mee_7) Basic Darkness Energy to (me3_53) Yveltal ex in the Active Spot.
+PlayerB played (sv6-5_59) Janine's Secret Art.
+- PlayerB attached (mee_7) Basic Darkness Energy to (me3_53) Yveltal ex in the Active Spot.
+- PlayerB shuffled their deck.
+- PlayerB's (me3_53) Yveltal ex is now Poisoned.
+PlayerB's (me3_53) Yveltal ex used Soul Destroyer.
+PlayerA's (me5_33) Shuppet used Hide 'n' Sneak.
+- Effects of Soul Destroyer did not affect (me5_33) Shuppet.
+PlayerA's (me5_33) Shuppet used Hide 'n' Sneak.
+- Effects of Soul Destroyer did not affect (me5_33) Shuppet.
+PlayerA's (me5_5) Poltchageist used Hide 'n' Sneak.
+- Effects of Soul Destroyer did not affect (me5_5) Poltchageist.
+
+Pokémon Checkup
+1 damage counter was placed on PlayerB's (me3_53) Yveltal ex for the Special Condition Poisoned.
+
+PlayerA's Turn
+PlayerA drew (me1_114) Boss's Orders.
+PlayerA played (me1_119) Lillie's Determination.
+- PlayerA shuffled 3 cards into their deck.
+   • (me1_114) Boss's Orders, (me5_39) Dhelmise, (me1_114) Boss's Orders
+- PlayerA drew 8 cards.
+   • (me1_114) Boss's Orders, (me5_78) Gwynn, (me1_119) Lillie's Determination, (me4_80) Prism Tower, (me5_39) Dhelmise, (sve_5) Basic Psychic Energy, (me5_6) Sinistcha, (me4_80) Prism Tower
+PlayerA played (me4_80) Prism Tower to the Stadium spot.
+PlayerA attached (sve_5) Basic Psychic Energy to (me5_33) Shuppet on the Bench.
+PlayerA evolved (me5_5) Poltchageist to (me5_6) Sinistcha in the Active Spot.
+PlayerA ended their turn.
+
+Pokémon Checkup
+1 damage counter was placed on PlayerB's (me3_53) Yveltal ex for the Special Condition Poisoned.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB's (me3_53) Yveltal ex used Dark Strike on PlayerA’s (me5_6) Sinistcha for 210 damage.
+PlayerA's (me5_6) Sinistcha was Knocked Out!
+(me5_5) Poltchageist was discarded from PlayerA's (me5_6) Sinistcha.
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's (me5_33) Shuppet is now in the Active Spot.
+
+Pokémon Checkup
+1 damage counter was placed on PlayerB's (me3_53) Yveltal ex for the Special Condition Poisoned.
+
+PlayerA's Turn
+PlayerA drew (me3_81) Poké Pad.
+PlayerA played (me3_81) Poké Pad.
+- PlayerA drew (me5_34) Banette.
+- PlayerA shuffled their deck.
+PlayerA evolved (me5_33) Shuppet to (me5_34) Banette on the Bench.
+PlayerA's (sv6-5_38) Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
+   • (me2-5_184) Buddy-Buddy Poffin, (sve_5) Basic Psychic Energy, (me5_33) Shuppet
+PlayerA attached (sve_5) Basic Psychic Energy to (me5_39) Dhelmise on the Bench.
+PlayerA played (me5_78) Gwynn.
+- PlayerA discarded 2 cards.
+   • (me5_33) Shuppet, (me5_39) Dhelmise
+- PlayerA drew 6 cards.
+   • (me5_39) Dhelmise, (me3_81) Poké Pad, (me5_5) Poltchageist, (me5_78) Gwynn, (me5_34) Banette, (sv6-5_61) Night Stretcher
+PlayerA played (sv6-5_61) Night Stretcher.
+- PlayerA moved PlayerA's (me5_39) Dhelmise to their hand.
+PlayerA played (me3_81) Poké Pad.
+- PlayerA drew (sv5_128) Dunsparce.
+- PlayerA shuffled their deck.
+PlayerA played (me2-5_184) Buddy-Buddy Poffin.
+- PlayerA drew (me5_33) Shuppet and played it to the Bench.
+- PlayerA shuffled their deck.
+PlayerA evolved (me5_33) Shuppet to (me5_34) Banette in the Active Spot.
+PlayerA ended their turn.
+
+Pokémon Checkup
+1 damage counter was placed on PlayerB's (me3_53) Yveltal ex for the Special Condition Poisoned.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (me2_60_ph) Carvanha to the Bench.
+PlayerB attached (mee_7) Basic Darkness Energy to (me2_60_ph) Carvanha on the Bench.
+PlayerB played (sv6-5_59) Janine's Secret Art.
+- PlayerB attached (mee_7) Basic Darkness Energy to (me2_60_ph) Carvanha on the Bench.
+- PlayerB shuffled their deck.
+PlayerB's (me3_53) Yveltal ex used Soul Destroyer.
+PlayerA's (me5_33) Shuppet used Hide 'n' Sneak.
+- Effects of Soul Destroyer did not affect (me5_33) Shuppet.
+
+Pokémon Checkup
+1 damage counter was placed on PlayerB's (me3_53) Yveltal ex for the Special Condition Poisoned.
+
+PlayerA's Turn
+PlayerA drew (me3_88) Telepathic Psychic Energy.
+PlayerA attached (me3_88) Telepathic Psychic Energy to (me5_34) Banette in the Active Spot.
+PlayerA played (me5_78) Gwynn.
+- PlayerA discarded 2 cards.
+   • (me5_5) Poltchageist, (sv5_128) Dunsparce
+- PlayerA drew 6 cards.
+   • (me2-5_76) Lillie's Clefairy ex, (me5_39) Dhelmise, (sve_5) Basic Psychic Energy, (sv6-5_61) Night Stretcher, (me3_88) Telepathic Psychic Energy, (sv6_163) Secret Box
+PlayerA's (me5_34) Banette used Puppet Pull on PlayerB’s (me3_53) Yveltal ex for 80 damage.
+- PlayerA drew (sv5_129) Dudunsparce.
+- PlayerA shuffled their deck.
+
+Pokémon Checkup
+1 damage counter was placed on PlayerB's (me3_53) Yveltal ex for the Special Condition Poisoned.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (sm1_115_ph) Crushing Hammer.
+- PlayerB flipped a coin and it landed on heads.
+- (sve_5) Basic Psychic Energy was discarded from PlayerB's (me5_34) Banette.
+PlayerB played (swsh1_159) Crushing Hammer.
+- PlayerB flipped a coin and it landed on heads.
+- (sve_5) Basic Psychic Energy was discarded from PlayerB's (me5_39) Dhelmise.
+PlayerB played Prism Tower.
+- PlayerA moved PlayerB's 2 cards to the discard pile.
+   • (sm2_124) Enhanced Hammer, (me5_107) Energy Switch
+- PlayerA drew a card.
+PlayerB's (me3_53) Yveltal ex used Dark Strike on PlayerA’s (me5_34) Banette for 420 damage. PlayerA's (me5_34) Banette took 210 more damage because of Darkness Weakness.
+- Damage breakdown:
+   • Base damage: 210 damage
+   • Weakness to Darkness: 210 damage
+   • Total damage: 420 damage
+
+PlayerA's (me5_34) Banette was Knocked Out!
+- 2 cards were discarded from PlayerA's (me5_34) Banette.
+   • (me3_88) Telepathic Psychic Energy, (me5_33) Shuppet
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's (me5_39) Dhelmise is now in the Active Spot.
+
+Pokémon Checkup
+1 damage counter was placed on PlayerB's (me3_53) Yveltal ex for the Special Condition Poisoned.
+
+PlayerA's Turn
+PlayerA drew (zsv10-5_79) Air Balloon.
+PlayerA attached (zsv10-5_79) Air Balloon to (me5_39) Dhelmise in the Active Spot.
+PlayerA's (sv6-5_38) Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
+   • (sve_5) Basic Psychic Energy, (me1_131) Ultra Ball, (sv6_141) Bloodmoon Ursaluna ex
+PlayerA played (sv6_141) Bloodmoon Ursaluna ex to the Bench.
+PlayerA evolved (sv5_128) Dunsparce to (sv5_129) Dudunsparce on the Bench.
+PlayerA played (sv5_129) Dudunsparce.
+- PlayerA drew 3 cards.
+   • (me4_80) Prism Tower, (me3_88) Telepathic Psychic Energy, (me2-5_184) Buddy-Buddy Poffin
+- PlayerA shuffled 2 cards into their deck.
+   • (sv5_129) Dudunsparce, (sv5_128) Dunsparce
+PlayerA played (me2-5_76) Lillie's Clefairy ex to the Bench.
+PlayerA attached (sve_5) Basic Psychic Energy to (me2-5_76) Lillie's Clefairy ex on the Bench.
+PlayerA played (sv6-5_61) Night Stretcher.
+- PlayerA moved PlayerA's (sve_5) Basic Psychic Energy to their hand.
+PlayerA ended their turn.
+
+Pokémon Checkup
+1 damage counter was placed on PlayerB's (me3_53) Yveltal ex for the Special Condition Poisoned.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (me2_54_ph) Gastly to the Bench.
+PlayerB played (swsh1_161_ph) Energy Search.
+- PlayerB drew (mee_7) Basic Darkness Energy.
+- PlayerB shuffled their deck.
+PlayerB attached (mee_7) Basic Darkness Energy to (me2_54_ph) Gastly on the Bench.
+PlayerB retreated (me3_53) Yveltal ex to the Bench.
+- (mee_7) Basic Darkness Energy was discarded from PlayerB's (me3_53) Yveltal ex.
+PlayerB's (me2_54_ph) Gastly is now in the Active Spot.
+PlayerB's (me2_54_ph) Gastly used Petty Grudge on PlayerA’s (me5_39) Dhelmise for 20 damage. PlayerA's (me5_39) Dhelmise took 10 more damage because of Darkness Weakness.
+- Damage breakdown:
+   • Base damage: 10 damage
+   • Weakness to Darkness: 10 damage
+   • Total damage: 20 damage
+
+
+PlayerA's Turn
+PlayerA drew (sv5_129) Dudunsparce.
+PlayerA attached (me3_88) Telepathic Psychic Energy to (me5_39) Dhelmise in the Active Spot.
+PlayerA played (me1_114) Boss's Orders.
+- PlayerB's (me3_53) Yveltal ex was switched with PlayerB's (me2_54_ph) Gastly to become the Active Pokémon.
+PlayerB's (me3_53) Yveltal ex is now in the Active Spot.
+PlayerA's (me5_39) Dhelmise used Vengeful Anchor on PlayerB’s (me3_53) Yveltal ex for 170 damage.
+- Damage breakdown:
+   • Base damage: 30 damage
+   • 7 discarded Pokémon: 140 damage
+   • Total damage: 170 damage
+
+PlayerB's (me3_53) Yveltal ex was Knocked Out!
+- 2 cards were discarded from PlayerB's (me3_53) Yveltal ex.
+   • (mee_7) Basic Darkness Energy, (mee_7) Basic Darkness Energy
+PlayerA took 2 Prize cards.
+(sv8-5_101) Buddy-Buddy Poffin was added to PlayerA's hand.
+(me1_119) Lillie's Determination was added to PlayerA's hand.
+PlayerB's (me2_54_ph) Gastly is now in the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played Prism Tower.
+- PlayerA moved PlayerB's 2 cards to the discard pile.
+   • (swsh12-5_141) Rare Candy, (swsh12-5_141) Rare Candy
+- PlayerA drew a card.
+PlayerB attached (me5_83) Shadowy Darkness Energy to (me2_54_ph) Gastly in the Active Spot.
+PlayerB played (me5_75) Dark Bell.
+- PlayerA's (me5_39) Dhelmise is now Confused.
+PlayerB's (me2_54_ph) Gastly used Petty Grudge on PlayerA’s (me5_39) Dhelmise for 20 damage. PlayerA's (me5_39) Dhelmise took 10 more damage because of Darkness Weakness.
+- Damage breakdown:
+   • Base damage: 10 damage
+   • Weakness to Darkness: 10 damage
+   • Total damage: 20 damage
+
+
+PlayerA's Turn
+PlayerA drew (me5_78) Gwynn.
+PlayerA played (me1_131) Ultra Ball.
+- PlayerA discarded 2 cards.
+   • (me5_78) Gwynn, (sv8-5_101) Buddy-Buddy Poffin
+- PlayerA drew (sv5_128) Dunsparce.
+- PlayerA shuffled their deck.
+PlayerA attached (me3_88) Telepathic Psychic Energy to (me2-5_76) Lillie's Clefairy ex on the Bench.
+PlayerA flipped a coin and it landed on tails.
+3 damage counters were placed on PlayerA's (me5_39) Dhelmise for the Special Condition Confused.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB's (me2_54_ph) Gastly used Petty Grudge on PlayerA’s (me5_39) Dhelmise for 20 damage. PlayerA's (me5_39) Dhelmise took 10 more damage because of Darkness Weakness.
+- Damage breakdown:
+   • Base damage: 10 damage
+   • Weakness to Darkness: 10 damage
+   • Total damage: 20 damage
+
+
+PlayerA's Turn
+PlayerA drew (me1_131) Ultra Ball.
+PlayerA played (sv6_163) Secret Box.
+- PlayerA discarded 3 cards.
+   • (me1_131) Ultra Ball, (me4_80) Prism Tower, (me4_80) Prism Tower
+- PlayerA drew (me1_114) Boss's Orders.
+- PlayerA shuffled their deck.
+PlayerA's (me5_39) Dhelmise used Vengeful Anchor on PlayerB’s (me2_54_ph) Gastly for 170 damage.
+- Damage breakdown:
+   • Base damage: 30 damage
+   • 7 discarded Pokémon: 140 damage
+   • Total damage: 170 damage
+
+PlayerB's (me2_54_ph) Gastly was Knocked Out!
+- 2 cards were discarded from PlayerB's (me2_54_ph) Gastly.
+   • (mee_7) Basic Darkness Energy, (me5_83) Shadowy Darkness Energy
+PlayerA took a Prize card.
+(me4_82) Special Red Card was added to PlayerA's hand.
+PlayerB's (me2_60_ph) Carvanha is now in the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (sm2_124) Enhanced Hammer.
+- (me3_88) Telepathic Psychic Energy was discarded from PlayerB's (me5_39) Dhelmise.
+PlayerB's (me2_60_ph) Carvanha used Reckless Charge on PlayerA’s (me5_39) Dhelmise for 60 damage. PlayerA's (me5_39) Dhelmise took 30 more damage because of Darkness Weakness.
+- Damage breakdown:
+   • Base damage: 30 damage
+   • Weakness to Darkness: 30 damage
+   • Total damage: 60 damage
+
+- PlayerB's (me2_60_ph) Carvanha took 10 damage.
+PlayerA's (me5_39) Dhelmise was Knocked Out!
+(zsv10-5_79) Air Balloon was discarded from PlayerA's (me5_39) Dhelmise.
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's (me5_34) Banette is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (sv5_129) Dudunsparce.
+PlayerA's (sv6-5_38) Fezandipiti ex used Flip the Script.
+- PlayerA drew (me5_78) Gwynn.
+PlayerA attached (sve_5) Basic Psychic Energy to (me5_34) Banette in the Active Spot.
+PlayerA's (me5_34) Banette used Puppet Pull on PlayerB’s (me2_60_ph) Carvanha for 80 damage.
+PlayerB's (me2_60_ph) Carvanha was Knocked Out!
+- 2 cards were discarded from PlayerB's (me2_60_ph) Carvanha.
+   • (mee_7) Basic Darkness Energy, (mee_7) Basic Darkness Energy
+PlayerA took a Prize card.
+(me1_131) Ultra Ball was added to PlayerA's hand.
+No Benched Pokémon for backup. PlayerA wins.
