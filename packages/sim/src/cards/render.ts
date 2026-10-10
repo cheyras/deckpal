@@ -21,12 +21,13 @@
  *
  * Pure: no I/O. Used by src/__tests__/roundtrip.test.ts and scripts/roundtrip.ts.
  */
-import { CUSTOMS } from '../customs.js';
+import { CUSTOM_CONDS, CUSTOMS } from '../customs.js';
 import type {
   AbilityScript,
   AttackScript,
   CardScript,
   CardZone,
+  DamageIgnore,
   Cond,
   Dest,
   Duration,
@@ -77,7 +78,51 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   shuffleHandToBottom: (a) =>
     `${a.who === 'opp' ? 'Your opponent shuffles their' : 'Shuffle your'} hand and ${a.who === 'opp' ? 'puts' : 'put'} it on the bottom of ${a.who === 'opp' ? 'their' : 'your'} deck (the count lands in "moved")`,
   shuffleThenPutOnTop: () => 'Shuffle your deck, then put those cards on top of it in any order',
+  // fighting-customs.ts
+  devolveDefender: () =>
+    "If your opponent's Active Pokémon is an evolved Pokémon, put the highest Stage Evolution card on it into your opponent's hand",
+  sumCounters: (a) =>
+    `Count the damage counters on ${slotZoneNoun(String(a.zone) as SlotZone, a.filter as Filter | undefined)} (into "${String(a.as ?? 'n')}")`,
+  lookAtTopTake: (a) => {
+    const max = Number(a.max ?? 1);
+    const nn = noun(a.filter as Filter | undefined);
+    return `Look at the top ${Number(a.n ?? 7)} cards of your deck. You may reveal ${max === 1 ? art(nn.sg) : `up to ${max} ${nn.pl}`} you find there and put ${max === 1 ? 'it' : 'them'} into your hand. Shuffle the other cards back into your deck`;
+  },
+  // ghost-customs.ts
+  moveCounters: (a) => `Move up to ${Number(a.max ?? 3)} damage counters from the Pokémon chosen as "${String(a.from)}" to the Pokémon chosen as "${String(a.to)}"`,
+  lookTopPick: (a) => `Look at the top ${Number(a.n ?? 2)} cards of your deck. Put 1 of them into your hand and the rest on the bottom of your deck`,
+  chooseEnergyOfOtherType: (a) => `Choose up to 1 more Basic Energy card from your deck of a different type from the cards in "${String(a.first)}"`,
+  pickFromVar: (a) => `Choose ${Number(a.n ?? 1)} of the cards in "${String(a.from)}" (the others are "${String(a.rest)}")`,
+  moveOppActiveEnergy: (a) => `Move an Energy from your opponent's Active Pokémon to the Pokémon chosen as "${String(a.to)}"`,
+  rareCandy: () =>
+    "Choose 1 of your Basic Pokémon in play that wasn't put into play this turn and that a Stage 2 card in your hand evolves from (through its Stage 1), and put that card onto it to evolve it, skipping the Stage 1",
+  discardSelfFromPlay: () => 'Discard this card from play',
+  // metal-customs.ts
+  'metal.energyToDeck': () => 'Put all Energy attached to this Pokémon into your deck',
+  'metal.moveEnergy': (a) => `Move ${art(energyNoun(a.filter as Filter | undefined))} from the Pokémon chosen as "${String(a.from)}" to another of your Pokémon`,
+  'metal.attachFromDeckToEach': (a) => `For each of the Pokémon chosen as "${String(a.slots)}", search your deck for ${art(noun(a.filter as Filter | undefined).sg)} and attach it to that Pokémon`,
+  'metal.discardTools': (a) => `Choose up to ${Number(a.max ?? 2)} Pokémon Tools attached to Pokémon (yours or your opponent's) and discard them`,
+  // misc-customs.ts
+  freezingShroud: () => "Put 1 damage counter on each Pokémon that has an Ability (both yours and your opponent's), except any Froslass",
+  countersUntilHp: (a) => `Count the damage counters that would leave your opponent's Active Pokémon with ${Number(a.hp ?? 50)} HP remaining (into "${String(a.as ?? 'n')}")`,
+  discardThisCard: () => 'Discard this card',
 };
+
+/** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
+export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) => string> = {
+  countersMovable: () => 'damage counters can be moved (no effect on either side stops it)',
+  rareCandyPlayable: () => "it isn't your first turn and you have a Basic Pokémon in play, not put into play this turn, that a Stage 2 card in your hand evolves from",
+};
+
+/** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
+function energyNoun(f: Filter | undefined): string {
+  if (!f) return 'Energy';
+  if (f.basicEnergy === false) return 'Special Energy';
+  if (f.energyType) return `Basic ${sym(f.energyType)} Energy`;
+  if (f.basicEnergy) return 'Basic Energy';
+  if (f.name) return (Array.isArray(f.name) ? f.name : [f.name]).map((x) => `"${x}"`).join(' or ');
+  return noun(f).sg;
+}
 
 const cap = (s: string): string => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
 const lc = (s: string): string => (s && !/^\[/.test(s) ? s[0]!.toLowerCase() + s.slice(1) : s);
@@ -131,11 +176,15 @@ export function noun(f: Filter = {}, inPlay = false): Noun {
     f.hpMax !== undefined ||
     !!f.hasAbility ||
     !!f.damaged ||
+    f.energy !== undefined ||
+    f.tool !== undefined ||
+    !!f.condition ||
+    f.energized !== undefined ||
     (!!f.type && f.cat !== 'energy');
   if (f.cat === 'trainer' || f.ttype) {
     head = f.ttype ? TTYPE[f.ttype] : { sg: 'Trainer card', pl: 'Trainer cards' };
-  } else if (f.cat === 'energy' || f.basicEnergy || f.energyType) {
-    const b = f.basicEnergy || f.energyType ? 'Basic ' : '';
+  } else if (f.cat === 'energy' || f.basicEnergy !== undefined || f.energyType) {
+    const b = f.basicEnergy === false ? 'Special ' : f.basicEnergy || f.energyType ? 'Basic ' : '';
     const t = f.energyType ? `${sym(f.energyType)} ` : types ? `${types} ` : '';
     head = { sg: `${b}${t}Energy card`, pl: `${b}${t}Energy cards` };
   } else if (pokemonish || inPlay) {
@@ -157,6 +206,12 @@ export function noun(f: Filter = {}, inPlay = false): Noun {
     post.push([`named ${ns}`, `named ${ns}`]);
   }
   if (f.damaged) post.push(['that has damage counters on it', 'that have damage counters on them']);
+  if (f.energy) post.push([`that has ${energyNoun(f.energy)} attached`, `that have ${energyNoun(f.energy)} attached`]);
+  if (f.energized === true) post.push(['that has any Energy attached', 'that have any Energy attached']);
+  if (f.energized === false) post.push(['that has no Energy attached', 'that have no Energy attached']);
+  if (f.tool === true) post.push(['that has a Pokémon Tool attached', 'that have a Pokémon Tool attached']);
+  if (f.tool === false) post.push(['that has no Pokémon Tool attached', 'that have no Pokémon Tool attached']);
+  if (f.condition) post.push([`that is ${CONDITION[f.condition]}`, `that are ${CONDITION[f.condition]}`]);
   if (f.not) {
     const x = noun(f.not, inPlay);
     post.push([`that isn't ${art(x.sg)}`, `that aren't ${x.pl}`]);
@@ -280,7 +335,7 @@ class Renderer {
   vars = new Map<string, VarInfo>();
   /** Variables used only as an addend of the attack's damage ("have this attack do 150 more damage"). */
   bonus = new Set<string>();
-  readonly selfName: string;
+  selfName: string;
 
   constructor(
     readonly src: Source,
@@ -380,7 +435,7 @@ class Renderer {
     }
     if ('slotIs' in c) return `${this.ref(c.slotIs.ref)} is ${art(noun(c.slotIs.filter, true).sg)}`;
     if ('inActive' in c) return `${this.ref(c.inActive)} is in the Active Spot`;
-    if ('onBench' in c) return `${this.ref(c.onBench)} is on the Bench`;
+    if ('onBench' in c) return `${this.ref(c.onBench)} is on ${c.onBench === 'self' || c.onBench === 'myActive' ? 'your' : 'the'} Bench`;
     if ('koLastTurn' in c) {
       return c.koLastTurn === 'opp'
         ? "any of your opponent's Pokémon were Knocked Out during your last turn"
@@ -389,6 +444,11 @@ class Renderer {
     if ('stadium' in c) return c.stadium === true ? 'a Stadium is in play' : `${art(noun(c.stadium).sg)} is in play`;
     if ('benchFull' in c) return `${c.benchFull === 'opp' ? "your opponent's" : 'your'} Bench is full`;
     if ('firstTurn' in c) return 'it is your first turn';
+    if ('custom' in c) {
+      if (!CUSTOM_CONDS[c.custom]) this.problems.push(`custom condition "${c.custom}" is not registered (registerCustomCond)`);
+      const g = CUSTOM_COND_GLOSS[c.custom];
+      return `[custom: ${c.custom}${g ? ` — ${g(c.args ?? {})}` : ''}]`;
+    }
     return '(?)';
   }
 
@@ -405,10 +465,12 @@ class Renderer {
       if ('pokemon' in a) {
         const z = a.pokemon.zone;
         const w: Who = z.startsWith('opp') ? 'opp' : 'self';
+        const qq = any ? 'any' : op === 'eq' && b === 0 ? 'no' : q;
+        if (z === 'myBench' || z === 'oppBench') return `${subj(w)} ${qq} ${noun(a.pokemon.filter ?? {}, true).pl} on ${w === 'opp' ? 'their' : 'your'} Bench`;
         const where = z === 'myPokemon' || z === 'oppPokemon' ? ' in play' : '';
-        return `${subj(w)} ${q} ${slotZoneNoun(z, a.pokemon.filter, false)}${where}`;
+        return `${subj(w)} ${qq} ${slotZoneNoun(z, a.pokemon.filter, false)}${where}`;
       }
-      if ('handSize' in a) return `${subj(a.handSize)} ${q} cards in ${owner(a.handSize, true)} hand`;
+      if ('handSize' in a) return `${subj(a.handSize)} ${any ? 'any' : op === 'eq' && b === 0 ? 'no' : q} cards in ${owner(a.handSize, true)} hand`;
       if ('deckSize' in a) return `${subj(a.deckSize)} ${q} cards in ${owner(a.deckSize, true)} deck`;
       if ('prizesLeft' in a) return `${subj(a.prizesLeft)} ${q} Prize cards remaining`;
       if ('prizesTaken' in a) return `${subj(a.prizesTaken)} taken ${q} Prize cards`;
@@ -431,7 +493,7 @@ class Renderer {
   /** A Pokémon reference; a deferred chooseSlots variable is described in full on first use. */
   ref(r: SlotRef): string {
     if (r === 'self') return this.selfName;
-    if (r === 'defender') return 'the Defending Pokémon';
+    if (r === 'defender') return "your opponent's Active Pokémon"; // (as it was when the attack was declared)
     if (r === 'myActive') return 'your Active Pokémon';
     if (r === 'oppActive') return "your opponent's Active Pokémon";
     const v = this.vars.get(r.v);
@@ -442,6 +504,7 @@ class Renderer {
       }
       return v.plural ? 'those Pokémon' : 'that Pokémon';
     }
+    if (r.v === '__target') return 'that Pokémon'; // the Pokémon a trigger fired for (oppAttachFromHand)
     return `the Pokémon in "${r.v}"`;
   }
 
@@ -609,13 +672,7 @@ class Renderer {
           break;
         }
         case 'discardEnergy': {
-          const what = st.filter?.energyType
-            ? `${sym(st.filter.energyType)} Energy`
-            : st.filter?.basicEnergy
-              ? 'Basic Energy'
-              : st.filter
-                ? noun(st.filter).pl
-                : 'Energy';
+          const what = energyNoun(st.filter);
           const from = this.ref(st.from);
           if (st.count === 'all') out.push(`Discard all ${what} from ${from}`);
           else if (st.count === 1) out.push(`Discard ${art(what)} from ${from}`);
@@ -624,12 +681,14 @@ class Renderer {
           break;
         }
         case 'damage':
-          out.push(...this.damage(st.amount, base, st.to));
+          out.push(...this.damage(st.amount, base, st.to), ...ignoreSentence(st.ignore));
           break;
         case 'counters': {
-          const n = this.num(st.n);
           const where = typeof st.to === 'object' && 'each' in st.to ? `each of ${slotZoneNoun(st.to.each, st.to.filter)}` : this.ref(st.to as SlotRef);
-          out.push(`Place ${n} damage counter${st.n === 1 ? '' : 's'} on ${where}`);
+          const k = st.n;
+          if (typeof k === 'object' && 'mul' in k && typeof k.mul[0] === 'number') {
+            out.push(`Place ${k.mul[0]} damage counter${k.mul[0] === 1 ? '' : 's'} on ${where} for each ${this.each(k.mul[1])}`);
+          } else out.push(`Place ${this.num(k)} damage counter${k === 1 ? '' : 's'} on ${where}`);
           break;
         }
         case 'heal':
@@ -670,6 +729,13 @@ class Renderer {
           out.push(`You may ${lc(this.program(st.body, base))}`);
           break;
         case 'effect': {
+          if (st.scope && !st.on) {
+            // Player-level effect over that player's Pokémon, matched live ("all of your {M} Pokémon").
+            const flip = (sc: Scope): Scope => (sc.startsWith('my') ? (sc.replace('my', 'opp') as Scope) : sc.startsWith('opp') ? (sc.replace('opp', 'my') as Scope) : sc);
+            const { x, plural } = this.scope(st.onPlayer === 'opp' ? flip(st.scope) : st.scope, st.filter);
+            out.push(`${DURATION[st.duration]} ${lc(this.clause(st.static, x, plural, false))}`);
+            break;
+          }
           const who = st.on ? this.ref(st.on) : st.onPlayer === 'opp' ? 'your opponent' : st.onPlayer === 'self' ? 'you' : this.selfName;
           const plural = st.on && typeof st.on === 'object' ? (this.vars.get(st.on.v) as { plural?: boolean } | undefined)?.plural ?? false : false;
           const x = st.filter ? `${who} (only ${noun(st.filter, true).pl})` : who;
@@ -702,7 +768,7 @@ class Renderer {
         }
       }
     }
-    return out;
+    return eachPlayer(out);
   }
 
   private draw(n: Expr, who?: Who): string {
@@ -741,8 +807,10 @@ class Renderer {
           return { text: `Search ${zoneOf('deck', v.who)} for ${v.text}${reveal} ${act}`, ateShuffle: false };
         }
         const what = first ? `${v.text} from ${v.zone === 'top' ? 'the top of your deck' : zoneOf(v.zone, v.who)}` : v.plural ? 'those cards' : 'that card';
-        if (st.to === 'discard') return { text: `Discard ${what}`, ateShuffle: false };
-        if (st.to === 'deck') {
+        // A move whose destination owner differs from the source owner names the destination ("… in your discard pile").
+        const same = (v.who ?? 'self') === (st.who ?? 'self');
+        if (st.to === 'discard' && same) return { text: `Discard ${what}`, ateShuffle: false };
+        if (st.to === 'deck' && same) {
           const ate = next?.op === 'shuffle' && (next.who ?? 'self') === (st.who ?? 'self');
           return { text: ate ? `Shuffle ${what} ${dest}` : `Put ${what} ${dest}`, ateShuffle: ate };
         }
@@ -754,12 +822,14 @@ class Renderer {
       const n = st.cards.top;
       const what = n === 1 ? `the top card of ${zoneOf('deck', st.cards.who)}` : `the top ${this.num(n)} cards of ${zoneOf('deck', st.cards.who)}`;
       if (st.as) this.vars.set(st.as, { k: 'cards', text: n === 1 ? 'that card' : 'those cards', plural: n !== 1, zone: 'top', reveal: false, mentioned: true, done: DONE[st.to] });
-      return { text: st.to === 'discard' ? `Discard ${what}` : `Put ${what} ${dest}`, ateShuffle: false };
+      const same = (st.cards.who ?? 'self') === (st.who ?? 'self');
+      return { text: st.to === 'discard' && same ? `Discard ${what}` : `Put ${what} ${dest}`, ateShuffle: false };
     }
     const z = zoneOf(st.cards.all, st.cards.who);
     if (st.as) this.vars.set(st.as, { k: 'cards', text: 'those cards', plural: true, zone: st.cards.all, reveal: false, mentioned: true, done: DONE[st.to] });
-    if (st.to === 'deck' && next?.op === 'shuffle' && (next.who ?? 'self') === (st.who ?? 'self')) return { text: `Shuffle ${z} ${dest}`, ateShuffle: true };
-    if (st.to === 'discard') return { text: `Discard ${z}`, ateShuffle: false };
+    const same = (st.cards.who ?? 'self') === (st.who ?? 'self');
+    if (same && st.to === 'deck' && next?.op === 'shuffle' && (next.who ?? 'self') === (st.who ?? 'self')) return { text: `Shuffle ${z} ${dest}`, ateShuffle: true };
+    if (same && st.to === 'discard') return { text: `Discard ${z}`, ateShuffle: false };
     return { text: `Put ${z} ${dest}`, ateShuffle: false };
   }
 
@@ -784,7 +854,7 @@ class Renderer {
       case 'oppPokemon':
         return { x: `your opponent's ${nn} in play`, plural: true };
       case 'allPokemon':
-        return { x: `${nn} in play (both yours and your opponent's)`, plural: true };
+        return { x: `each ${noun(f ?? {}, true).sg} in play (both yours and your opponent's)`, plural: false };
       case 'me':
         return { x: 'you', plural: false };
       case 'opp':
@@ -803,10 +873,16 @@ class Renderer {
         const what = e.from.includes('attack') && e.from.includes('ability') ? 'attacks and Abilities' : e.from.includes('attack') ? 'attacks' : 'Abilities';
         return `Prevent all effects of ${fromOpp ? "your opponent's Pokémon's " : ''}${what} done to ${x}`;
       }
-      case 'preventDamage':
+      case 'preventDamage': {
+        const from = fromOpp
+          ? `from your opponent's Pokémon${e.attackerMaxEnergy !== undefined ? ` that have ${e.attackerMaxEnergy} or fewer Energy attached` : ''}`
+          : e.attackerMaxEnergy !== undefined
+            ? `from Pokémon that have ${e.attackerMaxEnergy} or fewer Energy attached`
+            : '';
         return e.andEffects
-          ? `Prevent all damage from and effects of attacks ${fromOpp ? "from your opponent's Pokémon " : ''}done to ${x}`
-          : `Prevent all damage done to ${x} by attacks${fromOpp ? " from your opponent's Pokémon" : ''}`;
+          ? `Prevent all damage from and effects of attacks ${from ? `${from} ` : ''}done to ${x}`
+          : `Prevent all damage done to ${x} by attacks${from ? ` ${from}` : ''}`;
+      }
       case 'retreatCost':
         if (e.set === 0) return `${X} ${has} no Retreat Cost`;
         if (e.set !== undefined) return `The Retreat Cost of ${x} is ${colorless(e.set)}`;
@@ -830,7 +906,8 @@ class Renderer {
       case 'damageOut':
         return `The attacks of ${x} do ${Math.abs(e.amount)} ${e.amount < 0 ? 'less' : 'more'} damage to your opponent's Active ${e.vs ? noun(e.vs, true).pl : 'Pokémon'} (before applying Weakness and Resistance)`;
       case 'damageIn':
-        return `${X} ${plural ? 'take' : 'takes'} ${Math.abs(e.amount)} ${e.amount < 0 ? 'less' : 'more'} damage from attacks${fromOpp ? " from your opponent's Pokémon" : ''} (after applying Weakness and Resistance)`;
+        // The engine applies damageIn to every attack unless `fromOpp` is set, so only the flag says whose.
+        return `${X} ${plural ? 'take' : 'takes'} ${Math.abs(e.amount)} ${e.amount < 0 ? 'less' : 'more'} damage from attacks${e.fromOpp ? " from your opponent's Pokémon" : ''} (after applying Weakness and Resistance)`;
       case 'hp':
         return `${X} ${plural ? 'get' : 'gets'} ${e.delta < 0 ? '-' : '+'}${Math.abs(e.delta)} HP`;
       case 'cantAttack':
@@ -845,6 +922,16 @@ class Renderer {
         const on = x === 'you' ? 'your Pokémon' : x === 'your opponent' ? "your opponent's Pokémon" : "each Pokémon (both yours and your opponent's)";
         return `Damage counters on ${on} can't be moved to other Pokémon`;
       }
+      case 'extraPrize': {
+        const take = x === 'you' ? 'take' : `${x} takes`;
+        return `When your opponent's Active Pokémon is Knocked Out, ${e.flip ? `flip a coin. If heads, ${take}` : take} 1 more Prize card`;
+      }
+      case 'loseSelfKoAbilities':
+        return `${X} can't use any Abilities that Knock Out the Pokémon using them`;
+      case 'cantUseAttack':
+        return `${X} can't use ${e.attack}`;
+      case 'noToolEffects':
+        return `Pokémon Tools attached to ${x === 'each player' || x === 'you' || x === 'your opponent' ? "each Pokémon (both yours and your opponent's)" : x} have no effect`;
       default: {
         const unrendered: never = e;
         return `[unrendered static: ${(unrendered as StaticEffect).k}]`;
@@ -883,6 +970,27 @@ class Renderer {
       case 'knockedOutByAttack':
         lead = `If ${this.selfName} is Knocked Out by damage from an attack from your opponent's Pokémon`;
         break;
+      case 'checkup':
+        lead = 'During Pokémon Checkup';
+        break;
+      case 'endOfTurn':
+        // Fires for the current player's Pokémon only: for a Tool or Energy, "if this card is attached to 1 of your Pokémon".
+        lead = this.src === 'pokemon' ? 'At the end of your turn' : 'At the end of your turn, if this card is attached to 1 of your Pokémon';
+        break;
+      case 'pokemonBenched': {
+        // The trigger's frame slot is the benched Pokémon, so 'self' in its program is "that Pokémon".
+        let what = 'a Pokémon';
+        if (when && 'slotIs' in when && when.slotIs.ref === 'self') {
+          what = art(noun(when.slotIs.filter, true).sg);
+          when = undefined;
+        }
+        lead = `Whenever a player puts ${what} onto their Bench during their turn`;
+        this.selfName = 'that Pokémon';
+        break;
+      }
+      case 'oppAttachFromHand':
+        lead = 'Whenever your opponent attaches an Energy card from their hand to 1 of their Pokémon';
+        break;
     }
     if (when) lead += `, and if ${this.cond(when)}`;
     const body = this.program(t.program);
@@ -897,7 +1005,7 @@ class Renderer {
       let s = g.oncePerTurn === false ? 'As often as you like during your turn' : 'Once during your turn';
       if (g.activeOnly) s += ', if this Pokémon is in the Active Spot';
       if (g.when) s += `, if ${this.cond(g.when)}`;
-      out.push(`${s}, you may ${lc(this.program(g.program))}`);
+      out.push(`${s}, you may use this Ability`, this.program(g.program));
       if (g.globalOncePerTurn) out.push(`You can't use more than 1 ${a.name} Ability each turn`);
     }
     for (const d of a.statics ?? []) out.push(this.static(d));
@@ -930,8 +1038,42 @@ export function renderAttack(a: AttackScript, printedDamage: string | null | und
     if (suffix && b === null && !(typeof a.damage === 'object' && 'mul' in a.damage)) problems.push(`printed "${printedDamage}" but the damage expression has no base number`);
     out.push(...r.damage(a.damage, base, a.target));
   } else if (a.target) out.push(...r.damage(base, base, a.target));
+  out.push(...ignoreSentence(a.ignore));
   out.push(...r.steps(a.post ?? [], base));
   return join(out);
+}
+
+/** Mirror sentences for both players → one "Each player …" sentence (Judge, Unfair Stamp). */
+function eachPlayer(out: string[]): string[] {
+  const res: string[] = [];
+  for (let i = 0; i < out.length; i++) {
+    const a = out[i]!;
+    const b = out[i + 1];
+    if (a === 'Shuffle your hand into your deck' && b === "Shuffle your opponent's hand into your opponent's deck") {
+      res.push('Each player shuffles their hand into their deck');
+      i++;
+      continue;
+    }
+    const m = /^Draw (a card|[0-9]+ cards)$/.exec(a);
+    if (m && b === `Your opponent draws ${m[1]}`) {
+      res.push(`Each player draws ${m[1]}`);
+      i++;
+      continue;
+    }
+    res.push(a);
+  }
+  return res;
+}
+
+/** "This attack's damage isn't affected by Weakness or Resistance, or by any effects on your opponent's Active Pokémon." */
+function ignoreSentence(ig: DamageIgnore | undefined): string[] {
+  if (!ig) return [];
+  const parts: string[] = [];
+  if (ig.weakness && ig.resistance) parts.push('Weakness or Resistance');
+  else if (ig.weakness) parts.push('Weakness');
+  else if (ig.resistance) parts.push('Resistance');
+  if (ig.defenderEffects) parts.push("any effects on your opponent's Active Pokémon");
+  return parts.length ? [`This attack's damage isn't affected by ${parts.join(', or by ')}`] : [];
 }
 
 function firstNumber(e: Expr): number | null {
@@ -951,7 +1093,29 @@ export function renderCardText(s: CardScript, f: CardFrame | null, problems: str
   const src: Source = f?.category === 'Energy' ? 'energy' : f?.trainerType === 'Tool' ? 'tool' : 'trainer';
   const r = new Renderer(src, problems);
   const out: string[] = [];
+  const pa = s.fix?.playAsBasic;
+  if (pa) {
+    out.push(`Play this card as if it were a ${pa.hp}-HP Basic ${sym(pa.type)} Pokémon`);
+    if (pa.cantRetreat) out.push("This card can't retreat");
+    if (pa.noConditions) out.push("This card can't be affected by any Special Conditions");
+    if (pa.discardable) out.push('At any time during your turn, you may discard this card from play');
+  }
   if (s.provides && src === 'energy') out.push(`As long as this card is attached to a Pokémon, it provides ${s.provides.map(sym).join('')} Energy`);
+  if (s.providesIf) {
+    out.push(`As long as this card is attached to ${art(noun(s.providesIf.filter, true).sg)}, it provides ${s.providesIf.provides.map(sym).join('')} Energy instead`);
+  }
+  if (s.providesAny) {
+    const w = s.providesAny.when ? `As long as this card is attached to ${art(noun(s.providesAny.when, true).sg)}, it` : 'This card';
+    out.push(`${w} provides every type of Energy but provides only ${s.providesAny.n} Energy at a time`);
+  }
+  if (s.koPrizeDelta) {
+    const d = s.koPrizeDelta.delta;
+    out.push(
+      `If the Pokémon this card is attached to is Knocked Out by damage from an attack from your opponent's Pokémon, that player takes ${Math.abs(d)} ${d < 0 ? 'fewer' : 'more'} Prize card${Math.abs(d) === 1 ? '' : 's'}`,
+    );
+    if (s.koPrizeDelta.oncePerGame) out.push("This effect can't be applied more than once per game");
+  }
+  if (s.firstTurnSupporter) out.push('If you go first, you may use this card during your first turn');
   if (s.playable) out.push(`You can use this card only if ${r.cond(s.playable)}`);
   if (s.play) out.push(r.program(s.play));
   for (const d of s.statics ?? []) out.push(r.static(d));
@@ -994,7 +1158,8 @@ export function renderCard(s: CardScript, f: CardFrame): Section[] {
     const rendered = render(defProblems);
     out.push({ key, printed: normText(printed), rendered, opaque: /\[custom: [^\]—]*\]/.test(rendered), defProblems });
   };
-  if (f.category === 'Pokemon') {
+  // Abilities on any card (a Trainer played as a Pokémon, e.g. an Antique fossil, has one too).
+  {
     for (const b of f.abilities ?? []) {
       const a = s.abilities?.find((x) => normText(x.name) === normText(b.name));
       mk(`ability:${normText(b.name)}`, b.effect, (p) => {
@@ -1013,6 +1178,8 @@ export function renderCard(s: CardScript, f: CardFrame): Section[] {
         });
       }
     }
+  }
+  if (f.category === 'Pokemon') {
     for (const fa of f.attacks ?? []) {
       const sa = s.attacks?.[normText(fa.name)];
       if (!fa.effect && !sa) continue;
@@ -1233,14 +1400,17 @@ export function roundTrip(s: CardScript, f: CardFrame): RoundTrip[] {
     const msg = `the renderer threw: ${(err as Error).message} (a clause shape render.ts doesn't handle; fix render.ts)`;
     return [{ key: 'card', printed: '', rendered: '', opaque: false, defProblems: [], id: s.id, name: s.name, score: 0, problems: [msg] }];
   }
-  return sections.map((sec) => ({
-    ...sec,
-    id: s.id,
-    name: s.name,
-    score: similarity(stripReminders(sec.printed), sec.rendered),
-    problems: [...sec.defProblems, ...structural(sec.printed, sec.rendered)],
-  }));
+  return sections.map((sec) => {
+    // A `playable` gate the card doesn't print ("a card with no effect can't be played") is left out of the score.
+    const scored = /\bonly (if|when)\b/i.test(sec.printed) ? sec.rendered : sec.rendered.replace(/^You can use this card only if [^.]*\.\s*/, '');
+    const score = similarity(stripReminders(sec.printed), scored);
+    const low = sec.printed && !sec.opaque && score < SIMILARITY_FLOOR ? [`similarity ${score.toFixed(2)} is below the floor ${SIMILARITY_FLOOR}`] : [];
+    return { ...sec, id: s.id, name: s.name, score, problems: [...sec.defProblems, ...structural(sec.printed, sec.rendered), ...low] };
+  });
 }
+
+/** Below this the rendering is probably about something else. A paraphrase scores ~0.5-0.8; a wrong number still scores high. */
+export const SIMILARITY_FLOOR = 0.4;
 
 /**
  * Justified exceptions to the structural checks, by `${id}|${section key}`.
@@ -1251,5 +1421,48 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me05-029|attack:All-You-Can-Yeet': {
     problems: ['"may" is printed but not rendered'],
     why: '"You may discard any number of cards": choosing min 0 IS the option to discard none, so a `may` wrapper would only add a redundant yes/no decision.',
+  },
+  // "up to N" built from a loop or an option, which the renderer can't fold back into a count.
+  'me01-179|attack:Aura Jab': {
+    problems: ['"up to', 'similarity'],
+    why: '"Attach up to 3 … in any way you like" is `repeat 3` of an optional (min 0) pick that ends the loop when declined; each pick chooses its own Benched Pokémon. The loop renders long, hence the low score.',
+  },
+  'me02-041|attack:Garland Ray': {
+    problems: ['"up to'],
+    why: '"Discard up to 2 Energy cards" is a 3-way chooseOption (2, 1 or none) followed by discarding 2 minus the choice; the damage counts what was actually discarded.',
+  },
+  'sv07-133|text': {
+    problems: ['"up to 2"', 'number 2'],
+    why: 'Crispin: the first Basic Energy is an optional pick; the second ("of a different type") comes from the custom chooseEnergyOfOtherType, so the 2 lives in code (tested in cards-ghost.test.ts).',
+  },
+  'sv08-185|text': {
+    problems: ['"up to"', '"any number of"'],
+    why: 'Precious Trolley: "any number of Basic Pokémon" onto the Bench is bounded by free Bench space; searchToBench(…, 5) clamps to it and 5 is the whole Bench.',
+  },
+  // Deliberate: min 1 on an "up to" whose card is only playable with a target (a card with no effect can't be played).
+  'sv10-168|text': {
+    problems: ['"up to'],
+    why: 'Sacred Ash: playable only with a Pokémon in the discard pile, then 1-5 are chosen. Choosing none would play the card for no effect (see the script notes).',
+  },
+  'me03-108|text': {
+    problems: ['"up to'],
+    why: 'Energy Recycler: as Sacred Ash. Playable only with a Basic Energy in the discard pile, then 1-5 are chosen.',
+  },
+  // Same meaning, different words.
+  'me01-125|text': {
+    problems: ['"can\'t" is printed'],
+    why: 'Rare Candy: "You can\'t use this card during your first turn or on a Basic Pokémon that was put into play this turn" is the playable condition rareCandyPlayable plus the custom\'s own filter; both glossed.',
+  },
+  'me01-110|ability:Evidence Gathering': {
+    problems: ['"switch" is printed'],
+    why: '"Switch a card from your hand with the top card of your deck" renders as its two moves: the hand card is chosen first, so it can\'t be the card just taken.',
+  },
+  'me05-065|attack:Maximum Drilling': {
+    problems: ['number 2'],
+    why: '"At least 2 extra Energy (in addition to this attack\'s cost)": the cost is {M}{M}{M}, so the script tests 5 or more Energy attached.',
+  },
+  'me05-062|ability:Ancient Bulwark': {
+    problems: ['"each" is printed'],
+    why: '"each of your Pokémon" is scope myPokemon, which the renderer words as "your Pokémon in play".',
   },
 };

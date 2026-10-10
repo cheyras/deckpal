@@ -156,7 +156,9 @@ Helpers (`src/cards/scripts/helpers.ts`): `searchToHand(filter, n, { reveal })`,
 
 ### Filters
 
-`{ cat, stage, ruleBox, ex, mega, tera, type, hpMax, ttype, basicEnergy, energyType, name, nameIncludes, hasAbility, damaged, not, any }`.
+`{ cat, stage, ruleBox, ex, mega, tera, type, hpMax, ttype, basicEnergy, energyType, name, nameIncludes, hasAbility, damaged, energy, tool, condition, energized, not, any }`.
+The in-play keys: `energy` (an attached Energy matches: Enhanced Hammer `{ energy: { basicEnergy: false } }`),
+`tool` (has a Tool or not), `condition` (Binding Mochi `{ condition: 'poisoned' }`), `energized` (Crushing Hammer).
 Examples: Buddy-Buddy Poffin `{ hpMax: 70, stage: 'basic' }`; Night Stretcher
 `{ any: [{ cat: 'pokemon' }, { basicEnergy: true }] }`; Dhelmise
 `{ cat: 'pokemon', hasAbility: "Hide 'n' Sneak" }`; Kyurem `{ nameIncludes: 'Colress' }`;
@@ -168,7 +170,7 @@ Zeraora `{ ex: true }`.
 |---|---|
 | `chooseSlots` | Spectrier: `{ op: 'chooseSlots', from: 'oppPokemon', min: 1, max: 1, as: 't' }`. Zones: `myActive myBench myPokemon oppActive oppBench oppPokemon allPokemon`. |
 | `SlotRef` | `'self'` (this Pokémon; for a Tool or Energy, the Pokémon it's attached to), `'defender'`, `'myActive'`, `'oppActive'`, `{ v: 't' }`. |
-| `damage` | Kyurem, Trifrost: `{ op: 'damage', amount: 110, to: { v: 't' } }`. Attack damage goes through Weakness, Resistance and every modifier, with no Weakness/Resistance on the Bench. `to: { each: 'oppBench' }` for spread. |
+| `damage` | Kyurem, Trifrost: `{ op: 'damage', amount: 110, to: { v: 't' } }`. Attack damage goes through Weakness, Resistance and every modifier, with no Weakness/Resistance on the Bench. `to: { each: 'oppBench' }` for spread. `ignore: { weakness, resistance, defenderEffects }` for "isn't affected by …" (Solrock; also `AttackScript.ignore` for the printed damage: Dudunsparce ex, Destructive Drill). |
 | `counters` | Poltchageist: `{ op: 'counters', n: 1, to: 'oppActive' }`. Sinistcha: `to: { each: 'oppPokemon' }`. Not damage, so no modifiers apply. |
 | `heal` | `{ op: 'heal', amount: 30, to: 'self' }`. |
 | `condition` | Annihilape, Tantrum: `{ op: 'condition', cond: 'confused', to: 'self' }`. |
@@ -198,7 +200,9 @@ slot zone), `prizesLeft`, `prizesTaken`, `energyOn`, `countersOn`, `handSize`,
 `{ add: [10, { mul: [30, { energyOn: 'oppActive' }] }] }`; Lillie's Clefairy ex
 `{ add: [20, { mul: [20, { add: [{ pokemon: { zone: 'myBench' } }, { pokemon: { zone: 'oppBench' } }] }] }] }`.
 
-`Cond`: `gte gt lte lt eq and or not cardIs slotIs inActive onBench koLastTurn stadium benchFull firstTurn`.
+`Cond`: `gte gt lte lt eq and or not cardIs slotIs inActive onBench koLastTurn stadium benchFull firstTurn custom`.
+`{ custom: 'name' }` is a named predicate registered with `registerCustomCond` (Rare Candy's `rareCandyPlayable`); give it a
+`CUSTOM_COND_GLOSS` in render.ts, as for a custom step.
 Examples: Fezandipiti ex `{ koLastTurn: 'self' }`; Slowking
 `{ cardIs: { v: 'x', filter: NO_RULE_BOX } }`; Special Red Card
 `{ lte: [{ prizesLeft: 'opp' }, 3] }`.
@@ -232,7 +236,13 @@ effect text needs no script.
   turn, that player may …" (Prism Tower, Academy at Night). Stadium passives are
   `statics`.
 - Energy: `provides` (Boomerang Energy `['Colorless']`, Telepathic Psychic Energy
-  `['Psychic']`), `triggers` (Telepathic: `attachFromHand`), `reattachAfterOwnAttack`.
+  `['Psychic']`), `providesIf` (Ignition Energy: `{C}{C}{C}` on an Evolution Pokémon),
+  `providesAny` (Legacy Energy `{ n: 1 }`; Neo Upper Energy `{ n: 2, when: { stage: 'stage2' } }`),
+  `koPrizeDelta` (Legacy Energy `{ delta: -1, oncePerGame: true }`), `triggers` (Telepathic:
+  `attachFromHand`; Ignition: `endOfTurn`), `reattachAfterOwnAttack`.
+- Supporters: `firstTurnSupporter` for "If you go first, you may use this card during your first turn" (Carmine).
+- Trainers played as Pokémon: `fix.playAsBasic` (Antique fossils, below). Such a card's printed Ability is an
+  ordinary `abilities` entry.
 
 ---
 
@@ -246,7 +256,14 @@ Ability, a Tool, a Stadium or an Energy, and it holds while its source is in pla
   Air Balloon −2; `set`: Latias ex 0), `attackCostC` (Bloodmoon Ursaluna ex, per
   Prize taken), `attackCostSet` (Kyurem, Trifrost for {C}), `weaknessType` (Lillie's
   Clefairy ex), `damageOut`, `damageIn`, `hp`, `cantAttack`, `cantRetreat`,
-  `noAbilities`, `itemLock`, `countersFixed` (Patrat).
+  `noAbilities`, `itemLock`, `countersFixed` (Patrat), `cantUseAttack` (Mega Lucario ex,
+  Mega Brave), `extraPrize` (Togekiss, Wonder Kiss), `loseSelfKoAbilities` (Psyduck, Damp),
+  `noToolEffects` (Jamming Tower).
+- **Say whose attacks.** `damageIn` applies to damage from *every* attack unless `fromOpp: true`.
+  If the card says "from attacks from your opponent's Pokémon", set it (Full Metal Lab, Iron
+  Defender, Antique Armor Fossil). The round trip caught Protective Armor without it.
+  `preventDamage` is already opponent-only. `attackerMaxEnergy` limits it further (Bastiodon,
+  "that have 2 or less Energy attached").
 - `scope` says which Pokémon it applies to, **relative to the source's
   controller**: `self`, `myActive`, `myBench`, `myPokemon`, `oppActive`, `oppBench`,
   `oppPokemon`, `allPokemon`, or, for player-level effects (`itemLock`,
@@ -258,11 +275,15 @@ Ability, a Tool, a Stadium or an Energy, and it holds while its source is in pla
 
 A **trigger** is `TriggerScript { on, when?, optional?, program }`: `attachFromHand`
 (an Energy's own script; Telepathic gates on `slotIs self {type: Psychic}`),
-`playToBench` (Meowth ex), `evolveFromHand`, `damagedByAttackActive` (Lucky Helmet),
-`knockedOutByAttack`. `optional: true` is "you may".
+`playToBench` (Meowth ex), `evolveFromHand` (Kadabra), `damagedByAttackActive` (Lucky Helmet),
+`knockedOutByAttack`, `checkup` (Froslass), `endOfTurn` (Powerglass, Ignition Energy; only the
+current player's Pokémon), `pokemonBenched` (a Stadium: Risky Ruins; `self` is the benched
+Pokémon), `oppAttachFromHand` (Gengar ex, Gnawing Curse; the Pokémon is in `{ v: '__target' }`).
+`optional: true` is "you may".
 
 A **timed effect** is created by an attack or Ability with the `effect` step:
-`{ op: 'effect', static, on | onPlayer, duration, filter? }`, where `duration` is
+`{ op: 'effect', static, on | onPlayer, duration, filter?, scope? }` (`onPlayer` + `scope` covers that
+player's Pokémon, matched live, so it includes new ones: Iron Defender, Gladion's Final Battle), where `duration` is
 `thisTurn`, `oppNextTurn` ("during your opponent's next turn": Dunsparce, Dig) or
 `myNextTurn` ("during your next turn, this Pokémon can't attack": Bloodmoon
 Ursaluna ex, Latias ex). An attack's timed effect on a Pokémon ends when that
@@ -292,8 +313,12 @@ Correct them on the script, never in `frames.ts`, which is generated:
 - **Tera has no frame marker.** Set `fix: { tera: true }` on a Tera Pokémon. It
   feeds the Tera rule (no damage from attacks while on the Bench, `query.ts`) and
   `{ tera: true }` filters.
-- **ACE SPEC has no reliable marker.** Set `fix: { aceSpec: true }` (Secret Box) so
-  the definition knows it is one (`CardDef.aceSpec`, which deck legality needs).
+- **ACE SPEC has no reliable marker.** Set `fix: { aceSpec: true }` (Secret Box, Prime Catcher,
+  Unfair Stamp, Precious Trolley, Legacy Energy, Neo Upper Energy) so the definition knows it is
+  one (`CardDef.aceSpec`, which deck legality needs).
+- **A Stage 1 or 2 with no "evolves from"** (TCGdex 30th-123 Hisuian Zoroark): `fix: { evolvesFrom: 'Hisuian Zorua' }`.
+- **A Trainer played "as if it were a 60-HP Basic {C} Pokémon"** (Antique fossils):
+  `fix: { playAsBasic: { hp, type, cantRetreat?, noConditions?, discardable? } }`.
 
 ## Escape-hatch policy
 
@@ -310,7 +335,7 @@ Pokémon (Last-Ditch). The rules:
    returning `'next' | 'wait' | 'pop'`, with no hidden state outside `GameState`
    (the state is cloned for search).
 3. Its card test is its proof. Add a gloss of what the function's **code** does
-   to `CUSTOM_GLOSS` in `src/cards/render.ts`. Without a gloss, the section is
+   to `CUSTOM_GLOSS` in `src/cards/render.ts` (`CUSTOM_COND_GLOSS` for a custom condition). Without a gloss, the section is
    "opaque": the round trip reports its problems but can't assert them. Write the
    gloss from the code, never by copying the card text, or the check proves nothing.
 

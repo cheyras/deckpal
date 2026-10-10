@@ -17,10 +17,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { AbilityScript, CardScript, Cond, Expr, Scope, StaticEffect, Step, TriggerOn, TriggerScript } from '../dsl.js';
 import { allScripts, FRAMES, scriptById } from '../cards/registry.js';
-import { renderAbility, renderCardText, renderProgram, ROUNDTRIP_ALLOW, roundTrip, similarity, structural, type RoundTrip } from '../cards/render.js';
-
-/** Similarity below this, on a non-opaque section with printed text, fails: the rendering is about something else. */
-const SIMILARITY_FLOOR = 0.4;
+import { renderAbility, renderCardText, renderProgram, ROUNDTRIP_ALLOW, roundTrip, SIMILARITY_FLOOR, similarity, structural, type RoundTrip } from '../cards/render.js';
 
 function rows(): RoundTrip[] {
   return allScripts().flatMap((s) => roundTrip(s, FRAMES[s.id]!));
@@ -40,14 +37,14 @@ test('round trip: every script says what its card says (structural checks)', (t)
   assert.deepEqual(failures, [], `round-trip mismatches (fix the script, or allowlist with a reason in ROUNDTRIP_ALLOW):\n${failures.join('\n')}`);
 });
 
-test('round trip: similarity is reported, with a low floor', (t) => {
+// The floor (SIMILARITY_FLOOR) is asserted with the structural checks above: roundTrip reports a score below it as a problem.
+test('round trip: similarity is reported', (t) => {
   const all = rows().filter((r) => r.printed && !r.opaque);
   const scores = all.map((r) => r.score).sort((a, b) => a - b);
   const q = (x: number): string => (scores[Math.min(scores.length - 1, Math.floor(x * scores.length))] ?? 0).toFixed(2);
   t.diagnostic(`similarity over ${scores.length} sections: min ${q(0)} p10 ${q(0.1)} p25 ${q(0.25)} median ${q(0.5)} max ${q(0.999)}`);
   for (const r of [...all].sort((a, b) => a.score - b.score).slice(0, 5)) t.diagnostic(`low: ${r.score.toFixed(2)} ${r.id} ${r.name} · ${r.key}`);
-  const low = all.filter((r) => r.score < SIMILARITY_FLOOR).map((r) => `${r.score.toFixed(2)} ${r.id} ${r.key}: "${r.rendered}" vs "${r.printed}"`);
-  assert.deepEqual(low, []);
+  t.diagnostic(`${all.filter((r) => r.score < SIMILARITY_FLOOR).length} below the floor ${SIMILARITY_FLOOR} (each allowlisted with a reason)`);
 });
 
 test('round trip: every allowlist entry is still needed', () => {
@@ -127,6 +124,12 @@ test('the round trip catches planted bugs: whose Pokémon, which type, when', ()
   caught('me03-088', 'type psychic', (s) => {
     (s.triggers![0]!.program[0] as AnyRec).filter.type = 'Darkness';
   });
+  caught('me05-065', '"discard" is printed', (s) => {
+    delete (s.attacks!.Undermine!.post![0] as AnyRec).who; // the opponent's top 2 cards into YOUR discard pile
+  });
+  caught('me05-072', "opponent's pokemon", (s) => {
+    delete (s.abilities![0]!.statics![0]!.effect as AnyRec).fromOpp; // the real bug the round trip found (Protective Armor)
+  });
   caught('sv06-141', '"your next turn"', (s) => {
     (s.attacks!['Blood Moon']!.post![0] as AnyRec).duration = 'oppNextTurn';
   });
@@ -160,7 +163,7 @@ test('every DSL step renders', () => {
     shuffle: { op: 'shuffle', who: 'opp' },
     attach: { op: 'attach', cards: 'x', to: 'myActive' },
     discardEnergy: { op: 'discardEnergy', from: 'oppActive', count: 1 },
-    damage: { op: 'damage', amount: 30, to: { each: 'oppBench' } },
+    damage: { op: 'damage', amount: 30, to: { each: 'oppBench' }, ignore: { weakness: true, resistance: true, defenderEffects: true } },
     counters: { op: 'counters', n: 2, to: 'defender' },
     heal: { op: 'heal', amount: 30, to: 'self' },
     condition: { op: 'condition', cond: 'poisoned', to: 'oppActive' },
@@ -170,7 +173,7 @@ test('every DSL step renders', () => {
     if: { op: 'if', cond: { gte: [{ v: 'h' }, 1] }, then: [{ op: 'draw', n: 1 }], else: [{ op: 'end' }] },
     repeat: { op: 'repeat', n: 2, body: [{ op: 'draw', n: 1 }] },
     may: { op: 'may', body: [{ op: 'shuffle' }] },
-    effect: { op: 'effect', static: { k: 'itemLock' }, onPlayer: 'opp', duration: 'oppNextTurn' },
+    effect: { op: 'effect', static: { k: 'damageIn', amount: -30, fromOpp: true }, onPlayer: 'self', scope: 'myPokemon', filter: { type: 'Metal' }, duration: 'oppNextTurn' },
     knockOut: { op: 'knockOut', target: 'defender' },
     useAttackOf: { op: 'useAttackOf', card: 'x' },
     custom: { op: 'custom', fn: 'returnSelfToHand' },
@@ -185,7 +188,7 @@ test('every DSL step renders', () => {
 test('every static effect, scope and trigger renders', () => {
   const EFFECTS: { [K in StaticEffect['k']]: Extract<StaticEffect, { k: K }> } = {
     preventEffects: { k: 'preventEffects', from: ['attack'] },
-    preventDamage: { k: 'preventDamage' },
+    preventDamage: { k: 'preventDamage', attackerMaxEnergy: 2 },
     retreatCost: { k: 'retreatCost', delta: 1 },
     attackCostC: { k: 'attackCostC', delta: -1 },
     attackCostSet: { k: 'attackCostSet', attack: 'Bite', cost: ['Fire', 'Colorless'] },
@@ -198,6 +201,10 @@ test('every static effect, scope and trigger renders', () => {
     noAbilities: { k: 'noAbilities' },
     itemLock: { k: 'itemLock' },
     countersFixed: { k: 'countersFixed' },
+    extraPrize: { k: 'extraPrize', flip: true },
+    loseSelfKoAbilities: { k: 'loseSelfKoAbilities' },
+    cantUseAttack: { k: 'cantUseAttack', attack: 'Mega Brave' },
+    noToolEffects: { k: 'noToolEffects' },
   };
   const SCOPES: Scope[] = ['self', 'myActive', 'myBench', 'myPokemon', 'oppActive', 'oppBench', 'oppPokemon', 'allPokemon', 'me', 'opp', 'both'];
   for (const [k, effect] of Object.entries(EFFECTS)) {
@@ -207,8 +214,19 @@ test('every static effect, scope and trigger renders', () => {
       assert.ok(text.length > 15 && !BAD.test(text), `${k}/${scope}: "${text}"`);
     }
   }
-  const ON: TriggerOn[] = ['attachFromHand', 'playToBench', 'evolveFromHand', 'damagedByAttackActive', 'knockedOutByAttack'];
-  for (const on of ON) {
+  // A mapped type again: a new TriggerOn fails the typecheck until it is listed (and rendered).
+  const ON: Record<TriggerOn, true> = {
+    attachFromHand: true,
+    playToBench: true,
+    evolveFromHand: true,
+    damagedByAttackActive: true,
+    knockedOutByAttack: true,
+    checkup: true,
+    endOfTurn: true,
+    pokemonBenched: true,
+    oppAttachFromHand: true,
+  };
+  for (const on of Object.keys(ON) as TriggerOn[]) {
     const t: TriggerScript = { on, optional: on === 'playToBench', when: { firstTurn: true }, program: [{ op: 'draw', n: 1 }] };
     for (const text of [renderAbility({ name: 'X', triggers: [t] }), renderCardText({ id: 'x', name: 'x', triggers: [t] }, null)]) {
       assert.ok(text.length > 20 && !BAD.test(text), `${on}: "${text}"`);
@@ -221,6 +239,22 @@ test('every static effect, scope and trigger renders', () => {
     { cardId: 'x', name: 'x', category: 'Energy' },
   );
   assert.ok(trainer.includes('{R} Energy') && trainer.includes('each player'), trainer);
+  const extras = renderCardText(
+    {
+      id: 'x',
+      name: 'x',
+      firstTurnSupporter: true,
+      providesIf: { filter: { stage: 'evolution' }, provides: ['Colorless', 'Colorless'] },
+      providesAny: { n: 2, when: { stage: 'stage2' } },
+      koPrizeDelta: { delta: -1, oncePerGame: true },
+      fix: { playAsBasic: { hp: 60, type: 'Colorless', cantRetreat: true, noConditions: true, discardable: true } },
+    },
+    { cardId: 'x', name: 'x', category: 'Energy' },
+  );
+  for (const want of ['first turn', 'instead', 'every type of Energy', 'fewer Prize', '60-HP Basic', "can't retreat", 'Special Conditions', 'discard this card from play']) {
+    assert.ok(extras.includes(want), `"${want}" missing from: ${extras}`);
+  }
+  assert.ok(!BAD.test(extras), extras);
 });
 
 test('every expression and condition renders', () => {
@@ -256,6 +290,9 @@ test('every expression and condition renders', () => {
     { slotIs: { ref: 'defender', filter: { mega: true } } },
     { onBench: 'self' },
     { gte: [{ deckSize: 'opp' }, 1] },
+    { custom: 'countersMovable' },
+    { gte: [{ pokemon: { zone: 'myPokemon', filter: { energy: { basicEnergy: false }, tool: true, condition: 'burned', energized: true } } }, 1] },
+    { slotIs: { ref: 'self', filter: { tool: false, energized: false, energy: { energyType: 'Metal' } } } },
   ];
   const pre: Step[] = [{ op: 'flip', n: 3, as: 'h' }, { op: 'chooseCards', from: 'hand', min: 0, max: 1, as: 'x' }, { op: 'move', cards: 'x', to: 'discard' }];
   for (const e of EXPRS) {

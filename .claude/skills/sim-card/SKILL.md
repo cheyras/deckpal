@@ -32,4 +32,4 @@ npx tsc --noEmit -p .
 
 - Card text is the only specification. No twinleafgg code, and no Kaggle or cabt competition material. ryuu-play (MIT) ideas are fine, with credit.
 - Fix catalog errors on the script (`fix.specialEnergy`, `fix.tera`, `fix.aceSpec`), never in the generated `frames.ts`.
-- Use `custom` (`src/customs.ts`) only for genuinely bespoke effects. Give it a `CUSTOM_GLOSS` written from the function's code, plus its own card test.
+- Use `custom` (`src/customs.ts`) only for genuinely bespoke effects. Give it a `CUSTOM_GLOSS` (or `CUSTOM_COND_GLOSS` for a custom condition) written from the function's code, plus its own card test. Lane customs live in `src/cards/scripts/<lane>-customs.ts`.
