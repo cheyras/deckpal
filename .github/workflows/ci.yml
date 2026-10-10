@@ -78,7 +78,7 @@ jobs:
       - name: Build @deckpal/storage
         run: pnpm --filter @deckpal/storage build
 
-      # @deckpal/agent-tools holds the 24 tool definitions the MCP server and
+      # @deckpal/agent-tools holds the 26 tool definitions the MCP server and
       # Deck-E both serve. Same deal: consumed through its dist/, so it has to
       # be built before anything that imports it is loaded — which includes the
       # serverless-function check further down, since api/mcp.mjs pulls

@@ -32,6 +32,7 @@ const KIND: Record<string, ToolKind> = {
   check_deck: 'check',
   simulate_battles: 'check',
   plan_deck: 'check',
+  deck_odds: 'check',
   lists: 'lists',
   mutation_history: 'logs',
   battle_logs: 'logs',
@@ -167,6 +168,8 @@ export function labelFor(chip: Chip): string {
       return pair('Checking the list', 'Checked the list')
     case 'simulate_battles':
       return pair('Simulating battles', 'Simulated battles')
+    case 'deck_odds':
+      return pair('Working out the odds', 'Worked out the odds')
     case 'web_research':
     case 'research_meta':
       return pair('Searching the web', 'Searched the web')

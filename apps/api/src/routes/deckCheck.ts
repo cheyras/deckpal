@@ -105,38 +105,36 @@ async function chooseName(name: string, format: FormatCode, userId: string): Pro
   return { card, note: `resolved '${name}' to ${card.tcgdexId}${(owned.get(card.id) ?? 0) > 0 ? ' (you own this printing)' : ''}` }
 }
 
-export interface ResolvedInputLine {
-  line: InputLine
-  card: CardFacts | null
-  note: string | undefined
-  basicName: string | undefined
-}
+export interface ResolvedInputLine { line: InputLine; card: CardFacts | null; note: string | undefined; basicName: string | undefined }
 
 /**
- * Resolve check_deck-style lines (names, card ids, PTCGL lines) to catalogue
- * cards, folding repeated printings into one line. Shared with
- * `POST /decks/simulate` (routes/deckSimulate.ts) so an ad-hoc list resolves
- * to the same printings in both tools.
+ * Resolve each requested line to a catalog card, then fold repeated prints into
+ * one line. Shared with `POST /decks/odds` (routes/deckOdds.ts), which tests an
+ * unsaved list exactly the way this route checks one — same names, same
+ * printings — and needs only the cards, so it skips the evolution lookups.
  */
-export async function resolveCheckLines(requested: InputLine[], format: FormatCode, userId: string): Promise<ResolvedInputLine[]> {
+export async function resolveInputLines(
+  requested: InputLine[], format: FormatCode, userId: string, opts: { evolutionBasics?: boolean } = {},
+): Promise<ResolvedInputLine[]> {
+  const basicName = (card: CardFacts | null) => opts.evolutionBasics ? basicNameFor(card) : Promise.resolve(undefined)
   const resolved = await mapConcurrent(requested, 6, async (line): Promise<ResolvedInputLine> => {
     if (line.card_id) {
       const card = await loadByTcgdexId(dbHandle(), line.card_id)
-      return { line, card, note: undefined, basicName: await basicNameFor(card) }
+      return { line, card, note: undefined, basicName: await basicName(card) }
     }
     if (line.parsed?.setCode) {
       const entry = await resolveLine(dbHandle(), line.parsed, format)
       const card = entry?.card ?? null
-      return { line, card, note: entry ? `resolved '${line.name}' to ${entry.card.tcgdexId}` : undefined, basicName: await basicNameFor(card) }
+      return { line, card, note: entry ? `resolved '${line.name}' to ${entry.card.tcgdexId}` : undefined, basicName: await basicName(card) }
     }
     const found = await chooseName(line.name!, format, userId)
     const card = found?.card ?? null
-    return { line, card, note: found?.note, basicName: await basicNameFor(card) }
+    return { line, card, note: found?.note, basicName: await basicName(card) }
   })
   // Import already folds repeated prints into one deck row. Do the same before
   // ownership allocation so one physical copy cannot be counted twice merely
   // because the pasted list repeated a line.
-  const grouped = new Map<string, (typeof resolved)[number]>()
+  const grouped = new Map<string, ResolvedInputLine>()
   for (const item of resolved) {
     const key = item.card ? `card:${item.card.id}` : `unresolved:${item.line.name ?? item.line.card_id}`
     const prior = grouped.get(key)
@@ -146,11 +144,17 @@ export async function resolveCheckLines(requested: InputLine[], format: FormatCo
   return [...grouped.values()]
 }
 
+/** The same resolution for `POST /decks/simulate` (routes/deckSimulate.ts): only the cards are needed. */
+export function resolveCheckLines(requested: InputLine[], format: FormatCode, userId: string): Promise<ResolvedInputLine[]> {
+  return resolveInputLines(requested, format, userId)
+}
+
 deckCheckRouter.post('/', asyncHandler(async (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>
   const format = oneOf<FormatCode>(body.format, FORMATS, 'standard')
   const userId = currentUserId(req)
-  const selected = await resolveCheckLines(deckCheckInputLines(body), format, userId)
+  const requested = deckCheckInputLines(body)
+  const selected = await resolveInputLines(requested, format, userId, { evolutionBasics: true })
   const cards = selected.flatMap((row) => row.card ? [row.card] : [])
   const printRows = cards.length ? await dbHandle().query<PrintRow>(
     `SELECT DISTINCT ON (c.id) c.id AS card_id, cv.id AS variant_id, cv.variant_kind_code,

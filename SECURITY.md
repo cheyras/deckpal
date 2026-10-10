@@ -153,9 +153,12 @@ the host receiving the approval sat in a muted line below. Now:
   ignores scope and therefore gets a full-access choice alone. A `read`
   connection is served only the `readOnlyHint` tools, inside a `BEGIN READ
   ONLY` transaction, and the REST API refuses its every non-GET request with
-  `403 insufficient_scope` before any route runs (`enforceTokenScope`). The one
-  exception is `POST /massentry`, which only builds cart links and which the
-  read tool `set_cart` uses.
+  `403 insufficient_scope` before any route runs (`enforceTokenScope`). The
+  exceptions are `POST /massentry`, which only builds cart links and which the
+  read tool `set_cart` uses, and `POST /decks/check` and `POST /decks/odds`,
+  which take a whole deck list in the body and only read (`check_deck`,
+  `deck_odds`). `/decks/check` was missing until 2026-10-10, so a read-only
+  connection was offered `check_deck` and then refused it.
 - **Tokens reach what the consent screen says.** `/decke` (Deck-E
   conversations), `/me/showcase` and `/me/settings` now require a session, like
   `/tokens`, `/avatar` and billing.
@@ -239,7 +242,7 @@ REST API and the MCP server (`BEGIN` + `set_config('request.jwt.claims', …)` +
 returns, so a dropped connection can never be handed to the next request still
 carrying a stranger's claims.
 
-**All 26 tools reach the conversational model; the write half is held by the
+**All 27 tools reach the conversational model; the write half is held by the
 SDK, not filtered out.** The adapter Deck-E uses
 (`apps/api/src/decke/adapters/aisdk.ts`) still *defaults* to
 `annotations.readOnlyHint` — never to the verb in a tool's name, because a name
@@ -344,7 +347,7 @@ everything else to `it failed with <code>`. `errText`
 error a handler caught and formatted itself: a driver error becomes its
 SQLSTATE, a statement timeout keeps its "narrow the query" hint, and the
 fallback that carries our own readable messages is scrubbed of DSNs, IP
-addresses, `host:port` pairs and `for user "…"`. Every one of the 26 tools
+addresses, `host:port` pairs and `for user "…"`. Every one of the 27 tools
 formats through it -- not only the ones whose file runs SQL, because whether a
 given catch can reach the database is a call-graph question that was already
 answered wrongly once (issue #94: `log_cards` resolves cards over SQL before its

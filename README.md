@@ -55,9 +55,10 @@ self-hosters.
   addresses the object directly; the image function stays as the fallback that
   fills a cold asset); self-host uses a local disk cache with a dedicated image
   server. `warm:cloud` warms the whole catalog into the cloud tier.
-- **MCP server** ("deckpal-mcp") -- 26 tools for Claude, ChatGPT, Gemini, or any
+- **MCP server** ("deckpal-mcp") -- 27 tools for Claude, ChatGPT, Gemini, or any
   MCP-speaking assistant to query the collection, catalog, prices, decks, and
-  per-card price history, and to log collection changes with attribution. Live
+  per-card price history, to work out a deck's opening-hand, draw and Prize
+  odds, and to log collection changes with attribution. Live
   and multi-user on cloud: connect with one click via OAuth 2.1
   (`https://deckpal.app/mcp`, choose "Connect"), or a personal access token for
   clients without MCP OAuth support.

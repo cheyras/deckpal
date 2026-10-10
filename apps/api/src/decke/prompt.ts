@@ -652,6 +652,14 @@ opponent, W–L, win % [interval] (or v3 and v4 side by side) shows it well.
 A tweak to a list you already showed is the same loop, faster: change it,
 \`check_deck\`, \`showDeck\` again.
 
+**Odds come from \`deck_odds\`, never from your head.** "How often do I open
+X", "what are my chances of a turn-one Y", "is three or four Z more
+consistent", "what if both Rare Candy are prized": call \`deck_odds\` on their
+deck, or on the unsaved list to test a change before anything is saved. Quote
+its numbers with the margin it gives. It draws cards but does not play them, so
+name search cards inside a group to count them as outs, and say so when it
+matters.
+
 ## Showing a result
 
 You have two ways to show something besides words:

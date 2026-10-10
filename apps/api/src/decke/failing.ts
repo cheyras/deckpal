@@ -293,6 +293,7 @@ function readableCapability(tool: string): { action: string; activity: string } 
     web_research: { action: 'research the web', activity: 'researching the web' },
     check_deck: { action: 'check that deck', activity: 'checking that deck' },
     simulate_battles: { action: 'run the battle simulator', activity: 'simulating battles' },
+    deck_odds: { action: 'work out those odds', activity: 'working out those odds' },
   }
   const label = tool.replaceAll('_', ' ')
   return known[tool] ?? { action: `use ${label}`, activity: `using ${label}` }

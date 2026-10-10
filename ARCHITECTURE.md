@@ -536,7 +536,7 @@ served by `apps/images`. Sync jobs run via cron or any scheduler.
 ## 10. The agent tool layer — one definition, two front-ends
 
 **`packages/agent-tools` (`@deckpal/agent-tools`) is the single definition of
-what an agent may do in DeckPal.** 26 tools (15 read, 11 write, 4 of those
+what an agent may do in DeckPal.** 27 tools (16 read, 11 write, 4 of those
 also destructive), each a `ToolDefinition`: a zod input schema, `annotations`
 (`readOnlyHint` is required in the type, not optional as MCP's own SDK has
 it — a tool that forgets to state it fails to compile rather than defaulting
@@ -566,6 +566,21 @@ The global adapter limit and REST API are unchanged; empty history and an
 offset past the available records are distinct results. Offsets count points
 in API order, plus one record for each empty variant. A record whose complete
 fields and identity cannot fit the budget produces an explicit error.
+
+The 15th read is `deck_odds` (added 2026-10-10), the first simulation tool:
+`POST /decks/odds` runs `apps/api/src/deck/odds.ts`, a pure, seeded Monte Carlo
+of the Standard setup (draw 7, mulligan until a Basic, 6 Prizes, one draw a turn
+with turn 1 included) that reuses `testhand.ts`'s mulberry32, library expansion
+and closed-form mulligan, over a saved deck (`loadDeckEntries`, the deck page's
+own loader) or an unsaved list resolved exactly as `POST /decks/check` resolves
+one. It runs inside the API function with no schema change and no new service,
+allocates nothing per trial (one index array, partial Fisher-Yates), bounds its
+CPU by refusing lists over 120 cards and cutting games to fit 2,000,000 dealt
+hands (a list that mulligans a lot deals many per game), and states
+method, trials, seed and a 95% margin on every answer, with the exact
+hypergeometric value wherever one group makes it closed-form. It draws cards and
+plays none; the later battle simulator is meant to report in the same shape. See
+[`2026-10-10-deck-odds-a-draw-math-tool-for-both-assistants.md`](decisions/2026/2026-10-10-deck-odds-a-draw-math-tool-for-both-assistants.md).
 
 Two cross-cutting flows added 2026-08-29 (the agentic pass): **card rules
 text** — `get_card` renders abilities/attacks/effects/matchups from the
@@ -610,7 +625,7 @@ a set's name.
 
 ### MCP server — live and multi-user
 
-`deckpal-mcp`'s 26 tools are served to any signed-up user at
+`deckpal-mcp`'s 27 tools are served to any signed-up user at
 `https://deckpal.app/mcp` (`apps/mcp/src/cloud.ts`), authenticated per-user by
 a personal access token (`dsk_…`, SHA-256 hashed, shown once at creation,
 revocable from Profile). Each call resolves the token to a `user_id` and runs

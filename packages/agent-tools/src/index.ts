@@ -4,6 +4,7 @@ import { collectionTools } from './tools/collection.js';
 import { deckIntelTools } from './tools/deckIntel.js';
 import { deckTools } from './tools/decks.js';
 import { deckCheckTools } from './tools/deckCheck.js';
+import { deckOddsTools } from './tools/deckOdds.js';
 import { historyTools } from './tools/history.js';
 import { listTools } from './tools/lists.js';
 import { loggingTools } from './tools/logging.js';
@@ -44,6 +45,7 @@ const ALL: ToolDefinition[] = [
   ...catalogTools,
   ...deckTools,
   ...deckCheckTools,
+  ...deckOddsTools,
   ...simulateTools,
   ...deckIntelTools,
   ...listTools,
@@ -91,6 +93,10 @@ export {
   checkDeck, checkDeckInputSchema, renderDeckCheck,
   type CheckDeckInput, type DeckCheckLine, type DeckCheckResult,
 } from './tools/deckCheck.js';
+export {
+  deckOddsInputSchema, renderDeckOdds,
+  type DeckOddsInput, type DeckOddsResult, type DeckOddsQueryResult, type DeckOddsCardLine,
+} from './tools/deckOdds.js';
 export {
   simulateBattles, simulateBattlesInputSchema, type SimulateBattlesInput,
 } from './tools/simulate.js';

@@ -115,7 +115,8 @@ omit the host.
   **read-only** connection (migration 075) is refused every method but `GET`,
   `HEAD` and `OPTIONS` on every route with **`403`**, `{ "error": { "code":
   "insufficient_scope" } }` and `WWW-Authenticate: Bearer error="insufficient_scope"`,
-  except `POST /massentry`, which writes nothing (it builds cart links).
+  except `POST /massentry` (it builds cart links), `POST /decks/check` and
+  `POST /decks/odds`, which write nothing.
 - **Body-size limits.** Per route, most-specific first, immediately after the
   ingress guard and ahead of authentication: `/bugs` 12mb (the screenshot),
   `/client-errors` 32kb (the crash beacon), `/dev/scan-queue` and
@@ -1076,6 +1077,44 @@ newest legal printing. Returns total and legality issues, evolution gaps,
 resolved lines with owned copies and USD unit prices, cost to acquire missing
 copies, and a normalized PTCG Live export. Unresolved names remain in `lines`
 with `resolved:false`; no deck or collection data is written.
+
+### POST /deckpal/api/decks/odds
+Read-only opening-hand, Prize and draw odds by seeded Monte Carlo (`deck_odds`;
+model in `apps/api/src/deck/odds.ts`). Body has exactly one of `deck_id` (a deck
+UUID; another user's or a deleted deck is `404`), `cards` or `ptcgl_text` (the
+same shapes and resolution as `/decks/check`, so an unsaved list can be tested),
+plus optional `queries` (≤12), `trials` (1000..200000, default 50000), `seed`
+(uint32, default a fixed 60 so a repeat call agrees) and `format` (which format's
+printings an unsaved list's bare names resolve to, as in `/decks/check`; default
+`standard`). The list may hold at most 120 cards. A list that mulligans a lot has
+its games cut so the call deals at most 2,000,000 opening hands (`trials` is then
+below `trials_requested`, and a note says why). A query is
+`{ "label"?, "all_of": [Group, …1..6], "by_turn"? 0..10 = 0, "prized"? = false }`
+and a Group is `{ "cards"?: [card name in the deck], "kinds"?: ["basic" |
+"pokemon" | "supporter" | "item" | "tool" | "stadium" | "energy"], "count"? = 1 }`;
+a group is met when at least `count` seen (or, with `prized`, prized) cards match
+any listed name (case and accents ignored) or kind, and a query when every group
+is. The game: shuffle, draw 7, redraw while no Basic Pokémon, set aside 6 Prizes,
+then one draw per turn, turn 1 included, so `by_turn` N sees 7 + N cards and hand
+odds are for the kept hand. Returns:
+```json
+{ "deck": { "name": "Hide 'n' Sneak", "size": 60, "basics": 16, "distinct_names": 24 },
+  "method": "Monte Carlo, draw-only", "trials": 50000, "trials_requested": 50000, "seed": 60,
+  "mulligan": { "simulated": 0.1009, "exact": 0.0992, "avg_per_game": 0.113 },
+  "avg_basics_in_hand": 2.07,
+  "queries": [ { "label": "Shuppet", "zone": "hand", "by_turn": 0, "successes": 22048,
+                 "p": 0.441, "margin95": 0.0044, "exact": 0.4435 } ],
+  "per_card": null, "per_card_turn": 2, "max_margin95": 0.0044, "warnings": [] }
+```
+`zone` is `hand`, `seen` or `prized`; `margin95` is the 95% Wilson score half-width;
+`exact` is the closed form for a single-group query (else `null`). With no
+queries, `queries` is `[]` and `per_card` lists each card name with `opening`,
+`by_turn` (seen by turn `per_card_turn`), `prized_any` and `prized_all` (the closed
+form, null for one copy). `warnings` holds at most 8 lines. `400` for an unknown card name in a query (the message lists the
+deck's names), a list name the catalog cannot resolve, a list with no Basic
+Pokémon, fewer than 7 or more than 120 cards, or a malformed body. A list that is not 60 cards,
+or has more than 4 of a non-basic-Energy card, is still computed and listed in
+`warnings`. Nothing is written.
 
 ### POST /deckpal/api/decks/simulate
 Read-only battle simulation (`@deckpal/sim`; the `simulate_battles` agent tool). Body has exactly one

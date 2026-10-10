@@ -4,7 +4,7 @@ import { needDeck } from '../entities.js'
 import { defineTool, type ToolDefinition } from '../registry.js'
 import { fail, ok, type ToolResult } from '../result.js'
 import { errText } from '../shared.js'
-import { cardLine } from './deckCheck.js'
+import { deckCardLine as cardLine } from './deckCheck.js'
 
 /**
  * `simulate_battles` — DeckPal's battle simulator (@deckpal/sim, behind
