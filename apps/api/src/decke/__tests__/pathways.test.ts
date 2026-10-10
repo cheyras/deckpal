@@ -62,6 +62,81 @@ test('deck iteration records evidence and sample-size limits in version history'
   assert.match(text, /what to watch in the next games/)
 })
 
+test('deck iteration saves the whole list as an edit, and builds off an old version without a revert', () => {
+  const text = flat(pathwayText('deck_iterate'))
+  // `save_deck.cards` RECONCILES the deck to exactly the list given
+  // (packages/agent-tools/src/tools/decks.ts): a "-1/+1" call deletes the rest.
+  assert.match(text, /`save_deck` with `mode: "edit"` and the \*\*complete\*\* list/)
+  assert.match(text, /not a diff/)
+  // The widget's Save is a PTCGL import, so it always creates a NEW deck
+  // (apps/web/src/character/host/chat/deckSave.ts).
+  assert.match(text, /not `showDeck`, whose Save makes a separate deck/)
+  // The timeline has no card list; a snapshot or `decks include:["cards"]` does.
+  assert.match(text, /it holds no cards/)
+  assert.match(text, /`decks` with `include: \["cards"\]`/)
+  assert.match(text, /build off v1, read it with `deck_history` \(`version: 1`\), edit that list and save it the same way/)
+  assert.doesNotMatch(text, /`revert_to: 1` first/)
+  // revert_to also restores that version's strategy guide by default.
+  assert.match(text, /`include_strategy: false`/)
+})
+
+test('collection planning uses DeckPal goal names and looks before it asks', () => {
+  const text = flat(pathwayText('collection_plan'))
+  for (const goal of ['**complete**', '**master**', '**grandmaster**']) assert.ok(text.includes(goal), `missing goal: ${goal}`)
+  assert.match(text, /one `set_progress` call.*ask with one short `ask_user` choice/)
+  // No tool goal means "numbered set"; rarity_exclude filters the missing rows
+  // and cost but not the owned-of-total line (catalog.ts set_progress).
+  assert.match(text, /There is no “numbered set” goal/)
+  assert.match(text, /`rarity_exclude`/)
+  assert.match(text, /the owned-of-total line still counts the whole set/)
+  assert.match(text, /do not page through the rest/)
+  assert.match(text, /`card_price_history` for at most the three priciest/)
+})
+
+test('lists lead with add_missing, mode and kind, and never promise a condition', () => {
+  const text = flat(pathwayText('lists'))
+  assert.match(text, /Pick the operation first\. \*\*Missing from a set\*\*.*`add_missing`/)
+  // edit_list refuses add_missing on a list being created in the same call
+  // (packages/agent-tools/src/__tests__/lists-mutations.test.ts).
+  assert.match(text, /It cannot fill a list in the call that creates it: create the list, then add to it by its `list_id`/)
+  assert.match(text, /`mode: "create"`.*`mode: "edit"`/)
+  assert.match(text, /`kind: "dynamic"`.*`static`/)
+  assert.doesNotMatch(text, /condition/i)
+})
+
+test('price questions send collection movement to collection_value and never invent a condition', () => {
+  const text = flat(pathwayText('price_value'))
+  assert.match(text, /what moved in it come from `collection_value`/)
+  assert.match(text, /never attach a condition/)
+  assert.doesNotMatch(text, /condition distinctions/)
+})
+
+test('deck building intake fits one ask card and cost comes only from the check', () => {
+  const text = flat(pathwayText('deck_build'))
+  assert.match(text, /one `ask_user` card with the four choices/)
+  assert.match(text, /Live-only deck skip budget and ownership/)
+  assert.match(text, /offer two directions on that card.*end the turn there/)
+  assert.match(text, /go through its flex slots with them/)
+  // check_deck resolves names: owned printing, then legal, then newest
+  // (apps/api/src/routes/deckCheck.ts chooseName).
+  assert.match(text, /Trainers and Energy can go in by exact name, and `check_deck` resolves them/)
+  assert.match(text, /Quote cost only from `check_deck`/)
+  assert.match(text, /12–20 Pokémon, 30–38 Trainers and 6–14 Energy/)
+})
+
+test('pathways do not name tiers, Deep Think, or tools that do not exist', () => {
+  // battle_log and battle_review are rewritten in their own pass; they still
+  // carry a tier sentence and "digests" until then.
+  const OWN_PASS = new Set<PathwayName>(['battle_log', 'battle_review'])
+  for (const name of SPECIFIC) {
+    const text = flat(pathwayText(name))
+    assert.doesNotMatch(text, /Deep Think/, `${name} offers a Deep Think that is not wired`)
+    if (OWN_PASS.has(name)) continue
+    assert.doesNotMatch(text, /\bdigests?\b/i, `${name} names a digest, which no tool returns`)
+    assert.doesNotMatch(text, /This is (?:Quick|Standard)|Standard floor|Move to Standard/, `${name} names a tier the model cannot act on`)
+  }
+})
+
 test('card rules and research keep mutable facts in the right sources', () => {
   const rules = flat(pathwayText('card_rules'))
   assert.match(rules, /Card text and legality come from `get_card` or `search_cards`, never memory or the web/)
