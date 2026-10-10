@@ -28,6 +28,9 @@ export const METAL: CardScript[] = [
       },
     ],
     attacks: { 'Protect Charge': { post: [GUARD_30] } },
+    // The catalog frame has no Weakness/Resistance; the card prints Weakness {R}×2, Resistance {G}-30
+    // (pokemon-tcg-data zsv10pt5-67; DATA-DIFF.md).
+    fix: { weakness: 'Fire', resistance: { type: 'Grass', amount: 30 } },
   },
   {
     id: 'me05-065',

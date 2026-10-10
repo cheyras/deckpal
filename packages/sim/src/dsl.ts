@@ -397,6 +397,12 @@ export interface CardScript {
     /** lane:misc — the catalog lists no "evolves from" for this Stage 1/2 card (TCGdex 30th-123 Hisuian Zoroark). */
     evolvesFrom?: string;
     /**
+     * The catalog omits the printed Weakness / Resistance (TCGdex sv10.5b-067 Genesect ex has neither;
+     * the card prints Fire ×2 and Grass -30, per pokemon-tcg-data zsv10pt5-67). See DATA-DIFF.md.
+     */
+    weakness?: PType;
+    resistance?: { type: PType; amount: number };
+    /**
      * lane:ghost — a Trainer played onto the Bench "as if it were a <hp>-HP Basic <type> Pokémon"
      * (Antique fossils). It is still an Item in every other zone (searched, Item-locked, never placed
      * during setup); in play it is a Basic Pokémon worth 1 Prize card.

@@ -191,11 +191,13 @@ export function buildDef(idx: number, f: CardFrame, script: CardScript | null, c
     // lane:misc — fix.evolvesFrom fills a catalog gap (30th-123 Hisuian Zoroark).
     evolvesFrom: script?.fix?.evolvesFrom ?? (f.evolvesFrom ? normText(f.evolvesFrom) : null),
     types: asBasic ? [asBasic.type] : (f.types ?? []).filter((t) => TYPES[t]).map(parseType),
-    weakness: weak && TYPES[weak.type] ? parseType(weak.type) : null,
+    // fix.weakness / fix.resistance fill a catalog gap (sv10.5b-067 Genesect ex; DATA-DIFF.md).
+    weakness: script?.fix?.weakness ?? (weak && TYPES[weak.type] ? parseType(weak.type) : null),
     resistance:
-      res && TYPES[res.type]
+      script?.fix?.resistance ??
+      (res && TYPES[res.type]
         ? { type: parseType(res.type), amount: Math.abs(parseInt(res.value, 10)) || 30 }
-        : null,
+        : null),
     retreat: f.retreat ?? 0,
     ruleBox,
     ex,

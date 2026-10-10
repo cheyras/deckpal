@@ -84,6 +84,15 @@ test('Genesect ex: Metallic Signal finds up to 2 Evolution Metal Pokémon once a
   assert.equal(g.state.p[0].active!.damage, 40);
 });
 
+test('Genesect ex: Weakness {R}×2 and Resistance {G}-30 (the catalog frame prints neither; data-diff fix)', () => {
+  // TCGdex sv10.5b-067 has empty weaknesses/resistances; the card (pokemon-tcg-data zsv10pt5-67) prints both.
+  assert.deepEqual(FRAMES['sv10.5b-067']!.weaknesses, [], 'the snapshot gap this fix covers is still there');
+  const g = J([{ active: 'Genesect ex' }, SHARPEDO]);
+  const d = def(g.ctx, topCard(g.state.p[0].active!));
+  assert.equal(d.weakness, 'Fire');
+  assert.deepEqual(d.resistance, { type: 'Grass', amount: 30 });
+});
+
 test('Mega Excadrill ex: Undermine mills the top 2 of the opponent\'s deck; Maximum Drilling +130 with 2 Energy beyond its cost', () => {
   const g = J([{ active: 'Mega Excadrill ex', energy: { active: [M, M] } }, { active: 'Pecharunt ex' }]);
   const deck = g.state.p[1].deck.length;
