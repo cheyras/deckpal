@@ -5,6 +5,7 @@ import { GHOST } from './ghost.js';
 import { ME } from './me.js';
 import { METAL } from './metal.js';
 import { MISC } from './misc.js';
+import { OPP } from './opp.js';
 import { SV } from './sv.js';
 
-export const SCRIPTS: CardScript[] = [...SV, ...ME, ...GHOST, ...FIGHTING, ...METAL, ...MISC];
+export const SCRIPTS: CardScript[] = [...SV, ...ME, ...GHOST, ...FIGHTING, ...METAL, ...MISC, ...OPP];
