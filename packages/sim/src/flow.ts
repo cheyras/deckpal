@@ -667,9 +667,13 @@ function koPrizeDelta(env: Env, s: GameState, owner: Player, sl: Slot): number {
 function resolveKOs(env: Env, s: GameState): void {
   // 1. Every Pokémon with damage ≥ its HP is Knocked Out (simultaneously).
   const ko: { owner: Player; slot: Slot; prizes: number }[] = [];
+  // Gather the live statics once: maxHp's default recomputes them per Pokémon, and this runs after
+  // every action (it was ~50% of search time). Nothing changes between the checks, so it is the same answer.
+  // (Undamaged Pokémon can't be Knocked Out: max HP is at least 10.)
+  let all: ReturnType<typeof statics> | null = null;
   for (const p of [0, 1] as Player[]) {
     for (const sl of allSlots(s.p[p])) {
-      if (sl.damage >= maxHp(env, s, sl)) {
+      if (sl.damage > 0 && sl.damage >= maxHp(env, s, sl, (all ??= statics(env, s)))) {
         const prizes = Math.max(0, def(env.ctx, topCard(sl)).prizeValue + koPrizeDelta(env, s, p, sl)); // lane:fighting
         ko.push({ owner: p, slot: sl, prizes });
       }
