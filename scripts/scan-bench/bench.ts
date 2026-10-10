@@ -247,15 +247,28 @@ function summarise(rows: RowResult[], title: string): string[] {
 }
 
 const all: RowResult[] = []
+// Byte-identical crops filed under different capture ids (the label audit
+// found 7 such groups in scan-telemetry) are one observation, not several: the
+// first is scored and the rest are skipped, so a duplicated crop cannot weight
+// the numbers.
+const seenCrops = new Set<string>()
+let duplicates = 0
 for (const ds of DATASETS) {
   const rows = loadDataset(ds).filter((r) => r.kind !== 'exclude')
   process.stdout.write(`${ds}: ${rows.length} rows `)
   for (const r of rows) {
+    const key = sha(fs.readFileSync(r.cropFullPath ?? r.cropPath))
+    if (seenCrops.has(key)) {
+      duplicates++
+      continue
+    }
+    seenCrops.add(key)
     all.push(await runRow(r))
     process.stdout.write('.')
   }
   process.stdout.write('\n')
 }
+if (duplicates) console.log(`skipped ${duplicates} byte-identical duplicate crops`)
 
 const lines = [`# scan-bench ${LABEL}  (${new Date().toISOString()})`, '']
 lines.push(...summarise(all, 'ALL'), '')

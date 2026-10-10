@@ -488,8 +488,11 @@ export function cleanNameRead(raw: string | undefined | null): string | null {
   while (tokens.length > 0 && isStage(tokens[0]!, tokens.slice(1))) tokens.shift();
   // `Stage 1` arrives as two tokens; the digit is left alone at the front.
   while (tokens.length > 1 && /^[12l|]$/i.test(tokens[0]!)) tokens.shift();
+  // No length floor here: `N` and `AZ` are real cards (bw3-92, xy4-91), and a
+  // short read still narrows a printed number at rung 4. `planNameProbe` is
+  // what keeps a two-glyph read away from the catalogue-wide name lookup.
   const out = tokens.join(' ').trim();
-  return out.length >= MIN_NAME_PROBE ? out : null;
+  return out || null;
 }
 
 /**
@@ -503,12 +506,22 @@ export function cleanNameRead(raw: string | undefined | null): string | null {
  * A read that is a run of the catalogue name, or contains it, agrees.
  */
 export function nameAgrees(read: string, candidateName: string): boolean {
-  if (nameTier(read, candidateName) != null) return true;
+  const tier = nameTier(read, candidateName);
   const r = stripOptionalSuffix(normalizeCardName(read));
   const c = stripOptionalSuffix(normalizeCardName(candidateName));
-  if (r.length >= 5 && c.includes(r)) return true;
-  if (c.length >= 4 && r.includes(c)) return true;
-  return false;
+  if (tier != null && tier <= 1) return true;
+  // Tier 2's edit budget is for a misread glyph (`Team Rocket'sGiovanni`), not a
+  // shorter name: `Kabuto` is two edits from `Kabutops` and a different card.
+  // So an edit-distance match agrees only when the lengths nearly match.
+  if (tier === 2 && Math.abs(r.length - c.length) <= 1) return true;
+  // Only the END of the catalogue name may survive, and only if what was lost
+  // is an owner's possessive or the front of a word. A read that is a whole,
+  // different card name is a different card: Kadabra is not Abra, Kabuto is not
+  // Kabutops, Pikachu is not Flying Pikachu, Potion is not Super Potion.
+  if (r.length < 5 || c.length === r.length || !c.endsWith(r)) return false;
+  const lost = c.slice(0, c.length - r.length);
+  if (/'s $/.test(lost)) return true; // `Quilava` off `Ethan's Quilava`
+  return /\p{L}$/u.test(lost); // `oice band` off `Hop's Choice Band`: cut mid-word
 }
 
 /** Keep only the candidates matching `read` at the best tier any of them reach. */
@@ -926,6 +939,14 @@ export async function resolveCard(
     }
   }
 
+  // The number + denominator pair the name argued with, now that the name has
+  // had its turn and named nothing the catalogue knows: the read key's own
+  // candidates, exactly as rung 4 returned them before (and corroboratable by
+  // the vector exactly as before). Returned HERE, above rung 9 and the vector
+  // rung, so neither of those can now override a printed key they could not
+  // override before.
+  if (keyedButUnnamed) return done('number+denominator', keyedButUnnamed, false);
+
   // ── Rung 9 — the card's own body text. Escalation, and never a printing. ──
   //
   // Last of the rungs that can name anything, and it runs only because every
@@ -993,10 +1014,6 @@ export async function resolveCard(
   // `MIN_NAME_PROBE`, or a port with no `byName`. Those are exactly the cases in
   // which filtering the priors is all a name is worth, so the rung stays and
   // keeps its old meaning rather than being deleted along with the defect.
-  // The number + denominator pair the name argued with, now that the name has
-  // had its chance and produced nothing better: the read key's own candidates,
-  // unconfident, exactly as rung 4 would have returned them before.
-  if (keyedButUnnamed) return done('number+denominator', keyedButUnnamed, false);
 
   let filtered = priors.cards;
   if (numeric != null) filtered = filtered.filter((c) => c.numberNumeric === numeric);
@@ -1035,8 +1052,31 @@ export async function resolveCard(
    */
   async function letDecisiveVectorSpeak(prev: ResolveOutcome): Promise<ResolveOutcome> {
     if (prev.confident || !vector?.decisive || !vector.cardId || !nameRead) return prev;
+    // Not after a rung where TWO printed keys already agreed on a card and only
+    // the hash's contradiction kept it unconfident: a picture of a different
+    // printing of the same name must not overrule a name and a number that
+    // agree with each other.
+    if (prev.resolvedBy === 'badge+number' || prev.resolvedBy === 'name+number' || prev.resolvedBy === 'name+denominator') {
+      return prev;
+    }
+    // The veto `corroborate` applies too: a near-exact hash naming a different
+    // card is a disagreement, and the answer to a disagreement is silence.
+    if (signals.phashNearExact && signals.phashNearExact !== vector.cardId) return prev;
     const lead = evidence.vectorCards.find((c) => c.cardId === vector.cardId);
     if (!lead || !nameAgrees(nameRead, lead.name)) return prev;
+    // And not when a PRINTED NUMBER named a card the printed name also agrees
+    // with: `Barraskewda 049/198` keyed sv01-049 and only the hash's veto kept
+    // it unconfident, so a decisive picture of the OTHER Barraskewda is a
+    // printing disagreement, not a misread — the reader decides. (When the name
+    // agrees with none of the keyed cards, the number was the bad read, and the
+    // picture the name supports is the answer: that is the case this exists for.)
+    // (The three rungs that key on the name as well already returned above.)
+    if (
+      prev.resolvedBy === 'number+denominator' &&
+      prev.matches.some((m) => m.cardId !== lead.cardId && nameAgrees(nameRead, m.name))
+    ) {
+      return prev;
+    }
     const ranked = rank([lead], priors.distance, evidence.similarity);
     const matches = [...ranked, ...prev.matches.filter((m) => m.cardId !== lead.cardId)].slice(0, MAX_MATCHES);
     return { matched: true, confident: true, resolvedBy: 'corroborated', matches, badge };

@@ -18,18 +18,23 @@ supersedes: []
 - **A decisive vector that the printed name agrees with is the answer, even after an unconfident key rung.** It resolves as `corroborated`. A name that disagrees still leaves the reader to choose. With no name read, an unconfident key that disagrees with the vector stays silent, as before.
 - **The dHash may name a card alone only at distance ≤ 7** (`PHASH_SOLO_MAX`, client tie gate). At 8–9 it stays in the picker and the capture waits for the resolve leg.
 
-**Why:** The owner wants to stop verifying every scan, and earlier work circled because nothing had a fixed scoreboard. Measured on the 256 cards:
-- **With OCR on**, AUTO-ID rose from 63.7% to 68.8% and WRONG fell from 3.0% to 1.7%.
-- **As deckpal.app runs today (OCR off)**, AUTO-ID rose from 62.5% to 62.9% and WRONG fell from 3.0% to 1.8%.
-- **What drove it:** 12 captures moved from needs-you to right, 2 from wrong to right, and 1 lost (a correct dHash claim at distance 9 now waits).
+**Why:** The owner wants to stop verifying every scan, and earlier work circled because nothing had a fixed scoreboard. Measured on 244 distinct real cards (labels audited by eye; 12 byte-identical duplicate crops counted once):
+- **With OCR on**, AUTO-ID rose from 63.9% to 68.9% and WRONG fell from 1.9% to 0.6%.
+- **On full-resolution crops**, AUTO-ID rose from 66.7% to 70.2% and WRONG fell from 1.8% to 0%.
+- **As deckpal.app runs today (OCR off)**, AUTO-ID rose from 62.7% to 63.1% and WRONG fell from 1.9% to 0.6%.
 - **The failures were specific:**
-  - Nine decisive, correct vectors were hidden behind a misread number.
+  - Decisive, correct vectors were hidden behind a misread number.
   - A Mankey was committed as a Togetic δ by a distance-9 dHash claim. That was the first answer to land, while the vector and OCR both said Mankey.
   - `BAS社 Torchic` failed the name lookup.
+- **A fresh-context review tightened the fixes before merge:**
+  - The key's own candidates return above rung 9 and the vector rung.
+  - `nameAgrees` accepts only a lost owner prefix or a clipped first word, so Kadabra is not Abra and Kabuto is not Kabutops.
+  - The override never beats a printed number the printed name also agrees with, and it respects the near-exact dHash veto.
+  - `N` and `AZ` survive cleaning.
 - **Also found:**
-  - OCR is off by default on deckpal.app (`ocr/flag.ts`), so production users get no printed-key reading at all.
+  - OCR is off by default on deckpal.app (`ocr/flag.ts`), so production gets no printed-key reading.
   - Telemetry keeps crops at 229×320, below what OCR can read.
-  - Two benchmark labels were wrong: the scanner was right and the label was not. They were fixed and annotated.
+  - The label audit adjusted 7 truths at the printing level (identical-art reprints) and confirmed 44.
 
 **Implications:**
 - **Gate for future changes:** any identification change reports its benchmark delta. A change that raises AUTO-ID must not raise WRONG.

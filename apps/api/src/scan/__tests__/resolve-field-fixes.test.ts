@@ -95,13 +95,26 @@ test('cleanNameRead strips what OCR reads off the frame, and nothing a card prin
   assert.equal(cleanNameRead('  '), null);
 });
 
-test('nameAgrees forgives a title that lost a word at one end, and nothing more', () => {
+test('nameAgrees forgives a lost owner prefix or a clipped first word, and nothing more', () => {
   assert.equal(nameAgrees('Quilava', "Ethan's Quilava"), true);
+  assert.equal(nameAgrees('Golbat', "Team Rocket's Golbat"), true);
   assert.equal(nameAgrees('oice Band', "Hop's Choice Band"), true);
-  assert.equal(nameAgrees("Team Rocket's Koffing H70o", "Team Rocket's Koffing"), true);
   assert.equal(nameAgrees('Floragato', 'Floragato'), true);
+  // A read that is a whole, DIFFERENT card name is a different card.
+  assert.equal(nameAgrees('Kadabra', 'Abra'), false);
+  assert.equal(nameAgrees('Abra', 'Kadabra'), false);
+  assert.equal(nameAgrees('Kabuto', 'Kabutops'), false);
+  assert.equal(nameAgrees('Kabutops', 'Kabuto'), false);
+  assert.equal(nameAgrees('Porygon-Z', 'Porygon'), false);
+  assert.equal(nameAgrees('Potion', 'Super Potion'), false);
+  assert.equal(nameAgrees('Pikachu', 'Flying Pikachu'), false);
   assert.equal(nameAgrees('Pikachu', 'Raichu'), false);
   assert.equal(nameAgrees('Mew', 'Mewtwo'), false);
+});
+
+test('cleanNameRead keeps real one- and two-letter names', () => {
+  assert.equal(cleanNameRead('N'), 'N');
+  assert.equal(cleanNameRead('AZ'), 'AZ');
 });
 
 // ── 2. The dropped digit ────────────────────────────────────────────────────
@@ -120,6 +133,37 @@ test('when the name names nothing either, the key`s own candidates come back as 
   assert.equal(r.resolvedBy, 'number+denominator');
   assert.equal(r.confident, false);
   assert.deepEqual(r.matches.map((m) => m.cardId).sort(), ['sv04-003', 'sv10-003']);
+});
+
+test('with the vector ON, a garbage name and a keyed pair behave exactly as before', async () => {
+  // The key's own candidates come back above the vector rung, so a showable
+  // vector inside them still corroborates (as rung 4 always allowed)…
+  const inside = await run({ name: 'Zzqxv Wbbt', number: '03', denominator: '182' }, [
+    { cardId: 'sv10-003', similarity: 0.7 },
+    { cardId: 'sv01-049', similarity: 0.6 },
+  ]);
+  assert.equal(inside.resolvedBy, 'corroborated');
+  assert.equal(inside.matches[0]!.cardId, 'sv10-003');
+  // …and a decisive vector OUTSIDE them is still a disagreement, silent.
+  const outside = await run({ name: 'Zzqxv Wbbt', number: '03', denominator: '182' }, [
+    { cardId: 'sv01-049', similarity: 0.9 },
+    { cardId: 'sv10-063', similarity: 0.6 },
+  ]);
+  assert.equal(outside.confident, false);
+  assert.equal(outside.resolvedBy, 'number+denominator');
+});
+
+test('a decisive vector does not overrule a name and a number that agree with each other', async () => {
+  // `Barraskewda 049/198` keys sv01-049 by name+number; the hash, confidently
+  // sure of something else, keeps it unconfident. A decisive picture of the OTHER
+  // Barraskewda printing must not then win on the strength of the name alone.
+  const r = await resolveCard(
+    { name: 'Barraskewda', number: '049', denominator: '198' },
+    [{ cardId: 'sv10-003', distance: 3 }],
+    port,
+    { phashConfidentMax: 9, fusion: { vectorMatches: [{ cardId: 'sv10-063', similarity: 0.9 }, { cardId: 'sv01-049', similarity: 0.6 }], modelId: MODEL } },
+  );
+  assert.notEqual(r.matches[0]?.cardId === 'sv10-063' && r.confident, true);
 });
 
 test('a port without officialCounts simply never reaches the name+denominator rung', async () => {

@@ -157,8 +157,13 @@ export const pgCatalogPort: CatalogPort = {
   // candidates arrive from the name lookup with their set ids already known.
   async officialCounts(setIds) {
     if (setIds.length === 0) return new Map();
+    // Scoped to sets that hold English cards, as every other read here is
+    // (`c.lang = 'en'`): a set tcgdex id is not unique across the whole table.
     const rows = await q<{ tcgdex_id: string; card_count_official: number | null }>(
-      `SELECT tcgdex_id, card_count_official FROM card_set WHERE tcgdex_id = ANY($1::text[])`,
+      `SELECT cs.tcgdex_id, cs.card_count_official
+         FROM card_set cs
+        WHERE cs.tcgdex_id = ANY($1::text[])
+          AND EXISTS (SELECT 1 FROM card c WHERE c.set_id = cs.id AND c.lang = 'en')`,
       [[...setIds]],
     );
     return new Map(rows.map((r) => [r.tcgdex_id, r.card_count_official]));
