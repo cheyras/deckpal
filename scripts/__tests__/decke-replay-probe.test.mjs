@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import test from 'node:test'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { tool } from 'ai'
+import { MockLanguageModelV3 } from 'ai/test'
+import { z } from 'zod'
 import {
   deckTotal,
   gradeExpectation,
@@ -11,10 +15,13 @@ import {
   main,
   parseArgs,
   parseArms,
+  progressMetrics,
   proposedChangeCount,
   researchTopicsOverlap,
+  runTurn,
   scoreTranscript,
   summarizeArmResults,
+  summarizeProgress,
   summarizeScenarioResults,
 } from '../decke-replay-probe.mjs'
 
@@ -137,6 +144,8 @@ test('proposed changes count live one-swap reply formats as one change', () => {
 
 const call = (name, input = {}, extra = {}) => ({ name, input, ...extra })
 const turn = (text = '', calls = [], user = 'reader input') => ({ text, calls, user })
+const said = (text, ...tools) => ({ text, tools })
+const silent = (...tools) => ({ text: '', tools })
 
 test('every expectation grader has a deterministic passing and failing transcript', () => {
   const listText = Array.from({ length: 12 }, (_, i) => `1 Card ${i}`).join('\n')
@@ -164,6 +173,9 @@ test('every expectation grader has a deterministic passing and failing transcrip
     ['battle-review-evidence', turn('', [call('battle_logs'), call('deck_history')]), turn('', [call('battle_logs')])],
     ['no-data-writes', turn('', [call('decks')]), turn('', [call('edit_list')])],
     ['general-helpful', turn('I can help with decks and collections.'), turn('', [call('save_deck')])],
+    ['progress-between-batches',
+      { ...turn(), timeline: [said('Pulling your logs first.', 'battle_logs'), silent('deck_history'), said('Three losses to Gardevoir; checking the list.', 'decks'), said('Here is the change.')] },
+      { ...turn(), timeline: [...Array.from({ length: 5 }, () => silent('battle_logs')), said('Here is the change.')] }],
   ]
 
   for (const [tag, passing, failing] of cases) {
@@ -179,6 +191,155 @@ test('exactly-one-research allows one retry but rejects zero or three calls', ()
   const three = gradeExpectation('exactly-one-research', turn('', [call('web_research'), call('web_research'), call('web_research')]))
   assert.equal(three.pass, false)
   assert.match(three.detail, /expected one or two web_research calls; found 3/)
+})
+
+// ── PROGRESS BETWEEN BATCHES ────────────────────────────────────────────────
+
+test('progress metrics read the step timeline: data steps, interim lines, the longest silence', () => {
+  // The owner's complaint, literally: a solid run of lookups, then one answer.
+  assert.deepEqual(progressMetrics([
+    silent('battle_logs'), silent('deck_history'), silent('decks'), silent('search_cards'), silent('get_card'),
+    said('Here is what I found.', 'express'),
+  ]), { dataSteps: 5, longestSilentRun: 5, interimLines: 0, nudges: 0 })
+  // The asked-for shape: a line, a batch, a line, a batch, the answer.
+  assert.deepEqual(progressMetrics([
+    said('Got it — pulling your logs.', 'battle_logs', 'deck_history'),
+    silent('decks'),
+    said('Interesting, three losses to Gardevoir; checking the list next.'),
+    silent('search_cards'), silent('get_card'),
+    said('Swap one Iono for a Counter Catcher.', 'showScreen'),
+  ]), { dataSteps: 4, longestSilentRun: 2, interimLines: 2, nudges: 0 })
+})
+
+test('text inside a data step is an interim line; text after the last lookup is the answer', () => {
+  assert.equal(progressMetrics([said('Checking your decks.', 'decks'), said('Done.')]).interimLines, 1)
+  assert.equal(progressMetrics([silent('decks'), said('Done.')]).interimLines, 0)
+})
+
+test('a silent face neither breaks nor extends a silent run; an approval card ends it', () => {
+  assert.equal(progressMetrics([silent('decks'), silent('decks'), silent('express'), silent('decks')]).longestSilentRun, 3)
+  assert.equal(progressMetrics([silent('decks'), silent('express'), silent('showScreen')]).dataSteps, 1)
+  assert.equal(progressMetrics([
+    silent('decks'), silent('decks'), { ...silent('add_battle_log'), approval: true }, silent('decks'), silent('decks'),
+  ]).longestSilentRun, 3)
+})
+
+test('progress-between-batches: short turns pass trivially, a missing timeline fails, the limit is four', () => {
+  const grade = (timeline) => gradeExpectation('progress-between-batches', { ...turn(), ...(timeline ? { timeline } : {}) })
+  assert.equal(grade([silent('decks'), silent('decks'), said('Done.')]).pass, true, 'two data steps have no batches to speak between')
+  assert.equal(grade([]).pass, true)
+  const none = grade(null)
+  assert.equal(none.pass, false)
+  assert.match(none.detail, /expected a recorded step timeline/)
+  // Four silent in a row after a line is the limit, five is over it.
+  const quiet = (n) => Array.from({ length: n }, () => silent('decks'))
+  assert.equal(grade([said('Starting.', 'decks'), ...quiet(4), said('Done.')]).pass, true)
+  const over = grade([said('Starting.', 'decks'), ...quiet(5), said('Done.')])
+  assert.equal(over.pass, false)
+  assert.match(over.detail, /found 1 interim line\(s\) and a silent run of 5 across 6 data steps/)
+  // Short silences with no line anywhere still fail: nothing was said between.
+  const mute = grade([silent('decks'), silent('decks'), silent('decks'), said('Done.')])
+  assert.equal(mute.pass, false)
+  assert.match(mute.detail, /found 0 interim line\(s\) and a silent run of 3 across 3 data steps/)
+})
+
+test('the scorer sums data steps, lines and nudges and keeps the longest silence as a maximum', () => {
+  const metrics = scoreTranscript([
+    { calls: [], timeline: [silent('decks'), silent('decks'), said('Mid.'), silent('decks'), { ...said('End.'), nudged: true }] },
+    { calls: [], timeline: [silent('decks'), said('Done.')] },
+    { calls: [] },
+  ])
+  assert.equal(metrics.data_steps, 4)
+  assert.equal(metrics.interim_lines, 1)
+  assert.equal(metrics.longest_silent_run, 2)
+  assert.equal(metrics.progress_nudges, 1)
+})
+
+test('the progress summary is over every long turn of an arm', () => {
+  const long = [said('Starting.', 'decks'), silent('decks'), silent('decks'), said('Done.')]
+  const mute = [silent('decks'), silent('decks'), silent('decks'), silent('decks'), silent('decks'), { ...said('Done.'), nudged: true }]
+  assert.deepEqual(summarizeProgress([
+    { arm: 'routed', turns: [{ timeline: long }, { timeline: [said('Hi.')] }] },
+    { arm: 'routed', turns: [{ timeline: mute }] },
+  ]), [{
+    arm: 'routed', turns: 3, long_turns: 2, long_turns_with_progress: 1, progress_rate: 0.5,
+    interim_lines_per_long_turn: 0.5, longest_silent_run: 5, progress_nudges: 1,
+  }])
+  assert.equal(summarizeProgress([{ arm: 'a', turns: [{ timeline: [said('Hi.')] }] }])[0].progress_rate, null)
+})
+
+test('--progress-nudge defaults on and accepts only on or off', () => {
+  assert.equal(parseArgs(['--out', '/tmp/probe-nudge']).progressNudge, true)
+  assert.equal(parseArgs(['--progress-nudge', 'off', '--out', '/tmp/probe-nudge']).progressNudge, false)
+  assert.throws(() => parseArgs(['--progress-nudge', 'maybe']), /on or off/)
+})
+
+/**
+ * The nudge end to end through the real ai@7 loop: a scripted model that looks
+ * things up silently for thirteen steps, and the prompt each step was SENT.
+ * This is the evidence that `allowSystemInMessages` is the right flag, that the
+ * override carries forward, and that the breakpoint stays behind the nudge.
+ */
+async function silentLoop({ progressNudge, modelId = 'anthropic/claude-sonnet-5.5' }) {
+  const REPO = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..')
+  const nudgeModule = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/progressNudge.js')).href)
+  const prompts = []
+  let n = 0
+  const usage = { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } }
+  const model = new MockLanguageModelV3({
+    modelId: 'silent-loop',
+    doStream: async ({ prompt }) => {
+      prompts.push(JSON.parse(JSON.stringify(prompt)))
+      const step = n++
+      const chunks = step < 13
+        ? [{ type: 'tool-call', toolCallId: `call-${step}`, toolName: 'lookup', input: JSON.stringify({ name: `card ${step}` }) },
+            { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_use' }, usage }]
+        : [{ type: 'text-start', id: 't' }, { type: 'text-delta', id: 't', delta: 'Here is the answer.' }, { type: 'text-end', id: 't' },
+            { type: 'finish', finishReason: { unified: 'stop', raw: 'end_turn' }, usage }]
+      return { stream: new ReadableStream({ start(c) { c.enqueue({ type: 'stream-start', warnings: [] }); for (const x of chunks) c.enqueue(x); c.close() } }) }
+    },
+  })
+  const runtime = {
+    buildInstructions: () => [{ role: 'system', content: 'Probe instructions.' }],
+    tools: { lookup: tool({ description: 'Look one card up.', inputSchema: z.object({ name: z.string() }), execute: async ({ name }) => `${name}: found` }) },
+    createProgressNudges: nudgeModule.createProgressNudges,
+    progressNudgeMessage: nudgeModule.progressNudgeMessage,
+  }
+  const result = await runTurn({
+    model, modelId, runtime, priorTurns: [], replay: 'full', pathways: ['general'],
+    scenarioTurn: { user: 'Look up a lot of cards.' }, budget: { spent: 0, limit: 0 }, progressNudge,
+  })
+  return { prompts, result, text: nudgeModule.PROGRESS_NUDGE_TEXT }
+}
+
+const isNudge = (message, text) => message?.role === 'system' && JSON.stringify(message.content).includes(text.slice(0, 40))
+
+test('the replay mirrors production: two nudges, after four and eight silent steps, behind the breakpoint', async () => {
+  const { prompts, result, text } = await silentLoop({ progressNudge: true })
+  assert.equal(prompts.length, 14)
+  const nudgedSteps = prompts.flatMap((prompt, step) => isNudge(prompt.at(-1), text) ? [step] : [])
+  assert.deepEqual(nudgedSteps, [4, 8])
+  // Carried forward in place, never duplicated: the last step holds both.
+  assert.equal(prompts.at(-1).filter((message) => isNudge(message, text)).length, 2)
+  // The breakpoint is on the tool result the nudge follows, not on the nudge.
+  const nudged = prompts[4]
+  assert.equal(nudged.at(-2).role, 'tool')
+  assert.deepEqual(nudged.at(-2).providerOptions?.anthropic?.cacheControl, { type: 'ephemeral' })
+  assert.equal(nudged.at(-1).providerOptions?.anthropic?.cacheControl, undefined)
+  assert.equal(nudged.filter((message) => message.providerOptions?.anthropic?.cacheControl).length, 1)
+  // And the timeline says which steps followed a nudge.
+  assert.deepEqual(result.timeline.flatMap((step, index) => step.nudged ? [index] : []), [4, 8])
+  assert.deepEqual(progressMetrics(result.timeline), { dataSteps: 13, longestSilentRun: 13, interimLines: 0, nudges: 2 })
+})
+
+test('with --progress-nudge off, or a non-Anthropic model, no system message enters the conversation', async () => {
+  for (const options of [{ progressNudge: false }, { progressNudge: true, modelId: 'google/gemini-2.5-flash' }]) {
+    const { prompts, result } = await silentLoop(options)
+    assert.equal(prompts.length, 14)
+    // Only the instructions, at the front.
+    assert.ok(prompts.every((prompt) => prompt.filter((message) => message.role === 'system').length === 1), JSON.stringify(options))
+    assert.equal(progressMetrics(result.timeline).nudges, 0)
+  }
 })
 
 test('scenario summary reports pass rate, pass^k, mean cost, and cost per pass', () => {

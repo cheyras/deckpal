@@ -428,7 +428,63 @@ test('the selected pathway prompt is an instructions array with only stable regi
   assert.match(CODE, /systemMessage\(choice, requestPathway, true\)/);
   assert.match(CODE, /systemMessage\(choice, volatileContext\)/);
   assert.match(CODE, /instructions: instructionsFor\(choice, askedEarlierThisTurn \? askPendingInstruction\(\) : undefined\)/);
-  assert.match(CODE, /messages: cacheConversation\(choice, messages\)/);
+  assert.match(CODE, /const cached = cacheConversation\(choice, messages\)/);
+});
+
+// ── PROGRESS BETWEEN BATCHES ────────────────────────────────────────────────
+//
+// `progressNudge.ts` can decide perfectly and change nothing: the nudge is a
+// handful of expressions in this file — build the ledger, ask it, append the
+// message, lift the SDK's system-message guard — and dropping any one of them
+// leaves its unit tests green while Deck-E goes back to a silent minute.
+
+test('the progress nudge is decided by the built module, per request, for Anthropic only', () => {
+  assert.match(
+    SRC,
+    /import \{ createProgressNudges, progressNudgeMessage \} from '\.\.\/apps\/api\/dist\/decke\/progressNudge\.js'/,
+  );
+  // ONE ledger per request, created before the call that may be retried — a
+  // ledger built inside `startConversation` would give the Standard retry its
+  // own two nudges.
+  const ledger = CODE.indexOf('const progressNudges = createProgressNudges()');
+  assert.ok(ledger > 0, 'the per-request nudge ledger is gone');
+  assert.ok(ledger < CODE.indexOf('const startConversation = (choice, effort) => streamText({'));
+  assert.equal(CODE.match(/createProgressNudges\(\)/g)?.length, 1);
+  // Asked with the call's REAL steps, and only for Anthropic.
+  assert.match(CODE, /const nudge = !askedEarlierThisTurn && isAnthropic\(choice\) && progressNudges\.next\(steps\)/);
+  assert.match(CODE, /prepareStep: \(\{ stepNumber, steps, messages \}\) => \{/);
+});
+
+test('the nudge is appended AFTER the cache breakpoint, which stays on the newest non-system message', () => {
+  // The order is the property: cache first, then append. Appending first would
+  // either mark the nudge or — before cacheConversation learned to skip system
+  // messages — move the breakpoint onto it.
+  assert.match(CODE, /messages: nudge \? \[\.\.\.cached, progressNudgeMessage\(\)\] : cached/);
+  const fn = CODE.slice(CODE.indexOf('function cacheConversation'), CODE.indexOf('const CLIENT_SET'));
+  assert.match(fn, /const newest = messages\.findLastIndex\(\(message\) => message\.role !== 'system'\)/);
+  assert.match(fn, /if \(index === newest\)/);
+  assert.doesNotMatch(fn, /index === messages\.length - 1/, 'the breakpoint went back to the last message, nudge or not');
+});
+
+test('system messages are allowed in the conversation call only for Anthropic, and never in the corrective leg', () => {
+  const start = CODE.slice(
+    CODE.indexOf('const startConversation = (choice, effort) => streamText({'),
+    CODE.indexOf('result = startConversation(choice, decision.effort)'),
+  );
+  assert.match(start, /allowSystemInMessages: isAnthropic\(choice\)/);
+  assert.doesNotMatch(CODE, /allowSystemInMessages: true/);
+  assert.equal(CODE.match(/allowSystemInMessages/g)?.length, 1);
+  // The leg is built from step RESPONSE messages, which never hold the nudge.
+  const leg = CODE.slice(CODE.indexOf('if (corrective) {'));
+  assert.doesNotMatch(leg, /allowSystemInMessages|progressNudge/);
+});
+
+test('lifting the SDK guard does not hand the system role to the browser', () => {
+  // `allowSystemInMessages` turns off ai@7's refusal of system messages in
+  // `messages`. What stands between a reader and that role is the wire schema.
+  const wire = readFileSync(fileURLToPath(new URL('../wireBounds.ts', import.meta.url)), 'utf8');
+  assert.match(wire, /role: z\.enum\(\['user', 'assistant'\]\)/);
+  assert.match(CODE, /convertToModelMessages\(stripPriorCommands\(windowForModel\(messages\)\.messages\)\)/);
 });
 
 test('only a VALID ask_user stops the loop, and a Quick refusal before any data tool retries once on Standard', () => {

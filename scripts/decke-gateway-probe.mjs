@@ -6,11 +6,12 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createGateway } from '@ai-sdk/gateway'
 import { generateText, stepCountIs, tool } from 'ai'
 import { z } from 'zod'
 
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const UPDATE_BETA = 'thinking-display-updates-2026-08-18'
 const CACHE = { anthropic: { cacheControl: { type: 'ephemeral' } } }
 const HAIKU = 'anthropic/claude-haiku-5.5'
@@ -64,9 +65,20 @@ export function buildReport(checks, { callRecords = [], key = null, generatedAt 
   return redact({ generatedAt, checks, calls: callRecords }, secrets)
 }
 
+function nudgeRunSummary(name, run) {
+  if (!run) return `${name} ?`
+  if (!run.succeeded) return `${name} error`
+  if (!run.nudgeReachedModel) return `${name} no nudge`
+  if (run.textBeforeNextToolCall) return `${name} spoke`
+  return `${name} ${run.spokeAfterNudge ? 'answered' : 'silent'}`
+}
+
 function evidenceSummary(check) {
   if (check.error) return String(check.error).replace(/\s+/g, ' ').slice(0, 120)
   const evidence = check.evidence ?? {}
+  if (check.name === 'mid_conversation_system_message') {
+    return `${nudgeRunSummary('sonnet', evidence.sonnet)}, ${nudgeRunSummary('haiku', evidence.haiku)}`
+  }
   if (check.name === 'gateway_cost') return `${evidence.withCost ?? 0}/${evidence.successfulCalls ?? 0} calls`
   if ('cacheReadTokens' in evidence) return `cache read ${evidence.cacheReadTokens ?? 0}`
   if ('toolReturned' in evidence) return evidence.toolReturned ? 'tool returned' : 'no tool call'
@@ -275,6 +287,103 @@ async function toolLoopCheck({ name, model, anthropic, runCall, callRecords, bet
   }
 }
 
+/**
+ * MID-CONVERSATION SYSTEM MESSAGE (2026-10-10).
+ *
+ * Production (api/chat.mjs, apps/api/src/decke/progressNudge.ts) now appends a
+ * system message after a tool result when Deck-E has gone four lookups without
+ * a word. The SDK side is proven offline — ai@7 sends it with
+ * `allowSystemInMessages` and refuses it without — but whether the Gateway
+ * carries a system message that sits AFTER the first user turn through to
+ * Claude, or rejects the request, is only answerable live. A rejection would
+ * fail every nudged step in production, so this runs on both models the nudge
+ * reaches most (Standard = Sonnet, Quick = Haiku) with production's message
+ * shape: the cache breakpoint on the tool result, the nudge after it.
+ *
+ * PASS means the Gateway accepted the nudged request and the model went on.
+ * Whether he then spoke before his next lookup is evidence, not the verdict:
+ * one sample cannot grade a behaviour, and the replay probe's
+ * 'progress-between-batches' is where that is measured. The un-nudged baseline
+ * for the same Alice/Bob loop is `haiku_text_between_tools`.
+ */
+const NUDGE_LOOP_PROMPT = 'Look up Alice, then Bob — one lookup per step, waiting for each result before the next — then give one short final sentence using both results.'
+
+async function loadNudgeText() {
+  // The production text, from the built module, so the live check cannot drift
+  // from what chat.mjs sends. Needs `npx tsc -p .` in apps/api first.
+  const { PROGRESS_NUDGE_TEXT } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/progressNudge.js')).href)
+  return PROGRESS_NUDGE_TEXT
+}
+
+/** What one nudged loop showed, from its steps alone. */
+export function nudgeLoopEvidence(steps, nudgedBeforeStep) {
+  const timeline = (steps ?? []).map((step, index) => ({
+    index,
+    toolCalls: (step.toolCalls ?? []).map((call) => call.toolName),
+    visibleText: step.text ?? '',
+    nudged: index === nudgedBeforeStep,
+  }))
+  const after = nudgedBeforeStep == null ? [] : timeline.slice(nudgedBeforeStep)
+  const next = after.findIndex((step) => step.toolCalls.length > 0)
+  return {
+    steps: timeline,
+    nudgedBeforeStep: nudgedBeforeStep ?? null,
+    nudgeReachedModel: after.length > 0,
+    spokeAfterNudge: Boolean(after[0]?.visibleText.trim()),
+    nextToolCallStep: next < 0 ? null : after[next].index,
+    textBeforeNextToolCall: next >= 0 && after.slice(0, next + 1).some((step) => step.visibleText.trim().length > 0),
+  }
+}
+
+/** The verdict over both models; the shape the report and table read. */
+export function midConversationResult(nudgeText, sonnet, haiku) {
+  return {
+    pass: [sonnet, haiku].every((run) => run?.succeeded === true && run.nudgeReachedModel === true),
+    evidence: { nudgeText, sonnet, haiku },
+  }
+}
+
+async function nudgedLoop({ model, label, nudgeText, runCall, callRecords }) {
+  let nudgedBeforeStep = null
+  try {
+    const result = await runCall(label, {
+      model,
+      prompt: NUDGE_LOOP_PROMPT,
+      tools: {
+        lookup: tool({
+          description: 'Look up one person. Call once for Alice and once for Bob.',
+          inputSchema: z.object({ name: z.string() }),
+          execute: async ({ name: person }) => `${person}: fixed probe result`,
+        }),
+      },
+      allowSystemInMessages: true,
+      prepareStep: ({ steps, messages }) => {
+        if (nudgedBeforeStep != null || !steps.at(-1)?.toolCalls?.length) return undefined
+        nudgedBeforeStep = steps.length
+        const marked = messages.map((message, index) => index === messages.length - 1
+          ? { ...message, providerOptions: CACHE }
+          : message)
+        return { messages: [...marked, { role: 'system', content: nudgeText }] }
+      },
+      stopWhen: stepCountIs(3),
+      providerOptions: { anthropic: { effort: 'medium', thinking: { type: 'adaptive' } } },
+      maxOutputTokens: 512,
+    })
+    return { model, succeeded: true, ...nudgeLoopEvidence(result.steps, nudgedBeforeStep), calls: recordsFor(callRecords, label) }
+  } catch (error) {
+    return { model, succeeded: false, error: errorText(error), nudgedBeforeStep, calls: recordsFor(callRecords, label) }
+  }
+}
+
+async function midConversationSystemCheck(runCall, callRecords) {
+  const nudgeText = await loadNudgeText()
+  const [sonnet, haiku] = await Promise.all([
+    nudgedLoop({ model: SONNET, label: 'mid_conversation_system_message:sonnet', nudgeText, runCall, callRecords }),
+    nudgedLoop({ model: HAIKU, label: 'mid_conversation_system_message:haiku', nudgeText, runCall, callRecords }),
+  ])
+  return midConversationResult(nudgeText, sonnet, haiku)
+}
+
 function gatewayCostCheck(callRecords) {
   const successful = callRecords.filter((record) => record.success)
   const missing = successful.filter((record) => !decimalCost(record.gatewayCost))
@@ -312,6 +421,7 @@ export async function runProbe({ key }) {
       name: 'haiku_text_between_tools', model: HAIKU, runCall, callRecords,
       anthropic: { effort: 'medium', thinking: { type: 'adaptive' } },
     })),
+    checked('mid_conversation_system_message', () => midConversationSystemCheck(runCall, callRecords)),
   ])
   checks.push(gatewayCostCheck(callRecords))
   return { checks, callRecords }
