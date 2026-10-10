@@ -47,12 +47,42 @@ test('battle logging preserves paste, ranking, depth, debrief, and hidden-info r
   assert.match(text, /battle number, version and deck record/)
 })
 
+// 2026-10-10: the digest and the consult. The ORDER is the contract — the
+// digest needs a battle number, so it can only come after the approval lands;
+// the consult needs the digest; the review is written last, on its own card.
+test('battle logging: after the approval, Standard games digest, consult when available, and save the review', () => {
+  const text = flat(pathwayText('battle_log'))
+  assert.match(
+    text,
+    /approval lands.*`add_battle_log` returns the battle number.*\*\*Standard\*\*: call `battle_digest`.*When the `consult` tool is available, call it once.*`review` with `edit_battle_log`/,
+  )
+  assert.match(text, /\*\*Light\*\* skips the digest and the consult/)
+  assert.match(text, /\*\*Deep\*\* games never consult: they go to the \*\*Deep Think\*\* offer/)
+  // The colleague sees only the brief, so the brief must carry the reader's words.
+  assert.match(text, /brief is the digest plus the reader's own words.*because it sees nothing else/)
+  // Haiku without the tool (a raised tier never holds it) still owes the review.
+  assert.match(text, /Without `consult`, write that Standard review yourself from the digest/)
+  assert.match(text, /in-person game has no log to digest/)
+  // The stale line that named a digest before one existed is gone.
+  assert.doesNotMatch(text, /Use the digest for prize gap and end reason/)
+})
+
 test('battle review uses stored archetype records and preserves reader notes', () => {
   const text = flat(pathwayText('battle_review'))
   assert.match(text, /per-archetype record.*absent key is a new archetype.*`games >= 3`/)
   assert.match(text, /write it to `review`, never over the reader's `notes`/)
   assert.match(text, /set `opponent_archetype`/)
   assert.match(text, /Deep Think.*cost card.*roughly how many credits/)
+})
+
+test('battle review digests the games that matter before it concludes — not every game', () => {
+  const text = flat(pathwayText('battle_review'))
+  assert.match(text, /Before concluding, call `battle_digest` on the logs that matter most — the losses to the archetype this deck meets most/)
+  assert.match(text, /not on every log/)
+  assert.ok(
+    text.indexOf('battle_digest') < text.indexOf('classify losses as variance, misplay, list or matchup'),
+    'the digests are evidence for the classification, so they come first',
+  )
 })
 
 test('deck building checks a grounded legal 60 before showing it', () => {

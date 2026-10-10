@@ -49,7 +49,8 @@ import { z } from 'zod';
 import { allTools, type Ctx, type ToolDefinition, type ToolResult } from '@deckpal/agent-tools';
 import { withToolCtx, type ToolCtxOptions } from '../ctx.js';
 import { CallLedger, callKey } from '../repeat.js';
-import { alreadyDeclinedMessage } from '../declined.js';
+import { alreadyDeclinedMessage, declineCallKey } from '../declined.js';
+import { PASTED_LOG_SENTINEL, pasteReferencedBy } from '../pastedLog.js';
 import {
   circuitChipSummary,
   circuitMessage,
@@ -421,6 +422,17 @@ export interface AiSdkAdapterOptions extends ToolCtxOptions {
    * send the sentinel through to the parser as if it were a battle log.
    */
   pastedLog?: () => string | null;
+  /**
+   * How many games the message behind `pastedLog` held — `api/chat.mjs` passes
+   * `() => pastedLogCount(messages)` from the same `pastedLog.ts`.
+   *
+   * The channel carries only the last game of a multi-game message; above 1,
+   * every `add_battle_log` result that used the paste tells the model so
+   * (`multiplePastedGamesNotice`) and the approval card tells the reader
+   * (`multiplePastedGamesCardLine`). OPTIONAL: absent means one game, so a
+   * caller that does not supply it discloses nothing and changes nothing.
+   */
+  pastedLogCount?: () => number;
 }
 
 /**
@@ -642,8 +654,12 @@ export function forcePreview(def: ToolDefinition, input: unknown): unknown {
  * handler is never called. A truncated prefix with no paste is left as the
  * model sent it: there is nothing to substitute, the parser gates on quality,
  * and using the model's (truncated) log is the best available answer.
+ *
+ * Both the constant and the rule (`pasteReferencedBy`) live in `pastedLog.ts`
+ * since 2026-10-10: `declined.ts` must name the game a declined call carried
+ * by the same rule, and it cannot import this adapter, which imports it.
  */
-export const PASTED_LOG_SENTINEL = '@pasted';
+export { PASTED_LOG_SENTINEL };
 
 /** What the model is told when it sent `@pasted` but no paste was found. */
 export const NO_PASTE_FOUND_MESSAGE =
@@ -651,9 +667,53 @@ export const NO_PASTE_FOUND_MESSAGE =
   'Ask the reader to paste the full PTCG Live battle log, then call add_battle_log again ' +
   `with log set to ${PASTED_LOG_SENTINEL}.`;
 
+/**
+ * What the MODEL is told when the reader's message held several games.
+ *
+ * 2026-10-10 (review of #291): `extractPastedLog` carries only the LAST complete
+ * game of a message — one paste channel, one game, by design — and nothing said
+ * so. A reader who pasted two games watched one get logged and believed both
+ * were in. Appended to every `add_battle_log` result that used the paste (dry
+ * run, ranking, or write), so whatever the model does next it knows to ask for
+ * the rest. Empty for one game.
+ */
+export function multiplePastedGamesNotice(count: number): string {
+  if (!Number.isInteger(count) || count <= 1) return '';
+  return `This message held ${count} games; only the last was carried — ask the reader to paste the others one at a time.`;
+}
+
+/**
+ * The same fact for the READER, as a line on the approval card.
+ *
+ * Not the model's sentence: the card is the reader's surface, and "ask the
+ * reader to…" printed on it would be an instruction to Deck-E leaking onto
+ * their screen. Appended to the card's summary rather than prefixed to the dry
+ * run, because `previewSummary` keeps only the first line of a result that is
+ * not a `DRY RUN` block — a prefix would have replaced "Would attach to …", the
+ * one line that says which game is being logged.
+ */
+export function multiplePastedGamesCardLine(count: number): string {
+  if (!Number.isInteger(count) || count <= 1) return '';
+  return `Your message held ${count} games; only the last one is logged here. Paste the others one at a time.`;
+}
+
+/** `text` with the model-facing notice on its own last line, when there is one. */
+function withPastedGamesNotice(text: string, count: number): string {
+  const notice = multiplePastedGamesNotice(count);
+  return notice ? `${text}\n${notice}` : text;
+}
+
 /** The result of {@link applyPastedLog}: either a substituted value or a refusal. */
 export type PasteSubstitution =
-  | { kind: 'ok'; value: unknown }
+  | {
+      kind: 'ok';
+      value: unknown;
+      /**
+       * True when `log` was replaced with the reader's paste — the one case in
+       * which the multi-game disclosure applies.
+       */
+      substituted?: boolean;
+    }
   | { kind: 'fail'; message: string };
 
 /**
@@ -663,7 +723,8 @@ export type PasteSubstitution =
  * that records its args (the parser is not the thing under test — the seam is).
  * Called from `execute` and from the forced-preview path in `onInputAvailable`;
  * both thread the `ok` value to the handler and return the `fail` message
- * without calling it.
+ * without calling it. WHEN `log` stands for the paste is `pasteReferencedBy`'s
+ * call, shared with `declined.ts` — see the comment above.
  *
  * @param def   the tool definition — only `add_battle_log` is touched.
  * @param input the (already-`forcePreview`-coerced) call arguments.
@@ -681,24 +742,16 @@ export function applyPastedLog(
   const log = args?.log;
   if (typeof log !== 'string') return { kind: 'ok', value: input };
 
-  // The sentinel: the model declines to re-type and asks the server to
-  // substitute. With no paste found, refuse rather than hand the handler the
+  // The sentinel with no paste: refuse rather than hand the handler the
   // literal string "@pasted" — the handler is never called.
-  if (log === PASTED_LOG_SENTINEL) {
-    if (!paste) return { kind: 'fail', message: NO_PASTE_FOUND_MESSAGE };
-    return { kind: 'ok', value: { ...(args as Record<string, unknown>), log: paste } };
-  }
+  if (log === PASTED_LOG_SENTINEL && !paste) return { kind: 'fail', message: NO_PASTE_FOUND_MESSAGE };
 
-  // A truncated prefix: what the model sent is a >= 200-char prefix of the
-  // paste (after whitespace-normalization). Substitute the full text; the
-  // parser downstream still gates on quality, but the model meant the whole log.
-  if (log.length >= 200 && paste) {
-    const norm = (s: string): string => s.replace(/\s+/g, ' ').trim();
-    if (norm(paste).startsWith(norm(log))) {
-      return { kind: 'ok', value: { ...(args as Record<string, unknown>), log: paste } };
-    }
-  }
-  return { kind: 'ok', value: input };
+  // The sentinel, or a >= 200-char truncated prefix of the paste: the model
+  // meant the whole log. Substitute the full text; the parser downstream still
+  // gates on quality. Anything else is left exactly as the model sent it.
+  const referenced = pasteReferencedBy(log, paste);
+  if (referenced === null) return { kind: 'ok', value: input };
+  return { kind: 'ok', value: { ...(args as Record<string, unknown>), log: referenced }, substituted: true };
 }
 
 /**
@@ -1166,7 +1219,12 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
   const declined = opts.declined ?? new Set<string>();
   const alreadyDeclined = (name: string, input: unknown): boolean => {
     if (declined.size === 0) return false;
-    if (declined.has(callKey(name, input))) return true;
+    // A battle log's key names the GAME the call would carry after paste
+    // substitution, not the `@pasted` sentinel — see `declineCallKey`. Handed
+    // the same paste `applyPastedLog` will substitute, so the game checked here
+    // is the game that would be written.
+    const paste = name === 'add_battle_log' ? opts.pastedLog?.() : null;
+    if (declined.has(declineCallKey(name, input, paste))) return true;
     if (!opts.conversationalLogging || name !== 'log_cards') return false;
     // New chat history carries the signed exposed shape (no dry_run); accept
     // the former normalized shape too so an in-flight pre-deploy decline does
@@ -1382,7 +1440,12 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
           const result = await withToolCtx(opts, (ctx: Ctx) =>
             def.handler(subPreview.value, ctx),
           );
-          emit(buildApprovalPreview(def, toolCallId, result, opts.readerNamedPrinting === true, input));
+          const preview = buildApprovalPreview(def, toolCallId, result, opts.readerNamedPrinting === true, input);
+          // A multi-game paste says so on the card, under what it would log.
+          const gamesLine = subPreview.substituted
+            ? multiplePastedGamesCardLine(opts.pastedLogCount?.() ?? 1)
+            : '';
+          emit(gamesLine ? { ...preview, summary: `${preview.summary}\n${gamesLine}` } : preview);
         } catch {
           // Deliberately silent, and deliberately not an `onEvent`. A chip for
           // a failed dialog-preview would tell the reader a tool failed when
@@ -1502,6 +1565,9 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
             opts.onEvent?.({ phase: 'error', ...chip, summary: 'no pasted log found this conversation' });
             return sub.message;
           }
+          // How many games the paste's message held; only a call that carried
+          // the paste can have left any behind.
+          const pastedGames = sub.substituted ? (opts.pastedLogCount?.() ?? 1) : 1;
           // An approved call can be replayed in a later HTTP request. Bind its
           // write key to the signed SDK call, not the tool's 15-minute clock
           // bucket, so an approval at the boundary cannot apply twice.
@@ -1534,7 +1600,13 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
             const visible = result.isError
               ? usefulToolFailure(def.name, result.text)
               : result.text;
-            const text = clampToolText(visible, maxToolChars(def.name, opts.maxChars));
+            // The multi-game notice goes LAST: the chip below summarises the
+            // first line, which stays the tool's own ("Logged battle #…"), and
+            // `usefulToolFailure` has already read the handler's own text.
+            const text = clampToolText(
+              withPastedGamesNotice(visible, pastedGames),
+              maxToolChars(def.name, opts.maxChars),
+            );
             // BEFORE the clamp would have been wrong: an id cut off by the
             // ceiling is an id the model never saw, and grounding it would let
             // a half-read page license a full grid. Observe exactly what he

@@ -11,7 +11,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { buildTools, CLIENT_TOOLS, COSMETIC_TOOLS, SERVER_TOOLS, isAllowedRoute } from '../tools.js'
+import { buildTools, CLIENT_TOOLS, COSMETIC_TOOLS, SERVER_TOOLS, isAllowedRoute, toolsForTier } from '../tools.js'
 import { ROUTE_SHAPE_LINES } from '../prompt.js'
 import { createGrounding } from '../grounding.js'
 import type { Queryable } from '@deckpal/db'
@@ -284,6 +284,117 @@ test('COSMETIC_TOOLS is every tool buildTools exposes — the list the leak filt
     COSMETIC_TOOLS.length,
     'a duplicate would be harmless in the regex and confusing everywhere else',
   )
+})
+
+// ── THE CONSULT (2026-10-10) ────────────────────────────────────────────────
+//
+// Haiku asks Sonnet one question. consult.test.ts pins the model call; these
+// pin the tool around it: who may hold it, what it emits, and what it refuses.
+
+type ConsultTool = {
+  inputSchema: z.ZodTypeAny
+  execute: (input: unknown, opts: { toolCallId: string }) => Promise<string>
+}
+
+test('consult is held only on the Quick tier, and taking it changes nothing else', () => {
+  const all = buildTools(noopWriter)
+  const names = Object.keys(all)
+  assert.ok(names.includes('consult'))
+  assert.equal(names.at(-1), 'consult', 'last, so removing it leaves every other position as it was')
+  assert.deepEqual(Object.keys(toolsForTier(all, 'quick')), names)
+  for (const tier of ['standard', 'deep'] as const) {
+    assert.deepEqual(
+      Object.keys(toolsForTier(all, tier)),
+      names.filter((n) => n !== 'consult'),
+      `${tier}: a consult would ask the same model, or a weaker one`,
+    )
+  }
+  // A pure filter: the set it was handed is not mutated.
+  assert.ok('consult' in all)
+})
+
+test('consult input is one bounded question and one bounded brief', () => {
+  const consult = (buildTools(noopWriter) as unknown as Record<string, ConsultTool>).consult!
+  const ok = (input: unknown) => consult.inputSchema.safeParse(input).success
+  assert.equal(ok({ question: 'What decided it?', brief: 'Digest…' }), true)
+  assert.equal(ok({ question: 'q'.repeat(500), brief: 'b'.repeat(8_000) }), true)
+  assert.equal(ok({ question: 'q'.repeat(501), brief: 'b' }), false)
+  assert.equal(ok({ question: 'q', brief: 'b'.repeat(8_001) }), false)
+  assert.equal(ok({ question: '   ', brief: 'b' }), false)
+  assert.equal(ok({ question: 'q' }), false)
+})
+
+test('consult asks the injected colleague, chips "Thinking it through", and hands the answer back', async () => {
+  const asked: Array<{ question: string; brief: string }> = []
+  const events: Array<{ phase: string; name: string; title: string; label?: string; summary?: string; args?: unknown }> = []
+  const grounding = createGrounding()
+  const tools = buildTools(noopWriter, grounding, undefined, (event) => events.push(event), {
+    consult: async (input) => {
+      asked.push(input)
+      return 'Turn 7 decided it: Fezandipiti ex (sv06.5-038) was benched into a two-prize Knock Out.'
+    },
+  }) as unknown as Record<string, ConsultTool>
+
+  const out = await tools.consult!.execute({ question: 'What decided it?', brief: 'Lost 4-6.' }, { toolCallId: 'c1' })
+
+  assert.deepEqual(asked, [{ question: 'What decided it?', brief: 'Lost 4-6.' }])
+  assert.match(out, /^Turn 7 decided it/)
+  assert.match(out, /reader has not seen it/)
+  assert.deepEqual(events.map((e) => e.phase), ['start', 'ok'])
+  assert.equal(events[0]!.title, 'Thinking it through')
+  assert.equal(events[0]!.label, 'Thinking it through')
+  assert.deepEqual(events[0]!.args, { question: 'What decided it?' }, 'the brief stays off the chip')
+  assert.equal(events[1]!.label, 'Thought it through')
+  assert.match(events[1]!.summary ?? '', /^analysis ready · \d+ words$/)
+  // An id in the colleague's answer came from Deck-E's own brief: never evidence.
+  assert.equal(grounding.seen('sv06.5-038'), false)
+})
+
+test('a failed consult is NO_WORK with a safe reason — never the provider\'s own words', async () => {
+  const events: Array<{ phase: string; summary?: string }> = []
+  const tools = buildTools(noopWriter, undefined, undefined, (event) => events.push(event), {
+    consult: async () => {
+      throw Object.assign(new Error('upstream said: internal-host-7 key sk-abc'), { statusCode: 500 })
+    },
+  }) as unknown as Record<string, ConsultTool>
+  const out = await tools.consult!.execute({ question: 'q', brief: 'b' }, { toolCallId: 'c2' })
+  assert.match(out, /^\[\[NO_WORK\]\] NOT RUN — the consult did not finish: the model request failed/)
+  assert.match(out, /Write the analysis yourself/)
+  assert.doesNotMatch(out, /internal-host|sk-abc/)
+  assert.deepEqual(events.map((e) => e.phase), ['start', 'error'])
+  assert.equal(events[1]!.summary, "Couldn't think it through")
+
+  const capped = buildTools(noopWriter, undefined, undefined, undefined, {
+    consult: async () => {
+      throw Object.assign(new Error('cap'), { code: 'DKCAP' })
+    },
+  }) as unknown as Record<string, ConsultTool>
+  assert.match(
+    await capped.consult!.execute({ question: 'q', brief: 'b' }, { toolCallId: 'c3' }),
+    /credit limit for this request was reached/,
+  )
+})
+
+test('without an injected colleague, consult says so and does nothing', async () => {
+  const tools = buildTools(noopWriter) as unknown as Record<string, ConsultTool>
+  const out = await tools.consult!.execute({ question: 'q', brief: 'b' }, { toolCallId: 'c4' })
+  assert.match(out, /^\[\[NO_WORK\]\] NOT RUN — a consult is not available/)
+})
+
+test('two consults per request, then a refusal — a loop is not billed', async () => {
+  let calls = 0
+  const tools = buildTools(noopWriter, undefined, undefined, undefined, {
+    consult: async () => {
+      calls += 1
+      return 'Analysis.'
+    },
+  }) as unknown as Record<string, ConsultTool>
+  for (const id of ['a', 'b']) {
+    assert.match(await tools.consult!.execute({ question: 'q', brief: 'b' }, { toolCallId: id }), /^Analysis\./)
+  }
+  const third = await tools.consult!.execute({ question: 'q', brief: 'b' }, { toolCallId: 'c' })
+  assert.match(third, /^\[\[NO_WORK\]\] NOT RUN — 2 consults is the limit for one request/)
+  assert.equal(calls, 2)
 })
 
 test('the route allowlist keeps /profile out, by both spellings', () => {

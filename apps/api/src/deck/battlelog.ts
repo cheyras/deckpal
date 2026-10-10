@@ -699,3 +699,440 @@ function parseInner(rawLog: string, deckCardNames: string[], playerName?: string
   }
   return out;
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// THE DIGEST — one game, read into the shape a model can reason about
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// WHY THIS EXISTS (2026-10-10). The owner wants Deck-E to review a battle with
+// judgement: a nothing-burger gets a two-line note, a game worth learning from
+// gets a real analysis. What the model had to work with was the raw log — up to
+// 50,000 characters, most of it shuffles and "drew a card" — and the thin parse
+// above (who won, prizes, the KO lists). Neither says WHEN anything happened.
+// "Lost 4-6" reads the same whether the game was even until the last turn or
+// over by turn five, and that difference is the whole review.
+//
+// So this reads the same log a second time for the timeline: prizes by turn
+// and what they were taken for, each side's first attack, mulligans, turns,
+// every card the opponent showed, and how the game ended. It is small enough to
+// put in a brief for a stronger model (`decke/consult.ts`) and plain enough
+// for a cheap one to read directly.
+//
+// IT REUSES THE PARSER RATHER THAN SHADOWING IT. Owner identification, the
+// result, the board and the deck guess all come from `parseBattleLog`, so the
+// digest cannot disagree with the stored battle about who won or which player
+// is the reader. The walk below only adds what the parse throws away, keyed by
+// player NAME until the end, so the perspective-free facts (turn count, how it
+// ended, whether it was close) survive even when the owner cannot be named.
+//
+// Pure and total, like the parser: arbitrary text yields the empty digest, it
+// never throws.
+
+export type DigestSide = 'me' | 'opponent';
+
+export interface DigestSides<T> {
+  me: T;
+  opponent: T;
+}
+
+/** One prize-taking line, in log order. */
+export interface DigestPrizeEvent {
+  /** The game's turn number, both players counted (turn 1 = the first player's first turn; 0 = setup). */
+  turn: number;
+  /** Who TOOK the prizes. */
+  side: DigestSide;
+  /** Prizes taken by this one line (1, 2 or 3). */
+  prizes: number;
+  /** The Pokémon whose Knock Out paid for them, when the log names one. */
+  knockedOut: string | null;
+  /** Prizes TAKEN by each side once this line had happened. */
+  score: DigestSides<number>;
+}
+
+export interface DigestCard {
+  name: string;
+  /** Log lines, or entries in a revealed card list, that showed this card. */
+  count: number;
+}
+
+export type DigestEndReason = 'prizes' | 'concede' | 'deck-out' | 'other';
+
+export interface BattleDigest {
+  players: { me: string | null; opponent: string | null };
+  /** Every player name the log mentions, first appearance first. */
+  playerNames: string[];
+  confidence: 'high' | 'low';
+  result: 'win' | 'loss' | 'tie' | null;
+  wentFirst: DigestSide | null;
+  /** Total turn headers in the log, both players. */
+  totalTurns: number;
+  /**
+   * Per-side facts. NULL when the owner could not be identified — never a
+   * guessed split, because every one of these would silently invert (the #34
+   * failure recorded above).
+   */
+  turns: DigestSides<number> | null;
+  mulligans: DigestSides<number> | null;
+  firstAttackTurn: DigestSides<number | null> | null;
+  finalPrizes: DigestSides<number> | null;
+  prizeTimeline: DigestPrizeEvent[];
+  /** Every card the opponent showed, deduped, most-seen first. */
+  opponentCards: DigestCard[];
+  myPokemonUsed: string[];
+  opponentArchetypeGuess: string | null;
+  endReason: DigestEndReason;
+  /** The lead in prizes changed hands at least once. Perspective-free. */
+  leadChanged: boolean;
+  closeGame: boolean;
+  /** What this log cannot tell anyone, said rather than left for a model to fill. */
+  unknowns: string[];
+}
+
+/** Hidden information in every PTCG Live log, whoever exported it. */
+const ALWAYS_UNKNOWN = [
+  "the opponent's hand, and any card of theirs that was never shown",
+  'which cards were prized, on either side',
+] as const;
+
+/**
+ * Deck-out wording. NOT OBSERVED in a real log yet — no fixture ends that way —
+ * so this is a guess at Live's phrasing, kept deliberately narrow. A miss lands
+ * on 'other', which is true; a loose pattern could land a timeout on
+ * 'deck-out', which would not be.
+ */
+const DECK_OUT_RE = /\b(?:no (?:more )?cards (?:left )?in (?:their|the|his|her) deck|ran out of cards|could(?:n't| not) draw a card|decked out)\b/i;
+
+interface DigestPlayerState {
+  turns: number;
+  mulligans: number;
+  firstAttack: number | null;
+  prizes: number;
+  /** Their own Pokémon Knocked Out and not yet paid for by an opposing prize line. */
+  pendingKnockOuts: string[];
+  seen: Map<string, DigestCard>;
+  /** Pokémon put onto the Bench from a revealed list ("drew 2 cards and played them to the Bench"). */
+  benchedFromList: string[];
+}
+
+function emptyDigest(parsed: ParsedBattleLog | null): BattleDigest {
+  return {
+    players: { me: null, opponent: null },
+    playerNames: parsed?.playerCards.map((p) => p.name) ?? [],
+    confidence: 'low',
+    result: null,
+    wentFirst: null,
+    totalTurns: 0,
+    turns: null,
+    mulligans: null,
+    firstAttackTurn: null,
+    finalPrizes: null,
+    prizeTimeline: [],
+    opponentCards: [],
+    myPokemonUsed: [],
+    opponentArchetypeGuess: null,
+    endReason: 'other',
+    leadChanged: false,
+    closeGame: false,
+    unknowns: [...ALWAYS_UNKNOWN, 'the game itself — no turns were found; this may not be a PTCG Live log'],
+  };
+}
+
+/**
+ * Digest one PTCG Live log from the deck owner's side. `deckCardNames` and
+ * `opts.playerName` identify the owner exactly as `parseBattleLog` does — an
+ * explicit name wins over deck overlap.
+ */
+export function digestBattleLog(
+  rawLog: string,
+  deckCardNames: string[],
+  opts: { playerName?: string } = {},
+): BattleDigest {
+  let parsed: ParsedBattleLog | null = null;
+  try {
+    parsed = parseBattleLog(rawLog, deckCardNames, opts.playerName);
+    return digestInner(rawLog, parsed);
+  } catch {
+    return emptyDigest(parsed);
+  }
+}
+
+function digestInner(rawLog: string, parsed: ParsedBattleLog): BattleDigest {
+  const names = parsed.playerCards.map((p) => p.name);
+  if (typeof rawLog !== 'string' || names.length === 0) return emptyDigest(parsed);
+
+  // Longest first, so a player called "Ash" can never claim a line by "Ash K".
+  const byLength = [...names].sort((a, b) => b.length - a.length);
+  const state = new Map<string, DigestPlayerState>(
+    names.map((n) => [n, {
+      turns: 0, mulligans: 0, firstAttack: null, prizes: 0,
+      pendingKnockOuts: [], seen: new Map(), benchedFromList: [],
+    }]),
+  );
+  const other = (n: string): string | null => names.find((x) => x !== n) ?? null;
+  const see = (n: string, card: string): void => {
+    const name = card.trim().replace(/[.!]+$/, '');
+    if (!name) return;
+    const seen = state.get(n)!.seen;
+    const key = nameKey(name);
+    const hit = seen.get(key);
+    if (hit) hit.count += 1;
+    else seen.set(key, { name, count: 1 });
+  };
+  /** Who a revealed-card list under this line belongs to. Possession beats the actor:
+   *  "PlayerA moved PlayerB's 2 cards to the discard pile" lists PlayerB's cards. */
+  const ownerOf = (line: string): string | null => {
+    for (const n of byLength) {
+      if (line.includes(`from ${n}'s `) || line.includes(`moved ${n}'s `) || line.includes(`to ${n}'s hand`)) return n;
+    }
+    for (const n of byLength) {
+      if (line.startsWith(`${n} `) || line.startsWith(`${n}'s `)) return n;
+    }
+    return null;
+  };
+
+  let turn = 0;
+  let parentOwner: string | null = null;
+  let listOwner: string | null = null;
+  let listToBench = false;
+  let lastMulligan: string | null = null;
+  let stadium: { key: string; owner: string } | null = null;
+  let winner: string | null = null;
+  let winPrefix = '';
+  let conceder: string | null = null;
+  let deckOutLine = -1;
+  let winLine = -1;
+  let lineNo = 0;
+  const events: { turn: number; taker: string; prizes: number; knockedOut: string | null }[] = [];
+
+  for (const orig of rawLog.split(/\r?\n/)) {
+    lineNo += 1;
+    // ── A revealed card list ("   • A, B, C") belongs to the line above it ──
+    if (/^\s*•/.test(orig)) {
+      if (!listOwner) continue;
+      const items = normalizeLine(orig).replace(/^\s*•\s*/, '').split(/,\s*/);
+      for (const item of items) {
+        const card = item.trim();
+        if (!card) continue;
+        see(listOwner, card);
+        if (listToBench) state.get(listOwner)!.benchedFromList.push(card);
+      }
+      continue;
+    }
+    const isSub = /^\s*-\s+/.test(orig);
+    const line = normalizeLine(orig).replace(/^\s*-\s+/, '').trim();
+    if (!line) {
+      listOwner = null;
+      continue;
+    }
+    if (DECK_OUT_RE.test(line)) deckOutLine = lineNo;
+
+    const header = line.match(/^(.+)'s Turn$/);
+    if (header && state.has(header[1]!)) {
+      turn += 1;
+      state.get(header[1]!)!.turns += 1;
+      parentOwner = listOwner = null;
+      continue;
+    }
+
+    const win = line.match(/^(?:(.*[.!?])\s+)?(.+?) wins\.?$/);
+    if (win && state.has(win[2]!)) {
+      winner = win[2]!;
+      winPrefix = win[1] ?? '';
+      winLine = lineNo;
+      listOwner = null;
+      continue;
+    }
+    const conc = line.match(/^(.+?) conceded/);
+    if (conc && state.has(conc[1]!)) {
+      conceder = conc[1]!;
+      listOwner = null;
+      continue;
+    }
+
+    // ── Whose list follows this line ───────────────────────────────────────
+    // A sub-line with no player of its own ("- 7 drawn cards.", "- Cards
+    // revealed from Mulligan 1") inherits its parent's; the damage breakdown is
+    // arithmetic, not cards, and must never be read as a hand.
+    const own = ownerOf(line);
+    const owner: string | null = own ?? (isSub && !/^Damage breakdown/i.test(line) ? parentOwner : null);
+    if (!isSub) parentOwner = owner;
+    listOwner = owner;
+    listToBench = /played them to the Bench/i.test(line);
+
+    const revealed = line.match(/^Cards revealed from Mulligan (\d+)/i);
+    if (revealed && lastMulligan) {
+      const p = state.get(lastMulligan)!;
+      p.mulligans = Math.max(p.mulligans, Number(revealed[1]));
+      continue;
+    }
+
+    let matched = false;
+    for (const n of byLength) {
+      const p = state.get(n)!;
+      if (line.startsWith(`${n} `)) {
+        const rest = line.slice(n.length + 1);
+        let m: RegExpMatchArray | null;
+        if (/^took a mulligan\b/.test(rest)) {
+          p.mulligans += 1;
+          lastMulligan = n;
+        } else if ((m = rest.match(/^took (\d+) mulligans?\b/))) {
+          p.mulligans += Number(m[1]);
+          lastMulligan = n;
+        } else if ((m = rest.match(/^played (.+?) to the Stadium spot\.?$/))) {
+          stadium = { key: nameKey(m[1]!), owner: n };
+          see(n, m[1]!);
+        } else if ((m = rest.match(/^played (.+?) to the (?:Bench|Active Spot)\.?$/))) {
+          see(n, m[1]!);
+        } else if ((m = rest.match(/^played (.+?)\.$/))) {
+          // "PlayerB played Academy at Night." is also how Live writes USING
+          // the Stadium in play — PlayerA's, in the Slowking fixture. Counting
+          // that as PlayerB's card would tell a model they run it.
+          if (!(stadium && stadium.key === nameKey(m[1]!) && stadium.owner !== n)) see(n, m[1]!);
+        } else if ((m = rest.match(/^evolved (.+?) to (.+?)(?: (?:in the Active Spot|on the Bench))?\.?$/))) {
+          see(n, m[2]!);
+        } else if ((m = rest.match(/^attached (.+?) to .+$/))) {
+          see(n, m[1]!);
+        } else if ((m = rest.match(/^drew (.+?)\.$/)) && !/^(?:a card|an? |\d)/i.test(m[1]!)) {
+          // "drew Switch." names the card; "drew a card." / "drew 2 cards." do not.
+          see(n, m[1]!);
+        } else if ((m = rest.match(/^took (\d+) Prize cards?\.?$/)) || /^took a Prize card\.?$/.test(rest)) {
+          const prizes = m ? Number(m[1]) : 1;
+          p.prizes += prizes;
+          const opp = other(n);
+          const knockedOut = opp ? state.get(opp)!.pendingKnockOuts.shift() ?? null : null;
+          events.push({ turn, taker: n, prizes, knockedOut });
+        }
+        matched = true;
+        break;
+      }
+      if (line.startsWith(`${n}'s `)) {
+        const rest = line.slice(n.length + 3);
+        let m: RegExpMatchArray | null;
+        if ((m = rest.match(/^(.+?) was Knocked Out!/))) {
+          p.pendingKnockOuts.push(m[1]!.trim());
+          see(n, m[1]!);
+        } else if ((m = rest.match(/^(.+?) used .+? on .+? for \d+ damage\b/))) {
+          // An attack that dealt damage. Abilities and damage-free attacks
+          // print the same "used X." line and cannot be told apart without
+          // card text, so the FIRST ATTACK is the first damage dealt.
+          if (p.firstAttack === null) p.firstAttack = turn;
+          see(n, m[1]!);
+        } else if ((m = rest.match(/^(.+?) used .+$/))) {
+          see(n, m[1]!);
+        } else if ((m = rest.match(/^(.+?) is now in the Active Spot\.?$/))) {
+          see(n, m[1]!);
+        }
+        matched = true;
+        break;
+      }
+    }
+    if (matched) continue;
+
+    let m: RegExpMatchArray | null;
+    if ((m = line.match(/^(.+?) was added to (.+?)'s hand\.?$/)) && state.has(m[2]!) && !/^a card$/i.test(m[1]!)) {
+      see(m[2]!, m[1]!);
+    } else if ((m = line.match(/^(.+?) (?:was|were) discarded from (.+?)'s .+$/)) && state.has(m[2]!) && !/^\d/.test(m[1]!)) {
+      see(m[2]!, m[1]!);
+    }
+  }
+
+  // ── How it ended ───────────────────────────────────────────────────────────
+  let endReason: DigestEndReason = 'other';
+  if (winner) {
+    if (conceder || /conceded/i.test(winPrefix)) endReason = 'concede';
+    else if (/Prize cards/i.test(winPrefix) || state.get(winner)!.prizes >= 6) endReason = 'prizes';
+    else if (DECK_OUT_RE.test(winPrefix) || (deckOutLine > 0 && winLine - deckOutLine <= 2)) endReason = 'deck-out';
+  } else if (conceder) {
+    endReason = 'concede';
+  } else if (names.some((n) => state.get(n)!.prizes >= 6)) {
+    // The result line is missing (a paste cut short) but someone took all six:
+    // that IS how it ended, and saying 'other' would be throwing it away.
+    endReason = 'prizes';
+  }
+
+  // ── Was it close? ──────────────────────────────────────────────────────────
+  // The rule the owner gave: a prize gap of two or less at the end, or a lead
+  // that changed hands. One guard on the first half, so the depth call in the
+  // battle_log pathway gets the answer it means: a 0-0 concession on turn two
+  // has a "gap" of zero and is the opposite of close. The gap only counts once
+  // someone has taken three prizes — any game that ran to the end has.
+  const running = new Map(names.map((n) => [n, 0]));
+  let leader: string | null = null;
+  let leadChanged = false;
+  for (const e of events) {
+    running.set(e.taker, running.get(e.taker)! + e.prizes);
+    const [a, b] = names;
+    const ahead = b === undefined ? a! : running.get(a!)! > running.get(b)! ? a! : running.get(b)! > running.get(a!)! ? b : null;
+    if (ahead && leader && ahead !== leader) leadChanged = true;
+    if (ahead) leader = ahead;
+  }
+  const totals = names.map((n) => state.get(n)!.prizes);
+  const gap = totals.length >= 2 ? Math.abs(totals[0]! - totals[1]!) : totals[0] ?? 0;
+  const closeGame = leadChanged || (gap <= 2 && Math.max(0, ...totals) >= 3);
+
+  const unknowns: string[] = [...ALWAYS_UNKNOWN];
+  if (!winner && !conceder && endReason === 'other') unknowns.push('how the game ended — the log has no result line (it may be cut off)');
+  if (turn === 0) unknowns.push('the game itself — no turns were found; this may not be a PTCG Live log');
+
+  const meName = parsed.players.me;
+  const base = {
+    playerNames: names,
+    totalTurns: turn,
+    endReason,
+    leadChanged,
+    closeGame,
+  };
+
+  // ── No owner: the perspective-free half only ───────────────────────────────
+  if (meName === null || !state.has(meName)) {
+    unknowns.push(
+      `which player is the deck owner (the log names ${names.join(' and ')}) — pass the reader's screen name to read it from their side`,
+    );
+    return {
+      ...emptyDigest(parsed),
+      ...base,
+      unknowns,
+    };
+  }
+
+  const oppName = parsed.players.opponent ?? other(meName);
+  const me = state.get(meName)!;
+  const opp = oppName ? state.get(oppName) ?? null : null;
+  if (parsed.wentFirst === null) unknowns.push('who went first — the coin-flip lines are missing');
+
+  const score = { me: 0, opponent: 0 };
+  const prizeTimeline = events.map((e): DigestPrizeEvent => {
+    const side: DigestSide = e.taker === meName ? 'me' : 'opponent';
+    score[side] += e.prizes;
+    return { turn: e.turn, side, prizes: e.prizes, knockedOut: e.knockedOut, score: { ...score } };
+  });
+
+  const myPokemonUsed = [...parsed.myPokemon];
+  for (const mon of me.benchedFromList) {
+    if (!myPokemonUsed.some((m) => nameKey(m) === nameKey(mon))) myPokemonUsed.push(mon);
+  }
+
+  // Most-seen first; ties keep first appearance, which is what Map order is.
+  const opponentCards = opp
+    ? [...opp.seen.values()].map((c, i) => ({ c, i }))
+        .sort((x, y) => y.c.count - x.c.count || x.i - y.i)
+        .map(({ c }) => ({ name: c.name, count: c.count }))
+    : [];
+
+  return {
+    ...base,
+    players: { me: meName, opponent: oppName },
+    confidence: parsed.confidence,
+    result: parsed.result,
+    wentFirst: parsed.wentFirst,
+    turns: { me: me.turns, opponent: opp?.turns ?? 0 },
+    mulligans: { me: me.mulligans, opponent: opp?.mulligans ?? 0 },
+    firstAttackTurn: { me: me.firstAttack, opponent: opp?.firstAttack ?? null },
+    finalPrizes: { me: me.prizes, opponent: opp?.prizes ?? 0 },
+    prizeTimeline,
+    opponentCards,
+    myPokemonUsed,
+    opponentArchetypeGuess: parsed.opponentDeckGuess,
+    unknowns,
+  };
+}

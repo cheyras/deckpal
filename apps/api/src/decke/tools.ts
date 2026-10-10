@@ -35,7 +35,8 @@ import { briefArgs } from './toolArgs.js'
 import { NO_WORK } from './deepOutcome.js'
 import type { Queryable } from '@deckpal/db'
 import { canAskToShare } from './improvement.js'
-import { PATHWAY_NAMES } from './pathways/names.js'
+import { PATHWAY_NAMES, type TierName } from './pathways/names.js'
+import { CONSULT_BRIEF_MAX, CONSULT_MAX_PER_REQUEST, CONSULT_QUESTION_MAX, consultFailure } from './consult.js'
 
 /**
  * Routes Deck-E may navigate to.
@@ -578,6 +579,13 @@ export function buildTools(
   onEvent?: (e: ToolEvent) => void,
   opts?: {
     checkDeck?: (input: { format?: string; cards: { card_id: string; quantity: number }[] }) => Promise<DeckCheckResult>
+    /**
+     * One question to the Standard-tier model, returning its analysis
+     * (`runConsult` in consult.ts, wrapped by api/chat.mjs in the request's
+     * usage observer). Injected like `checkDeck`, so this module never holds
+     * a Gateway handle and the tests never reach one.
+     */
+    consult?: (input: { question: string; brief: string }) => Promise<string>
     db?: Queryable
     userId?: string
     conversationId?: string
@@ -592,6 +600,8 @@ export function buildTools(
   const ended = (id: string, name: string, title: string, summary: string): void => {
     onEvent?.({ phase: 'ok', id, name, title, summary })
   }
+  /** Consults run so far in this request — `buildTools` is called once per request. */
+  let consults = 0
   return {
     express: tool({
       description:
@@ -1084,7 +1094,92 @@ export function buildTools(
         }
       },
     }),
+
+    /**
+     * ── A SECOND OPINION, BOUGHT ONLY WHERE IT PAYS (2026-10-10) ────────────
+     *
+     * The cheap tier does the work and buys judgement for the one part that
+     * needs it: Haiku writes a brief, Sonnet answers one question about it, and
+     * Haiku writes the result in his own voice. See consult.ts for why this is
+     * cheaper and better than raising the whole request to Standard.
+     *
+     * LAST IN THIS FACTORY, and only present on the Quick tier
+     * (`toolsForTier` below): on Standard or Deep a consult is the same model
+     * or a weaker one. Last, so the tools ahead of it keep their positions
+     * whichever tier holds the set — and since the tier also picks the model,
+     * each model always sees one stable list.
+     *
+     * THE ANSWER IS NOT GROUNDED EVIDENCE. Nothing it returns is passed to
+     * `grounding.observe`: every card id in it came from the brief, which Deck-E
+     * wrote, so observing it would let an id he invented launder itself into
+     * one `showScreen` may draw.
+     */
+    consult: tool({
+      description:
+        'Ask a stronger model (Claude Sonnet) ONE question when part of the job deserves deeper judgement than a quick read — ' +
+        'above all a Standard-depth review of a game worth learning from. It sees ONLY your brief: not the conversation, ' +
+        'not DeckPal, and it cannot call tools. So put everything it may use in the brief — the battle_digest text, the ' +
+        "reader's own words quoted, the record against that archetype — and ask one specific question. The answer comes " +
+        'back to you, not the reader: keep what the brief supports and write it in your own words. It costs the reader ' +
+        'credits — never use it for lookups, small talk, a Light game, or to ask the same thing twice.',
+      inputSchema: z.object({
+        question: z
+          .string()
+          .trim()
+          .min(1)
+          .max(CONSULT_QUESTION_MAX)
+          .describe('One focused question, e.g. "What decided this game, and what is the one lesson for next time?"'),
+        brief: z
+          .string()
+          .trim()
+          .min(1)
+          .max(CONSULT_BRIEF_MAX)
+          .describe("Everything the colleague may use: the digest, the reader's words, relevant records. Nothing else reaches it."),
+      }),
+      execute: async ({ question, brief }, { toolCallId }) => {
+        const title = 'Thinking it through'
+        // The question is the chip's argument; the brief is long and is the
+        // reader's own game, which the transcript already holds.
+        onEvent?.({ phase: 'start', id: toolCallId, name: 'consult', title, label: title, args: { question } })
+        const notRun = (summary: string, reason: string): string => {
+          onEvent?.({ phase: 'error', id: toolCallId, name: 'consult', title, label: title, summary })
+          return `${NO_WORK} NOT RUN — ${reason}. Write the analysis yourself from what you already have, ` +
+            'keep it short, and do not say that anyone else reviewed it.'
+        }
+        if (!opts?.consult) return notRun('No deeper analysis here', 'a consult is not available in this conversation')
+        if (consults >= CONSULT_MAX_PER_REQUEST) {
+          return notRun('Already thought it through', `${CONSULT_MAX_PER_REQUEST} consults is the limit for one request`)
+        }
+        consults += 1
+        let analysis: string
+        try {
+          analysis = await opts.consult({ question, brief })
+        } catch (error) {
+          return notRun("Couldn't think it through", `the consult did not finish: ${consultFailure(error)}`)
+        }
+        const words = analysis.split(/\s+/).filter(Boolean).length
+        onEvent?.({ phase: 'ok', id: toolCallId, name: 'consult', title, label: 'Thought it through', summary: `analysis ready · ${words} words` })
+        return `${analysis}\n\n` +
+          '(From the consult, for you — the reader has not seen it. Keep what the brief supports and write it in your own words.)'
+      },
+    }),
   }
+}
+
+/**
+ * The tool set a request at this tier holds.
+ *
+ * DECIDED ONCE PER REQUEST, from the tier code chose before the first step,
+ * and never per step: Anthropic caches the tool list as part of the prompt
+ * prefix, and a set that changed between steps would re-bill it (focus.ts).
+ * `consult` is the only tier-bound tool: on Standard or Deep it would ask the
+ * same model, or a weaker one, for a second opinion it can already give.
+ */
+export function toolsForTier(tools: ToolSet, tier: TierName): ToolSet {
+  if (tier === 'quick') return tools
+  const { consult: _consult, ...rest } = tools
+  void _consult
+  return rest
 }
 
 /** Tools the BROWSER fulfils. The server must not try to execute these. */
@@ -1106,7 +1201,7 @@ export const CLIENT_TOOLS = [
  * half is not a union. `tools.test.ts` pins both halves against the structural
  * property that actually decides it — whether the tool has an `execute`.
  */
-export const SERVER_TOOLS = ['express', 'showScreen', 'showDeck', 'ask_to_share_chat', 'ask_user'] as const
+export const SERVER_TOOLS = ['express', 'showScreen', 'showDeck', 'ask_to_share_chat', 'ask_user', 'consult'] as const
 
 /**
  * EVERY tool `buildTools` exposes: the character's own vocabulary.
@@ -1114,7 +1209,9 @@ export const SERVER_TOOLS = ['express', 'showScreen', 'showDeck', 'ask_to_share_
  * This began as the nine cosmetic/navigation tools counted in `focus.ts`.
  * `ask_user` now lives in the same factory because it is Deck-E-only and
  * server-executed, even though its effect is a conversation card rather than
- * scenery. The name is historical; the contract is structural: this is every
+ * scenery; `consult` (2026-10-10) is here for the same reason, and is the one
+ * entry a request may not hold — see `toolsForTier`. The name is historical;
+ * the contract is structural: this is every
  * tool returned above, whoever runs it. Two places need that WHOLE set:
  *
  *   - `narration.ts` strips these names when the model writes one as prose
