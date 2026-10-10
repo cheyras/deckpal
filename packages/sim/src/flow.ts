@@ -514,7 +514,11 @@ function doAction(env: Env, s: GameState, a: Action): void {
     case 'evolve': {
       const sl = allSlots(ps).find((x) => x.id === a.slot) as Slot;
       removeFrom(ps.hand, a.card);
+      // Once-per-turn use is per Ability: the Evolution's own Abilities are fresh even if the Basic used one this
+      // turn (rules audit). A same-named Ability stays spent — see the todo in rules-audit.test.ts.
+      const spent = sl.usedAbilities.map((i) => def(env.ctx, topCard(sl)).abilities[i]?.name);
       sl.cards.push(a.card);
+      sl.usedAbilities = def(env.ctx, a.card).abilities.flatMap((ab, i) => (spent.includes(ab.name) ? [i] : []));
       sl.evolvedTurn = s.turn;
       // Evolving clears Special Conditions and attack effects on the Pokémon.
       sl.cond = 0;
