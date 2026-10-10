@@ -230,7 +230,9 @@ function dealDamage(
     let dmg = base;
     if (dmg > 0 && attacker && owner !== f.player && isActive) dmg += damageOut(env, s, attacker, target, all);
     if (dmg > 0 && isActive && owner !== f.player) {
-      const w = noDefEffects ? def(env.ctx, topCard(target)).weakness : weaknessOf(env, s, target, all);
+      // Weakness and Resistance, and effects that change them, are not "effects on" the Defending
+      // Pokémon for `defenderEffects` (Shred rulings: Allergy Panic still makes Weakness x4).
+      const w = weaknessOf(env, s, target, all);
       if (!ignore?.weakness && w && atkTypes.includes(w)) dmg *= 2;
       const r = def(env.ctx, topCard(target)).resistance;
       if (!ignore?.resistance && r && atkTypes.includes(r.type)) dmg -= r.amount;

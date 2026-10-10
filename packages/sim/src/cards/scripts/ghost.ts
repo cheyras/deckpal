@@ -273,10 +273,14 @@ export const GHOST: CardScript[] = [
         statics: [{ effect: { k: 'damageIn', amount: -10 }, scope: 'myPokemon', when: { inActive: 'self' } }],
       },
     ],
-    status: 'needs_ruling',
+    status: 'implemented',
     notes:
-      'Played from hand as an Item (Item locks stop it) and never placed during setup or counted for mulligans, following the rulings on earlier "play as if it were a Basic Pokémon" fossils. ' +
-      'Knocked Out it gives up 1 Prize; discarded from play it gives none. Ruling to confirm: setup placement for the Mega-era Antique fossils.',
+      'Played from hand as an Item (Item locks stop it) and never placed during setup or counted for mulligans. ' +
+      'Knocked Out it gives up 1 Prize; discarded from play it gives none. Rulings (https://compendium.pokegym.net/?s=Antique, ' +
+      'https://compendium.pokegym.net/?s=Fossil+setup): Fossils in General -- "It\'s considered an Item card while in your hand, so it ' +
+      'doesn\'t count as a Basic Pokemon during setup" (TPCi 2026-04-02); an Antique fossil in hand is still an Item under an Item lock ' +
+      '(Enveloping Shadow, TPCi 2024-09-26); it counts as a Pokémon when put into play, so Risky Ruins places counters on it (TPCi ' +
+      '2026-07-16); it has NO Retreat Cost, which effects cannot change (Binding Flame, Pitch Black FAQ 2026-07-16) -- cantRetreat.',
   },
   {
     id: 'me05-076',

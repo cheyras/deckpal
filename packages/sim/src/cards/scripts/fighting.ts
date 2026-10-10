@@ -136,11 +136,15 @@ export const FIGHTING: CardScript[] = [
       // "This attack's damage isn't affected by any effects on your opponent's Active Pokémon."
       'Destructive Drill': { ignore: { defenderEffects: true } },
     },
-    status: 'needs_ruling',
+    status: 'implemented',
     notes:
-      'Destructive Drill: skips damage reduction/increase (damageIn) and damage prevention on the Defending Pokémon, and uses its ' +
-      'printed Weakness (Weakness-changing effects on it are ignored). Weakness/Resistance themselves still apply; effects on the ' +
-      'attacker (Premium Power Pro) still add. Open: whether a Stadium reduction counts as "an effect on" the Active Pokémon (implemented: yes).',
+      'Destructive Drill: skips damage reduction/increase (damageIn) and damage prevention on the Defending Pokémon. Ruled from the ' +
+      'Shred rulings, which carry the same text (https://compendium.pokegym.net/?s=Shred): Weakness and Resistance are game ' +
+      'mechanics, not effects, and effects that CHANGE Weakness are not ignored either (Allergy Panic, TPCi 2013-02-28), so ' +
+      'Weakness is the current one; effects on the attacker still apply (Gloomy Garbage, Chaos Rising FAQ 2026-05-21; Intimidating ' +
+      'Fang, Mega Evolution FAQ 2025-09-25), so Premium Power Pro still adds; effects of a Supporter, a Tool and an attack on the ' +
+      'Defending Pokémon are all ignored (Fantina + Big Parasol + Fly, TPCi 2022-09-29). A Stadium that reduces damage to the ' +
+      'Active is treated the same way (an effect on that Pokémon), by analogy with the Fantina ruling; no Stadium-specific ruling found.',
   },
   {
     id: 'sv09-120',
@@ -314,7 +318,13 @@ export const FIGHTING: CardScript[] = [
     notes:
       '"Knocked Out by damage from an attack": the Knock Out must be checked right after the opponent\'s attack and the Pokémon must have taken ' +
       'damage from that attack; a Knock Out from damage counters placed by an attack, or from Poison/Burn in Checkup, does not reduce Prizes. ' +
-      'The once-per-game limit is per player (any of your Legacy Energy).',
+      'The once-per-game limit is per player (any of your Legacy Energy). Confirmed (https://compendium.pokegym.net/?s=Legacy+Energy): it ' +
+      'provides every type all the time, so it counts for typed Energy checks (Adrena-Pheromone, Twilight Masquerade FAQ 2024-05-23; Needly ' +
+      'Armor, Chaos Rising FAQ 2026-05-21); it is "used" even when other reductions already bring the Prizes to 0 (Shadowy Concealment, ' +
+      'Phantasmal Flames FAQ 2025-11-13) -- the engine consumes it whenever it applies and floors Prizes at 0. Still open: no ruling found ' +
+      'on a Knock Out by damage COUNTERS from an attack (Phantom Dive); checked the compendium (Legacy Energy, "by damage from an attack", ' +
+      'Phantom Dive) and Bulbapedia\'s Rulings section. The nearest ruling (Allergic Shock, TPCi 2015-02-26: a KO from an effect is not a KO ' +
+      '"due to damage") supports the implemented reading.',
   },
   {
     id: 'sv05-162',

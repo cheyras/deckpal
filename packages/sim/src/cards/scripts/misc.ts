@@ -159,9 +159,14 @@ export const MISC: CardScript[] = [
       // "When your opponent's Active Pokémon is Knocked Out, flip a coin. If heads, take 1 more Prize card. The effect of Wonder Kiss doesn't stack."
       { name: 'Wonder Kiss', statics: [{ effect: { k: 'extraPrize', flip: true }, scope: 'me' }] },
     ],
-    status: 'needs_ruling',
+    status: 'implemented',
     notes:
-      'Standard reading: any Knock Out of the opposing Active (attack, Checkup, Ability), on either player\'s turn, while Togekiss is in play with its Ability; one flip however many Togekiss. Open: whether a Togekiss Knocked Out at the same time still applies (engine: yes, it is checked before the KO).',
+      'Any Knock Out of the opposing Active (attack, Checkup, Ability), on either player\'s turn, while Togekiss is in play with its Ability; ' +
+      'one flip however many Togekiss; a Togekiss Knocked Out at the same time still applies (checked before the KO). Rulings ' +
+      '(https://compendium.pokegym.net/?s=Wonder+Kiss): "The KO can be during either player\'s turn or during Pokemon Checkup, and it ' +
+      'doesn\'t have to be from an attack" (Surging Sparks FAQ 2024-11-07); 4 Togekiss flip once (TPCi 2024-11-14); an Active Dusknoir ' +
+      'whose Cursed Blast KOs Togekiss still gives the Wonder Kiss flip -- "All effects have to be resolved before resolving KO\'s" ' +
+      '(TPCi 2024-11-14, 2024-12-12).',
   },
 
   // ---------------------------------------------------------------- Trainers
