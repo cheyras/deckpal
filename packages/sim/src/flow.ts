@@ -638,6 +638,12 @@ function knockOut(env: Env, s: GameState, owner: Player, sl: Slot): void {
   s.effects = s.effects.filter((x) => x.slot !== sl.id);
   if (ps.lastKoTurn !== s.turn) ps.prevKoTurn = ps.lastKoTurn; // lane:misc
   ps.lastKoTurn = s.turn;
+  // lane:trevenant — "Knocked Out by damage from an attack during your opponent's last turn" (Hop's Trevenant): same test
+  // as koPrizeDelta — after an attack, a Pokémon that attack damaged, of the non-attacking player, not a Checkup KO.
+  if (s.attacked && s.afterKo !== 'nextTurn' && owner !== s.current && (s.attackHits ?? []).includes(sl.id)) {
+    ps.attackKoCards = ps.attackKoTurn === s.turn ? [...(ps.attackKoCards ?? []), card] : [card];
+    ps.attackKoTurn = s.turn;
+  }
 }
 
 /**
