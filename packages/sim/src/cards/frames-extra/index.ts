@@ -4,6 +4,8 @@
  * then add its import and spread below (one line each).
  */
 import type { CardFrame } from '../../types.js';
+import { FRAMES as GRIMMSNARL } from './grimmsnarl.js';
 
 export const EXTRA_FRAMES: Record<string, CardFrame> = {
+  ...GRIMMSNARL,
 };
