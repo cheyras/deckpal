@@ -2,7 +2,7 @@
  * Evaluate filters, expressions and conditions. Pure reads of the state, from
  * the point of view of an effect's controller (`ec.player`) and source Pokémon.
  */
-import { def, type Env } from './context.js';
+import { def, type Env, type GameContext } from './context.js';
 import type { Cond, Expr, Filter, SlotRef, SlotZone, SpecialCondition, Who } from './dsl.js';
 import { allSlots, findSlot, opp, topCard } from './state.js';
 import { CUSTOM_CONDS } from './customs.js'; // lane:ghost
@@ -59,8 +59,26 @@ export function defMatches(d: CardDef, f: Filter | undefined): boolean {
   return true;
 }
 
+/**
+ * Memo of defMatches per context and filter, indexed by definition: both are
+ * immutable once compiled, so the answer for a (definition, filter) pair never
+ * changes. 0 = not computed yet, 1 = match, -1 = no match. Search re-evaluates
+ * the same "count X in your discard pile" conditions thousands of times a move.
+ */
+const matchMemo = new WeakMap<GameContext, WeakMap<Filter, Int8Array>>();
+
 export function cardMatches(env: Env, iid: number, f: Filter | undefined): boolean {
-  return defMatches(def(env.ctx, iid), f);
+  if (!f) return true;
+  const ctx = env.ctx;
+  const di = ctx.cardDef[iid] as number;
+  let byFilter = matchMemo.get(ctx);
+  if (!byFilter) matchMemo.set(ctx, (byFilter = new WeakMap()));
+  let m = byFilter.get(f);
+  if (!m) byFilter.set(f, (m = new Int8Array(ctx.defs.length)));
+  if (di >= m.length) return defMatches(def(ctx, iid), f);
+  let v = m[di] as number;
+  if (v === 0) m[di] = v = defMatches(ctx.defs[di] as CardDef, f) ? 1 : -1;
+  return v === 1;
 }
 
 // lane:metal: in-play-only filter keys `energy`, `tool`, `condition`.
@@ -134,7 +152,9 @@ export function evalExpr(env: Env, s: GameState, ec: EvalCtx, e: Expr): number {
   }
   if ('count' in e) {
     const p = side(ec, e.count.who);
-    return zoneCards(s, p, e.count.zone).filter((c) => cardMatches(env, c, e.count.filter)).length;
+    let n = 0;
+    for (const c of zoneCards(s, p, e.count.zone)) if (cardMatches(env, c, e.count.filter)) n++;
+    return n;
   }
   if ('pokemon' in e) {
     return slotsIn(s, ec.player, e.pokemon.zone).filter((sl) => slotMatches(env, sl, e.pokemon.filter)).length;
