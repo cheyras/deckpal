@@ -261,14 +261,18 @@ let ortModule: OrtModule | null = null;
  * knows which it sent.
  */
 export async function embedCrop(bytes: Buffer, marginFrac = DEFAULT_CAPTURE_MARGIN): Promise<Float32Array> {
+  return embedTensor(await cropTensor(bytes, marginFrac));
+}
+
+/**
+ * Crop bytes in, the model's input tensor out (the spec's `[1,3,224,224]`) —
+ * decoded once, so `embedTensor` can run it in several orientations without
+ * decoding the JPEG again.
+ */
+export async function cropTensor(bytes: Buffer, marginFrac = DEFAULT_CAPTURE_MARGIN): Promise<Float32Array> {
   if (!(marginFrac >= 0 && marginFrac <= MAX_MARGIN)) {
     throw new RangeError(`margin must be between 0 and ${MAX_MARGIN}; got ${marginFrac}`);
   }
-  const { session, info } = await loadEmbedSession();
-  // Same specifier as the session's load, so this resolves to the module the
-  // loader already cached rather than a second instance of the runtime.
-  if (!ortModule) ortModule = await importOrt(ortDir());
-
   // `ensureAlpha` guarantees 4 channels so the spec's stride arithmetic is the
   // same for a JPEG (3) and a PNG with transparency (4). `raw()` skips every
   // colour-management step sharp would otherwise apply, which matters because
@@ -282,10 +286,18 @@ export async function embedCrop(bytes: Buffer, marginFrac = DEFAULT_CAPTURE_MARG
     throw new Error(`expected 4 channels after ensureAlpha, got ${meta.channels}`);
   }
 
-  const tensor = embedInput(
+  return embedInput(
     { width: meta.width, height: meta.height, data: new Uint8Array(data.buffer, data.byteOffset, data.byteLength) },
     { marginFrac },
   );
+}
+
+/** The model's input tensor in, unit vector out. */
+export async function embedTensor(tensor: Float32Array): Promise<Float32Array> {
+  const { session, info } = await loadEmbedSession();
+  // Same specifier as the session's load, so this resolves to the module the
+  // loader already cached rather than a second instance of the runtime.
+  if (!ortModule) ortModule = await importOrt(ortDir());
   const feeds = { [info.inputName]: new ortModule.Tensor('float32', tensor, EMBED_INPUT_DIMS) };
   const out = await session.run(feeds);
   const first = Object.values(out)[0];
@@ -332,4 +344,34 @@ export async function warmEmbed(): Promise<{ loadMs: number }> {
   const { info } = await loadEmbedSession();
   await embedCrop(await warmCrop);
   return { loadMs: info.loadMs };
+}
+
+/**
+ * The input tensor turned by `quarterTurns` x 90 degrees, per channel.
+ *
+ * Square in, square out, because the spec squashes every crop to 224x224
+ * before the model sees it — so a card captured sideways (the detector's quad
+ * started on the wrong corner) is, after a quarter turn of the SQUARE tensor,
+ * an upright card squashed exactly as the catalogue renders were. That is what
+ * makes a turn of the tensor, rather than of the 480x670 crop, the right fix.
+ * The direction convention is numpy's `rot90` (counter-clockwise for k = 1);
+ * callers try every turn, so it only has to be consistent.
+ */
+export function rotateTensor(t: Float32Array, size: number, quarterTurns: number): Float32Array {
+  const k = ((quarterTurns % 4) + 4) % 4;
+  if (k === 0) return t;
+  const plane = size * size;
+  const channels = t.length / plane;
+  const out = new Float32Array(t.length);
+  const n = size - 1;
+  for (let c = 0; c < channels; c++) {
+    const o = c * plane;
+    for (let i = 0; i < size; i++) {
+      for (let j = 0; j < size; j++) {
+        const src = k === 1 ? j * size + (n - i) : k === 2 ? (n - i) * size + (n - j) : (n - j) * size + i;
+        out[o + i * size + j] = t[o + src]!;
+      }
+    }
+  }
+  return out;
 }

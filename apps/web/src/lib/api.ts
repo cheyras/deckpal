@@ -547,6 +547,10 @@ export interface ScanEmbedResponse {
   variant: ScanEmbedVariant
   matches: ScanEmbedMatch[]
   note?: string
+  /** Present only when the answer came from the crop turned this many quarter
+   *  turns — the server's orientation fallback for a sideways or upside-down
+   *  capture (router.ts, `ROTATION_FALLBACK_MODELS`). */
+  quarterTurns?: 1 | 2 | 3
 }
 
 /** The image evidence as `/scan/resolve` accepts it: the same shape and the same
