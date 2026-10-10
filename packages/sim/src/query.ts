@@ -9,7 +9,7 @@
  */
 import { def, type Env } from './context.js';
 import type { Filter, PType, Scope, StaticEffect } from './dsl.js';
-import { defMatches, evalCond, evalExpr, slotMatches, type EvalCtx } from './eval.js';
+import { defMatches, evalCond, evalExpr, providesOn, pushUnits, slotMatches, type EnergyUnit, type EvalCtx } from './eval.js';
 import { allSlots, findSlot, opp, topCard } from './state.js';
 import type { GameState, Player, Slot } from './types.js';
 
@@ -186,33 +186,18 @@ export function attackCost(env: Env, s: GameState, slot: Slot, idx: number, all 
   return cost;
 }
 
-/** One Energy unit: a type, or 'Any' for "provides every type of Energy" (Legacy Energy). */ // lane:fighting
-export type EnergyUnit = PType | 'Any'; // lane:fighting
-
 /** Energy units a Pokémon has: one entry per unit, each a type (Colorless = only Colorless). */
 export function energyUnits(env: Env, slot: Slot): EnergyUnit[] {
   const out: EnergyUnit[] = [];
-  for (const c of slot.energy) {
-    const d = def(env.ctx, c);
-    // lane:fighting — "provides every type of Energy but provides only n Energy at a time"
-    const any = d.script?.providesAny;
-    if (any && (!any.when || slotMatches(env, slot, any.when))) {
-      for (let i = 0; i < any.n; i++) out.push('Any');
-      continue;
-    }
-    const p = providesOn(env, slot, c); // lane:misc
-    if (p.length) out.push(...p);
-    else out.push('Colorless');
-  }
+  for (const c of slot.energy) pushUnits(env, slot, c, out);
   return out;
 }
 
-/** lane:misc — the Energy an attached card provides on this Pokémon (CardScript.providesIf, e.g. Ignition Energy). */
-export function providesOn(env: Env, slot: Slot, card: number): PType[] {
-  const d = def(env.ctx, card);
-  const alt = d.coverage === 'full' ? d.script?.providesIf : undefined;
-  if (alt && slotMatches(env, slot, alt.filter)) return alt.provides;
-  return d.provides;
+/** The Energy units one attached card provides on this Pokémon. */
+export function cardUnits(env: Env, slot: Slot, card: number): EnergyUnit[] {
+  const out: EnergyUnit[] = [];
+  pushUnits(env, slot, card, out);
+  return out;
 }
 
 /** Can these units pay this cost? Typed requirements first (exact type, then an 'Any' unit), Colorless from anything left. */
@@ -359,4 +344,4 @@ export function inPlayDefs(env: Env, s: GameState, p: Player) {
   return allSlots(s.p[p]).map((sl) => def(env.ctx, topCard(sl)));
 }
 
-export { defMatches, opp };
+export { defMatches, opp, providesOn, type EnergyUnit };

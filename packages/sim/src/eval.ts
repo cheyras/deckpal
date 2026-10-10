@@ -3,7 +3,7 @@
  * the point of view of an effect's controller (`ec.player`) and source Pokémon.
  */
 import { def, type Env } from './context.js';
-import type { Cond, Expr, Filter, SlotRef, SlotZone, SpecialCondition, Who } from './dsl.js';
+import type { Cond, Expr, Filter, PType, SlotRef, SlotZone, SpecialCondition, Who } from './dsl.js';
 import { allSlots, findSlot, opp, topCard } from './state.js';
 import { CUSTOM_CONDS } from './customs.js'; // lane:ghost
 import type { CardDef, GameState, Player, Slot, Val } from './types.js';
@@ -79,6 +79,35 @@ export function slotMatches(env: Env, slot: Slot, f: Filter | undefined): boolea
   return defMatches(d, { ...f, damaged: undefined, energized: undefined });
 }
 
+/** One Energy unit: a type, or 'Any' for "provides every type of Energy" (Legacy Energy). */ // lane:fighting
+export type EnergyUnit = PType | 'Any'; // lane:fighting
+
+/** lane:misc — the Energy an attached card provides on this Pokémon (CardScript.providesIf, e.g. Ignition Energy). */
+export function providesOn(env: Env, slot: Slot, card: number): PType[] {
+  const d = def(env.ctx, card);
+  const alt = d.coverage === 'full' ? d.script?.providesIf : undefined;
+  if (alt && slotMatches(env, slot, alt.filter)) return alt.provides;
+  return d.provides;
+}
+
+/**
+ * The Energy units one attached card provides on this Pokémon, pushed onto `out` (no allocation:
+ * this sits under every attack-cost check). Every count of attached Energy goes through here, so
+ * paying costs, Retreat and "for each Energy attached" agree on multi-unit cards.
+ */
+export function pushUnits(env: Env, slot: Slot, card: number, out: EnergyUnit[]): void {
+  const d = def(env.ctx, card);
+  // lane:fighting — "provides every type of Energy but provides only n Energy at a time"
+  const any = d.script?.providesAny;
+  if (any && (!any.when || slotMatches(env, slot, any.when))) {
+    for (let i = 0; i < any.n; i++) out.push('Any');
+    return;
+  }
+  const p = providesOn(env, slot, card); // lane:misc
+  if (p.length) out.push(...p);
+  else out.push('Colorless');
+}
+
 /** Slots in a zone relative to a player. */
 export function slotsIn(s: GameState, p: Player, z: SlotZone): Slot[] {
   const me = s.p[p];
@@ -145,9 +174,12 @@ export function evalExpr(env: Env, s: GameState, ec: EvalCtx, e: Expr): number {
     const sl = resolveSlot(s, ec, e.energyOn);
     if (!sl) return 0;
     let n = 0;
+    const units: EnergyUnit[] = [];
     for (const c of sl.energy) {
-      const d = def(env.ctx, c);
-      n += e.type ? d.provides.filter((t) => t === e.type).length : Math.max(1, d.provides.length);
+      units.length = 0;
+      pushUnits(env, sl, c, units);
+      const typed = e.type ? units.filter((t) => t === e.type || t === 'Any').length : units.length;
+      n += e.cards ? (typed > 0 ? 1 : 0) : typed;
     }
     return n;
   }

@@ -270,6 +270,12 @@ test("Dudunsparce ex, Destructive Drill: 150 that ignores damage prevention and 
   prevent(c, 'preventDamage');
   choose(c, 'Attack: Tenacious Tail');
   assert.equal(c.state.p[1].active!.damage, 0);
+  // An effect that changes Weakness is not ignored (Shred rulings, compendium.pokegym.net/?s=Shred).
+  const w = G([{ active: 'Dunsparce', evolve: { active: ['Dudunsparce ex'] }, energy: ce }, { active: 'Riolu', evolve: { active: ['Mega Lucario ex'] } }]);
+  const t = w.state.p[1].active!;
+  w.state.effects.push({ static: { k: 'weaknessType', type: 'Colorless' }, slot: t.id, player: 1, until: 99, fromAttack: false, src: topCard(t) });
+  choose(w, 'Attack: Destructive Drill');
+  assert.equal(w.state.p[1].active!.damage, 300, 'Weakness changed to {C} applies: 150 x2');
 });
 
 test('Dunsparce, Trading Places: switch with a Benched Pokémon (chosen when there are several)', () => {
