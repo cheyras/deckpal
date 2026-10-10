@@ -49,3 +49,35 @@ The scan benchmark (244 cards) is nearly unchanged: 168 to 167 auto-identified, 
 - **A key that already ruled the siblings out is left alone (review fix):** when a printed key's list holds several different cards and the vector picks one (`87/114` is bw1-87 Audino or xy11-87 Hydreigon BREAK), the answer is `corroborated`, not a printed-key label. `done`/`familyDone` now record the keyed rung in `keyedBy`, a server-side field that is never serialized. The guard skips the demotion when `keyedBy` is a printed-key rung and none of the top card's siblings is in that list: Audino's McDonald's reprint (2011bw-12) prints 12/12, so the key had already excluded it. A sibling inside the keyed list still reopens the printing. `letDecisiveVectorSpeak` never sets `keyedBy`, because its list was not keyed.
 - **The guard says when it fired:** `/api/scan` and `/api/scan/resolve` carry `printingOpen: true` only when the guard changed the answer. In every other case the field is absent, so those responses keep their old bytes. The scanner records it in each capture's `match.printingOpen` and in the identity record's `printingOpen` column, so device sessions can count how often the guard fires. `matched: false` from `/scan` and `confident: false` from `/resolve` (including `vector` and `corroborated`) can now mean "right card, printing open"; `API.md` documents this.
 - **Remaining wrong answers that are not printings:** an OCR digit drop on the number+denominator rung (223/197 read as 23/197), and one dHash collision at distance 7. Each needs its own fix.
+
+### Addendum 2026-10-10 — holo and non-holo printings of one picture
+
+**Decided by:** Chey (via Claude Opus 5.5)
+
+The table now also joins a holo and a non-holo printing of one picture. Examples: Jungle and Fossil #1-16 against #17-32, Team Rocket, the e-Card holos, Neo Discovery, Gym Heroes, and McDonald's confetti-holo reprints. The foil scrambles the art features, so the art-band count missed them: Fossil Dragonite has 447 inliers but only 47 in the art band. A whole-card count was rejected earlier, so a second pass in `same_art.py` (`--foil-only`, about 4 minutes) looks at the art instead. It runs on every pair whose frame already lines up (150 or more inliers, shift 0.05 or less):
+- It lays B over A using the frame's homography.
+- **Figure:** the largest connected blob of matching 24-px windows in the inner art window (rows 14-46%, cols 13-87%). A window matches when both sides have texture and the NCC is above 0.5. A shared figure forms one blob. Foil and repainted backgrounds simply don't count. A redrawn picture of the same Pokémon only matches in scattered windows.
+- **Frame colour:** the a*/b* layout outside the art agrees.
+- **Figure colour:** the matched windows have the same colours.
+
+The rule is figure ≥ 0.24, frame colour ≥ 0.6 and figure colour ≥ 0.3, and Energy cards are skipped.
+
+**How it was checked:** by eye, 188 pairs labelled from art-crop contact sheets (124 one picture, 64 different).
+- Every one of the **84 pairs it adds** was looked at: all show one picture, so there are no false joins.
+- The foil rule joins none of the 64 different-picture pairs. Those include alt arts, shiny versions, full-art supporters, the Mewtwo promos, and rainbow and gold recolours, which the colour gates stop. (Two different Fighting Energy designs, dp1-128 against hgss1-120 and col1-93, were already in one family through the old rules.)
+- The highest figure score among different pictures that pass the colour gates is 0.21 (two different Poké Pads), hence the bar at 0.24.
+- Basic energies are skipped because an energy symbol plus its light beam matched across different designs at up to 0.63.
+- The table goes from 968 families / 2,256 cards to **1,020 / 2,377**. Only one existing family merged (Pidgeot base2/base4/lc).
+- Jungle/Fossil: 26 of 31 holo/non-holo pairs are now joined. 9 were already joined by the old rules and 17 are new.
+- Still missed: Jungle Electrode, Vaporeon and Wigglytuff, and Fossil Gengar and Raichu. Their shared figure is small or flat (0.10-0.22), the same range as redrawn pictures.
+
+| bench (OCR on, live model) | auto-identified | confident and wrong |
+|---|---|---|
+| owner photos, before | 74/218 (33.9%) | 7 of 81 (8.6%) |
+| owner photos, with foil pass | 74/218 (33.9%) | 6 of 80 (7.5%) |
+| scan benchmark, before | 167/244 | 1 of 168 |
+| scan benchmark, with foil pass | 167/244 | 1 of 168 (no row changed) |
+
+On the owner photos, the Fossil Dragonite that was confidently named as its holo now goes to the reader, with the right printing second in the list.
+
+**Found along the way, not changed here:** the colour-blind ORB rule already joins roughly 30 rainbow, gold and shiny recolours of a full art. Examples are sv08-219/247 (gold) and sm9-163/185 (rainbow). The test file treats a rainbow recolour (sm11-222/242) as a different picture. Whether those recolours belong in a family is the owner's call. The foil pass's colour gates could be applied to the ORB rule too.

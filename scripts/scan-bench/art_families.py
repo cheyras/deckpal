@@ -1,14 +1,30 @@
 """Build the reprint-family table the scanner's printing guard reads.
 
     python scripts/scan-bench/same_art.py          # once per catalogue change: ~1 h, writes same-art.json
+    python scripts/scan-bench/same_art.py --foil-only   # just the foil pass on an existing same-art.json (~4 min)
     python scripts/scan-bench/art_families.py      # writes apps/api/src/scan/data/art-families.json
 
 A FAMILY is a set of same-name printings that show the same picture: either
 same_art.py found their images agree under one near-identity homography (art-
 band ORB inliers >= --art-min, corner shift <= --max-shift — colour-blind, so a
 colour-cast scan of a 1st Edition Base Set card still matches its Base Set 2
-reprint), or their 9x8 dHash is within --dhash bits. Families are the
-transitive closure of those pairs.
+reprint), or their 9x8 dHash is within --dhash bits, or — the FOIL rule, for a
+holo and a non-holo printing of one picture whose foil scrambles the art band —
+same_art.py's foil pass found the frame lined up (>= 150 inliers, shift <=
+0.05), one contiguous shared figure covering >= --figure-min of the inner art
+window, the frame colours agreeing (>= --frame-colour-min) and the figure in the
+same colours (>= --figure-colour-min). Families are the transitive closure of
+those pairs.
+
+The foil rule's thresholds were set by eye on 2026-10-10 (decision file
+"...names-the-card-not-the-printing-re.md", addendum): every pair it adds was
+looked at and shows one picture, and every different picture seen that got
+past the colour gates scored a figure of 0.21 or less. Two kinds of pair it deliberately leaves out:
+- Rainbow, gold and shiny recolours of a full art (same line art, other
+  colours): the colour gates. The ORB rule above still joins some of those.
+- Basic Energy cards: an energy symbol and a light beam on a gradient match
+  across different designs (Generations' striped backgrounds, a Celebi
+  silhouette), so the foil rule skips category Energy.
 
 What the scanner does with it (apps/api/src/scan/artFamilies.ts): no image
 signal — the hash or the embedding — may name ONE printing of a family on its
@@ -38,10 +54,14 @@ def main():
     ap.add_argument("--art-min", type=int, default=80)
     ap.add_argument("--max-shift", type=float, default=0.15)
     ap.add_argument("--dhash", type=int, default=6)
+    ap.add_argument("--figure-min", type=float, default=0.24)
+    ap.add_argument("--frame-colour-min", type=float, default=0.6)
+    ap.add_argument("--figure-colour-min", type=float, default=0.3)
     ap.add_argument("--out", default=str(REPO / "apps" / "api" / "src" / "scan" / "data" / "art-families.json"))
     a = ap.parse_args()
     cards = E.load_catalog()["cards"]
     name = {c["cardId"]: c["name"].lower() for c in cards}
+    energy = {c["cardId"] for c in cards if c.get("category") == "Energy"}
     ph = json.loads((BENCH / "phash-index.json").read_text())
     parent: dict[str, str] = {}
 
@@ -55,12 +75,21 @@ def main():
     def union(x: str, y: str) -> None:
         parent[find(x)] = find(y)
 
-    pairs = json.loads(Path(a.same_art).read_text())["pairs"]
-    n_art = 0
-    for x, y, _inl, art, shift in pairs:
-        if art >= a.art_min and shift <= a.max_shift and name.get(x) == name.get(y) and x in name:
+    same_art = json.loads(Path(a.same_art).read_text())
+    if "foilPass" not in same_art:
+        raise SystemExit(f"{a.same_art} has no foil-pass columns: run same_art.py --foil-only first")
+    n_art = n_foil = 0
+    for row in same_art["pairs"]:
+        x, y, _inl, art, shift = row[:5]
+        if name.get(x) != name.get(y) or x not in name:
+            continue
+        if art >= a.art_min and shift <= a.max_shift:
             union(x, y)
             n_art += 1
+        elif (len(row) >= 8 and row[5] >= a.figure_min and row[6] >= a.frame_colour_min
+              and row[7] >= a.figure_colour_min and x not in energy and y not in energy):
+            union(x, y)
+            n_foil += 1
     by_name = defaultdict(list)
     for c in cards:
         by_name[name[c["cardId"]]].append(c["cardId"])
@@ -79,13 +108,16 @@ def main():
     out = {
         "as_of": datetime.date.today().isoformat(),
         "method": (f"same-name printings joined when same_art.py's art-band ORB inliers >= {a.art_min} with corner "
-                   f"shift <= {a.max_shift}, or 9x8 dHash <= {a.dhash}; transitive closure. "
-                   f"scripts/scan-bench/art_families.py"),
+                   f"shift <= {a.max_shift}; or 9x8 dHash <= {a.dhash}; or (foil pass, holo vs non-holo) frame "
+                   f"aligned with >= 150 inliers and shift <= 0.05, shared figure >= {a.figure_min}, frame colour "
+                   f">= {a.frame_colour_min}, figure colour >= {a.figure_colour_min}, not an Energy card; "
+                   f"transitive closure. scripts/scan-bench/art_families.py"),
         "cards": sum(len(f) for f in families),
         "families": families,
     }
     Path(a.out).write_text(json.dumps(out, separators=(",", ":")) + "\n", encoding="utf8")
-    print(f"{n_art} image pairs + {n_hash} hash pairs -> {len(families)} families, {out['cards']} cards -> {a.out}")
+    print(f"{n_art} image pairs + {n_foil} foil pairs + {n_hash} hash pairs -> {len(families)} families, "
+          f"{out['cards']} cards -> {a.out}")
 
 
 if __name__ == "__main__":

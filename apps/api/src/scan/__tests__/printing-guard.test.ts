@@ -260,3 +260,28 @@ test("POST /scan's guard: a hash top-1 with a same-art reprint leaves the printi
   assert.equal(printingOpenFor('no-such-card'), false);
   assert.equal(printingOpenFor(undefined), false, 'no top-1 is never open');
 });
+
+test('the foil pass joins a holo and a non-holo printing of one picture in the same set', () => {
+  // The holo foil scrambles the art features (Fossil Dragonite: 447 inliers,
+  // 47 in the art band), so the ORB rule missed these; the owner's photo of
+  // base3-19 was named confidently as base3-4.
+  const pairs: Array<[string, string]> = [
+    ['base3-4', 'base3-19'], // Dragonite, Fossil holo / non-holo
+    ['base2-5', 'base2-21'], // Kangaskhan, Jungle holo / non-holo
+  ];
+  for (const [a, b] of pairs) assert.ok(artSiblings(a).includes(b), `${a} and ${b} share a picture`);
+});
+
+test('a frame and rules text in common is not a picture in common', () => {
+  // Same name, same layout, hundreds of whole-card inliers — and a different
+  // picture: alt arts, shiny versions, full-art supporters, a rainbow recolour.
+  const different: Array<[string, string]> = [
+    ['smp-SM116', 'sma-SV14'], // Xurkitree, promo / Shiny Vault
+    ['sv03.5-100', 'sv04.5-133'], // Voltorb / shiny Voltorb
+    ['sm1-122', 'sm5-125'], // Lillie, two full-art supporters
+    ['sm11-222', 'sm11-242'], // Mewtwo & Mew GX, full art / rainbow
+    ['basep-3', 'basep-14'], // Mewtwo, two Black Star promos
+    ['swsh8-165', 'swsh12-109'], // Croagunk
+  ];
+  for (const [a, b] of different) assert.ok(!artSiblings(a).includes(b), `${a} and ${b} are different pictures`);
+});

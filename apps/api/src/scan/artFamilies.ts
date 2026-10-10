@@ -24,7 +24,10 @@
 //
 // data/art-families.json, built by scripts/scan-bench/art_families.py from
 // same_art.py's image comparison (ORB on CLAHE luma under one near-identity
-// homography — colour-blind, crop-blind) plus the 9x8 dHash, transitive.
+// homography — colour-blind, crop-blind) plus the 9x8 dHash, plus a foil pass
+// for holo vs non-holo printings of one picture (Jungle, Fossil, Team Rocket,
+// e-Card: the foil scrambles the art features, so the frame's homography lays
+// one card over the other and the shared FIGURE is compared), transitive.
 // Rebuild it when the catalogue gains sets; a card missing from it is treated
 // as having no siblings, which is the behaviour before this file existed.
 
