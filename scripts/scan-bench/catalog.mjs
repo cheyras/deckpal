@@ -95,13 +95,18 @@ export function artPath(low) {
 // The image endpoint answers every art URL with a 302 into this public bucket
 // (same `<serie>/<set>/<localId>.low.webp` layout). Fetching the bucket directly
 // skips a serverless hop per image: about 3 s each on a cache miss.
-const ART_BUCKET = process.env.SCAN_BENCH_ART_BASE ?? 'https://jbdfhbmspaqpfzylnlze.supabase.co/storage/v1/object/public/card-art/'
+// The bucket's host comes from the deployment's public config, not a literal.
+let ART_BUCKET = process.env.SCAN_BENCH_ART_BASE ?? null
 const bucketUrl = (low) => {
   const m = low.match(/images\/en\/([^/]+)\/([^/]+)\/([^/]+)\/low\.webp$/)
   return m ? `${ART_BUCKET}images/en/${m[1]}/${m[2]}/${m[3]}.low.webp` : new URL(low, ORIGIN).toString()
 }
 
 async function art(cat) {
+  if (!ART_BUCKET) {
+    const cfg = await (await fetch(`${ORIGIN}/api/public-config`)).json()
+    ART_BUCKET = `${cfg.supabaseUrl}/storage/v1/object/public/card-art/`
+  }
   const todo = cat.cards.filter((c) => c.low && !fs.existsSync(artPath(c.low)))
   console.log(`art: ${cat.cards.length - todo.length} cached, ${todo.length} to fetch`)
   let done = 0
