@@ -930,6 +930,8 @@ class Renderer {
         return `${X} can't use any Abilities that Knock Out the Pokémon using them`;
       case 'cantUseAttack':
         return `${X} can't use ${e.attack}`;
+      case 'preventCounters': // lane:charizard
+        return `Prevent all damage counters from being placed on ${x} by effects of ${e.from.includes('attack') && e.from.includes('ability') ? 'attacks and Abilities' : e.from.includes('attack') ? 'attacks' : 'Abilities'} from ${fromOpp ? "the opponent's " : ''}Pokémon`;
       case 'noToolEffects':
         return `Pokémon Tools attached to ${x === 'each player' || x === 'you' || x === 'your opponent' ? "each Pokémon (both yours and your opponent's)" : x} have no effect`;
       default: {
