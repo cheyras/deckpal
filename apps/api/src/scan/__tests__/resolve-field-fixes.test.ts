@@ -44,8 +44,11 @@ const CARDS: CatalogCard[] = [
   card('dp2-60', 'Quilava', '60', 'dp2'),
   card('sv09-024', "Ethan's Quilava", '024', 'sv09'),
   card('sve-003', 'Basic Water Energy', '003', 'sve'),
+  card('sv02-050', 'Marill', '050', 'sv02'),
+  card('sv02-051', 'Azumarill', '051', 'sv02'),
+  card('sv07-050', 'Marill', '050', 'sv07'),
 ];
-const OFFICIAL: Record<string, number> = { sv10: 182, sv04: 182, sv01: 198, sv08: 191, dp2: 123, sv09: 159, sve: 0 };
+const OFFICIAL: Record<string, number> = { sv10: 182, sv04: 182, sv01: 198, sv08: 191, dp2: 123, sv09: 159, sve: 0, sv02: 193, sv07: 142 };
 
 const fold = (s: string) => s.toLowerCase();
 const basePort: CatalogPort = {
@@ -164,6 +167,30 @@ test('a decisive vector does not overrule a name and a number that agree with ea
     { phashConfidentMax: 9, fusion: { vectorMatches: [{ cardId: 'sv10-063', similarity: 0.9 }, { cardId: 'sv01-049', similarity: 0.6 }], modelId: MODEL } },
   );
   assert.notEqual(r.matches[0]?.cardId === 'sv10-063' && r.confident, true);
+});
+
+test('a cleanly read real name is not overruled by a picture of a longer name that ends in it', async () => {
+  // `Marill` is a card. A decisive (wrong) vector on Azumarill must not turn
+  // the read into a clipped `Azumarill`.
+  const r = await run({ name: 'Marill' }, [
+    { cardId: 'sv02-051', similarity: 0.9 },
+    { cardId: 'sv02-050', similarity: 0.6 },
+  ]);
+  assert.equal(r.confident && r.matches[0]!.cardId === 'sv02-051', false);
+});
+
+test('the name+number early return: a vector does not overrule a name that narrowed a number', async () => {
+  // `Marill 050` keys two printings by name+number (sv02-050, sv07-050); a
+  // decisive picture of the sv07 one does not get to promote itself past the
+  // name+number rung's own candidates.
+  const r = await run({ name: 'Marill', number: '050' }, [
+    { cardId: 'sv07-050', similarity: 0.9 },
+    { cardId: 'sv02-050', similarity: 0.6 },
+  ]);
+  assert.equal(r.resolvedBy === 'name+number' || r.resolvedBy === 'corroborated', true);
+  // Whatever the rung decided, it was the rung (with `corroborate`'s rules),
+  // not the post-climb override: the override is skipped after name+number.
+  assert.ok(r.matches.every((m) => m.name === 'Marill'));
 });
 
 test('a port without officialCounts simply never reaches the name+denominator rung', async () => {

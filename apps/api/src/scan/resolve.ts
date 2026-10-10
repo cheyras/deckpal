@@ -524,6 +524,13 @@ export function nameAgrees(read: string, candidateName: string): boolean {
   return /\p{L}$/u.test(lost); // `oice band` off `Hop's Choice Band`: cut mid-word
 }
 
+/** Is `candidateName` exactly `read` with an owner's possessive in front? */
+export function ownerPrefixed(read: string, candidateName: string): boolean {
+  const r = stripOptionalSuffix(normalizeCardName(read));
+  const c = stripOptionalSuffix(normalizeCardName(candidateName));
+  return r.length > 0 && c.length > r.length && c.endsWith(r) && /'s $/.test(c.slice(0, c.length - r.length));
+}
+
 /** Keep only the candidates matching `read` at the best tier any of them reach. */
 export function narrowByName(cands: readonly CatalogCard[], read: string): CatalogCard[] {
   let best: number | null = null;
@@ -1064,6 +1071,15 @@ export async function resolveCard(
     if (signals.phashNearExact && signals.phashNearExact !== vector.cardId) return prev;
     const lead = evidence.vectorCards.find((c) => c.cardId === vector.cardId);
     if (!lead || !nameAgrees(nameRead, lead.name)) return prev;
+    // A read that is ITSELF a real card name was very likely read right, so
+    // the only damage forgiven is a lost owner prefix (`Quilava` off `Ethan's
+    // Quilava`). `Marill` is a card; a picture of Azumarill does not make the
+    // read a clipped `Azumarill`, and `Nidorina` is not a misread `Nidorino`.
+    if (nameTier(nameRead, lead.name) !== 0 && port.byName) {
+      const probe = planNameProbe(nameRead);
+      const exact = probe ? (await port.byName(probe)).some((c) => nameTier(nameRead, c.name) === 0) : false;
+      if (exact && !ownerPrefixed(nameRead, lead.name)) return prev;
+    }
     // And not when a PRINTED NUMBER named a card the printed name also agrees
     // with: `Barraskewda 049/198` keyed sv01-049 and only the hash's veto kept
     // it unconfident, so a decisive picture of the OTHER Barraskewda is a
