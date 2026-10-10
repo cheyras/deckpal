@@ -13,7 +13,10 @@
  * how many games were played.
  */
 import * as sim from '@deckpal/sim';
-import { buildReport, renderReport, simulateAsync, type DeckInput, type PilotFactory, type SimReport, type SimulationResult } from '@deckpal/sim';
+import {
+  buildComparison, buildReport, renderComparison, renderReport, simulateAsync, simulatePairedAsync,
+  type ComparisonReport, type DeckInput, type PilotFactory, type SimReport, type SimulationResult,
+} from '@deckpal/sim';
 import { badRequest, UUID_RE } from '../http.js';
 
 export const SIM_GAMES_DEFAULT = 24;
@@ -37,6 +40,20 @@ export interface SimulateParams {
   seed: number;
   /** Which CPU plays: 'strong' (search) or 'fast' (greedy). */
   speed: 'strong' | 'fast';
+  /**
+   * Paired comparison: a second version of the deck, played against the same
+   * opponents on the same seeds and seats. Null = a plain run.
+   */
+  compare: CompareParams | null;
+}
+
+export interface CompareParams {
+  /** A saved deck: its id, or its name. Null when the second version is an ad-hoc list. */
+  deckRef: string | null;
+  /** The second version as check_deck's body shape ({ cards } or { ptcgl_text }), for the route to resolve. */
+  adHoc: { cards: unknown } | { ptcgl_text: unknown } | null;
+  /** Ad-hoc list name. */
+  name: string;
 }
 
 /** Validate the simulation fields of a request body. The ad-hoc card list itself is check_deck's parser's job. */
@@ -62,7 +79,23 @@ export function parseSimulateBody(body: Record<string, unknown>): SimulateParams
   const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 80) : 'Your list';
   if (body.speed !== undefined && body.speed !== 'strong' && body.speed !== 'fast') throw badRequest("speed must be 'strong' or 'fast'");
   const speed: 'strong' | 'fast' = body.speed === 'fast' ? 'fast' : 'strong';
-  return { deckRef, adHoc, name, opponents, games, seed, speed };
+  return { deckRef, adHoc, name, opponents, games, seed, speed, compare: parseCompare(body) };
+}
+
+function parseCompare(body: Record<string, unknown>): CompareParams | null {
+  const given = (['compare_with', 'compare_cards', 'compare_ptcgl_text'] as const).filter((k) => body[k] !== undefined);
+  if (!given.length) {
+    if (body.compare_name !== undefined) throw badRequest('compare_name needs compare_with, compare_cards or compare_ptcgl_text');
+    return null;
+  }
+  if (given.length > 1) throw badRequest('Provide at most one of compare_with, compare_cards or compare_ptcgl_text');
+  const name = typeof body.compare_name === 'string' && body.compare_name.trim() ? body.compare_name.trim().slice(0, 80) : 'Version B';
+  if (body.compare_with !== undefined) {
+    const ref = typeof body.compare_with === 'string' ? body.compare_with.trim() : '';
+    if (!ref || ref.length > 200) throw badRequest('compare_with must be a deck id or name (at most 200 characters)');
+    return { deckRef: ref, adHoc: null, name };
+  }
+  return { deckRef: null, adHoc: body.compare_cards !== undefined ? { cards: body.compare_cards } : { ptcgl_text: body.compare_ptcgl_text }, name };
 }
 
 export interface OwnedDeck {
@@ -97,14 +130,19 @@ function listDecks(decks: OwnedDeck[]): string {
   return shown.join('; ') + (decks.length > 12 ? `; +${decks.length - 12} more` : '');
 }
 
-/** The named opponents, or by default the caller's other decks (most recently used first), capped. */
-export function pickOpponents(refs: string[] | null, decks: OwnedDeck[], subjectId: string | null): OwnedDeck[] {
+/**
+ * The named opponents, or by default the caller's other decks (most recently
+ * used first), capped. `exclude` is the subject (and, in a comparison, the
+ * second version): never a default opponent.
+ */
+export function pickOpponents(refs: string[] | null, decks: OwnedDeck[], exclude: string | null | (string | null)[]): OwnedDeck[] {
   if (refs) {
     const picked = refs.map((r) => resolveDeckRef(r, decks));
     const seen = new Set<string>();
     return picked.filter((d) => (seen.has(d.id) ? false : (seen.add(d.id), true)));
   }
-  return decks.filter((d) => d.id !== subjectId).slice(0, SIM_OPPONENTS_DEFAULT);
+  const skip = new Set((Array.isArray(exclude) ? exclude : [exclude]).filter((x): x is string => !!x));
+  return decks.filter((d) => !skip.has(d.id)).slice(0, SIM_OPPONENTS_DEFAULT);
 }
 
 /**
@@ -167,6 +205,49 @@ export async function runMatchups(subject: DeckInput, opponents: DeckInput[], op
     text = renderReport(report, SIM_TEXT_LIMIT - noteText.length - 1);
     const lines = text.split('\n');
     lines.splice(2, 0, noteText);
+    text = lines.join('\n');
+  }
+  return { text, report };
+}
+
+export interface CompareResponse {
+  text: string;
+  report: ComparisonReport & { notes: string[] };
+}
+
+/**
+ * Paired comparison: each opponent is played by BOTH versions on the same
+ * seeds and seats (common random numbers), inside the same one budget as a
+ * plain run — so each version gets about half the games a plain run would.
+ */
+export async function runComparison(a: DeckInput, b: DeckInput, opponents: DeckInput[], opts: RunMatchupsOptions): Promise<CompareResponse> {
+  const now = opts.now ?? Date.now;
+  const started = now();
+  const budget = opts.budgetMs ?? SIM_BUDGET_MS;
+  const pilot = opts.pilot ?? pilotFactory();
+  const results: [SimulationResult, SimulationResult][] = [];
+  for (const [i, opponent] of opponents.entries()) {
+    const left = Math.max(0, budget - (now() - started));
+    if (left <= 0 && i > 0) {
+      const requested = Math.max(2, opts.games + (opts.games % 2));
+      const empty = (r: SimulationResult): SimulationResult => ({ ...r, b: opponent.name, requested, played: 0, stoppedEarly: true, elapsedMs: 0, games: [] });
+      const [pa, pb] = results[results.length - 1]!;
+      results.push([empty(pa), empty(pb)]);
+      continue;
+    }
+    results.push(
+      await simulatePairedAsync({
+        a, b, opponent, games: opts.games, seed: opts.seed, pilotFactory: pilot, timeBudgetMs: left / (opponents.length - i), now,
+      }),
+    );
+  }
+  const report = { ...buildComparison({ a, b, opponents, results, elapsedMs: now() - started }), notes: opts.notes ?? [] };
+  const noteText = report.notes.map((n) => `Note: ${n}`).join('\n');
+  let text = renderComparison(report, SIM_TEXT_LIMIT - (noteText ? noteText.length + 1 : 0));
+  if (noteText) {
+    // Notes go under the verdict and the overall line, within the same limit.
+    const lines = text.split('\n');
+    lines.splice(3, 0, noteText);
     text = lines.join('\n');
   }
   return { text, report };

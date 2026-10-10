@@ -2,7 +2,7 @@ import { Router } from 'express'
 import type { DeckInput } from '@deckpal/sim'
 import { dbHandle, q } from '../db.js'
 import type { FormatCode } from '../deck/index.js'
-import { deckNotes, parseSimulateBody, pickOpponents, pilotFactory, resolveDeckRef, runMatchups, type OwnedDeck } from '../deck/simulate.js'
+import { deckNotes, parseSimulateBody, pickOpponents, pilotFactory, resolveDeckRef, runComparison, runMatchups, type OwnedDeck } from '../deck/simulate.js'
 import { asyncHandler, badRequest, oneOf, userCache } from '../http.js'
 import { currentUserId } from '../identity.js'
 import { cardFrames } from '../sim/frames.js'
@@ -18,6 +18,10 @@ import { deckCheckInputLines, resolveCheckLines } from './deckCheck.js'
  * decklists, not a battle record, and `battle_logs` stays the place for games
  * people actually played. Pure logic (parsing, resolution, the time budget) is
  * in deck/simulate.ts; this file only reads the database.
+ *
+ * With `compare_with` / `compare_cards` / `compare_ptcgl_text` it is a PAIRED
+ * COMPARISON instead: both versions play every opponent on the same seeds and
+ * seats, and the text leads with the paired difference and a verdict.
  */
 export const deckSimulateRouter: Router = Router()
 const FORMATS = ['standard', 'expanded', 'glc', 'unlimited'] as const
@@ -49,6 +53,8 @@ deckSimulateRouter.post('/', asyncHandler(async (req, res) => {
     [userId],
   )
 
+  // Read only when an unsaved list needs its names resolved (the subject's or the second version's).
+  const format = () => oneOf<FormatCode>(body.format, FORMATS, 'standard')
   let subjectId: string | null = null
   let subjectName = params.name
   let adHocCounts: CardCount[] | null = null
@@ -57,17 +63,31 @@ deckSimulateRouter.post('/', asyncHandler(async (req, res) => {
     subjectId = d.id
     subjectName = d.name
   } else {
-    const format = oneOf<FormatCode>(body.format, FORMATS, 'standard')
-    const lines = await resolveCheckLines(deckCheckInputLines(body), format, userId)
+    const lines = await resolveCheckLines(deckCheckInputLines(body), format(), userId)
     const unresolved = lines.filter((l) => !l.card).map((l) => l.line.name ?? l.line.card_id ?? '?')
     if (unresolved.length) throw badRequest(`Could not resolve: ${unresolved.join(', ')}. Run check_deck to fix the list first.`)
     adHocCounts = lines.map((l) => ({ card_id: String(l.card!.id), quantity: l.line.quantity }))
   }
 
-  const opponents = pickOpponents(params.opponents, decks, subjectId)
+  let compareId: string | null = null
+  let compareName = params.compare?.name ?? ''
+  let compareCounts: CardCount[] | null = null
+  if (params.compare?.deckRef) {
+    const d = resolveDeckRef(params.compare.deckRef, decks)
+    if (d.id === subjectId) throw badRequest(`compare_with is the same deck as the one being tested (${d.name}) — pass the other version.`)
+    compareId = d.id
+    compareName = d.name
+  } else if (params.compare?.adHoc) {
+    const lines = await resolveCheckLines(deckCheckInputLines({ ...params.compare.adHoc, format: body.format }), format(), userId)
+    const unresolved = lines.filter((l) => !l.card).map((l) => l.line.name ?? l.line.card_id ?? '?')
+    if (unresolved.length) throw badRequest(`Could not resolve in the compare list: ${unresolved.join(', ')}. Run check_deck to fix it first.`)
+    compareCounts = lines.map((l) => ({ card_id: String(l.card!.id), quantity: l.line.quantity }))
+  }
+
+  const opponents = pickOpponents(params.opponents, decks, [subjectId, compareId])
   if (!opponents.length) throw badRequest('No opponent decks to play against: save at least one other deck, or name opponents.')
 
-  const ids = [...new Set([...(subjectId ? [subjectId] : []), ...opponents.map((o) => o.id)])]
+  const ids = [...new Set([...(subjectId ? [subjectId] : []), ...(compareId ? [compareId] : []), ...opponents.map((o) => o.id)])]
   const rows = await q<{ deck_id: string; card_id: string; quantity: number }>(
     `SELECT deck_id::text AS deck_id, card_id::text AS card_id, sum(quantity)::int AS quantity
        FROM deck_card WHERE user_id = $1 AND deck_id = ANY($2::uuid[])
@@ -97,8 +117,20 @@ deckSimulateRouter.post('/', asyncHandler(async (req, res) => {
   }
   if (!opponentDecks.length) throw badRequest('Every opponent deck is empty — nothing to play against.')
 
+  const run = { games: params.games, seed: params.seed, notes, pilot: pilotFactory(params.speed) }
+  if (params.compare) {
+    const second = await deckInput(compareName, compareCounts ?? byDeck.get(compareId!) ?? [])
+    if (!second.deck.cards.length) throw badRequest(`${compareName} has no cards to simulate.`)
+    notes.push(...second.notes)
+    // The database work is done; everything from here is CPU, yielding between pairs.
+    const out = await runComparison(subject.deck, second.deck, opponentDecks, run)
+    userCache(res)
+    res.json(out)
+    return
+  }
+
   // The database work is done; everything from here is CPU, yielding between pairs.
-  const out = await runMatchups(subject.deck, opponentDecks, { games: params.games, seed: params.seed, notes, pilot: pilotFactory(params.speed) })
+  const out = await runMatchups(subject.deck, opponentDecks, run)
   userCache(res)
   res.json(out)
 }))

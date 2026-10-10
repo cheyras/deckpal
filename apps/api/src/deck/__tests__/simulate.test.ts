@@ -9,7 +9,7 @@ import type { CardFrame, DeckInput } from '@deckpal/sim';
 import { ApiError } from '../../http.js';
 import {
   SIM_GAMES_DEFAULT, SIM_OPPONENTS_DEFAULT, SIM_TEXT_LIMIT,
-  deckNotes, parseSimulateBody, pickOpponents, resolveDeckRef, runMatchups, type OwnedDeck,
+  deckNotes, parseSimulateBody, pickOpponents, pilotFactory, resolveDeckRef, runComparison, runMatchups, type OwnedDeck,
 } from '../simulate.js';
 
 const ID = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -30,7 +30,7 @@ function rejects(fn: () => unknown, re: RegExp): void {
 
 test('parseSimulateBody: defaults, one subject, bounds', () => {
   const p = parseSimulateBody({ deck_id: 'Toolbox Slowking' });
-  assert.deepEqual(p, { deckRef: 'Toolbox Slowking', adHoc: false, name: 'Your list', opponents: null, games: SIM_GAMES_DEFAULT, seed: 1, speed: 'strong' });
+  assert.deepEqual(p, { deckRef: 'Toolbox Slowking', adHoc: false, name: 'Your list', opponents: null, games: SIM_GAMES_DEFAULT, seed: 1, speed: 'strong', compare: null });
   assert.equal(parseSimulateBody({ deck_id: 'x', speed: 'fast' }).speed, 'fast');
   assert.throws(() => parseSimulateBody({ deck_id: 'x', speed: 'turbo' }), /speed/);
   assert.equal(parseSimulateBody({ cards: [{ name: 'Pikachu', quantity: 4 }], games: 200, seed: 0 }).adHoc, true);
@@ -41,6 +41,21 @@ test('parseSimulateBody: defaults, one subject, bounds', () => {
   rejects(() => parseSimulateBody({ deck_id: 'x', seed: -1 }), /seed/);
   rejects(() => parseSimulateBody({ deck_id: 'x', opponents: [] }), /opponents/);
   rejects(() => parseSimulateBody({ deck_id: 'x', opponents: Array(9).fill('a') }), /at most 8 opponents/);
+});
+
+test('parseSimulateBody: compare_with / compare_cards / compare_ptcgl_text make a paired comparison', () => {
+  assert.deepEqual(parseSimulateBody({ deck_id: 'v4', compare_with: ' v5 ' }).compare, { deckRef: 'v5', adHoc: null, name: 'Version B' });
+  const cards = [{ name: 'Gwynn', quantity: 2 }];
+  assert.deepEqual(parseSimulateBody({ deck_id: 'v4', compare_cards: cards, compare_name: 'v4 with 2 Gwynn' }).compare, {
+    deckRef: null, adHoc: { cards }, name: 'v4 with 2 Gwynn',
+  });
+  assert.deepEqual(parseSimulateBody({ cards, compare_ptcgl_text: 'Pokémon: 1' }).compare, { deckRef: null, adHoc: { ptcgl_text: 'Pokémon: 1' }, name: 'Version B' });
+  rejects(() => parseSimulateBody({ deck_id: 'v4', compare_with: 'v5', compare_cards: cards }), /at most one of compare_with, compare_cards or compare_ptcgl_text/);
+  rejects(() => parseSimulateBody({ deck_id: 'v4', compare_with: '' }), /compare_with must be a deck id or name/);
+  rejects(() => parseSimulateBody({ deck_id: 'v4', compare_with: 7 }), /compare_with must be a deck id or name/);
+  rejects(() => parseSimulateBody({ deck_id: 'v4', compare_name: 'x' }), /compare_name needs/);
+  // The compare inputs never count as the subject.
+  rejects(() => parseSimulateBody({ compare_cards: cards }), /exactly one of deck_id, cards or ptcgl_text/);
 });
 
 test('resolveDeckRef: id, exact name, unique fragment; ambiguity is returned, not guessed', () => {
@@ -59,6 +74,9 @@ test('pickOpponents: named ones in order (deduplicated), else the other decks, c
   assert.equal(def.length, SIM_OPPONENTS_DEFAULT);
   assert.ok(!def.some((d) => d.id === ID(1)), 'never plays the subject against itself by default');
   assert.equal(def[0]!.id, ID(2), 'keeps the caller order (favourites, most recent)');
+  const cmp = pickOpponents(null, DECKS, [ID(1), ID(2)]);
+  assert.ok(!cmp.some((d) => d.id === ID(1) || d.id === ID(2)), 'a comparison plays neither version as a default opponent');
+  assert.equal(cmp[0]!.id, ID(3));
 });
 
 function mon(id: string, name: string, hp: number, damage: string): CardFrame {
@@ -105,4 +123,37 @@ test('runMatchups: a spent budget plays one pair for the first opponent, skips t
   assert.equal(out.report.stoppedEarly, true);
   assert.match(out.text, /2 of 80 games played \(time budget reached/);
   assert.match(out.text, /2\. vs Birds — 0 of 40 played/);
+});
+
+test('runComparison: both versions on the same seeds, the verdict first, inside the text limit, notes kept', async () => {
+  const weak = deck('Weak pups', mon('t-1', 'Pup', 70, '10'));
+  const strong = deck('Strong pups', mon('t-4', 'Big Pup', 70, '70'));
+  const opponents = [deck('Cats', mon('t-2', 'Cat', 70, '30'))];
+  const notes = ['Strong pups: a note.'];
+  const out = await runComparison(weak, strong, opponents, { games: 16, seed: 3, notes, budgetMs: 60_000, pilot: pilotFactory('fast') });
+  assert.equal(out.report.kind, 'deckpal.simulation.comparison');
+  assert.equal(out.report.gamesPlayed, 16, 'per version');
+  assert.equal(out.report.reportB.gamesPlayed, 16);
+  assert.ok(out.text.length <= SIM_TEXT_LIMIT, `${out.text.length} chars`);
+  const lines = out.text.split('\n');
+  assert.match(lines[0]!, /^SIMULATED BATTLES \(not real games\) — COMPARISON/);
+  assert.match(lines[1]!, /^VERDICT: B is better/);
+  assert.ok(lines.includes('Note: Strong pups: a note.'));
+  assert.match(out.text, /Caveat: These are SIMULATED games/);
+  const same = await runComparison(weak, weak, opponents, { games: 8, seed: 3, budgetMs: 60_000, pilot: pilotFactory('fast') });
+  assert.equal(same.report.overall.diff, 0);
+  assert.match(same.text.split('\n')[1]!, /^VERDICT: No clear difference at this n/);
+});
+
+test('runComparison: a spent budget gives both versions the same games and says so', async () => {
+  let t = 0;
+  const pups = deck('Pups', mon('t-1', 'Pup', 70, '30'));
+  const out = await runComparison(pups, pups, [deck('Cats', mon('t-2', 'Cat', 60, '20')), deck('Birds', mon('t-3', 'Bird', 90, '20'))], {
+    games: 40, seed: 1, budgetMs: 10, now: () => (t += 50), pilot: pilotFactory('fast'),
+  });
+  assert.equal(out.report.reportA.gamesPlayed, 2);
+  assert.equal(out.report.reportB.gamesPlayed, 2);
+  assert.equal(out.report.stoppedEarly, true);
+  assert.match(out.text, /2 of 80 games per version played \(time budget reached/);
+  assert.match(out.text, /No clear difference at this n: only 1 seed played/);
 });

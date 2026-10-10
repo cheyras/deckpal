@@ -515,14 +515,22 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
    showing or saving any proposed deck, fix its findings, and check again.
 8b. **`simulate_battles`** — read-only `{ deck_id? | cards? | ptcgl_text?, name?, format?, opponents?: [deck id or
    name] (≤8; default up to 6 of the caller's other decks), games? = 24 (2..200, per opponent, rounded up to
-   pairs), seed? = 1 }` → `POST /decks/simulate`. Plays the deck against each opponent in `@deckpal/sim` with
+   pairs), seed? = 1, speed? = strong|fast, compare_with? | compare_cards? | compare_ptcgl_text?, compare_name? }` → `POST /decks/simulate`. Plays the deck against each opponent in `@deckpal/sim` with
    a CPU pilot on both sides: paired games (seats swapped per seed, so each deck goes first half the time)
    inside a 25 s budget, then returns per-opponent W/L/draws/time-outs, win rate with Wilson 95% interval
    and n, going-first/second splits, game length, win/loss reasons, setup speed, Prize-takers and
    liabilities, loss patterns, early-card impact (an association), and a coverage block naming every
    card the engine only approximates or cannot play. The text says on its first and last line that
    these are simulated games by a bot, never real results; nothing is stored. Deck refs resolve loosely
-   through `needDeck` (a read).
+   through `needDeck` (a read). **Paired comparison** (2026-10-10): with at most one of `compare_with`
+   (a saved deck id or name), `compare_cards` or `compare_ptcgl_text` (an unsaved whole list, labelled by
+   `compare_name?`), the subject is version A and the second list version B; both play every opponent
+   on the SAME seeds and seats (common random numbers), and the text leads with a `VERDICT:` line and the
+   paired difference Δ = B − A in game score (win 1, draw/time-out ½, loss 0) with a 95% t-interval on
+   per-seed clusters, overall and per opponent. It says "B is better" / "A is better" only when the
+   interval excludes 0 with at least 6 seeds, else "no clear difference at this n"; it lists the card
+   counts that differ and their early-play splits in each version. The 25 s budget is shared by the two
+   versions; the text stays within 5,000 characters and keeps the caveat.
 9. **`save_deck`** — `{ deck_id?, name?, format?, cards?: [{card_id, quantity}], ptcgl_text?,
    version_note?, dry_run? = true }`. Create or replace the list with ONE request to
    `POST /decks/save` (2026-09-29), which resolves every card first and writes the deck,
