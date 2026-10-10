@@ -22,7 +22,7 @@
  * doing the tested amount; everything else on the board is the real frame, or a
  * vanilla filler where the log names a card the frame snapshot lacks.
  */
-import { FRAMES } from '../cards/frames.js';
+import { FRAMES } from '../cards/frames-all.js';
 import { normText, parseDamage } from '../cards/frame.js';
 import { scriptFor } from '../cards/registry.js';
 import type { DeckInput } from '../context.js';

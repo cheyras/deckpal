@@ -15,7 +15,7 @@
  *     Zekrom and Reshiram. Observed: `(zsv10-5_79) Air Balloon` = sv10.5b-079,
  *     `(rsv10-5_84) Hilda` = sv10.5w-084, both matching the frame snapshot.
  */
-import { FRAMES } from '../cards/frames.js';
+import { FRAMES } from '../cards/frames-all.js';
 import { normText, textKey } from '../cards/frame.js';
 import type { CardFrame } from '../types.js';
 

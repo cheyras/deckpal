@@ -13,7 +13,7 @@ import { countersFixed, effectsPrevented, ownerOf, statics } from '../../query.j
 import { allSlots, emit, findSlot, opp, removeFrom, slotCards, topCard } from '../../state.js';
 import type { CardDef, Decision, Frame, GameState, Player, Slot, Val } from '../../types.js';
 import { normText } from '../frame.js';
-import { FRAMES } from '../frames.js';
+import { FRAMES } from '../frames-all.js';
 
 // ---------------------------------------------------------------------------
 // helpers

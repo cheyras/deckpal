@@ -6,12 +6,13 @@
  *   node --import tsx scripts/coverage.ts            # the gauntlet + owner decks
  *   node --import tsx scripts/coverage.ts --json
  */
-import { FRAMES } from '../src/cards/frames.js';
+import { FRAMES } from '../src/cards/frames-all.js';
 import { isVanilla, textKey } from '../src/cards/frame.js';
 import { scriptFor } from '../src/cards/registry.js';
 import { GAUNTLET_LISTS } from '../src/__tests__/gauntlet.js';
+import { META_LISTS } from '../src/__tests__/meta/index.js';
 
-const decks = Object.entries(GAUNTLET_LISTS);
+const decks = [...Object.entries(GAUNTLET_LISTS), ...Object.entries(META_LISTS)];
 const need = new Map<string, { id: string; name: string; category: string; decks: Set<string>; printings: Set<string> }>();
 for (const [deck, list] of decks) {
   for (const [id] of list) {

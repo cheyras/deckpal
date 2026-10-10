@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { FRAMES } from '../cards/frames.js';
+import { FRAMES } from '../cards/frames-all.js';
 import type { DeckInput } from '../context.js';
 import { buildReport, deckCoverage, renderReport } from '../report.js';
 import { ownTurn, runSimulation, simulate, simulateAsync, type SimulationResult } from '../runner.js';

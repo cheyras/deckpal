@@ -1,6 +1,6 @@
 /** The owner's two decks, as of 2026-10-10 (Hide 'n' Sneak v5, Toolbox Slowking v3), built from the frame snapshot. */
 import type { DeckInput } from '../context.js';
-import { FRAMES } from '../cards/frames.js';
+import { FRAMES } from '../cards/frames-all.js';
 
 export function fromIds(name: string, list: [string, number][]): DeckInput {
   return {

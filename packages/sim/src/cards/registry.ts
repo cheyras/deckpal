@@ -4,7 +4,7 @@
  * committed snapshot (frames.ts, generated), and any other printing with identical game
  * text resolves to the same script.
  */
-import { FRAMES } from './frames.js';
+import { FRAMES } from './frames-all.js';
 import { SCRIPTS } from './scripts/index.js';
 import type { CardScript } from '../dsl.js';
 import type { CardFrame } from '../types.js';
