@@ -40,9 +40,31 @@ const INSET = 0.08
 /** Y, Cb, Cr cell means, channel-major (CELLS bytes each). */
 export type CardLook = Uint8Array
 
+/**
+ * How close the two most top-left corners may come (in x+y, as a share of the
+ * edge between them) before the corner order counts as undecided. The warp
+ * starts at the corner with the smallest x+y (rectify.orderQuadForCard); a card
+ * lying near 45° has two candidates, and a fraction of a degree of jitter flips
+ * the pick and turns the look 90° — the same card reading as a different one
+ * (PR #292 review: distance 1.8-1.9 at 44.5° vs 45.5°). 0.12 of the edge is
+ * about 5° either side of the tie.
+ */
+const ORDER_TIE_FRAC = 0.12
+
+/** True when the quad's corner order is too close to call (see ORDER_TIE_FRAC). */
+export function orderUndecided(quad: Quad): boolean {
+  const s = quad.map(([x, y]) => x + y)
+  const idx = [0, 1, 2, 3].sort((a, b) => s[a] - s[b])
+  const [i, j] = idx
+  const edge = Math.hypot(quad[i][0] - quad[j][0], quad[i][1] - quad[j][1])
+  return edge > 0 && s[j] - s[i] < ORDER_TIE_FRAC * edge
+}
+
 /** The look of the card `quad` bounds in `img` (canonical coordinates), or
- *  null when the quad does not order into a card. */
+ *  null when the quad does not order into a card — or orders ambiguously,
+ *  which the re-arm treats as "cannot tell" and so never fires on. */
 export function cardLook(img: ImageDataLike, quad: Quad): CardLook | null {
+  if (orderUndecided(quad)) return null
   const r = rectifyImageData(img, quad, WARP_W, WARP_H)
   if (!r) return null
   const d = r.data

@@ -150,3 +150,62 @@ test('the look of the captured pixels matches a later tick of the same card', ()
   assert.ok(lookDistance(fromCapture, lookOf(1)) < REARM_STEADY_MAX)
   assert.ok(lookDistance(fromCapture, lookOf(2)) > REARM_NEW_MIN)
 })
+
+test('a card lying near 45 degrees has no look — its corner order is a coin toss', async () => {
+  const { orderUndecided } = await import('../../engine/look')
+  const rot = (deg: number): Quad => {
+    const a = (deg * Math.PI) / 180
+    const c = [208, 208]
+    const corners: Array<[number, number]> = [
+      [-100, -140],
+      [100, -140],
+      [100, 140],
+      [-100, 140],
+    ]
+    return corners.map(([x, y]) => [c[0] + x * Math.cos(a) - y * Math.sin(a), c[1] + x * Math.sin(a) + y * Math.cos(a)]) as Quad
+  }
+  assert.equal(orderUndecided(rot(0)), false)
+  assert.equal(orderUndecided(rot(20)), false)
+  assert.equal(orderUndecided(rot(45)), true)
+  assert.equal(orderUndecided(rot(44)), true)
+  assert.equal(orderUndecided(rot(-45)), true)
+  assert.equal(orderUndecided(rot(70)), false)
+  const s = scene(1)
+  assert.equal(cardLook(s.img, rot(45)), null, 'no look, so the re-arm cannot fire on it')
+})
+
+test('a spot asks only its newest captures — a long stack does not pile up refusers', async () => {
+  const { createCapturedRegions, REGION_LOOKS_ASKED } = await import('../regions')
+  const R = createCapturedRegions()
+  const q = scene(1).quad
+  for (let i = 0; i < 30; i++) {
+    R.note(q, 7, i * 400, lookOf(i + 1))
+    R.tick(i * 400 + 120, [{ id: 7, quad: q }])
+  }
+  const asked = R.suppressingLooks(q)
+  assert.equal(asked.length, REGION_LOOKS_ASKED)
+  assert.equal(lookDistance(asked[asked.length - 1]!, lookOf(30)), 0, 'the newest capture is always asked')
+})
+
+test('decideAutoCapture: the shipping rule, clause by clause', async () => {
+  const { decideAutoCapture } = await import('../autoCapture')
+  const { createCapturedRegions } = await import('../regions')
+  const regions = createCapturedRegions()
+  const rearm = createLookRearm()
+  const refractory = new Set<number>()
+  const lock = { id: 7, quad: scene(1).quad }
+  const one = lookOf(1)
+  const two = lookOf(2)
+  const m = (busy = false) => ({ refractory, busy, regions, rearm })
+  assert.equal(decideAutoCapture(null, null, m()).fire, false, 'no lock')
+  assert.equal(decideAutoCapture(lock, one, m(true)).fire, false, 'busy')
+  assert.deepEqual(decideAutoCapture(lock, one, m()), { fire: true, repeat: false, newByLook: false }, 'a fresh lock fires')
+  // ...it was captured:
+  refractory.add(7)
+  regions.note(lock.quad, 7, 0, one)
+  rearm.note(one, 7)
+  assert.equal(decideAutoCapture(lock, one, m()).fire, false, 'the same card, still there')
+  assert.equal(decideAutoCapture(lock, two, m()).fire, false, 'a new card, not yet steady')
+  assert.deepEqual(decideAutoCapture(lock, two, m()), { fire: true, repeat: true, newByLook: true }, 'a new card, steady')
+  assert.equal(decideAutoCapture(lock, two, m(true)).fire, false, 'busy still waits')
+})

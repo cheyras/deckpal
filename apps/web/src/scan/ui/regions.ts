@@ -243,8 +243,10 @@ import { polyIoU } from '../engine/geometry'
  *
  * THE FAST-SWAP COST, which is what this constant buys: a DIFFERENT card placed
  * on the same spot within 5 s, at more than REGION_SAME_IOU overlap with where
- * the region currently sits, is SUPPRESSED until it expires. It will not
- * auto-capture. The escape hatch is manual capture and it is not a consolation:
+ * the region currently sits, is SUPPRESSED until it expires — unless it LOOKS
+ * different from the capture that made the region, which since 2026-10-10
+ * fires it anyway (rearm.ts; the region now keeps that capture's look). Without
+ * a readable look it will not auto-capture. The escape hatch is manual capture and it is not a consolation:
  * the region gates the AUTOMATIC fire only — the swapped card is still detected,
  * still tracked, still drawn under the reticle, and the Capture button takes it
  * immediately with `trigger: 'manual'`. Nothing is unreachable; what is lost is
@@ -298,11 +300,15 @@ export const REGION_DEPARTURE_MS = 5_000
  * the fastest measured swap. The cost that remains is a swap completed inside
  * 1.5 s of the old card's last sighting AND placed at >= 0.5 IoU — that card
  * inherits the region and is suppressed until departure, bounded by
- * `departureMs`, manual Capture never gated. The owner-session replay
+ * `departureMs`, manual Capture never gated, and lifted early by the look
+ * re-arm (rearm.ts) when the card in it looks different from the capture. The owner-session replay
  * (`__tests__/owner-session-regressions.test.ts`) fences both sides: the
  * first swap must still capture, and the rescued manual presses must hold.
  */
 export const REGION_BRIDGE_MS = 1_500
+
+/** How many of the newest overlapping regions `suppressingLooks` reports. */
+export const REGION_LOOKS_ASKED = 2
 
 /**
  * THE SUPPRESSION THRESHOLD: "this lock is close enough to a live region to be
@@ -435,7 +441,15 @@ export function createCapturedRegions(
       return regions.some((r) => polyIoU(r.quad, quad) >= sameIoU)
     },
     suppressingLooks(quad) {
-      return regions.filter((r) => polyIoU(r.quad, quad) >= sameIoU).map((r) => r.look)
+      // The NEWEST few only (regions are kept in capture order). Every capture
+      // on a continuous track follows it, so a stack worked on one spot piles
+      // up regions; asking all of them whether the new card looks like any
+      // would refuse more cards the longer the stack ran (PR #292 review: 29
+      // live refusers after 30 swaps). Two keeps an A/B flip bounded.
+      return regions
+        .filter((r) => polyIoU(r.quad, quad) >= sameIoU)
+        .slice(-REGION_LOOKS_ASKED)
+        .map((r) => r.look)
     },
     note(quad, trackId, now, look = null) {
       regions.push({ quad, trackId, lastSeen: now, look })

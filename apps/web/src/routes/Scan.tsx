@@ -55,7 +55,7 @@ import type { Quad } from '../scan/engine/contract'
 import { gateScanResponse, judgeTie, TIE_MARGIN } from '../scan/ui/tieGate'
 import { createCapturedRegions, type CapturedRegions, type RegionTrack } from '../scan/ui/regions'
 import { createLookRearm, type LookRearm } from '../scan/ui/rearm'
-import { captureLook } from '../scan/engine/look'
+import { decideAutoCapture } from '../scan/ui/autoCapture'
 import { useAccess } from '../lib/access'
 import { useScannerVoice } from '../scan/voice/useScannerVoice'
 import { VoiceCaption, VoiceLiveRegion, VoicePrimer, VoiceToggle, VoiceVerifyWarning, voicePrimerSeen } from '../scan/voice/VoiceControls'
@@ -471,12 +471,11 @@ export function Scan() {
 
   const noteCapture = useCallback(
     (result: CaptureResult) => {
-      // The look of the frame actually taken — every capture has one, manual
-      // or automatic, locked or not (look.ts captureLook) — kept with the
-      // region and with the track, the two things that can refuse a later lock.
-      const look = captureLook(result.raw)
-      regions.note(result.quad, result.trackId, Date.now(), look)
-      rearm.note(look, result.trackId)
+      // The look of the frame actually taken (CaptureResult.look — every
+      // capture has one, manual or automatic, locked or not), kept with the
+      // region and with the track: the two things that can refuse a later lock.
+      regions.note(result.quad, result.trackId, Date.now(), result.look)
+      rearm.note(result.look, result.trackId)
     },
     [regions, rearm],
   )
@@ -905,7 +904,7 @@ export function Scan() {
 
   /** The full capture → stack → identify → feed pipeline for one engine capture. */
   const handleCaptured = useCallback(
-    async (result: CaptureResult, trigger: 'auto' | 'manual') => {
+    async (result: CaptureResult, trigger: 'auto' | 'manual', rearmed = false) => {
       const previewUrl = trackUrl(URL.createObjectURL(result.blob))
       // Minted BEFORE the capture record so both halves of this capture's
       // telemetry carry it: the `capture-event` posted below, and the
@@ -931,6 +930,9 @@ export function Scan() {
         detail: {
           captureId,
           trigger,
+          // An automatic capture the look re-arm let through a repeat refusal
+          // (scan/ui/rearm.ts) — the field count of what that rule fires.
+          rearmed,
           quad: result.quad,
           trackId: result.trackId,
           // THE UNITS THIS QUAD IS IN — canonical 416 space, from the engine's
@@ -1250,7 +1252,7 @@ export function Scan() {
   )
 
   const runCapture = useCallback(
-    async (trackId: number, trigger: 'auto' | 'manual' = 'auto') => {
+    async (trackId: number, trigger: 'auto' | 'manual' = 'auto', rearmed = false) => {
       captureBusyRef.current = true
       setFlashSignal((n) => n + 1)
       try {
@@ -1270,7 +1272,7 @@ export function Scan() {
         // ...and WHAT it looked like: the card a later lock here is compared
         // against before it may fire through this refusal (rearm.ts).
         noteCapture(result)
-        await withTimeout(handleCaptured(result, trigger), CAPTURE_TIMEOUT_MS, 'capture')
+        await withTimeout(handleCaptured(result, trigger, rearmed), CAPTURE_TIMEOUT_MS, 'capture')
       } catch (e) {
         // The track vanished, the engine refused, or something ran past its
         // deadline — release the refractory hold so the SAME presence can retry
@@ -1290,7 +1292,8 @@ export function Scan() {
 
   // ── auto-capture: a persisted lock, refractory until the track departs
   //    and returns (ripSession.ts's departure-then-return precedent, applied
-  //    to track ids instead of card ids). Only runs in Step 1. ──
+  //    to track ids instead of card ids) — or until a DIFFERENT card by look
+  //    sits in it (scan/ui/rearm.ts). Only runs in Step 1. ──
   useEffect(() => {
     // `binExpanded` hides the camera without stopping it (the stream and the
     // engine deliberately survive an expand/collapse — see the CameraStage
@@ -1311,13 +1314,16 @@ export function Scan() {
     // a card that briefly drops below the stability bar has not departed.
     ageRegions([...engineState.stable, ...engineState.pending])
     const locked = engineState.locked
-    // A REPEAT — this track already captured, or this place — and the looks of
-    // the captures behind it. Judged every tick so the lock's steadiness is current.
-    const refractory = !!locked && refractoryRef.current.has(locked.id)
-    const regionLooks = locked ? regions.suppressingLooks(locked.quad) : []
-    const repeat = refractory || regionLooks.length > 0
-    const refusers = repeat ? [...(refractory ? [rearm.lookOfTrack(locked!.id)] : []), ...regionLooks] : []
-    const newByLook = rearm.judge(locked?.id ?? null, engineState.look, refusers)
+    // THE DECISION (scan/ui/autoCapture.ts — the offline replay runs the same
+    // function): a lock fires unless it is busy, or a REPEAT (this track already
+    // captured, or this place) whose card looks like the capture behind it.
+    // Every tick, lock or not, so the look re-arm's steadiness is current.
+    const verdict = decideAutoCapture(locked, engineState.look, {
+      refractory: refractoryRef.current,
+      busy: captureBusyRef.current,
+      regions,
+      rearm,
+    })
     if (locked) {
       // Every lock, not just the ones that become captures — a lock the
       // refractory set swallows is still the engine saying "I would fire at
@@ -1333,7 +1339,9 @@ export function Scan() {
         frame: engineState.frame,
         cameraBox: cameraBoxRef.current,
         perf: engineState.perf,
-        wouldCapture: !refractoryRef.current.has(locked.id) && !captureBusyRef.current,
+        // As before — not held by the refractory, not busy — plus a refractory
+        // hold the look re-arm saw through.
+        wouldCapture: (!refractoryRef.current.has(locked.id) || verdict.newByLook) && !captureBusyRef.current,
         // So the NEXT drive can measure the refractory instead of inferring it:
         // how many regions are live, and whether this lock was one of them.
         regionCount: regions.count,
@@ -1357,16 +1365,15 @@ export function Scan() {
         // (0.018 above the mail, 0.019 below the least colourful card) and
         // keeps the payload a handful of bytes.
         saturation: round3(engineState.saturation),
-        // Whether this lock is a different card by look (rearm.ts), and how many
-        // capture looks it was judged against — so a field session can measure
-        // the re-arm the way round 4 measured the regions.
-        newByLook,
+        // Whether this lock is a different card by look (rearm.ts). True on
+        // about one tick per re-arm, so this throttled stream undercounts them;
+        // the capture-event's `rearmed` is the reliable count.
+        newByLook: verdict.newByLook,
       })
     }
-    // ...which fires anyway when the card in it is not the card captured there (rearm.ts).
-    if (locked && !captureBusyRef.current && (!repeat || newByLook)) {
+    if (locked && verdict.fire) {
       refractoryRef.current.add(locked.id)
-      void runCapture(locked.id, 'auto')
+      void runCapture(locked.id, 'auto', verdict.repeat)
     }
     if (locked) setHint((h) => (h.startsWith('Got it') ? h : 'Got it — hold on…'))
     else if (engineState.stable.length > 0) setHint('Hold steady…')

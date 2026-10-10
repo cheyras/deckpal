@@ -63,9 +63,9 @@ import {
 } from './frame'
 import { loadModel, type ModelSession } from './model'
 import { computeLetterbox, rgbaToBGRPlanar, MODEL_SIZE, type LetterboxTransform } from './preprocess'
-import { cardLook } from './look'
+import { captureLook, cardLook } from './look'
 import { gradientField, quadMeanSaturation, refineQuadChecked } from './refine'
-import { cardRectSize, CAPTURE_QUALITY, rectifyToCapture } from './rectify'
+import { CAPTURE_MARGIN, cardRectSize, CAPTURE_QUALITY, rectifyToCapture } from './rectify'
 import { createTracker } from './tracker'
 
 /** Detect-tick floor. ~8 Hz: fast enough that a tracked quad reads as
@@ -862,9 +862,11 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
         CAPTURE_QUALITY,
         out.width,
         out.height,
+        CAPTURE_MARGIN,
       )
       if (!capture) throw new Error('scan engine: quad could not be rectified or encoded')
-      return { blob: capture.blob, raw: capture.raw, quad, trackId }
+      // The look reads the card inside the SAME margin the warp just added.
+      return { blob: capture.blob, raw: capture.raw, quad, trackId, look: captureLook(capture.raw, CAPTURE_MARGIN) }
     },
   }
 }

@@ -58,7 +58,8 @@ import {
 import { createTracker, TRACKER_DEFAULTS } from '../../../apps/web/src/scan/engine/tracker'
 import { createCapturedRegions } from '../../../apps/web/src/scan/ui/regions'
 import { captureLook, cardLook, type CardLook } from '../../../apps/web/src/scan/engine/look'
-import { createLookRearm } from '../../../apps/web/src/scan/ui/rearm'
+import { createLookRearm, type LookRearm } from '../../../apps/web/src/scan/ui/rearm'
+import { decideAutoCapture } from '../../../apps/web/src/scan/ui/autoCapture'
 
 // ---------------------------------------------------------------------------
 // the detect tick (index.ts createScanEngine -> tick, lines 619-736)
@@ -257,6 +258,9 @@ export interface CapturePolicy {
   readonly regionsExpired: number
 }
 
+/** A re-arm that never judges a card new: `--no-rearm`. */
+const NEVER_NEW: LookRearm = { judge: () => false, note: () => {}, lookOfTrack: () => null }
+
 export function createCapturePolicy(opts: PolicyKnobs = {}): CapturePolicy {
   const busyMs = opts.busyMs ?? DEFAULT_CAPTURE_BUSY_MS
   // Scan.tsx: refractoryRef, regionsRef, rearmRef.
@@ -273,33 +277,33 @@ export function createCapturePolicy(opts: PolicyKnobs = {}): CapturePolicy {
       // passes Date.now(); the replay passes video time (README "Clock").
       regions.tick(tMs, [...s.stable, ...s.pending])
       const locked = s.locked
-      // Scan.tsx — the repeat, the looks of the captures behind it, and the
-      // re-arm's verdict, judged every tick so the lock's steadiness is current.
-      const isRefractory = !!locked && refractory.has(locked.id)
-      const regionLooks = locked ? regions.suppressingLooks(locked.quad) : []
-      const repeat = isRefractory || regionLooks.length > 0
-      const refusers = repeat ? [...(isRefractory ? [rearm?.lookOfTrack(locked!.id) ?? null] : []), ...regionLooks] : []
-      const newByLook = rearm ? rearm.judge(locked?.id ?? null, extras.look ?? null, refusers) : false
+      // THE SHIPPING DECISION (scan/ui/autoCapture.ts), called exactly as
+      // Scan.tsx calls it. `--no-rearm` substitutes a re-arm that never judges
+      // a card new, which is the policy before 2026-10-10.
+      const v = decideAutoCapture(locked, extras.look ?? null, {
+        refractory,
+        busy: tMs < busyUntil,
+        regions,
+        rearm: rearm ?? NEVER_NEW,
+      })
       if (!locked) return { kind: 'none' }
-      // Scan.tsx fires when `!busy && (!repeat || newByLook)`; the reported
-      // reason is the first clause that refused, in the order it used to be.
-      if (repeat && !newByLook) {
-        if (isRefractory) return { kind: 'refractory' }
-        if (tMs < busyUntil) return { kind: 'busy' }
-        return { kind: 'region' }
+      if (v.fire) {
+        refractory.add(locked.id)
+        busyUntil = tMs + busyMs
+        return v.repeat ? { kind: 'fire', why: 'look' } : { kind: 'fire' }
       }
+      // The reported reason: the first clause that refused, in the order it used to be.
+      if (v.repeat && refractory.has(locked.id)) return { kind: 'refractory' }
       if (tMs < busyUntil) return { kind: 'busy' }
-      refractory.add(locked.id)
-      busyUntil = tMs + busyMs
-      return repeat ? { kind: 'fire', why: 'look' } : { kind: 'fire' }
+      return { kind: 'region' }
     },
     captured(tMs, quad, trackId, pixels) {
-      // Scan.tsx noteCapture(result): the region, and the look of the frame
-      // actually taken (captureLook on the captured pixels), kept with the
-      // region and with the track. The app does this once capture() resolves
-      // (tens of ms after the tick); no tick can land in between, so the
-      // replay notes it at the tick.
-      const look = captureLook(pixels)
+      // Scan.tsx noteCapture(result) with engine.capture()'s CaptureResult.look:
+      // the region, and the look of the captured pixels inside the same margin
+      // the warp added, kept with the region and with the track. The app does
+      // this once capture() resolves (tens of ms after the tick); no tick can
+      // land in between, so the replay notes it at the tick.
+      const look = captureLook(pixels, CAPTURE_MARGIN)
       regions.note(quad, trackId, tMs, look)
       rearm?.note(look, trackId)
     },

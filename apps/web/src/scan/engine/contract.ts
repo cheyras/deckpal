@@ -183,6 +183,10 @@ export interface CaptureResult {
   quad: Quad
   /** Track id, so the UI can refractory-dedupe re-presentations of the card. */
   trackId: number
+  /** The look of the captured pixels (look.ts captureLook): what a later lock
+   *  on this track or this spot is compared with by the look re-arm. Null only
+   *  when the capture cannot be read as a card. */
+  look: CardLook | null
 }
 
 export interface ScanEngine {
@@ -212,7 +216,7 @@ export interface EngineOptions {
   hold?: number
   /** Detect cadence floor in ms (default 120; engine stretches when slow). */
   cadenceMs?: number
-  /** Consecutive ticks before a stable track can lock (default 3). */
+  /** Consecutive ticks before a stable track can lock (default index.DEFAULT_LOCK_TICKS, 2). */
   lockTicks?: number
   /** Minimum opposite-side ratio for a lock — the straddle gate (default 0.72,
    *  index.DEFAULT_LOCK_PARALLEL_MIN). 0 disables it. */
