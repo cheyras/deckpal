@@ -31,6 +31,10 @@ test('a mixed pathway block includes each useful pathway once', () => {
 test('battle logging preserves paste, ranking, depth, debrief, and hidden-info rules', () => {
   const text = flat(pathwayText('battle_log'))
   assert.match(text, /add_battle_log.*log: "@pasted"/)
+  assert.match(text, /omit `log`, set `origin: "in_person"`/)
+  assert.match(text, /reader said.*in `notes`.*markdown analysis in `review`/)
+  assert.match(text, /Set `opponent_archetype`/)
+  assert.match(text, /absent means “new archetype”.*`games >= 3`/)
   assert.match(text, /without `deck_id` so it ranks their decks/)
   assert.match(text, /Light.*Standard.*Deep/)
   for (const detail of [
@@ -41,6 +45,14 @@ test('battle logging preserves paste, ranking, depth, debrief, and hidden-info r
   assert.match(text, /Only a bare result with no story.*logged immediately/)
   assert.match(text, /hidden information are \*\*unknown\*\*, never guessed/)
   assert.match(text, /battle number, version and deck record/)
+})
+
+test('battle review uses stored archetype records and preserves reader notes', () => {
+  const text = flat(pathwayText('battle_review'))
+  assert.match(text, /per-archetype record.*absent key is a new archetype.*`games >= 3`/)
+  assert.match(text, /write it to `review`, never over the reader's `notes`/)
+  assert.match(text, /set `opponent_archetype`/)
+  assert.match(text, /Deep Think.*cost card.*roughly how many credits/)
 })
 
 test('deck building checks a grounded legal 60 before showing it', () => {

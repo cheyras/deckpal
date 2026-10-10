@@ -169,6 +169,32 @@ function nameKey(s: string): string {
   return s.replace(/[’‘]/g, "'").trim().toLowerCase();
 }
 
+/**
+ * Stable matchup key used by storage, the REST API and agent tools.
+ *
+ * Apostrophes disappear rather than becoming separators, so the printed name
+ * `N's Zoroark ex` becomes `ns-zoroark-ex`. Diacritics are decomposed before
+ * the ASCII gate, and every other run of punctuation/whitespace becomes one
+ * hyphen. A value that has no words, or whose honest normalized form does not
+ * fit the database's 64-character key, is not an archetype.
+ *
+ * Migration 084 uses the same deliberately conservative rule for its backfill,
+ * but only for already-ASCII labels whose punctuation is known to be a word
+ * separator. That smaller SQL domain is WHY old free text which cannot be
+ * normalized confidently stays NULL rather than acquiring a plausible lie.
+ */
+export function normalizeOpponentArchetype(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const normalized = value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[’'‘]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized.length > 0 && normalized.length <= 64 ? normalized : null;
+}
+
 /** Per-player accumulator while walking the log. */
 interface PlayerState {
   name: string;
@@ -385,11 +411,13 @@ export function mergeLogFields(
 }
 
 export interface PreparedBattleLog {
-  parsed: ParsedBattleLog;
+  parsed: ParsedBattleLog | null;
   result: 'win' | 'loss' | 'tie' | null;
   opponent: string | null;
   opponentDeck: string | null;
 }
+
+export type BattleLogOrigin = 'ptcgl' | 'in_person' | 'other';
 
 /**
  * The one deck-specific preparation path used by BOTH preview and insert.
@@ -402,15 +430,31 @@ export interface PreparedBattleLog {
  * function makes that disagreement structurally impossible.
  */
 export function prepareBattleLog(
-  rawLog: string,
+  rawLog: string | null,
   deckCardNames: string[],
   input: {
+    origin?: BattleLogOrigin;
     playerName?: string;
     result?: 'win' | 'loss' | 'tie';
     opponent?: string | null;
     opponentDeck?: string | null;
   } = {},
 ): PreparedBattleLog {
+  const origin = input.origin ?? 'ptcgl';
+  if (origin !== 'ptcgl') {
+    if (input.result === undefined) {
+      throw new Error(`result is required when origin is '${origin}'`);
+    }
+    return {
+      parsed: null,
+      result: input.result,
+      opponent: input.opponent ?? null,
+      opponentDeck: input.opponentDeck ?? null,
+    };
+  }
+  if (rawLog === null || rawLog.trim() === '') {
+    throw new Error('rawLog is required');
+  }
   const parsed = parseBattleLog(rawLog, deckCardNames, input.playerName);
   const merged = mergeLogFields(parsed, input);
   if (parsed.players.me === null && input.result === undefined) {

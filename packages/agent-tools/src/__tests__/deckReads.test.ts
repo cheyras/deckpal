@@ -305,3 +305,112 @@ test('decks without the strategy include still returns only the label', async ()
   assert.match(res.text, /strategy 'Opening plan' \(\d+ chars\)/);
   assert.equal(res.text.includes('Fezandipiti'), false, 'the guide body is opt-in');
 });
+
+test('battle_logs puts the per-archetype record first and labels every row origin + archetype', async () => {
+  const api = stubApi({
+    get: (path) => {
+      if (path === '/decks') return DECKS;
+      if (path === '/decks/deck-1/logs?page=1&pageSize=50') {
+        return {
+          logs: [{
+            id: 12, deckVersion: 2, result: 'loss', opponent: null,
+            opponentDeck: 'Dragapult ex', opponentArchetype: 'dragapult-ex', origin: 'in_person',
+            turns: null, prizes: null, notes: 'Missed the gust.', reviewMd: '## Review',
+            playedAt: '2026-10-10T12:00:00.000Z', source: 'deck-e',
+          }],
+          totals: { total: 1, wins: 0, losses: 1, ties: 0 },
+          archetypes: [{
+            opponentArchetype: 'dragapult-ex', games: 3, wins: 1, losses: 2, ties: 0,
+            lastPlayedAt: '2026-10-10T12:00:00.000Z',
+          }],
+          pagination: { page: 1, pageSize: 50, total: 1, pageCount: 1 },
+        };
+      }
+      if (path === '/decks/deck-1/versions') return versionsPayload;
+      throw new Error(`unexpected get ${path}`);
+    },
+  });
+
+  const res = await byName('battle_logs').handler({
+    deck_id: 'Toolbox Slowking', include_raw: false, page: 1,
+  }, makeCtx(api));
+
+  assert.equal(res.isError, undefined, res.text);
+  assert.match(res.text.split('\n')[0]!, /^archetype record: dragapult-ex 1W–2L–0T \(3, last 2026-10-10\)/);
+  assert.match(res.text, /archetype dragapult-ex/);
+  assert.match(res.text, /in_person/);
+});
+
+test('battle_logs detail renders saved review and an honest no-raw marker', async () => {
+  const api = stubApi({
+    get: (path) => {
+      if (path === '/decks') return DECKS;
+      if (path === '/decks/deck-1/logs/12') return {
+        log: {
+          id: 12, deckVersion: 2, result: 'loss', opponent: null,
+          opponentDeck: 'Dragapult ex', opponentArchetype: 'dragapult-ex', origin: 'in_person',
+          turns: null, prizes: null, notes: 'Missed the gust.', reviewMd: '## Review\nSequence gust before draw.',
+          playedAt: '2026-10-10T12:00:00.000Z', source: 'deck-e', rawLog: null,
+          parsed: null, createdAt: '2026-10-10T12:00:00.000Z',
+        },
+      };
+      throw new Error(`unexpected get ${path}`);
+    },
+  });
+
+  const res = await byName('battle_logs').handler({
+    deck_id: 'Toolbox Slowking', log_id: 12, include_raw: true, page: 1,
+  }, makeCtx(api));
+
+  assert.equal(res.isError, undefined, res.text);
+  assert.match(res.text, /--- review ---\n## Review/);
+  assert.match(res.text, /no raw log — in_person game/);
+});
+
+test('battle_logs keeps the deck-wide archetype record above an empty version and labels unclassified rows', async () => {
+  const api = stubApi({
+    get: (path) => {
+      if (path === '/decks') return DECKS;
+      if (path === '/decks/deck-1/logs?page=1&pageSize=50&version=9') {
+        return {
+          logs: [],
+          totals: { total: 0, wins: 0, losses: 0, ties: 0 },
+          archetypes: [{
+            opponentArchetype: 'gardevoir-ex', games: 4, wins: 2, losses: 2, ties: 0,
+            lastPlayedAt: '2026-10-09T12:00:00.000Z',
+          }],
+          pagination: { page: 1, pageSize: 50, total: 0, pageCount: 1 },
+        };
+      }
+      if (path === '/decks/deck-1/logs?page=1&pageSize=50') {
+        return {
+          logs: [{
+            id: 13, deckVersion: 8, result: 'win', opponent: null,
+            opponentDeck: null, opponentArchetype: null, origin: 'other',
+            turns: null, prizes: null, notes: null, reviewMd: null,
+            playedAt: '2026-10-08T12:00:00.000Z', source: 'web',
+          }],
+          totals: { total: 1, wins: 1, losses: 0, ties: 0 },
+          archetypes: [],
+          pagination: { page: 1, pageSize: 50, total: 1, pageCount: 1 },
+        };
+      }
+      if (path === '/decks/deck-1/versions') return versionsPayload;
+      throw new Error(`unexpected get ${path}`);
+    },
+  });
+
+  const emptyVersion = await byName('battle_logs').handler({
+    deck_id: 'Toolbox Slowking', version: 9, include_raw: false, page: 1,
+  }, makeCtx(api));
+  assert.equal(emptyVersion.isError, undefined, emptyVersion.text);
+  assert.match(emptyVersion.text.split('\n')[0]!, /^archetype record: gardevoir-ex 2W–2L–0T/);
+  assert.match(emptyVersion.text, /No battle logs for v9/);
+
+  const unclassified = await byName('battle_logs').handler({
+    deck_id: 'Toolbox Slowking', include_raw: false, page: 1,
+  }, makeCtx(api));
+  assert.equal(unclassified.isError, undefined, unclassified.text);
+  assert.match(unclassified.text, /archetype unclassified/);
+  assert.match(unclassified.text, /origin other/);
+});

@@ -220,9 +220,12 @@ test('edit_battle_log dry_run renders the substance on line 1 and "Nothing was c
             result: 'win',
             opponent: 'OldFoe',
             opponentDeck: 'Old Archetype',
+            opponentArchetype: 'old-archetype',
+            origin: 'ptcgl',
             turns: 10,
             prizes: { me: 6, opponent: 3 },
             notes: 'old notes',
+            reviewMd: 'old review',
             playedAt: '2026-08-01T12:00:00.000Z',
             source: 'web',
             rawLog: 'RAW',
@@ -240,7 +243,10 @@ test('edit_battle_log dry_run renders the substance on line 1 and "Nothing was c
   const ctx = makeCtx(api);
 
   const res = await byName('edit_battle_log').handler(
-    { deck_id: 'Charizard ex', log_id: 7, result: 'loss', notes: 'new notes', dry_run: true },
+    {
+      deck_id: 'Charizard ex', log_id: 7, result: 'loss',
+      opponent_archetype: 'Dragapult ex', notes: 'new notes', review: 'new review', dry_run: true,
+    },
     ctx,
   );
 
@@ -252,8 +258,25 @@ test('edit_battle_log dry_run renders the substance on line 1 and "Nothing was c
   // Field-by-field: current → new for each changed field.
   assert.match(res.text, /result: WIN → LOSS/);
   assert.match(res.text, /notes: old notes → new notes/);
+  assert.match(res.text, /opponent_archetype: old-archetype → Dragapult ex/);
+  assert.match(res.text, /review: old review → new review/);
   // An unchanged field is not mentioned.
   assert.equal(res.text.includes('opponent_deck'), false, 'opponent_deck was not changed and must not appear');
   assert.match(res.text, /Re-run with dry_run: false to apply/);
   assert.equal(api.sends.length, 0, 'dry_run must not PATCH');
+});
+
+test('add_battle_log without a log requires an explicit origin before any API call', async () => {
+  const api = stubApi({
+    get: () => { throw new Error('must not read'); },
+    send: () => { throw new Error('must not send'); },
+  });
+  const res = await byName('add_battle_log').handler(
+    { deck_id: 'Charizard ex', result: 'win', dry_run: true },
+    makeCtx(api),
+  );
+  assert.equal(res.isError, true);
+  assert.match(res.text, /origin is required when log is omitted/);
+  assert.equal(api.gets.length, 0);
+  assert.equal(api.sends.length, 0);
 });
