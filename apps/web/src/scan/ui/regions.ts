@@ -108,6 +108,7 @@
 // own attribution exactly: 21 presses, 9 of which never locked.)
 
 import type { Quad } from '../engine/contract'
+import type { CardLook } from '../engine/look'
 import { polyIoU } from '../engine/geometry'
 
 /**
@@ -352,12 +353,20 @@ export interface CapturedRegions {
   /** Is this quad the card one of the live regions already holds? */
   suppressed(quad: Quad): boolean
   /**
+   * The looks of the captures behind `suppressed(quad)` — one per live region
+   * the quad overlaps, null where a capture was noted without one — so the look
+   * re-arm (rearm.ts) can ask whether the card on this spot now is the card
+   * that was captured here. The look stays with the REGION, so it survives the
+   * region re-anchoring to a new track id.
+   */
+  suppressingLooks(quad: Quad): Array<CardLook | null>
+  /**
    * Remember a capture's place AND the track it came from. The track id is what
    * the region will answer "is my card still here?" with for the rest of its
    * life; a capture whose track is already gone simply never gets refreshed and
    * retires on the clock, which is the correct behaviour for it.
    */
-  note(quad: Quad, trackId: number, now: number): void
+  note(quad: Quad, trackId: number, now: number, look?: CardLook | null): void
   /** Live regions. */
   readonly count: number
   /** Cumulative retirements since `reset()` — the telemetry counter. */
@@ -373,7 +382,7 @@ export function createCapturedRegions(
   const departureMs = opts.departureMs ?? REGION_DEPARTURE_MS
   const sameIoU = opts.sameIoU ?? REGION_SAME_IOU
   const bridgeMs = opts.bridgeMs ?? REGION_BRIDGE_MS
-  let regions: Array<{ quad: Quad; trackId: number; lastSeen: number }> = []
+  let regions: Array<{ quad: Quad; trackId: number; lastSeen: number; look: CardLook | null }> = []
   let expired = 0
   let lastExpiryAt: number | null = null
 
@@ -425,8 +434,11 @@ export function createCapturedRegions(
     suppressed(quad) {
       return regions.some((r) => polyIoU(r.quad, quad) >= sameIoU)
     },
-    note(quad, trackId, now) {
-      regions.push({ quad, trackId, lastSeen: now })
+    suppressingLooks(quad) {
+      return regions.filter((r) => polyIoU(r.quad, quad) >= sameIoU).map((r) => r.look)
+    },
+    note(quad, trackId, now, look = null) {
+      regions.push({ quad, trackId, lastSeen: now, look })
     },
     get count() {
       return regions.length

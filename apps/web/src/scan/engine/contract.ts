@@ -1,3 +1,4 @@
+import type { CardLook } from './look'
 // The boundary between the scan ENGINE (camera frames -> tracked card quads ->
 // rectified captures) and the scan UI (reticle, incoming stack, verify feed).
 // Decided 2026-09-02 (DECISIONS.md: "a pretrained corner model replaces
@@ -154,6 +155,14 @@ export interface EngineState {
    * which is the one measurement path to "a real card sitting below 0.13".
    */
   saturation: number | null
+  /**
+   * THE LOCK'S LOOK — a 264-byte colour layout of the locked card on this
+   * tick's working image (engine/look.ts), or null with no lock. The capture
+   * policy compares it with the looks of recent captures to tell a different
+   * card put down in the same place from the same card still there, which the
+   * track id and the region overlap cannot (ui/rearm.ts).
+   */
+  look: CardLook | null
   perf: { detectMs: number; hz: number; jitterPx: number }
 }
 
