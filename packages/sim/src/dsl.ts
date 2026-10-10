@@ -48,6 +48,12 @@ export interface Filter {
   hasAbility?: string;
   /** In-play only: the Pokémon has at least one damage counter. */
   damaged?: boolean;
+  /** In-play only: at least one attached Energy card matches (e.g. `{ basicEnergy: false }` = has Special Energy). */ // lane:metal
+  energy?: Filter;
+  /** In-play only: the Pokémon has a Tool attached (true) / none (false). */ // lane:metal
+  tool?: boolean;
+  /** In-play only: the Pokémon has this Special Condition. */ // lane:metal
+  condition?: SpecialCondition;
   not?: Filter;
   any?: Filter[];
 }
@@ -132,8 +138,8 @@ export type StaticEffect =
   | { k: 'weaknessType'; type: PType }
   /** Damage the affected Pokémon's attacks do to the opponent's Active Pokémon (before W/R). */
   | { k: 'damageOut'; amount: number; vs?: Filter }
-  /** Damage the affected Pokémon takes from attacks (after W/R; negative = reduction). */
-  | { k: 'damageIn'; amount: number }
+  /** Damage the affected Pokémon takes from attacks (after W/R; negative = reduction). `fromOpp`: only from the opponent's attacks. */
+  | { k: 'damageIn'; amount: number; fromOpp?: boolean /* lane:metal */ }
   | { k: 'hp'; delta: number }
   | { k: 'cantAttack' }
   | { k: 'cantRetreat' }
@@ -235,7 +241,16 @@ export type Step =
   /** "You may ..." -- a yes/no decision for the controller. */
   | { op: 'may'; body: Step[]; prompt?: string }
   /** Create a timed effect on a Pokémon or a player. */
-  | { op: 'effect'; static: StaticEffect; on?: SlotRef; onPlayer?: Who; duration: Duration; filter?: Filter }
+  | {
+      op: 'effect';
+      static: StaticEffect;
+      on?: SlotRef;
+      onPlayer?: Who;
+      duration: Duration;
+      filter?: Filter;
+      /** Player-level effect on Pokémon (Iron Defender: "all of your {M} Pokémon ... includes new Pokémon"): which of `onPlayer`'s Pokémon it covers, matched live. */ // lane:metal
+      scope?: Scope;
+    }
   | { op: 'knockOut'; target: SlotRef }
   /** Choose one of the attacks of the (Pokémon) card in the variable and use it as this attack. */
   | { op: 'useAttackOf'; card: string }
@@ -314,6 +329,8 @@ export interface CardScript {
   play?: Program;
   /** Trainer: it can only be played when this holds. */
   playable?: Cond;
+  /** Supporter: "If you go first, you may use this card during your first turn." (Carmine) */ // lane:metal
+  firstTurnSupporter?: boolean;
   /** Trainer (Tool/Stadium) and Energy passives. */
   statics?: StaticDef[];
   /** Trainer (Tool) and Energy triggers. */

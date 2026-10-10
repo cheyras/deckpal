@@ -193,6 +193,8 @@ export interface TimedEffect {
   fromAttack: boolean;
   src: number;
   filter?: import('./dsl.js').Filter;
+  /** Player-level effect that covers that player's Pokémon (see the `effect` step's `scope`). */ // lane:metal
+  scope?: import('./dsl.js').Scope;
 }
 
 export type Phase = 'setup' | 'main' | 'over';

@@ -3,9 +3,10 @@
  * the point of view of an effect's controller (`ec.player`) and source Pokémon.
  */
 import { def, type Env } from './context.js';
-import type { Cond, Expr, Filter, SlotRef, SlotZone, Who } from './dsl.js';
+import type { Cond, Expr, Filter, SlotRef, SlotZone, SpecialCondition, Who } from './dsl.js';
 import { allSlots, findSlot, opp, topCard } from './state.js';
 import type { CardDef, GameState, Player, Slot, Val } from './types.js';
+import { ASLEEP, BURNED, CONFUSED, PARALYZED, POISONED } from './types.js'; // lane:metal
 
 export interface EvalCtx {
   player: Player;
@@ -61,9 +62,15 @@ export function cardMatches(env: Env, iid: number, f: Filter | undefined): boole
   return defMatches(def(env.ctx, iid), f);
 }
 
+// lane:metal: in-play-only filter keys `energy`, `tool`, `condition`.
+const COND_BIT: Record<SpecialCondition, number> = { asleep: ASLEEP, confused: CONFUSED, paralyzed: PARALYZED, poisoned: POISONED, burned: BURNED };
+
 export function slotMatches(env: Env, slot: Slot, f: Filter | undefined): boolean {
   if (!f) return true;
   if (f.damaged !== undefined && slot.damage > 0 !== f.damaged) return false;
+  if (f.energy && !slot.energy.some((c) => cardMatches(env, c, f.energy))) return false; // lane:metal
+  if (f.tool !== undefined && slot.tools.length > 0 !== f.tool) return false; // lane:metal
+  if (f.condition && !(slot.cond & COND_BIT[f.condition])) return false; // lane:metal
   return defMatches(def(env.ctx, topCard(slot)), { ...f, damaged: undefined });
 }
 
