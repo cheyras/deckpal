@@ -134,3 +134,24 @@ or apply out of order, the set is not re-downloaded per tap, a failure rolls
 back with a Retry that works, a form failure stays inline with the typed input
 intact, and the counters stay disabled offline while a deck edit explains that
 it is offline. Failure-state screenshots are written for both widths.
+
+## Battles tab: in-person games, archetypes, reviews, digests
+
+`tests/browser/battlesV2.mjs` mounts the deck page's real `BattlesTab`
+(`fixture.html?battles`, self-host build) at 1440 and 390px in Chromium, over a
+fixture API that rejects any route it does not name. Five logs cover a PTCG Live
+game with a Deck-E review and a digest, a game played in person (no raw log), an
+`other` game whose digest 404s, a Live game whose digest fails with a 500, and an
+`other` game whose digest fails so "View log" is offered and the detail answers
+`rawLog: null` — shown as words, never an empty log box.
+It asserts the quiet origin words and archetype labels on each row; the
+most-faced summary from the list's all-versions record, then re-tallied from the
+loaded logs under a version filter; that nothing per-row is fetched until a row
+opens, and then the digest exactly once and the raw log only on "View log"; that
+an in-person game never requests a digest or log and offers no "View log"; that
+a failed digest shows no error and an empty review renders nothing; that the
+review's injected `<script>`, `<img onerror>`, `javascript:` link and remote
+image stay inert text; a visible keyboard focus ring; no shift after the detail
+paints; and no sideways scroll. Run it alone with
+`node --import tsx tests/browser/battlesV2.mjs`; screenshots land in
+`TEST_ARTIFACT_DIR` (default `.cache/browser-tests/battles-v2`).
