@@ -3,16 +3,16 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { DEEP_COST_NOTE, deepCost, deepCostLine, deepRequestLine, isShort } from '../deepRequest'
 
-test('no tool receives the retired deep-request restatement', () => {
+test('the compatibility helper never restates approval input', () => {
   assert.equal(deepRequestLine('web_research', { purpose: 'Dragapult results' }), null)
-  assert.equal(deepRequestLine('deck_strategy', { deck_id: 'deck-9' }), null)
+  assert.equal(deepRequestLine('deep_think', { why: 'A season review', plan: 'Compare games' }), null)
   assert.equal(deepRequestLine('log_cards', { items: [] }), null)
 })
 
-test('no approval receives a deep price quote', () => {
-  const quote = { analysis: 4, planDeck: 75, chatTurn: 1, balance: 100 }
+test('wallet quote compatibility never invents a Deep Think estimate', () => {
+  const quote = { balance: 100 }
   assert.equal(deepCost('web_research', quote), null)
-  assert.equal(deepCost('deck_strategy', quote), null)
+  assert.equal(deepCost('deep_think', quote), null)
   assert.equal(deepCost('log_cards', quote), null)
 })
 

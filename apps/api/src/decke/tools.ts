@@ -36,6 +36,7 @@ import { NO_WORK } from './deepOutcome.js'
 import type { Queryable } from '@deckpal/db'
 import { canAskToShare } from './improvement.js'
 import { PATHWAY_NAMES } from './pathways/names.js'
+import { DEEP_THINK_TOOL } from './deepThink.js'
 
 /**
  * Routes Deck-E may navigate to.
@@ -1033,6 +1034,21 @@ export function buildTools(
       },
     }),
 
+    [DEEP_THINK_TOOL]: tool({
+      description:
+        'Offer Deep Think only when this request truly benefits — a deep battle analysis worth learning from, a season review, or tournament prep with a meta read — never for routine work; use it at most once per conversation unless the reader asks, with one sentence explaining why.',
+      inputSchema: z.object({
+        why: z.string().trim().min(1).max(200)
+          .describe('One reader-facing sentence: what Deep Think would add beyond a normal answer.'),
+        plan: z.string().trim().min(1).max(300)
+          .describe('What you will do, such as research the archetype, replay turning points and compare lines.'),
+      }).strict(),
+      needsApproval: true,
+      execute: async () =>
+        'Deep Think is on for this request — take the time it deserves, research what changes, ' +
+        'reason through it, check the work, then answer in full.',
+    }),
+
     ask_to_share_chat: tool({
       description:
         'Offer the reader the one-conversation improvement consent choice. Use only after frustration, direct feedback that you should work differently, or a clear failure, and only alongside your own situational words.',
@@ -1106,7 +1122,14 @@ export const CLIENT_TOOLS = [
  * half is not a union. `tools.test.ts` pins both halves against the structural
  * property that actually decides it — whether the tool has an `execute`.
  */
-export const SERVER_TOOLS = ['express', 'showScreen', 'showDeck', 'ask_to_share_chat', 'ask_user'] as const
+export const SERVER_TOOLS = [
+  'express',
+  'showScreen',
+  'showDeck',
+  DEEP_THINK_TOOL,
+  'ask_to_share_chat',
+  'ask_user',
+] as const
 
 /**
  * EVERY tool `buildTools` exposes: the character's own vocabulary.

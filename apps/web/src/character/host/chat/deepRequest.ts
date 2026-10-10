@@ -1,15 +1,14 @@
 /**
  * Compatibility surface for the approval card.
  *
- * Deck-E no longer asks permission for analysis, research, or planning, so
- * there is no paid "deep request" to restate or quote on a consent card. The
- * component still imports these helpers while write approvals use the same UI;
- * null keeps that obsolete block absent without coupling the presentation lane
- * to this rollout.
+ * The old paid-tool menu is gone. Deep Think is one explicit `deep_think`
+ * approval whose copy and server-computed range live in `deepThinkCard.ts`.
+ * These helpers remain only because the host still shares its wallet balance
+ * with the approval surface; they must not revive prices for retired tools.
  */
 
 export type DeepCost = { credits: number; balance: number }
-export type DeepQuote = { analysis: number; planDeck: number; chatTurn: number; balance: number | null }
+export type DeepQuote = { balance: number | null }
 
 export const DEEP_COST_NOTE = 'This takes longer and uses more than a normal answer.'
 

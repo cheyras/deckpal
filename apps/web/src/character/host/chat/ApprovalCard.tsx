@@ -112,6 +112,8 @@ import { dryRunCardIds, dryRunItems } from './dryRun'
 import { DryRunList } from './DryRunList'
 import { CardChangePreview, StrategyGuidePreview } from './CardChangePreview'
 import { TOP_UP_LABEL } from './creditState'
+import { deepThinkCard, type DeepThinkEstimate } from './deepThinkCard'
+import type { PendingApproval } from '../approval'
 import {
   acceptButtonLabel,
   acceptCount,
@@ -184,6 +186,10 @@ export type ApprovalCardProps = {
    * is not a choice worth offering (UXD-07).
    */
   onTopUp?: () => void
+  /** The held call itself. Required only for the dedicated Deep Think offer. */
+  approval?: Pick<PendingApproval, 'name' | 'toolCallId' | 'input'> | null
+  /** Server-computed range for this call; model prose is never a price source. */
+  deepEstimate?: DeepThinkEstimate | null
 }
 
 /**
@@ -872,7 +878,10 @@ export function ApprovalCard({
   busy = false,
   cost = null,
   onTopUp,
+  approval = null,
+  deepEstimate = null,
 }: ApprovalCardProps): JSX.Element {
+  const deep = approval ? deepThinkCard(approval, deepEstimate) : null
   const editable = preview?.editable === true
   const { known, asking } = editable && preview ? sections(preview) : { known: [], asking: [] }
   const willWrite = editable && preview ? acceptCount(preview, choices) : 1
@@ -898,6 +907,58 @@ export function ApprovalCard({
     nothing. The read-only rows ask for the ids their dry run named.
   */
   const art = useCardArt(editable && preview ? preview.rows.map((r) => r.cardId) : dryRunCardIds(dryRun))
+
+  if (deep) {
+    // The estimate's HIGH end is the affordability threshold: approving when
+    // only the optimistic low fits would put a guaranteed meter stop behind a
+    // button that just promised the opposite. `cost.balance` is still the
+    // existing wallet fact; only the threshold comes from the keyed estimate.
+    const deepTopUpInstead = deep.highEstimate !== null
+      && cost !== null
+      && cost.balance < deep.highEstimate
+      && Boolean(onTopUp)
+
+    return (
+      <div
+        className="decke-composer-card pointer-events-auto mx-[16px] mb-[10px] shrink-0 p-[14px]"
+        role="alertdialog"
+        aria-label="Deck-E is asking permission"
+        data-decke-deep-think=""
+      >
+        <p className="text-[14.5px] font-semibold leading-[21px] text-text-primary">
+          {deep.title}
+        </p>
+        {deep.why ? (
+          <p className="mt-[7px] whitespace-pre-wrap text-[13px] leading-[19px] text-text-secondary">
+            {deep.why}
+          </p>
+        ) : null}
+        {deep.plan ? (
+          <p className="mt-[7px] whitespace-pre-wrap text-[12px] leading-[17px] text-text-muted">
+            <span className="font-medium text-text-secondary">Plan: </span>
+            {deep.plan}
+          </p>
+        ) : null}
+        <p className="mt-[9px] text-[12.5px] font-medium leading-[18px] text-text-primary">
+          {deep.cost}
+        </p>
+        <div className="mt-[12px] flex flex-wrap items-center gap-[8px]">
+          <Button variant="ghost" size="sm" onClick={onDeny} disabled={busy}>
+            {deep.declineLabel}
+          </Button>
+          {deepTopUpInstead ? (
+            <Button variant="primary" size="sm" onClick={onTopUp} disabled={busy}>
+              {TOP_UP_LABEL}
+            </Button>
+          ) : (
+            <Button variant="primary" size="sm" onClick={onAccept} disabled={busy} loading={busy}>
+              {deep.approveLabel}
+            </Button>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   /**
    * Other calls the model held in the same step, which this card does not show.

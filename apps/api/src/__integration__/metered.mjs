@@ -89,8 +89,10 @@ async function beginRequest(user, mode = 'paid', suffix = '') {
   return begun.id;
 }
 
-async function meteredBegin(user, request) {
-  return server(user, (c) => value(c, 'SELECT public.decke_metered_begin($1) data', [request]));
+async function meteredBegin(user, request, holdMultiplier) {
+  return holdMultiplier === undefined
+    ? server(user, (c) => value(c, 'SELECT public.decke_metered_begin($1) data', [request]))
+    : server(user, (c) => value(c, 'SELECT public.decke_metered_begin($1,$2) data', [request, holdMultiplier]));
 }
 
 async function operation(user, request, tool, cost, n = ++keyNumber) {
@@ -160,7 +162,8 @@ try {
   await db.query("UPDATE public.decke_ai_operation SET status='completed',finished_at=now(),cost_usd='0.01',cost_source='provider_reported' WHERE id=$1", [id(90)]);
   await db.query("UPDATE public.decke_ai_request SET status='completed',finished_at=now(),charged_credits=1 WHERE id=$1", [legacyRequest]);
   await db.query("INSERT INTO public.decke_import_fix_credit(user_id,fractional_credits) VALUES($1,'0.4')", [paid]);
-  await migration('081_decke_metered_credits.sql');
+  for (const file of readdirSync(join(REPO, 'packages/db/src/migrations'))
+    .filter((file) => /^08[1-3]_.*\.sql$/.test(file)).sort()) await migration(file);
 
   await test('081 creates v2 current policy while preserving exact v1 history and migrated carry', async () => {
     const current = (await db.query('SELECT public.credit_policy_read() data')).rows[0].data;
@@ -192,6 +195,36 @@ try {
     assert.deepEqual(await meteredBegin(low, request2), {
       allowed: false, mode: 'paid', reason: 'insufficient', balance: '2.000000000000', needed: 3,
     });
+  });
+
+  await test('Deep Think multiplier 8 holds eight ordinary legs and remains capped by balance', async () => {
+    await wallet(spare, 250);
+    const full = await beginRequest(spare, 'paid', 'deep-hold-200');
+    const fullResult = await meteredBegin(spare, full, 8);
+    assert.equal(fullResult.heldCredits, 200);
+    assert.equal(fullResult.balance, '50.000000000000');
+    await server(spare, (c) => value(c, "SELECT public.decke_metered_settle($1,'cancelled') data", [full]));
+
+    await wallet(spare, 125);
+    const capped = await beginRequest(spare, 'paid', 'deep-hold-capped');
+    const cappedResult = await meteredBegin(spare, capped, 8);
+    assert.equal(cappedResult.heldCredits, 125);
+    assert.equal(cappedResult.balance, '0.000000000000');
+    await server(spare, (c) => value(c, "SELECT public.decke_metered_settle($1,'cancelled') data", [capped]));
+  });
+
+  await test('hold multipliers outside 1 through 10 are refused', async () => {
+    const request = await beginRequest(spare, 'paid', 'deep-hold-invalid');
+    await rejects(meteredBegin(spare, request, 0), '22023');
+    await rejects(meteredBegin(spare, request, 11), '22023');
+  });
+
+  await test('the one-argument metered begin keeps the ordinary 25-credit default', async () => {
+    await wallet(spare, 30);
+    const request = await beginRequest(spare, 'paid', 'default-hold');
+    const begun = await meteredBegin(spare, request);
+    assert.equal(begun.heldCredits, 25);
+    await server(spare, (c) => value(c, "SELECT public.decke_metered_settle($1,'cancelled') data", [request]));
   });
 
   await test('payment holds and debt refuse admission without moving the wallet', async () => {

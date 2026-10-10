@@ -129,10 +129,49 @@ test('chat sends correlation into the server acceptance boundary before metering
 test('the frozen policy version is the only flat-versus-metered chat gate', () => {
   assert.match(SRC, /import \{ isMetered \} from '\.\.\/apps\/api\/dist\/credits\/policy\.js'/);
   assert.match(CODE, /if \(isMetered\(quote\.policy\)\)/);
-  assert.match(CODE, /beginMeteredCredits\(chatPool\(\), userId, usage\.id\)/);
+  assert.match(CODE, /beginMeteredCredits\(\s*chatPool\(\),\s*userId,\s*usage\.id,/);
   assert.match(CODE, /const result = await reserveCredits\(chatPool\(\), userId, tool, quote, spendKey, hash\)/);
   assert.ok(CODE.indexOf('if (isMetered(quote.policy))') < CODE.indexOf('const result = await reserveCredits('));
   assert.doesNotMatch(CODE, /DECKE_METERED|METERED_CREDITS_ENABLED/);
+});
+
+test('a signed Deep Think replay selects Deep and expands only that request hold', () => {
+  assert.match(
+    SRC,
+    /import \{[\s\S]*DEEP_HOLD_MULTIPLIER,[\s\S]*deepApprovedThisTurn,[\s\S]*estimateCredits,[\s\S]*\} from '\.\.\/apps\/api\/dist\/decke\/deepThink\.js'/,
+  );
+  assert.match(CODE, /const deepApproved = deepApprovedThisTurn\(messages\)/);
+  assert.match(CODE, /decideTier\(\{ triage, carried: carriedFromHistory\(messages\), deepApproved, pastedLog/);
+  assert.match(CODE, /const choice = TIERS\[decision\.tier\]/);
+  assert.match(
+    CODE,
+    /deepApproved \? \{ holdMultiplier: DEEP_HOLD_MULTIPLIER \} : undefined/,
+    'Deep approval no longer controls the larger reservation',
+  );
+  assert.match(CODE, /result = startConversation\(choice, decision\.effort\)/);
+});
+
+test('requested depth gets an uncached Standard instruction before model work', () => {
+  assert.match(CODE, /const requestedDeepOffer = decision\.reasons\.includes\('deep:requested'\)/);
+  assert.match(
+    CODE,
+    /requestedDeepOffer && choice === TIERS\.standard[\s\S]{0,240}systemMessage\(choice, 'The reader asked for depth\./,
+  );
+  assert.doesNotMatch(
+    CODE,
+    /systemMessage\(choice, 'The reader asked for depth\.[^\n]*, true\)/,
+    'the request-specific Deep Think offer must not enter the cached prompt prefix',
+  );
+});
+
+test('the Deep Think approval chunk emits the server estimate keyed to its call', () => {
+  assert.match(CODE, /const deepEstimate = estimateCredits\(decision\.pathways\)/);
+  assert.match(CODE, /chunk\.type !== 'tool-approval-request'/);
+  assert.match(CODE, /chunk\.toolCall\.toolName !== DEEP_THINK_TOOL/);
+  assert.match(
+    CODE,
+    /type: 'data-decke-deep-estimate',[\s\S]{0,120}toolCallId: chunk\.toolCall\.toolCallId, \.\.\.deepEstimate[\s\S]{0,80}transient: true/,
+  );
 });
 
 test('metered research uses the leg hold and never starts another reservation', () => {
@@ -365,9 +404,7 @@ test('triage is metered beside reflex and code chooses the conversation tier', (
   assert.match(SRC, /import \{ answeringAsk, carriedFromHistory, continuationFloor, decideTier, quickRefusalRetry, raisedToStandard, resumesApproval \} from '\.\.\/apps\/api\/dist\/decke\/tiers\.js'/);
   assert.match(CODE, /runTriage\(\{[\s\S]*message: latestUserText\(messages\)[\s\S]*model: observeUsageModel\(gateway\(TRIAGE\.id\), meter\)/);
   assert.match(CODE, /answering: answeringAsk\(messages\)/);
-  assert.match(CODE, /decision = decideTier\(\{ triage, carried: carriedFromHistory\(messages\), deepApproved: false, pastedLog: pastedNow \|\| pasteAwaitingAnswer \}\)/);
-  // Deep stays behind a signed reader choice that does not exist on this branch.
-  assert.doesNotMatch(CODE, /deepApproved: (?!false\b)/);
+  assert.match(CODE, /decision = decideTier\(\{ triage, carried: carriedFromHistory\(messages\), deepApproved, pastedLog: pastedNow \|\| pasteAwaitingAnswer \}\)/);
   assert.match(CODE, /const choice = TIERS\[decision\.tier\]/);
   assert.match(CODE, /console\.log\('\[deck-e\] route', JSON\.stringify\(\{/);
 });

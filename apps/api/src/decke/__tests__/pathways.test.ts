@@ -41,6 +41,7 @@ test('battle logging preserves paste, ranking, depth, debrief, and hidden-info r
   assert.match(text, /Only a bare result with no story.*logged immediately/)
   assert.match(text, /hidden information are \*\*unknown\*\*, never guessed/)
   assert.match(text, /battle number, version and deck record/)
+  assert.match(text, /offer Deep Think with `deep_think` and give one sentence saying why/)
 })
 
 test('deck building checks a grounded legal 60 before showing it', () => {
@@ -51,6 +52,16 @@ test('deck building checks a grounded legal 60 before showing it', () => {
   assert.match(text, /Never make the reader type the list/)
   assert.match(text, /total 60 cards/)
   assert.match(text, /Run `check_deck`.*run `check_deck` again.*show it with `showDeck`/)
+  assert.match(text, /offer Deep Think with `deep_think` and give one sentence saying why/)
+})
+
+test('season and tournament review offers Deep Think through the consent tool', () => {
+  const text = flat(pathwayText('battle_review'))
+  assert.match(text, /whole-season review or tournament preparation/)
+  assert.match(text, /offer Deep Think with `deep_think` and give one sentence saying why/)
+  for (const name of ['battle_log', 'battle_review', 'deck_build'] as const) {
+    assert.doesNotMatch(pathwayText(name), /suggest the reader asks for Deep Think/)
+  }
 })
 
 test('deck iteration records evidence and sample-size limits in version history', () => {

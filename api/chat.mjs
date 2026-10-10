@@ -157,6 +157,12 @@ import { TIERS, TRIAGE, budgetFor } from '../apps/api/dist/decke/models.js'
 import { runTriage } from '../apps/api/dist/decke/triage.js'
 import { answeringAsk, carriedFromHistory, continuationFloor, decideTier, quickRefusalRetry, raisedToStandard, resumesApproval } from '../apps/api/dist/decke/tiers.js'
 import { ROUTE_ECHO_PART, decisionFromEcho, readRouteEcho, routeEchoFor } from '../apps/api/dist/decke/routeEcho.js'
+import {
+  DEEP_HOLD_MULTIPLIER,
+  DEEP_THINK_TOOL,
+  deepApprovedThisTurn,
+  estimateCredits,
+} from '../apps/api/dist/decke/deepThink.js'
 import { creditWork } from '../apps/api/dist/credits/work.js'
 import { ensureAdminBootstrap } from '../apps/api/dist/admin/access.js'
 import { beginAiRequest, runAiUsage, runAdvisoryUsage, observeUsageModel, finishAiRequest, meteredCapReached, safeUsageCode } from '../apps/api/dist/decke/usage.js'
@@ -511,6 +517,7 @@ async function serve(request) {
   const wire = validateWire(body?.messages)
   if (!wire.ok) return json({ error: wire.error, code: wire.code }, wire.status)
   const messages = wire.messages
+  const deepApproved = deepApprovedThisTurn(messages)
   const route = boundedRoute(body?.route)
   const landmarks = boundedLandmarks(body?.landmarks)
   // What replies the browser's window dropped still owe the two
@@ -585,7 +592,16 @@ async function serve(request) {
         return { allowed: true, credits: quote.policy.enabled && !quote.unlimited,
           balance: meter?.balance, ...creditWork(async () => {}, request.signal) }
       }
-      const result = await beginMeteredCredits(chatPool(), userId, usage.id)
+      // Approval deterministically makes `decideTier` choose Deep below, so the
+      // larger reservation can be made before paid triage without moving that
+      // Gateway call ahead of admission. A normal leg keeps the one-argument
+      // call, which remains compatible while migration 083 rolls out.
+      const result = await beginMeteredCredits(
+        chatPool(),
+        userId,
+        usage.id,
+        deepApproved ? { holdMultiplier: DEEP_HOLD_MULTIPLIER } : undefined,
+      )
       usage.meteredStarted = result.allowed
       // Every metered refusal is a credit refusal (the balance, a debt or a payment
       // hold), never the daily allowance, so it must offer the wallet, not "tomorrow".
@@ -691,17 +707,20 @@ async function serve(request) {
       return value
     }),
   ])
-  // Deep Think approval will plug in here in its own phase, behind a signed
-  // reader choice; the echo can never carry it. Until then, even a
-  // requested/beneficial deep analysis is Standard.
+  // A signed Deep Think approval is read FIRST: the approval leg is a
+  // continuation, so an echo is present, and the echo can never carry Deep.
+  // The approved replay is revalidated by the SDK before its tool executes or
+  // the selected model is called (see deepThink.ts).
   let decision
-  if (echoed) {
+  if (deepApproved && echoed) {
+    decision = { ...decisionFromEcho(echoed), tier: 'deep', effort: 'high', reasons: ['echo', 'approved:deep'] }
+  } else if (echoed) {
     decision = decisionFromEcho(echoed)
   } else {
     // `pastedLog`: a paste in the reader's latest message — or one they are
     // answering questions about — always brings the battle_log guidance, where
     // the `@pasted` rule now lives.
-    decision = decideTier({ triage, carried: carriedFromHistory(messages), deepApproved: false, pastedLog: pastedNow || pasteAwaitingAnswer })
+    decision = decideTier({ triage, carried: carriedFromHistory(messages), deepApproved, pastedLog: pastedNow || pasteAwaitingAnswer })
     if (!firstLeg) decision = continuationFloor(decision)
   }
   const routeEcho = firstLeg ? routeEchoFor(decision) : null
@@ -1038,10 +1057,15 @@ async function serve(request) {
       })
       const requestPathway = pathwayBlock(decision.pathways)
       const volatileContext = buildVolatileContext({ route, signedIn: true, landmarks })
+      const requestedDeepOffer = decision.reasons.includes('deep:requested')
+      const deepEstimate = estimateCredits(decision.pathways)
       const instructionsFor = (choice, extra) => [
         systemMessage(choice, corePrompt, true),
         ...(requestPathway ? [systemMessage(choice, requestPathway, true)] : []),
         systemMessage(choice, volatileContext),
+        ...(requestedDeepOffer && choice === TIERS.standard
+          ? [systemMessage(choice, 'The reader asked for depth. Before heavy work, offer Deep Think with deep_think and one sentence saying why; the approval card shows the cost.')]
+          : []),
         ...(extra ? [systemMessage(choice, extra)] : []),
       ]
 
@@ -1255,6 +1279,25 @@ async function serve(request) {
         ...(process.env.DECKE_APPROVAL_SECRET
           ? { experimental_toolApprovalSecret: process.env.DECKE_APPROVAL_SECRET }
           : {}),
+        // The cost on the approval card is code-owned. Emit it from the real
+        // approval chunk, keyed to the call, so model-authored prose can never
+        // choose a number or make a non-held call look held.
+        onChunk: ({ chunk }) => {
+          if (
+            chunk.type !== 'tool-approval-request' ||
+            chunk.toolCall.toolName !== DEEP_THINK_TOOL
+          ) return
+          try {
+            writer.write({
+              type: 'data-decke-deep-estimate',
+              data: { toolCallId: chunk.toolCall.toolCallId, ...deepEstimate },
+              transient: true,
+            })
+          } catch {
+            // A closed stream is an ordinary abort. The signed approval card
+            // remains valid; an old client can still show its plain fallback.
+          }
+        },
         maxOutputTokens: budgetFor(choice),
         // A sub-agent that ignores the signal bills for up to five minutes
         // after the user gave up. This is the same signal every tool call and
