@@ -227,3 +227,24 @@ test('lethal: search picks the damage target that wins (Cruel Arrow onto the Ben
   playTurn(g, makePilot('search', 4));
   assert.equal(g.state.winner, 0, `search did not find the win (${g.state.winReason ?? 'game continues'})`);
 });
+
+test("a pilot's lookahead never writes to the real game's event log (the report is built from it)", () => {
+  // The runner turns `events` on and builds every per-card stat (KOs, Prize attribution, first attack, card
+  // impact) from game.events. A pilot that submits hypothetical moves through the real game's env appends
+  // every imagined draw, attack and Knock Out to that log — found end to end as "Dhelmise 9 (593 KOs)" in 4 games.
+  const ctx = createContext(HIDE_N_SNEAK, TOOLBOX_SLOWKING, { events: true, maxTurns: 12 });
+  for (const name of ['greedy', 'search', 'policy'] as PilotName[]) {
+    const pilots = [makePilot(name, 3, { nodes: 60 }), makePilot(name, 5, { nodes: 60 })];
+    const g = new Game(ctx, null, 7).start();
+    let decisions = 0;
+    while (!g.over && decisions < 400) {
+      const d = g.decision!;
+      const before = g.events.length;
+      const c = pilots[d.player]!.choose(g, d);
+      assert.equal(g.events.length, before, `${name}: choose() appended ${g.events.length - before} event(s) to the real game`);
+      g.submit(c);
+      decisions++;
+    }
+    assert.ok(decisions > 20, `${name}: the game should get going (${decisions} decisions)`);
+  }
+});

@@ -5,6 +5,7 @@
  * to its next main decision or the end of the turn, evaluates, and takes the
  * best. Every other decision goes to the policy.
  */
+import type { Env } from '../context.js';
 import { determinize } from '../determinize.js';
 import type { Game } from '../game.js';
 import { Rng } from '../rng.js';
@@ -33,7 +34,8 @@ export class GreedyPilot implements Pilot {
   }
 
   choose(game: Game, d: Decision): number[] {
-    const env = game.envForInternals;
+    // Silent: the lookahead submits imagined moves, which must never reach the real game's event log.
+    const env: Env = { ctx: game.ctx, emit: null };
     const me = d.player;
     const n = optionCount(d);
     if (n <= 1 || !branchable(d, me, true) || game.state.phase !== 'main') return policyChoose(env, game.state, d, this.profile);

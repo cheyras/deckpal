@@ -239,7 +239,8 @@ export class SearchPilot implements Pilot {
   }
 
   choose(game: Game, d: Decision): number[] {
-    const env = game.envForInternals;
+    // Silent: the lookahead submits imagined moves, which must never reach the real game's event log.
+    const env: Env = { ctx: game.ctx, emit: null };
     const me = d.player;
     const n = optionCount(d);
     const o = this.opts;
