@@ -404,15 +404,31 @@ export function Scan() {
   // on the first captures of a session — the server loading and compiling an
   // 88 MB model on the capture being watched. One GET when the scanner opens
   // moves that cost off it, and one every few minutes keeps the instance from
-  // idling back out while the scanner stays open. Fire-and-forget: a failed
-  // warm-up costs nothing the cold capture would not have paid anyway.
+  // idling back out while the scanner stays open — only while the page is
+  // VISIBLE (a backgrounded tab would otherwise keep an instance alive for
+  // nothing), and never again once the server says this deployment has no
+  // matcher. Fire-and-forget: a failed warm-up costs nothing the cold capture
+  // would not have paid anyway.
   useEffect(() => {
+    let off = false
     const warm = () => {
-      if (!embedUnavailableRef.current) void api.scanWarm().catch(() => {})
+      if (off || embedUnavailableRef.current || document.visibilityState !== 'visible') return
+      void api
+        .scanWarm()
+        .then((r) => {
+          if (r.embed === 'off') off = true
+        })
+        .catch(() => {})
     }
     warm()
     const timer = window.setInterval(warm, SCAN_WARM_INTERVAL_MS)
-    return () => window.clearInterval(timer)
+    // Coming back to the tab after a while is exactly when the instance has
+    // gone cold, so a return to visible warms at once instead of waiting.
+    document.addEventListener('visibilitychange', warm)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', warm)
+    }
   }, [])
 
   /**

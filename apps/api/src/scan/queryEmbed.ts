@@ -320,9 +320,15 @@ export async function embedCrop(bytes: Buffer, marginFrac = DEFAULT_CAPTURE_MARG
  */
 let warmCrop: Promise<Buffer> | null = null;
 export async function warmEmbed(): Promise<{ loadMs: number }> {
+  // Cached like the session is, and cleared on failure like the session is, so
+  // one bad attempt cannot poison every later warm-up on this instance.
   warmCrop ??= sharp({ create: { width: 480, height: 670, channels: 3, background: { r: 128, g: 128, b: 128 } } })
     .jpeg({ quality: 85 })
-    .toBuffer();
+    .toBuffer()
+    .catch((e: unknown) => {
+      warmCrop = null;
+      throw e;
+    });
   const { info } = await loadEmbedSession();
   await embedCrop(await warmCrop);
   return { loadMs: info.loadMs };

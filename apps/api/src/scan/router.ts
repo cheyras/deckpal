@@ -688,7 +688,10 @@ scanRouter.get(
     try {
       const { loadMs } = await warmEmbed();
       res.json({ embed: 'warm', ms: Date.now() - t0, loadMs });
-    } catch {
+    } catch (e) {
+      // Logged, not raised: the capture that follows will hit the same fault
+      // and report it to the reader; this line is for whoever reads the logs.
+      console.warn(`[scan/warm] could not warm the identity model: ${(e as Error).message}`);
       res.json({ embed: 'error', ms: Date.now() - t0 });
     }
   }),
