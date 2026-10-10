@@ -43,3 +43,17 @@ supersedes: []
   - The model learned how a phone photo of a card relates to its art, not the cards themselves. A newly released set therefore needs only its gallery rows (`tools/embed-catalog` embeds missing cards incrementally), not retraining, and the 0.65 / 0.03 gate held at zero wrong on cards the model never saw.
 - **Retraining:** `tools/scan-embed` is the recipe, and the benchmark is the gate. A new checkpoint gets a new id, new thresholds and a new stamp, never an overwrite.
 - **Latency:** the same architecture and the same 88 MB int8 file, so latency is unchanged. A smaller backbone is the latency lever and is measured separately.
+- **A wide confidence tier, added 2026-10-10.** The gate also names a match whose similarity is at least 0.45 and whose margin is at least 0.12 (`EmbedThresholds.wide`). Either tier passing is enough; the main tier is unchanged.
+  - **Why:** low-resolution captures (video frames, a card far from the lens) lower every similarity, the right one included. A clean match can land at 0.5 while standing 0.15 clear of everything else, and simMin alone refused those.
+  - **Measured at batch size 1** (`scripts/scan-bench/gate_sweep.py`; dynamic int8 quantizes per batch, so batched numbers drift):
+
+    | set | named before | named after | wrong card |
+    |---|---|---|---|
+    | benchmark: 247 cards, 11 negatives, 9 no-art | 207 | 210 | 0 |
+    | owner quad photos checked by eye: 227 cards, 35 negatives, 10 no-art | 134 | 152 | 0 |
+    | video replay captures: 106 cards plus strays | 49 | 64 | 0 |
+
+  - On the owner photos the tier adds one wrong printing (vintage Base Set named as its reprint), against 16 the main tier already makes. That class is being fixed in training; it is not a gate question.
+  - No negative and no no-art card is named by the new tier. The strongest non-card beneath it stood 0.118 clear, and it was a blurred real card the ground truth had missed.
+  - The whole ladder with OCR on rose from 83.2% to 84.4% auto-identified, still with 0 wrong and 0 of 11 negatives.
+  - `isConfidentScore` is the single rule both `identityConfidence` and the API's `vectorVerdict` use, so they cannot drift.

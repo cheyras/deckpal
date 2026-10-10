@@ -49,7 +49,7 @@
  * candidates and no claim, which is the failure shape the whole scanner is
  * built around.
  */
-import { THRESHOLDS, type IdentityCandidate } from '@deckpal/matching';
+import { THRESHOLDS, isConfidentScore, type IdentityCandidate } from '@deckpal/matching';
 
 /**
  * One candidate from the pgvector search: which card, and how close.
@@ -136,7 +136,8 @@ export function vectorVerdict(matches: readonly VectorMatch[], modelId: string):
   const separated = margin !== null && margin >= t.marginMin;
   // A single candidate cannot be checked against a runner-up, and the honest
   // answer to "how sure are you" with nothing to compare against is not "very".
-  const decisive = showable && top.similarity >= t.simMin && separated;
+  // The rule (main tier, or the checkpoint's wide tier) lives in one place.
+  const decisive = isConfidentScore(t, top.similarity, margin);
   return { cardId: showable ? top.cardId : null, similarity: top.similarity, margin, decisive, showable, separated };
 }
 

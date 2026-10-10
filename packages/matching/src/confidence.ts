@@ -83,6 +83,25 @@ export interface EmbedThresholds {
   marginMin: number
   /** Below this the top candidate is not worth showing at all. */
   simFloor: number
+  /**
+   * A second way to be confident, for a space where it was measured: a match
+   * that stands FAR clear of its runner-up (margin >= marginMin here) at a
+   * lower similarity (>= simMin here). Either tier passing is enough; the
+   * main tier is unchanged. See the checkpoint's entry for what it rests on.
+   */
+  wide?: { simMin: number; marginMin: number }
+}
+
+/**
+ * The confidence rule itself, in one place, so `identityConfidence` and the
+ * API's `vectorVerdict` cannot drift apart: the main tier (simMin AND
+ * marginMin), or the wide tier where the checkpoint has one. A null margin (a
+ * single candidate) is never confident.
+ */
+export function isConfidentScore(t: EmbedThresholds, similarity: number, margin: number | null): boolean {
+  if (margin === null || similarity < t.simFloor) return false
+  if (similarity >= t.simMin && margin >= t.marginMin) return true
+  return t.wide !== undefined && similarity >= t.wide.simMin && margin >= t.wide.marginMin
 }
 
 /**
@@ -125,7 +144,24 @@ export const THRESHOLDS: Readonly<Record<string, EmbedThresholds>> = {
   // old gate on this space gave 198/256. The floor drops with the space: the
   // weakest true matches sit near 0.5 and a candidate there is still worth
   // showing (and corroborating), which is all the floor decides.
-  'deckpal-card-b32-v1': { simMin: 0.65, marginMin: 0.03, simFloor: 0.45 },
+  //
+  // THE WIDE TIER (2026-10-10). Low-resolution captures — video frames, a card
+  // far from the lens — lower EVERY similarity, the right one included, so a
+  // clean match can land at 0.5 while standing 0.15 clear of anything else.
+  // simMin alone refused those. Measured on three real sets at batch size 1
+  // (scripts/scan-bench/gate_sweep.py; dynamic int8 quantizes per batch):
+  //   bench, 247 cards + 11 negatives + 9 no-art   207 -> 210 named, 0 wrong
+  //   owner quad photos verified by eye, 227 cards 134 -> 152 named, 0 wrong card
+  //     + 35 negatives + 10 no-art                 (+1 wrong PRINTING: vintage
+  //                                                 Base Set vs its reprints,
+  //                                                 the main tier already
+  //                                                 makes 16 of these)
+  //   video replay captures, 106 cards + strays    49 -> 64 named, 0 wrong
+  // No negative and no no-art card is named by the wide tier. The strongest
+  // non-card under it scores margin 0.118 (a blurred real card the ground
+  // truth missed); marginMin 0.12 sits above it and 6x above the same-art
+  // cluster (0.004 — the wide tier never decides a reprint pair).
+  'deckpal-card-b32-v1': { simMin: 0.65, marginMin: 0.03, simFloor: 0.45, wide: { simMin: 0.45, marginMin: 0.12 } },
 }
 
 export type IdentityLevel = 'confident' | 'uncertain' | 'none'
@@ -181,8 +217,7 @@ export function identityConfidence(
   }
   // A single candidate cannot be checked against a runner-up, and the answer to
   // "how sure are you" when there is nothing to compare against is not "very".
-  const marginOk = margin !== null && margin >= t.marginMin
-  const level: IdentityLevel = top.similarity >= t.simMin && marginOk ? 'confident' : 'uncertain'
+  const level: IdentityLevel = isConfidentScore(t, top.similarity, margin) ? 'confident' : 'uncertain'
   return { level, cardId: top.cardId, similarity: top.similarity, margin, modelId }
 }
 

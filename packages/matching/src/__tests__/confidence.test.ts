@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { EMBED_MODEL_ID } from '../input-spec.js'
-import { THRESHOLDS, identityConfidence, variantConfidence } from '../confidence.js'
+import { THRESHOLDS, identityConfidence, isConfidentScore, variantConfidence } from '../confidence.js'
 
 const T = THRESHOLDS[EMBED_MODEL_ID]!
 
@@ -43,12 +43,16 @@ test('a high score with a crowded runner-up is uncertain, not confident', () => 
   assert.equal(r.cardId, 'base1-102')
 })
 
-test('a wide margin over a weak top-1 is uncertain, not confident', () => {
+test('a wide margin over a weak top-1 is not confident', () => {
+  // Weak = below the similarity of EVERY tier: no margin buys that back. (A
+  // checkpoint with a measured wide tier lowers its similarity bar for a
+  // far-clear match — see the wide-tier test — but never below its own floor.)
+  const weak = Math.min(T.simMin, T.wide?.simMin ?? T.simMin) - 0.05
   const r = identityConfidence([
-    { cardId: 'x', similarity: T.simMin - 0.05 },
-    { cardId: 'y', similarity: T.simMin - 0.05 - 0.5 },
+    { cardId: 'x', similarity: weak },
+    { cardId: 'y', similarity: weak - 0.5 },
   ])
-  assert.equal(r.level, 'uncertain')
+  assert.notEqual(r.level, 'confident')
 })
 
 test('a lone candidate can never be confident', () => {
@@ -145,6 +149,34 @@ test('the fine-tuned gate sits in the gap of both of its measured error clusters
   assert.equal(verdict(0.933, 0.933), 'uncertain', 'an identical-art reprint pair must go to the reader')
   assert.equal(verdict(0.909, 0.905), 'uncertain')
   assert.equal(verdict(0.86, 0.6), 'confident', 'an ordinary clear match is named')
+})
+
+test('the fine-tuned wide tier names a far-clear low-resolution match and nothing it was not measured on', () => {
+  // gate_sweep.py, 2026-10-10: a soft video capture of the right card at 0.5
+  // standing 0.15 clear is named; the strongest non-card under the tier stood
+  // 0.118 clear; an identical-art pair (margin <= 0.004) never qualifies.
+  const t = THRESHOLDS['deckpal-card-b32-v1']!
+  assert.ok(t.wide, 'the fine-tuned checkpoint has a measured wide tier')
+  assert.ok(t.wide!.marginMin > 0.118, 'wide marginMin must clear the strongest non-card it was measured against')
+  assert.ok(t.wide!.simMin >= t.simFloor, 'the wide tier cannot reach below the showable floor')
+  const verdict = (a: number, b: number, model = 'deckpal-card-b32-v1') =>
+    identityConfidence(
+      [
+        { cardId: 'top', similarity: a },
+        { cardId: 'second', similarity: b },
+      ],
+      model,
+    ).level
+  assert.equal(verdict(0.5, 0.35), 'confident', 'a far-clear soft capture is named')
+  assert.equal(verdict(0.5, 0.39), 'uncertain', 'margin 0.11 is not far clear')
+  assert.equal(verdict(0.44, 0.2), 'none', 'below the floor nothing is named, however clear')
+  assert.equal(verdict(0.6, 0.6), 'uncertain', 'a reprint pair is never decided by the wide tier')
+  // Checkpoints without a measured wide tier are untouched by it.
+  assert.equal(THRESHOLDS['clip-vit-b32-openai']!.wide, undefined)
+  assert.equal(verdict(0.7, 0.4, 'clip-vit-b32-openai'), 'uncertain')
+  // One rule for both consumers.
+  assert.equal(isConfidentScore(t, 0.5, 0.15), true)
+  assert.equal(isConfidentScore(t, 0.5, null), false)
 })
 
 test('variant confidence is unknown, and says whether that blocks the commit', () => {
