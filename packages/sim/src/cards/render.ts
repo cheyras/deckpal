@@ -88,6 +88,9 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
     const nn = noun(a.filter as Filter | undefined);
     return `Look at the top ${Number(a.n ?? 7)} cards of your deck. You may reveal ${max === 1 ? art(nn.sg) : `up to ${max} ${nn.pl}`} you find there and put ${max === 1 ? 'it' : 'them'} into your hand. Shuffle the other cards back into your deck`;
   },
+  // meta-excadrill-customs.ts (lane:excadrill)
+  lookAtTopAttach: (a) =>
+    `Look at the top ${Number(a.n ?? 4)} cards of your deck. Choose any number of the ${noun(a.filter as Filter | undefined).pl} you find there and attach each one, one at a time, to 1 of your Pokémon. Shuffle the other cards and put them on the bottom of your deck`,
   // ghost-customs.ts
   moveCounters: (a) => `Move up to ${Number(a.max ?? 3)} damage counters from the Pokémon chosen as "${String(a.from)}" to the Pokémon chosen as "${String(a.to)}"`,
   lookTopPick: (a) => `Look at the top ${Number(a.n ?? 2)} cards of your deck. Put 1 of them into your hand and the rest on the bottom of your deck`,
