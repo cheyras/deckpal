@@ -83,7 +83,7 @@ export const DEFAULT_CADENCE_MS = 120
  *
  *   lockTicks   captured   auto-ID   duplicates   stray captures   wrong
  *       3          —          —           —              —           —    (no re-arm: 18% / 10% / 2 / 8)
- *       2         30%        18%          9             10           0
+ *       2         31%        19%          9             10           0
  *       1         39%        21%         14             13           0
  *
  * 1 is not taken, though it measured best: it is the one value at which a

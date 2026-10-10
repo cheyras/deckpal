@@ -34,7 +34,7 @@
 //
 //                                        captured  auto-ID  duplicates  strays
 //   before (lock 3 ticks, no re-arm)        18%      10%         2         8
-//   lock 2 ticks + this                     30%      18%         9        10
+//   lock 2 ticks + this                     31%      19%         9        10
 //   (lock 1 tick + this, not shipped)       39%      21%        14        13
 //
 // Every run named 0 cards confidently and wrong. REARM_NEW_MIN 1.0 is the

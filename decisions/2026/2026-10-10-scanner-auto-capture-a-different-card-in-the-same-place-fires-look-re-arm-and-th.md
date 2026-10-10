@@ -23,7 +23,7 @@ supersedes: []
   | | captured | auto-identified | duplicates | stray captures | confident wrong |
   |---|---|---|---|---|---|
   | before (lock 3, no re-arm) | 18% | 10% | 2 | 8 | 0 |
-  | lock 2 + re-arm (this) | 30% | 18% | 9 | 10 | 0 |
+  | lock 2 + re-arm (this) | 31% | 19% | 9 | 10 | 0 |
   | lock 1 + re-arm (not taken) | 39% | 21% | 14 | 13 | 0 |
 
 - **Lock 1 is not taken, though it measured best.** At 1, a shape flickering between card and not-card on alternate ticks locks on its good ticks. That is the clutter failure field test 2026-09-03 fenced ("the dwell must be UNINTERRUPTED"). Two ticks keep that fence.
