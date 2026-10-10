@@ -13,7 +13,7 @@ import { UploadFallback } from '../scan/ui/UploadFallback'
 import { SwipeReview } from '../scan/ui/SwipeReview'
 import { HelpModal } from '../scan/ui/HelpModal'
 import { commitFeed } from '../scan/ui/commit'
-import { OCR_ENABLED, uploadScanFlag, recordCaptureEvent, recordIdentityEvent, recordLockEvent } from '../scan/ui/flags'
+import { ocrEnabledFor, uploadScanFlag, recordCaptureEvent, recordIdentityEvent, recordLockEvent } from '../scan/ui/flags'
 import {
   EMBED_NOT_ASKED,
   type EmbedEvidence,
@@ -336,6 +336,12 @@ export function Scan() {
   // being identified when the reader starts talking about it, and its row id is
   // this same capture id once it lands.
   const access = useAccess()
+  // The OCR lane, decided from who is signed in (see `flags.ts`). A ref as
+  // well, because the capture handler below outlives the render that created it
+  // and must read the current answer, not a stale closure's.
+  const ocrOn = ocrEnabledFor(access.isOwner)
+  const ocrOnRef = useRef(ocrOn)
+  ocrOnRef.current = ocrOn
   const voiceFeature = access.features.some((f) => f.key === 'scanner_voice' && f.enabled)
   const lastCaptureIdRef = useRef<string | null>(null)
   const voice = useScannerVoice({
@@ -395,8 +401,8 @@ export function Scan() {
   // answer, not one per card.
   const embedUnavailableRef = useRef(false)
   useEffect(() => {
-    ocrStageRef.current.update({ enabled: OCR_ENABLED, detectorReady: engineStatus === 'ready' })
-  }, [engineStatus])
+    ocrStageRef.current.update({ enabled: ocrOn, detectorReady: engineStatus === 'ready' })
+  }, [engineStatus, ocrOn])
 
   /**
    * THE CAPTURED-REGION REFRACTORY — duplicate captures. The policy, its
@@ -961,7 +967,7 @@ export function Scan() {
       //
       // The READ only. The narrowing round trip runs behind the identify, once
       // there are `priorMatches` for it to re-rank — see below.
-      const ocrReadPromise: Promise<OcrRead | null> = OCR_ENABLED
+      const ocrReadPromise: Promise<OcrRead | null> = ocrOnRef.current
         ? withTimeout(readCardFields(result.blob), OCR_NARROW_TIMEOUT_MS, 'ocr').catch(() => null)
         : Promise.resolve(null)
 
@@ -971,7 +977,7 @@ export function Scan() {
       // the capture path touches this promise either. It is the OCR read's
       // opposite in cost — the model runs on the SERVER (2026-09-05 ruling), so
       // the phone pays an upload and no download at all, which is why it is not
-      // behind `OCR_ENABLED`. That flag guards 15.6 MB of ONNX weights and a
+      // behind `ocrEnabledFor` (scan/ui/flags.ts). That flag guards 15.6 MB of ONNX weights and a
       // second WASM session on a runtime with live iOS crash reports; none of
       // that applies here, and tying the two would switch the vector off in
       // production, which is the deployment it was built for.
