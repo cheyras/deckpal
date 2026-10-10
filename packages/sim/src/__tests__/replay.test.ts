@@ -154,6 +154,18 @@ test('audit: variable attacks verify Weakness from the log\'s own base (Vengeful
   }
 });
 
+test('audit: copied attacks use the copied card\'s printing; Prizes cap at what is left', () => {
+  const a = AUDITS.find((x) => x.name === 'tbs-57.txt')!;
+  const hammer = a.damage.find((x) => x.via === 'Metallic Hammer')!;
+  assert.equal(hammer.printed, '150+'); // Metagross's attack, not Slowking's Seek Inspiration
+  assert.equal(hammer.engineFromPre, 300);
+  // Three Metang took 110 each across two Trifrosts: each hit lands on a different Metang.
+  assert.ok(a.kos.filter((k) => k.card === 'Metang').every((k) => k.verdict === 'match'));
+  // Mega Excadrill ex (3) + Metang (1) with 3 Prizes left: 3.
+  const last = a.prizes[a.prizes.length - 1]!;
+  assert.deepEqual([last.expected, last.taken, last.verdict], [3, 3, 'match']);
+});
+
 test('audit: Weakness is not applied to the Bench (Seek Inspiration → Trifrost)', () => {
   const log = [
     'Setup',
