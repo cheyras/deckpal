@@ -174,6 +174,13 @@ export interface CatalogPort {
    * precisely this read.
    */
   byFamilyKey?(familyKey: string): Promise<FamilyTextCard[]>;
+  /**
+   * `card_set.card_count_official` for each set id — the printed denominator.
+   * The `name+denominator` rung's one extra read. OPTIONAL like the two above:
+   * a port without it never reaches that rung, and every other rung is
+   * unchanged.
+   */
+  officialCounts?(setIds: readonly string[]): Promise<Map<string, number | null>>;
 }
 
 // ── Request / response ──────────────────────────────────────────────────────
@@ -217,6 +224,15 @@ export type ResolvedBy =
   | 'badge+number'
   | 'number+denominator'
   | 'name+number'
+  /**
+   * The NAME plus the DENOMINATOR, with the numerator thrown away — the rung for
+   * a dropped digit. OCR reads `063/182` as `03/182` often enough to matter
+   * (scan benchmark, 2026-10-09: 9 of 256 real crops), and `3/182` then names a
+   * real but WRONG pair of cards. The denominator is a different glyph run from
+   * the numerator and the name is a different region of the card, so "the only
+   * Barraskewda in a 182-card set" survives a numerator misread intact.
+   */
+  | 'name+denominator'
   /**
    * Rung 5b — the read name resolved to a catalogue NAME FAMILY, and what came
    * back is that family's printings.
@@ -430,6 +446,71 @@ function levenshtein(a: string, b: string, cap: number): number {
   return Math.min(prev[b.length]!, cap + 1);
 }
 
+/**
+ * The name OCR read, with the furniture it routinely reads along with it taken
+ * off — so the ladder looks up the card's name and not the card's frame.
+ *
+ * Measured on the scan benchmark (scripts/scan-bench, 2026-10-09), every one of
+ * these blocked a correct answer:
+ *
+ *  - CJK glyphs. The recogniser is the Chinese PP-OCRv4 model; on a stylised
+ *    stage badge it emits a stray character (`BAS社 Torchic`). No English card
+ *    name contains one.
+ *  - The stage / category word in front of the name (`BASIC`, a clipped `BAS`,
+ *    `STAGE 1`, `Supporter` misread as `suppoter`). The name ROI starts at the
+ *    left edge, where the stage badge sits.
+ *  - The HP tail (`Team Rocket's Koffing H70o`, `Wash Rotom HP80C`): the ROI runs
+ *    the full width of the title line and the HP sits on it.
+ *
+ * Returns null when nothing card-like is left (a read that was ONLY `Supporter`
+ * names no card, and must not reach the name lookup as if it did).
+ */
+// Only words NO catalogue name begins with (checked against all 21,291 English
+// cards): `Item Finder`, `Pokémon Breeder`, `Tool Box` and `Stadium Nav` are why
+// `item`, `pokemon`, `tool` and `stadium` are absent. `basic` is handled apart,
+// because 16 cards are named `Basic <Type> Energy` and print it.
+const STAGE_WORDS = new Set([
+  'bas', 'basc', 'stage', 'stage1', 'stage2', 'stagel', 'stagell', 'supporter', 'suppoter', 'trainer', 'evolves',
+]);
+export function cleanNameRead(raw: string | undefined | null): string | null {
+  if (!raw) return null;
+  let s = raw.normalize('NFC').replace(/[⺀-鿿가-힯＀-￯]/g, ' ');
+  // The HP tail: `HP80`, `H70o`, `HP 120`, and whatever follows it on the line.
+  // No catalogue name contains one.
+  s = s.replace(/\s+H\s?P?\s?\d{2,3}\w*.*$/i, '');
+  const tokens = s.split(/\s+/).filter(Boolean);
+  const isStage = (t: string, rest: string[]): boolean => {
+    const w = t.toLowerCase().replace(/[^a-zé0-9]/g, '');
+    if (STAGE_WORDS.has(w)) return true;
+    // `BASIC` the stage badge, but not `Basic Water Energy` the card name.
+    return w === 'basic' && !/energy$/i.test(rest.join(' '));
+  };
+  while (tokens.length > 0 && isStage(tokens[0]!, tokens.slice(1))) tokens.shift();
+  // `Stage 1` arrives as two tokens; the digit is left alone at the front.
+  while (tokens.length > 1 && /^[12l|]$/i.test(tokens[0]!)) tokens.shift();
+  const out = tokens.join(' ').trim();
+  return out.length >= MIN_NAME_PROBE ? out : null;
+}
+
+/**
+ * Could `read` be a damaged reading of `candidateName`?
+ *
+ * Wider than `nameTier`, on purpose, and used ONLY to ask whether a printed name
+ * DISAGREES with the image — never to name a card by itself. OCR's habitual
+ * damage to a title is losing a word at one end: the owner prefix
+ * (`Quilava` off `Ethan's Quilava`) or the first glyphs (`oice Band` off
+ * `Hop's Choice Band`), or keeping junk at the other (`Team Rocket's Koffing H70o`).
+ * A read that is a run of the catalogue name, or contains it, agrees.
+ */
+export function nameAgrees(read: string, candidateName: string): boolean {
+  if (nameTier(read, candidateName) != null) return true;
+  const r = stripOptionalSuffix(normalizeCardName(read));
+  const c = stripOptionalSuffix(normalizeCardName(candidateName));
+  if (r.length >= 5 && c.includes(r)) return true;
+  if (c.length >= 4 && r.includes(c)) return true;
+  return false;
+}
+
 /** Keep only the candidates matching `read` at the best tier any of them reach. */
 export function narrowByName(cands: readonly CatalogCard[], read: string): CatalogCard[] {
   let best: number | null = null;
@@ -594,7 +675,7 @@ export async function resolveCard(
 ): Promise<ResolveOutcome> {
   const numeric = parseNumber(fields.number);
   const denominator = parseNumber(fields.denominator);
-  const nameRead = fields.name?.trim() ? fields.name : null;
+  const nameRead = cleanNameRead(fields.name);
   const badge = resolveBadge(fields.setCode, denominator);
 
   const evidence = await hydrateEvidence(priorMatches, opts.fusion?.vectorMatches ?? [], port);
@@ -701,6 +782,12 @@ export async function resolveCard(
     return { matched: sole != null && matches.length > 0, confident: false, resolvedBy, matches, badge };
   };
 
+  // The printed number + denominator's candidates when the NAME contradicted
+  // all of them (rung 4 below): held back rather than returned, so the name
+  // rungs get to try, and handed out at the end only if nothing better turned up.
+  let keyedButUnnamed: CatalogCard[] | null = null;
+
+  const climb = async (): Promise<ResolveOutcome> => {
   // ── Rung 1 — badge + number. 20,444 keys, zero collisions. ────────────────
   // Accepted on its own evidence: §7.4 says a rung-1 hit should skip phash
   // entirely or use it only as a consistency assertion, so the priors get to
@@ -746,12 +833,19 @@ export async function resolveCard(
           const sole = narrowed.length === 1 ? narrowed[0]! : null;
           return done('name+number', narrowed, sole != null && !priorsContradict(sole, priors, opts));
         }
+        // A name was read and NONE of the keyed cards carries it. One of the
+        // two reads is wrong, and the benchmark says it is usually the number
+        // (a dropped digit: `03/182` for `063/182`). So the name rungs below
+        // get their turn; these candidates are kept for the end in case the
+        // name was the bad read after all.
+        keyedButUnnamed = hits;
+      } else {
+        // Several candidates and nothing to separate them. Hand them all back,
+        // ordered by whatever the priors thought, and say plainly it is not
+        // confident — this is the `014/198` Steenee-or-Floragato case, which
+        // phash separates trivially and OCR cannot.
+        return done('number+denominator', hits, false);
       }
-      // Several candidates and nothing to separate them. Hand them all back,
-      // ordered by whatever the priors thought, and say plainly it is not
-      // confident — this is the `014/198` Steenee-or-Floragato case, which
-      // phash separates trivially and OCR cannot.
-      return done('number+denominator', hits, false);
     }
     // Zero hits: the denominator was misread, or the pair is genuinely absent.
     // Fall to rung 5, which drops the denominator entirely.
@@ -812,6 +906,18 @@ export async function resolveCard(
         // Every survivor is at the same tier — that is `narrowByName`'s
         // contract — so any of them reports it.
         const tier = nameTier(nameRead, narrowed[0]!.name);
+        // THE DROPPED-DIGIT RUNG. A denominator read beside a name the
+        // catalogue knows: the printings of that name in sets of exactly that
+        // size. One is a card; several are a short family; none means the
+        // denominator was the bad read, and the family below stands as before.
+        if (denominator != null && port.officialCounts && tier != null && tier <= 1) {
+          const counts = await port.officialCounts([...new Set(narrowed.map((c) => c.setId))]);
+          const inDen = narrowed.filter((c) => counts.get(c.setId) === denominator);
+          if (inDen.length === 1 && !priorsContradict(inDen[0]!, priors, opts)) {
+            return done('name+denominator', inDen, true);
+          }
+          if (inDen.length > 1) return familyDone('name+denominator', rank(inDen, priors.distance, evidence.similarity), null);
+        }
         const families = new Set(narrowed.map((c) => c.name)).size;
         const ranked = rank(narrowed, priors.distance, evidence.similarity);
         const sole = families === 1 && narrowed.length === 1 && tier != null && tier <= 1 ? narrowed[0]! : null;
@@ -887,6 +993,11 @@ export async function resolveCard(
   // `MIN_NAME_PROBE`, or a port with no `byName`. Those are exactly the cases in
   // which filtering the priors is all a name is worth, so the rung stays and
   // keeps its old meaning rather than being deleted along with the defect.
+  // The number + denominator pair the name argued with, now that the name has
+  // had its chance and produced nothing better: the read key's own candidates,
+  // unconfident, exactly as rung 4 would have returned them before.
+  if (keyedButUnnamed) return done('number+denominator', keyedButUnnamed, false);
+
   let filtered = priors.cards;
   if (numeric != null) filtered = filtered.filter((c) => c.numberNumeric === numeric);
   if (nameRead) filtered = filtered.filter((c) => nameTier(nameRead, c.name) != null);
@@ -895,6 +1006,41 @@ export async function resolveCard(
   // phash ranking, and agreement with it is not evidence of anything.
   const ocrNarrowed = (numeric != null || nameRead != null) && filtered.length > 0;
   return done('prior-only', filtered.length > 0 ? filtered : priors.cards, false, ocrNarrowed);
+  };
+
+  const out = await climb();
+  return opts.fusion ? await letDecisiveVectorSpeak(out) : out;
+
+  /**
+   * A DECISIVE IMAGE MATCH IS NOT SILENCED BY AN UNSURE READ.
+   *
+   * The ladder puts printed keys above the vector, and where a key RESOLVED that
+   * stays absolute (rule 1 in `done`). But an UNCONFIDENT rung used to end the
+   * climb too, so a key that merely narrowed — usually to the wrong cards — hid
+   * a decisive vector that was right. Scan benchmark, 2026-10-09, 256 real
+   * crops: 9 captures whose vector was decisive AND correct were sent to the
+   * reader because OCR read `03/182` for `063/182` (rung 3 named two wrong
+   * cards), or `Quilava` off `Ethan's Quilava` (rung 5b named the wrong family).
+   *
+   * So, after an unconfident climb, a decisive vector whose card the PRINTED
+   * NAME agrees with is the answer: two independent signals, the picture and
+   * the title, naming one card — 'corroborated', the same claim `corroborate`
+   * makes, reached from the other side. (`nameAgrees` is wider than `nameTier`
+   * because OCR's habitual damage to a title is losing a word at one end.)
+   *
+   * Nothing else changes. With no name read, an unconfident key that disagrees
+   * with the vector stays a disagreement and stays silent (fuse.test.ts §3);
+   * with a name that disagrees, the reader is asked. In both cases the vector's
+   * card is not added to a list it did not come from.
+   */
+  async function letDecisiveVectorSpeak(prev: ResolveOutcome): Promise<ResolveOutcome> {
+    if (prev.confident || !vector?.decisive || !vector.cardId || !nameRead) return prev;
+    const lead = evidence.vectorCards.find((c) => c.cardId === vector.cardId);
+    if (!lead || !nameAgrees(nameRead, lead.name)) return prev;
+    const ranked = rank([lead], priors.distance, evidence.similarity);
+    const matches = [...ranked, ...prev.matches.filter((m) => m.cardId !== lead.cardId)].slice(0, MAX_MATCHES);
+    return { matched: true, confident: true, resolvedBy: 'corroborated', matches, badge };
+  }
 }
 
 /**
