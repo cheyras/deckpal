@@ -108,3 +108,32 @@ test('a clone (and a JSON round-trip) continues exactly like the original', () =
     assert.equal(signature(j.state), signature(g.state));
   }
 });
+
+test('random play across every pair of account decks: no crash, every card in one zone, games finish', async () => {
+  const { HIDE_N_SNEAK, TOOLBOX_SLOWKING } = await import('./decks.js');
+  const { GAUNTLET_LISTS, gauntletDeck } = await import('./gauntlet.js');
+  const decks = [HIDE_N_SNEAK, TOOLBOX_SLOWKING, ...Object.keys(GAUNTLET_LISTS).map(gauntletDeck)];
+  let games = 0;
+  for (let i = 0; i < decks.length; i++) {
+    for (let j = 0; j < decks.length; j++) {
+      const seed = 1000 + i * 31 + j;
+      const g = new Game(decks[i]!, decks[j]!, seed, { maxTurns: 80 }).start();
+      const pilots = [new RandomPilot(seed), new RandomPilot(seed + 1)] as const;
+      let n = 0;
+      try {
+        while (!g.over && n < 6000) {
+          if (n % 7 === 0) checkZones(g);
+          const d = g.decision!;
+          g.submit(pilots[d.player].choose(g, d));
+          n++;
+        }
+        checkZones(g);
+      } catch (e) {
+        throw new Error(`${decks[i]!.name} vs ${decks[j]!.name} (seed ${seed}, decision ${n}): ${(e as Error).message}`);
+      }
+      assert.ok(g.over, `${decks[i]!.name} vs ${decks[j]!.name}: unfinished after ${n} decisions`);
+      games++;
+    }
+  }
+  assert.equal(games, decks.length * decks.length);
+});
