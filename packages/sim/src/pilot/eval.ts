@@ -93,6 +93,8 @@ function offence(
   all: LiveStatic[],
   w: EvalWeights,
   movesNext: boolean,
+  /** The seat evaluating (an estimate of the other side reads only what this seat can know). */
+  viewer: Player,
 ): number {
   const me = s.p[p];
   const them = s.p[opp(p)];
@@ -109,7 +111,7 @@ function offence(
   const consider = (sl: Slot, bench: boolean) => {
     const di = env.ctx.cardDef[topCard(sl)] as number;
     if (bench && !(fx.power[di] as number) && !fx.copier.has(di)) return; // no damage to estimate
-    const t = bestAttack(env, s, sl, p, target, extra, all);
+    const t = bestAttack(env, s, sl, p, target, extra, all, viewer);
     const f = bench ? w.benchThreat : 1;
     if (t.dmg >= tLeft) ko = Math.max(ko, f);
     const disc = MISSING_DISCOUNT[Math.min(t.missing, 4)] as number;
@@ -190,7 +192,7 @@ export function evaluate(env: Env, s: GameState, p: Player, w: EvalWeights = DEF
   const all = statics(env, s);
   const o = opp(p);
   let score = (s.p[p].prizesTaken - s.p[o].prizesTaken) * w.prize;
-  score += offence(env, s, p, all, w, next === p) - offence(env, s, o, all, w, next === o);
+  score += offence(env, s, p, all, w, next === p, p) - offence(env, s, o, all, w, next === o, p);
   score += development(env, s, p, all, w) - development(env, s, o, all, w);
   return score;
 }

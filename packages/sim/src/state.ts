@@ -69,6 +69,7 @@ function cloneSlot(s: Slot): Slot {
     enteredTurn: s.enteredTurn,
     evolvedTurn: s.evolvedTurn,
     usedAbilities: s.usedAbilities.slice(),
+    ...(s.paralyzedTurn !== undefined ? { paralyzedTurn: s.paralyzedTurn } : {}),
   };
 }
 

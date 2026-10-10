@@ -5,7 +5,10 @@
  * discard pile" attacks, which attacks copy the top card of the deck).
  *
  * Everything here reads only what the asking player may see, or a
- * determinised copy of the state.
+ * determinised copy of the state. Estimates for the OTHER side's Pokémon
+ * take a `viewer` (the player asking): the policy runs on the real state for
+ * decisions search does not branch on, so anything one side knows privately
+ * (the top cards it stacked on its own deck) is read only when viewer = owner.
  */
 import { def, type Env, type GameContext } from '../context.js';
 import type { Cond, Expr, Filter, PType, Program, Step } from '../dsl.js';
@@ -213,6 +216,7 @@ function programDamage(
   target: Slot,
   all: LiveStatic[],
   depth: number,
+  viewer: Player,
 ): number {
   let total = 0;
   for (const st of prog) {
@@ -231,10 +235,10 @@ function programDamage(
         if (st.target === 'oppActive' || st.target === 'defender') total += 999;
         break;
       case 'if':
-        total += programDamage(env, s, evalCond(env, s, ec, st.cond) ? st.then : (st.else ?? []), ec, attacker, owner, target, all, depth);
+        total += programDamage(env, s, evalCond(env, s, ec, st.cond) ? st.then : (st.else ?? []), ec, attacker, owner, target, all, depth, viewer);
         break;
       case 'useAttackOf':
-        total += copyEstimate(env, s, attacker, owner, target, all, depth);
+        total += copyEstimate(env, s, attacker, owner, target, all, depth, viewer);
         break;
       default:
         break;
@@ -243,16 +247,20 @@ function programDamage(
   return total;
 }
 
-/** What a "copy the top card's attack" attack is worth: exact when the top card is known, else a prior. */
-function copyEstimate(env: Env, s: GameState, attacker: Slot, owner: Player, target: Slot, all: LiveStatic[], depth: number): number {
+/**
+ * What a "copy the top card's attack" attack is worth: exact when the top card
+ * is known TO THE VIEWER, else a prior. `knownTop` is the owner's private
+ * knowledge (they stacked those cards); the other side sees a face-down deck.
+ */
+function copyEstimate(env: Env, s: GameState, attacker: Slot, owner: Player, target: Slot, all: LiveStatic[], depth: number, viewer: Player): number {
   if (depth > 0) return 0;
   const ps = s.p[owner];
-  if (ps.knownTop > 0 && ps.deck.length) {
+  if (viewer === owner && ps.knownTop > 0 && ps.deck.length) {
     const top = ps.deck[ps.deck.length - 1] as number;
     const d = def(env.ctx, top);
     if (d.kind !== 'pokemon' || d.ruleBox) return 0;
     let best = 0;
-    for (let i = 0; i < d.attacks.length; i++) best = Math.max(best, attackDamageOfDef(env, s, d, i, attacker, owner, target, all, depth + 1));
+    for (let i = 0; i < d.attacks.length; i++) best = Math.max(best, attackDamageOfDef(env, s, d, i, attacker, owner, target, all, depth + 1, viewer));
     return best;
   }
   return facts(env.ctx).copyPrior[owner];
@@ -277,29 +285,30 @@ function attackDamageOfDef(
   target: Slot,
   all: LiveStatic[],
   depth: number,
+  viewer: Player,
 ): number {
   const atk = d.attacks[idx];
   if (!atk) return 0;
   const sc = d.coverage === 'full' ? d.script?.attacks?.[atk.name] : undefined;
   const ec: EvalCtx = { player: owner, slot: attacker.id, defender: target.id, vars: {} };
-  if (sc?.program) return programDamage(env, s, sc.program, ec, attacker, owner, target, all, depth);
+  if (sc?.program) return programDamage(env, s, sc.program, ec, attacker, owner, target, all, depth, viewer);
   // Variables the attack sets before damage: "you may" bonuses count as taken (the policy says yes);
   // coin flips count as 0 heads (an estimate for KO certainty should not hope).
   if (sc?.pre) presetVars(env, s, sc.pre, ec);
   const base = sc?.damage !== undefined ? evalExpr(env, s, ec, sc.damage) : atk.baseDamage;
   let dmg = throughPipeline(env, s, attacker, owner, target, base, all);
-  if (sc?.post) dmg += programDamage(env, s, sc.post, ec, attacker, owner, target, all, depth);
+  if (sc?.post) dmg += programDamage(env, s, sc.post, ec, attacker, owner, target, all, depth, viewer);
   return dmg;
 }
 
 /** Estimated damage of attack `idx` of card `d` used by `attacker` (a copied attack: the attacker's types apply). */
-export function attackDamageWithDef(env: Env, s: GameState, d: CardDef, idx: number, attacker: Slot, owner: Player, target: Slot, all: LiveStatic[]): number {
-  return attackDamageOfDef(env, s, d, idx, attacker, owner, target, all, 1);
+export function attackDamageWithDef(env: Env, s: GameState, d: CardDef, idx: number, attacker: Slot, owner: Player, target: Slot, all: LiveStatic[], viewer: Player): number {
+  return attackDamageOfDef(env, s, d, idx, attacker, owner, target, all, 1, viewer);
 }
 
-/** Estimated damage of `attacker`'s attack `idx` against `target` (ignores coin flips: heads count 0). */
-export function attackDamage(env: Env, s: GameState, attacker: Slot, owner: Player, idx: number, target: Slot, all: LiveStatic[]): number {
-  return attackDamageOfDef(env, s, def(env.ctx, topCard(attacker)), idx, attacker, owner, target, all, 0);
+/** Estimated damage of `attacker`'s attack `idx` against `target`, as `viewer` can know it (ignores coin flips: heads count 0). */
+export function attackDamage(env: Env, s: GameState, attacker: Slot, owner: Player, idx: number, target: Slot, all: LiveStatic[], viewer: Player): number {
+  return attackDamageOfDef(env, s, def(env.ctx, topCard(attacker)), idx, attacker, owner, target, all, 0, viewer);
 }
 
 export interface Threat {
@@ -314,7 +323,7 @@ export interface Threat {
  * units of any type. Returns the highest damage among payable attacks, and for
  * the strongest attack overall how many units are still missing.
  */
-export function bestAttack(env: Env, s: GameState, attacker: Slot, owner: Player, target: Slot, extra: number, all: LiveStatic[]): Threat {
+export function bestAttack(env: Env, s: GameState, attacker: Slot, owner: Player, target: Slot, extra: number, all: LiveStatic[], viewer: Player): Threat {
   const d = def(env.ctx, topCard(attacker));
   const units = energyUnits(env, attacker);
   let dmg = 0;
@@ -323,7 +332,7 @@ export function bestAttack(env: Env, s: GameState, attacker: Slot, owner: Player
   for (let i = 0; i < d.attacks.length; i++) {
     const cost = attackCost(env, s, attacker, i, all);
     const miss = missingUnits(cost, units);
-    const dd = attackDamage(env, s, attacker, owner, i, target, all);
+    const dd = attackDamage(env, s, attacker, owner, i, target, all, viewer);
     if (miss <= extra && dd > dmg) dmg = dd;
     if (dd > bestAny || (dd === bestAny && miss < bestMissing)) {
       bestAny = dd;

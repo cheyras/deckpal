@@ -498,7 +498,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
       if (!t) return 'next';
       if ((f.kind === 'attack' || f.kind === 'ability') && effectsPrevented(env, s, t, f.player, f.kind)) return 'next';
       if (def(env.ctx, topCard(t)).script?.fix?.playAsBasic?.noConditions) return 'next'; // lane:ghost
-      applyCondition(t, st.cond);
+      applyCondition(t, st.cond, s.turn);
       emit(env, { type: 'condition', player: ownerOf(s, t), slot: t.id, cond: st.cond });
       return 'next';
     }
@@ -566,10 +566,12 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
   }
 }
 
-export function applyCondition(t: Slot, c: SpecialCondition): void {
+/** Apply a Special Condition; `turn` (the current turn) records when Paralysis began, for the Checkup. */
+export function applyCondition(t: Slot, c: SpecialCondition, turn?: number): void {
   const bit = COND_BITS[c];
   if (bit & ROTATION) t.cond = (t.cond & ~ROTATION) | bit;
   else t.cond |= bit;
+  if (bit === PARALYZED && turn !== undefined) t.paralyzedTurn = turn;
 }
 
 function chooseCards(env: Env, s: GameState, f: Frame, st: Extract<Step, { op: 'chooseCards' }>): R {

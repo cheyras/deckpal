@@ -133,6 +133,8 @@ export interface Slot {
   evolvedTurn: number;
   /** Activated Abilities used this turn (ability index), reset each turn. */
   usedAbilities: number[];
+  /** Turn it was last made Paralyzed (unset = before this game's tracking, e.g. a scenario). */
+  paralyzedTurn?: number;
 }
 
 export interface PlayerState {
