@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { MockLanguageModelV3 } from 'ai/test';
-import { heuristicTriage, runTriage } from '../triage.js';
+import { clipForTriage, heuristicTriage, runTriage, TRIAGE_MESSAGE_CHARS } from '../triage.js';
 
 const USAGE = {
   inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
@@ -142,4 +142,14 @@ test('heuristic triage preserves the ask-card pathway', () => {
   assert.equal(result.pathway, 'deck_build');
   assert.ok(result.signals.includes('answering_questions'));
   assert.ok(result.signals.includes('budget_mentioned'));
+});
+
+test('triage reads at most 2,000 characters of a long paste: the opening and the end', () => {
+  const short = 'what is this worth?';
+  assert.equal(clipForTriage(short), short);
+  const paste = `here is my game\n${'Turn # 3 - x drew a card.\n'.repeat(9_000)}why did I lose?`;
+  const clipped = clipForTriage(paste);
+  assert.equal(clipped.length, TRIAGE_MESSAGE_CHARS);
+  assert.ok(clipped.startsWith('here is my game'));
+  assert.ok(clipped.endsWith('why did I lose?'));
 });

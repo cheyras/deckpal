@@ -392,6 +392,18 @@ address.
 bounded deck input. The live chat request's current turn is capped at 240,000
 characters in addition to the SEC-04 history window.
 
+**Triage sends Anthropic a clipped copy of the reader's message.** Before Deck-E answers, Claude Haiku 5.5 classifies each new reader message through the Vercel AI Gateway (`apps/api/src/decke/triage.ts`). That is the same provider that writes the reply. It receives:
+- the reader's latest message, clipped to 2,000 characters (its opening and its end);
+- Deck-E's previous reply (last 800 characters);
+- the page path;
+- two flags (a log was pasted; the message answers an ask card).
+
+No collection or account records are attached. Its spend is recorded under the advisory `triage` operation of the same request. The tier it leads to is chosen by code, not by the classifier. The browser's route echo (`tierRoute`, `routeEcho.ts`) is unsigned, so it is held to these limits:
+- it can select only Quick or Standard for the caller's own turn;
+- its effort is ignored and re-derived on the server;
+- it is read only on continuation legs;
+- it can never select Claude Opus 5.5.
+
 **Jev is a data processor under Vercel's zero-retention agreement with TypeSafe** (verified 2026-09-27).
 With `DECKE_JEV=on`, each reader message is judged by `typesafe-ai/jev` (TypeSafe
 AI, San Francisco) through the Vercel AI Gateway before Deck-E answers
