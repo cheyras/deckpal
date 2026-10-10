@@ -31,7 +31,7 @@ export interface DeckCheckResult {
   ptcgl: string
 }
 
-const cardLine = z.object({
+export const cardLine = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   card_id: z.string().trim().min(1).max(40).optional(),
   quantity: z.number().int().min(1).max(60),

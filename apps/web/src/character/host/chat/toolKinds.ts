@@ -30,6 +30,7 @@ const KIND: Record<string, ToolKind> = {
   decks: 'decks',
   deck_history: 'decks',
   check_deck: 'check',
+  simulate_battles: 'check',
   plan_deck: 'check',
   lists: 'lists',
   mutation_history: 'logs',
@@ -129,6 +130,7 @@ function completedLabel(label: string): string {
     [/^Saving\b/u, 'Saved'],
     [/^Showing\b/u, 'Showed'],
     [/^Laying\b/u, 'Laid'],
+    [/^Simulating\b/u, 'Simulated'],
   ]
   for (const [pattern, replacement] of verbs) {
     if (pattern.test(label)) return label.replace(pattern, replacement)
@@ -163,6 +165,8 @@ export function labelFor(chip: Chip): string {
     case 'check_deck':
     case 'plan_deck':
       return pair('Checking the list', 'Checked the list')
+    case 'simulate_battles':
+      return pair('Simulating battles', 'Simulated battles')
     case 'web_research':
     case 'research_meta':
       return pair('Searching the web', 'Searched the web')
