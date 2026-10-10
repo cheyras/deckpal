@@ -4,13 +4,16 @@
  * printed text in frames-extra/darkrai.ts. One scenario test per card in
  * src/__tests__/cards-meta-darkrai.test.ts.
  */
-import type { CardScript, Filter } from '../../dsl.js';
+import type { CardScript, Cond, Filter } from '../../dsl.js';
 import { searchToHand } from './helpers.js';
 import './metal-customs.js'; // metal.moveEnergy
 
-/** "affected by a Special Condition": any of the five. */
-const ANY_CONDITION: Filter = {
-  any: [{ condition: 'asleep' }, { condition: 'burned' }, { condition: 'confused' }, { condition: 'paralyzed' }, { condition: 'poisoned' }],
+/**
+ * "affected by a Special Condition": any of the five, as one `slotIs` per condition. (A Filter `any` of
+ * `condition` keys does not work on a Pokémon in play: slotMatches hands `any` to defMatches, which has no state.)
+ */
+const HAS_CONDITION: Cond = {
+  or: (['asleep', 'burned', 'confused', 'paralyzed', 'poisoned'] as const).map((condition) => ({ slotIs: { ref: 'oppActive' as const, filter: { condition } } })),
 };
 const NOT_DARK: Filter = { not: { type: 'Darkness' } };
 
@@ -26,7 +29,7 @@ export const META_DARKRAI: CardScript[] = [
       },
       // "If your opponent's Active Pokémon is affected by a Special Condition, it is Knocked Out."
       'Abyss Eye': {
-        program: [{ op: 'if', cond: { slotIs: { ref: 'oppActive', filter: ANY_CONDITION } }, then: [{ op: 'knockOut', target: 'oppActive' }] }],
+        program: [{ op: 'if', cond: HAS_CONDITION, then: [{ op: 'knockOut', target: 'oppActive' }] }],
       },
     },
   },
