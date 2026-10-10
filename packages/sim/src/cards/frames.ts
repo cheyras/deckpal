@@ -2,6 +2,78 @@
 import type { CardFrame } from '../types.js';
 
 export const FRAMES: Record<string, CardFrame> = {
+ "30th-122": {
+  "cardId": "30th-122",
+  "name": "Hisuian Zorua",
+  "category": "Pokemon",
+  "hp": 60,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Colorless"
+  ],
+  "effect": null,
+  "regulationMark": "J",
+  "attacks": [
+   {
+    "name": "Scratch",
+    "cost": "Colorless",
+    "damage": "20",
+    "effect": null
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Fighting",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "30th-123": {
+  "cardId": "30th-123",
+  "name": "Hisuian Zoroark",
+  "category": "Pokemon",
+  "hp": 120,
+  "stage": "Stage1",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Colorless"
+  ],
+  "effect": null,
+  "regulationMark": "J",
+  "attacks": [
+   {
+    "name": "Scratch",
+    "cost": "Colorless",
+    "damage": "30",
+    "effect": null
+   },
+   {
+    "name": "Swirling Resentment",
+    "cost": "Colorless,Colorless,Colorless",
+    "damage": null,
+    "effect": "Place damage counters on your opponent's Active Pokémon until its remaining HP is 50."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Fighting",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
  "base1-101": {
   "cardId": "base1-101",
   "name": "Psychic Energy",
@@ -19,6 +91,295 @@ export const FRAMES: Record<string, CardFrame> = {
   "attacks": [],
   "abilities": [],
   "weaknesses": [],
+  "resistances": []
+ },
+ "base4-125": {
+  "cardId": "base4-125",
+  "name": "Fighting Energy",
+  "category": "Energy",
+  "hp": null,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": "Normal",
+  "retreat": null,
+  "types": [],
+  "effect": null,
+  "regulationMark": null,
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "me01-054": {
+  "cardId": "me01-054",
+  "name": "Abra",
+  "category": "Pokemon",
+  "hp": 50,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Psychic"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Teleportation Attack",
+    "cost": "Psychic",
+    "damage": "10",
+    "effect": "Switch this Pokémon with 1 of your Benched Pokémon."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Darkness",
+    "value": "×2"
+   }
+  ],
+  "resistances": [
+   {
+    "type": "Fighting",
+    "value": "-30"
+   }
+  ]
+ },
+ "me01-055": {
+  "cardId": "me01-055",
+  "name": "Kadabra",
+  "category": "Pokemon",
+  "hp": 80,
+  "stage": "Stage1",
+  "suffix": null,
+  "evolvesFrom": "Abra",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Psychic"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Super Psy Bolt",
+    "cost": "Psychic",
+    "damage": "30",
+    "effect": null
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Psychic Draw",
+    "effect": "Once during your turn, when you play this Pokémon from your hand to evolve 1 of your Pokémon, you may use this Ability. Draw 2 cards."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Darkness",
+    "value": "×2"
+   }
+  ],
+  "resistances": [
+   {
+    "type": "Fighting",
+    "value": "-30"
+   }
+  ]
+ },
+ "me01-056": {
+  "cardId": "me01-056",
+  "name": "Alakazam",
+  "category": "Pokemon",
+  "hp": 140,
+  "stage": "Stage2",
+  "suffix": null,
+  "evolvesFrom": "Kadabra",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Psychic"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Powerful Hand",
+    "cost": "Psychic",
+    "damage": null,
+    "effect": "Place 2 damage counters on your opponent's Active Pokémon for each card in your hand."
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Psychic Draw",
+    "effect": "Once during your turn, when you play this Pokémon from your hand to evolve 1 of your Pokémon, you may use this Ability. Draw 3 cards."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Darkness",
+    "value": "×2"
+   }
+  ],
+  "resistances": [
+   {
+    "type": "Fighting",
+    "value": "-30"
+   }
+  ]
+ },
+ "me01-074": {
+  "cardId": "me01-074",
+  "name": "Lunatone",
+  "category": "Pokemon",
+  "hp": 110,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Fighting"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Power Gem",
+    "cost": "Fighting,Fighting",
+    "damage": "50",
+    "effect": null
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Lunar Cycle",
+    "effect": "Once during your turn, if you have Solrock in play, you may discard a Basic {F} Energy card from your hand in order to use this Ability. Draw 3 cards. You can't use more than 1 Lunar Cycle Ability each turn."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Grass",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "me01-075": {
+  "cardId": "me01-075",
+  "name": "Solrock",
+  "category": "Pokemon",
+  "hp": 110,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Fighting"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Cosmic Beam",
+    "cost": "Fighting",
+    "damage": "70",
+    "effect": "If you don't have Lunatone on your Bench, this attack does nothing. This attack's damage isn't affected by Weakness or Resistance."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Grass",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "me01-076": {
+  "cardId": "me01-076",
+  "name": "Riolu",
+  "category": "Pokemon",
+  "hp": 80,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 2,
+  "types": [
+   "Fighting"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Accelerating Stab",
+    "cost": "Fighting",
+    "damage": "30",
+    "effect": "During your next turn, this Pokémon can't use Accelerating Stab."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Psychic",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "me01-077": {
+  "cardId": "me01-077",
+  "name": "Mega Lucario ex",
+  "category": "Pokemon",
+  "hp": 340,
+  "stage": "Stage1",
+  "suffix": "ex",
+  "evolvesFrom": "Riolu",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 2,
+  "types": [
+   "Fighting"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Aura Jab",
+    "cost": "Fighting",
+    "damage": "130",
+    "effect": "Attach up to 3 Basic {F} Energy cards from your discard pile to your Benched Pokémon in any way you like."
+   },
+   {
+    "name": "Mega Brave",
+    "cost": "Fighting,Fighting",
+    "damage": "270",
+    "effect": "During your next turn, this Pokémon can't use Mega Brave."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Psychic",
+    "value": "×2"
+   }
+  ],
   "resistances": []
  },
  "me01-104": {
@@ -60,6 +421,45 @@ export const FRAMES: Record<string, CardFrame> = {
   ],
   "resistances": []
  },
+ "me01-110": {
+  "cardId": "me01-110",
+  "name": "Gumshoos",
+  "category": "Pokemon",
+  "hp": 100,
+  "stage": "Stage1",
+  "suffix": null,
+  "evolvesFrom": "Yungoos",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Colorless"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Bite",
+    "cost": "Colorless,Colorless",
+    "damage": "50",
+    "effect": null
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Evidence Gathering",
+    "effect": "Once during your turn, you may use this Ability. Switch a card from your hand with the top card of your deck."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Fighting",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
  "me01-114": {
   "cardId": "me01-114",
   "name": "Boss's Orders",
@@ -79,6 +479,63 @@ export const FRAMES: Record<string, CardFrame> = {
   "weaknesses": [],
   "resistances": []
  },
+ "me01-115": {
+  "cardId": "me01-115",
+  "name": "Energy Switch",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Move a Basic Energy from 1 of your Pokémon to another of your Pokémon.",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "me01-116": {
+  "cardId": "me01-116",
+  "name": "Fighting Gong",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Search your deck for a Basic {F} Energy card or a Basic {F} Pokémon, reveal it, and put it into your hand. Then, shuffle your deck.",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "me01-118": {
+  "cardId": "me01-118",
+  "name": "Iron Defender",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "During your opponent's next turn, all of your {M} Pokémon take 30 less damage from attacks from your opponent's Pokémon (after applying Weakness and Resistance). (This includes new Pokémon that come into play.)",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
  "me01-119": {
   "cardId": "me01-119",
   "name": "Lillie's Determination",
@@ -92,6 +549,82 @@ export const FRAMES: Record<string, CardFrame> = {
   "retreat": null,
   "types": [],
   "effect": "Shuffle your hand into your deck. Then, draw 6 cards. If you have exactly 6 Prize cards remaining, draw 8 cards instead.",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "me01-122": {
+  "cardId": "me01-122",
+  "name": "Mystery Garden",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Stadium",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Once during each player's turn, that player may discard an Energy card from their hand in order to draw cards until they have as many cards in their hand as they have {P} Pokémon in play.",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "me01-124": {
+  "cardId": "me01-124",
+  "name": "Premium Power Pro",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "During this turn, attacks used by your {F} Pokémon do 30 more damage to your opponent's Active Pokémon (before applying Weakness and Resistance).",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "me01-125": {
+  "cardId": "me01-125",
+  "name": "Rare Candy",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Choose 1 of your Basic Pokémon in play. If you have a Stage 2 card in your hand that evolves from that Pokémon, put that card onto the Basic Pokémon to evolve it, skipping the Stage 1. You can't use this card during your first turn or on a Basic Pokémon that was put into play this turn.",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "me01-127": {
+  "cardId": "me01-127",
+  "name": "Risky Ruins",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Stadium",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Whenever any player puts a Basic non-{D} Pokémon onto their Bench during their turn, place 2 damage counters on that Pokémon.",
   "regulationMark": "I",
   "attacks": [],
   "abilities": [],
@@ -136,6 +669,208 @@ export const FRAMES: Record<string, CardFrame> = {
   "weaknesses": [],
   "resistances": []
  },
+ "me01-179": {
+  "cardId": "me01-179",
+  "name": "Mega Lucario ex",
+  "category": "Pokemon",
+  "hp": 340,
+  "stage": "Stage1",
+  "suffix": "ex",
+  "evolvesFrom": "Riolu",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 2,
+  "types": [
+   "Fighting"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Aura Jab",
+    "cost": "Fighting",
+    "damage": "130",
+    "effect": "Attach up to 3 Basic {F} Energy cards from your discard pile to your Benched Pokémon in any way you like."
+   },
+   {
+    "name": "Mega Brave",
+    "cost": "Fighting,Fighting",
+    "damage": "270",
+    "effect": "During your next turn, this Pokémon can't use Mega Brave."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Psychic",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "me02-014": {
+  "cardId": "me02-014",
+  "name": "Moltres",
+  "category": "Pokemon",
+  "hp": 120,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Fire"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Fighting Wings",
+    "cost": "Fire",
+    "damage": "20+",
+    "effect": "If your opponent's Active Pokémon is a Pokémon ex, this attack does 90 more damage."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Water",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "me02-041": {
+  "cardId": "me02-041",
+  "name": "Mega Diancie ex",
+  "category": "Pokemon",
+  "hp": 270,
+  "stage": "Basic",
+  "suffix": "ex",
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Psychic"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Garland Ray",
+    "cost": "Psychic,Psychic",
+    "damage": "120×",
+    "effect": "Discard up to 2 Energy cards from this Pokémon, and this attack does 120 damage for each card you discarded in this way."
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Diamond Coat",
+    "effect": "This Pokémon takes 30 less damage from attacks (after applying Weakness and Resistance)."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Metal",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "me02-060": {
+  "cardId": "me02-060",
+  "name": "Carvanha",
+  "category": "Pokemon",
+  "hp": 70,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Darkness"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Reckless Charge",
+    "cost": "Darkness",
+    "damage": "30",
+    "effect": "This Pokémon also does 10 damage to itself."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Grass",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "me02-068": {
+  "cardId": "me02-068",
+  "name": "Toxtricity",
+  "category": "Pokemon",
+  "hp": 140,
+  "stage": "Stage1",
+  "suffix": null,
+  "evolvesFrom": "Toxel",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 2,
+  "types": [
+   "Darkness"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Gentle Slap",
+    "cost": "Darkness,Darkness,Colorless",
+    "damage": "100",
+    "effect": null
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Sinister Surge",
+    "effect": "Once during your turn, you may use this Ability. Search your deck for a Basic {D} Energy card and attach it to 1 of your Benched {D} Pokémon. Then, shuffle your deck. If you attached Energy to a Pokémon in this way, place 2 damage counters on that Pokémon."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Fighting",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "me02-091": {
+  "cardId": "me02-091",
+  "name": "Jumbo Ice Cream",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Heal 80 damage from your Active Pokémon that has 3 or more Energy attached.",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
  "me02-094": {
   "cardId": "me02-094",
   "name": "Wondrous Patch",
@@ -153,6 +888,150 @@ export const FRAMES: Record<string, CardFrame> = {
   "attacks": [],
   "abilities": [],
   "weaknesses": [],
+  "resistances": []
+ },
+ "me02-113": {
+  "cardId": "me02-113",
+  "name": "Mega Sharpedo ex",
+  "category": "Pokemon",
+  "hp": 330,
+  "stage": "Stage1",
+  "suffix": "ex",
+  "evolvesFrom": "Carvanha",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 0,
+  "types": [
+   "Darkness"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Greedy Fang",
+    "cost": "Darkness",
+    "damage": "70",
+    "effect": "Draw 2 cards."
+   },
+   {
+    "name": "Hungry Jaws",
+    "cost": "Darkness,Darkness",
+    "damage": "120+",
+    "effect": "If this Pokémon has any damage counters on it, this attack does 150 more damage."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Grass",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "me02.5-016": {
+  "cardId": "me02.5-016",
+  "name": "Budew",
+  "category": "Pokemon",
+  "hp": 30,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 0,
+  "types": [
+   "Grass"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Itchy Pollen",
+    "cost": null,
+    "damage": "10",
+    "effect": "During your opponent's next turn, they can't play any Item cards from their hand."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Fire",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "me02.5-039": {
+  "cardId": "me02.5-039",
+  "name": "Psyduck",
+  "category": "Pokemon",
+  "hp": 70,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Water"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Ram",
+    "cost": "Colorless,Colorless",
+    "damage": "20",
+    "effect": null
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Damp",
+    "effect": "Pokémon in play (both yours and your opponent's) lose any Ability that requires the Pokémon using it to Knock Out itself."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Lightning",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "me02.5-046": {
+  "cardId": "me02.5-046",
+  "name": "Snorunt",
+  "category": "Pokemon",
+  "hp": 70,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Water"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Chilly",
+    "cost": "Water",
+    "damage": "10",
+    "effect": null
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Metal",
+    "value": "×2"
+   }
+  ],
   "resistances": []
  },
  "me02.5-076": {
@@ -186,6 +1065,39 @@ export const FRAMES: Record<string, CardFrame> = {
     "effect": "The Weakness of each of your opponent's {N} Pokémon in play is now {P}. (Apply Weakness as ×2.)"
    }
   ],
+  "weaknesses": [
+   {
+    "type": "Metal",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "me02.5-080": {
+  "cardId": "me02.5-080",
+  "name": "Togepi",
+  "category": "Pokemon",
+  "hp": 50,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Psychic"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Pound",
+    "cost": "Colorless,Colorless",
+    "damage": "30",
+    "effect": null
+   }
+  ],
+  "abilities": [],
   "weaknesses": [
    {
     "type": "Metal",
@@ -238,6 +1150,151 @@ export const FRAMES: Record<string, CardFrame> = {
    }
   ]
  },
+ "me02.5-109": {
+  "cardId": "me02.5-109",
+  "name": "Cynthia's Gible",
+  "category": "Pokemon",
+  "hp": 70,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Fighting"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Rock Hurl",
+    "cost": "Fighting",
+    "damage": "20",
+    "effect": "This attack's damage isn't affected by Resistance."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Grass",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "me02.5-111": {
+  "cardId": "me02.5-111",
+  "name": "Cynthia's Garchomp ex",
+  "category": "Pokemon",
+  "hp": 330,
+  "stage": "Stage2",
+  "suffix": "ex",
+  "evolvesFrom": "Cynthia's Gabite",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 0,
+  "types": [
+   "Fighting"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Corkscrew Dive",
+    "cost": "Fighting",
+    "damage": "100",
+    "effect": "You may draw cards until you have 6 cards in your hand."
+   },
+   {
+    "name": "Draconic Buster",
+    "cost": "Fighting,Fighting",
+    "damage": "260",
+    "effect": "Discard all Energy from this Pokémon."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Grass",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "me02.5-142": {
+  "cardId": "me02.5-142",
+  "name": "Fezandipiti ex",
+  "category": "Pokemon",
+  "hp": 210,
+  "stage": "Basic",
+  "suffix": "ex",
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Darkness"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Cruel Arrow",
+    "cost": "Colorless,Colorless,Colorless",
+    "damage": null,
+    "effect": "This attack does 100 damage to 1 of your opponent's Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)"
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Flip the Script",
+    "effect": "Once during your turn, if any of your Pokémon were Knocked Out during your opponent's last turn, you may draw 3 cards. You can't use more than 1 Flip the Script Ability each turn."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Fighting",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "me02.5-160": {
+  "cardId": "me02.5-160",
+  "name": "Dragapult ex",
+  "category": "Pokemon",
+  "hp": 320,
+  "stage": "Stage2",
+  "suffix": "ex",
+  "evolvesFrom": "Drakloak",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Dragon"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Jet Headbutt",
+    "cost": "Colorless",
+    "damage": "70",
+    "effect": null
+   },
+   {
+    "name": "Phantom Dive",
+    "cost": "Fire,Psychic",
+    "damage": "200",
+    "effect": "Put 6 damage counters on your opponent's Benched Pokémon in any way you like."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
  "me02.5-184": {
   "cardId": "me02.5-184",
   "name": "Buddy-Buddy Poffin",
@@ -252,6 +1309,101 @@ export const FRAMES: Record<string, CardFrame> = {
   "types": [],
   "effect": "Search your deck for up to 2 Basic Pokémon with 70 HP or less and put them onto your Bench. Then, shuffle your deck.",
   "regulationMark": "H",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "me02.5-187": {
+  "cardId": "me02.5-187",
+  "name": "Fighting Gong",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Search your deck for a Basic {F} Energy card or a Basic {F} Pokémon, reveal it, and put it into your hand. Then, shuffle your deck.",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "me02.5-192": {
+  "cardId": "me02.5-192",
+  "name": "Lillie's Determination",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Supporter",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Shuffle your hand into your deck. Then, draw 6 cards. If you have exactly 6 Prize cards remaining, draw 8 cards instead.",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "me02.5-196": {
+  "cardId": "me02.5-196",
+  "name": "Night Stretcher",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Put a Pokémon or a Basic Energy card from your discard pile into your hand.",
+  "regulationMark": "H",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "me02.5-209": {
+  "cardId": "me02.5-209",
+  "name": "Team Rocket's Transceiver",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Search your deck for a Supporter card that has \"Team Rocket\" in its name, reveal it, and put it into your hand. Then, shuffle your deck.",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "me02.5-210": {
+  "cardId": "me02.5-210",
+  "name": "Team Rocket's Watchtower",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Stadium",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "{C} Pokémon in play (both yours and your opponent's) have no Abilities.",
+  "regulationMark": "I",
   "attacks": [],
   "abilities": [],
   "weaknesses": [],
@@ -275,6 +1427,83 @@ export const FRAMES: Record<string, CardFrame> = {
   "abilities": [],
   "weaknesses": [],
   "resistances": []
+ },
+ "me02.5-288": {
+  "cardId": "me02.5-288",
+  "name": "Fezandipiti ex",
+  "category": "Pokemon",
+  "hp": 210,
+  "stage": "Basic",
+  "suffix": "ex",
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Darkness"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Cruel Arrow",
+    "cost": "Colorless,Colorless,Colorless",
+    "damage": null,
+    "effect": "This attack does 100 damage to 1 of your opponent's Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)"
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Flip the Script",
+    "effect": "Once during your turn, if any of your Pokémon were Knocked Out during your opponent's last turn, you may draw 3 cards. You can't use more than 1 Flip the Script Ability each turn."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Fighting",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "me03-055": {
+  "cardId": "me03-055",
+  "name": "Mega Skarmory ex",
+  "category": "Pokemon",
+  "hp": 260,
+  "stage": "Basic",
+  "suffix": "ex",
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 0,
+  "types": [
+   "Metal"
+  ],
+  "effect": null,
+  "regulationMark": "J",
+  "attacks": [
+   {
+    "name": "Sonic Ripper",
+    "cost": "Metal,Metal,Colorless",
+    "damage": null,
+    "effect": "Shuffle all Energy attached to this Pokémon into your deck, and this attack does 220 damage to 1 of your opponent's Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)"
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Lightning",
+    "value": "×2"
+   }
+  ],
+  "resistances": [
+   {
+    "type": "Fighting",
+    "value": "-30"
+   }
+  ]
  },
  "me03-062": {
   "cardId": "me03-062",
@@ -315,6 +1544,44 @@ export const FRAMES: Record<string, CardFrame> = {
   ],
   "resistances": []
  },
+ "me03-071": {
+  "cardId": "me03-071",
+  "name": "Crushing Hammer",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Flip a coin. If heads, discard an Energy from 1 of your opponent's Pokémon.",
+  "regulationMark": "J",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "me03-076": {
+  "cardId": "me03-076",
+  "name": "Judge",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Supporter",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Each player shuffles their hand into their deck and draws 4 cards.",
+  "regulationMark": "J",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
  "me03-081": {
   "cardId": "me03-081",
   "name": "Poké Pad",
@@ -328,6 +1595,44 @@ export const FRAMES: Record<string, CardFrame> = {
   "retreat": null,
   "types": [],
   "effect": "Search your deck for a Pokémon that doesn't have a Rule Box, reveal it, and put it into your hand. Then, shuffle your deck. (Pokémon ex, Pokémon V, etc. have Rule Boxes.)",
+  "regulationMark": "J",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "me03-085": {
+  "cardId": "me03-085",
+  "name": "Tarragon",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Supporter",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Put up to 4 in any combination of {F} Pokémon and Basic {F} Energy cards from your discard pile into your hand.",
+  "regulationMark": "J",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "me03-087": {
+  "cardId": "me03-087",
+  "name": "Rocky Fighting Energy",
+  "category": "Energy",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": "Normal",
+  "retreat": null,
+  "types": [],
+  "effect": "As long as this card is attached to a Pokémon, it provides {F} Energy.\nPrevent all effects of attacks used by your opponent's Pokémon done to the {F} Pokémon this card is attached to. (Existing effects are not removed. Damage is not an effect.)",
   "regulationMark": "J",
   "attacks": [],
   "abilities": [],
@@ -352,6 +1657,198 @@ export const FRAMES: Record<string, CardFrame> = {
   "abilities": [],
   "weaknesses": [],
   "resistances": []
+ },
+ "me03-108": {
+  "cardId": "me03-108",
+  "name": "Energy Recycler",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Shuffle up to 5 Basic Energy cards from your discard pile into your deck.",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "me03-113": {
+  "cardId": "me03-113",
+  "name": "Poké Pad",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Search your deck for a Pokémon that doesn't have a Rule Box, reveal it, and put it into your hand. Then, shuffle your deck. (Pokémon ex, Pokémon V, etc. have Rule Boxes.)",
+  "regulationMark": "J",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "me04-046": {
+  "cardId": "me04-046",
+  "name": "Baltoy",
+  "category": "Pokemon",
+  "hp": 70,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 2,
+  "types": [
+   "Fighting"
+  ],
+  "effect": null,
+  "regulationMark": "J",
+  "attacks": [
+   {
+    "name": "Continuous Spin",
+    "cost": "Fighting",
+    "damage": "30×",
+    "effect": "Flip a coin until you get tails. This attack does 30 damage for each heads."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Grass",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "me04-047": {
+  "cardId": "me04-047",
+  "name": "Claydol",
+  "category": "Pokemon",
+  "hp": 120,
+  "stage": "Stage1",
+  "suffix": null,
+  "evolvesFrom": "Baltoy",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 2,
+  "types": [
+   "Fighting"
+  ],
+  "effect": null,
+  "regulationMark": "J",
+  "attacks": [
+   {
+    "name": "Devolution Ray",
+    "cost": "Fighting",
+    "damage": "50",
+    "effect": "If your opponent's Active Pokémon is an evolved Pokémon, devolve it by putting the highest Stage Evolution card on it into your opponent's hand."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Grass",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "me04-059": {
+  "cardId": "me04-059",
+  "name": "Beldum",
+  "category": "Pokemon",
+  "hp": 70,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Metal"
+  ],
+  "effect": null,
+  "regulationMark": "J",
+  "attacks": [
+   {
+    "name": "Headbutt",
+    "cost": "Metal",
+    "damage": "10",
+    "effect": null
+   },
+   {
+    "name": "Beam",
+    "cost": "Metal,Colorless",
+    "damage": "20",
+    "effect": null
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Fire",
+    "value": "×2"
+   }
+  ],
+  "resistances": [
+   {
+    "type": "Grass",
+    "value": "-30"
+   }
+  ]
+ },
+ "me04-060": {
+  "cardId": "me04-060",
+  "name": "Metang",
+  "category": "Pokemon",
+  "hp": 100,
+  "stage": "Stage1",
+  "suffix": null,
+  "evolvesFrom": "Beldum",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 2,
+  "types": [
+   "Metal"
+  ],
+  "effect": null,
+  "regulationMark": "J",
+  "attacks": [
+   {
+    "name": "Metal Claw",
+    "cost": "Metal",
+    "damage": "30",
+    "effect": null
+   },
+   {
+    "name": "Guard Press",
+    "cost": "Metal,Metal,Colorless",
+    "damage": "70",
+    "effect": "During your opponent's next turn, this Pokémon takes 30 less damage from attacks (after applying Weakness and Resistance)."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Fire",
+    "value": "×2"
+   }
+  ],
+  "resistances": [
+   {
+    "type": "Grass",
+    "value": "-30"
+   }
+  ]
  },
  "me04-061": {
   "cardId": "me04-061",
@@ -596,6 +2093,50 @@ export const FRAMES: Record<string, CardFrame> = {
    }
   ]
  },
+ "me05-030": {
+  "cardId": "me05-030",
+  "name": "Slowbro",
+  "category": "Pokemon",
+  "hp": 130,
+  "stage": "Stage1",
+  "suffix": null,
+  "evolvesFrom": "Slowpoke",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 3,
+  "types": [
+   "Psychic"
+  ],
+  "effect": null,
+  "regulationMark": "J",
+  "attacks": [
+   {
+    "name": "All Out",
+    "cost": "Psychic",
+    "damage": "50+",
+    "effect": "If you have no cards in your hand, this attack does 160 more damage."
+   },
+   {
+    "name": "Zen Headbutt",
+    "cost": "Colorless,Colorless,Colorless",
+    "damage": "110",
+    "effect": null
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Darkness",
+    "value": "×2"
+   }
+  ],
+  "resistances": [
+   {
+    "type": "Fighting",
+    "value": "-30"
+   }
+  ]
+ },
  "me05-033": {
   "cardId": "me05-033",
   "name": "Shuppet",
@@ -722,6 +2263,234 @@ export const FRAMES: Record<string, CardFrame> = {
    }
   ]
  },
+ "me05-061": {
+  "cardId": "me05-061",
+  "name": "Shieldon",
+  "category": "Pokemon",
+  "hp": 100,
+  "stage": "Stage1",
+  "suffix": null,
+  "evolvesFrom": "Antique Armor Fossil",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 3,
+  "types": [
+   "Metal"
+  ],
+  "effect": null,
+  "regulationMark": "J",
+  "attacks": [
+   {
+    "name": "Smithereen Smash",
+    "cost": "Metal,Colorless",
+    "damage": "50",
+    "effect": "Discard an Energy from your opponent's Active Pokémon."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Fire",
+    "value": "×2"
+   }
+  ],
+  "resistances": [
+   {
+    "type": "Grass",
+    "value": "-30"
+   }
+  ]
+ },
+ "me05-062": {
+  "cardId": "me05-062",
+  "name": "Bastiodon",
+  "category": "Pokemon",
+  "hp": 160,
+  "stage": "Stage2",
+  "suffix": null,
+  "evolvesFrom": "Shieldon",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 4,
+  "types": [
+   "Metal"
+  ],
+  "effect": null,
+  "regulationMark": "J",
+  "attacks": [
+   {
+    "name": "Hammer In",
+    "cost": "Metal,Metal,Colorless",
+    "damage": "160",
+    "effect": null
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Ancient Bulwark",
+    "effect": "As long as this Pokémon is on your Bench, prevent all damage done to each of your Pokémon by attacks from your opponent's Pokémon that have 2 or less Energy attached."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Fire",
+    "value": "×2"
+   }
+  ],
+  "resistances": [
+   {
+    "type": "Grass",
+    "value": "-30"
+   }
+  ]
+ },
+ "me05-065": {
+  "cardId": "me05-065",
+  "name": "Mega Excadrill ex",
+  "category": "Pokemon",
+  "hp": 340,
+  "stage": "Stage1",
+  "suffix": "ex",
+  "evolvesFrom": "Drilbur",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 4,
+  "types": [
+   "Metal"
+  ],
+  "effect": null,
+  "regulationMark": "J",
+  "attacks": [
+   {
+    "name": "Undermine",
+    "cost": "Metal,Metal",
+    "damage": "90",
+    "effect": "Discard the top 2 cards of your opponent's deck."
+   },
+   {
+    "name": "Maximum Drilling",
+    "cost": "Metal,Metal,Metal",
+    "damage": "200+",
+    "effect": "If this Pokémon has at least 2 extra Energy attached (in addition to this attack's cost), this attack does 130 more damage."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Fire",
+    "value": "×2"
+   }
+  ],
+  "resistances": [
+   {
+    "type": "Grass",
+    "value": "-30"
+   }
+  ]
+ },
+ "me05-070": {
+  "cardId": "me05-070",
+  "name": "Silvally",
+  "category": "Pokemon",
+  "hp": 140,
+  "stage": "Stage1",
+  "suffix": null,
+  "evolvesFrom": "Type: Null",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 2,
+  "types": [
+   "Colorless"
+  ],
+  "effect": null,
+  "regulationMark": "J",
+  "attacks": [
+   {
+    "name": "Air Slash",
+    "cost": "Colorless,Colorless,Colorless",
+    "damage": "130",
+    "effect": "Discard an Energy from this Pokémon."
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Call a Buddy",
+    "effect": "Once during your turn, if you have no cards in your hand, you may use this Ability. Search your deck for a Supporter card, reveal it, and put it into your hand. Then, shuffle your deck."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Fighting",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "me05-072": {
+  "cardId": "me05-072",
+  "name": "Antique Armor Fossil",
+  "category": "Trainer",
+  "hp": 60,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Play this card as if it were a 60-HP Basic {C} Pokémon. This card can't be affected by any Special Conditions and can't retreat.\n\nAt any time during your turn, you may discard this card from play.",
+  "regulationMark": "J",
+  "attacks": [],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Protective Armor",
+    "effect": "As long as this Pokémon is in the Active Spot, all of your Pokémon take 10 less damage from attacks from your opponent's Pokémon (after applying Weakness and Resistance)."
+   }
+  ],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "me05-076": {
+  "cardId": "me05-076",
+  "name": "Fossil Quarry",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Stadium",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Once during each player's turn, that player may search their deck for up to 2 Item cards that have \"Antique\" in their name and put them onto their Bench. Then, that player shuffles their deck.",
+  "regulationMark": "J",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "me05-077": {
+  "cardId": "me05-077",
+  "name": "Gladion's Final Battle",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Supporter",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "You can use this card only when it is the last card in your hand.\nDuring this turn, attacks used by your Pokémon that don't have a Rule Box do 80 more damage to your opponent's Active Pokémon (before applying Weakness and Resistance). (Pokémon ex, Pokémon V, etc. have Rule Boxes.)",
+  "regulationMark": "J",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
  "me05-078": {
   "cardId": "me05-078",
   "name": "Gwynn",
@@ -736,6 +2505,197 @@ export const FRAMES: Record<string, CardFrame> = {
   "types": [],
   "effect": "Discard up to 2 Pokémon that don't have a Rule Box from your hand, and draw 3 cards for each card you discarded in this way. (Pokémon ex, Pokémon V, etc. have Rule Boxes.)",
   "regulationMark": "J",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "mee-002": {
+  "cardId": "mee-002",
+  "name": "Fire Energy",
+  "category": "Energy",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": "Normal",
+  "retreat": null,
+  "types": [],
+  "effect": null,
+  "regulationMark": null,
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "mee-005": {
+  "cardId": "mee-005",
+  "name": "Psychic Energy",
+  "category": "Energy",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": "Normal",
+  "retreat": null,
+  "types": [],
+  "effect": null,
+  "regulationMark": null,
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "mee-006": {
+  "cardId": "mee-006",
+  "name": "Fighting Energy",
+  "category": "Energy",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": "Normal",
+  "retreat": null,
+  "types": [],
+  "effect": null,
+  "regulationMark": null,
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "mee-007": {
+  "cardId": "mee-007",
+  "name": "Darkness Energy",
+  "category": "Energy",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": "Normal",
+  "retreat": null,
+  "types": [],
+  "effect": null,
+  "regulationMark": null,
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "mee-008": {
+  "cardId": "mee-008",
+  "name": "Metal Energy",
+  "category": "Energy",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": "Normal",
+  "retreat": null,
+  "types": [],
+  "effect": null,
+  "regulationMark": null,
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "mep-078": {
+  "cardId": "mep-078",
+  "name": "Toxel",
+  "category": "Pokemon",
+  "hp": 70,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Darkness"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Call for Family",
+    "cost": "Darkness",
+    "damage": null,
+    "effect": "Search your deck for up to 2 Basic Pokémon and put them onto your Bench. Then, shuffle your deck."
+   },
+   {
+    "name": "Playful Kick",
+    "cost": "Darkness,Colorless",
+    "damage": "20",
+    "effect": null
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Fighting",
+    "value": "x2"
+   }
+  ],
+  "resistances": []
+ },
+ "sv01-191": {
+  "cardId": "sv01-191",
+  "name": "Rare Candy",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Choose 1 of your Basic Pokémon in play. If you have a Stage 2 card in your hand that evolves from that Pokémon, put that card onto the Basic Pokémon to evolve it, skipping the Stage 1. You can't use this card during your first turn or on a Basic Pokémon that was put into play this turn.",
+  "regulationMark": "G",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv01-194": {
+  "cardId": "sv01-194",
+  "name": "Switch",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Switch your Active Pokémon with 1 of your Benched Pokémon.",
+  "regulationMark": "G",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv01-196": {
+  "cardId": "sv01-196",
+  "name": "Ultra Ball",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "You can use this card only if you discard 2 other cards from your hand.\n\nSearch your deck for a Pokémon, reveal it, and put it into your hand. Then, shuffle your deck.",
+  "regulationMark": "G",
   "attacks": [],
   "abilities": [],
   "weaknesses": [],
@@ -780,6 +2740,117 @@ export const FRAMES: Record<string, CardFrame> = {
   ],
   "resistances": []
  },
+ "sv05-102": {
+  "cardId": "sv05-102",
+  "name": "Gastly",
+  "category": "Pokemon",
+  "hp": 60,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Darkness"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Mysterious Beam",
+    "cost": "Darkness",
+    "damage": null,
+    "effect": "Flip a coin. If heads, discard an Energy from your opponent's Active Pokémon."
+   },
+   {
+    "name": "Suffocating Gas",
+    "cost": "Darkness,Darkness",
+    "damage": "30",
+    "effect": null
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Fighting",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "sv05-103": {
+  "cardId": "sv05-103",
+  "name": "Haunter",
+  "category": "Pokemon",
+  "hp": 90,
+  "stage": "Stage1",
+  "suffix": null,
+  "evolvesFrom": "Gastly",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Darkness"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Super Poison Breath",
+    "cost": "Darkness,Darkness",
+    "damage": "30",
+    "effect": "Your opponent's Active Pokémon is now Poisoned."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Fighting",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "sv05-104": {
+  "cardId": "sv05-104",
+  "name": "Gengar ex",
+  "category": "Pokemon",
+  "hp": 310,
+  "stage": "Stage2",
+  "suffix": "ex",
+  "evolvesFrom": "Haunter",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 2,
+  "types": [
+   "Darkness"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Tricky Steps",
+    "cost": "Darkness,Darkness",
+    "damage": "160",
+    "effect": "You may move an Energy from your opponent's Active Pokémon to 1 of their Benched Pokémon."
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Gnawing Curse",
+    "effect": "Whenever your opponent attaches an Energy card from their hand to 1 of their Pokémon, put 2 damage counters on that Pokémon."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Fighting",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
  "sv05-129": {
   "cardId": "sv05-129",
   "name": "Dudunsparce",
@@ -817,6 +2888,267 @@ export const FRAMES: Record<string, CardFrame> = {
     "value": "×2"
    }
   ],
+  "resistances": []
+ },
+ "sv05-144": {
+  "cardId": "sv05-144",
+  "name": "Buddy-Buddy Poffin",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Search your deck for up to 2 Basic Pokémon with 70 HP or less and put them onto your Bench. Then, shuffle your deck.",
+  "regulationMark": "H",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv05-148": {
+  "cardId": "sv05-148",
+  "name": "Full Metal Lab",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Stadium",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "{M} Pokémon (both yours and your opponent's) take 30 less damage from attacks from the opponent's Pokémon (after applying Weakness and Resistance).",
+  "regulationMark": "H",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv05-157": {
+  "cardId": "sv05-157",
+  "name": "Prime Catcher",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Switch in 1 of your opponent's Benched Pokémon to the Active Spot. If you do, switch your Active Pokémon with 1 of your Benched Pokémon.",
+  "regulationMark": "H",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv05-162": {
+  "cardId": "sv05-162",
+  "name": "Neo Upper Energy",
+  "category": "Energy",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": "Special",
+  "retreat": null,
+  "types": [],
+  "effect": "As long as this card is attached to a Pokémon, it provides {C} Energy.\n\nIf this card is attached to a Stage 2 Pokémon, this card provides every type of Energy but provides only 2 Energy at a time.",
+  "regulationMark": "H",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv06-053": {
+  "cardId": "sv06-053",
+  "name": "Froslass",
+  "category": "Pokemon",
+  "hp": 90,
+  "stage": "Stage1",
+  "suffix": null,
+  "evolvesFrom": "Snorunt",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Water"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Frost Smash",
+    "cost": "Water,Colorless",
+    "damage": "60",
+    "effect": null
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Freezing Shroud",
+    "effect": "During Pokémon Checkup, put 1 damage counter on each Pokémon that has an Ability (both yours and your opponent's), except any Froslass."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Metal",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "sv06-095": {
+  "cardId": "sv06-095",
+  "name": "Munkidori",
+  "category": "Pokemon",
+  "hp": 110,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Psychic"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Mind Bend",
+    "cost": "Psychic,Colorless",
+    "damage": "60",
+    "effect": "Your opponent's Active Pokémon is now Confused."
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Adrena-Brain",
+    "effect": "Once during your turn, if this Pokémon has any {D} Energy attached, you may move up to 3 damage counters from 1 of your Pokémon to 1 of your opponent's Pokémon."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Darkness",
+    "value": "×2"
+   }
+  ],
+  "resistances": [
+   {
+    "type": "Fighting",
+    "value": "-30"
+   }
+  ]
+ },
+ "sv06-128": {
+  "cardId": "sv06-128",
+  "name": "Dreepy",
+  "category": "Pokemon",
+  "hp": 70,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Dragon"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Petty Grudge",
+    "cost": "Psychic",
+    "damage": "10",
+    "effect": null
+   },
+   {
+    "name": "Bite",
+    "cost": "Fire,Psychic",
+    "damage": "40",
+    "effect": null
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv06-129": {
+  "cardId": "sv06-129",
+  "name": "Drakloak",
+  "category": "Pokemon",
+  "hp": 90,
+  "stage": "Stage1",
+  "suffix": null,
+  "evolvesFrom": "Dreepy",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Dragon"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Dragon Headbutt",
+    "cost": "Fire,Psychic",
+    "damage": "70",
+    "effect": null
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Recon Directive",
+    "effect": "Once during your turn, you may look at the top 2 cards of your deck and put 1 of them into your hand. Put the other card on the bottom of your deck."
+   }
+  ],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv06-130": {
+  "cardId": "sv06-130",
+  "name": "Dragapult ex",
+  "category": "Pokemon",
+  "hp": 320,
+  "stage": "Stage2",
+  "suffix": "ex",
+  "evolvesFrom": "Drakloak",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Dragon"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Jet Headbutt",
+    "cost": "Colorless",
+    "damage": "70",
+    "effect": null
+   },
+   {
+    "name": "Phantom Dive",
+    "cost": "Fire,Psychic",
+    "damage": "200",
+    "effect": "Put 6 damage counters on your opponent's Benched Pokémon in any way you like."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [],
   "resistances": []
  },
  "sv06-141": {
@@ -858,6 +3190,63 @@ export const FRAMES: Record<string, CardFrame> = {
   ],
   "resistances": []
  },
+ "sv06-145": {
+  "cardId": "sv06-145",
+  "name": "Carmine",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Supporter",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "If you go first, you may use this card during your first turn.\n\nDiscard your hand and draw 5 cards.",
+  "regulationMark": "H",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv06-148": {
+  "cardId": "sv06-148",
+  "name": "Enhanced Hammer",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Discard a Special Energy from 1 of your opponent's Pokémon.",
+  "regulationMark": "H",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv06-153": {
+  "cardId": "sv06-153",
+  "name": "Jamming Tower",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Stadium",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Pokémon Tools attached to each Pokémon (both yours and your opponent's) have no effect.",
+  "regulationMark": "H",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
  "sv06-158": {
   "cardId": "sv06-158",
   "name": "Lucky Helmet",
@@ -896,6 +3285,25 @@ export const FRAMES: Record<string, CardFrame> = {
   "weaknesses": [],
   "resistances": []
  },
+ "sv06-165": {
+  "cardId": "sv06-165",
+  "name": "Unfair Stamp",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "You can use this card only if any of your Pokémon were Knocked Out during your opponent's last turn.\n\nEach player shuffles their hand into their deck. Then, you draw 5 cards, and your opponent draws 2 cards.",
+  "regulationMark": "H",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
  "sv06-166": {
   "cardId": "sv06-166",
   "name": "Boomerang Energy",
@@ -914,6 +3322,113 @@ export const FRAMES: Record<string, CardFrame> = {
   "abilities": [],
   "weaknesses": [],
   "resistances": []
+ },
+ "sv06-167": {
+  "cardId": "sv06-167",
+  "name": "Legacy Energy",
+  "category": "Energy",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": "Special",
+  "retreat": null,
+  "types": [],
+  "effect": "As long as this card is attached to a Pokémon, it provides every type of Energy but provides only 1 Energy at a time.\n\nIf the Pokémon this card is attached to is Knocked Out by damage from an attack from your opponent's Pokémon, that player takes 1 fewer Prize card. This effect of your Legacy Energy can't be applied more than once per game.",
+  "regulationMark": "H",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv06.5-019": {
+  "cardId": "sv06.5-019",
+  "name": "Dusclops",
+  "category": "Pokemon",
+  "hp": 90,
+  "stage": "Stage1",
+  "suffix": null,
+  "evolvesFrom": "Duskull",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 2,
+  "types": [
+   "Psychic"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Will-O-Wisp",
+    "cost": "Psychic,Psychic",
+    "damage": "50",
+    "effect": null
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Cursed Blast",
+    "effect": "Once during your turn, you may put 5 damage counters on 1 of your opponent's Pokémon. If you use this Ability, this Pokémon is Knocked Out."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Darkness",
+    "value": "×2"
+   }
+  ],
+  "resistances": [
+   {
+    "type": "Fighting",
+    "value": "-30"
+   }
+  ]
+ },
+ "sv06.5-020": {
+  "cardId": "sv06.5-020",
+  "name": "Dusknoir",
+  "category": "Pokemon",
+  "hp": 160,
+  "stage": "Stage2",
+  "suffix": null,
+  "evolvesFrom": "Dusclops",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 3,
+  "types": [
+   "Psychic"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Shadow Bind",
+    "cost": "Psychic,Psychic,Colorless",
+    "damage": "150",
+    "effect": "During your opponent's next turn, the Defending Pokémon can't retreat."
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Cursed Blast",
+    "effect": "Once during your turn, you may put 13 damage counters on 1 of your opponent's Pokémon. If you use this Ability, this Pokémon is Knocked Out."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Darkness",
+    "value": "×2"
+   }
+  ],
+  "resistances": [
+   {
+    "type": "Fighting",
+    "value": "-30"
+   }
+  ]
  },
  "sv06.5-038": {
   "cardId": "sv06.5-038",
@@ -944,6 +3459,45 @@ export const FRAMES: Record<string, CardFrame> = {
     "kind": "Ability",
     "name": "Flip the Script",
     "effect": "Once during your turn, if any of your Pokémon were Knocked Out during your opponent's last turn, you may draw 3 cards. You can't use more than 1 Flip the Script Ability each turn."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Fighting",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "sv06.5-039": {
+  "cardId": "sv06.5-039",
+  "name": "Pecharunt ex",
+  "category": "Pokemon",
+  "hp": 190,
+  "stage": "Basic",
+  "suffix": "ex",
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Darkness"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Irritated Outburst",
+    "cost": "Darkness,Darkness",
+    "damage": "60×",
+    "effect": "This attack does 60 damage for each Prize card your opponent has taken."
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Subjugating Chains",
+    "effect": "Once during your turn, you may switch 1 of your Benched {D} Pokémon, except any Pecharunt ex, with your Active Pokémon. If you do, the new Active Pokémon is now Poisoned. You can't use more than 1 Subjugating Chains Ability each turn."
    }
   ],
   "weaknesses": [
@@ -1007,6 +3561,44 @@ export const FRAMES: Record<string, CardFrame> = {
   "weaknesses": [],
   "resistances": []
  },
+ "sv06.5-056": {
+  "cardId": "sv06.5-056",
+  "name": "Cassiopeia",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Supporter",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "You can use this card only when it is the last card in your hand.\n\nSearch your deck for up to 2 cards and put them into your hand. Then, shuffle your deck.",
+  "regulationMark": "H",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv06.5-057": {
+  "cardId": "sv06.5-057",
+  "name": "Colress's Tenacity",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Supporter",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Search your deck for a Stadium card and an Energy card, reveal them, and put them into your hand. Then, shuffle your deck.",
+  "regulationMark": "H",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
  "sv06.5-061": {
   "cardId": "sv06.5-061",
   "name": "Night Stretcher",
@@ -1020,6 +3612,88 @@ export const FRAMES: Record<string, CardFrame> = {
   "retreat": null,
   "types": [],
   "effect": "Put a Pokémon or a Basic Energy card from your discard pile into your hand.",
+  "regulationMark": "H",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv06.5-063": {
+  "cardId": "sv06.5-063",
+  "name": "Powerglass",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Tool",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "At the end of your turn (after your attack), if the Pokémon this card is attached to is in the Active Spot, you may attach a Basic Energy card from your discard pile to it.",
+  "regulationMark": "H",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv06.5-072": {
+  "cardId": "sv06.5-072",
+  "name": "Munkidori",
+  "category": "Pokemon",
+  "hp": 110,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Psychic"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Mind Bend",
+    "cost": "Psychic,Colorless",
+    "damage": "60",
+    "effect": "Your opponent's Active Pokémon is now Confused."
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Adrena-Brain",
+    "effect": "Once during your turn, if this Pokémon has any {D} Energy attached, you may move up to 3 damage counters from 1 of your Pokémon to 1 of your opponent's Pokémon."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Darkness",
+    "value": "×2"
+   }
+  ],
+  "resistances": [
+   {
+    "type": "Fighting",
+    "value": "-30"
+   }
+  ]
+ },
+ "sv06.5-088": {
+  "cardId": "sv06.5-088",
+  "name": "Janine's Secret Art",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Supporter",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Choose up to 2 of your {D} Pokémon. For each of those Pokémon, search your deck for a Basic {D} Energy card and attach it to that Pokémon. Then, shuffle your deck. If you attached Energy to your Active Pokémon in this way, it is now Poisoned.",
   "regulationMark": "H",
   "attacks": [],
   "abilities": [],
@@ -1070,6 +3744,25 @@ export const FRAMES: Record<string, CardFrame> = {
    }
   ]
  },
+ "sv07-133": {
+  "cardId": "sv07-133",
+  "name": "Crispin",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Supporter",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Search your deck for up to 2 Basic Energy cards of different types, reveal them, and put 1 of them into your hand. Attach the other to 1 of your Pokémon. Then, shuffle your deck.",
+  "regulationMark": "H",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
  "sv08-013": {
   "cardId": "sv08-013",
   "name": "Rellor",
@@ -1104,6 +3797,45 @@ export const FRAMES: Record<string, CardFrame> = {
   "weaknesses": [
    {
     "type": "Fire",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "sv08-072": {
+  "cardId": "sv08-072",
+  "name": "Togekiss",
+  "category": "Pokemon",
+  "hp": 140,
+  "stage": "Stage2",
+  "suffix": null,
+  "evolvesFrom": "Togetic",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Psychic"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Speed Wing",
+    "cost": "Colorless,Colorless,Colorless",
+    "damage": "140",
+    "effect": null
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Wonder Kiss",
+    "effect": "When your opponent's Active Pokémon is Knocked Out, flip a coin. If heads, take 1 more Prize card. The effect of Wonder Kiss doesn't stack."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Metal",
     "value": "×2"
    }
   ],
@@ -1192,6 +3924,321 @@ export const FRAMES: Record<string, CardFrame> = {
   ],
   "resistances": []
  },
+ "sv08-177": {
+  "cardId": "sv08-177",
+  "name": "Gravity Mountain",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Stadium",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Each Stage 2 Pokémon in play (both yours and your opponent's) gets -30 HP.",
+  "regulationMark": "H",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv08-185": {
+  "cardId": "sv08-185",
+  "name": "Precious Trolley",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Search your deck for any number of Basic Pokémon and put them onto your Bench. Then, shuffle your deck.",
+  "regulationMark": "H",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv08.5-035": {
+  "cardId": "sv08.5-035",
+  "name": "Duskull",
+  "category": "Pokemon",
+  "hp": 60,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Psychic"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Come and Get You",
+    "cost": "Psychic",
+    "damage": null,
+    "effect": "Put up to 3 Duskull from your discard pile onto your Bench."
+   },
+   {
+    "name": "Mumble",
+    "cost": "Psychic,Psychic",
+    "damage": "30",
+    "effect": null
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Darkness",
+    "value": "×2"
+   }
+  ],
+  "resistances": [
+   {
+    "type": "Fighting",
+    "value": "-30"
+   }
+  ]
+ },
+ "sv08.5-036": {
+  "cardId": "sv08.5-036",
+  "name": "Dusclops",
+  "category": "Pokemon",
+  "hp": 90,
+  "stage": "Stage1",
+  "suffix": null,
+  "evolvesFrom": "Duskull",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 2,
+  "types": [
+   "Psychic"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Will-O-Wisp",
+    "cost": "Psychic,Psychic",
+    "damage": "50",
+    "effect": null
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Cursed Blast",
+    "effect": "Once during your turn, you may put 5 damage counters on 1 of your opponent's Pokémon. If you use this Ability, this Pokémon is Knocked Out."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Darkness",
+    "value": "×2"
+   }
+  ],
+  "resistances": [
+   {
+    "type": "Fighting",
+    "value": "-30"
+   }
+  ]
+ },
+ "sv08.5-037": {
+  "cardId": "sv08.5-037",
+  "name": "Dusknoir",
+  "category": "Pokemon",
+  "hp": 160,
+  "stage": "Stage2",
+  "suffix": null,
+  "evolvesFrom": "Dusclops",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 3,
+  "types": [
+   "Psychic"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Shadow Bind",
+    "cost": "Psychic,Psychic,Colorless",
+    "damage": "150",
+    "effect": "During your opponent's next turn, the Defending Pokémon can't retreat."
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Cursed Blast",
+    "effect": "Once during your turn, you may put 13 damage counters on 1 of your opponent's Pokémon. If you use this Ability, this Pokémon is Knocked Out."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Darkness",
+    "value": "×2"
+   }
+  ],
+  "resistances": [
+   {
+    "type": "Fighting",
+    "value": "-30"
+   }
+  ]
+ },
+ "sv08.5-044": {
+  "cardId": "sv08.5-044",
+  "name": "Munkidori",
+  "category": "Pokemon",
+  "hp": 110,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Psychic"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Mind Bend",
+    "cost": "Psychic,Colorless",
+    "damage": "60",
+    "effect": "Your opponent's Active Pokémon is now Confused."
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Adrena-Brain",
+    "effect": "Once during your turn, if this Pokémon has any {D} Energy attached, you may move up to 3 damage counters from 1 of your Pokémon to 1 of your opponent's Pokémon."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Darkness",
+    "value": "×2"
+   }
+  ],
+  "resistances": [
+   {
+    "type": "Fighting",
+    "value": "-30"
+   }
+  ]
+ },
+ "sv08.5-050": {
+  "cardId": "sv08.5-050",
+  "name": "Riolu",
+  "category": "Pokemon",
+  "hp": 70,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Fighting"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Quick Attack",
+    "cost": "Fighting",
+    "damage": "10+",
+    "effect": "Flip a coin. If heads, this attack does 20 more damage."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Psychic",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "sv08.5-071": {
+  "cardId": "sv08.5-071",
+  "name": "Dreepy",
+  "category": "Pokemon",
+  "hp": 70,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Dragon"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Petty Grudge",
+    "cost": "Psychic",
+    "damage": "10",
+    "effect": null
+   },
+   {
+    "name": "Bite",
+    "cost": "Fire,Psychic",
+    "damage": "40",
+    "effect": null
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv08.5-072": {
+  "cardId": "sv08.5-072",
+  "name": "Drakloak",
+  "category": "Pokemon",
+  "hp": 90,
+  "stage": "Stage1",
+  "suffix": null,
+  "evolvesFrom": "Dreepy",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Dragon"
+  ],
+  "effect": null,
+  "regulationMark": "H",
+  "attacks": [
+   {
+    "name": "Dragon Headbutt",
+    "cost": "Fire,Psychic",
+    "damage": "70",
+    "effect": null
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Recon Directive",
+    "effect": "Once during your turn, you may look at the top 2 cards of your deck and put 1 of them into your hand. Put the other card on the bottom of your deck."
+   }
+  ],
+  "weaknesses": [],
+  "resistances": []
+ },
  "sv08.5-079": {
   "cardId": "sv08.5-079",
   "name": "Dunsparce",
@@ -1270,6 +4317,25 @@ export const FRAMES: Record<string, CardFrame> = {
   ],
   "resistances": []
  },
+ "sv08.5-095": {
+  "cardId": "sv08.5-095",
+  "name": "Binding Mochi",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Tool",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Attacks used by the Poisoned Pokémon this card is attached to do 40 more damage to your opponent's Active Pokémon (before applying Weakness and Resistance).",
+  "regulationMark": "H",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
  "sv08.5-101": {
   "cardId": "sv08.5-101",
   "name": "Buddy-Buddy Poffin",
@@ -1306,6 +4372,233 @@ export const FRAMES: Record<string, CardFrame> = {
   "attacks": [],
   "abilities": [],
   "weaknesses": [],
+  "resistances": []
+ },
+ "sv08.5-105": {
+  "cardId": "sv08.5-105",
+  "name": "Crispin",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Supporter",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Search your deck for up to 2 Basic Energy cards of different types, reveal them, and put 1 of them into your hand. Attach the other to 1 of your Pokémon. Then, shuffle your deck.",
+  "regulationMark": "H",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv09-120": {
+  "cardId": "sv09-120",
+  "name": "Dunsparce",
+  "category": "Pokemon",
+  "hp": 70,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Colorless"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Trading Places",
+    "cost": "Colorless",
+    "damage": null,
+    "effect": "Switch this Pokémon with 1 of your Benched Pokémon."
+   },
+   {
+    "name": "Ram",
+    "cost": "Colorless,Colorless",
+    "damage": "20",
+    "effect": null
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Fighting",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "sv09-121": {
+  "cardId": "sv09-121",
+  "name": "Dudunsparce ex",
+  "category": "Pokemon",
+  "hp": 270,
+  "stage": "Stage1",
+  "suffix": "ex",
+  "evolvesFrom": "Dunsparce",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 3,
+  "types": [
+   "Colorless"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Tenacious Tail",
+    "cost": "Colorless",
+    "damage": "60×",
+    "effect": "This attack does 60 damage for each of your opponent's Pokémon ex in play."
+   },
+   {
+    "name": "Destructive Drill",
+    "cost": "Colorless,Colorless,Colorless",
+    "damage": "150",
+    "effect": "This attack's damage isn't affected by any effects on your opponent's Active Pokémon."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Fighting",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "sv09-179": {
+  "cardId": "sv09-179",
+  "name": "Brock's Scouting",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Supporter",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Search your deck for up to 2 Basic Pokémon or 1 Evolution Pokémon, reveal them, and put them into your hand. Then, shuffle your deck.",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv10-007": {
+  "cardId": "sv10-007",
+  "name": "Cynthia's Roselia",
+  "category": "Pokemon",
+  "hp": 70,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Grass"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Spike Sting",
+    "cost": "Colorless",
+    "damage": "20",
+    "effect": null
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Fire",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "sv10-008": {
+  "cardId": "sv10-008",
+  "name": "Cynthia's Roserade",
+  "category": "Pokemon",
+  "hp": 130,
+  "stage": "Stage1",
+  "suffix": null,
+  "evolvesFrom": "Cynthia's Roselia",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Grass"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Leaf Step",
+    "cost": "Grass,Colorless,Colorless",
+    "damage": "80",
+    "effect": null
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Cheer On to Glory",
+    "effect": "Attacks used by your Cynthia's Pokémon do 30 more damage to your opponent's Active Pokémon (before applying Weakness and Resistance)."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Fire",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "sv10-010": {
+  "cardId": "sv10-010",
+  "name": "Shaymin",
+  "category": "Pokemon",
+  "hp": 80,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Grass"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Smash Kick",
+    "cost": "Colorless,Colorless",
+    "damage": "30",
+    "effect": null
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Flower Curtain",
+    "effect": "Prevent all damage done to your Benched Pokémon that don't have a Rule Box by attacks from your opponent's Pokémon. (Pokémon ex, Pokémon V, etc. have Rule Boxes.)"
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Fire",
+    "value": "×2"
+   }
+  ],
   "resistances": []
  },
  "sv10-078": {
@@ -1347,6 +4640,226 @@ export const FRAMES: Record<string, CardFrame> = {
   ],
   "resistances": []
  },
+ "sv10-103": {
+  "cardId": "sv10-103",
+  "name": "Cynthia's Gabite",
+  "category": "Pokemon",
+  "hp": 100,
+  "stage": "Stage1",
+  "suffix": null,
+  "evolvesFrom": "Cynthia's Gible",
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Fighting"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Dragonslice",
+    "cost": "Fighting",
+    "damage": "40",
+    "effect": null
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Champion's Call",
+    "effect": "Once during your turn, you may search your deck for a Cynthia's Pokémon, reveal it, and put it into your hand. Then, shuffle your deck."
+   }
+  ],
+  "weaknesses": [
+   {
+    "type": "Grass",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "sv10-129": {
+  "cardId": "sv10-129",
+  "name": "Cynthia's Spiritomb",
+  "category": "Pokemon",
+  "hp": 70,
+  "stage": "Basic",
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 1,
+  "types": [
+   "Darkness"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Raging Curse",
+    "cost": "Colorless",
+    "damage": "10×",
+    "effect": "This attack does 10 damage for each damage counter on all of your Benched Cynthia's Pokémon. This attack's damage isn't affected by Weakness."
+   }
+  ],
+  "abilities": [],
+  "weaknesses": [
+   {
+    "type": "Grass",
+    "value": "×2"
+   }
+  ],
+  "resistances": []
+ },
+ "sv10-162": {
+  "cardId": "sv10-162",
+  "name": "Cynthia's Power Weight",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Tool",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "The Cynthia's Pokémon this card is attached to gets +70 HP.",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv10-164": {
+  "cardId": "sv10-164",
+  "name": "Energy Recycler",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Shuffle up to 5 Basic Energy cards from your discard pile into your deck.",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv10-168": {
+  "cardId": "sv10-168",
+  "name": "Sacred Ash",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Shuffle up to 5 Pokémon from your discard pile into your deck.",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv10-176": {
+  "cardId": "sv10-176",
+  "name": "Team Rocket's Petrel",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Supporter",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Search your deck for a Trainer card, reveal it, and put it into your hand. Then, shuffle your deck.",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv10-180": {
+  "cardId": "sv10-180",
+  "name": "Team Rocket's Watchtower",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Stadium",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "{C} Pokémon in play (both yours and your opponent's) have no Abilities.",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv10-226": {
+  "cardId": "sv10-226",
+  "name": "Team Rocket's Petrel",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Supporter",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Search your deck for a Trainer card, reveal it, and put it into your hand. Then, shuffle your deck.",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv10.5b-067": {
+  "cardId": "sv10.5b-067",
+  "name": "Genesect ex",
+  "category": "Pokemon",
+  "hp": 220,
+  "stage": "Basic",
+  "suffix": "ex",
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": null,
+  "retreat": 2,
+  "types": [
+   "Metal"
+  ],
+  "effect": null,
+  "regulationMark": "I",
+  "attacks": [
+   {
+    "name": "Protect Charge",
+    "cost": "Metal,Metal,Colorless",
+    "damage": "150",
+    "effect": "During your opponent's next turn, this Pokémon takes 30 less damage from attacks (after applying Weakness and Resistance)."
+   }
+  ],
+  "abilities": [
+   {
+    "kind": "Ability",
+    "name": "Metallic Signal",
+    "effect": "Once during your turn, you may search your deck for up to 2 Evolution {M} Pokémon, reveal them, and put them into your hand. Then, shuffle your deck."
+   }
+  ],
+  "weaknesses": [],
+  "resistances": []
+ },
  "sv10.5b-079": {
   "cardId": "sv10.5b-079",
   "name": "Air Balloon",
@@ -1361,6 +4874,139 @@ export const FRAMES: Record<string, CardFrame> = {
   "types": [],
   "effect": "The Retreat Cost of the Pokémon this card is attached to is {C}{C} less.",
   "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv10.5b-084": {
+  "cardId": "sv10.5b-084",
+  "name": "Pokégear 3.0",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Look at the top 7 cards of your deck. You may reveal a Supporter card you find there and put it into your hand. Shuffle the other cards back into your deck.",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv10.5w-080": {
+  "cardId": "sv10.5w-080",
+  "name": "Brave Bangle",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Tool",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "If the Pokémon this card is attached to doesn't have a Rule Box, the attacks it uses do 30 more damage to your opponent's Active Pokémon ex (before applying Weakness and Resistance). (Pokémon ex, Pokémon V, etc. have Rule Boxes.)",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv10.5w-084": {
+  "cardId": "sv10.5w-084",
+  "name": "Hilda",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Supporter",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Search your deck for an Evolution Pokémon and an Energy card, reveal them, and put them into your hand. Then, shuffle your deck.",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv10.5w-085": {
+  "cardId": "sv10.5w-085",
+  "name": "Tool Scrapper",
+  "category": "Trainer",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": "Item",
+  "energyType": null,
+  "retreat": null,
+  "types": [],
+  "effect": "Choose up to 2 Pokémon Tools attached to Pokémon (yours or your opponent's) and discard them.",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sv10.5w-086": {
+  "cardId": "sv10.5w-086",
+  "name": "Ignition Energy",
+  "category": "Energy",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": "Normal",
+  "retreat": null,
+  "types": [],
+  "effect": "If this card is attached to 1 of your Pokémon, discard it at the end of your turn.\n\nAs long as this card is attached to a Pokémon, it provides {C} Energy.\n\nIf this card is attached to an Evolution Pokémon, it provides {C}{C}{C} Energy instead.",
+  "regulationMark": "I",
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sve-005": {
+  "cardId": "sve-005",
+  "name": "Psychic Energy",
+  "category": "Energy",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": "Normal",
+  "retreat": null,
+  "types": [],
+  "effect": null,
+  "regulationMark": null,
+  "attacks": [],
+  "abilities": [],
+  "weaknesses": [],
+  "resistances": []
+ },
+ "sve-013": {
+  "cardId": "sve-013",
+  "name": "Psychic Energy",
+  "category": "Energy",
+  "hp": null,
+  "stage": null,
+  "suffix": null,
+  "evolvesFrom": null,
+  "trainerType": null,
+  "energyType": "Normal",
+  "retreat": null,
+  "types": [],
+  "effect": null,
+  "regulationMark": null,
   "attacks": [],
   "abilities": [],
   "weaknesses": [],
