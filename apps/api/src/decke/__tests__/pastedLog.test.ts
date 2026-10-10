@@ -154,3 +154,52 @@ test('a fragment below the thresholds does not qualify', () => {
   assert.ok(tooShort.length < 400, 'fixture: this fragment must be under 400 chars');
   assert.equal(extractPastedLog([userMsg(tooShort)]), null);
 });
+
+test('unknown client lines inside an anchored log are retained, while surrounding prose is not', () => {
+  // Live adds display-only templates more often than this small recognizer is
+  // released. Anchors and closeout delimit the log, and the 70% density gate
+  // lets a few such lines survive instead of silently saving a fragment.
+  const lines = SMALL_LOG.split('\n');
+  lines.splice(6, 0, 'This is an unfamiliar Live client status template.');
+  lines.splice(12, 0, 'Another unfamiliar client sentence.');
+  const log = lines.join('\n');
+  const out = extractPastedLog([userMsg(`Please log this game:\n${log}\nThat was a close one.`)]);
+  assert.equal(out, log);
+  assert.ok(out !== null && out.includes('unfamiliar Live client status template.'));
+  assert.ok(out !== null && !out.includes('Please log this game'));
+  assert.ok(out !== null && !out.includes('That was a close one'));
+});
+
+test('recognizes checkup, condition, coin-flip, and damage-breakdown templates', () => {
+  const log = [
+    'Setup',
+    'PlayerA chose heads for the opening coin flip.',
+    'PlayerA won the coin toss.',
+    'PlayerA decided to go first.',
+    'PlayerA drew 7 cards for the opening hand.',
+    'PlayerB drew 7 cards for the opening hand.',
+    "PlayerA's Turn",
+    'PlayerA drew a card.',
+    'PlayerA played Munkidori to the Active Spot.',
+    "PlayerA's Munkidori used Mind Racket on PlayerB’s Dreepy for 250 damage.",
+    '- Damage breakdown:',
+    '• Base damage: 250 damage',
+    ' • (Pokémon Tool) Binding Mochi: 40 damage',
+    '• Total damage: 300 damage',
+    'Pokémon Checkup',
+    "PlayerB's Dreepy is now Poisoned.",
+    "PlayerB's Dreepy took 10 damage from Poison.",
+    'PlayerA flipped a coin…',
+    'PlayerA ended their turn.',
+    'Opponent took all of their Prize cards. PlayerA wins.',
+  ].join('\n');
+  assert.equal(extractPastedLog([userMsg(log)]), log);
+});
+
+test('a Reverse Display Order paste runs from the result back through Setup', () => {
+  // The physical line order is exactly what Live displays: no reversal is
+  // performed here because raw_log must preserve the reader's source text.
+  const reversed = SMALL_LOG.split('\n').reverse().join('\n');
+  const out = extractPastedLog([userMsg(`reverse display order follows\n${reversed}\nend note`)]);
+  assert.equal(out, reversed);
+});

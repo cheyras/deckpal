@@ -12,7 +12,7 @@ import {
   parseSource, recordEvents, ReplayError,
 } from '../mutations.js';
 import { buildCart, productIdLine, tokenLine, type CartInput } from '../tcgplayer/massentry.js';
-import { mergeLogFields, parseBattleLog, scoreDeckMatch } from '../deck/battlelog.js';
+import { parseBattleLog, prepareBattleLog, scoreDeckMatch } from '../deck/battlelog.js';
 import {
   validateDeck, resolveDeck, buildReprintOracle,
   parsePtcgl, parseMassEntry, serializeMassEntry,
@@ -2002,9 +2002,12 @@ decksRouter.get(
   }),
 );
 
-// POST /decks/:id/logs — paste a raw PTCG Live log. The parser runs here; its
-// result/opponent/deck-guess fill any fields the caller omitted. Attaches to the
-// deck's CURRENT version (that is the list the game was played with).
+// POST /decks/:id/logs — paste a raw PTCG Live log. `dryRun: true` performs the
+// SAME deck resolution, parsing, owner gate, and field merge as an insert, then
+// returns the row-facing values without writing. Both branches consume the one
+// `prepareBattleLog` result: the approval preview cannot promise a write that
+// owner identification would reject. A real write attaches to the CURRENT
+// version (that is the list the game was played with).
 decksRouter.post(
   '/:id/logs',
   asyncHandler(async (req, res) => {
@@ -2021,29 +2024,56 @@ decksRouter.post(
     const playedAt = parsePlayedAt(body.playedAt);
     const playerName = parseOptText(body.playerName, 100, 'playerName') ?? undefined;
     const source = parseSource(body.source);
+    const dryRun = body.dryRun === true;
 
     const out = await withTx(async (client) => {
       await assertDeck(client, deckId, userId);
       // soft-delete-exempt: behind assertDeck's lock, which filters deleted_at.
-      const deck = await client.query<{ version: number }>(`SELECT version FROM deck WHERE id = $1`, [deckId]);
-      const version = deck.rows[0]!.version;
+      const deck = await client.query<{ version: number; name: string; played_at: string }>(
+        `SELECT version, name, now() AS played_at FROM deck WHERE id = $1`,
+        [deckId],
+      );
+      const { version, name: deckName } = deck.rows[0]!;
+      // Resolve the omitted timestamp ONCE from the database clock. The preview
+      // reports this value and the insert stores this same value, instead of a
+      // later INSERT-time `now()` that could make the two answers disagree.
+      const resolvedPlayedAt = playedAt ?? new Date(deck.rows[0]!.played_at).toISOString();
       const names = await client.query<{ name: string }>(
         `SELECT c.name FROM deck_card dc JOIN card c ON c.id = dc.card_id WHERE dc.deck_id = $1`,
         [deckId],
       );
-      const parsed = parseBattleLog(rawLog, names.rows.map((r) => r.name), playerName);
+      let prepared;
+      try {
+        prepared = prepareBattleLog(rawLog, names.rows.map((r) => r.name), {
+          playerName,
+          result: explicitResult,
+          opponent,
+          opponentDeck,
+        });
+      } catch (err) {
+        throw badRequest(err instanceof Error ? err.message : 'could not prepare battle log');
+      }
 
-      // Explicit args win: caller-supplied result / opponent / opponentDeck are
-      // authoritative over parser output; the parser fills whatever the caller
-      // omitted. Centralised in mergeLogFields so the override contract is
-      // pinned by a unit test, not just inline `??` at the call site.
-      const merged = mergeLogFields(parsed, { result: explicitResult, opponent, opponentDeck });
-      if (parsed.players.me === null && explicitResult === undefined) {
-        throw badRequest(
-          playerName
-            ? `playerName '${playerName}' does not match a player in the log — check the exact screen name, or pass an explicit result`
-            : 'could not determine which player is the deck owner — pass playerName (your exact screen name in the log) or an explicit result',
-        );
+      if (dryRun) {
+        return {
+          dryRun: true as const,
+          preview: {
+            deckName,
+            version,
+            result: prepared.result,
+            opponent: prepared.opponent,
+            opponentDeck: prepared.opponentDeck,
+            opponentDeckGuess: prepared.opponentDeck,
+            prizes: prepared.parsed.prizesTaken,
+            turns: prepared.parsed.totalTurns,
+            notes,
+            playedAt: resolvedPlayedAt,
+            confidence: prepared.parsed.confidence,
+            myPokemon: prepared.parsed.myPokemon,
+          },
+          parsed: prepared.parsed,
+          attachedToVersion: version,
+        };
       }
 
       const row = await client.query<LogRow>(
@@ -2055,16 +2085,20 @@ decksRouter.post(
               VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, COALESCE($10::timestamptz, now()), $11)
          RETURNING id, deck_version, raw_log, result, opponent, opponent_deck, notes, parsed, source, played_at, created_at`,
         [
-          deckId, version, rawLog, merged.result,
-          merged.opponent,
-          merged.opponentDeck,
-          notes, JSON.stringify(parsed), source, playedAt, userId,
+          deckId, version, rawLog, prepared.result,
+          prepared.opponent,
+          prepared.opponentDeck,
+          notes, JSON.stringify(prepared.parsed), source, resolvedPlayedAt, userId,
         ],
       );
-      return { log: row.rows[0]!, attachedToVersion: version };
+      return { dryRun: false as const, log: row.rows[0]!, attachedToVersion: version };
     });
 
     userCache(res);
+    if (out.dryRun) {
+      res.json(out);
+      return;
+    }
     res.status(201).json({ log: shapeLogFull(out.log), attachedToVersion: out.attachedToVersion });
   }),
 );

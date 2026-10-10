@@ -4,7 +4,8 @@
  *
  * What is asserted here is the half that is wrong SILENTLY if it is wrong at
  * all: a `@pasted` (or truncated-prefix) `log` is replaced with the real paste
- * BEFORE the handler runs, so a 1,200-token model never re-types a 3,000-token
+ * BEFORE the handler runs, so the model never spends its 8,000-token output
+ * budget re-typing a roughly 3,000-token
  * log; and when the sentinel is used with no paste, the handler is never called
  * with the literal string "@pasted".
  *
@@ -240,4 +241,36 @@ test('execute returns the fail result for @pasted with no paste and NEVER calls 
   } finally {
     globalThis.fetch = orig;
   }
+});
+
+test('@pasted with no paste raises no approval request', async () => {
+  const tools = buildDataTools({ ...OPTS, include: () => true, pastedLog: () => null });
+  const tool = (
+    tools as unknown as Record<
+      string,
+      { needsApproval: (a: unknown, c: { toolCallId: string }) => Promise<boolean> }
+    >
+  ).add_battle_log!;
+
+  const needs = await tool.needsApproval(
+    { log: PASTED_LOG_SENTINEL, deck_id: 'd1', dry_run: false },
+    { toolCallId: 'approval-no-paste' },
+  );
+  assert.equal(needs, false, 'a call that execute must refuse cannot raise a consent card');
+});
+
+test('@pasted with a paste still raises approval for the real write', async () => {
+  const tools = buildDataTools({ ...OPTS, include: () => true, pastedLog: () => PASTE });
+  const tool = (
+    tools as unknown as Record<
+      string,
+      { needsApproval: (a: unknown, c: { toolCallId: string }) => Promise<boolean> }
+    >
+  ).add_battle_log!;
+
+  const needs = await tool.needsApproval(
+    { log: PASTED_LOG_SENTINEL, deck_id: 'd1', dry_run: false },
+    { toolCallId: 'approval-with-paste' },
+  );
+  assert.equal(needs, true, 'substitution makes the write runnable, so consent is still required');
 });

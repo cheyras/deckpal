@@ -169,6 +169,48 @@ test('deck_strategy on a deck with no previous guide says so, not "Replaced \'no
 
 // ── add_battle_log: the APPLY path (dry_run:false) ──────────────────────────
 
+test('add_battle_log dry_run:true uses the deck-specific write route preparation', async () => {
+  const api = stubApi({
+    get: (path) => {
+      if (path === '/decks') return DECKS;
+      throw new Error(`unexpected get ${path}`);
+    },
+    send: (method, path, body) => {
+      assert.equal(method, 'POST');
+      assert.equal(path, '/decks/deck-1/logs');
+      assert.deepEqual(body, {
+        rawLog: 'RAW', result: 'loss', playerName: 'Me', opponentDeck: 'Dragapult ex',
+        notes: 'misplayed t3', playedAt: '2026-10-09T12:00:00.000Z',
+        source: 'deckpal-mcp', dryRun: true,
+      });
+      return {
+        dryRun: true,
+        attachedToVersion: 2,
+        preview: {
+          deckName: 'Toolbox Slowking', version: 2, result: 'loss', opponent: 'Rival',
+          opponentDeck: 'Dragapult ex', opponentDeckGuess: 'Dragapult ex', turns: 9,
+          prizes: { me: 3, opponent: 6 }, confidence: 'high', myPokemon: ['Slowking'],
+          notes: 'misplayed t3', playedAt: '2026-10-09T12:00:00.000Z',
+        },
+      };
+    },
+  });
+
+  const res = await byName('add_battle_log').handler(
+    {
+      deck_id: 'Toolbox Slowking', log: 'RAW', result: 'loss', player_name: 'Me',
+      opponent_deck: 'Dragapult ex', notes: 'misplayed t3',
+      played_at: '2026-10-09T12:00:00.000Z', dry_run: true,
+    },
+    makeCtx(api),
+  );
+
+  assert.equal(res.isError, undefined);
+  assert.match(res.text, /^Would attach to 'Toolbox Slowking' \(v2\): LOSS vs Rival \(Dragapult ex\)/);
+  assert.match(res.text, /Nothing was logged\./);
+  assert.equal(api.sends.length, 1, 'preview must make one deck-specific dry-run call');
+});
+
 test('add_battle_log dry_run:false attaches the log and sends only the fields that were set', async () => {
   const api = stubApi({
     get: (path) => {

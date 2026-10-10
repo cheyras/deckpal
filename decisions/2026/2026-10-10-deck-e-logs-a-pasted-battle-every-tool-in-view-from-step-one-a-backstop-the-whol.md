@@ -1,0 +1,20 @@
+---
+date: "2026-10-10"
+title: "Deck-E logs a pasted battle: every tool in view from step one, a backstop, the whole log, an honest preview"
+decided_by: "@cheyras, on a production diagnosis of the owner's failed battle logs; built by Claude Opus 5.5 directing Codex workers."
+areas: ["agents", "decks"]
+supersedes: ["2026-08-22 Per-step tool narrowing, and the measurement that did not replicate"]
+---
+## 2026-10-10 — Deck-E logs a pasted battle: every tool in view from step one, a backstop, the whole log, an honest preview
+**Decided by:** @cheyras, on a production diagnosis of the owner's failed battle logs; built by Claude Opus 5.5 directing Codex workers.
+
+**Decision:** Every Deck-E tool is in view on every step of a turn, step zero included (`focus.ts` keeps only the "impossible this turn" filter for a spent meter cap). The server loop stops on `spokeAndSettled` (`decke/stopRule.ts`): the turn ends when he has spoken AFTER his last lookup and his last step only gestured, so a short "found these, now checking prices" line between groups of lookups no longer ends the turn. A pasted PTCG Live log in the reader's latest message that the turn neither logged nor raised a card for gets a backstop: a bounded corrective leg (up to three steps: rank the decks, then apply) that can only raise the signed consent card, introduced with "Let me get that game logged — confirm it on the card." The paste extractor (`decke/pastedLog.ts`) takes the log from its `Setup`/turn anchor to its last closeout line, tolerating unrecognised client lines inside (≥70% of the span's lines must be recognised), including reverse-ordered logs, and never the chat around it. `POST /decks/:id/logs` takes `dryRun: true`: the same deck resolution, parse, owner identification and field merge as the insert (one `prepareBattleLog`), no write — and `add_battle_log`'s preview with a deck uses it, so the card raises the refusal the write would. No consent card is raised for `@pasted` when there is no paste to substitute.
+
+**Why:** Read-only production logs: every `POST /decks/log-preview` in the 14 days to 2026-10-10 came from MCP. On 2026-09-30 05:17Z and 2026-10-05 02:46Z the owner pasted a log into Deck-E; Deck-E made no log-preview call and no write, and minutes later the owner logged the same games through MCP (201). The write path itself works end to end (re-run with the real SDK, tools, paste channel and approval replay). Four causes: (1) `focus.ts` hid `add_battle_log` on step zero while the prompt said to call it, and the old stop rule ended the turn before step one; (2) nothing caught a paste that was never logged — the audit only fires on a CLAIMED write; (3) one unrecognised line ("is now Asleep.", "Pokémon Checkup", "shuffled their deck." without a dash) cut a real 313-line log to 22% and dropped its closing "wins" line; (4) the preview ran the deck-agnostic parser and never the owner check, so a reader could approve and then hit "could not determine which player is the deck owner". The step-zero narrowing's own measurement had not replicated, and changing the tool set between steps rewrites Anthropic's cached tools prefix every multi-step turn and can invalidate in-request thinking.
+
+**Implications:**
+- Visibility grants no authority: every write still waits for the signed card.
+- `spokeAndSettled` counts speech only after the final non-cosmetic call; the measured duplicate-answer and triple-`showScreen` defects it exists for are pinned in `stopRule.test.ts`.
+- The backstop runs only on a turn's first leg, never after a decline of `add_battle_log` in that turn, never when a browser tool ran or another corrective leg won, never on a cut-off or flailing turn, and within the meter cap and `MAX_STEPS`.
+- Clients of `POST /decks/:id/logs` may send `dryRun: true` (API.md); the 200 response carries `{dryRun, preview, parsed, attachedToVersion}` and writes nothing.
+- Part of the Deck-E harness v2 plan (`roadmap/plans/decke-harness-v2/PLAN.md`): tiers with Claude Haiku 5.5 as the front door, pathways, an ask card and Deep Think follow in later changes.
