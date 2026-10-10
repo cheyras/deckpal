@@ -192,6 +192,9 @@ test('dryRun cannot inspect another user\'s deck any more than an insert can', a
     assert.equal(dryRun.status, insert.status);
     assert.deepEqual(dryRun.json, insert.json);
   } finally {
+    // Inserting app_user fires admin_sync_new_account, whose admin_account row
+    // has no foreign key back to it — delete it too, or every run leaves one.
+    await pool.query(`DELETE FROM admin_account WHERE user_id = $1::text`, [otherUser.rows[0]!.id]);
     await pool.query(`DELETE FROM app_user WHERE id = $1`, [otherUser.rows[0]!.id]);
   }
 });

@@ -1263,7 +1263,8 @@ version.
 `playerName` nor an explicit `result` was given (the message says which to pass).
 `"dryRun": true` performs that same validation, current-version resolution,
 deck-specific parse, owner identification, and explicit-field merge without an
-insert. It returns the exact row-facing values the write would use:
+insert. It returns the values the write would store, except `playedAt`: when
+omitted, the preview reports its own clock and a later write uses its own `now()`:
 ```json
 200 { "dryRun": true, "attachedToVersion": 2,
       "preview": { "deckName": "Toolbox Slowking", "version": 2,
