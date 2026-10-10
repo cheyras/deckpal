@@ -258,12 +258,25 @@ export function effectsPrevented(
 }
 
 /** Is damage from `fromPlayer`'s attack to this Pokémon prevented? */
-export function damagePrevented(env: Env, s: GameState, slot: Slot, fromPlayer: Player, all = statics(env, s)): boolean {
+export function damagePrevented(
+  env: Env,
+  s: GameState,
+  slot: Slot,
+  fromPlayer: Player,
+  all = statics(env, s),
+  /** lane:ghost — the attacking Pokémon, for prevention that depends on it (Ancient Bulwark). */
+  attacker?: Slot,
+): boolean {
   const owner = ownerOf(s, slot);
   // Tera rule: while on the Bench, prevent all damage done to it by attacks (both players').
   if (def(env.ctx, topCard(slot)).tera && s.p[owner].active !== slot) return true;
   if (owner === fromPlayer) return false;
-  return onSlot(env, s, all, slot, 'preventDamage').length > 0;
+  return onSlot(env, s, all, slot, 'preventDamage').some((x) => {
+    // lane:ghost — "attacks from your opponent's Pokémon that have 2 or less Energy attached" (Energy units, as energyOn counts).
+    const max = (x.effect as { attackerMaxEnergy?: number }).attackerMaxEnergy;
+    if (max === undefined) return true;
+    return !!attacker && energyUnits(env, attacker).length <= max;
+  });
 }
 
 export function damageOut(env: Env, s: GameState, attacker: Slot, target: Slot, all = statics(env, s)): number {
@@ -314,6 +327,7 @@ export function cantAttack(env: Env, s: GameState, slot: Slot, all = statics(env
 }
 
 export function cantRetreat(env: Env, s: GameState, slot: Slot, all = statics(env, s)): boolean {
+  if (def(env.ctx, topCard(slot)).script?.fix?.playAsBasic?.cantRetreat) return true; // lane:ghost (Antique fossils)
   return onSlot(env, s, all, slot, 'cantRetreat').length > 0;
 }
 
@@ -325,6 +339,11 @@ export function attackBlocked(env: Env, s: GameState, slot: Slot, attack: string
 /** Jamming Tower: while the Stadium in play says so, Pokémon Tools have no effect (no statics, no triggers). */ // lane:fighting
 export function toolsDisabled(env: Env, s: GameState): boolean {
   return !!s.stadium && def(env.ctx, s.stadium.card).statics.some((x) => x.effect.k === 'noToolEffects');
+}
+
+/** lane:ghost — Watchful Eye: are damage counters on `p`'s Pokémon fixed in place? */
+export function countersFixed(env: Env, s: GameState, p: Player, all = statics(env, s)): boolean {
+  return all.some((x) => x.effect.k === 'countersFixed' && affectsPlayer(x, p));
 }
 
 export function itemLocked(env: Env, s: GameState, p: Player, all = statics(env, s)): boolean {

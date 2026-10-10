@@ -8,6 +8,7 @@
 import type { Env } from './context.js';
 import { allSlots, draw, emit, findSlot, opp, rand, shuffleDeck, slotCards } from './state.js';
 import type { Frame, GameState, Player, Val } from './types.js';
+import type { EvalCtx } from './eval.js'; // lane:ghost
 
 export type Custom = (env: Env, s: GameState, f: Frame, args: Record<string, unknown>, answer: Val | undefined) => 'next' | 'wait' | 'pop';
 
@@ -115,4 +116,11 @@ export const CUSTOMS: Record<string, Custom> = {
 
 export function registerCustom(name: string, fn: Custom): void {
   CUSTOMS[name] = fn;
+}
+
+// lane:ghost — custom conditions: `{ custom: 'name', args }` in any Cond (playable, when, if).
+export type CustomCond = (env: Env, s: GameState, ec: EvalCtx, args: Record<string, unknown>) => boolean;
+export const CUSTOM_CONDS: Record<string, CustomCond> = {};
+export function registerCustomCond(name: string, fn: CustomCond): void {
+  CUSTOM_CONDS[name] = fn;
 }

@@ -236,7 +236,7 @@ function dealDamage(
     }
     if (dmg > 0 && !noDefEffects) dmg += damageIn(env, s, target, all, f.player); // lane:metal (fromOpp) + lane:fighting (ignore)
     if (dmg < 0) dmg = 0;
-    if (dmg > 0 && !noDefEffects && damagePrevented(env, s, target, f.player, all)) dmg = 0;
+    if (dmg > 0 && !noDefEffects && damagePrevented(env, s, target, f.player, all, attacker ?? undefined)) dmg = 0; // lane:ghost (attacker)
     if (dmg <= 0) continue;
     target.damage += dmg;
     // lane:fighting — remember who this attack damaged (Legacy Energy: "Knocked Out by damage from an attack")
@@ -254,7 +254,9 @@ export function queueTriggers(
   slot: Slot,
   owner: Player,
   // lane:misc — 'checkup' and 'endOfTurn' added; attached Energy are trigger sources too (Ignition Energy).
-  on: 'damagedByAttackActive' | 'knockedOutByAttack' | 'playToBench' | 'evolveFromHand' | 'checkup' | 'endOfTurn',
+  on: 'damagedByAttackActive' | 'knockedOutByAttack' | 'playToBench' | 'evolveFromHand' | 'checkup' | 'endOfTurn' | 'oppAttachFromHand', // lane:ghost
+  /** lane:ghost — initial frame variables (e.g. `__target` for oppAttachFromHand). */
+  vars?: Record<string, Val>,
 ): void {
   const sources = [topCard(slot), ...(toolsDisabled(env, s) ? [] : slot.tools), ...slot.energy]; // lane:misc energy triggers; lane:fighting Jamming Tower
   const noAb = hasNoAbilities(env, s, slot);
@@ -268,7 +270,7 @@ export function queueTriggers(
       const frame: Frame = {
         code: t.code,
         pc: 0,
-        vars: {},
+        vars: { ...vars }, // lane:ghost
         player: owner,
         src: c,
         slot: slot.id,
@@ -298,6 +300,15 @@ export function queueStadiumBench(env: Env, s: GameState, slot: Slot, owner: Pla
   }
 }
 
+/**
+ * lane:ghost — `owner` attached an Energy card from their hand to `target`: fire the
+ * opponent's "whenever your opponent attaches an Energy card from their hand" Abilities.
+ */
+export function queueOppAttachTriggers(env: Env, s: GameState, owner: Player, target: Slot): void {
+  const watcher = opp(owner);
+  for (const w of allSlots(s.p[watcher])) queueTriggers(env, s, w, watcher, 'oppAttachFromHand', { __target: target.id });
+}
+
 // ---------------------------------------------------------------------------
 // Steps
 // ---------------------------------------------------------------------------
@@ -315,7 +326,8 @@ function moveCards(env: Env, s: GameState, f: Frame, cards: number[], to: Dest, 
     const ops = s.p[owner];
     if (to === 'bench') {
       const d = def(env.ctx, c);
-      if (d.kind !== 'pokemon' || d.stage !== 0 || ops.bench.length >= 5) continue;
+      const asBasic = d.kind === 'trainer' && !!d.script?.fix?.playAsBasic; // lane:ghost (Antique fossils)
+      if ((d.kind !== 'pokemon' && !asBasic) || d.stage !== 0 || ops.bench.length >= 5) continue;
       if (!takeFromZones(ops, c)) continue;
       const sl = newSlot(s, c);
       ops.bench.push(sl);
@@ -450,9 +462,11 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
       if (!target) return 'next';
       for (const c of cards) {
         const owner = env.ctx.owner[c] as Player;
+        const fromHand = s.p[owner].hand.includes(c); // lane:ghost
         if (!takeFromZones(s.p[owner], c)) continue;
         target.energy.push(c);
         emit(env, { type: 'attach', player: owner, card: c, slot: target.id });
+        if (fromHand && def(env.ctx, c).kind === 'energy') queueOppAttachTriggers(env, s, ownerOf(s, target), target); // lane:ghost
       }
       return 'next';
     }
@@ -483,6 +497,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
       const t = resolveSlot(s, e, st.to);
       if (!t) return 'next';
       if ((f.kind === 'attack' || f.kind === 'ability') && effectsPrevented(env, s, t, f.player, f.kind)) return 'next';
+      if (def(env.ctx, topCard(t)).script?.fix?.playAsBasic?.noConditions) return 'next'; // lane:ghost
       applyCondition(t, st.cond);
       emit(env, { type: 'condition', player: ownerOf(s, t), slot: t.id, cond: st.cond });
       return 'next';

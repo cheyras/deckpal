@@ -119,7 +119,8 @@ export function buildDef(idx: number, f: CardFrame, script: CardScript | null, c
     /^Radiant /.test(name);
   const stage = f.stage === 'Stage2' ? 2 : f.stage === 'Stage1' ? 1 : 0;
   const vmax = suffix === 'VMAX' || / VMAX$/.test(name);
-  const prizeValue = kind !== 'pokemon' ? 0 : mega || vmax ? 3 : ruleBox && !/^Radiant /.test(name) ? 2 : 1;
+  const asBasic = kind === 'trainer' ? script?.fix?.playAsBasic : undefined; // lane:ghost (Antique fossils)
+  const prizeValue = kind !== 'pokemon' ? (asBasic ? 1 : 0) : mega || vmax ? 3 : ruleBox && !/^Radiant /.test(name) ? 2 : 1;
 
   const attacks: AttackDef[] = (f.attacks ?? []).map((a, i) => {
     const [baseDamage, damageSuffix] = parseDamage(a.damage);
@@ -141,6 +142,17 @@ export function buildDef(idx: number, f: CardFrame, script: CardScript | null, c
       code: s?.activated ? `${codePrefix}#b${i}` : undefined,
     };
   });
+  if (asBasic?.discardable) {
+    // lane:ghost — "At any time during your turn, you may discard this card from play." offered as an
+    // activated, unlimited action of the card in play (customs: discardSelfFromPlay, ghost-customs.ts).
+    const n = 'Discard from play';
+    abilities.push({
+      name: n,
+      text: 'At any time during your turn, you may discard this card from play.',
+      script: { name: n, activated: { program: [{ op: 'custom', fn: 'discardSelfFromPlay' }], oncePerTurn: false } },
+      code: `${codePrefix}#b${abilities.length}`,
+    });
+  }
 
   const weak = (f.weaknesses ?? [])[0];
   const res = (f.resistances ?? [])[0];
@@ -174,11 +186,11 @@ export function buildDef(idx: number, f: CardFrame, script: CardScript | null, c
     name,
     kind,
     coverage,
-    hp: f.hp ?? 0,
+    hp: asBasic ? asBasic.hp : (f.hp ?? 0),
     stage,
     // lane:misc — fix.evolvesFrom fills a catalog gap (30th-123 Hisuian Zoroark).
     evolvesFrom: script?.fix?.evolvesFrom ?? (f.evolvesFrom ? normText(f.evolvesFrom) : null),
-    types: (f.types ?? []).filter((t) => TYPES[t]).map(parseType),
+    types: asBasic ? [asBasic.type] : (f.types ?? []).filter((t) => TYPES[t]).map(parseType),
     weakness: weak && TYPES[weak.type] ? parseType(weak.type) : null,
     resistance:
       res && TYPES[res.type]

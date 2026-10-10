@@ -5,6 +5,7 @@
 import { def, type Env } from './context.js';
 import type { Cond, Expr, Filter, SlotRef, SlotZone, SpecialCondition, Who } from './dsl.js';
 import { allSlots, findSlot, opp, topCard } from './state.js';
+import { CUSTOM_CONDS } from './customs.js'; // lane:ghost
 import type { CardDef, GameState, Player, Slot, Val } from './types.js';
 import { ASLEEP, BURNED, CONFUSED, PARALYZED, POISONED } from './types.js'; // lane:metal
 
@@ -71,7 +72,11 @@ export function slotMatches(env: Env, slot: Slot, f: Filter | undefined): boolea
   if (f.energy && !slot.energy.some((c) => cardMatches(env, c, f.energy))) return false; // lane:metal
   if (f.tool !== undefined && slot.tools.length > 0 !== f.tool) return false; // lane:metal
   if (f.condition && !(slot.cond & COND_BIT[f.condition])) return false; // lane:metal
-  return defMatches(def(env.ctx, topCard(slot)), { ...f, damaged: undefined });
+  if (f.energized !== undefined && slot.energy.length > 0 !== f.energized) return false; // lane:ghost
+  let d = def(env.ctx, topCard(slot));
+  // lane:ghost — a Trainer in play was played as a Pokémon (Antique fossils): match it as one.
+  if (d.kind !== 'pokemon') d = { ...d, kind: 'pokemon', ttype: null };
+  return defMatches(d, { ...f, damaged: undefined, energized: undefined });
 }
 
 /** Slots in a zone relative to a player. */
@@ -200,5 +205,11 @@ export function evalCond(env: Env, s: GameState, ec: EvalCtx, c: Cond): boolean 
     return s.p[p].bench.length >= 5;
   }
   if ('firstTurn' in c) return s.turn === 1;
+  if ('custom' in c) {
+    // lane:ghost
+    const fn = CUSTOM_CONDS[c.custom];
+    if (!fn) throw new Error(`unknown custom condition ${c.custom}`);
+    return fn(env, s, ec, c.args ?? {});
+  }
   throw new Error(`unknown cond ${JSON.stringify(c)}`);
 }
