@@ -203,3 +203,82 @@ test('a Reverse Display Order paste runs from the result back through Setup', ()
   const out = extractPastedLog([userMsg(`reverse display order follows\n${reversed}\nend note`)]);
   assert.equal(out, reversed);
 });
+
+test('closeout-shaped prose before a normal log does not force reverse display order', () => {
+  assert.equal(
+    extractPastedLog([
+      userMsg(`My opponent conceded last time, here is the rematch:\n${FIXTURE}`),
+    ]),
+    FIXTURE,
+  );
+  assert.equal(
+    extractPastedLog([userMsg(`Alice wins.\nAnyway, log this one:\n\n${SMALL_LOG}`)]),
+    SMALL_LOG,
+  );
+});
+
+test('reverse display order starts at the nearest closeout before its anchor', () => {
+  const reversed = SMALL_LOG.split('\n').reverse().join('\n');
+  assert.equal(
+    extractPastedLog([userMsg(`Alice conceded yesterday.\nOlder-game note.\n${reversed}`)]),
+    reversed,
+  );
+});
+
+test('an anchored latest user message cannot fall back to a stale pasted game', () => {
+  const incomplete = [
+    'Setup',
+    'PlayerA drew 7 cards for the opening hand.',
+    "PlayerB's Turn",
+    'PlayerB drew a card.',
+  ].join('\n');
+  assert.equal(
+    extractPastedLog([
+      userMsg(`The old game:\n${SMALL_LOG}`),
+      userMsg(`This is the new paste, but it is incomplete:\n${incomplete}`),
+    ]),
+    null,
+  );
+});
+
+test('two complete games in one message return only the last game', () => {
+  const first = SMALL_LOG.replaceAll('PlayerA', 'OldA').replaceAll('PlayerB', 'OldB');
+  const last = SMALL_LOG.replaceAll('PlayerA', 'NewA').replaceAll('PlayerB', 'NewB');
+  assert.equal(
+    extractPastedLog([userMsg(`Game 1:\n${first}\n\nGame 2:\n${last}`)]),
+    last,
+  );
+});
+
+test('post-closeout chat and a later closeout-shaped sentence stay out of raw_log', () => {
+  assert.equal(
+    extractPastedLog([
+      userMsg(
+        `${SMALL_LOG}\n\n- what did I misplay on turn 3?\nIt feels like whoever goes first wins.`,
+      ),
+    ]),
+    SMALL_LOG,
+  );
+});
+
+test('only narrow, directly attached client lines are kept after a closeout', () => {
+  const cleanup = [
+    'Telepathic Psychic Energy was activated.',
+    "A card was added to PlayerA's hand.",
+    '- PlayerA drew 1 card.',
+    '- PlayerA shuffled their deck.',
+    '- PlayerA attached Boomerang Energy to Slowking in the Active Spot.',
+  ].join('\n');
+  assert.equal(
+    extractPastedLog([userMsg(`${SMALL_LOG}\n${cleanup}\n- what did I misplay?`)]),
+    `${SMALL_LOG}\n${cleanup}`,
+  );
+});
+
+test('a Reverse Display Order paste without Setup still extracts the whole game', () => {
+  const reversed = SMALL_LOG.split('\n')
+    .filter((line) => line !== 'Setup')
+    .reverse()
+    .join('\n');
+  assert.equal(extractPastedLog([userMsg(reversed)]), reversed);
+});

@@ -10,8 +10,7 @@ const eligible = {
   pastedInLatestUserMessage: true,
   firstLegOfTurn: true,
   calledToolNames: [] as string[],
-  approvalRequestedFor: [] as string[],
-  declinedThisTurn: false,
+  anyApprovalPending: false,
   clientToolRan: false,
   correctiveChosen: false,
   turnTroubled: false,
@@ -25,8 +24,7 @@ const blockers: Array<[string, Partial<typeof eligible>]> = [
   ['no paste', { pastedInLatestUserMessage: false }],
   ['continuation leg', { firstLegOfTurn: false }],
   ['battle tool called', { calledToolNames: ['add_battle_log'] }],
-  ['battle approval requested', { approvalRequestedFor: ['add_battle_log'] }],
-  ['reader declined', { declinedThisTurn: true }],
+  ['any approval is pending', { anyApprovalPending: true }],
   ['client tool ran', { clientToolRan: true }],
   ['another correction won', { correctiveChosen: true }],
   ['turn was troubled', { turnTroubled: true }],
@@ -38,12 +36,12 @@ for (const [name, change] of blockers) {
   });
 }
 
-test('unrelated calls and approval requests do not hide an unlogged paste', () => {
+test('a pending approval for another write blocks the backstop', () => {
   assert.equal(pasteBackstopNeeded({
     ...eligible,
     calledToolNames: ['decks'],
-    approvalRequestedFor: ['log_cards'],
-  }), true);
+    anyApprovalPending: true,
+  }), false);
 });
 
 test('the reader line and model instruction preserve consent and honesty', () => {

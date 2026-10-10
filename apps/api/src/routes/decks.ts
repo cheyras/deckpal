@@ -2034,9 +2034,12 @@ decksRouter.post(
         [deckId],
       );
       const { version, name: deckName } = deck.rows[0]!;
-      // Resolve the omitted timestamp ONCE from the database clock. The preview
-      // reports this value and the insert stores this same value, instead of a
-      // later INSERT-time `now()` that could make the two answers disagree.
+      // A preview needs a concrete display value, so resolve its omitted time
+      // from this transaction's database clock. A later confirmed request is a
+      // different request and may naturally report a later time. The INSERT
+      // below keeps the original database default path: passing null to
+      // COALESCE preserves PostgreSQL's full timestamp precision and makes an
+      // omitted played_at exactly the same `now()` as created_at (2026-10-10).
       const resolvedPlayedAt = playedAt ?? new Date(deck.rows[0]!.played_at).toISOString();
       const names = await client.query<{ name: string }>(
         `SELECT c.name FROM deck_card dc JOIN card c ON c.id = dc.card_id WHERE dc.deck_id = $1`,
@@ -2088,7 +2091,7 @@ decksRouter.post(
           deckId, version, rawLog, prepared.result,
           prepared.opponent,
           prepared.opponentDeck,
-          notes, JSON.stringify(prepared.parsed), source, resolvedPlayedAt, userId,
+          notes, JSON.stringify(prepared.parsed), source, playedAt, userId,
         ],
       );
       return { dryRun: false as const, log: row.rows[0]!, attachedToVersion: version };

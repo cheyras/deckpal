@@ -1330,17 +1330,16 @@ async function serve(request) {
             needsContinuation(String(finishReason ?? '')) || shouldFireFlailing(phases, answerText)
           const earlierTurnToolNames = turnToolNames(messages)
           const latestUserMessage = messages.filter((message) => message?.role === 'user').at(-1)
-          const latestUserIndex = latestUserMessage ? messages.lastIndexOf(latestUserMessage) : -1
-          const declinedThisTurn = [...declinedCalls(messages.slice(latestUserIndex + 1))]
-            .some((key) => key.startsWith('add_battle_log\u0000'))
-          const approvalCallIds = new Set(
-            steps.flatMap((step) => (step.content ?? [])
-              .filter((content) => content.type === 'tool-approval-request')
-              .map((content) => content.toolCallId)),
-          )
-          const approvalRequestedFor = steps.flatMap((step) => (step.toolCalls ?? [])
-            .filter((call) => approvalCallIds.has(call.toolCallId))
-            .map((call) => call.toolName))
+          const pastedInLatestUserMessage =
+            extractPastedLog(latestUserMessage ? [latestUserMessage] : []) !== null
+          // ai@7 puts an approval's id and name under `content.toolCall`, not
+          // on the approval part itself. More importantly, ANY pending card is
+          // a hard boundary: replaying its tool call into a second model leg
+          // without a result throws AI_MissingToolResultsError before that leg
+          // can do useful work (reproduced 2026-10-10). Do not let an audit or
+          // the paste backstop hide the card the first leg already raised.
+          const anyApprovalPending = steps.some((step) => (step.content ?? [])
+            .some((content) => content.type === 'tool-approval-request'))
 
           // THE NOTE IS READER-FACING. A text-delta renders in the transcript
           // as Deck-E's own words (exactly like the circles guard's line above)
@@ -1353,6 +1352,7 @@ async function serve(request) {
           let note = null
           let corrective = null
           let pasteBackstop = false
+          let pasteRecovery = false
           if (needsContinuation(String(finishReason ?? ''))) {
             // (b) TRUNCATION — cut off mid-sentence.
             note = ' …I got cut off mid-sentence there, before I finished the thought.'
@@ -1407,8 +1407,15 @@ async function serve(request) {
                   signal: abortSignal,
                 })
             const fixable = audit?.phantom ? CORRECTIVE_TOOLS[audit.phantom] : undefined
-            if (fixable && steps.length < MAX_STEPS) {
+            // A false "logged it" claim over a real paste needs the same room
+            // as the backstop: one step may only rank an unknown deck. It stays
+            // an audit correction reader-side, but gets the three-step logging
+            // instruction model-side (measured 2026-10-10).
+            const auditPasteRecovery = fixable === 'add_battle_log' && pastedInLatestUserMessage
+            const correctionSteps = auditPasteRecovery ? 3 : 1
+            if (fixable && !anyApprovalPending && steps.length + correctionSteps <= MAX_STEPS) {
               corrective = fixable
+              pasteRecovery = auditPasteRecovery
             } else if (phantoms.length > 0 || audit?.phantom) {
               note =
                 '\n\nOne correction: I talked about doing that just now, but I never actually ran it — ' +
@@ -1429,16 +1436,16 @@ async function serve(request) {
           // Production had two first legs where a real Live log was pasted and
           // `add_battle_log` was never called. This is deliberately below the
           // ordinary audit: it is a backstop only when no other corrective leg
-          // won, and only on the first HTTP leg. Approval and browser-tool
-          // continuations replay a tool part after the latest user message, so
-          // `turnToolNames` is the existing boundary rather than a new flag.
+          // won, only on the first HTTP leg, and never while another approval
+          // is pending. Approval and browser-tool continuations replay a tool
+          // part after the latest user message, so `turnToolNames` remains the
+          // leg boundary while `anyApprovalPending` protects this first leg.
           if (
             pasteBackstopNeeded({
-              pastedInLatestUserMessage: extractPastedLog(latestUserMessage ? [latestUserMessage] : []) !== null,
+              pastedInLatestUserMessage,
               firstLegOfTurn: earlierTurnToolNames.length === 0,
               calledToolNames,
-              approvalRequestedFor,
-              declinedThisTurn,
+              anyApprovalPending,
               clientToolRan: [...calledToolNames, ...earlierTurnToolNames].some((name) => CLIENT_SET.has(name)),
               correctiveChosen: corrective !== null,
               turnTroubled,
@@ -1448,6 +1455,7 @@ async function serve(request) {
           ) {
             corrective = 'add_battle_log'
             pasteBackstop = true
+            pasteRecovery = true
             // The logging card is the one useful recovery. Do not stack an
             // empty-answer or caution note immediately above its own bridge.
             note = null
@@ -1461,11 +1469,11 @@ async function serve(request) {
           // ── THE CORRECTIVE LEG ────────────────────────────────────────────
           //
           // The same tools and prompt prefix, with the corrective tool pinned.
-          // An audit correction gets one step; a pasted log gets three so it can
-          // rank decks and then apply against the best match. Nothing is written
-          // until the reader confirms: the pinned tool holds its change for the
-          // signed card. Both ride inside this request's flat charge and the
-          // MAX_STEPS check above.
+          // A non-log audit correction gets one step; any pasted-log recovery
+          // gets three so it can rank decks and then apply against the best
+          // match. Nothing is written until the reader confirms: the pinned
+          // tool holds its change for the signed card. Both ride inside this
+          // request's flat charge and the MAX_STEPS check above.
           if (corrective) {
             guardFired = true
             writer.write({
@@ -1478,7 +1486,7 @@ async function serve(request) {
               providerOptions: chatProviderOptions(choice),
               instructions: cachedInstructions(
                 choice,
-                `${systemPrompt}\n\n${pasteBackstop ? pasteBackstopInstruction() : correctiveInstruction(corrective)}`,
+                `${systemPrompt}\n\n${pasteRecovery ? pasteBackstopInstruction() : correctiveInstruction(corrective)}`,
               ),
               // EVERY step's messages, not `result.response.messages`: in ai@7 that is the
               // FINAL step only, so the correction ran without the turn's earlier tool
@@ -1486,7 +1494,7 @@ async function serve(request) {
               messages: [...preparedMessages, ...(await result.steps).flatMap((step) => step.response.messages)],
               tools: correctiveApplyTools(allDeckeTools, corrective),
               toolChoice: isAnthropic(choice) ? 'auto' : { type: 'tool', toolName: corrective },
-              stopWhen: pasteBackstop ? stepCountIs(3) : stepCountIs(1),
+              stopWhen: pasteRecovery ? stepCountIs(3) : stepCountIs(1),
               ...(process.env.DECKE_APPROVAL_SECRET
                 ? { experimental_toolApprovalSecret: process.env.DECKE_APPROVAL_SECRET }
                 : {}),

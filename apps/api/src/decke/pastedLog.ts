@@ -55,10 +55,12 @@
  * deck, so the bar remains "looks like a log end to end", not "contains some
  * log lines".
  *
- * The NEWEST log wins: walking USER messages newest-first, the first message
- * that yields a qualifying run is returned. The raw block is returned verbatim
- * (capped at `RAW_LOG_MAX` = 50,000 chars, the route's own ceiling on
- * `add_battle_log`'s `log` and on `rawLog`), or `null` when nothing matched.
+ * The NEWEST log wins: walking USER messages newest-first, the last complete
+ * game in the first message with an anchor is returned. An anchored newest
+ * message that does not qualify is a failed new paste, not permission to reuse
+ * an older game's raw log. The raw block is returned verbatim (capped at
+ * `RAW_LOG_MAX` = 50,000 chars, the route's own ceiling on `add_battle_log`'s
+ * `log` and on `rawLog`), or `null` when nothing matched.
  *
  * Pure — no imports from `chat.mjs`, no I/O, no DB. A unit-test feeds it a
  * message array and asserts on the string it returns.
@@ -100,6 +102,11 @@ export function extractPastedLog(messages: unknown): string | null {
     if (block && block.matches >= 8 && block.text.length >= 400) {
       return block.text.slice(0, RAW_LOG_MAX);
     }
+    // 2026-10-10: once the reader's newest message contains a real anchor, it
+    // is the paste they are asking about. Falling through used an older game
+    // when this paste was truncated or malformed, making `@pasted` silently
+    // duplicate history. Fail closed here; the model can ask for a fresh paste.
+    if (containsLogAnchor(text)) return null;
   }
   return null;
 }
@@ -221,36 +228,55 @@ function isLogLine(raw: string): boolean {
  * Find an anchor-to-closeout span in `text`.
  *
  * Live can display a game in reverse order, in which case its closeout is
- * first and Setup is last. In normal order we start at the first Setup (or
- * first turn header if Setup is absent) and stop at the last closeout. Without
- * a closeout we stop at the last recognized line, preserving the old useful
- * partial-log behavior. Unknown lines inside either span are retained.
+ * first and Setup is last. Reverse mode is only possible when no closeout
+ * follows the first anchor: prose such as "I conceded last time" before a
+ * normal paste must not reverse it. In normal order, each anchor following a
+ * closeout starts another game and the last complete game wins. One paste
+ * channel carries one game; the reader can paste any earlier games separately.
+ * Without a closeout we stop at the last recognized line, preserving the old
+ * useful partial-log behavior. Unknown lines inside a span are retained.
  */
 function largestLogBlock(text: string): LogBlock | null {
   const lines = text.split(/\r?\n/);
-  const setup = lines.findIndex((line) => /^Setup\s*$/.test(line.trim()));
-  const firstTurn = lines.findIndex((line) => /^(.+)'s Turn\s*$/.test(line.trim().replace(/[’‘]/g, "'")));
+  const setup = lines.findIndex((line) => isSetup(line));
+  const firstTurn = lines.findIndex((line) => isTurnHeader(line));
   const anchor = setup >= 0 ? setup : firstTurn;
   if (anchor < 0) return null;
 
   const closeouts = lines
     .map((line, index) => (isCloseout(line) ? index : -1))
     .filter((index) => index >= 0);
-  const closeoutBeforeAnchor = closeouts.find((index) => index < anchor);
+  const closeoutsAfterAnchor = closeouts.filter((index) => index >= anchor);
 
-  let lo = anchor;
-  let hi: number;
-  if (closeoutBeforeAnchor !== undefined) {
-    // Reverse Display Order: the final result is the first physical line and
-    // Setup/first turn is the last physical anchor.
-    lo = closeoutBeforeAnchor;
-    hi = anchor;
-  } else {
-    const lastCloseout = closeouts.filter((index) => index >= anchor).at(-1);
-    hi = lastCloseout === undefined ? lastRecognizedLine(lines, anchor) : trailingLogLines(lines, lastCloseout);
+  if (closeoutsAfterAnchor.length > 0) {
+    let previousCloseout = -1;
+    let newest: { lo: number; hi: number } | null = null;
+    for (const closeout of closeouts) {
+      if (closeout < anchor) {
+        previousCloseout = closeout;
+        continue;
+      }
+      const lo = firstAnchorBetween(lines, previousCloseout + 1, closeout);
+      if (lo >= 0) newest = { lo, hi: trailingLogLines(lines, closeout) };
+      previousCloseout = closeout;
+    }
+    return newest ? logBlock(lines, newest.lo, newest.hi) : null;
   }
-  if (hi < lo) return null;
 
+  const closeoutBeforeAnchor = closeouts.filter((index) => index < anchor).at(-1);
+  if (closeoutBeforeAnchor !== undefined) {
+    // Reverse Display Order: use the result nearest the anchor. Without Setup,
+    // reversed opening-hand lines follow the physical turn headers, so retain
+    // through the last recognized line instead of truncating at the first turn.
+    const hi = setup >= 0 ? setup : lastRecognizedLine(lines, anchor);
+    return logBlock(lines, closeoutBeforeAnchor, hi);
+  }
+
+  return logBlock(lines, anchor, lastRecognizedLine(lines, anchor));
+}
+
+function logBlock(lines: string[], lo: number, hi: number): LogBlock | null {
+  if (hi < lo) return null;
   let matches = 0;
   let nonBlank = 0;
   for (let i = lo; i <= hi; i++) {
@@ -266,6 +292,28 @@ function largestLogBlock(text: string): LogBlock | null {
   return { text: lines.slice(lo, hi + 1).join('\n'), matches };
 }
 
+function firstAnchorBetween(lines: string[], from: number, through: number): number {
+  for (let i = from; i <= through; i++) {
+    if (isSetup(lines[i] ?? '')) return i;
+  }
+  for (let i = from; i <= through; i++) {
+    if (isTurnHeader(lines[i] ?? '')) return i;
+  }
+  return -1;
+}
+
+function containsLogAnchor(text: string): boolean {
+  return text.split(/\r?\n/).some((line) => isSetup(line) || isTurnHeader(line));
+}
+
+function isSetup(raw: string): boolean {
+  return /^Setup\s*$/.test(raw.trim());
+}
+
+function isTurnHeader(raw: string): boolean {
+  return /^(.+)'s Turn\s*$/.test(raw.trim().replace(/[’‘]/g, "'"));
+}
+
 function lastRecognizedLine(lines: string[], from: number): number {
   for (let i = lines.length - 1; i >= from; i--) {
     if (isLogLine(lines[i] ?? '')) return i;
@@ -274,41 +322,35 @@ function lastRecognizedLine(lines: string[], from: number): number {
 }
 
 /**
- * A few Live exports append a recognized cleanup event immediately after the
- * result (for example an Energy activation resolving as the final Pokémon is
- * knocked out). Keep that part of the raw export, but do not let arbitrary
- * chat after the result enter the span: the first nonblank, unrecognized line
- * is the hard boundary.
+ * A few Live exports append cleanup events immediately after the result (for
+ * example an Energy activation resolving as the final Pokémon is knocked out).
+ * `isLogLine` is intentionally too broad here: every dash bullet and another
+ * `wins.` sentence count as log-shaped there. Keep only client templates seen
+ * after real results, only while directly attached, and never a second result.
+ * A blank is a conservative hard boundary; this also pins the common
+ * result-blank-reader-question shape without guessing whether the prose is Live.
  */
 function trailingLogLines(lines: string[], closeout: number): number {
   let end = closeout;
   for (let i = closeout + 1; i < lines.length; i++) {
     const line = lines[i] ?? '';
-    if (!line.trim() || isLogLine(line)) {
-      end = i;
-      continue;
-    }
-    break;
+    if (!line.trim() || isCloseout(line) || !isPostCloseoutLine(line)) break;
+    end = i;
   }
-  while (end > closeout && !(lines[end] ?? '').trim()) end--;
   return end;
+}
+
+function isPostCloseoutLine(raw: string): boolean {
+  const line = raw.replace(/[’‘]/g, "'").trimEnd();
+  if (/^.+ was activated\.$/.test(line)) return true;
+  if (/^(?:.+|A card) was added to .+'s hand\.$/.test(line)) return true;
+  if (/^-\s+.+ (?:drew (?:a card|\d+ cards?|[A-Z].*)|shuffled their deck)\.$/.test(line)) return true;
+  // `slowking-vs-beedrill.log` (2026-10-10 harness corpus): Boomerang
+  // Energy activates after the result, then reports its attached destination.
+  return /^-\s+.+ attached .+ to .+ (?:in the Active Spot|on the Bench)\.$/.test(line);
 }
 
 function isCloseout(raw: string): boolean {
   const line = raw.replace(/[’‘]/g, "'").trim();
   return /^(?:(?:All Prize cards taken|Opponent took all of their Prize cards|Opponent conceded)\.\s+)?(.+) wins\.\s*$/.test(line) || /^(.+) conceded\b/.test(line);
-}
-
-/**
- * Does a qualifying block contain at least one ANCHOR — a `Setup` line or a
- * `<name>'s Turn` header? The strong signal that distinguishes a log from
- * prose that happens to use its verbs; required for a block to count.
- */
-function hasAnchor(_text: string, block: LogBlock): boolean {
-  for (const line of block.text.split(/\r?\n/)) {
-    const t = line.replace(/[’‘]/g, "'").trim();
-    if (t === 'Setup') return true;
-    if (/^(.+)'s Turn$/.test(t)) return true;
-  }
-  return false;
 }
