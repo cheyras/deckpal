@@ -1,0 +1,114 @@
+Setup
+PlayerA chose heads for the opening coin flip.
+PlayerA won the coin toss.
+PlayerA decided to go second.
+PlayerA drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • Latias ex, Slowpoke, Ciphermaniac's Codebreaking, Spectrier, Secret Box, Metagross, Telepathic Psychic Energy
+PlayerB drew 7 cards for the opening hand.
+- 7 drawn cards.
+PlayerA played Slowpoke to the Active Spot.
+PlayerA played Latias ex to the Bench.
+PlayerB played Toxel to the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played Poké Pad.
+- PlayerB drew Munkidori.
+- PlayerB shuffled their deck.
+PlayerB played Munkidori to the Bench.
+PlayerB played Ultra Ball.
+- PlayerB discarded 2 cards.
+   • Mega Darkrai ex, Basic Darkness Energy
+- PlayerB drew Pecharunt ex.
+- PlayerB shuffled their deck.
+PlayerB played Pecharunt ex to the Bench.
+PlayerB attached Basic Darkness Energy to Toxel in the Active Spot.
+PlayerB ended their turn.
+
+PlayerA's Turn
+PlayerA drew Mega Kangaskhan ex.
+PlayerA played Mega Kangaskhan ex to the Bench.
+PlayerA retreated Slowpoke to the Bench.
+PlayerA's Mega Kangaskhan ex is now in the Active Spot.
+PlayerA's Mega Kangaskhan ex used Run Errand.
+- PlayerA drew 2 cards.
+   • Poké Pad, Slowpoke
+PlayerA played Poké Pad.
+- PlayerA drew Slowking.
+- PlayerA shuffled their deck.
+PlayerA attached Telepathic Psychic Energy to Slowpoke on the Bench.
+Telepathic Psychic Energy was activated.
+- PlayerA drew 2 cards and played them to the Bench.
+   • Slowpoke, Lillie's Clefairy ex
+- PlayerA shuffled their deck.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played Cyrano.
+- PlayerB drew 3 cards.
+   • Fezandipiti ex, Okidogi ex, Pecharunt ex
+- PlayerB shuffled their deck.
+PlayerB played Fezandipiti ex to the Bench.
+PlayerB played Okidogi ex to the Bench.
+PlayerB evolved Toxel to Toxtricity in the Active Spot.
+PlayerB's Toxtricity used Sinister Surge.
+- PlayerB attached Basic Darkness Energy to Okidogi ex on the Bench.
+- PlayerB shuffled their deck.
+- PlayerB put 2 damage counters on PlayerB's Okidogi ex.
+PlayerB's Pecharunt ex used Subjugating Chains.
+- PlayerB's Okidogi ex was switched with PlayerB's Toxtricity to become the Active Pokémon.
+- PlayerB's Okidogi ex is now Poisoned.
+PlayerB's Okidogi ex is now in the Active Spot.
+PlayerB's Okidogi ex used Poisonous Musculature.
+- PlayerB attached Basic Darkness Energy to Okidogi ex in the Active Spot.
+- PlayerB attached Basic Darkness Energy to Okidogi ex in the Active Spot.
+- PlayerB shuffled their deck.
+- PlayerB's Okidogi ex is no longer Poisoned.
+- PlayerB's Okidogi ex is now Poisoned.
+
+Pokémon Checkup
+1 damage counter was placed on PlayerB's Okidogi ex for the Special Condition Poisoned.
+
+PlayerA's Turn
+PlayerA drew Kyurem.
+PlayerA's Mega Kangaskhan ex used Run Errand.
+- PlayerA drew 2 cards.
+   • Telepathic Psychic Energy, Switch
+PlayerA evolved Slowpoke to Slowking on the Bench.
+PlayerA attached Telepathic Psychic Energy to Slowking on the Bench.
+Telepathic Psychic Energy was activated.
+- PlayerA drew Slowpoke and played it to the Bench.
+- PlayerA shuffled their deck.
+PlayerA played Ciphermaniac's Codebreaking.
+- PlayerA shuffled their deck.
+PlayerA retreated Mega Kangaskhan ex to the Bench.
+PlayerA's Slowking is now in the Active Spot.
+PlayerA's Slowking used Seek Inspiration on PlayerB's Okidogi ex for 300 damage.
+- Damage breakdown:
+   • Base damage: 150 damage
+   • Total damage: 300 damage
+
+- PlayerA chose Metallic Hammer
+- PlayerA discarded Metagross.
+PlayerB's Okidogi ex was Knocked Out!
+- 3 cards were discarded from PlayerB's Okidogi ex.
+   • Basic Darkness Energy, Basic Darkness Energy, Basic Darkness Energy
+PlayerA took 2 Prize cards.
+Zeraora was added to PlayerA's hand.
+Slowking was added to PlayerA's hand.
+PlayerB's Toxtricity is now in the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played Meowth ex to the Bench.
+PlayerB's Meowth ex used Last-Ditch Catch.
+- PlayerB drew Lillie's Determination.
+- PlayerB shuffled their deck.
+PlayerB played Lillie's Determination.
+- PlayerB shuffled 2 cards into their deck.
+- PlayerB drew 8 cards.
+PlayerB's Fezandipiti ex used Flip the Script.
+- PlayerB drew 3 cards.
+Opponent conceded. PlayerA wins.
