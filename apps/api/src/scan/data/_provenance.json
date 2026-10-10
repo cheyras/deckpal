@@ -10,6 +10,11 @@
       "confidence": "HIGH for the 26 rows flagged verified:true — the SV/ME strips were read directly off real scans (sv01-005, sv01-245, sv03-125, sv04.5-091, me05-039, svp-001, svp-500, mep-001, mee-001, sve-017). LOW for the three flagged verified:false (2023sv/MCD23, 2024sv/MCD24, mfb/MFB): no art exists upstream and our CDN serves placeholders, so whether those cards print a code at all is unknown. See the file's own _mcd_mfb_caveat.",
       "cross_check_source": "pokemontcg.io set.ptcgoCode is an approved source in this repo (research/CARD-ART-SOURCES.md §9) and a reasonable third opinion, but it is NOT blendable: it is the PTCGL namespace for promos (PR-SV vs SVP), it reuses a parent code for sub-sets so it has 8 collisions where TCGdex has 0, and TR/TRR point at opposite sets in the two feeds (CROSSWALK §6.2). Propose a diff; adopt nothing automatically.",
       "todo": "Grows by roughly four rows a year. A new SV/ME-era set needs: a row here, and the set id added to 048's prints_set_code seed list if any SQL-side filter has come to depend on that column. The dev-startup cross-check names the missing set by id."
+    },
+    "art-families.json": {
+      "derived_from": "scripts/scan-bench/art_families.py over scripts/scan-bench/same_art.py's output: every same-name printing pair compared by ORB features on CLAHE-equalised luma under one near-identity RANSAC homography (colour-blind, crop-blind), joined when >= 80 inliers fall in the art band (rows 10-55%) with corner shift <= 0.15 of the width, or when the 9x8 dHash is within 6 bits; transitive closure. Catalogue art from the card-art bucket (the scan bench's mirror), 2026-10-10.",
+      "authority": "THIS FILE, regenerated from the catalogue art. Nothing in the database mirrors it. A card absent from it is treated as having no same-art printing, which is the scanner's behaviour before the file existed.",
+      "known_gaps": "Holo and non-holo printings of one picture in the same set (Jungle/Fossil #1-16 vs #17-32) mostly fall below the art-band bar because the foil scrambles the art features; cards with no catalogue art (Celebrations Classic Collection, some promos) cannot be compared at all."
     }
   }
 }

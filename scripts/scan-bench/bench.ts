@@ -4,7 +4,7 @@
  * identification path, scored against ground truth.
  *
  *   node --import tsx scripts/scan-bench/bench.ts [--ocr off] [--fusion off]
- *        [--vectors <embed tag>] [--datasets a,b] [--out <dir>] [--label <name>]
+ *        [--guard off] [--vectors <embed tag>] [--datasets a,b] [--out <dir>] [--label <name>]
  *
  * For each crop: dHash priors (`phash.ts`, the server's own hashing) → OCR
  * (`ocr.ts`, the device's own pipeline) → vector top-5 (precomputed by
@@ -29,6 +29,7 @@ import { fileURLToPath } from 'node:url'
 
 import sharp from 'sharp'
 
+import { artSiblings } from '../../apps/api/src/scan/artFamilies.js'
 import { resolveCard, type ResolveOutcome } from '../../apps/api/src/scan/resolve.js'
 import type { ScanResolveResponse, ScanResponse } from '../../apps/web/src/lib/api.js'
 import type { OcrRead } from '../../apps/web/src/scan/ocr/pipeline.js'
@@ -49,6 +50,8 @@ const arg = (k: string, d?: string) => {
 }
 const OCR_ON = arg('ocr', 'on') !== 'off'
 const FUSION_ON = arg('fusion', 'on') !== 'off'
+/** The printing guard (artFamilies.ts) — the shipping behaviour; `--guard off` replays without it. */
+const GUARD_ON = arg('guard', 'on') !== 'off'
 const VECTORS = arg('vectors', 'vit_base_patch32_clip_224.openai')!
 const LABEL = arg('label', `ocr-${OCR_ON ? 'on' : 'off'}_fusion-${FUSION_ON ? 'on' : 'off'}_${VECTORS}`)!
 const OUT = arg('out', path.join(BENCH_DIR, 'runs'))!
@@ -177,13 +180,16 @@ async function runRow(r: BenchRow): Promise<RowResult> {
   const vec = FUSION_ON ? vectorsFor(r.id, full) : []
 
   let s: IdentityState = initialIdentity()
-  s = reduceIdentity(s, { type: 'phash', res: scanResponse(ph.matches, ph.matched) })
+  // router.ts /scan: within the bar AND no same-art reprint (artFamilies.ts) — unless --no-guard.
+  const phMatched = ph.matched && (!GUARD_ON || !ph.matches[0] || !artSiblings(ph.matches[0].cardId).length)
+  s = reduceIdentity(s, { type: 'phash', res: scanResponse(ph.matches, phMatched) })
   s = reduceIdentity(s, { type: 'read', read })
   const body = toResolveBody(read, ph.matches, vec)
   let resolved: ScanResolveResponse | null = null
   if (body) {
     const outcome = await resolveCard(body.fields, body.priorMatches, port, {
       phashConfidentMax: CONFIDENT_MAX,
+      ...(GUARD_ON ? { artSiblings } : {}),
       ...(FUSION_ON ? { fusion: { vectorMatches: body.vectorMatches ?? [], modelId: EMBED_MODEL_ID } } : {}),
     })
     resolved = toWire(outcome)

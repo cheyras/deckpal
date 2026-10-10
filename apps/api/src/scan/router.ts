@@ -3,6 +3,7 @@ import { cardImages, q } from '../db.js';
 import { ApiError, asyncHandler, badRequest, clampInt, notFound, oneOf, toBuffer } from '../http.js';
 import { ALGO, hashQueryCandidates, hashToHex } from './phash.js';
 import { pgCatalogPort } from './catalogPort.js';
+import { artSiblings } from './artFamilies.js';
 import { resolveCard, type FusionInput, type OcrFields, type PriorMatch, type RankedCard } from './resolve.js';
 import { scanEmbedGate } from './embedGate.js';
 import { CURRENT_STAMP, assertQueryVector, buildResponse, pgNeighbours } from './embedMatch.js';
@@ -30,7 +31,9 @@ import { EMBED_MODEL_ID, EMBED_SIZE, identityConfidence } from '@deckpal/matchin
  * probes) and rank the whole indexed hash set by Hamming distance (0 = identical,
  * 64 = opposite). `matched` is true only when the best distance is within
  * CONFIDENT_MAX — an honest "no confident match" for a photo of nothing in the
- * catalog. Read-only.
+ * catalog — and the best card has no same-art reprint (artFamilies.ts): a hash
+ * of the whole card cannot see the set symbol that tells two printings of one
+ * picture apart. Read-only.
  *
  * 🔴 The ranking happens in Postgres, not in this process. The original scanner
  * read all ~23k hashes into a module-level typed array at first use and kept them
@@ -267,7 +270,10 @@ scanRouter.post(
 
     res.json({
       query: { algo: ALGO, hash: hashToHex(queryHash) },
-      matched: (matches[0]?.distance ?? 64) <= CONFIDENT_MAX,
+      // Within the hash's own bar AND not a card whose picture other printings
+      // share: a 9x8 hash cannot see a set symbol, so it names a family, not a
+      // printing (artFamilies.ts). The ranked list is untouched — it is the picker.
+      matched: (matches[0]?.distance ?? 64) <= CONFIDENT_MAX && !artSiblings(matches[0]!.cardId).length,
       threshold: CONFIDENT_MAX,
       indexSize,
       matches,
@@ -562,6 +568,7 @@ scanRouter.post(
     const outcome = await resolveCard(fields, priorMatches, pgCatalogPort, {
       phashConfidentMax: CONFIDENT_MAX,
       fusion,
+      artSiblings,
     });
     res.json({
       matched: outcome.matched,

@@ -316,7 +316,27 @@ export interface ResolveOptions {
    * write. `router.ts` reads the environment; this module never does.
    */
   fusion?: FusionInput;
+  /**
+   * THE PRINTING GUARD. The other printings that show the same picture as a
+   * card (artFamilies.ts), or none. When given, a CONFIDENT answer that no
+   * printed key decided — the vector, the hash, a name that every printing
+   * shares — on a card that has such siblings is handed back as a question,
+   * with the siblings at the top of the list: the picture is right, the
+   * printing is the reader's to say. A printed key (badge+number,
+   * number+denominator, name+number, name+denominator) names one printing by
+   * itself and is left alone. Absent, the ladder behaves exactly as before.
+   */
+  artSiblings?: (cardId: string) => readonly string[];
 }
+
+/** The rungs whose key is PRINTED on one printing only: the set badge or the
+ *  number, which differ between two printings of one picture. */
+const PRINTED_KEYS: ReadonlySet<ResolvedBy> = new Set<ResolvedBy>([
+  'badge+number',
+  'number+denominator',
+  'name+number',
+  'name+denominator',
+]);
 
 export interface FusionInput {
   /** The pgvector search's scored candidates, descending by similarity. */
@@ -1033,7 +1053,35 @@ export async function resolveCard(
   };
 
   const out = await climb();
-  return opts.fusion ? await letDecisiveVectorSpeak(out) : out;
+  const spoken = opts.fusion ? await letDecisiveVectorSpeak(out) : out;
+  return opts.artSiblings ? await openThePrinting(spoken, opts.artSiblings) : spoken;
+
+  /**
+   * A CONFIDENT PICTURE IS NOT A CONFIDENT PRINTING (artFamilies.ts). On the
+   * owner's verified photos (2026-10-10) this is the difference between 24 and
+   * 5 confident-wrong answers out of ~160: 19 of them were the right card in
+   * the wrong printing — Base Set named as Base Set 2 or Legendary Collection —
+   * decided by the vector, the hash, or a name every printing carries. The
+   * answer stays `matched` (the card IS identified); it stops being
+   * `confident`, and the printings the reader chooses between go first.
+   */
+  async function openThePrinting(
+    prev: ResolveOutcome,
+    siblingsOf: (cardId: string) => readonly string[],
+  ): Promise<ResolveOutcome> {
+    if (!prev.confident || PRINTED_KEYS.has(prev.resolvedBy)) return prev;
+    const top = prev.matches[0];
+    if (!top) return prev;
+    const siblings = siblingsOf(top.cardId);
+    if (!siblings.length) return prev;
+    const have = new Set(prev.matches.map((m) => m.cardId));
+    const missing = siblings.filter((id) => !have.has(id));
+    const hydrated = missing.length ? rank(await port.byIds(missing), priors.distance, evidence.similarity) : [];
+    const family = new Set(siblings);
+    const listed = prev.matches.slice(1).filter((m) => family.has(m.cardId));
+    const rest = prev.matches.slice(1).filter((m) => !family.has(m.cardId));
+    return { ...prev, confident: false, matches: [top, ...listed, ...hydrated, ...rest].slice(0, MAX_MATCHES) };
+  }
 
   /**
    * A DECISIVE IMAGE MATCH IS NOT SILENCED BY AN UNSURE READ.
