@@ -39,7 +39,7 @@ export interface EvalWeights {
   /** Per card in hand (capped). */
   hand: number;
   handCap: number;
-  /** Per card short of a safe deck size. */
+  /** Deck-out risk: deckOut × short² / deckSafe, where short = cards below a safe deck size. */
   deckOut: number;
   deckSafe: number;
   /** Per extra Prize card a Benched multi-Prize Pokémon gives up. */
@@ -163,7 +163,10 @@ function development(env: Env, s: GameState, p: Player, all: LiveStatic[], w: Ev
     else if (d.kind === 'energy') energy++;
   }
   score += Math.min(evo, 3) * w.handEvo + Math.min(energy, 2) * w.handEnergy;
-  if (ps.deck.length < w.deckSafe) score -= (w.deckSafe - ps.deck.length) * w.deckOut;
+  if (ps.deck.length < w.deckSafe) {
+    const short = w.deckSafe - ps.deck.length;
+    score -= (w.deckOut * short * short) / w.deckSafe;
+  }
   const fuel = facts(env.ctx).fuel[p] as Set<number>;
   if (fuel.size) {
     let n = 0;

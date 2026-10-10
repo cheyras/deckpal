@@ -31,7 +31,7 @@ import { DEFAULT_PROFILE, policyChoose, type PolicyProfile } from './policy.js';
 import type { Pilot } from './types.js';
 
 export interface SearchOptions {
-  /** Determinised worlds per decision (default 2). */
+  /** Determinised worlds per decision (default 1). */
   worlds?: number;
   /** Node budget per world (one node = one option applied and run to the next branch point). */
   nodes?: number;
@@ -43,9 +43,15 @@ export interface SearchOptions {
   profile?: PolicyProfile;
 }
 
+/**
+ * Defaults tuned for the simulation runner (~30 search-vs-search games in a 45 s
+ * budget). Measured on the owner's decks: 100 nodes × 1 world played even with
+ * 160 × 2, 80 × 2 and 160 × 3 (paired seeds, n=20 each), at a third of the cost —
+ * past ~80 nodes the evaluation, not the budget, limits strength.
+ */
 export const DEFAULT_SEARCH: Required<Omit<SearchOptions, 'weights' | 'profile'>> = {
-  worlds: 2,
-  nodes: 160,
+  worlds: 1,
+  nodes: 100,
   subs: true,
   verify: 3,
 };
@@ -257,8 +263,8 @@ export class SearchPilot implements Pilot {
         }
       }
     }
-    // Lethal: a first move that wins in every world is played outright.
-    for (let i = 0; i < n; i++) if (wins[i] === K) return [i];
+    // Lethal: a first move that wins in every one of several worlds is played outright.
+    if (K >= 2) for (let i = 0; i < n; i++) if (wins[i] === K) return [i];
     // A win seen in only some worlds: replay that exact line in fresh worlds; play it if it always wins.
     if (winLine && o.verify > 0) {
       const acts = lineActions(env, winLine.world, me, winLine.line, o.subs, o.profile);

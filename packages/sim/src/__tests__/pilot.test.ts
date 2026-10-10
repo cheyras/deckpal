@@ -13,6 +13,7 @@ import { Game } from '../game.js';
 import { playOut } from '../play.js';
 import { makePilot, type PilotName } from '../pilot/index.js';
 import { RandomPilot } from '../pilot/random.js';
+import { scenario } from '../scenario.js';
 import { policyChoose } from '../pilot/policy.js';
 import type { Pilot } from '../pilot/types.js';
 import { Rng } from '../rng.js';
@@ -195,4 +196,34 @@ test('search mirror (same deck both sides) lands near even', () => {
   assert.ok(decisive >= 4, 'mirror games should mostly finish');
   const rate = t.a / decisive;
   assert.ok(rate >= 0.3 && rate <= 0.7, `mirror win rate ${rate.toFixed(2)}`);
+});
+
+/** Let a pilot play out the current turn; returns the game. */
+function playTurn(g: Game, p: Pilot): Game {
+  const turn = g.state.turn;
+  const other = makePilot('policy');
+  while (!g.over && g.state.turn === turn) {
+    const d = g.decision!;
+    g.submit((d.player === g.state.current ? p : other).choose(g, d));
+  }
+  return g;
+}
+
+test('lethal: search takes the last Prize card when a line does it this turn (gust, then attack)', () => {
+  // P1 needs 1 Prize. Dhelmise's 30 can't touch Mega Kangaskhan ex, but Boss's Orders on the damaged Slowpoke wins.
+  const g = scenario(HIDE_N_SNEAK, TOOLBOX_SLOWKING, [
+    { active: 'Dhelmise', energy: { active: ['Psychic Energy'] }, hand: ["Boss's Orders", 'Psychic Energy'], prizes: 1 },
+    { active: 'Mega Kangaskhan ex', bench: ['Slowpoke', 'Slowpoke'], damage: { 0: 40 } },
+  ], { turn: 3, current: 0 });
+  playTurn(g, makePilot('search', 9));
+  assert.equal(g.state.winner, 0, `search did not find the win (${g.state.winReason ?? 'game continues'})`);
+});
+
+test('lethal: search picks the damage target that wins (Cruel Arrow onto the Bench)', () => {
+  const g = scenario(HIDE_N_SNEAK, TOOLBOX_SLOWKING, [
+    { active: 'Fezandipiti ex', energy: { active: ['Psychic Energy', 'Psychic Energy', 'Psychic Energy'] }, prizes: 1 },
+    { active: 'Mega Kangaskhan ex', bench: ['Latias ex'], damage: { 0: 120 } },
+  ], { turn: 3, current: 0 });
+  playTurn(g, makePilot('search', 4));
+  assert.equal(g.state.winner, 0, `search did not find the win (${g.state.winReason ?? 'game continues'})`);
 });
