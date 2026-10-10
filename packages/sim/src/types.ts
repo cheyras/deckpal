@@ -158,6 +158,10 @@ export interface PlayerState {
   lastKoTurn: number;
   /** lane:misc — the KO turn before `lastKoTurn`, so a Knock Out on your own turn (Risky Ruins) doesn't hide one from the opponent's last turn. */
   prevKoTurn?: number;
+  /** lane:trevenant — the turn in which `attackKoCards` were Knocked Out by damage from an opponent's attack. */
+  attackKoTurn?: number;
+  /** lane:trevenant — top cards of this player's Pokémon Knocked Out by damage from an opponent's attack in `attackKoTurn`. Replaced, never mutated (clonePlayer shares it). */
+  attackKoCards?: number[];
   // knowledge (for views and determinisation)
   /** The owner has looked through their deck since it was last shuffled into prizes → prizes are deducible. */
   prizesKnown: boolean;

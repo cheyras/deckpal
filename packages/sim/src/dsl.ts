@@ -151,7 +151,13 @@ export type StaticEffect =
   /** The affected Pokémon's Weakness becomes this type (×2). */
   | { k: 'weaknessType'; type: PType }
   /** Damage the affected Pokémon's attacks do to the opponent's Active Pokémon (before W/R). */
-  | { k: 'damageOut'; amount: number; vs?: Filter }
+  | {
+      k: 'damageOut';
+      amount: number;
+      vs?: Filter;
+      /** lane:trevenant — "The effect of <name> doesn't stack": damageOut statics sharing this key count once per attack. */
+      noStack?: string;
+    }
   /** Damage the affected Pokémon takes from attacks (after W/R; negative = reduction). `fromOpp`: only from the opponent's attacks. */
   | { k: 'damageIn'; amount: number; fromOpp?: boolean /* lane:metal */ }
   | { k: 'hp'; delta: number }

@@ -279,9 +279,14 @@ export function damagePrevented(
 
 export function damageOut(env: Env, s: GameState, attacker: Slot, target: Slot, all = statics(env, s)): number {
   let n = 0;
+  const once = new Set<string>(); // lane:trevenant — noStack keys already counted
   for (const x of onSlot(env, s, all, attacker, 'damageOut')) {
-    const e = x.effect as { amount: number; vs?: Filter };
+    const e = x.effect as { amount: number; vs?: Filter; noStack?: string };
     if (e.vs && !slotMatches(env, target, e.vs)) continue;
+    if (e.noStack) {
+      if (once.has(e.noStack)) continue;
+      once.add(e.noStack);
+    }
     n += e.amount;
   }
   return n;

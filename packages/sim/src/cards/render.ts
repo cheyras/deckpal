@@ -106,11 +106,13 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   freezingShroud: () => "Put 1 damage counter on each Pokémon that has an Ability (both yours and your opponent's), except any Froslass",
   countersUntilHp: (a) => `Count the damage counters that would leave your opponent's Active Pokémon with ${Number(a.hp ?? 50)} HP remaining (into "${String(a.as ?? 'n')}")`,
   discardThisCard: () => 'Discard this card',
+  'trevenant.discardToolFrom': () => "Discard the Pokémon Tool attached to that Pokémon (if any) to its owner's discard pile", // lane:trevenant
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
 export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) => string> = {
   countersMovable: () => 'damage counters can be moved (no effect on either side stops it)',
+  'trevenant.hopsKoByAttackLastTurn': () => "one of your Pokémon with \"Hop's\" in its name was Knocked Out by damage from an attack during your opponent's last turn", // lane:trevenant
   rareCandyPlayable: () => "it isn't your first turn and you have a Basic Pokémon in play, not put into play this turn, that a Stage 2 card in your hand evolves from",
 };
 
@@ -904,7 +906,7 @@ class Renderer {
       case 'weaknessType':
         return `The Weakness of ${plural ? 'each of ' : ''}${x} ${'is'} now ${sym(e.type)}`;
       case 'damageOut':
-        return `The attacks of ${x} do ${Math.abs(e.amount)} ${e.amount < 0 ? 'less' : 'more'} damage to your opponent's Active ${e.vs ? noun(e.vs, true).pl : 'Pokémon'} (before applying Weakness and Resistance)`;
+        return `The attacks of ${x} do ${Math.abs(e.amount)} ${e.amount < 0 ? 'less' : 'more'} damage to your opponent's Active ${e.vs ? noun(e.vs, true).pl : 'Pokémon'} (before applying Weakness and Resistance)${e.noStack ? `. The effect of ${e.noStack} doesn't stack` : ''}`; // lane:trevenant
       case 'damageIn':
         // The engine applies damageIn to every attack unless `fromOpp` is set, so only the flag says whose.
         return `${X} ${plural ? 'take' : 'takes'} ${Math.abs(e.amount)} ${e.amount < 0 ? 'less' : 'more'} damage from attacks${e.fromOpp ? " from your opponent's Pokémon" : ''} (after applying Weakness and Resistance)`;
@@ -1430,6 +1432,15 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me05-075|text': {
     problems: ['similarity'],
     why: '"Both Active non-{D} Pokémon" is one `if` per Active Pokémon (one for each player), so the one printed sentence renders as two.',
+  },
+  // lane:trevenant
+  'sv06-151|text': {
+    problems: ['"may" is rendered but not printed', '"reveal" is rendered but not printed'],
+    why: "Hassel reuses Pokégear 3.0's lookAtTopTake, whose gloss is worded for Pokégear (\"You may reveal\"); \"put up to 3 of them\" is its max 3 with min 0, which is the same choice.",
+  },
+  'sv09-157|text': {
+    problems: ['similarity'],
+    why: "Ruffian's one sentence renders as a playable gate (some opposing Pokémon has a Tool or a Special Energy), the choice of that Pokémon, and the two discards, so it scores low; each part is checked by its card test.",
   },
   'me05-029|attack:All-You-Can-Yeet': {
     problems: ['"may" is printed but not rendered'],

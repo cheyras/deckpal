@@ -7,9 +7,11 @@ import type { CardFrame } from '../../types.js';
 import { FRAMES as BLAZIKEN } from './blaziken.js';
 import { FRAMES as DARKRAI } from './darkrai.js';
 import { FRAMES as GRIMMSNARL } from './grimmsnarl.js';
+import { FRAMES as TREVENANT } from './trevenant.js';
 
 export const EXTRA_FRAMES: Record<string, CardFrame> = {
   ...BLAZIKEN,
   ...DARKRAI,
   ...GRIMMSNARL,
+  ...TREVENANT,
 };

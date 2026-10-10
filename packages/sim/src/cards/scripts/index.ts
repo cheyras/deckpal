@@ -9,5 +9,6 @@ import { MISC } from './misc.js';
 import { META_BLAZIKEN } from './meta-blaziken.js';
 import { META_DARKRAI } from './meta-darkrai.js';
 import { META_GRIMMSNARL } from './meta-grimmsnarl.js';
+import { META_TREVENANT } from './meta-trevenant.js';
 
-export const SCRIPTS: CardScript[] = [...SV, ...ME, ...GHOST, ...FIGHTING, ...METAL, ...MISC, ...META_BLAZIKEN, ...META_DARKRAI, ...META_GRIMMSNARL];
+export const SCRIPTS: CardScript[] = [...SV, ...ME, ...GHOST, ...FIGHTING, ...METAL, ...MISC, ...META_BLAZIKEN, ...META_DARKRAI, ...META_GRIMMSNARL, ...META_TREVENANT];
