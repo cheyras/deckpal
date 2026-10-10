@@ -57,6 +57,49 @@ node --import tsx scripts/scan-bench/bench.ts --ocr off        # as deckpal.app 
 source), so ladder experiments rerun in seconds. `parity-phash.ts` checks the
 local dHash index against what production returned for the same field crops.
 
+## Owner quad photos → labelled crops
+
+The labeler queue holds the owner's uploads waiting for a quad, mostly
+whole-binder and wall photos. Three scripts turn them into candidate
+benchmark rows. Everything they write goes under `~/deckpal-data/quad-queue/`
+(override: `SCAN_QUEUE_DIR`), never into git.
+
+```bash
+node scripts/scan-bench/queue-pull.mjs        # raw/<id>.jpg at original resolution, as the QA account
+$PY scripts/scan-bench/extract_cards.py --sheet   # cards/<photo>-<n>.jpg (480x670 + 5%) + cards.jsonl
+$PY scripts/scan-bench/label_cards.py --model <fp32.onnx> --query-onnx <int8.onnx>   # cards-labelled.jsonl
+```
+
+1. **`queue-pull.mjs`** reads `GET /api/dev/scan-queue` and each photo, signed
+   in from the gitignored `.qa-account` through `live.mjs`. Read-only,
+   resumable, paced.
+2. **`extract_cards.py`** proposes card-shaped quads (edges → contours → a
+   4-point polygon near 63:88) and rectifies each from the original photo at the
+   scanner's capture geometry. It only proposes; many candidates are frames,
+   backs or sleeves.
+3. **`label_cards.py`** embeds each crop with the production pairing (int8
+   query × fp32 gallery from `embed/<model>/`) and tiers top-1 against the
+   model's gate: `decisive`, `plausible` or `junk`. The default model is the
+   fine-tuned `deckpal-card-b32-v1`, whose gallery needs PR #288's `embed.py`
+   (`.onnx` model support). On main, use the shipped CLIP:
+   `--model-id clip-vit-b32-openai --model timm:vit_base_patch32_clip_224.openai`.
+4. **Hand verification.** Look at a sample of the crops (decisive, plausible
+   and junk alike) and write what each card really is, read from its set
+   symbol and number strip, into `verify-truth.jsonl`: `{ crop, photo, tier,
+   kind, truth: [cardId…], matcherCorrect, note }`.
+5. **A separate bench root.** Turn the verified rows into a dataset
+   (`datasets/<name>/manifest.jsonl` + `crops/`, the manifest shape above) under
+   its own root, for example `~/deckpal-data/scan-bench-quad/` with `art/` and
+   `cache/` linked to the main root's, and run the full ladder against it with
+   `SCAN_BENCH_DIR` pointing there. Keeping it apart leaves the main datasets
+   and their run history untouched.
+
+**`label_cards.py`'s tiers are pseudo-labels, not ground truth.** On the
+300-crop verified sample (2026-10-10), about 11% of `decisive` rows (17 of 149
+cards) named the wrong printing, nearly all vintage reprints with the same art
+(Base Set vs Base Set 2, Legendary Collection, Celebrations Classic
+Collection). Only rows that went through step 4 become benchmark labels.
+
 ## Caveats, read before trusting a number
 
 - **Most crops are 229×320**, the size scan telemetry keeps, not the 480×670
