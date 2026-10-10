@@ -148,6 +148,18 @@ interface LogPreviewResponse {
   candidates: LogPreviewCandidate[];
 }
 
+/** Deck-specific POST /decks/:id/logs dry-run response. */
+interface LogDryRunResponse {
+  dryRun: true;
+  attachedToVersion: number;
+  preview: LogPreviewParsed & {
+    deckName: string;
+    version: number;
+    notes: string | null;
+    playedAt: string;
+  };
+}
+
 /** Trimmed-down deck detail — enough for names/versions in confirmations. */
 interface DeckDetailLite {
   deck: { id: string; name: string; formatCode: string; version: number; strategyMd: string | null };
@@ -251,10 +263,10 @@ function renderLogPreview(preview: LogPreviewResponse, dryRun?: boolean): ToolRe
 }
 
 /**
- * The dry_run-with-deck_id result: what WOULD be logged, no write. The deck is
- * already resolved strictly; the parse comes from log-preview (deck-agnostic).
- * Caller-supplied overrides that would attach are shown so an accidental
- * explicit result/opponent_deck is visible before it lands.
+ * The dry_run-with-deck_id result: what WOULD be logged, no write. The deck,
+ * version, parse, owner gate, and merged fields all come from the SAME route
+ * preparation the insert uses. Caller-supplied overrides that would attach are
+ * still called out so an accidental explicit result/opponent_deck is visible.
  */
 function renderAddDryRun(
   deck: { id: string; name: string; formatCode?: string; version?: number },
@@ -445,17 +457,26 @@ const addBattleLogTool = defineTool({
       if (!picked.ok) return fail(picked.message);
       const deckId = picked.value.id;
 
-      // dry_run → parse and preview what WOULD be logged, no write. Reuses the
-      // deck-agnostic parser behind log-preview (the only non-writing parse);
-      // the deck is resolved strictly above for the header line. See notes.md
-      // for the approximation this makes vs. the deck-specific parse the real
-      // write performs.
+      // dry_run → ask the WRITE route to prepare without inserting. This is
+      // intentionally not /decks/log-preview: that endpoint is deck-agnostic
+      // until it ranks candidates, while this call already names a deck and
+      // must exercise the exact owner-identification refusal the write will.
       if (dry_run) {
-        const preview = (await ctx.api.send('POST', '/decks/log-preview', {
-          log,
-          ...(player_name !== undefined ? { player_name } : {}),
-        })) as LogPreviewResponse;
-        return renderAddDryRun(picked.value, preview.parsed, { result, opponent_deck, notes });
+        const dry = (await ctx.api.send('POST', `${deckPath(deckId)}/logs`, {
+          rawLog: log,
+          ...(result !== undefined ? { result } : {}),
+          ...(player_name !== undefined ? { playerName: player_name } : {}),
+          ...(opponent_deck !== undefined ? { opponentDeck: opponent_deck } : {}),
+          ...(notes !== undefined ? { notes } : {}),
+          ...(played_at !== undefined ? { playedAt: played_at } : {}),
+          source: SOURCE,
+          dryRun: true,
+        })) as LogDryRunResponse;
+        return renderAddDryRun(
+          { ...picked.value, name: dry.preview.deckName, version: dry.preview.version },
+          dry.preview,
+          { result, opponent_deck, notes },
+        );
       }
 
       const res = (await ctx.api.send('POST', `${deckPath(deckId)}/logs`, {

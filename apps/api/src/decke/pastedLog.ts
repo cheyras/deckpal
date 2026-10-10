@@ -6,7 +6,7 @@
  * THE BLOCKER THIS CLOSES
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * Deck-E's chat model runs with `maxOutputTokens` 1200 (`models.ts`, chat tier).
+ * Deck-E's chat model runs with `maxOutputTokens` 8000 (`models.ts`, chat tier).
  * The battle-log flow requires re-emitting a pasted 8–15 KB log (~3,000 tokens)
  * as `add_battle_log`'s `log` argument — the arithmetic forbids it. The raw log
  * already sits in the USER MESSAGE the model is answering; `extractPastedLog`
@@ -37,25 +37,30 @@
  * card codes in parens `(sv10_102)`, and the closing `All Prize cards taken.
  * <name> wins.`
  *
- * Each USER message is scanned for the largest CONTIGUOUS run of lines that
- * look like log lines (matching that grammar) or the blank lines Live puts
- * between turns. A run qualifies only when it has:
+ * Each USER message is scanned from a log anchor to its closeout, rather than
+ * for an unbroken run of recognized lines. Live periodically adds client lines
+ * that this lightweight detector does not know yet; treating one as a boundary
+ * silently stored only the largest fragment of a real game. A span qualifies
+ * only when it has:
  *   • >= 8 matching lines AND >= 400 chars, AND
  *   • at least one ANCHOR — a `Setup` line or a `<name>'s Turn` header — so a
  *     long prose passage that happens to contain eight "played X" lines does
  *     not qualify. Real logs always carry an anchor; real prose almost never
  *     does, and the turn-header match is anchored to end-of-line (`$`) so
  *     "it was PlayerA's turn to shine" does not read as one.
- * Every non-blank line in the run must match: a prose line in the middle breaks
- * the run, which is the conservative choice this file was asked to make. The
- * downstream parser (`parseBattleLog`) still gates on parse quality, but a
- * false match here would paste garbage into a deck, so the bar is "looks like a
- * log end to end", not "contains some log lines".
+ * At least 70% of its non-blank lines must match. That leaves room for the
+ * occasional unknown Live template while rejecting chat prose wrapped around a
+ * few log-shaped sentences. The downstream parser (`parseBattleLog`) still
+ * gates on parse quality, but a false match here would paste garbage into a
+ * deck, so the bar remains "looks like a log end to end", not "contains some
+ * log lines".
  *
- * The NEWEST log wins: walking USER messages newest-first, the first message
- * that yields a qualifying run is returned. The raw block is returned verbatim
- * (capped at `RAW_LOG_MAX` = 50,000 chars, the route's own ceiling on
- * `add_battle_log`'s `log` and on `rawLog`), or `null` when nothing matched.
+ * The NEWEST log wins: walking USER messages newest-first, the last complete
+ * game in the first message with an anchor is returned. An anchored newest
+ * message that does not qualify is a failed new paste, not permission to reuse
+ * an older game's raw log. The raw block is returned verbatim (capped at
+ * `RAW_LOG_MAX` = 50,000 chars, the route's own ceiling on `add_battle_log`'s
+ * `log` and on `rawLog`), or `null` when nothing matched.
  *
  * Pure — no imports from `chat.mjs`, no I/O, no DB. A unit-test feeds it a
  * message array and asserts on the string it returns.
@@ -72,7 +77,7 @@
  */
 const RAW_LOG_MAX = 50_000;
 
-/** A run that qualified as a battle log. */
+/** An anchored span that qualified as a battle log. */
 interface LogBlock {
   text: string;
   matches: number;
@@ -94,9 +99,14 @@ export function extractPastedLog(messages: unknown): string | null {
     const text = messageText(m);
     if (!text) continue;
     const block = largestLogBlock(text);
-    if (block && block.matches >= 8 && block.text.length >= 400 && hasAnchor(text, block)) {
+    if (block && block.matches >= 8 && block.text.length >= 400) {
       return block.text.slice(0, RAW_LOG_MAX);
     }
+    // 2026-10-10: once the reader's newest message contains a real anchor, it
+    // is the paste they are asking about. Falling through used an older game
+    // when this paste was truncated or malformed, making `@pasted` silently
+    // duplicate history. Fail closed here; the model can ask for a fresh paste.
+    if (containsLogAnchor(text)) return null;
   }
   return null;
 }
@@ -146,8 +156,8 @@ function textPart(p: unknown): string | null {
  * without matching prose. Curly apostrophes are normalized first, as the
  * parser does, so `PlayerA’s` and `PlayerA's` read the same.
  *
- * Blank lines are NOT matched here; the caller allows them inside a run (Live
- * separates turns with them) and breaks a run on any other non-matching line.
+ * Blank lines are NOT matched here; they count neither for nor against an
+ * anchored span's recognition density.
  */
 function isLogLine(raw: string): boolean {
   const line = raw.replace(/[’‘]/g, "'").replace(/\s+$/, '');
@@ -164,6 +174,7 @@ function isLogLine(raw: string): boolean {
   // Both end at `$` so prose that merely contains the phrase does not match.
   if (/^Setup\s*$/.test(line)) return true;
   if (/^(.+)'s Turn\s*$/.test(line)) return true;
+  if (/^Pokémon Checkup\s*$/.test(line)) return true;
   // ── Setup-section actions (deck/battlelog.ts's SETUP_RE) ─────────────────
   if (
     /^.+ (chose (heads|tails)|won the coin toss|decided to go (first|second)|drew \d+ cards for the opening hand|took a mulligan)\b/.test(
@@ -173,11 +184,11 @@ function isLogLine(raw: string): boolean {
     return true;
   // Mulligan compensation: "PlayerA drew 1 more card because PlayerB took at
   // least 1 mulligan." — the one setup line that is not the SETUP_RE shape.
-  if (/^.+ drew \d+ more card/.test(line)) return true;
-  if (/^.+ took at least \d+ mulligan/.test(line)) return true;
+  if (/^Cards revealed from Mulligan \d+\s*$/.test(line)) return true;
+  if (/^.+ drew \d+ more cards? because .+ took at least \d+ mulligan\.$/.test(line)) return true;
   // ── Action lines with a player prefix ─────────────────────────────────────
   if (
-    /^.+ (played .+ to the (Bench|Active Spot|Stadium spot)|evolved .+ to .+|attached .+ to .+|took \d+ Prize cards?|took a Prize card|ended their turn|retreated .+)\b/.test(
+    /^.+ (played .+ to the (Bench|Active Spot|Stadium spot)|evolved .+ to .+ on the Bench|attached .+ to .+ (in the Active Spot|on the Bench)|took \d+ Prize cards?|took a Prize card|ended their turn|retreated .+ to the Bench|shuffled their deck|didn't take an action in time|lost connection and reconnected to the server|can no longer use .+)\b/.test(
       line,
     )
   )
@@ -193,9 +204,12 @@ function isLogLine(raw: string): boolean {
   // ── Possession lines: `<name>'s <mon> …` ───────────────────────────────────
   // No trailing `\b`: `was Knocked Out!` ends in `!` (non-word) at end-of-line,
   // where a word-boundary cannot match — a `\b` here broke the run at every KO.
-  if (/^.+'s .+ (was Knocked Out!|used .+|is now in the Active Spot)/.test(line)) return true;
+  if (/^.+'s .+ (was Knocked Out!|used .+ on .+'s .+ for \d+ damage\.|is now in the Active Spot|is now (Asleep|Burned|Confused|Paralyzed|Poisoned)\.|took \d+ damage from (Poison|Burn)\.)/.test(line)) return true;
+  if (/^.+ flipped (a coin|\d+ coins)(?:\.{3,}|…)\s*$/.test(line)) return true;
+  if (/^.+ put \d+ damage counters on .+'s .+\.$/.test(line)) return true;
+  if (/^Entering Sudden Death\.$/.test(line)) return true;
   // ── Closeout ───────────────────────────────────────────────────────────────
-  if (/^(All Prize cards taken\.\s+)?(.+) wins\.?\s*$/.test(line)) return true;
+  if (/^(?:(?:All Prize cards taken|Opponent took all of their Prize cards|Opponent conceded)\.\s+)?(.+) wins\.\s*$/.test(line)) return true;
   if (/^(.+) conceded\b/.test(line)) return true;
   // ── Hand / discard / activation ────────────────────────────────────────────
   if (/^.+ was added to .+'s hand\.$/.test(line)) return true;
@@ -211,63 +225,132 @@ function isLogLine(raw: string): boolean {
 }
 
 /**
- * Find the largest contiguous run of log/blank lines in `text`.
+ * Find an anchor-to-closeout span in `text`.
  *
- * Returns the verbatim block (blank lines between turns kept), its match count,
- * and nothing else. A non-matching, non-blank line ends a run; the caller
- * decides whether a run is long enough and anchored to count.
+ * Live can display a game in reverse order, in which case its closeout is
+ * first and Setup is last. Reverse mode is only possible when no closeout
+ * follows the first anchor: prose such as "I conceded last time" before a
+ * normal paste must not reverse it. In normal order, each anchor following a
+ * closeout starts another game and the last complete game wins. One paste
+ * channel carries one game; the reader can paste any earlier games separately.
+ * Without a closeout we stop at the last recognized line, preserving the old
+ * useful partial-log behavior. Unknown lines inside a span are retained.
  */
 function largestLogBlock(text: string): LogBlock | null {
   const lines = text.split(/\r?\n/);
-  // Collect maximal [start, end] runs of (log line | blank). A run is bounded
-  // by the first non-matching, non-blank line on either side.
-  const runs: Array<[number, number]> = [];
-  let start: number | null = null;
-  for (let i = 0; i < lines.length; i++) {
-    const l = lines[i] ?? '';
-    const blank = l.trim() === '';
-    const log = !blank && isLogLine(l);
-    if (blank || log) {
-      if (start === null) start = i;
-    } else if (start !== null) {
-      runs.push([start, i - 1]);
-      start = null;
-    }
-  }
-  if (start !== null) runs.push([start, lines.length - 1]);
+  const setup = lines.findIndex((line) => isSetup(line));
+  const firstTurn = lines.findIndex((line) => isTurnHeader(line));
+  const anchor = setup >= 0 ? setup : firstTurn;
+  if (anchor < 0) return null;
 
-  let best: LogBlock | null = null;
-  for (const [s, e] of runs) {
-    // Trim leading/trailing blank lines — they belong to the gap around the
-    // log, not to the log itself, and returning them would pad the block.
-    let lo = s;
-    let hi = e;
-    while (lo <= hi && (lines[lo] ?? '').trim() === '') lo++;
-    while (hi >= lo && (lines[hi] ?? '').trim() === '') hi--;
-    if (lo > hi) continue;
-    let matches = 0;
-    for (let i = lo; i <= hi; i++) {
-      const line = lines[i] ?? '';
-      if (line.trim() !== '' && isLogLine(line)) matches++;
+  const closeouts = lines
+    .map((line, index) => (isCloseout(line) ? index : -1))
+    .filter((index) => index >= 0);
+  const closeoutsAfterAnchor = closeouts.filter((index) => index >= anchor);
+
+  if (closeoutsAfterAnchor.length > 0) {
+    let previousCloseout = -1;
+    let newest: { lo: number; hi: number } | null = null;
+    for (const closeout of closeouts) {
+      if (closeout < anchor) {
+        previousCloseout = closeout;
+        continue;
+      }
+      const lo = firstAnchorBetween(lines, previousCloseout + 1, closeout);
+      if (lo >= 0) newest = { lo, hi: trailingLogLines(lines, closeout) };
+      previousCloseout = closeout;
     }
-    const blockText = lines.slice(lo, hi + 1).join('\n');
-    if (!best || blockText.length > best.text.length) {
-      best = { text: blockText, matches };
+    return newest ? logBlock(lines, newest.lo, newest.hi) : null;
+  }
+
+  const closeoutBeforeAnchor = closeouts.filter((index) => index < anchor).at(-1);
+  if (closeoutBeforeAnchor !== undefined) {
+    // Reverse Display Order: use the result nearest the anchor. Without Setup,
+    // reversed opening-hand lines follow the physical turn headers, so retain
+    // through the last recognized line instead of truncating at the first turn.
+    const hi = setup >= 0 ? setup : lastRecognizedLine(lines, anchor);
+    return logBlock(lines, closeoutBeforeAnchor, hi);
+  }
+
+  return logBlock(lines, anchor, lastRecognizedLine(lines, anchor));
+}
+
+function logBlock(lines: string[], lo: number, hi: number): LogBlock | null {
+  if (hi < lo) return null;
+  let matches = 0;
+  let nonBlank = 0;
+  for (let i = lo; i <= hi; i++) {
+    const line = lines[i] ?? '';
+    if (line.trim()) {
+      nonBlank++;
+      if (isLogLine(line)) matches++;
     }
   }
-  return best;
+  // 70% tolerates a few templates introduced by the Live client between our
+  // releases, but makes a prose paragraph with scattered action verbs fail.
+  if (nonBlank === 0 || matches / nonBlank < 0.7) return null;
+  return { text: lines.slice(lo, hi + 1).join('\n'), matches };
+}
+
+function firstAnchorBetween(lines: string[], from: number, through: number): number {
+  for (let i = from; i <= through; i++) {
+    if (isSetup(lines[i] ?? '')) return i;
+  }
+  for (let i = from; i <= through; i++) {
+    if (isTurnHeader(lines[i] ?? '')) return i;
+  }
+  return -1;
+}
+
+function containsLogAnchor(text: string): boolean {
+  return text.split(/\r?\n/).some((line) => isSetup(line) || isTurnHeader(line));
+}
+
+function isSetup(raw: string): boolean {
+  return /^Setup\s*$/.test(raw.trim());
+}
+
+function isTurnHeader(raw: string): boolean {
+  return /^(.+)'s Turn\s*$/.test(raw.trim().replace(/[’‘]/g, "'"));
+}
+
+function lastRecognizedLine(lines: string[], from: number): number {
+  for (let i = lines.length - 1; i >= from; i--) {
+    if (isLogLine(lines[i] ?? '')) return i;
+  }
+  return from - 1;
 }
 
 /**
- * Does a qualifying block contain at least one ANCHOR — a `Setup` line or a
- * `<name>'s Turn` header? The strong signal that distinguishes a log from
- * prose that happens to use its verbs; required for a block to count.
+ * A few Live exports append cleanup events immediately after the result (for
+ * example an Energy activation resolving as the final Pokémon is knocked out).
+ * `isLogLine` is intentionally too broad here: every dash bullet and another
+ * `wins.` sentence count as log-shaped there. Keep only client templates seen
+ * after real results, only while directly attached, and never a second result.
+ * A blank is a conservative hard boundary; this also pins the common
+ * result-blank-reader-question shape without guessing whether the prose is Live.
  */
-function hasAnchor(_text: string, block: LogBlock): boolean {
-  for (const line of block.text.split(/\r?\n/)) {
-    const t = line.replace(/[’‘]/g, "'").trim();
-    if (t === 'Setup') return true;
-    if (/^(.+)'s Turn$/.test(t)) return true;
+function trailingLogLines(lines: string[], closeout: number): number {
+  let end = closeout;
+  for (let i = closeout + 1; i < lines.length; i++) {
+    const line = lines[i] ?? '';
+    if (!line.trim() || isCloseout(line) || !isPostCloseoutLine(line)) break;
+    end = i;
   }
-  return false;
+  return end;
+}
+
+function isPostCloseoutLine(raw: string): boolean {
+  const line = raw.replace(/[’‘]/g, "'").trimEnd();
+  if (/^.+ was activated\.$/.test(line)) return true;
+  if (/^(?:.+|A card) was added to .+'s hand\.$/.test(line)) return true;
+  if (/^-\s+.+ (?:drew (?:a card|\d+ cards?|[A-Z].*)|shuffled their deck)\.$/.test(line)) return true;
+  // `slowking-vs-beedrill.log` (2026-10-10 harness corpus): Boomerang
+  // Energy activates after the result, then reports its attached destination.
+  return /^-\s+.+ attached .+ to .+ (?:in the Active Spot|on the Bench)\.$/.test(line);
+}
+
+function isCloseout(raw: string): boolean {
+  const line = raw.replace(/[’‘]/g, "'").trim();
+  return /^(?:(?:All Prize cards taken|Opponent took all of their Prize cards|Opponent conceded)\.\s+)?(.+) wins\.\s*$/.test(line) || /^(.+) conceded\b/.test(line);
 }

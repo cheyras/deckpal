@@ -1253,13 +1253,29 @@ Summaries only — never `rawLog`. `totals` covers the same filter scope.
 
 ### POST /deckpal/api/decks/:id/logs
 Body `{ "rawLog" (required, ≤50000), "result"?, "opponent"?, "opponentDeck"?,
-"notes"? (≤2000), "playedAt"? (ISO), "playerName"?, "source"? }`. Runs the PTCG
-Live parser; parser-derived `result` / `opponent` / `opponentDeck` (deck guess)
+"notes"? (≤2000), "playedAt"? (ISO), "playerName"?, "source"?, "dryRun"? }`.
+Runs the PTCG Live parser; parser-derived `result` / `opponent` /
+`opponentDeck` (deck guess)
 fill any fields the caller omitted — **explicit caller values always win over
 the parser** (2026-08-29, `mergeLogFields`). Attaches to the deck's **current**
 version.
 `400` when the parser cannot tell which player owns the deck **and** neither
 `playerName` nor an explicit `result` was given (the message says which to pass).
+`"dryRun": true` performs that same validation, current-version resolution,
+deck-specific parse, owner identification, and explicit-field merge without an
+insert. It returns the values the write would store, except `playedAt`: when
+omitted, the preview reports its own clock and a later write uses its own `now()`:
+```json
+200 { "dryRun": true, "attachedToVersion": 2,
+      "preview": { "deckName": "Toolbox Slowking", "version": 2,
+                   "result": "win", "opponent": "Robni16",
+                   "opponentDeck": "Dragapult ex / Dusknoir",
+                   "opponentDeckGuess": "Dragapult ex / Dusknoir",
+                   "prizes": { "me": 6, "opponent": 5 }, "turns": 14,
+                   "notes": null, "playedAt": "…", "confidence": "high" },
+      "parsed": { "players": { "me": "cheyras", "opponent": "Robni16" }, "…": "…" } }
+```
+The non-dry-run response remains:
 ```json
 201 { "attachedToVersion": 2,
       "log": { "id": 7, "deckVersion": 2, "result": "win", "opponent": "Robni16",

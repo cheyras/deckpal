@@ -384,6 +384,45 @@ export function mergeLogFields(
   };
 }
 
+export interface PreparedBattleLog {
+  parsed: ParsedBattleLog;
+  result: 'win' | 'loss' | 'tie' | null;
+  opponent: string | null;
+  opponentDeck: string | null;
+}
+
+/**
+ * The one deck-specific preparation path used by BOTH preview and insert.
+ *
+ * This deliberately includes owner identification and its refusal, rather
+ * than exposing a convenient "parse only" preview. On 2026-10-10 production
+ * evidence showed that the old approval preview used the deck-agnostic parser
+ * and could promise a write that the real route would reject moments later.
+ * Keeping parse, explicit-field precedence, and the owner gate in this pure
+ * function makes that disagreement structurally impossible.
+ */
+export function prepareBattleLog(
+  rawLog: string,
+  deckCardNames: string[],
+  input: {
+    playerName?: string;
+    result?: 'win' | 'loss' | 'tie';
+    opponent?: string | null;
+    opponentDeck?: string | null;
+  } = {},
+): PreparedBattleLog {
+  const parsed = parseBattleLog(rawLog, deckCardNames, input.playerName);
+  const merged = mergeLogFields(parsed, input);
+  if (parsed.players.me === null && input.result === undefined) {
+    throw new Error(
+      input.playerName
+        ? `playerName '${input.playerName}' does not match a player in the log — check the exact screen name, or pass an explicit result`
+        : 'could not determine which player is the deck owner — pass playerName (your exact screen name in the log) or an explicit result',
+    );
+  }
+  return { parsed, ...merged };
+}
+
 
 /**
  * Parse a raw PTCG Live log. `deckCardNames` are the owning deck's card names

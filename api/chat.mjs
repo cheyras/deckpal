@@ -125,6 +125,11 @@ import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/de
 import { readerNamedPrinting } from '../apps/api/dist/decke/printingSaid.js'
 import { declinedCalls } from '../apps/api/dist/decke/declined.js'
 import { extractPastedLog } from '../apps/api/dist/decke/pastedLog.js'
+import {
+  pasteBackstopNeeded,
+  PASTE_BACKSTOP_LINE,
+  pasteBackstopInstruction,
+} from '../apps/api/dist/decke/pasteBackstop.js'
 import { meteredCapText, outOfCreditsText } from '../apps/api/dist/decke/credits.js'
 import { buildDataTools, correctiveApplyTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
 import { apiBaseFor, selfHopHeadersFor } from '../apps/api/dist/decke/ctx.js'
@@ -134,6 +139,7 @@ import { seedMeteredRefusals } from '../apps/api/dist/decke/meteredRefusals.js'
 import { createNarrationFilter, stripToolSyntax as stripToolSyntaxImpl } from '../apps/api/dist/decke/narration.js'
 import { autoShareAndRecordLeg } from '../apps/api/dist/decke/improvement.js'
 import { focusedTools } from '../apps/api/dist/decke/focus.js'
+import { spokeAndSettled } from '../apps/api/dist/decke/stopRule.js'
 import { createGrounding } from '../apps/api/dist/decke/grounding.js'
 import { RepairLog, clampStrings } from '../apps/api/dist/decke/repair.js'
 import {
@@ -935,33 +941,6 @@ async function serve(request) {
         // a per-user paid feature is a billing incident waiting to happen. Four
         // covers "fly there, see what happened, react".
         //
-        // The second condition is "he has SPOKEN AND MOVED", and it took three
-        // attempts to get right. Recording all three, because each looked
-        // correct and the first two shipped a worse bug than the one they fixed.
-        //
-        // The bug: a tool call opens another step, and in that step a model that
-        // has already answered answers again — measured, near-verbatim:
-        //   [step 1] "Yeah, scalpers grabbing whole cases is the worst…"
-        //   [step 2] "Yeah, scalpers grabbing whole cases is the worst…"
-        //
-        //   1. `hasToolCall('express')` — SILENCED HIM. He does not reliably
-        //      speak before he moves; when `express` comes first, stopping there
-        //      ends the turn with zero text. All five probe turns went silent
-        //      while their states still fired correctly.
-        //   2. A "you are done" note in the tool result — UNRELIABLE, and it
-        //      silenced him too when worded as "stop here". Reworded to only
-        //      forbid repeating, it fixed one run and the duplication returned
-        //      on the next. A prompt is not an enforcement mechanism; this file
-        //      says so about `click`, and it is just as true here.
-        //   3. This: stop when the SAME step produced both visible text and an
-        //      `express` call. That is precisely "he said his piece and reacted",
-        //      which is a finished turn. A step that only moves him leaves the
-        //      loop open so he can still speak.
-        //
-        // Client tools are unaffected either way: the browser fulfils `flyTo`,
-        // `goTo` and friends and answers with `addToolOutput`, which opens a
-        // fresh request rather than continuing this one.
-        //
         // RAISED FROM 12 TO 24 for a complete gather → draft → check → fix →
         // show deck workflow. Four was sized for a loop with six
         // cosmetic tools, where a step could only ever be "move" or "speak".
@@ -975,44 +954,7 @@ async function serve(request) {
         // number does nothing at all for a journey.
         stopWhen: [
           stepCountIs(MAX_STEPS),
-          ({ steps }) => {
-            const last = steps[steps.length - 1]
-            if (!last) return false
-            // ── SPOKE AT ANY POINT, not "spoke in this step" ────────────────
-            //
-            // This used to read `last.text`, which meant the turn only ended if
-            // one single step contained BOTH the words and the gesture. With
-            // four steps that was nearly always true and the flaw never showed.
-            // With a larger loop and real lookups in between, the ordinary shape
-            // is: step 1 reads, step 2 answers in words, step 3 draws the
-            // panel — and no step ever has both, so the loop ran on.
-            //
-            // Measured against the deployed preview: "show me my 5 most
-            // valuable cards" called `showScreen` THREE TIMES, the second and
-            // third with the title wrapped in newlines, each re-billing the
-            // whole prompt to redraw a panel that was already correct.
-            //
-            // A turn is finished when he has SAID something and is no longer
-            // fetching. Both halves stated over the whole turn, which is what
-            // "he said his piece and reacted" always meant.
-            const spoke = steps.some((s) => (s.text ?? '').trim().length > 0)
-            // `showScreen` counts as acting for exactly the same reason
-            // `express` does: the step produced something the user can see, so
-            // the turn is finished. Left out, a step that spoke AND drew a panel
-            // failed the test, the loop opened another step, and he said his
-            // closing line a second time — measured on the probe:
-            //   [step 1] "Nice pulls! That 91 looks chase-y. Add 'em to the collection?"
-            //   [step 2] "Say the word and I'll stash these in your collection."
-            const ACTS = new Set(['express', 'showScreen'])
-            // AND HE IS NO LONGER FETCHING. Not "his last step acted" — his last
-            // step acted AND NOTHING ELSE. If it also called a data tool he is
-            // mid-lookup, and stopping there would end the turn holding a result
-            // he has not reported, which is a silent half-answer and strictly
-            // worse than one extra step.
-            const lastCalls = (last.toolCalls ?? []).map((c) => c.toolName)
-            const settled = lastCalls.length > 0 && lastCalls.every((n) => ACTS.has(n))
-            return spoke && settled
-          },
+          ({ steps }) => spokeAndSettled(steps),
           // ── THE CIRCUIT BREAKER (c) ──────────────────────────────────────────
           //
           // The flailing guard used to be a POST-MORTEM only: it summarised the
@@ -1032,19 +974,11 @@ async function serve(request) {
         ],
         // ── WHAT HE CAN SEE, PER STEP ─────────────────────────────────────
         //
-        // Not a smaller tool set — the same tools, narrowed on the first step.
-        // Bisected against the live model on the prompt that broke it ("add
-        // 4000 Charizards", which should fire a reaction): with all 34 tools he
-        // narrated the command as visible text 5/5 and called `express` 0/5;
-        // with the write tools out of view, 1/5 and 1/5.
-        //
-        // And ten tools was WORSE than twenty-three, so this is not "fewer is
-        // better" — it is that eleven ways to mutate a collection should not be
-        // crowding the first decision, which is "what is this person asking
-        // for". `decke/focus.ts` has the numbers.
-        //
-        // Everything comes back on step two, so a capability is delayed by one
-        // step and never removed.
+        // Every tool is visible from step zero. The old first-step write
+        // narrowing did not replicate, hid `add_battle_log` exactly when a
+        // pasted log required it, and changed Anthropic's cached tools prefix
+        // between steps. Signed approval still gates every write; visibility
+        // grants no authority. `decke/focus.ts` records the evidence.
         //
         // AND WHAT HAS BECOME IMPOSSIBLE. Once the research tier's own limit has
         // refused once this turn — a spent daily cap, a held wallet — its tool
@@ -1392,6 +1326,20 @@ async function serve(request) {
           // `result.finishReason` is an already-settled promise by this point;
           // awaiting it again is cheap and keeps this block self-contained.
           const finishReason = await result.finishReason.catch(() => undefined)
+          const turnTroubled =
+            needsContinuation(String(finishReason ?? '')) || shouldFireFlailing(phases, answerText)
+          const earlierTurnToolNames = turnToolNames(messages)
+          const latestUserMessage = messages.filter((message) => message?.role === 'user').at(-1)
+          const pastedInLatestUserMessage =
+            extractPastedLog(latestUserMessage ? [latestUserMessage] : []) !== null
+          // ai@7 puts an approval's id and name under `content.toolCall`, not
+          // on the approval part itself. More importantly, ANY pending card is
+          // a hard boundary: replaying its tool call into a second model leg
+          // without a result throws AI_MissingToolResultsError before that leg
+          // can do useful work (reproduced 2026-10-10). Do not let an audit or
+          // the paste backstop hide the card the first leg already raised.
+          const anyApprovalPending = steps.some((step) => (step.content ?? [])
+            .some((content) => content.type === 'tool-approval-request'))
 
           // THE NOTE IS READER-FACING. A text-delta renders in the transcript
           // as Deck-E's own words (exactly like the circles guard's line above)
@@ -1403,6 +1351,8 @@ async function serve(request) {
           // was written TO the model and would have rendered as gibberish.)
           let note = null
           let corrective = null
+          let pasteBackstop = false
+          let pasteRecovery = false
           if (needsContinuation(String(finishReason ?? ''))) {
             // (b) TRUNCATION — cut off mid-sentence.
             note = ' …I got cut off mid-sentence there, before I finished the thought.'
@@ -1457,8 +1407,15 @@ async function serve(request) {
                   signal: abortSignal,
                 })
             const fixable = audit?.phantom ? CORRECTIVE_TOOLS[audit.phantom] : undefined
-            if (fixable && steps.length < MAX_STEPS) {
+            // A false "logged it" claim over a real paste needs the same room
+            // as the backstop: one step may only rank an unknown deck. It stays
+            // an audit correction reader-side, but gets the three-step logging
+            // instruction model-side (measured 2026-10-10).
+            const auditPasteRecovery = fixable === 'add_battle_log' && pastedInLatestUserMessage
+            const correctionSteps = auditPasteRecovery ? 3 : 1
+            if (fixable && !anyApprovalPending && steps.length + correctionSteps <= MAX_STEPS) {
               corrective = fixable
+              pasteRecovery = auditPasteRecovery
             } else if (phantoms.length > 0 || audit?.phantom) {
               note =
                 '\n\nOne correction: I talked about doing that just now, but I never actually ran it — ' +
@@ -1474,6 +1431,36 @@ async function serve(request) {
             }
           }
 
+          // ── A PASTED LOG MUST REACH ITS CONSENT CARD ─────────────────────
+          //
+          // Production had two first legs where a real Live log was pasted and
+          // `add_battle_log` was never called. This is deliberately below the
+          // ordinary audit: it is a backstop only when no other corrective leg
+          // won, only on the first HTTP leg, and never while another approval
+          // is pending. Approval and browser-tool continuations replay a tool
+          // part after the latest user message, so `turnToolNames` remains the
+          // leg boundary while `anyApprovalPending` protects this first leg.
+          if (
+            pasteBackstopNeeded({
+              pastedInLatestUserMessage,
+              firstLegOfTurn: earlierTurnToolNames.length === 0,
+              calledToolNames,
+              anyApprovalPending,
+              clientToolRan: [...calledToolNames, ...earlierTurnToolNames].some((name) => CLIENT_SET.has(name)),
+              correctiveChosen: corrective !== null,
+              turnTroubled,
+            }) &&
+            !capReached &&
+            steps.length + 3 <= MAX_STEPS
+          ) {
+            corrective = 'add_battle_log'
+            pasteBackstop = true
+            pasteRecovery = true
+            // The logging card is the one useful recovery. Do not stack an
+            // empty-answer or caution note immediately above its own bridge.
+            note = null
+          }
+
           if (note) {
             guardFired = true
             writer.write({ type: 'text-delta', id: 'turn-guard', delta: note })
@@ -1481,26 +1468,33 @@ async function serve(request) {
 
           // ── THE CORRECTIVE LEG ────────────────────────────────────────────
           //
-          // One more model step, the same tools and the same prompt prefix,
-          // its choice pinned to the tool that raises the consent card for
-          // what he claimed. Nothing is written until the reader confirms: the
-          // pinned tool holds its change for the signed card exactly as it
-          // would have on step one. It rides inside this request's flat charge
-          // and within MAX_STEPS (checked above), like any step of the turn.
+          // The same tools and prompt prefix, with the corrective tool pinned.
+          // A non-log audit correction gets one step; any pasted-log recovery
+          // gets three so it can rank decks and then apply against the best
+          // match. Nothing is written until the reader confirms: the pinned
+          // tool holds its change for the signed card. Both ride inside this
+          // request's flat charge and the MAX_STEPS check above.
           if (corrective) {
             guardFired = true
-            writer.write({ type: 'text-delta', id: 'turn-guard', delta: CORRECTION_LINE })
+            writer.write({
+              type: 'text-delta',
+              id: 'turn-guard',
+              delta: pasteBackstop ? PASTE_BACKSTOP_LINE : CORRECTION_LINE,
+            })
             const leg = streamText({
               model: observeUsageModel(gateway(choice.id), meter),
               providerOptions: chatProviderOptions(choice),
-              instructions: cachedInstructions(choice, `${systemPrompt}\n\n${correctiveInstruction(corrective)}`),
+              instructions: cachedInstructions(
+                choice,
+                `${systemPrompt}\n\n${pasteRecovery ? pasteBackstopInstruction() : correctiveInstruction(corrective)}`,
+              ),
               // EVERY step's messages, not `result.response.messages`: in ai@7 that is the
               // FINAL step only, so the correction ran without the turn's earlier tool
               // calls and results (measured 2026-09-28, scripts/decke-replay-probe.mjs).
               messages: [...preparedMessages, ...(await result.steps).flatMap((step) => step.response.messages)],
               tools: correctiveApplyTools(allDeckeTools, corrective),
               toolChoice: isAnthropic(choice) ? 'auto' : { type: 'tool', toolName: corrective },
-              stopWhen: stepCountIs(1),
+              stopWhen: pasteRecovery ? stepCountIs(3) : stepCountIs(1),
               ...(process.env.DECKE_APPROVAL_SECRET
                 ? { experimental_toolApprovalSecret: process.env.DECKE_APPROVAL_SECRET }
                 : {}),

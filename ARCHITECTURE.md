@@ -574,7 +574,15 @@ claim on either front-end; and **battle-log deck inference** — `add_battle_log
 with no `deck_id` calls `POST /decks/log-preview` (parse + score the log
 against every deck's current-version list, `apps/api/src/deck/battlelog.ts`'s
 `scoreDeckMatch`) and returns ranked candidates as a pure read; the write
-happens only on a second, explicit call.
+happens only on a second, explicit call. With a named deck, its preview calls
+`POST /decks/:id/logs` with `dryRun: true`, which runs the insert's deck
+resolution, parse, owner identification and field merge without writing, so the
+approval card can surface the refusal the eventual write would produce. A pasted
+log is extracted whole from its Setup/turn anchor through its closeout (including
+reverse order and tolerated unknown client lines); if a healthy first leg neither
+logs it nor raises its card, a bounded paste backstop ranks decks and raises that
+signed card. See
+[`2026-10-10-deck-e-logs-a-pasted-battle-every-tool-in-view-from-step-one-a-backstop-the-whol.md`](decisions/2026/2026-10-10-deck-e-logs-a-pasted-battle-every-tool-in-view-from-step-one-a-backstop-the-whol.md).
 
 Two adapters translate that one definition into a protocol:
 
@@ -1490,7 +1498,9 @@ apps/api/src/decke/
   models.ts             which model each job gets, and why (measured, not assumed)
   adapters/aisdk.ts     ToolDefinition -> the AI SDK's tool(), plus the approval policy (§15c, §15e)
   noOp.ts               "would this write change anything?" -- no dialog if not (§15e)
-  focus.ts              which tools he can SEE on a given step (§15f)
+  focus.ts              every real tool on every step; only a spent meter cap can hide one (§15f)
+  stopRule.ts           `spokeAndSettled`: speech after work, then a cosmetic settle (§15f)
+  pasteBackstop.ts      bounded recovery to the signed log card for an unhandled pasted battle (§15f)
   grounding.ts          the card ids a tool actually returned this turn (§15f)
   narration.ts          tool syntax that reached the reader as prose, removed (§15f)
   jev.ts                typed judgments from Jev, and null (= today's behaviour) on any failure
@@ -1525,10 +1535,14 @@ production needs streaming under the RLS-authenticated request, and the two did
 not compose. It is a web-standard handler using `createGateway({ apiKey })` —
 passing the key as a header is silently ignored and bills the wrong account.
 
-The turn ends when one step both **spoke and acted**, where acting is `express`
-or `showScreen`. Stopping on the tool call alone silenced him, because he does
-not reliably speak before he moves; leaving it out entirely made him deliver two
-near-identical closing lines. Both were measured.
+`spokeAndSettled` ends the turn when he has **spoken after his last
+non-cosmetic tool call** and his last step called only `express` or
+`showScreen`. Stopping on the tool call alone silenced him, because he does not
+reliably speak before he moves; leaving the settle rule out made him deliver two
+near-identical closing lines. Both were measured; speech before a later lookup
+is instead an interim progress line and does not end the turn. The 2026-10-10
+decision records the rule and its retained duplicate-answer and triple-screen
+guards.
 
 ### 15c. Deck-E's data access
 
@@ -1850,19 +1864,17 @@ caching — 98.4% cache-hit and 365 no-cache input tokens per turn, against 67.1
 and 10,078), ~340 ms slower TTFT in every scenario rather than on average, and a
 restraint regression accepted as a direction by the owner.
 
-**Per-step tool narrowing, recorded with its uncertainty intact.** `focus.ts`
-recomputes `activeTools` per step through `prepareStep`: on the first step he
-sees 24 of his 34 tools, everything except the ten heavy deck-and-list writes,
-and everything returns on step two. Conversation-only `log_cards` APPLY and
-`preview_card_changes` both stay visible from step one, because acting on or
-hypothesizing about card quantities are opening-turn requests. The
-bisection that motivated it — 34 tools narrated 5/5, 23 tools 1/5, 10 tools 3/5,
-so fewer was NOT better — **did not replicate**: a follow-up run saw 0/24 on the
-primary trigger, found a real bug in its own harness, and could not rule out an
-analogous gap in the first. The narrowing stays because it removes no capability
-and costs nothing measurable, not because the numbers are settled, and
-`focus.ts` says so at the top of the file rather than keeping the flattering
-half.
+**Per-step tool narrowing was retired on 2026-10-10.** Production logs showed
+that it hid `add_battle_log` from a pasted PTCG Live log on step zero, and the
+old loop could end before the tool returned on step one. Its motivating
+measurement never replicated (the original bisection was 34 tools narrated
+5/5, 23 tools 1/5, and 10 tools 3/5; the follow-up saw 0/24 on the trigger and
+found a harness bug). Changing the tools array between steps also rewrites
+Anthropic's cached tools prefix and can invalidate in-request thinking, while a
+signed approval card still gates every write; `focus.ts` now shows every real
+tool at every step except one made impossible by a spent meter cap. The evidence
+and decision are recorded in
+[`2026-10-10-deck-e-logs-a-pasted-battle-every-tool-in-view-from-step-one-a-backstop-the-whol.md`](decisions/2026/2026-10-10-deck-e-logs-a-pasted-battle-every-tool-in-view-from-step-one-a-backstop-the-whol.md).
 
 ### 15g. The chat surface — a transcript, and a way to walk somebody there
 

@@ -194,6 +194,64 @@ test('the same ledger narrows activeTools, so a spent tier leaves the model\'s v
   );
 });
 
+test('the model loop uses the post-lookup settling rule from the built module', () => {
+  assert.match(
+    SRC,
+    /import \{ spokeAndSettled \} from '\.\.\/apps\/api\/dist\/decke\/stopRule\.js'/,
+    'the shared stop rule is no longer imported',
+  );
+  assert.match(CODE, /\(\{ steps \}\) => spokeAndSettled\(steps\)/);
+});
+
+test('prepareStep still delegates visibility and hard impossibilities to focusedTools', () => {
+  assert.match(
+    CODE,
+    /activeTools: focusedTools\(allDeckeTools, stepNumber, \(n\) => deepRefusals\.unavailable\(n\) \|\| reflex\.hide\.includes\(n\)\)/,
+  );
+});
+
+test('an untouched latest-message paste gets the bounded three-step logging backstop', () => {
+  assert.match(SRC, /pasteBackstopNeeded,[\s\S]*PASTE_BACKSTOP_LINE,[\s\S]*pasteBackstopInstruction/);
+  assert.match(
+    CODE,
+    /extractPastedLog\(latestUserMessage \? \[latestUserMessage\] : \[\]\) !== null/,
+    'paste detection must inspect only the latest user message',
+  );
+  assert.match(CODE, /firstLegOfTurn: earlierTurnToolNames\.length === 0/);
+  assert.match(CODE, /anyApprovalPending,/);
+  assert.match(CODE, /corrective = 'add_battle_log'/);
+  assert.match(CODE, /delta: pasteBackstop \? PASTE_BACKSTOP_LINE : CORRECTION_LINE/);
+  assert.match(CODE, /pasteRecovery \? pasteBackstopInstruction\(\) : correctiveInstruction\(corrective\)/);
+  assert.match(CODE, /stopWhen: pasteRecovery \? stepCountIs\(3\) : stepCountIs\(1\)/);
+  assert.match(CODE, /if \(!asked\) writer\.write\([^\n]*CORRECTION_FAILED_LINE/);
+});
+
+test('a pending approval blocks every corrective model leg', () => {
+  // ai@7 approval parts are `{ type, approvalId, toolCall }`; the old wiring
+  // read `content.toolCallId`, found nothing, and replayed a call with no result
+  // into a corrective leg. convertToLanguageModelPrompt then rejected the leg
+  // before the browser could render the original approval card (2026-10-10).
+  assert.match(
+    CODE,
+    /const anyApprovalPending = steps\.some\([^;]+content\.type === 'tool-approval-request'/,
+  );
+  assert.match(CODE, /if \(fixable && !anyApprovalPending &&/);
+  assert.match(CODE, /pasteBackstopNeeded\(\{[\s\S]*anyApprovalPending,/);
+  assert.doesNotMatch(CODE, /content\.toolCallId/);
+});
+
+test('an audit-chosen battle-log correction gets the three-step pasted-log recovery', () => {
+  assert.match(
+    CODE,
+    /const auditPasteRecovery = fixable === 'add_battle_log' && pastedInLatestUserMessage/,
+  );
+  assert.match(CODE, /const correctionSteps = auditPasteRecovery \? 3 : 1/);
+  assert.match(CODE, /pasteRecovery = auditPasteRecovery/);
+  // It is still an audit correction reader-side: only the true backstop gets
+  // the backstop line. The wider instruction/step budget is model-side.
+  assert.match(CODE, /delta: pasteBackstop \? PASTE_BACKSTOP_LINE : CORRECTION_LINE/);
+});
+
 // ── SEC-04: THE CONVERSATION IS BOUNDED BEFORE ANYTHING PAYS FOR IT ─────────
 //
 // `wireBounds.ts` can be perfect and bound nothing: the body is read, parsed,
@@ -294,18 +352,24 @@ test('the audit reads the turn\'s whole tool record, and a handoff is never audi
 
 test('only a correctable phantom within the step budget gets a corrective leg; the rest are admitted', () => {
   assert.match(CODE, /const fixable = audit\?\.phantom \? CORRECTIVE_TOOLS\[audit\.phantom\] : undefined/);
-  assert.match(CODE, /if \(fixable && steps\.length < MAX_STEPS\) \{\s*corrective = fixable/);
+  assert.match(
+    CODE,
+    /if \(fixable && !anyApprovalPending && steps\.length \+ correctionSteps <= MAX_STEPS\) \{\s*corrective = fixable/,
+  );
   assert.match(CODE, /\} else if \(phantoms\.length > 0 \|\| audit\?\.phantom\) \{/);
 });
 
-test('the corrective leg keeps Anthropic adaptive, the signature and the prompt prefix, and takes one step', () => {
+test('the corrective leg keeps Anthropic adaptive, signed and bounded to one audit step or three paste steps', () => {
   const leg = CODE.slice(CODE.indexOf('if (corrective) {'))
   assert.match(SRC, /buildDataTools, correctiveApplyTools, dataToolSummary/)
   assert.match(leg, /tools: correctiveApplyTools\(allDeckeTools, corrective\)/)
   assert.match(leg, /toolChoice: isAnthropic\(choice\) \? 'auto' : \{ type: 'tool', toolName: corrective \}/);
-  assert.match(leg, /stopWhen: stepCountIs\(1\)/);
+  assert.match(leg, /stopWhen: pasteRecovery \? stepCountIs\(3\) : stepCountIs\(1\)/);
   assert.match(leg, /experimental_toolApprovalSecret: process\.env\.DECKE_APPROVAL_SECRET/);
-  assert.match(leg, /instructions: cachedInstructions\(choice, `\$\{systemPrompt\}\\n\\n\$\{correctiveInstruction\(corrective\)\}`\)/);
+  assert.match(
+    leg,
+    /`\$\{systemPrompt\}\\n\\n\$\{pasteRecovery \? pasteBackstopInstruction\(\) : correctiveInstruction\(corrective\)\}`/,
+  );
   assert.match(leg, /model: observeUsageModel\(gateway\(choice\.id\), meter\)/, 'the leg must be metered like any step');
   assert.match(CODE, /instructions: cachedInstructions\(choice, systemPrompt\),/, 'the turn and correction lost the cached prompt');
 });

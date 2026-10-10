@@ -407,7 +407,8 @@ export interface AiSdkAdapterOptions extends ToolCtxOptions {
    *
    * The paste channel: `add_battle_log` requires re-emitting a pasted 8–15 KB
    * log (~3,000 tokens) as its `log` argument, and the chat model's
-   * `maxOutputTokens` is 1,200 — the arithmetic forbids it. The raw log already
+   * `maxOutputTokens` is 8,000, but an 8–15 KB paste can still consume most or
+   * all of that budget before the model says anything useful. The raw log already
    * sits in the USER message the model is answering; `api/chat.mjs` passes this
    * as `() => extractPastedLog(messages)` (see `pastedLog.ts`), and the adapter
    * substitutes it for a call whose `log` is the sentinel `@pasted` (the model
@@ -415,8 +416,9 @@ export interface AiSdkAdapterOptions extends ToolCtxOptions {
    * and ran out of budget). See `applyPastedLog` below.
    *
    * OPTIONAL and absent by default — MCP and the sub-agent tool sets pay
-   * nothing, and every existing test is unaffected — the substitution is a
-   * no-op when nobody supplies a paste.
+   * nothing for ordinary inputs. A caller that nevertheless sends `@pasted`
+   * without this channel gets the same explicit no-paste refusal; it must not
+   * send the sentinel through to the parser as if it were a battle log.
    */
   pastedLog?: () => string | null;
 }
@@ -603,7 +605,7 @@ export function forcePreview(def: ToolDefinition, input: unknown): unknown {
 
 /**
  * The paste channel — what the model is told instead of being asked to re-type
- * a ~3,000-token log into a 1,200-token output budget.
+ * a ~3,000-token log back through the model's 8,000-token output budget.
  *
  * ══════════════════════════════════════════════════════════════════════════════
  * ONE SEAM, NEXT TO THE OTHER COERCIONS
@@ -1286,6 +1288,15 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
           : async (input: unknown, context?: { toolCallId: string }) => {
               if (!requiresApproval(def, input)) return false;
               if (alreadyDeclined(def.name, input)) return false;
+              // A sentinel with no conversation paste cannot reach the write:
+              // execute returns NO_PASTE_FOUND_MESSAGE before the handler. Do
+              // the same substitution check here so the SDK does not raise a
+              // blank consent card for a call that is structurally unable to
+              // run. With a paste, this remains a normal held write.
+              if (def.name === 'add_battle_log') {
+                const substitution = applyPastedLog(def, input, opts.pastedLog?.());
+                if (substitution.kind === 'fail') return false;
+              }
               if (opts.conversationalLogging && def.name === 'log_cards') {
                 const toolCallId = context?.toolCallId ?? `direct:${callKey(def.name, input)}`;
                 return (await preflightLogCards(def, input, toolCallId)).eligible;
@@ -1362,10 +1373,7 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
         // will return the fail result and the card falls back to the plain
         // dialog, exactly as a preview that could not run does.
         const previewInput = forcePreview(def, input);
-        const pastedPreview = opts.pastedLog;
-        const subPreview: PasteSubstitution = pastedPreview
-          ? applyPastedLog(def, previewInput, pastedPreview())
-          : { kind: 'ok', value: previewInput };
+        const subPreview: PasteSubstitution = applyPastedLog(def, previewInput, opts.pastedLog?.());
         if (subPreview.kind === 'fail') return;
         try {
           // `forcePreview` again, not a cached value: the coercion and the
@@ -1489,10 +1497,7 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
           // but no paste was found, refuse WITHOUT calling the handler: return
           // the fail message so the model can ask the reader to paste the log,
           // and never hand the parser the literal string "@pasted".
-          const pasted = opts.pastedLog;
-          const sub: PasteSubstitution = pasted
-            ? applyPastedLog(def, effective, pasted())
-            : { kind: 'ok', value: effective };
+          const sub: PasteSubstitution = applyPastedLog(def, effective, opts.pastedLog?.());
           if (sub.kind === 'fail') {
             opts.onEvent?.({ phase: 'error', ...chip, summary: 'no pasted log found this conversation' });
             return sub.message;
