@@ -21,26 +21,27 @@ import { postEvent, recorderSuspended } from './eventPost'
 
 /**
  * THE ON-DEVICE OCR LANE (`scan/ocr/**`) — ON in dev and in Vercel previews,
- * OFF in production and self-host.
+ * ON on deckpal.app FOR THE OWNER (2026-10-09), OFF for everyone else on
+ * production and on self-host.
  *
- * Read ONCE at module load, so no capture can straddle a change: the lane is
- * either running for this page or it is not. The rule, its reasoning and its
- * tests live in `scan/ocr/flag.ts` (a pure predicate, because this module
- * imports `lib/api.ts` and so cannot be loaded by a plain Node test process —
- * the same reason `eventPost.ts` was split out of it).
+ * The hostname and the override are read once at module load; who is signed in
+ * is the caller's (`Scan.tsx` passes `Access.isOwner`, read once per page, so no
+ * capture can straddle a change). The rule, its reasoning and its tests live in
+ * `scan/ocr/flag.ts` (a pure predicate, because this module imports
+ * `lib/api.ts` and so cannot be loaded by a plain Node test process — the same
+ * reason `eventPost.ts` was split out of it).
  *
  * What it gates is 15.6 MB of lazily-fetched ONNX weights (REPORT.md §5.2) and a
  * second inference session on a WASM runtime with live iOS crash reports against
- * it (`engine/model.ts`'s header), running alongside a capture that currently
- * completes in 0.67 s. None of it has ever been timed in a browser (§8.3). Until
- * it has, production stays off — and `localStorage['deckpal.ocr'] = '1'` is how
- * the owner turns it on for the phone that does the timing.
+ * it (`engine/model.ts`'s header). The owner's phone has run it through two
+ * field sessions; nobody else's has. `localStorage['deckpal.ocr']` still wins
+ * in both directions.
  */
-export const OCR_ENABLED: boolean = ocrEnabled({
-  dev: !!import.meta.env.DEV,
-  hostname: typeof location === 'undefined' ? '' : location.hostname,
-  override: readOcrOverride(),
-})
+const OCR_HOST = typeof location === 'undefined' ? '' : location.hostname
+const OCR_OVERRIDE = readOcrOverride()
+export function ocrEnabledFor(owner: boolean): boolean {
+  return ocrEnabled({ dev: !!import.meta.env.DEV, hostname: OCR_HOST, override: OCR_OVERRIDE, owner })
+}
 
 /** Re-encode any image blob through a canvas so the upload is always a real
  *  PNG regardless of the source type — a capture is a JPEG; the sidecar

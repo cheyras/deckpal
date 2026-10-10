@@ -6,7 +6,7 @@
 // second answer had one source. It now has two, and they are gathered the same
 // way and spent in the same request:
 //
-//   readCardFields   ON DEVICE. The 15.6 MB OCR lane, behind `OCR_ENABLED`,
+//   readCardFields   ON DEVICE. The 15.6 MB OCR lane, behind `ocrEnabledFor`,
 //                    projected at 1.8-3.4 s.
 //   embedCapture     ON THE SERVER. The crop goes up as bytes and a cosine
 //                    ranking comes back — 733-824 ms warm, 4.6-7.6 s cold.

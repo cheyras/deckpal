@@ -31,7 +31,7 @@
 // callee that this gate should not be relying on.
 
 export interface OcrStageInputs {
-  /** The feature flag (`scan/ui/flags.ts`'s `OCR_ENABLED`). */
+  /** The feature flag (`scan/ui/flags.ts`'s `ocrEnabledFor`). */
   enabled: boolean
   /** Is the DETECTOR ready — i.e. has the camera produced frames and has LC050
    *  loaded? `useScanEngine`'s `status === 'ready'`. */
