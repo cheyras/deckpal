@@ -5,11 +5,12 @@
  * Written from the printed text in frames.ts. One scenario test per card in
  * src/__tests__/cards-opp.test.ts.
  */
-import type { CardScript, Cond, Filter, Program } from '../../dsl.js';
+import type { CardScript, Cond, Program } from '../../dsl.js';
 import { discardOthers, searchToBench, searchToHand } from './helpers.js';
 
-const ANY_CONDITION: Filter = {
-  any: [{ condition: 'asleep' }, { condition: 'confused' }, { condition: 'paralyzed' }, { condition: 'poisoned' }, { condition: 'burned' }],
+/** The Defending Pokémon is affected by a Special Condition (one slot test per condition: a Filter's `any` matches card data only). */
+const DEFENDER_CONDITIONED: Cond = {
+  or: (['asleep', 'confused', 'paralyzed', 'poisoned', 'burned'] as const).map((c) => ({ slotIs: { ref: 'defender' as const, filter: { condition: c } } })),
 };
 const HAS_BENCH: Cond = { gte: [{ pokemon: { zone: 'myBench' } }, 1] };
 const OPP_HAS_BENCH: Cond = { gte: [{ pokemon: { zone: 'oppBench' } }, 1] };
@@ -79,7 +80,7 @@ export const OPP: CardScript[] = [
       'Dusk Raid': { damage: { add: [110, { cond: { gte: [{ pokemon: { zone: 'myBench', filter: { damaged: true } } }, 1] }, then: 110, else: 0 }] } },
       // "If your opponent's Active Pokémon is affected by a Special Condition, it is Knocked Out."
       'Abyss Eye': {
-        program: [{ op: 'if', cond: { slotIs: { ref: 'defender', filter: ANY_CONDITION } }, then: [{ op: 'knockOut', target: 'defender' }] }],
+        program: [{ op: 'if', cond: DEFENDER_CONDITIONED, then: [{ op: 'knockOut', target: 'defender' }] }],
       },
     },
   },
