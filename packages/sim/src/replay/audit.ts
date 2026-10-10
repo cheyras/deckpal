@@ -150,11 +150,13 @@ class Board {
   }
 
   /** Find a Pokémon by name; the Active wins a tie (attacks name the Defending Pokémon). */
-  find(p: Side, c: CardMention, where?: 'active' | 'bench', pick: 'first' | 'mostDamaged' = 'first'): Mon | null {
+  find(p: Side, c: CardMention, where?: 'active' | 'bench', pick: 'first' | 'mostDamaged' = 'first', skip?: Set<Mon>): Mon | null {
     const st = this.s[p];
-    if (where !== 'bench' && st.active && sameName(st.active.name, c.name)) return st.active;
+    if (where !== 'bench' && st.active && sameName(st.active.name, c.name) && !skip?.has(st.active)) return st.active;
     if (where === 'active') return null;
-    const cands = st.bench.filter((m) => sameName(m.name, c.name));
+    let cands = st.bench.filter((m) => sameName(m.name, c.name));
+    // One spread attack hits each Pokémon once: "Metang took 110" twice is two Metang.
+    if (skip && cands.some((m) => !skip.has(m))) cands = cands.filter((m) => !skip.has(m));
     if (cands.length > 1) {
       this.ambiguous++;
       if (pick === 'mostDamaged') return cands.reduce((a, b) => (b.damage > a.damage ? b : a));
@@ -332,8 +334,10 @@ function attackOf(f: CardFrame, name: string) {
 
 /** A frame that has an attack with this name (the card a copy effect used). */
 function frameWithAttack(name: string): CardFrame | null {
-  for (const f of Object.values(FRAMES)) if (f.category === 'Pokemon' && attackOf(f, name)) return f;
-  return null;
+  const all = Object.values(FRAMES).filter((f) => f.category === 'Pokemon' && attackOf(f, name));
+  // Two different attacks sharing a name can't be told apart from the log.
+  const printed = new Set(all.map((f) => `${attackOf(f, name)!.damage}|${normText(attackOf(f, name)!.effect)}`));
+  return printed.size === 1 ? all[0]! : null;
 }
 
 /** Fixed damage: a printed number with no suffix that neither the script nor the text varies. */
@@ -373,7 +377,7 @@ export function auditLog(raw: string, name = 'log', o: ParseOptions = {}): LogAu
   let stadium: Snapshot['stadium'] = null;
 
   // The action whose sub-lines are resolving: damage lines under it are its attack's damage.
-  let action: { p: Side; user: Mon | null; move: string; chosen?: string; ev: LiveEvent } | null = null;
+  let action: { p: Side; user: Mon | null; move: string; chosen?: string; ev: LiveEvent; hit: Set<Mon> } | null = null;
   // Prize window: KOs and Prizes between two turn headers.
   let window: { turn: number; ko: [Mon[], Mon[]]; taken: [number, number]; lines: [string[], string[]] } = {
     turn: 0,
@@ -431,11 +435,12 @@ export function auditLog(raw: string, name = 'log', o: ParseOptions = {}): LogAu
     if (!user?.frame) return void damage.push({ ...base, reason: `no frame for attacker ${user?.name ?? '?'}` });
     if (!target.frame) return void damage.push({ ...base, reason: `no frame for target ${target.name}` });
     // The attack used: the attacker's own, or the one a copy effect chose.
-    let atkFrame: CardFrame | null = attackOf(user.frame, move) ? user.frame : null;
-    let atkName = move;
-    if (!atkFrame && chosen) {
-      atkFrame = frameWithAttack(chosen);
-      atkName = chosen;
+    // A copy effect (Seek Inspiration) names the attack it used; that attack's printed damage applies.
+    let atkFrame: CardFrame | null = chosen ? frameWithAttack(chosen) : null;
+    let atkName = chosen ?? move;
+    if (!atkFrame) {
+      atkFrame = attackOf(user.frame, move) ? user.frame : null;
+      atkName = move;
     }
     if (!atkFrame) {
       if ((user.frame.abilities ?? []).some((a) => normText(a.name) === normText(move))) return; // Ability damage: not an attack
@@ -550,7 +555,7 @@ export function auditLog(raw: string, name = 'log', o: ParseOptions = {}): LogAu
         break;
       }
       case 'use':
-        action = { p: ev.p, user: board.find(ev.p, ev.user, 'active') ?? board.find(ev.p, ev.user), move: ev.move, ev };
+        action = { p: ev.p, user: board.find(ev.p, ev.user, 'active') ?? board.find(ev.p, ev.user), move: ev.move, ev, hit: new Set() };
         break;
       case 'chose':
         if (action && action.p === ev.p) action.chosen = ev.option;
@@ -565,12 +570,13 @@ export function auditLog(raw: string, name = 'log', o: ParseOptions = {}): LogAu
           check(ev, ev.p, user, ev.move, chose?.option, target, ev.damage, ev.riders, ev.breakdown);
         }
         if (target) target.damage += ev.damage;
-        action = { p: ev.p, user, move: ev.move, ev };
+        action = { p: ev.p, user, move: ev.move, ev, hit: new Set(target ? [target] : []) };
         break;
       }
       case 'damage': {
-        const target = board.find(ev.p, ev.target);
+        const target = board.find(ev.p, ev.target, undefined, 'first', action && action.p !== ev.p ? action.hit : undefined);
         if (!target) break;
+        if (action && action.p !== ev.p && ev.sub) action.hit.add(target);
         if (action && action.p !== ev.p && ev.sub) check(ev, action.p, action.user, action.move, action.chosen, target, ev.amount, []);
         target.damage += ev.amount;
         break;

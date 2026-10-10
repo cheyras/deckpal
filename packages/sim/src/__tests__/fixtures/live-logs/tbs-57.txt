@@ -1,0 +1,206 @@
+Setup
+PlayerB chose tails for the opening coin flip.
+PlayerB won the coin toss.
+PlayerB decided to go second.
+PlayerB drew 7 cards for the opening hand.
+- 7 drawn cards.
+PlayerA drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • Basic Psychic Energy, Poké Pad, Wondrous Patch, Night Stretcher, Spectrier, Ultra Ball, Slowking
+PlayerB played Drilbur to the Active Spot.
+PlayerA played Spectrier to the Active Spot.
+
+PlayerA's Turn
+PlayerA drew Academy at Night.
+PlayerA played Poké Pad.
+- PlayerA drew Slowpoke.
+- PlayerA shuffled their deck.
+PlayerA played Slowpoke to the Bench.
+PlayerA played Ultra Ball.
+- PlayerA discarded 2 cards.
+   • Night Stretcher, Academy at Night
+- PlayerA drew Latias ex.
+- PlayerA shuffled their deck.
+PlayerA played Latias ex to the Bench.
+PlayerA attached Basic Psychic Energy to Slowpoke on the Bench.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played Brock's Scouting.
+- PlayerB drew 2 cards.
+   • Beldum, Drilbur
+- PlayerB shuffled their deck.
+PlayerB played Beldum to the Bench.
+PlayerB played Drilbur to the Bench.
+PlayerB played Buddy-Buddy Poffin.
+- PlayerB drew 2 cards and played them to the Bench.
+   • Beldum, Beldum
+- PlayerB shuffled their deck.
+PlayerB attached Basic Metal Energy to Drilbur in the Active Spot.
+PlayerB's Drilbur used Call for Family.
+- PlayerB drew Genesect ex and played it to the Bench.
+- PlayerB shuffled their deck.
+
+PlayerA's Turn
+PlayerA drew Kyurem.
+PlayerA evolved Slowpoke to Slowking on the Bench.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB evolved Beldum to Metang on the Bench.
+PlayerB evolved Beldum to Metang on the Bench.
+PlayerB's Genesect ex used Metallic Signal.
+- PlayerB drew 2 cards.
+   • Metang, Mega Excadrill ex
+- PlayerB shuffled their deck.
+PlayerB evolved Beldum to Metang on the Bench.
+PlayerB evolved Drilbur to Mega Excadrill ex in the Active Spot.
+PlayerB's Metang used Metal Maker.
+- PlayerB attached Basic Metal Energy to Mega Excadrill ex in the Active Spot.
+- PlayerA shuffled their cards.
+PlayerB's Metang used Metal Maker.
+- PlayerA shuffled their cards.
+PlayerB's Metang used Metal Maker.
+- PlayerB attached Basic Metal Energy to Mega Excadrill ex in the Active Spot.
+- PlayerA shuffled their cards.
+PlayerB's Mega Excadrill ex used Maximum Drilling on PlayerA’s Spectrier for 200 damage.
+PlayerA's Spectrier was Knocked Out!
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's Latias ex is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew Academy at Night.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB's Metang used Metal Maker.
+- PlayerB attached Basic Metal Energy to Mega Excadrill ex in the Active Spot.
+- PlayerA shuffled their cards.
+PlayerB's Metang used Metal Maker.
+- PlayerB attached Basic Metal Energy to Drilbur on the Bench.
+- PlayerB attached Basic Metal Energy to Mega Excadrill ex in the Active Spot.
+- PlayerA shuffled their cards.
+PlayerB's Metang used Metal Maker.
+- PlayerB attached Basic Metal Energy to Drilbur on the Bench.
+- PlayerA shuffled their cards.
+PlayerB's Mega Excadrill ex used Maximum Drilling on PlayerA’s Latias ex for 330 damage.
+- Damage breakdown:
+   • Base damage: 200 damage
+   • Damage: 130 damage
+   • Total damage: 330 damage
+
+PlayerA's Latias ex was Knocked Out!
+PlayerB took 2 Prize cards.
+A card was added to PlayerB's hand.
+A card was added to PlayerB's hand.
+PlayerA's Slowking is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew Boomerang Energy.
+PlayerA attached Boomerang Energy to Slowking in the Active Spot.
+PlayerA played Academy at Night to the Stadium spot.
+PlayerA played Academy at Night.
+- PlayerA put Kyurem on top of their deck.
+PlayerA's Slowking used Seek Inspiration.
+- PlayerA discarded Kyurem.
+- PlayerA chose Trifrost
+- 2 cards were discarded from PlayerA's Slowking.
+   • Basic Psychic Energy, Boomerang Energy
+- PlayerB's Metang took 110 damage.
+- PlayerB's Metang took 110 damage.
+- PlayerB's Drilbur took 110 damage.
+PlayerB's Drilbur was Knocked Out!
+- 2 cards were discarded from PlayerB's Drilbur.
+   • Basic Metal Energy, Basic Metal Energy
+PlayerB's Metang was Knocked Out!
+Beldum was discarded from PlayerB's Metang.
+PlayerB's Metang was Knocked Out!
+Beldum was discarded from PlayerB's Metang.
+Boomerang Energy was activated.
+- PlayerA attached Boomerang Energy to Slowking in the Active Spot.
+PlayerA took 3 Prize cards.
+Slowpoke was added to PlayerA's hand.
+Metagross was added to PlayerA's hand.
+Meowth ex was added to PlayerA's hand.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB didn't take an action in time.
+
+PlayerA's Turn
+PlayerA drew Rellor.
+PlayerA played Slowpoke to the Bench.
+PlayerA played Meowth ex to the Bench.
+PlayerA's Meowth ex used Last-Ditch Catch.
+- PlayerA drew Lillie's Determination.
+- PlayerA shuffled their deck.
+PlayerA played Wondrous Patch.
+- PlayerA attached Basic Psychic Energy to Slowpoke on the Bench.
+PlayerA played Academy at Night.
+- PlayerA put Metagross on top of their deck.
+PlayerA played Lillie's Determination.
+- PlayerA shuffled Rellor into their deck.
+- PlayerA drew 6 cards.
+   • Ciphermaniac's Codebreaking, Slowking, Poké Pad, Fezandipiti ex, Wondrous Patch, Telepathic Psychic Energy
+PlayerA played Fezandipiti ex to the Bench.
+PlayerA attached Telepathic Psychic Energy to Slowking in the Active Spot.
+Telepathic Psychic Energy was activated.
+- PlayerA drew 2 cards and played them to the Bench.
+   • Lillie's Clefairy ex, Slowpoke
+- PlayerA shuffled their deck.
+PlayerA's Slowking used Seek Inspiration.
+- PlayerA discarded Basic Psychic Energy.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB didn't take an action in time.
+
+PlayerA's Turn
+PlayerA drew Mega Kangaskhan ex.
+PlayerA evolved Slowpoke to Slowking on the Bench.
+PlayerA played Ciphermaniac's Codebreaking.
+- PlayerA shuffled their deck.
+PlayerA played Wondrous Patch.
+- PlayerA attached Basic Psychic Energy to Slowpoke on the Bench.
+PlayerA's Slowking used Seek Inspiration on PlayerB’s Mega Excadrill ex for 300 damage.
+- Damage breakdown:
+   • Base damage: 150 damage
+   • Total damage: 300 damage
+
+- PlayerA chose Metallic Hammer
+- PlayerA discarded Metagross.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB didn't take an action in time.
+
+PlayerA's Turn
+PlayerA drew Zeraora.
+PlayerA played Poké Pad.
+- PlayerA drew Kyurem.
+- PlayerA shuffled their deck.
+PlayerA played Academy at Night.
+- PlayerA put Kyurem on top of their deck.
+PlayerA's Slowking used Seek Inspiration on PlayerB’s Mega Excadrill ex for 110 damage.
+- PlayerA discarded Kyurem.
+- PlayerA chose Trifrost
+- 2 cards were discarded from PlayerA's Slowking.
+   • Boomerang Energy, Telepathic Psychic Energy
+- PlayerB's Metang took 110 damage.
+- PlayerB's Genesect ex took 110 damage.
+PlayerB's Mega Excadrill ex was Knocked Out!
+- 6 cards were discarded from PlayerB's Mega Excadrill ex.
+   • Basic Metal Energy, Basic Metal Energy, Basic Metal Energy, Basic Metal Energy, Basic Metal Energy, Drilbur
+PlayerB's Metang was Knocked Out!
+Beldum was discarded from PlayerB's Metang.
+PlayerA took 3 Prize cards.
+Annihilape was added to PlayerA's hand.
+Lucky Helmet was added to PlayerA's hand.
+Switch was added to PlayerA's hand.
+All Prize cards taken. PlayerA wins.
+Boomerang Energy was activated.
+- PlayerA attached Boomerang Energy to Slowking in the Active Spot.

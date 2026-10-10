@@ -376,6 +376,8 @@ export function parseLiveLog(raw: string, o: ParseOptions = {}): ParsedLiveLog {
         else if ((m = /^took (\d{1,2}) Prize cards\.$/.exec(rest))) D({ t: 'prize', p, count: Number(m[1]) });
         else if (rest === 'shuffled their deck.') D({ t: 'shuffle', p, zone: 'deck' });
         else if (rest === 'shuffled their hand.') D({ t: 'shuffle', p, zone: 'hand' });
+        // Under an opponent's deck-top look (Metang's Metal Maker): the looked-at cards go back.
+        else if (rest === 'shuffled their cards.') D({ t: 'shuffle', p, zone: 'deck' });
         else if (rest === 'shuffled a card into their deck.') D({ t: 'shuffle', p, zone: 'deck', count: 1 });
         else if ((m = /^shuffled (\d{1,3}) cards into their deck\.$/.exec(rest))) fold = { ev: D({ t: 'shuffle', p, zone: 'deck', count: Number(m[1]) }), kind: 'cards' };
         else if ((m = /^shuffled (.+?) into their deck\.$/.exec(rest))) D({ t: 'shuffle', p, zone: 'deck', count: 1, cards: [card(m[1]!)] });
