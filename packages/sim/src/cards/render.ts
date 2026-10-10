@@ -71,6 +71,10 @@ const colorless = (n: number): string => '{C}'.repeat(Math.max(1, Math.abs(n)));
  * and its section is "opaque": structural problems are reported, not asserted.
  */
 export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => string> = {
+  // lane:charizard
+  'charizard.discardEnergyAmong': (a) => `Discard any amount (0 to all) of the Basic ${sym(String(a.type ?? 'Fire') as PType)} Energy cards attached to your Pokémon (the count lands in "${String(a.as ?? 'n')}")`,
+  'charizard.moveAllCounters': () => "Move every damage counter from that Pokémon to your opponent's Active Pokémon",
+  'charizard.blowtorch': () => "Discard 1 Pokémon Tool or Special Energy card attached to 1 of your opponent's Pokémon, or the Stadium in play",
   oncePerTurnByName: (a) => `You can't use more than 1 Ability that has "${String(a.name)}" in its name each turn`,
   returnSelfToHand: () => 'Put this Pokémon and all attached cards into your hand',
   runAwayDraw: (a) =>
