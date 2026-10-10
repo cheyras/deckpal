@@ -104,11 +104,16 @@ test('the measured corpus replays: 9 true accepts and 9 true rejects', () => {
     [0.6938, 0.6772],
     [0.7028, 0.6952], // the strongest negative: another Fennekin printing
   ]
+  // These are the SHIPPED zero-shot checkpoint's similarities, so they are judged
+  // by its gate — explicitly, now that EMBED_MODEL_ID names the fine-tuned one.
   const verdict = ([a, b]: [number, number]) =>
-    identityConfidence([
-      { cardId: 'top', similarity: a },
-      { cardId: 'second', similarity: b },
-    ]).level
+    identityConfidence(
+      [
+        { cardId: 'top', similarity: a },
+        { cardId: 'second', similarity: b },
+      ],
+      'clip-vit-b32-openai',
+    ).level
 
   const accepted = trueMatches.filter((p) => verdict(p) === 'confident').length
   const falseAccepts = impossible.filter((p) => verdict(p) === 'confident').length
@@ -118,6 +123,28 @@ test('the measured corpus replays: 9 true accepts and 9 true rejects', () => {
   // times on this corpus and was wrong four times.
   assert.equal(falseAccepts, 0, 'the gate named a card that is not in the catalog')
   assert.ok(accepted >= 9, `only ${accepted}/10 true matches cleared the gate`)
+})
+
+test('the fine-tuned gate sits in the gap of both of its measured error clusters', () => {
+  // scripts/scan-bench, 256 real crops, fp32 gallery x int8 query (2026-10-09).
+  // Its wrong top-1s are of exactly two kinds, and each knob must reject one:
+  //   a card with no catalogue art     -> strongest top-1 similarity 0.562
+  //   an identical-art reprint         -> strongest margin 0.004
+  const t = THRESHOLDS['deckpal-card-b32-v1']!
+  assert.ok(t.simMin - 0.562 >= 0.05, `simMin ${t.simMin} must clear the no-art cluster with headroom`)
+  assert.ok(t.marginMin >= 0.004 * 5, `marginMin ${t.marginMin} must clear the same-art cluster with headroom`)
+  const verdict = (a: number, b: number) =>
+    identityConfidence(
+      [
+        { cardId: 'top', similarity: a },
+        { cardId: 'second', similarity: b },
+      ],
+      'deckpal-card-b32-v1',
+    ).level
+  assert.equal(verdict(0.562, 0.491), 'uncertain', 'the strongest no-art photo must not be named')
+  assert.equal(verdict(0.933, 0.933), 'uncertain', 'an identical-art reprint pair must go to the reader')
+  assert.equal(verdict(0.909, 0.905), 'uncertain')
+  assert.equal(verdict(0.86, 0.6), 'confident', 'an ordinary clear match is named')
 })
 
 test('variant confidence is unknown, and says whether that blocks the commit', () => {

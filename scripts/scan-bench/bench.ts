@@ -54,6 +54,9 @@ const LABEL = arg('label', `ocr-${OCR_ON ? 'on' : 'off'}_fusion-${FUSION_ON ? 'o
 const OUT = arg('out', path.join(BENCH_DIR, 'runs'))!
 const DATASETS = arg('datasets')?.split(',') ?? listDatasets()
 const VECTOR_K = 5 // api.ts embedCard asks k=5
+// Which checkpoint's thresholds the ladder applies to these vectors (fuse.ts
+// keys the gate by model id). Defaults to the shipped one.
+const MODEL_ID = arg('model-id', EMBED_MODEL_ID)!
 
 assertMirror()
 const cat = loadCatalog()
@@ -184,7 +187,7 @@ async function runRow(r: BenchRow): Promise<RowResult> {
   if (body) {
     const outcome = await resolveCard(body.fields, body.priorMatches, port, {
       phashConfidentMax: CONFIDENT_MAX,
-      ...(FUSION_ON ? { fusion: { vectorMatches: body.vectorMatches ?? [], modelId: EMBED_MODEL_ID } } : {}),
+      ...(FUSION_ON ? { fusion: { vectorMatches: body.vectorMatches ?? [], modelId: MODEL_ID } } : {}),
     })
     resolved = toWire(outcome)
   }

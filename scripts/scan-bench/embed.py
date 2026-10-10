@@ -37,6 +37,8 @@ CAPTURE_MARGIN = 0.05
 
 
 def model_tag(spec: str) -> str:
+    if spec.endswith(".onnx"):
+        return Path(spec).stem
     return spec.replace("timm:", "").replace("/", "_").replace(":", "_")
 
 
@@ -72,6 +74,12 @@ class Embedder:
 
         self.torch = torch
         self.dev = "cuda" if torch.cuda.is_available() else "cpu"
+        if spec.endswith(".onnx"):
+            import onnxruntime as ort
+
+            self.onnx = ort.InferenceSession(spec, providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
+            self.inp = self.onnx.get_inputs()[0].name
+            return
         if spec.startswith("timm:"):
             self.model = timm.create_model(spec[5:], pretrained=True, num_classes=0).eval().to(self.dev)
         elif spec.endswith(".pt"):
@@ -81,7 +89,7 @@ class Embedder:
 
     def __call__(self, batch: np.ndarray) -> np.ndarray:
         if self.onnx is not None:
-            out = np.concatenate([self.onnx.run(None, {self.inp: x[None]})[0] for x in batch])
+            out = self.onnx.run(None, {self.inp: batch})[0]
         else:
             with self.torch.no_grad():
                 out = self.model(self.torch.from_numpy(batch).to(self.dev)).float().cpu().numpy()

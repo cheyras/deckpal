@@ -68,7 +68,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url))
  * Duplicated because this script may not import a workspace package; pinned to
  * that constant by a test.
  */
-export const EMBED_MODEL_ID = 'clip-vit-b32-openai'
+export const EMBED_MODEL_ID = 'deckpal-card-b32-v1'
 
 /** Where `queryEmbed.ts`'s `DEFAULT_MODEL_PATH` and `includeFiles` both look. */
 export const MODEL_DEST = `apps/api/assets/embed/${EMBED_MODEL_ID}.onnx`
@@ -86,10 +86,12 @@ export const OBJECT_KEY = `models/${EMBED_MODEL_ID}.onnx`
  * current stamp gives a scanner that is confidently wrong. Update the two
  * together or not at all.
  */
-export const MODEL_SHA256 = '871a5a900b284ce0c1e5615fd43bf5c24828f003545df2a1a193947131421759'
+// deckpal-card-b32-v1.int8.onnx, exported 2026-10-09 by tools/scan-embed/export.py
+// from run r1 last.pt (dynamic int8, the shipped quantisation).
+export const MODEL_SHA256 = '807d0f320784f38ce1a8f4d28067442a8126a979d19c3b8d0e9c6ce2711a6f0e'
 
 /** Whole-file size, for the log line and for a cheap pre-digest sanity check. */
-export const MODEL_BYTES = 88_187_806
+export const MODEL_BYTES = 88_228_669
 
 /** Give up on a part rather than hang a build forever. */
 const PART_TIMEOUT_MS = 120_000

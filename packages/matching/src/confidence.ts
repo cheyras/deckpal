@@ -112,6 +112,20 @@ export const THRESHOLDS: Readonly<Record<string, EmbedThresholds>> = {
   // 88 MB. Written down rather than recomputed later, so the device probe can
   // switch to it on one line plus a migration.
   'tinyclip-vit-betwixt32-laion400m': { simMin: 0.785, marginMin: 0.035, simFloor: 0.55 },
+  // THE FINE-TUNED CHECKPOINT, 2026-10-09 (tools/scan-embed, run r1 last.pt):
+  // CLIP ViT-B/32 trained on synthetic phone captures of the 20,467-card
+  // catalogue. Measured on the scan benchmark's 256 real crops (scripts/
+  // scan-bench, fp32 gallery x int8 query, exactly the production pairing):
+  // top-1 93.0% against the shipped checkpoint's 80.9%. Its errors come in two
+  // clean clusters, and each knob sits in the gap of one:
+  //   cards with NO art in the catalogue   top-1 sim <= 0.562  -> simMin 0.65
+  //   identical-art reprints (right art,   margin  <= 0.004   -> marginMin 0.03
+  //     wrong printing — OCR's job)
+  // Coverage at this gate: 207/256 decisive, 0 wrong, 0 of 11 negatives; the
+  // old gate on this space gave 198/256. The floor drops with the space: the
+  // weakest true matches sit near 0.5 and a candidate there is still worth
+  // showing (and corroborating), which is all the floor decides.
+  'deckpal-card-b32-v1': { simMin: 0.65, marginMin: 0.03, simFloor: 0.45 },
 }
 
 export type IdentityLevel = 'confident' | 'uncertain' | 'none'

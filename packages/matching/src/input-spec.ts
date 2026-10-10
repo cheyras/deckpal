@@ -114,7 +114,11 @@ export const EMBED_STD: readonly [number, number, number] = [0.26862954, 0.26130
  *  stamp, because a vector from another checkpoint is not comparable even at
  *  the same spec version. Slug, not a file path: the ONNX asset can be renamed
  *  or re-quantised without invalidating a catalog. */
-export const EMBED_MODEL_ID = 'clip-vit-b32-openai'
+// 2026-10-09: the fine-tuned checkpoint (tools/scan-embed), same ViT-B/32
+// architecture, same input spec, same 768 dims; its own thresholds are in
+// confidence.ts and its own vectors carry its own stamp, so the shipped
+// `clip-vit-b32-openai` rows stay valid and switching back is this one line.
+export const EMBED_MODEL_ID = 'deckpal-card-b32-v1'
 
 /** Dimensionality of the produced embedding. Migration 051 declares
  *  `vector(768)` against this number and cites it; `__tests__/confidence.test.ts`
