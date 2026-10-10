@@ -195,8 +195,10 @@ export const pgCatalogPort: CatalogPort = {
   // 🔴 THIS ONE SCANS `card`, and that is a considered trade rather than an
   // oversight. The prefix half is a functional expression, so no index can serve
   // it (017 declines to index unaccent() for the same reason), and an OR with an
-  // indexable half is still a scan. It is 23.5k rows of three cheap functions,
-  // it runs ONLY on a request where every printed key has already failed, and
+  // indexable half is still a scan. It is 23.5k rows of three cheap functions.
+  // It runs only on a request where no printed key settled the card, or where
+  // the name read disagrees with the card a key did settle (resolve.ts's
+  // post-climb reviews, which share one lookup per request). And
   // the alternative — trusting the trigram floor alone — would make an exact
   // name read depend on a similarity heuristic. Correctness on the rung's own
   // key beats a scan the capture path never waits for.

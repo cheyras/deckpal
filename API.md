@@ -1623,9 +1623,17 @@ rung that read something printed. `"corroborated"` means two independent
 signals named one card while neither was sufficient alone — the `014/198`
 Steenee-or-Floragato case, where the printed key genuinely cannot choose and the
 vector's own top-1 is one of the two. A confident OCR rung is never reviewed by
-the vector: where they disagree, the printed key wins and the response is
-identical to the flag being off. A phash distance <= 2 can CONFIRM the vector
-and can never substitute for it.
+the vector alone: where they disagree, the printed key wins and the response is
+identical to the flag being off. The one exception (2026-10-10) is a key
+resolved on the printed NUMBER (`badge+number`, `number+denominator`) whose
+card the printed NAME does not agree with. If the name agrees with the
+vector's decisive top-1 and that card fits the denominator, badge or number,
+the answer is `"corroborated"` on that card. If it fits none of them, or if the
+name together with the denominator names other cards, the answer becomes
+unconfident and lists both readings. That is how a dropped digit
+(`23/197` read off `223/197`) that lands on a real card stops being a confident
+wrong answer. A garbled name that agrees with nothing changes nothing. A phash
+distance <= 2 can CONFIRM the vector and can never substitute for it.
 
 Note: `setCode` here is the code PRINTED on 2023+ cards (SVI, DRI, ...) — a
 different namespace from PTCGL codes (`PR-SV` vs `SVP`), see

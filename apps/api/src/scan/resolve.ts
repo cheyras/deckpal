@@ -64,8 +64,13 @@
  * inside THIS resolver, not a second endpoint with a competing opinion. Three
  * rules, all in `fuse.ts`, all consulted from here:
  *
- *   1. A key that resolved is never reviewed. OCR wins a disagreement, because
- *      a printed set code and a cosine are not the same kind of claim.
+ *   1. A key that resolved is never reviewed by the vector alone. OCR wins a
+ *      disagreement, because a printed set code and a cosine are not the same
+ *      kind of claim. (Since 2026-10-10 a key resolved on the NUMBER is
+ *      reviewed when the printed NAME agrees with a different card that the
+ *      vector, or the name together with the denominator, also names. That is
+ *      printed evidence against printed evidence, and a misread digit can land
+ *      on a real card. See `letTheNameQuestionTheKey`.)
  *   2. Corroboration: where a key narrowed the world to a handful it cannot
  *      choose between — `014/198` is Steenee or Floragato — and the vector's
  *      own top-1 is one of them, the agreement is the answer. `resolvedBy`
@@ -736,8 +741,10 @@ export async function resolveCard(
   ): ResolveOutcome => {
     const matches = rank(cards, priors.distance, evidence.similarity).slice(0, MAX_MATCHES);
     if (matches.length === 0) return { matched: false, confident: false, resolvedBy, matches, badge };
-    // RULE 1: a key that resolved is not up for review. Nothing below can
-    // demote it, and the vector is not consulted about it at all.
+    // RULE 1: a key that resolved is not up for review here. Nothing below can
+    // demote it, and the vector is not consulted about it at all. (The one
+    // review a confident key gets is after the climb, and it needs the printed
+    // NAME to point elsewhere: `letTheNameQuestionTheKey`.)
     if (confident) return { matched: true, confident: true, resolvedBy, matches, badge };
     // RULE 2: corroboration. Two insufficient signals naming one card.
     const winner = corroboratable ? corroborate(matches.map((m) => m.cardId), signals) : null;
@@ -806,6 +813,9 @@ export async function resolveCard(
   // all of them (rung 4 below): held back rather than returned, so the name
   // rungs get to try, and handed out at the end only if nothing better turned up.
   let keyedButUnnamed: CatalogCard[] | null = null;
+  // `lookupName`'s memo: the post-climb reviews may both ask the catalogue for
+  // the read name, and the production query scans `card`.
+  let nameLookup: Promise<CatalogCard[]> | null = null;
 
   const climb = async (): Promise<ResolveOutcome> => {
   // ── Rung 1 — badge + number. 20,444 keys, zero collisions. ────────────────
@@ -1033,7 +1043,126 @@ export async function resolveCard(
   };
 
   const out = await climb();
+  // The two reviews below never both apply: one looks only at a CONFIDENT key,
+  // the other only at an unconfident climb.
+  if (out.confident) return await letTheNameQuestionTheKey(out);
   return opts.fusion ? await letDecisiveVectorSpeak(out) : out;
+
+  /**
+   * A CONFIDENT PRINTED NUMBER THAT THE PRINTED NAME ARGUES WITH.
+   *
+   * The owner's verified photos, 2026-10-10: a Charizard ex secret rare,
+   * sv03-223, printed `223/197`. OCR read the title `Charizare` and the strip
+   * `23/197`, with the leading digit dropped, and `23/197` is a real card.
+   * sv03 is the only 197-card set, so rung 3 found exactly one card, sv03-023
+   * Capsakid, and returned it CONFIDENT. Meanwhile the vector was decisive for
+   * sv03-223 and the title agreed with Charizard ex, not with Capsakid. The
+   * dropped-digit fixes (`name+denominator`, `letDecisiveVectorSpeak`) both
+   * assume the bad number names nothing or several cards. When it lands on
+   * exactly one real card, the climb ends confident and neither is reached.
+   *
+   * So a confident answer keyed on the NUMBER (rung 1 or rung 3, one card) is
+   * reviewed when the read name does not agree with that card AND something
+   * shows the name pointing at a DIFFERENT card:
+   *
+   *   1. The picture. The vector is decisive for another card V, and the read
+   *      name agrees with V's name. The title and the picture name V, against
+   *      the number. If V also fits a field of the key that was not in doubt
+   *      (V's set prints the denominator read, V is in the badge's set, or V
+   *      carries the number read), then only one printed field is contradicted
+   *      and V is the answer: 'corroborated', the claim `letDecisiveVectorSpeak`
+   *      makes. If V fits none of them, that would mean two printed fields were
+   *      both misread, so the reader is asked, with both cards.
+   *   2. The title alone. The read is a catalogue name, exactly or without its
+   *      rule-box suffix (tier 0 or 1), of a card in a set of the denominator
+   *      read. Name and denominator then name another card, against number and
+   *      denominator. The shared denominator cannot settle that, so the answer
+   *      becomes a question carrying both readings. (A vector top-1 inside that
+   *      list still corroborates, as on any key-narrowed list.)
+   *
+   * DISAGREEMENT ALONE CHANGES NOTHING. OCR garbles titles all the time
+   * (`Polcemon`, `sic Pokemot`, `Erobvtfrom Yudg rNilena`), and a garbled title
+   * must never cost a correct number its confidence. Every branch therefore
+   * needs the name to AGREE with some other card, which garbage does not. Nor
+   * does the vector review a key by itself (fuse.ts rule 1): with no name read,
+   * or a name that agrees with the keyed card, the key stands exactly as before.
+   */
+  async function letTheNameQuestionTheKey(prev: ResolveOutcome): Promise<ResolveOutcome> {
+    if (!nameRead || (prev.resolvedBy !== 'number+denominator' && prev.resolvedBy !== 'badge+number')) return prev;
+    const keyed = prev.matches.length === 1 ? prev.matches[0]! : null;
+    if (!keyed || nameAgrees(nameRead, keyed.name)) return prev;
+    // An image signal agreeing with the keyed card is the picture siding with
+    // the number. The title is then the odd one out.
+    if (signals.phashNearExact === keyed.cardId) return prev;
+    if (vector?.decisive && vector.cardId === keyed.cardId) return prev;
+
+    // 1. The picture and the title, on one other card.
+    const lead =
+      vector?.decisive && vector.cardId ? evidence.vectorCards.find((c) => c.cardId === vector.cardId) : undefined;
+    if (lead && nameAgrees(nameRead, lead.name) && !(await readIsAnotherCardsName(lead))) {
+      const hashAllows = signals.phashNearExact == null || signals.phashNearExact === lead.cardId;
+      const [ledBy] = rank([lead], priors.distance, evidence.similarity);
+      const [kept] = rank([keyed], priors.distance, evidence.similarity);
+      if (hashAllows && (await fitsTheKey(lead))) {
+        return { matched: true, confident: true, resolvedBy: 'corroborated', matches: [ledBy!, kept!], badge };
+      }
+      return {
+        matched: true,
+        confident: false,
+        resolvedBy: prev.resolvedBy,
+        matches: rank([keyed, lead], priors.distance, evidence.similarity),
+        badge,
+      };
+    }
+
+    // 2. The title and the denominator, naming another card.
+    if (denominator != null && port.officialCounts) {
+      // Tier 0 OR 1, not just the best tier `narrowByName` keeps: a read of
+      // `Charizard` reaches the base-set Charizard at tier 0 and Charizard ex at
+      // tier 1, and the denominator decides between them, not the suffix OCR
+      // so often drops.
+      const named = (await lookupName()).filter((c) => {
+        const tier = nameTier(nameRead, c.name);
+        return tier != null && tier <= 1 && c.cardId !== keyed.cardId;
+      });
+      if (named.length > 0) {
+        const counts = await port.officialCounts([...new Set(named.map((c) => c.setId))]);
+        const rivals = named.filter((c) => counts.get(c.setId) === denominator);
+        if (rivals.length > 0) return done(prev.resolvedBy, [keyed, ...rivals], false);
+      }
+    }
+    return prev;
+  }
+
+  /** Does `card` fit a printed field of the key other than the one in doubt? */
+  async function fitsTheKey(card: CatalogCard): Promise<boolean> {
+    if (numeric != null && card.numberNumeric === numeric) return true;
+    if (badge.code && card.setId === badge.code.setId) return true;
+    if (denominator == null || !port.officialCounts) return false;
+    return (await port.officialCounts([card.setId])).get(card.setId) === denominator;
+  }
+
+  /**
+   * Is the read, exactly, the name of some catalogue card, while not `lead`'s
+   * name? If so it was very likely read right, and is not a damaged `lead`. The
+   * one damage still forgiven is a lost owner prefix (`Quilava` off `Ethan's
+   * Quilava`). `Marill` is a card, so a picture of Azumarill does not make the
+   * read a clipped `Azumarill`, and `Nidorina` is not a misread `Nidorino`.
+   */
+  async function readIsAnotherCardsName(lead: CatalogCard): Promise<boolean> {
+    if (!nameRead || nameTier(nameRead, lead.name) === 0) return false;
+    const exact = (await lookupName()).some((c) => nameTier(nameRead, c.name) === 0);
+    return exact && !ownerPrefixed(nameRead, lead.name);
+  }
+
+  /** The catalogue's cards for the read name, fetched at most once per request
+   *  by the two reviews. Empty when the port has no name lookup or the read is
+   *  too short to look up. */
+  function lookupName(): Promise<CatalogCard[]> {
+    const probe = nameRead ? planNameProbe(nameRead) : null;
+    if (!probe || !port.byName) return Promise.resolve([]);
+    return (nameLookup ??= port.byName(probe));
+  }
 
   /**
    * A DECISIVE IMAGE MATCH IS NOT SILENCED BY AN UNSURE READ.
@@ -1072,14 +1201,8 @@ export async function resolveCard(
     const lead = evidence.vectorCards.find((c) => c.cardId === vector.cardId);
     if (!lead || !nameAgrees(nameRead, lead.name)) return prev;
     // A read that is ITSELF a real card name was very likely read right, so
-    // the only damage forgiven is a lost owner prefix (`Quilava` off `Ethan's
-    // Quilava`). `Marill` is a card; a picture of Azumarill does not make the
-    // read a clipped `Azumarill`, and `Nidorina` is not a misread `Nidorino`.
-    if (nameTier(nameRead, lead.name) !== 0 && port.byName) {
-      const probe = planNameProbe(nameRead);
-      const exact = probe ? (await port.byName(probe)).some((c) => nameTier(nameRead, c.name) === 0) : false;
-      if (exact && !ownerPrefixed(nameRead, lead.name)) return prev;
-    }
+    // the only damage forgiven is a lost owner prefix. See the helper.
+    if (await readIsAnotherCardsName(lead)) return prev;
     // And not when a PRINTED NUMBER named a card the printed name also agrees
     // with: `Barraskewda 049/198` keyed sv01-049 and only the hash's veto kept
     // it unconfident, so a decisive picture of the OTHER Barraskewda is a
