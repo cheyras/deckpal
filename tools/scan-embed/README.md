@@ -57,9 +57,9 @@ A model id is a vector space. A new one needs:
 - its own catalogue rows (a new stamp);
 - its own HNSW index (a migration).
 
-The old rows and index stay, so switching back is one line. The production steps are the OWNER's (AGENTS.md B9):
+The old rows and index stay, so switching back is a revert with no data to restore. The production steps are the OWNER's (AGENTS.md B9):
 
 1. **Stage the int8 query model:** `node scripts/stage-embed-model.mjs <int8.onnx>`. It uploads the parts the build fetches and reads them back against the pinned sha256.
 2. **Apply the index migration** (`packages/db/src/migrations/082_…`).
-3. **Embed the catalogue** under the new stamp with the fp32 model, using the runbook in `tools/embed-catalog/README.md`.
+3. **Embed the catalogue** under the new stamp, FROM THIS BRANCH (after building `packages/matching`) and with the fp32 export passed explicitly: `node --import tsx tools/embed-catalog/embed.mts --model <export>/<name>.fp32.onnx`. The job checks the file's sha256 against `GALLERY_MODEL_SHA256` before writing a row, and its log must say `stamp=e1:<name>`. Never run it with `--force` from a checkout whose `EMBED_MODEL_ID` is the live one.
 4. **Deploy the code.** The build fetches the staged model, and the API queries the new stamp.

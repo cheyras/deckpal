@@ -117,7 +117,9 @@ export const EMBED_STD: readonly [number, number, number] = [0.26862954, 0.26130
 // 2026-10-09: the fine-tuned checkpoint (tools/scan-embed), same ViT-B/32
 // architecture, same input spec, same 768 dims; its own thresholds are in
 // confidence.ts and its own vectors carry its own stamp, so the shipped
-// `clip-vit-b32-openai` rows stay valid and switching back is this one line.
+// `clip-vit-b32-openai` rows stay valid. Switching back is reverting the PR that
+// made this change (#288): the id here, its Python mirror, and the model pin in
+// scripts/fetch-embed-model.mjs move together.
 export const EMBED_MODEL_ID = 'deckpal-card-b32-v1'
 
 /** Dimensionality of the produced embedding. Migration 051 declares

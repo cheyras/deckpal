@@ -11,7 +11,7 @@ supersedes: []
 **Decision:** The scanner's identity embedding switches from zero-shot CLIP ViT-B/32 (`clip-vit-b32-openai`) to the same architecture fine-tuned on the catalogue (`deckpal-card-b32-v1`, `tools/scan-embed`).
 - **Training:** every catalogue card is a class. Training pairs synthetic phone captures with clean renders under symmetric InfoNCE. Batches are filled by name family so hard negatives are present, and identical-art reprints are masked out of each other's negatives because printing is OCR's job.
 - **Gate:** new thresholds simMin 0.65, marginMin 0.03 and simFloor 0.45, measured on the scan benchmark.
-- **Deployment:** a new stamp with its own HNSW index (migration 082). The old rows and index stay, so rolling back is one line in `packages/matching`.
+- **Deployment:** a new stamp with its own HNSW index (migration 082). The old rows and index stay, so rolling back is a revert of #288 with no data to restore.
 
 **Why:** On the scan benchmark (`scripts/scan-bench`, the production pairing of fp32 gallery and int8 query, never trained on):
 - **The embedding alone:**
@@ -36,6 +36,7 @@ supersedes: []
   4. deploy.
   
   Until step 3 runs, the code would query an empty stamp, and the ladder degrades to OCR and dHash by design. So the deploy waits for the embed.
-- **Rollback:** set `EMBED_MODEL_ID` back to `clip-vit-b32-openai`. The old rows, index and staged model are untouched.
+- **Rollback:** revert #288. The id, its Python mirror and the model pin in `fetch-embed-model.mjs` move together, and the old rows, index and staged model are untouched.
+- **Unseen cards:** every gallery card was a training class, and the gate was fitted on the benchmark it is scored on. How the model does on sets released after training is measured separately (a held-out-set run) before anyone relies on 0.65 for them.
 - **Retraining:** `tools/scan-embed` is the recipe, and the benchmark is the gate. A new checkpoint gets a new id, new thresholds and a new stamp, never an overwrite.
 - **Latency:** the same architecture and the same 88 MB int8 file, so latency is unchanged. A smaller backbone is the latency lever and is measured separately.

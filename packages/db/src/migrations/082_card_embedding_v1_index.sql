@@ -6,7 +6,8 @@
 -- implies the index's (see embedMatch.ts `pgNeighbours`). Vectors written under
 -- the new stamp would therefore be searched by a sequential scan over every
 -- row. This adds the same index for the new stamp; the old one stays, so the
--- old rows remain searchable and switching EMBED_MODEL_ID back is one line.
+-- old rows remain searchable and switching back is a revert of #288 with no
+-- data to restore.
 --
 -- Additive and idempotent. Runs before the gallery is embedded under the new
 -- stamp (an index over zero rows is free) and before the code that queries it
