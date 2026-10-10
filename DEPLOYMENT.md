@@ -1973,7 +1973,7 @@ can do while signed in — and nothing else: every query it makes runs inside yo
 row-level-security context, so it cannot see another user's rows. It cannot
 change your password, preferences or public showcase, read your Deck-E
 conversations, spend money, or create or revoke tokens (all of that needs a real
-browser session). A **Read only** connection is served only the 13 read tools,
+browser session). A **Read only** connection is served only the 15 read tools,
 inside a read-only database transaction, and the REST API refuses its every
 write with `403 insufficient_scope`. Treat any token like a password, and revoke
 it the moment a client no longer needs it.

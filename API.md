@@ -1077,6 +1077,24 @@ resolved lines with owned copies and USD unit prices, cost to acquire missing
 copies, and a normalized PTCG Live export. Unresolved names remain in `lines`
 with `resolved:false`; no deck or collection data is written.
 
+### POST /deckpal/api/decks/simulate
+Read-only battle simulation (`@deckpal/sim`; the `simulate_battles` agent tool). Body has exactly one
+of `deck_id` (one of the caller's decks, by id or name; a name fragment must match exactly one deck),
+`cards` or `ptcgl_text` (an unsaved list in `POST /decks/check`'s shape, with optional `format` and
+`name`; every line must resolve, else `400` naming the ones that did not), plus optional `opponents`
+(1..8 of the caller's deck ids or names; default up to 6 of their other decks, favourites and most
+recently updated first), `games` (per opponent, default 24, 2..200, rounded up to whole pairs) and
+`seed` (default 1; the same seed, decks and pilot replay the same games). Each opponent is played in
+paired games — one seed, seats swapped, so each deck goes first half the time — by a CPU pilot on both
+sides, inside one 25 s budget shared across the opponents (under the 30 s RLS connection hold); the
+report says when the budget, not `games`, decided how many were played. Returns `{ text, report }`:
+`text` is at most 5,000 characters (Deck-E clamps tool results at 6,000) and `report` is the
+structured form (`kind: "deckpal.simulation"`, `simulated: true`, per-matchup stats with Wilson 95%
+intervals and n, card impact, per-deck coverage naming every approximated or unplayable card, the
+standing caveat, and `notes` for decks that are not 60 cards). Results are simulations, never real-game
+statistics, and nothing is written. Rate limit: 6 calls a minute per account (`429` with
+`Retry-After` beyond that).
+
 ### POST /deckpal/api/decks/save
 Create a deck, or set an existing deck's card list, in ONE transaction. This is what
 `save_deck` (Deck-E and MCP) writes through. Body `{ "deckId"? (edit when present),

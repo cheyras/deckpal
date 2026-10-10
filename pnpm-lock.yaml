@@ -65,6 +65,9 @@ importers:
       '@deckpal/matching':
         specifier: workspace:*
         version: link:../../packages/matching
+      '@deckpal/sim':
+        specifier: workspace:*
+        version: link:../../packages/sim
       '@deckpal/storage':
         specifier: workspace:*
         version: link:../../packages/storage

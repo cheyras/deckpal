@@ -10,7 +10,7 @@ import { currentUserId } from '../identity.js'
 export const deckCheckRouter: Router = Router()
 const FORMATS = ['standard', 'expanded', 'glc', 'unlimited'] as const
 
-interface InputLine { name?: string; card_id?: string; quantity: number; parsed?: ParsedLine }
+export interface InputLine { name?: string; card_id?: string; quantity: number; parsed?: ParsedLine }
 interface PrintRow {
   card_id: string
   variant_id: string
@@ -105,12 +105,21 @@ async function chooseName(name: string, format: FormatCode, userId: string): Pro
   return { card, note: `resolved '${name}' to ${card.tcgdexId}${(owned.get(card.id) ?? 0) > 0 ? ' (you own this printing)' : ''}` }
 }
 
-deckCheckRouter.post('/', asyncHandler(async (req, res) => {
-  const body = (req.body ?? {}) as Record<string, unknown>
-  const format = oneOf<FormatCode>(body.format, FORMATS, 'standard')
-  const userId = currentUserId(req)
-  const requested = deckCheckInputLines(body)
-  const resolved = await mapConcurrent(requested, 6, async (line) => {
+export interface ResolvedInputLine {
+  line: InputLine
+  card: CardFacts | null
+  note: string | undefined
+  basicName: string | undefined
+}
+
+/**
+ * Resolve check_deck-style lines (names, card ids, PTCGL lines) to catalogue
+ * cards, folding repeated printings into one line. Shared with
+ * `POST /decks/simulate` (routes/deckSimulate.ts) so an ad-hoc list resolves
+ * to the same printings in both tools.
+ */
+export async function resolveCheckLines(requested: InputLine[], format: FormatCode, userId: string): Promise<ResolvedInputLine[]> {
+  const resolved = await mapConcurrent(requested, 6, async (line): Promise<ResolvedInputLine> => {
     if (line.card_id) {
       const card = await loadByTcgdexId(dbHandle(), line.card_id)
       return { line, card, note: undefined, basicName: await basicNameFor(card) }
@@ -134,7 +143,14 @@ deckCheckRouter.post('/', asyncHandler(async (req, res) => {
     if (prior) prior.line.quantity += item.line.quantity
     else grouped.set(key, { ...item, line: { ...item.line } })
   }
-  const selected = [...grouped.values()]
+  return [...grouped.values()]
+}
+
+deckCheckRouter.post('/', asyncHandler(async (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>
+  const format = oneOf<FormatCode>(body.format, FORMATS, 'standard')
+  const userId = currentUserId(req)
+  const selected = await resolveCheckLines(deckCheckInputLines(body), format, userId)
   const cards = selected.flatMap((row) => row.card ? [row.card] : [])
   const printRows = cards.length ? await dbHandle().query<PrintRow>(
     `SELECT DISTINCT ON (c.id) c.id AS card_id, cv.id AS variant_id, cv.variant_kind_code,

@@ -353,7 +353,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   "call set_progress with NO set_id" and got seven calls with `set_id: 'none'`. Ids in a failure
   message come from the caller's own data or are absent.
 
-## 5. Tool surface (25 ordinary tools + 3 capability-gated tools + 1 resource)
+## 5. Tool surface (26 ordinary tools + 3 capability-gated tools + 1 resource)
 
 ### Reads — direct SQL (`readOnlyHint: true`)
 
@@ -513,6 +513,16 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
    one list form. Resolves names or card ids, checks the 60-card and format rules plus evolution
    gaps, and reports ownership, missing-copy cost and normalized PTCG Live text. Run it before
    showing or saving any proposed deck, fix its findings, and check again.
+8b. **`simulate_battles`** — read-only `{ deck_id? | cards? | ptcgl_text?, name?, format?, opponents?: [deck id or
+   name] (≤8; default up to 6 of the caller's other decks), games? = 24 (2..200, per opponent, rounded up to
+   pairs), seed? = 1 }` → `POST /decks/simulate`. Plays the deck against each opponent in `@deckpal/sim` with
+   a CPU pilot on both sides: paired games (seats swapped per seed, so each deck goes first half the time)
+   inside a 25 s budget, then returns per-opponent W/L/draws/time-outs, win rate with Wilson 95% interval
+   and n, going-first/second splits, game length, win/loss reasons, setup speed, Prize-takers and
+   liabilities, loss patterns, early-card impact (an association), and a coverage block naming every
+   card the engine only approximates or cannot play. The text says on its first and last line that
+   these are simulated games by a bot, never real results; nothing is stored. Deck refs resolve loosely
+   through `needDeck` (a read).
 9. **`save_deck`** — `{ deck_id?, name?, format?, cards?: [{card_id, quantity}], ptcgl_text?,
    version_note?, dry_run? = true }`. Create or replace the list with ONE request to
    `POST /decks/save` (2026-09-29), which resolves every card first and writes the deck,

@@ -536,7 +536,7 @@ served by `apps/images`. Sync jobs run via cron or any scheduler.
 ## 10. The agent tool layer — one definition, two front-ends
 
 **`packages/agent-tools` (`@deckpal/agent-tools`) is the single definition of
-what an agent may do in DeckPal.** 24 tools (13 read, 11 write, 4 of those
+what an agent may do in DeckPal.** 26 tools (15 read, 11 write, 4 of those
 also destructive), each a `ToolDefinition`: a zod input schema, `annotations`
 (`readOnlyHint` is required in the type, not optional as MCP's own SDK has
 it — a tool that forgets to state it fails to compile rather than defaulting
@@ -610,7 +610,7 @@ a set's name.
 
 ### MCP server — live and multi-user
 
-`deckpal-mcp`'s 24 tools are served to any signed-up user at
+`deckpal-mcp`'s 26 tools are served to any signed-up user at
 `https://deckpal.app/mcp` (`apps/mcp/src/cloud.ts`), authenticated per-user by
 a personal access token (`dsk_…`, SHA-256 hashed, shown once at creation,
 revocable from Profile). Each call resolves the token to a `user_id` and runs
@@ -649,6 +649,19 @@ enforced at the MCP edge (read tools only, `BEGIN READ ONLY`) and at the REST
 API (`enforceTokenScope`). Tokens from before 075 are unchanged.
 When a newer web app reaches an older API, missing `trust` on `GET /oauth/client`
 limits the consent screen to full access because the older API ignores scope.
+
+### The battle simulator behind `simulate_battles`
+
+`packages/sim` (`@deckpal/sim`) is a pure, seeded Pokémon TCG rules engine with no I/O: game state is
+plain data, every decision is one "pick k of these numbered options" shape, and card behaviour comes
+from scripts keyed by a printing's game text (a card with no script is played approximately or not at
+all, and every report says which). Its batch runner plays PAIRED games (one seed, seats swapped) and
+reduces each to a compact summary off the event stream; `stats.ts` and `report.ts` turn those into
+Wilson-interval rates and a text of at most 5,000 characters that leads and ends with "simulated, not
+real". `apps/api` is its only caller: `POST /decks/simulate` (routes/deckSimulate.ts) loads the decks'
+frames through `fingerprintInputs` and runs the matchups in deck/simulate.ts inside a 25 s budget, and
+the read-only `simulate_battles` tool in `packages/agent-tools` calls it for both front-ends
+(DECISIONS 2026-10-10, "Battle simulator: simulate_battles for both assistants").
 
 ## 11. Correctness traps that shape the design
 
@@ -1391,7 +1404,7 @@ Verification of it has been done against previews and against the live backend a
 the QA account, never the owner's, per contract B12. It needs
 `DECKE_VERCEL_AI_GATEWAY_KEY` in the
 Vercel project; it fails closed without one and reports its own readiness on
-`/api/health`. He now holds all 25 of `packages/agent-tools`' tools (§15c) —
+`/api/health`. He now holds all 26 of `packages/agent-tools`' tools (§15c) —
 the write half held behind an approval round trip (§15e) rather than filtered
 out — plus research and deck checking in the normal streamed loop, against the
 six cosmetic tools of the original ship.

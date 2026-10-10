@@ -17,3 +17,17 @@ export { GreedyPilot, type GreedyOptions } from './pilot/greedy.js';
 export { SearchPilot, DEFAULT_SEARCH, type SearchOptions } from './pilot/search.js';
 export { PolicyPilot, policyChoose, DEFAULT_PROFILE, type PolicyProfile } from './pilot/policy.js';
 export { evaluate, DEFAULT_WEIGHTS, type EvalWeights } from './pilot/eval.js';
+export {
+  defaultPilotFactory, isTimeout, ownTurn, runSimulation, simulate, simulateAsync,
+  type FirstTurns, type GameSummary, type KoRecord, type PilotFactory, type Side, type SimulateOptions,
+  type Simulation, type SimulationResult,
+} from './runner.js';
+export {
+  UNCREDITED, cardImpact, matchupStats, overallStats, rate, recordOf, wilson,
+  type CardImpact, type CardImpactOptions, type ImpactSplit, type LossPatterns, type MatchupStats,
+  type OverallStats, type PrizeRow, type Rate, type Record4, type SideSetup,
+} from './stats.js';
+export {
+  CAVEAT, RANDOM_PILOT_WARNING, buildReport, deckCoverage, renderReport,
+  type BuildReportInput, type CoverageLine, type DeckCoverage, type SimReport,
+} from './report.js';
