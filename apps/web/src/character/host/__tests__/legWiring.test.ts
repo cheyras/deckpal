@@ -181,6 +181,17 @@ test('an approval preview title becomes the actual question', () => {
   assert.match(HOOK, /approvalTitles\.set\(preview\.toolCallId, preview\.title\.trim\(\)\)/)
 })
 
+test('Deep Think estimates are accepted only as valid server-authored ranges', () => {
+  assert.match(HOOK, /part\.type === 'data-decke-deep-estimate'/)
+  assert.match(HOOK, /typeof estimate\.toolCallId === 'string'/)
+  assert.match(HOOK, /estimate\.toolCallId\.trim\(\)\.length > 0/)
+  assert.match(HOOK, /Number\.isInteger\(estimate\.low\)/)
+  assert.match(HOOK, /Number\.isInteger\(estimate\.high\)/)
+  assert.match(HOOK, /estimate\.low as number\) >= 0/)
+  assert.match(HOOK, /estimate\.high as number\) >= \(estimate\.low as number\)/)
+  assert.match(HOOK, /handlers\.onDeepEstimate\(estimate as DeepThinkEstimate\)/)
+})
+
 test('a leg marks only what it actually recorded', () => {
   // Marking on sight would lose an unfinished call for good: it is SEEN on the
   // leg it starts and only becomes evidence on the leg its result lands.

@@ -113,6 +113,8 @@
   "{\"case\":\"decke-states\",\"width\":390,\"engine\":\"webkit\"}",
   "{\"case\":\"decke-write-refreshes-page\",\"width\":1280}",
   "{\"case\":\"decke-write-refreshes-page\",\"width\":390}",
+  "{\"case\":\"deep-think-card\",\"width\":1440}",
+  "{\"case\":\"deep-think-card\",\"width\":390}",
   "{\"case\":\"design-catalog-discovers-interactive-data-table\",\"label\":\"cloud\",\"width\":1280}",
   "{\"case\":\"design-catalog-discovers-interactive-data-table\",\"label\":\"cloud\",\"width\":390}",
   "{\"case\":\"errorboundary-report-this-discloses-public-destination\",\"width\":1280}",

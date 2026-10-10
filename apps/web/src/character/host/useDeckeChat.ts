@@ -123,6 +123,7 @@ import {
   type HeldItem,
   type RowChoice,
 } from './chat/approvalCardState'
+import type { DeepThinkEstimate } from './chat/deepThinkCard'
 
 /** A command as the server's `express` tool emits it. Mirrors `decke/tools.ts`. */
 type WireCommand = {
@@ -675,6 +676,8 @@ export function useDeckeChat(
    * the stream and the question is asked after the stream closes.
    */
   const previewsRef = useRef(new Map<string, ApprovalPreview>())
+  /** Server-computed Deep Think ranges, keyed to the exact held call. */
+  const deepEstimatesRef = useRef(new Map<string, DeepThinkEstimate>())
   /** What the reader has decided, per row index. Owned here rather than in the
    *  panel, because a half-answered approval is not a thing to leave riding on
    *  whether a component happens to stay mounted. */
@@ -722,6 +725,10 @@ export function useDeckeChat(
     askingRef.current = null
     setAsking(null)
     setApprovalChoices(new Map())
+    for (const approval of list) {
+      previewsRef.current.delete(approval.toolCallId)
+      deepEstimatesRef.current.delete(approval.toolCallId)
+    }
     // ── ONE VERDICT PER CALL, NOT ONE VERDICT FOR ALL OF THEM ─────────────
     //
     // This used to map every pending approval to the same verdict, and the card
@@ -1447,6 +1454,9 @@ export function useDeckeChat(
               // identity.
               previewsRef.current.set(preview.toolCallId, preview)
             },
+            onDeepEstimate: (estimate) => {
+              deepEstimatesRef.current.set(estimate.toolCallId, estimate)
+            },
             onCredits: (balance, lowAt) =>
               // `allowance` is only the FALLBACK rule's input and the server's
               // threshold outranks it — see `lowAt` in `creditState.ts`. It is
@@ -2046,6 +2056,8 @@ export function useDeckeChat(
     }
     seqRef.current = 0
     setConversationEpoch((n) => n + 1)
+    previewsRef.current.clear()
+    deepEstimatesRef.current.clear()
     setMessages([])
   }, [])
 
@@ -2092,6 +2104,7 @@ export function useDeckeChat(
     approve,
     deny,
     approvalPreview: (id: string) => previewsRef.current.get(id) ?? null,
+    deepThinkEstimate: (id: string) => deepEstimatesRef.current.get(id) ?? null,
     approvalChoices,
     onApprovalChoice,
     approvalBusy,
@@ -2116,6 +2129,7 @@ export function useDeckeChat(
 type LegHandlers = {
   onText: (chunk: string) => void
   onApprovalPreview: (preview: ApprovalPreview) => void
+  onDeepEstimate: (estimate: DeepThinkEstimate) => void
   /** Returns a promise, and `streamLeg` awaits it — see the call site below
    *  and `apply`'s own header for why command application had to become
    *  ordered against the rest of the stream rather than fire-and-forget. */
@@ -2493,6 +2507,18 @@ async function streamLeg(
         const preview = part.data as unknown as ApprovalPreview
         handlers.onApprovalPreview(preview)
         if (preview.title?.trim()) approvalTitles.set(preview.toolCallId, preview.title.trim())
+      } else if (part.type === 'data-decke-deep-estimate' && part.data) {
+        const estimate = part.data as Partial<DeepThinkEstimate>
+        if (
+          typeof estimate.toolCallId === 'string'
+          && estimate.toolCallId.trim().length > 0
+          && Number.isInteger(estimate.low)
+          && Number.isInteger(estimate.high)
+          && (estimate.low as number) >= 0
+          && (estimate.high as number) >= (estimate.low as number)
+        ) {
+          handlers.onDeepEstimate(estimate as DeepThinkEstimate)
+        }
       } else if (part.type === 'data-decke-finish' && part.data) {
         // WHY THIS LEG STOPPED. Kept on the outcome and filed with the turn, so
         // "the answer ends mid-word" can be answered with 'length' instead of a
