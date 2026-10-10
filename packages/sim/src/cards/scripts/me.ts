@@ -264,13 +264,15 @@ export const ME: CardScript[] = [
     fix: { specialEnergy: true },
     provides: ['Psychic'],
     // "When you attach this card from your hand to a {P} Pokémon, search your deck for up to 2 Basic {P} Pokémon and put them onto your Bench. Then, shuffle your deck."
+    // Ruling (Perfect Order FAQ, 2026-03-26): "if your Bench is full you cannot search or shuffle your deck."
     triggers: [
       {
         on: 'attachFromHand',
-        when: { slotIs: { ref: 'self', filter: { type: 'Psychic' } } },
+        when: { and: [{ slotIs: { ref: 'self', filter: { type: 'Psychic' } } }, { not: { benchFull: 'self' } }] },
         program: searchToBench({ type: 'Psychic' }, 2),
       },
     ],
+    notes: 'Full Bench: no search, no shuffle (Perfect Order FAQ; TPCi Rules Team, 2026-03-26).',
   },
 ];
 
