@@ -496,6 +496,8 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
     case 'condition': {
       const t = resolveSlot(s, e, st.to);
       if (!t) return 'next';
+      // Rulebook p.15: Special Conditions affect only Active Pokémon; a Benched Pokémon can't be given one.
+      if (!findSlot(s, t.id)?.active) return 'next';
       if ((f.kind === 'attack' || f.kind === 'ability') && effectsPrevented(env, s, t, f.player, f.kind)) return 'next';
       if (def(env.ctx, topCard(t)).script?.fix?.playAsBasic?.noConditions) return 'next'; // lane:ghost
       applyCondition(t, st.cond);
