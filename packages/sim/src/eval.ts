@@ -73,10 +73,12 @@ export function slotMatches(env: Env, slot: Slot, f: Filter | undefined): boolea
   if (f.tool !== undefined && slot.tools.length > 0 !== f.tool) return false; // lane:metal
   if (f.condition && !(slot.cond & COND_BIT[f.condition])) return false; // lane:metal
   if (f.energized !== undefined && slot.energy.length > 0 !== f.energized) return false; // lane:ghost
+  // lane:trevenant — `any` alternatives may use in-play keys too (Ruffian: has a Tool, or has a Special Energy).
+  if (f.any && !f.any.some((x) => slotMatches(env, slot, x))) return false;
   let d = def(env.ctx, topCard(slot));
   // lane:ghost — a Trainer in play was played as a Pokémon (Antique fossils): match it as one.
   if (d.kind !== 'pokemon') d = { ...d, kind: 'pokemon', ttype: null };
-  return defMatches(d, { ...f, damaged: undefined, energized: undefined });
+  return defMatches(d, { ...f, damaged: undefined, energized: undefined, any: undefined });
 }
 
 /** Slots in a zone relative to a player. */
