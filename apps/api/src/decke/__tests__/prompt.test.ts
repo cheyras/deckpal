@@ -31,6 +31,7 @@ test('the new conversation, memory, deck, and failure contracts are present', ()
     'Never ask them for something you can look up',
     'Check it with `check_deck`',
     'Show it with `showDeck`',
+    'Odds come from `deck_odds`, never from your head.',
     'Never say you were blocked, refused or declined unless the reader actually',
   ]) {
     assert.ok(p.includes(phrase), `missing: ${phrase}`)

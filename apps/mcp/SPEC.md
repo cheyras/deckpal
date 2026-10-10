@@ -168,9 +168,11 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   only because Claude requests a refresh token when it sees it; DeckPal checks no OAuth scope
   string). The consent screen offers a scope choice only when `GET /oauth/client`
   includes `trust`, which the older scope-ignoring API omits. Its **read-only** connection resolves with
-  `scope: 'read'`, is built a server with only the 13 `readOnlyHint` tools, runs in `BEGIN READ
+  `scope: 'read'`, is built a server with only the 15 `readOnlyHint` tools, runs in `BEGIN READ
   ONLY`, and is refused every non-GET REST call (`403 insufficient_scope`) except `POST /massentry`,
-  which only builds `set_cart`'s cart links. Tokens that existed
+  `POST /decks/check` and `POST /decks/odds` (2026-10-10: `/decks/check` had been missing, so `check_deck` was
+  served and then refused),
+  which only build `set_cart`'s cart links and the two deck reads. Tokens that existed
   before 075, including hand-made ones and live claude.ai connectors, resolve exactly as before:
   full scope, no expiry. The consent screen names the redirect's host and marks only Claude's exact
   documented callback as Verified; see SECURITY.md. Session routes that changed shape:
@@ -245,7 +247,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
 
 ## 4. Tool conventions
 
-- **The 24 tool definitions live in `packages/agent-tools/src/tools/*.ts`** (`@deckpal/agent-tools`),
+- **The 26 tool definitions live in `packages/agent-tools/src/tools/*.ts`** (`@deckpal/agent-tools`),
   each a `ToolDefinition` — `{ name, title, description, inputSchema, annotations, handler }` — written
   against `Ctx` alone, with no MCP SDK import anywhere in that package. `apps/mcp/src/adapters/mcp.ts`
   is the only file that turns one into an MCP registration: it walks `allTools()` and calls
@@ -353,7 +355,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   "call set_progress with NO set_id" and got seven calls with `set_id: 'none'`. Ids in a failure
   message come from the caller's own data or are absent.
 
-## 5. Tool surface (25 ordinary tools + 3 capability-gated tools + 1 resource)
+## 5. Tool surface (26 ordinary tools + 3 capability-gated tools + 1 resource)
 
 ### Reads — direct SQL (`readOnlyHint: true`)
 
@@ -492,7 +494,7 @@ sees them in `tools/list`:
 Exact request/response shapes: **read `apps/api/src/routes/decks.ts` / `lists.ts` first**; the
 routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST /decks/:id/cards`,
 `PATCH/DELETE /decks/:id/cards/:cardId`, `GET /decks/:id/{validate,export,testhand,pricing}`,
-`POST /decks/check`, `POST /decks/import`, `PUT /decks/:id/strategy`, `GET /decks/:id/versions[/:v]`,
+`POST /decks/check`, `POST /decks/odds`, `POST /decks/import`, `PUT /decks/:id/strategy`, `GET /decks/:id/versions[/:v]`,
 `POST /decks/:id/revert`, `GET/POST /decks/:id/logs`, `GET/PATCH/DELETE /decks/:id/logs/:logId`;
 `GET/POST /lists`, `GET/PATCH/DELETE /lists/:id`, `POST /lists/:id/items`,
 `DELETE /lists/:id/items/:itemId`).
@@ -513,6 +515,24 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
    one list form. Resolves names or card ids, checks the 60-card and format rules plus evolution
    gaps, and reports ownership, missing-copy cost and normalized PTCG Live text. Run it before
    showing or saving any proposed deck, fix its findings, and check again.
+8b. **`deck_odds`** — read-only (2026-10-10) `{ deck_id? | cards? | ptcgl_text?, queries?,
+   trials? = 50000 (1000–200000), seed? }`, with exactly one deck form: a saved deck (UUID or
+   name, resolved by `needDeck`) or an unsaved list in check_deck's shapes, so a hypothetical
+   change can be tested before it is saved. `POST /decks/odds` shuffles it `trials` times with
+   a seeded mulberry32 (default seed fixed, so a repeat call agrees) under the Standard setup:
+   draw 7, mulligan until a Basic, 6 Prizes, one draw per turn with turn 1 included — so hand
+   odds are for the KEPT hand. Each of ≤ 12 `queries` is `{ label?, all_of: Group[1..6],
+   by_turn? 0–10 = 0, prized? = false }`, a `Group` being `{ cards?: names in the deck,
+   kinds?: basic|pokemon|supporter|item|tool|stadium|energy, count? = 1 }` met when at least
+   `count` seen (or prized) cards match any listed name or kind; a query succeeds when every
+   group is met. Without queries: one line per card name — ≥1 copy in the opening hand, seen by
+   turn 2, prized, and every copy prized. Every answer states method, trials, seed, the
+   simulated AND closed-form mulligan rate, a 95% margin per value, the exact hypergeometric
+   value for any single-group query, and the standing caveat that it is draw-only (search and
+   draw cards are never played; name them in a group to count them as outs). An unknown card
+   name fails with the deck's real names; a short, long or over-copied list is still computed
+   and says so; a list with no Basic fails. First of the simulation tools — the battle
+   simulator that plays cards will report the same way.
 9. **`save_deck`** — `{ deck_id?, name?, format?, cards?: [{card_id, quantity}], ptcgl_text?,
    version_note?, dry_run? = true }`. Create or replace the list with ONE request to
    `POST /decks/save` (2026-09-29), which resolves every card first and writes the deck,
