@@ -413,7 +413,8 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
       if (d.ttype === 'item') {
         if (!locked && once(`t${d.idx}`)) out.push({ t: 'trainer', card: c });
       } else if (d.ttype === 'supporter') {
-        if (!ps.supporterPlayed && s.turn !== 1 && once(`t${d.idx}`)) out.push({ t: 'trainer', card: c });
+        // lane:metal: `firstTurnSupporter` (Carmine) lifts the first player's turn-1 ban.
+        if (!ps.supporterPlayed && (s.turn !== 1 || d.script?.firstTurnSupporter) && once(`t${d.idx}`)) out.push({ t: 'trainer', card: c });
       } else if (d.ttype === 'stadium') {
         if (ps.stadiumPlayed) continue;
         if (s.stadium && def(env.ctx, s.stadium.card).name === d.name) continue;

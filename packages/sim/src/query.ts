@@ -51,7 +51,7 @@ export function statics(env: Env, s: GameState): LiveStatic[] {
     if (te.until < s.turn) continue;
     out.push({
       effect: te.static,
-      scope: te.slot > 0 ? 'self' : 'me',
+      scope: te.slot > 0 ? 'self' : (te.scope ?? 'me'), // lane:metal: te.scope
       filter: te.filter,
       player: te.slot > 0 ? (findSlot(s, te.slot)?.owner ?? te.player) : te.player,
       slot: te.slot,
@@ -256,9 +256,14 @@ export function damageOut(env: Env, s: GameState, attacker: Slot, target: Slot, 
   return n;
 }
 
-export function damageIn(env: Env, s: GameState, target: Slot, all = statics(env, s)): number {
+/** `fromPlayer`: whose attack it is (lane:metal) — a `fromOpp` reduction skips the target owner's own attacks. */
+export function damageIn(env: Env, s: GameState, target: Slot, all = statics(env, s), fromPlayer?: Player): number {
   let n = 0;
-  for (const x of onSlot(env, s, all, target, 'damageIn')) n += (x.effect as { amount: number }).amount;
+  for (const x of onSlot(env, s, all, target, 'damageIn')) {
+    const e = x.effect as { amount: number; fromOpp?: boolean };
+    if (e.fromOpp && fromPlayer !== undefined && fromPlayer === ownerOf(s, target)) continue; // lane:metal
+    n += e.amount;
+  }
   return n;
 }
 

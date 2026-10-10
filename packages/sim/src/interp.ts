@@ -230,7 +230,7 @@ function dealDamage(
       const r = def(env.ctx, topCard(target)).resistance;
       if (r && atkTypes.includes(r.type)) dmg -= r.amount;
     }
-    if (dmg > 0) dmg += damageIn(env, s, target, all);
+    if (dmg > 0) dmg += damageIn(env, s, target, all, f.player); // lane:metal: attacker's side, for `fromOpp`
     if (dmg < 0) dmg = 0;
     if (dmg > 0 && damagePrevented(env, s, target, f.player, all)) dmg = 0;
     if (dmg <= 0) continue;
@@ -500,6 +500,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
           fromAttack: f.kind === 'attack',
           src: f.src,
           filter: st.filter,
+          ...(st.scope ? { scope: st.scope } : {}), // lane:metal
         });
       }
       return 'next';
