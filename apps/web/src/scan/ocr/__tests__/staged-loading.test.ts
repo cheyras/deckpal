@@ -115,10 +115,21 @@ describe('the staging gate', () => {
 })
 
 describe('the feature flag', () => {
-  it('is ON in dev and in Vercel previews, OFF in production', () => {
+  it('is ON in dev, in Vercel previews, and on deckpal.app (owner-only scanner)', () => {
     assert.equal(ocrEnabled({ dev: true, hostname: 'localhost', override: null }), true)
     assert.equal(ocrEnabled({ dev: false, hostname: 'deckpal-git-abc.vercel.app', override: null }), true)
-    assert.equal(ocrEnabled({ dev: false, hostname: 'deckpal.app', override: null }), false)
+    assert.equal(ocrEnabled({ dev: false, hostname: 'deckpal.app', override: null }), true)
+    assert.equal(ocrEnabled({ dev: false, hostname: 'www.deckpal.app', override: null }), true)
+  })
+
+  it('does not mistake a lookalike for deckpal.app', () => {
+    for (const host of ['deckpal.app.evil.com', 'notdeckpal.app', 'evil.com']) {
+      assert.equal(ocrEnabled({ dev: false, hostname: host, override: null }), false, host)
+    }
+  })
+
+  it('production can still be switched off by the override, without a redeploy', () => {
+    assert.equal(ocrEnabled({ dev: false, hostname: 'deckpal.app', override: '0' }), false)
   })
 
   it('defaults OFF for a host it does not recognise', () => {

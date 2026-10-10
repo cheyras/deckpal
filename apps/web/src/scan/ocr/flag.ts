@@ -67,9 +67,18 @@ export function ocrEnabled({ dev, hostname, override }: OcrFlagInputs): boolean 
     // than letting a typo silently mean "off".
   }
   if (dev) return true
-  // Vercel preview deployments only. `deckpal.app` — production — is NOT here,
-  // and neither is a self-hosted origin, which by definition is not a domain
-  // this repo can enumerate.
+  // PRODUCTION, SINCE 2026-10-09. The scanner endpoints answer only the owner on
+  // deckpal.app (`apps/api/src/scan/router.ts`, `ownerOnlyInProduction`), so
+  // "production" is the owner's own phone — where this lane has already run
+  // through the field sessions of 2026-09-07/08 (`ocrMs` ~0.8 s per capture) —
+  // and not strangers'. On the scan benchmark (scripts/scan-bench) the printed
+  // key is worth +9.4 points of auto-identification on full-resolution crops
+  // (58.8% -> 68.2%), which production was simply not getting. If the scanner
+  // is ever opened to everyone, revisit this line before that ships: the
+  // strangers' risk in the header above is unchanged.
+  if (/^(www\.)?deckpal\.app$/i.test(hostname)) return true
+  // Vercel preview deployments. A self-hosted origin stays OFF: by definition
+  // it is not a domain this repo can enumerate.
   return /(^|\.)vercel\.app$/i.test(hostname)
 }
 
