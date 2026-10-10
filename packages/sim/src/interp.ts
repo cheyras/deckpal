@@ -8,7 +8,7 @@
  */
 import { codeOf, def, type Env } from './context.js';
 import type { Op } from './compile.js';
-import type { CardZone, Dest, Filter, SlotRef, SlotZone, SpecialCondition, Step } from './dsl.js';
+import type { CardZone, DamageIgnore, Dest, Filter, SlotRef, SlotZone, SpecialCondition, Step } from './dsl.js';
 import { cardMatches, evalCond, evalExpr, resolveSlot, side, slotMatches, slotsIn, type EvalCtx } from './eval.js';
 import {
   attackCost,
@@ -20,6 +20,7 @@ import {
   maxHp,
   ownerOf,
   statics,
+  toolsDisabled, // lane:fighting
   weaknessOf,
 } from './query.js';
 import {
@@ -192,7 +193,7 @@ function attackDamage(env: Env, s: GameState, f: Frame): R {
   const amount = script?.damage !== undefined ? evalExpr(env, s, ec(f), script.damage) : atk.baseDamage;
   if (amount <= 0 && !script?.damage) return 'next';
   const to = script?.target ?? 'defender';
-  return dealDamage(env, s, f, amount, to);
+  return dealDamage(env, s, f, amount, to, script?.ignore); // lane:fighting (ignore)
 }
 
 function targetsOf(env: Env, s: GameState, f: Frame, to: SlotRef | { each: SlotZone; filter?: Filter } | { v: string }): Slot[] {
@@ -215,6 +216,7 @@ function dealDamage(
   f: Frame,
   base: number,
   to: SlotRef | { each: SlotZone; filter?: Filter } | { v: string },
+  ignore?: DamageIgnore, // lane:fighting
 ): R {
   const attacker = findSlot(s, f.slot)?.slot;
   const all = statics(env, s);
@@ -222,19 +224,23 @@ function dealDamage(
   for (const target of targetsOf(env, s, f, to)) {
     const owner = ownerOf(s, target);
     const isActive = s.p[owner].active === target;
+    // lane:fighting — "isn't affected by any effects on your opponent's Active Pokémon"
+    const noDefEffects = !!ignore?.defenderEffects && isActive && owner !== f.player;
     let dmg = base;
     if (dmg > 0 && attacker && owner !== f.player && isActive) dmg += damageOut(env, s, attacker, target, all);
     if (dmg > 0 && isActive && owner !== f.player) {
-      const w = weaknessOf(env, s, target, all);
-      if (w && atkTypes.includes(w)) dmg *= 2;
+      const w = noDefEffects ? def(env.ctx, topCard(target)).weakness : weaknessOf(env, s, target, all);
+      if (!ignore?.weakness && w && atkTypes.includes(w)) dmg *= 2;
       const r = def(env.ctx, topCard(target)).resistance;
-      if (r && atkTypes.includes(r.type)) dmg -= r.amount;
+      if (!ignore?.resistance && r && atkTypes.includes(r.type)) dmg -= r.amount;
     }
-    if (dmg > 0) dmg += damageIn(env, s, target, all, f.player); // lane:metal: attacker's side, for `fromOpp`
+    if (dmg > 0 && !noDefEffects) dmg += damageIn(env, s, target, all, f.player); // lane:metal (fromOpp) + lane:fighting (ignore)
     if (dmg < 0) dmg = 0;
-    if (dmg > 0 && damagePrevented(env, s, target, f.player, all)) dmg = 0;
+    if (dmg > 0 && !noDefEffects && damagePrevented(env, s, target, f.player, all)) dmg = 0;
     if (dmg <= 0) continue;
     target.damage += dmg;
+    // lane:fighting — remember who this attack damaged (Legacy Energy: "Knocked Out by damage from an attack")
+    if (f.kind === 'attack' && owner !== f.player) s.attackHits = [...(s.attackHits ?? []), target.id];
     emit(env, { type: 'damage', player: owner, slot: target.id, amount: dmg, bySlot: f.slot });
     if (owner !== f.player && isActive) queueTriggers(env, s, target, owner, 'damagedByAttackActive');
   }
@@ -250,7 +256,7 @@ export function queueTriggers(
   // lane:misc — 'checkup' and 'endOfTurn' added; attached Energy are trigger sources too (Ignition Energy).
   on: 'damagedByAttackActive' | 'knockedOutByAttack' | 'playToBench' | 'evolveFromHand' | 'checkup' | 'endOfTurn',
 ): void {
-  const sources = [topCard(slot), ...slot.tools, ...slot.energy];
+  const sources = [topCard(slot), ...(toolsDisabled(env, s) ? [] : slot.tools), ...slot.energy]; // lane:misc energy triggers; lane:fighting Jamming Tower
   const noAb = hasNoAbilities(env, s, slot);
   for (const c of sources) {
     const d = def(env.ctx, c);
@@ -454,7 +460,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
       return discardEnergy(env, s, f, st);
     case 'damage': {
       const amount = evalExpr(env, s, e, st.amount);
-      return dealDamage(env, s, f, amount, st.to ?? 'defender');
+      return dealDamage(env, s, f, amount, st.to ?? 'defender', st.ignore); // lane:fighting (ignore)
     }
     case 'counters': {
       const n = evalExpr(env, s, e, st.n);
