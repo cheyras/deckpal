@@ -1364,6 +1364,23 @@ export function useDeckeChat(
                   : message,
               ))
             },
+            onAskUser: (toolCallId, input, output) => {
+              setMessages((all) => all.map((message) =>
+                message.id === replyId
+                  ? {
+                      ...message,
+                      parts: [...message.parts, {
+                        kind: 'ask' as const,
+                        id: nextId(),
+                        toolCallId,
+                        state: 'output-available' as const,
+                        input,
+                        output,
+                      }],
+                    }
+                  : message,
+              ))
+            },
             onToolChip: (chip) => {
               // Held on the MESSAGE, like the screen, so the record of what he
               // did stays attached to the turn that did it. Keyed by tool call
@@ -2087,6 +2104,13 @@ type LegHandlers = {
   onCommands: (commands: WireCommand[]) => Promise<void>
   onScreen: (screen: ScreenSpec) => void
   onConsent: () => void
+  /** A completed ask is retained as a message part so the dock can distinguish
+   *  an unanswered card from one followed by an ordinary user message. */
+  onAskUser: (
+    toolCallId: string,
+    input: { questions: import('./chat/askState').AskQuestion[] },
+    output: unknown,
+  ) => void
   onToolChip: (chip: ToolChip) => void
   /** Complete result for a server tool, retained for bounded replay. */
   onToolOutput: (toolCallId: string, output: unknown) => void
@@ -2486,6 +2510,16 @@ async function streamLeg(
         approvalInputs.set(part.toolCallId, (part.input ?? {}) as Record<string, unknown>)
       } else if (part.type === 'tool-output-available' && typeof part.toolCallId === 'string') {
         const outputName = approvalNames.get(part.toolCallId)
+        if (outputName === 'ask_user') {
+          const input = approvalInputs.get(part.toolCallId) as { questions?: unknown } | undefined
+          if (Array.isArray(input?.questions)) {
+            handlers.onAskUser(
+              part.toolCallId,
+              { questions: input.questions as import('./chat/askState').AskQuestion[] },
+              part.output,
+            )
+          }
+        }
         if (outputName && !isClientTool(outputName)) handlers.onToolOutput(part.toolCallId, part.output)
         // ── A DEEP CALL THE METER REFUSED, WHICH USED TO DIE HERE ───────────
         //
@@ -2563,6 +2597,17 @@ function messagesToWire(msgs: ChatMessage[]): WireMessage[] {
         for (const part of replay.parts) parts.push(part)
         const legacy = lookupRecord(replay.unrecorded)
         if (legacy) parts.push(legacy)
+        for (const ask of m.parts) {
+          if (ask.kind === 'ask') {
+            parts.push({
+              type: 'tool-ask_user',
+              toolCallId: ask.toolCallId,
+              state: 'output-available',
+              input: ask.input,
+              output: ask.output,
+            })
+          }
+        }
       } else {
         const record = lookupRecord(chips)
         if (record) parts.push(record)

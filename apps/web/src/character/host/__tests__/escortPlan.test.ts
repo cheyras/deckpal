@@ -21,6 +21,13 @@ import { JOURNEY_MAX_STEPS, JOURNEY_VERBS } from '../journey'
 const PROMPT_SRC = fileURLToPath(
   new URL('../../../../../api/src/decke/prompt.ts', import.meta.url),
 )
+const NAVIGATE_PATHWAY_SRC = fileURLToPath(
+  new URL('../../../../../api/src/decke/pathways/texts/navigate.ts', import.meta.url),
+)
+
+function navigationGuidance(): string {
+  return [PROMPT_SRC, NAVIGATE_PATHWAY_SRC].map((path) => readFileSync(path, 'utf8')).join('\n')
+}
 
 test('a set walk is the whole way there, in order, from two ids', () => {
   const steps = buildEscortSteps({ seriesSlug: 'mega-evolution', setId: 'me05' })
@@ -118,18 +125,18 @@ test('the landmark templates still match the ones the app builds', () => {
   // actually render the attributes; if that list changes shape, this builder is
   // writing selectors for a DOM that no longer exists and every walk fails at
   // step two with `absent`.
-  const src = readFileSync(PROMPT_SRC, 'utf8')
+  const src = navigationGuidance()
   assert.ok(
     src.includes('[data-decke-series="<seriesSlug>"]'),
-    'the series landmark template changed in prompt.ts',
+    'the series landmark template changed in prompt.ts or pathways/texts/navigate.ts',
   )
   assert.ok(
     src.includes('[data-decke-set="<setId>"]'),
-    'the set landmark template changed in prompt.ts',
+    'the set landmark template changed in prompt.ts or pathways/texts/navigate.ts',
   )
   assert.ok(
     src.includes(SHOW_OTHERS),
-    `${SHOW_OTHERS} is no longer named in prompt.ts — the disclosure moved`,
+    `${SHOW_OTHERS} is no longer named in prompt.ts or pathways/texts/navigate.ts — the disclosure moved`,
   )
   assert.equal(seriesLandmark('abc'), '[data-decke-series="abc"]')
   assert.equal(setLandmark('ab1'), '[data-decke-set="ab1"]')
@@ -139,11 +146,11 @@ test('there is still no [data-decke-nav="/series"] to press, which is why hop on
   // If this ever becomes pressable, the first hop SHOULD become a click — an
   // escort that teleports its first leg is the compromise this comment records,
   // not a preference. The prompt is the place that states it.
-  const src = readFileSync(PROMPT_SRC, 'utf8')
+  const src = navigationGuidance()
   assert.ok(
     src.includes('[data-decke-nav="/series"]` DOES NOT EXIST') ||
       src.includes('There is no \\`[data-decke-nav="/series"]\\`'),
-    'prompt.ts no longer says /series has no pressable nav row — re-check hop one',
+    'prompt.ts or pathways/texts/navigate.ts no longer says /series has no pressable nav row — re-check hop one',
   )
   assert.equal(buildEscortSteps({ seriesSlug: 's' })[0].verb, 'goTo')
 })

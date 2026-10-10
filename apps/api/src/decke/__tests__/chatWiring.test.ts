@@ -314,12 +314,42 @@ test('a credit refusal says whether the wallet is HELD, as a flag rather than pr
 test('the reflex read runs after the meter, from the built module, with the turn\'s abort', () => {
   assert.match(SRC, /import \{ readReflex \} from '\.\.\/apps\/api\/dist\/decke\/reflex\.js'/);
   // Wrapped in runAiUsage so Jev's own model call is metered on this request.
-  const read = CODE.indexOf('const reflex = await runAiUsage(usage, () => readReflex(messages, route, { key, signal: request.signal }))');
+  const read = CODE.indexOf('runAiUsage(usage, () => readReflex(messages, route, { key, signal: request.signal }))');
   assert.ok(read > 0, 'readReflex is no longer called with the validated messages, the key and the signal');
   // A Gateway call: nothing reaches the Gateway unpaid.
   assert.ok(CODE.indexOf('meter = await meterTurn(') < read, 'the reflex read runs before the meter');
   assert.ok(CODE.indexOf('if (!meter.allowed)') < read, 'the reflex read runs for a refused turn');
-  assert.ok(read < CODE.indexOf('model: observeUsageModel('), 'the reflex read runs after the model starts');
+  assert.match(CODE, /const \[reflex, triage\] = await Promise\.all\(\[/);
+});
+
+test('triage is metered beside reflex and code chooses the conversation tier', () => {
+  assert.match(SRC, /import \{ runTriage \} from '\.\.\/apps\/api\/dist\/decke\/triage\.js'/);
+  assert.match(SRC, /import \{ answeringAsk, carriedFromHistory, decideTier \} from '\.\.\/apps\/api\/dist\/decke\/tiers\.js'/);
+  assert.match(CODE, /runTriage\(\{[\s\S]*message: latestUserText\(messages\)[\s\S]*model: observeUsageModel\(gateway\(TRIAGE\.id\), meter\)/);
+  assert.match(CODE, /answering: answeringAsk\(messages\)/);
+  assert.match(CODE, /const decision = decideTier\(\{ triage, carried: carriedFromHistory\(messages\), deepApproved: false \}\)/);
+  assert.match(CODE, /const choice = TIERS\[decision\.tier\]/);
+  assert.match(CODE, /console\.log\('\[deck-e\] route', JSON\.stringify\(\{/);
+});
+
+test('the selected pathway prompt is an instructions array with only stable regions cached', () => {
+  assert.match(SRC, /import \{ buildCorePrompt, buildVolatileContext \} from '\.\.\/apps\/api\/dist\/decke\/prompt\.js'/);
+  assert.match(SRC, /import \{ pathwayBlock \} from '\.\.\/apps\/api\/dist\/decke\/pathways\/index\.js'/);
+  assert.match(CODE, /const corePrompt = buildCorePrompt\(\{/);
+  assert.match(CODE, /const requestPathway = pathwayBlock\(decision\.pathways\)/);
+  assert.match(CODE, /const volatileContext = buildVolatileContext\(\{ route, signedIn: true, landmarks \}\)/);
+  assert.match(CODE, /const instructionsFor = \(choice, extra\) => \[/);
+  assert.match(CODE, /systemMessage\(choice, corePrompt, true\)/);
+  assert.match(CODE, /systemMessage\(choice, requestPathway, true\)/);
+  assert.match(CODE, /systemMessage\(choice, volatileContext\)/);
+  assert.match(CODE, /instructions: instructionsFor\(choice\)/);
+  assert.match(CODE, /messages: cacheConversation\(choice, messages\)/);
+});
+
+test('ask_user stops the loop and a textless Quick refusal retries once on Standard', () => {
+  assert.match(CODE, /hasToolCall\('ask_user'\)/);
+  assert.match(CODE, /quickFinish === 'content-filter'/);
+  assert.match(CODE, /const retry = startConversation\(TIERS\.standard, 'medium'\)/);
 });
 
 test('only replayed approval denials reach the declined ledger', () => {
@@ -363,21 +393,23 @@ test('the corrective leg keeps Anthropic adaptive, signed and bounded to one aud
   const leg = CODE.slice(CODE.indexOf('if (corrective) {'))
   assert.match(SRC, /buildDataTools, correctiveApplyTools, dataToolSummary/)
   assert.match(leg, /tools: correctiveApplyTools\(allDeckeTools, corrective\)/)
-  assert.match(leg, /toolChoice: isAnthropic\(choice\) \? 'auto' : \{ type: 'tool', toolName: corrective \}/);
+  assert.match(leg, /toolChoice: isAnthropic\(TIERS\.standard\) \? 'auto' : \{ type: 'tool', toolName: corrective \}/);
   assert.match(leg, /stopWhen: pasteRecovery \? stepCountIs\(3\) : stepCountIs\(1\)/);
   assert.match(leg, /experimental_toolApprovalSecret: process\.env\.DECKE_APPROVAL_SECRET/);
-  assert.match(
-    leg,
-    /`\$\{systemPrompt\}\\n\\n\$\{pasteRecovery \? pasteBackstopInstruction\(\) : correctiveInstruction\(corrective\)\}`/,
-  );
-  assert.match(leg, /model: observeUsageModel\(gateway\(choice\.id\), meter\)/, 'the leg must be metered like any step');
-  assert.match(CODE, /instructions: cachedInstructions\(choice, systemPrompt\),/, 'the turn and correction lost the cached prompt');
+  assert.match(leg, /instructions: instructionsFor\(\s*TIERS\.standard,\s*pasteRecovery \? pasteBackstopInstruction\(\) : correctiveInstruction\(corrective\),/);
+  assert.match(leg, /model: observeUsageModel\(gateway\(TIERS\.standard\.id\), meter\)/, 'the leg must be metered like any step');
+  assert.match(leg, /maxOutputTokens: budgetFor\(TIERS\.standard\)/);
 });
 
 test('both chat model calls pass the configured fallback through Gateway routing', () => {
-  assert.match(CODE, /function chatProviderOptions\(choice\)/)
+  assert.match(CODE, /function chatProviderOptions\(choice, effort\)/)
   assert.match(CODE, /gateway:\s*\{ models:\s*\[choice\.fallback\] \}/)
-  assert.equal((CODE.match(/providerOptions: chatProviderOptions\(choice\)/g) ?? []).length, 2)
+  assert.match(CODE, /providerOptions: chatProviderOptions\(choice, effort\)/)
+  assert.match(CODE, /providerOptions: chatProviderOptions\(TIERS\.standard, 'medium'\)/)
+  // `effort` is a TOP-LEVEL Anthropic provider option (@ai-sdk/anthropic
+  // anthropic-language-model-options.ts); nested inside `thinking` it is
+  // stripped by the schema and the tier silently runs at the model default.
+  assert.match(CODE, /anthropic: \{ effort, thinking: \{ type: 'adaptive' \} \}/)
 })
 
 test('Anthropic prompt caching, deck checks and the expanded step budget are wired', () => {

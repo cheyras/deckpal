@@ -1,3 +1,5 @@
+import type { TierName } from './pathways/names.js'
+
 /**
  * Which model does which job, and why that one.
  *
@@ -26,9 +28,10 @@ export type Job = 'chat' | 'write' | 'vision' | 'analysis' | 'research'
 export type ModelChoice = {
   /** Gateway model id. */
   readonly id: string
-  /** Used when the primary errors. A DIFFERENT LAB, so a provider outage that
-   *  takes the primary down does not take the fallback with it. */
-  readonly fallback: string
+  /** Used when the primary errors. Legacy job choices prefer a different lab
+   *  for outage isolation; tier choices may deliberately step up/down within
+   *  Anthropic where the fallback is a capability recovery. */
+  readonly fallback?: string
   /**
    * Reasoning effort, when the model supports it.
    *
@@ -39,7 +42,8 @@ export type ModelChoice = {
    * on Gemini; `reasoning_effort` is the shape the Gateway honours.
    */
   readonly effort?: 'minimal' | 'low' | 'medium' | 'high'
-  /** Ceiling on visible output. See `RESERVE` — reasoning models need headroom. */
+  /** Output ceiling. Legacy reasoning choices use `RESERVE`; adaptive-thinking
+   *  tier choices already include reasoning in this all-in number. */
   readonly maxOutputTokens: number
   /** A dearer model used only when the person explicitly asks for deeper work. */
   readonly escalate?: string
@@ -51,7 +55,8 @@ export const MODELS: Record<Job, ModelChoice> = {
    * Grok 4.20 non-reasoning held this job until 2026-09-28; it was reliable at
    * tool syntax but could not do the planning and recovery the chat now owns.
    * Sonnet 5.5 rather than 5: same Gateway price ($2 / $10 per M tokens,
-   * $0.20 cached reads), newer model — the owner's call, 2026-09-28.
+   * $0.10 cached reads after Anthropic's 2026-10-07 cut), newer model — the
+   * owner's call, 2026-09-28.
    */
   chat: {
     id: 'anthropic/claude-sonnet-5.5',
@@ -285,4 +290,42 @@ export const RESERVE = 2.5
 
 export function budgetFor(choice: ModelChoice): number {
   return choice.effort ? Math.round(choice.maxOutputTokens * RESERVE) : choice.maxOutputTokens
+}
+
+/**
+ * The conversational tiers. Triage names the job; code chooses one of these.
+ *
+ * `effort` deliberately does not live on these choices. It varies by pathway
+ * and is supplied to Anthropic at call time by `tiers.ts` / `api/chat.mjs`.
+ * That also keeps `budgetFor` from applying the legacy `RESERVE` multiplier:
+ * adaptive thinking is included in Anthropic's output-token count, so 16k and
+ * 32k below are already the effective all-in ceilings, not visible-answer
+ * targets that still need multiplying by 2.5.
+ */
+export const TIERS: Record<TierName, ModelChoice> = {
+  quick: {
+    id: 'anthropic/claude-haiku-5.5',
+    fallback: 'anthropic/claude-sonnet-5.5',
+    maxOutputTokens: 16_000,
+  },
+  standard: {
+    id: 'anthropic/claude-sonnet-5.5',
+    fallback: 'google/gemini-2.5-flash',
+    maxOutputTokens: 16_000,
+  },
+  deep: {
+    id: 'anthropic/claude-opus-5.5',
+    fallback: 'anthropic/claude-sonnet-5.5',
+    maxOutputTokens: 32_000,
+  },
+}
+
+/**
+ * The cheap front door. There is intentionally no model fallback: forced tool
+ * choice is supported by Haiku 5.5 but not by Sonnet/Opus 5.5, and triage's
+ * real fallback is deterministic `heuristicTriage`, not another paid call.
+ */
+export const TRIAGE: ModelChoice = {
+  id: 'anthropic/claude-haiku-5.5',
+  maxOutputTokens: 400,
 }

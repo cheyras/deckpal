@@ -40,6 +40,7 @@ import {
   convertToModelMessages,
   createUIMessageStream,
   createUIMessageStreamResponse,
+  hasToolCall,
   streamText,
   stepCountIs,
   toUIMessageStream,
@@ -58,22 +59,57 @@ const MAX_STEPS = 24
 const ANTHROPIC_CACHE = { anthropic: { cacheControl: { type: 'ephemeral' } } }
 const isAnthropic = (choice) => choice.id.startsWith('anthropic/')
 
-/**
- * ONE cache breakpoint, on the system prompt. Anthropic caches the prefix in
- * the order tools → system → messages, so this single breakpoint also covers
- * every tool definition. Anthropic allows at most four breakpoints per request;
- * marking each tool as well (≈30 of them) got all but four ignored, with a
- * Gateway warning — measured by scripts/decke-leg-smoke.mjs, 2026-09-28.
- */
-function cachedInstructions(choice, content) {
-  return isAnthropic(choice)
-    ? { role: 'system', content, providerOptions: ANTHROPIC_CACHE }
-    : content
+/** Build one system message, optionally ending a cacheable prefix region. */
+function systemMessage(choice, content, cached = false) {
+  return {
+    role: 'system',
+    content,
+    ...(cached && isAnthropic(choice) ? { providerOptions: ANTHROPIC_CACHE } : {}),
+  }
 }
 
-/** Gateway-native cross-model failover; no second application-level charge or retry loop. */
-function chatProviderOptions(choice) {
-  return { gateway: { models: [choice.fallback] } }
+/**
+ * Gateway-native failover plus Anthropic's adaptive-thinking controls.
+ *
+ * Provider options are namespaced by provider. The Gateway forwards the
+ * `anthropic` object only to Anthropic; a Standard-tier failover to Gemini sees
+ * the `gateway.models` route but never receives Claude's `thinking` object.
+ */
+function chatProviderOptions(choice, effort) {
+  return {
+    gateway: { models: [choice.fallback] },
+    ...(isAnthropic(choice)
+      ? { anthropic: { effort, thinking: { type: 'adaptive' } } }
+      : {}),
+  }
+}
+
+/**
+ * Move ONE prompt-cache breakpoint to the newest conversation message.
+ *
+ * Gateway 4.0.91 exposes no automatic conversation-caching switch. Anthropic
+ * accepts a cacheControl marker on a message, and `prepareStep` can replace the
+ * step's messages, so each step removes the previous marker and marks only its
+ * newest message. With cached core + optional pathway this is at most three of
+ * Anthropic's four allowed breakpoints while making all earlier tool results a
+ * reusable prefix on the next step.
+ */
+function cacheConversation(choice, messages) {
+  if (!isAnthropic(choice) || messages.length === 0) return messages
+  return messages.map((message, index) => {
+    const providerOptions = { ...(message.providerOptions ?? {}) }
+    const anthropic = { ...(providerOptions.anthropic ?? {}) }
+    delete anthropic.cacheControl
+    if (Object.keys(anthropic).length === 0) delete providerOptions.anthropic
+    else providerOptions.anthropic = anthropic
+    if (index === messages.length - 1) {
+      providerOptions.anthropic = { ...(providerOptions.anthropic ?? {}), ...ANTHROPIC_CACHE.anthropic }
+    }
+    return {
+      ...message,
+      ...(Object.keys(providerOptions).length > 0 ? { providerOptions } : { providerOptions: undefined }),
+    }
+  })
 }
 
 /**
@@ -113,9 +149,12 @@ import { createGateway } from '@ai-sdk/gateway'
 // `apps/api/src/decke/` for that reason, and because a system prompt and a tool
 // allowlist are server concerns in the first place.
 import { verifySupabaseJwt, createSupabaseJwksProvider } from '../apps/api/dist/auth.js'
-import { buildSystemPrompt } from '../apps/api/dist/decke/prompt.js'
+import { buildCorePrompt, buildVolatileContext } from '../apps/api/dist/decke/prompt.js'
+import { pathwayBlock } from '../apps/api/dist/decke/pathways/index.js'
 import { buildTools, CLIENT_TOOLS, SERVER_TOOLS } from '../apps/api/dist/decke/tools.js'
-import { MODELS, budgetFor } from '../apps/api/dist/decke/models.js'
+import { TIERS, TRIAGE, budgetFor } from '../apps/api/dist/decke/models.js'
+import { runTriage } from '../apps/api/dist/decke/triage.js'
+import { answeringAsk, carriedFromHistory, decideTier } from '../apps/api/dist/decke/tiers.js'
 import { creditWork } from '../apps/api/dist/credits/work.js'
 import { ensureAdminBootstrap } from '../apps/api/dist/admin/access.js'
 import { beginAiRequest, runAiUsage, observeUsageModel, finishAiRequest, meteredCapReached, safeUsageCode } from '../apps/api/dist/decke/usage.js'
@@ -591,7 +630,40 @@ async function serve(request) {
   // LLM turn in front of every message. This is a typed evaluation — no
   // output tokens, ~$0.00004 and ~0.3 s measured — whose answers only ever act
   // above a threshold chosen on a labelled set. See `decke/jev.ts`.
-  const reflex = await runAiUsage(usage, () => readReflex(messages, route, { key, signal: request.signal }))
+  const gateway = createGateway({ apiKey: key })
+  const latestUserMessageForTriage = messages.filter((message) => message?.role === 'user').at(-1)
+  const triageStarted = performance.now()
+  let triageMs = 0
+  // Both small front-door reads are paid work, so they run only after admission
+  // and each travels through the request's usage observer. They are independent
+  // and share no state, which makes serial latency pure waste.
+  const [reflex, triage] = await Promise.all([
+    runAiUsage(usage, () => readReflex(messages, route, { key, signal: request.signal })),
+    runAiUsage(usage, () => runTriage({
+      message: latestUserText(messages),
+      previousReply: previousAssistantText(messages).slice(-800),
+      page: route,
+      pasted: extractPastedLog(latestUserMessageForTriage ? [latestUserMessageForTriage] : []) !== null,
+      answering: answeringAsk(messages),
+      model: observeUsageModel(gateway(TRIAGE.id), meter),
+      signal: request.signal,
+    })).then((value) => {
+      triageMs = Math.round(performance.now() - triageStarted)
+      return value
+    }),
+  ])
+  // Deep Think approval will plug in here in its own phase. Until a signed
+  // reader choice exists, even a requested/beneficial deep analysis is Standard.
+  const decision = decideTier({ triage, carried: carriedFromHistory(messages), deepApproved: false })
+  const choice = TIERS[decision.tier]
+  console.log('[deck-e] route', JSON.stringify({
+    tier: decision.tier,
+    pathways: decision.pathways,
+    effort: decision.effort,
+    reasons: decision.reasons,
+    triage: triage.source,
+    triageMs,
+  }))
   let capReached = await meteredCapReached(usage)
   let capLineWritten = false
 
@@ -729,7 +801,6 @@ async function serve(request) {
     }
   }
 
-  const choice = MODELS.chat
   const stream = createUIMessageStream({
     execute: async ({ writer }) => runAiUsage(usage, async () => {
       let result
@@ -743,8 +814,6 @@ async function serve(request) {
       // whatever key happens to be in the environment. That is not a cosmetic
       // bug — this deployment has two keys with different billing, and the
       // failure mode is spending the wrong one while believing otherwise.
-      const gateway = createGateway({ apiKey: key })
-
       if (capReached) {
         writer.write({ type: 'text-delta', id: 'metered-cap', delta: meteredCapText() })
         capLineWritten = true
@@ -888,30 +957,36 @@ async function serve(request) {
       // to re-read and nothing about how he behaves. The reader's current turn,
       // approvals included, is never cut. See `decke/wireBounds.ts`.
       const preparedMessages = await convertToModelMessages(stripPriorCommands(windowForModel(messages).messages))
-      // Named rather than inlined because a corrective leg (the after-turn
-      // audit, below) reuses it byte for byte: same prefix, same cache.
-      const systemPrompt = buildSystemPrompt({
-        route,
+      const promptTools = dataToolSummary({ include: () => true, conversationalLogging: true })
+      // Three separately owned cache regions: the byte-stable core; the one or
+      // two pathway templates selected for this job; and, in `prepareStep`, the
+      // conversation prefix through its newest message. Volatile page context
+      // is deliberately last and uncached, so a route/date change cannot poison
+      // the large stable prefix.
+      const corePrompt = buildCorePrompt({
         signedIn: true,
-        // MIRRORS `LANDMARK_CAP` in `apps/web/src/character/host/useDeckeChat.ts`,
-        // which explains why the cap exists (prompt size, re-billed per leg)
-        // and what it costs. Bounded again here — count AND each string —
-        // because the browser chooses what to send and this is the side that
-        // pays for it. Change one, change both (`LANDMARKS_MAX`).
-        landmarks,
         // GENERATED FROM THE TOOLS HE IS ACTUALLY HOLDING (`allDeckeTools`).
         // Hand-writing this list is how the previous prompt came to spend
         // every turn offering to look things up with no tool that could look.
-        dataTools: dataToolSummary({ include: () => true, conversationalLogging: true }),
+        dataTools: promptTools,
       })
-      result = streamText({
+      const requestPathway = pathwayBlock(decision.pathways)
+      const volatileContext = buildVolatileContext({ route, signedIn: true, landmarks })
+      const instructionsFor = (choice, extra) => [
+        systemMessage(choice, corePrompt, true),
+        ...(requestPathway ? [systemMessage(choice, requestPathway, true)] : []),
+        systemMessage(choice, volatileContext),
+        ...(extra ? [systemMessage(choice, extra)] : []),
+      ]
+
+      const startConversation = (choice, effort) => streamText({
         model: observeUsageModel(gateway(choice.id), meter),
-        providerOptions: chatProviderOptions(choice),
+        providerOptions: chatProviderOptions(choice, effort),
         // `instructions`, not `system` — `system` is deprecated in ai@7 and
         // `instructions` is the field that accepts a SystemModelMessage, which
         // is where a prompt-cache breakpoint can attach. Our prompt carries the
         // whole animation vocabulary on every turn, so caching is load-bearing.
-        instructions: cachedInstructions(choice, systemPrompt),
+        instructions: instructionsFor(choice),
         // AWAITED: `convertToModelMessages` is async in ai@7 and returns a
         // Promise<ModelMessage[]>. Passing it unawaited fails deep inside
         // `standardizePrompt` as "messages.some is not a function" — which
@@ -954,6 +1029,7 @@ async function serve(request) {
         // number does nothing at all for a journey.
         stopWhen: [
           stepCountIs(MAX_STEPS),
+          hasToolCall('ask_user'),
           ({ steps }) => spokeAndSettled(steps),
           // ── THE CIRCUIT BREAKER (c) ──────────────────────────────────────────
           //
@@ -993,7 +1069,8 @@ async function serve(request) {
         // change their collection, step one MUST call `log_cards` — the call
         // that raises the signed consent card, and cannot write without it.
         // Forcing it forces the question, never the answer.
-        prepareStep: ({ stepNumber }) => ({
+        prepareStep: ({ stepNumber, messages }) => ({
+          messages: cacheConversation(choice, messages),
           activeTools: focusedTools(allDeckeTools, stepNumber, (n) => deepRefusals.unavailable(n) || reflex.hide.includes(n)),
           ...(stepNumber === 0 && reflex.force
             ? { toolChoice: isAnthropic(choice) ? 'auto' : { type: 'tool', toolName: reflex.force } }
@@ -1125,6 +1202,7 @@ async function serve(request) {
           console.error('[deck-e] stream error', safeUsageCode(error))
         },
       })
+      result = startConversation(choice, decision.effort)
 
       // Shared by the turn's stream and a corrective leg's; see the comment at
       // the first use below.
@@ -1167,6 +1245,28 @@ async function serve(request) {
           }),
         ),
       )
+
+      // Claude Haiku 5.5 has no server-side refusal fallback. A refusal is the
+      // SDK's unified `content-filter` finish reason; when Quick emitted no text
+      // at all, make one application-level Standard attempt and merge it into
+      // the same reader turn just like the corrective leg below.
+      const quickSteps = decision.tier === 'quick' ? await result.steps.catch(() => []) : []
+      const quickFinish = decision.tier === 'quick'
+        ? await result.finishReason.catch(() => undefined)
+        : undefined
+      if (
+        decision.tier === 'quick' &&
+        quickFinish === 'content-filter' &&
+        !quickSteps.some((step) => (step.text ?? '').trim().length > 0)
+      ) {
+        const retry = startConversation(TIERS.standard, 'medium')
+        writer.merge(stripToolSyntax(toUIMessageStream({
+          stream: retry.fullStream,
+          sendReasoning: false,
+          onError: surfaceError,
+        })))
+        result = retry
+      }
 
       // ── A TURN THAT SPENT EVERYTHING AND SAID NOTHING ────────────────────
       //
@@ -1482,23 +1582,29 @@ async function serve(request) {
               delta: pasteBackstop ? PASTE_BACKSTOP_LINE : CORRECTION_LINE,
             })
             const leg = streamText({
-              model: observeUsageModel(gateway(choice.id), meter),
-              providerOptions: chatProviderOptions(choice),
-              instructions: cachedInstructions(
-                choice,
-                `${systemPrompt}\n\n${pasteRecovery ? pasteBackstopInstruction() : correctiveInstruction(corrective)}`,
+              model: observeUsageModel(gateway(TIERS.standard.id), meter),
+              providerOptions: chatProviderOptions(TIERS.standard, 'medium'),
+              // The corrective sentence is a fourth, uncached system message.
+              // It must not be concatenated onto the stable cached core: doing
+              // that makes every correction a fresh cache prefix.
+              instructions: instructionsFor(
+                TIERS.standard,
+                pasteRecovery ? pasteBackstopInstruction() : correctiveInstruction(corrective),
               ),
               // EVERY step's messages, not `result.response.messages`: in ai@7 that is the
               // FINAL step only, so the correction ran without the turn's earlier tool
               // calls and results (measured 2026-09-28, scripts/decke-replay-probe.mjs).
               messages: [...preparedMessages, ...(await result.steps).flatMap((step) => step.response.messages)],
               tools: correctiveApplyTools(allDeckeTools, corrective),
-              toolChoice: isAnthropic(choice) ? 'auto' : { type: 'tool', toolName: corrective },
+              toolChoice: isAnthropic(TIERS.standard) ? 'auto' : { type: 'tool', toolName: corrective },
               stopWhen: pasteRecovery ? stepCountIs(3) : stepCountIs(1),
+              prepareStep: ({ messages }) => ({
+                messages: cacheConversation(TIERS.standard, messages),
+              }),
               ...(process.env.DECKE_APPROVAL_SECRET
                 ? { experimental_toolApprovalSecret: process.env.DECKE_APPROVAL_SECRET }
                 : {}),
-              maxOutputTokens: budgetFor(choice),
+              maxOutputTokens: budgetFor(TIERS.standard),
               abortSignal,
               onError: ({ error }) => {
                 console.error('[deck-e] corrective leg error', safeUsageCode(error))
@@ -1661,6 +1767,27 @@ function latestUserText(messages) {
     return parts
       .filter((p) => p?.type === 'text' && typeof p.text === 'string')
       .map((p) => p.text)
+      .join(' ')
+  }
+  return ''
+}
+
+/** The assistant text immediately before the latest reader message, for triage only. */
+function previousAssistantText(messages) {
+  if (!Array.isArray(messages)) return ''
+  let latestUser = -1
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === 'user') {
+      latestUser = i
+      break
+    }
+  }
+  for (let i = latestUser - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (message?.role !== 'assistant') continue
+    return (Array.isArray(message.parts) ? message.parts : [])
+      .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+      .map((part) => part.text)
       .join(' ')
   }
   return ''

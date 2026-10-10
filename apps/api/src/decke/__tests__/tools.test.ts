@@ -15,6 +15,7 @@ import { buildTools, CLIENT_TOOLS, COSMETIC_TOOLS, SERVER_TOOLS, isAllowedRoute 
 import { ROUTE_SHAPE_LINES } from '../prompt.js'
 import { createGrounding } from '../grounding.js'
 import type { Queryable } from '@deckpal/db'
+import { z } from 'zod'
 
 /** `buildTools` only ever calls `write`; nothing here needs a real stream. */
 const noopWriter = { write: () => {} }
@@ -52,6 +53,33 @@ test('SERVER_TOOLS is exactly the set of tools that DO have an execute', () => {
     'a tool with an `execute` runs on the server whether or not it is listed. ' +
       'Without an execute it would be forwarded to a browser that cannot run it.',
   )
+})
+
+test('ask_user is a bounded strict server tool and returns the stop-turn result', async () => {
+  const tools = buildTools(noopWriter) as unknown as Record<string, {
+    inputSchema: z.ZodTypeAny
+    execute?: (input: unknown) => Promise<unknown>
+  }>
+  const ask = tools.ask_user!
+  const question = {
+    header: 'Format',
+    question: 'Which format should this deck use?',
+    options: [{ label: 'Standard' }, { label: 'Expanded', description: 'Use the wider card pool.' }],
+  }
+
+  assert.equal(typeof ask.execute, 'function', 'ask_user must execute on the server')
+  assert.equal(ask.inputSchema.safeParse({ about: 'deck_build', questions: [question] }).success, true)
+  assert.equal(ask.inputSchema.safeParse({ questions: Array.from({ length: 5 }, () => question) }).success, false)
+  assert.equal(ask.inputSchema.safeParse({ questions: [{ ...question, header: 'thirteen chars' }] }).success, false)
+  assert.equal(ask.inputSchema.safeParse({ questions: [{ ...question, options: [{ label: 'Only one' }] }] }).success, false)
+  assert.equal(ask.inputSchema.safeParse({ questions: [{ ...question, options: Array.from({ length: 5 }, (_, i) => ({ label: `Choice ${i}` })) }] }).success, false)
+  assert.equal(ask.inputSchema.safeParse({ about: 'invented', questions: [question] }).success, false)
+  assert.equal(ask.inputSchema.safeParse({ questions: [{ ...question, extra: true }] }).success, false)
+
+  assert.deepEqual(await ask.execute!({ questions: [question] }), {
+    status: 'shown',
+    note: 'The questions are on screen. The reader will answer in their next message; end your turn now.',
+  })
 })
 
 test('ask_to_share_chat draws one transient choice only when SQL allows it', async () => {

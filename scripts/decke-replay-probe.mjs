@@ -40,15 +40,39 @@ export function parseArgs(argv = process.argv.slice(2)) {
   const n = Number(argvValue(argv, 'n', '1'))
   if (!Number.isFinite(budgetUsd) || budgetUsd < 0) throw new Error('--budget-usd must be a non-negative number')
   if (!Number.isInteger(n) || n < 1) throw new Error('--n must be a positive integer')
+  const models = argvValue(argv, 'models', mock ? 'mock' : 'anthropic/claude-sonnet-5.5').split(',').filter(Boolean)
+  const armsArg = argvValue(argv, 'arms', '')
+  const arms = armsArg ? parseArms(armsArg) : models.map((model) => ({ model, effort: null, id: model }))
   return {
     mock,
     replay,
     budgetUsd,
     n,
-    models: argvValue(argv, 'models', mock ? 'mock' : 'anthropic/claude-sonnet-5.5').split(',').filter(Boolean),
+    models,
+    arms,
     scenarios: argvValue(argv, 'scenarios', '').split(',').filter(Boolean),
     out: resolve(argvValue(argv, 'out', resolve(REPO, 'tmp/decke-replay-probe'))),
   }
+}
+
+/**
+ * An arm is deliberately a tiny string rather than a second config file: model
+ * ids already contain slashes but not `@`, so the final suffix is unambiguous.
+ * 2026-10-10: effort is only sent to Anthropic. Keeping it on other arms in the
+ * report is useful for spotting a bad invocation, but silently forwarding an
+ * Anthropic-only option to another provider is not.
+ */
+export function parseArms(value) {
+  const efforts = new Set(['low', 'medium', 'high'])
+  return String(value ?? '').split(',').filter(Boolean).map((raw) => {
+    if (raw === 'routed') return { model: 'routed', effort: null, id: 'routed', routed: true }
+    const at = raw.lastIndexOf('@')
+    const model = at < 0 ? raw : raw.slice(0, at)
+    const effort = at < 0 ? null : raw.slice(at + 1)
+    if (!model) throw new Error(`Invalid arm: ${raw}`)
+    if (effort != null && !efforts.has(effort)) throw new Error(`Invalid effort in arm '${raw}'; use low, medium, or high`)
+    return { model, effort, id: effort ? `${model}@${effort}` : model }
+  })
 }
 
 const norm = (value) => JSON.stringify(value ?? {}, Object.keys(value ?? {}).sort())
@@ -89,7 +113,7 @@ export const METRIC_COLUMNS = [
   'repeated_reads', 'expects_deck_turns', 'check_before_show', 'full_lists_proposed',
   'show_deck_for_full_list', 'show_deck_60', 'text_decklists', 'asks_for_tool_data',
   'false_refusals', 'expects_write_turns', 'write_calls', 'ttft_ms', 'total_ms',
-  'output_tokens', 'cost_usd', 'cache_read_tokens', 'cache_write_tokens',
+  'input_tokens', 'output_tokens', 'cost_usd', 'cache_read_tokens', 'cache_write_tokens',
 ]
 
 export function scoreTranscript(turns) {
@@ -135,6 +159,7 @@ export function scoreTranscript(turns) {
     }
     m.ttft_ms += Number(turn.ttft_ms) || 0
     m.total_ms += Number(turn.total_ms) || 0
+    m.input_tokens += Number(turn.input_tokens) || 0
     m.output_tokens += Number(turn.output_tokens) || 0
     m.cost_usd += Number(turn.cost_usd) || 0
     m.cache_read_tokens += Number(turn.cache_read_tokens) || 0
@@ -143,6 +168,223 @@ export function scoreTranscript(turns) {
   for (const key of ['ttft_ms', 'total_ms']) m[key] = turns.length ? Math.round(m[key] / turns.length) : 0
   m.cost_usd = Number(m.cost_usd.toFixed(8))
   return m
+}
+
+const callNamed = (turn, name) => (turn.calls ?? []).filter((call) => call.name === name)
+const callIndex = (turn, name) => (turn.calls ?? []).findIndex((call) => call.name === name)
+const approvalRaised = (turn, name) => callNamed(turn, name).some((call) => call.approved === true || call.approval_requested === true)
+const approvedCall = (turn, name) => callNamed(turn, name).some((call) => call.approved === true)
+const allWritesApproved = (turn) => (turn.calls ?? []).filter((call) => WRITE_NAMES.has(call.name))
+  .every((call) => call.approved === true)
+
+function replyAndNotes(turn, name) {
+  return [turn.text ?? '', ...callNamed(turn, name).map((call) => call.input?.notes ?? '')].join('\n')
+}
+
+function answerOverlap(turn) {
+  const answerWords = tokens(turn.user)
+  const noteWords = tokens(replyAndNotes(turn, 'add_battle_log'))
+  let overlap = 0
+  for (const word of answerWords) if (noteWords.has(word)) overlap++
+  return overlap
+}
+
+function proposedChangeCount(text) {
+  const lines = String(text ?? '').split(/\r?\n/)
+  const explicit = lines.filter((line) => /^\s*(?:[-*]|\d+[.)])\s+/.test(line) && /\b(?:add|cut|swap|replace|change|in|out)\b/i.test(line)).length
+  if (explicit) return explicit
+  return (String(text ?? '').match(/\b(?:swap|replace|cut)\b/gi) ?? []).length
+}
+
+/**
+ * Expectations are intentionally deterministic transcript checks, not another
+ * model grading the first model. A failure says what was absent so a replay is
+ * useful in CI and in a raw results file without opening the conversation.
+ */
+export function gradeExpectation(tag, turn, turnIndex = 0, turns = [turn]) {
+  const calls = turn.calls ?? []
+  const priorCalls = turns.slice(0, turnIndex).flatMap((item) => item.calls ?? [])
+  const combined = replyAndNotes(turn, 'add_battle_log')
+  let pass = false
+  let detail = ''
+  switch (tag) {
+    case 'battle-log-pasted':
+      pass = callNamed(turn, 'add_battle_log').some((call) => call.input?.log === '@pasted')
+      detail = 'expected add_battle_log with log "@pasted"'
+      break
+    case 'approved-battle-log':
+      pass = approvalRaised(turn, 'add_battle_log')
+      detail = 'expected an approval request for add_battle_log'
+      break
+    case 'short-battle-note':
+      pass = String(turn.text ?? '').length <= 800 && callNamed(turn, 'add_battle_log').some((call) => String(call.input?.notes ?? '').trim().length > 0 && String(call.input.notes).length <= 500)
+      detail = 'expected a reply under 800 characters and a battle note under 500 characters'
+      break
+    case 'turning-point-from-log': {
+      const event = /\b(?:turn|knock(?:ed)? out|prize|conced|attached|attack)\b/i.test(combined)
+      const facts = tokens(turn.user)
+      const used = tokens(combined)
+      let overlap = 0
+      for (const word of facts) if (used.has(word)) overlap++
+      pass = event && overlap >= 2
+      detail = 'expected a turning-point event tied to at least two words from the pasted log'
+      break
+    }
+    case 'ask-before-battle-log':
+      pass = callNamed(turn, 'ask_user').some((call) => {
+        const count = call.input?.questions?.length ?? 0
+        return count >= 2 && count <= 4
+      }) && (callIndex(turn, 'add_battle_log') < 0 || callIndex(turn, 'ask_user') < callIndex(turn, 'add_battle_log'))
+      detail = 'expected ask_user with 2–4 questions before any add_battle_log call'
+      break
+    case 'battle-note-from-answers':
+      pass = callNamed(turn, 'add_battle_log').some((call) => String(call.input?.notes ?? '').trim()) && answerOverlap(turn) >= 2
+      detail = 'expected add_battle_log notes to reflect at least two terms from the reader answers'
+      break
+    case 'deck-intake-first': {
+      const proposedDirections = /\b(?:two (?:ways|directions)|either\b[^.?!]{0,100}\bor\b)/i.test(turn.text ?? '')
+      pass = (callIndex(turn, 'ask_user') >= 0 || proposedDirections) && !calls.some((call) => ['check_deck', 'showDeck'].includes(call.name)) && !hasTextDeckList(turn.text)
+      detail = 'expected ask_user or a concrete either/or proposal before any full deck'
+      break
+    }
+    case 'checked-deck-widget': {
+      const check = callIndex(turn, 'check_deck')
+      const show = callIndex(turn, 'showDeck')
+      pass = check >= 0 && show > check && deckTotal(calls[show]) === 60 && !hasTextDeckList(turn.text)
+      detail = 'expected check_deck before a 60-card showDeck and no typed deck list'
+      break
+    }
+    case 'iteration-evidence':
+      pass = calls.some((call) => ['battle_logs', 'deck_history'].includes(call.name))
+      detail = 'expected battle_logs or deck_history'
+      break
+    case 'at-most-two-changes': {
+      const count = proposedChangeCount(turn.text)
+      pass = count >= 1 && count <= 2
+      detail = `expected one or two proposed changes; found ${count}`
+      break
+    }
+    case 'no-unapproved-save':
+      pass = callNamed(turn, 'save_deck').length === 0 || approvedCall(turn, 'save_deck')
+      detail = 'expected no save_deck call without approval'
+      break
+    case 'set-progress':
+      pass = callIndex(turn, 'set_progress') >= 0
+      detail = 'expected set_progress'
+      break
+    case 'missing-list-under-five':
+      pass = callNamed(turn, 'edit_list').some((call) => call.input?.add_missing && Number(call.input.add_missing.max_price_usd) === 5) && approvalRaised(turn, 'edit_list')
+      detail = 'expected an approved edit_list with add_missing and max_price_usd 5'
+      break
+    case 'catalog-card-lookup':
+      pass = calls.some((call) => ['get_card', 'search_cards'].includes(call.name))
+      detail = 'expected get_card or search_cards'
+      break
+    case 'exactly-one-research':
+      pass = callNamed(turn, 'web_research').length === 1
+      detail = `expected exactly one web_research call; found ${callNamed(turn, 'web_research').length}`
+      break
+    case 'dated-answer':
+      pass = /\b(?:20\d{2}|Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b/i.test(turn.text ?? '')
+      detail = 'expected a calendar date or year in the answer'
+      break
+    case 'navigation-only':
+      pass = calls.some((call) => ['goTo', 'escort'].includes(call.name)) && !calls.some((call) => WRITE_NAMES.has(call.name))
+      detail = 'expected goTo or escort and no data write'
+      break
+    case 'small-talk-only':
+      pass = calls.every((call) => call.name === 'express')
+      detail = 'expected no tools beyond express'
+      break
+    case 'no-web-research':
+      pass = callNamed(turn, 'web_research').length === 0
+      detail = 'expected no web_research call'
+      break
+    case 'write-guard-checks': {
+      const show = callIndex(turn, 'showDeck')
+      const check = callIndex(turn, 'check_deck')
+      pass = allWritesApproved(turn) && (show < 0 || (check >= 0 && check < show))
+      detail = 'expected every write approved and check_deck before any showDeck'
+      break
+    }
+    case 'battle-review-evidence':
+      pass = calls.some((call) => call.name === 'battle_logs') && calls.some((call) => call.name === 'deck_history')
+      detail = 'expected both battle_logs and deck_history'
+      break
+    case 'no-data-writes':
+      pass = !calls.some((call) => WRITE_NAMES.has(call.name))
+      detail = 'expected no data writes'
+      break
+    case 'general-helpful':
+      pass = String(turn.text ?? '').trim().length > 0 && !calls.some((call) => WRITE_NAMES.has(call.name))
+      detail = 'expected a non-empty answer with no data writes'
+      break
+    default:
+      detail = `unknown expectation tag: ${tag}`
+  }
+  return { tag, pass, detail: pass ? '' : detail, prior_call_count: priorCalls.length }
+}
+
+export function gradeScenario(turns) {
+  const checks = turns.flatMap((turn, turnIndex) => (turn.expectations ?? []).map((tag) => ({
+    turn: turnIndex + 1,
+    ...gradeExpectation(tag, turn, turnIndex, turns),
+  })))
+  return { pass: checks.every((check) => check.pass), checks }
+}
+
+export function summarizeScenarioResults(runs) {
+  const groups = new Map()
+  for (const run of runs) {
+    const key = `${run.arm ?? run.model}\u0000${run.replay}\u0000${run.scenario}`
+    const group = groups.get(key) ?? { arm: run.arm ?? run.model, model: run.model, effort: run.effort ?? null, replay: run.replay, scenario: run.scenario, samples: 0, passed: 0, cost: 0 }
+    group.samples++
+    group.passed += run.grade?.pass ? 1 : 0
+    group.cost += scoreTranscript(run.turns).cost_usd
+    groups.set(key, group)
+  }
+  return [...groups.values()].map((group) => ({
+    arm: group.arm,
+    model: group.model,
+    effort: group.effort,
+    replay: group.replay,
+    scenario: group.scenario,
+    samples: group.samples,
+    passed: group.passed,
+    pass_rate: group.samples ? group.passed / group.samples : 0,
+    pass_k: group.samples > 0 && group.passed === group.samples,
+    mean_cost_usd: group.samples ? Number((group.cost / group.samples).toFixed(8)) : 0,
+    cost_per_passed_run_usd: group.passed ? Number((group.cost / group.passed).toFixed(8)) : null,
+  }))
+}
+
+export function summarizeArmResults(runs) {
+  const groups = new Map()
+  for (const run of runs) {
+    const arm = run.arm ?? run.model
+    const group = groups.get(arm) ?? { arm, samples: 0, passed: 0, cost: 0, turns: 0, tiers: {} }
+    group.samples++
+    group.passed += run.grade?.pass ? 1 : 0
+    group.cost += scoreTranscript(run.turns).cost_usd
+    for (const turn of run.turns) {
+      group.turns++
+      if (turn.tier) group.tiers[turn.tier] = (group.tiers[turn.tier] ?? 0) + 1
+    }
+    groups.set(arm, group)
+  }
+  return [...groups.values()].map((group) => ({
+    arm: group.arm,
+    samples: group.samples,
+    passed: group.passed,
+    pass_rate: group.samples ? group.passed / group.samples : 0,
+    pass_k: group.samples > 0 && group.passed === group.samples,
+    cost_per_scenario_usd: group.samples ? Number((group.cost / group.samples).toFixed(8)) : 0,
+    cost_per_passed_run_usd: group.passed ? Number((group.cost / group.passed).toFixed(8)) : null,
+    tier_mix: Object.fromEntries(['quick', 'standard', 'deep'].map((tier) => [
+      tier,
+      group.turns ? Number((((group.tiers[tier] ?? 0) / group.turns) * 100).toFixed(4)) : 0,
+    ])),
+  }))
 }
 
 function fixtureDeckCheck(world, input) {
@@ -207,8 +449,17 @@ function cardRows(world, ownedOnly = false) {
   return cards.map((card) => `${card.id} — ${card.name} · owned ${card.owned} · $${card.price.toFixed(2)}`).join('\n')
 }
 
-function fixtureOutput(name, input, world, writes) {
+function fixtureOutput(name, input, world, writes, definition) {
+  if (name === 'add_battle_log' && !input.deck_id) {
+    return [
+      'Parsed fixture log. Ranked candidate decks; nothing was written.',
+      ...world.decks.slice(0, 3).map((deck, index) => `${index + 1}. ${deck.id} — ${deck.name}`),
+      'Call add_battle_log again with the chosen deck_id and dry_run:false.',
+    ].join('\n')
+  }
   if (WRITE_NAMES.has(name)) {
+    const hasDryRun = Boolean(definition?.inputSchema?.shape && 'dry_run' in definition.inputSchema.shape)
+    if (hasDryRun && input.dry_run !== false) return `${name} fixture preview; nothing was written. Re-call with dry_run:false to apply.`
     writes.push({ name, input })
     return `${name} was approved by the fixture reader and recorded in the fixture. No live data was changed.`
   }
@@ -217,7 +468,7 @@ function fixtureOutput(name, input, world, writes) {
   if (name === 'get_card') {
     const q = String(input.card_id ?? input.name ?? '').toLowerCase()
     const found = world.collection.cards.find((card) => card.id.toLowerCase() === q || card.name.toLowerCase().includes(q))
-    return found ? `${found.id} — ${found.name}\nOwned: ${found.owned}\nMarket: $${found.price.toFixed(2)}` : 'No matching card in the fixture.'
+    return found ? `${found.id} — ${found.name}\nOwned: ${found.owned}\nMarket: $${found.price.toFixed(2)}${found.text ? `\nCard text: ${found.text}` : ''}` : 'No matching card in the fixture.'
   }
   if (name === 'decks') {
     const q = String(input.deck ?? input.deck_id ?? '').toLowerCase()
@@ -225,12 +476,20 @@ function fixtureOutput(name, input, world, writes) {
     const deck = world.decks.find((x) => x.id.toLowerCase() === q || x.name.toLowerCase().includes(q)) ?? world.decks[0]
     return `${deck.name} (${deck.id}) · ${deck.format}\nRecord: ${deck.record ? `${deck.record.wins}W-${deck.record.losses}L` : 'not recorded'}\n${deck.cards.map((c) => `${c.quantity} ${c.card_id}`).join('\n')}`
   }
-  if (name === 'battle_logs') return world.battle_logs.map((log, i) => `${i + 1}. ${log.result} vs ${log.opponent} — ${log.note}`).join('\n')
+  if (name === 'battle_logs') return world.battle_logs.map((log, i) => `${i + 1}. ${log.result} vs ${log.opponent} · ${log.deck_id} v${log.version ?? 1} — ${log.note}`).join('\n')
+  if (name === 'deck_history') {
+    const q = String(input.deck_id ?? '').toLowerCase()
+    const deck = world.decks.find((item) => item.id.toLowerCase() === q || item.name.toLowerCase().includes(q)) ?? world.decks[0]
+    return [`${deck.name} version history`, ...(deck.versions ?? [{ version: 1, note: 'Initial fixture list.' }]).map((version) => `v${version.version}: ${version.note}`)].join('\n')
+  }
   if (name === 'deck_performance' || name === 'deck_stats') return 'Toolbox Slowking v3: 19 wins, 13 losses (59.4%). Recent 10: 6-4. Losses skew toward fast basic attackers.'
   if (name === 'check_deck') return renderDeckCheck(fixtureDeckCheck(world, input))
-  if (name === 'set_progress') return 'Pitch Black (me05): 45/181 owned (24.9%). Litwick 9, Lampent 9, Chandelure 4.'
+  if (name === 'set_progress') {
+    const set = world.sets.find((item) => item.id === input.set_id || item.name.toLowerCase() === String(input.set_id ?? '').toLowerCase()) ?? world.sets[0]
+    return `${set.name} (${set.id}, ${set.series_slug}): ${set.owned}/${set.total} owned; ${set.missing.length} missing; $${set.cost_to_finish_usd.toFixed(2)} to finish.\n${set.missing.map((card) => `${card.card_id} — ${card.name} · $${card.price.toFixed(2)}`).join('\n')}`
+  }
   if (name === 'collection_log' || name === 'mutation_history') return 'Recent collection changes: +3 Litwick, +2 Lampent, +1 Dragapult ex.'
-  if (name === 'lists') return 'Favorites (12 cards)\nTrade targets (8 cards)'
+  if (name === 'lists') return world.lists.map((list) => `${list.id} — ${list.name} (${list.kind}, ${list.items.length} cards)`).join('\n')
   if (name === 'health') return 'DeckPal fixture is healthy.'
   return `Fixture ${name} result: no matching rows. The tool ran successfully with ${JSON.stringify(input)}.`
 }
@@ -257,6 +516,18 @@ function mockModel() {
   })
 }
 
+function mockTriageModel(pathway = 'general') {
+  return new MockLanguageModelV3({
+    modelId: 'decke-triage-mock',
+    doGenerate: async () => ({
+      content: [{ type: 'tool-call', toolCallId: 'triage-mock', toolName: 'triage', input: JSON.stringify({ pathway, also: null, signals: [], missing: [], wantsDeep: 'no' }) }],
+      finishReason: { unified: 'tool-calls', raw: 'tool_use' },
+      usage: { inputTokens: { total: 5, noCache: 5, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 3, text: 0, reasoning: 0 } },
+      providerMetadata: { gateway: { cost: 0 } }, warnings: [],
+    }),
+  })
+}
+
 function readUsage(usage, metadata) {
   const input = usage?.inputTokens ?? usage?.promptTokens ?? {}
   const output = usage?.outputTokens ?? usage?.completionTokens ?? {}
@@ -269,6 +540,7 @@ function readUsage(usage, metadata) {
   }
   const gateway = metadata?.gateway ?? {}
   return {
+    input_tokens: number(input.total ?? input),
     output_tokens: number(output.total ?? output),
     cache_read_tokens: number(input.cacheRead ?? usage?.inputTokenDetails?.cacheReadTokens ?? usage?.cachedInputTokens ?? gateway.cacheReadTokens),
     cache_write_tokens: number(input.cacheWrite ?? usage?.inputTokenDetails?.cacheWriteTokens ?? usage?.cacheCreationInputTokens ?? gateway.cacheWriteTokens),
@@ -334,7 +606,18 @@ async function loadRuntime(world, writes) {
   // The root workspace does not depend on this package by name. Import its
   // compiled entry directly, just as the existing probes import API dist.
   const agent = await import(pathToFileURL(resolve(REPO, 'packages/agent-tools/dist/index.js')).href)
-  const { buildSystemPrompt } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/prompt.js')).href)
+  const prompt = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/prompt.js')).href)
+  const routing = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/tiers.js')).href)
+  const triage = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/triage.js')).href)
+  const models = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/models.js')).href)
+  const pastedLog = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/pastedLog.js')).href)
+  const { requiresApproval } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/adapters/aisdk.js')).href)
+  let pathways = null
+  try {
+    pathways = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/pathways/index.js')).href)
+  } catch (error) {
+    if (error?.code !== 'ERR_MODULE_NOT_FOUND') throw error
+  }
   const { buildTools } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/tools.js')).href)
   const { createGrounding } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/grounding.js')).href)
   const definitions = agent.allTools()
@@ -342,8 +625,8 @@ async function loadRuntime(world, writes) {
   const dataTools = Object.fromEntries(definitions.map((def) => [def.name, tool({
     description: def.description,
     inputSchema: def.inputSchema ?? z.object({}),
-    needsApproval: def.annotations.readOnlyHint ? false : true,
-    execute: async (input) => fixtureOutput(def.name, input, world, writes),
+    needsApproval: (input) => requiresApproval(def, input),
+    execute: async (input) => fixtureOutput(def.name, input, world, writes, def),
   })]))
   const checked = async (input) => fixtureDeckCheck(world, input)
   const cosmetic = buildTools({ write() {} }, createGrounding(), undefined, undefined, { checkDeck: checked })
@@ -358,7 +641,17 @@ async function loadRuntime(world, writes) {
   })
   const tools = { ...cosmetic, ...dataTools, web_research }
   const dataToolList = [...definitions.map((def) => ({ name: def.name, title: def.title })), { name: 'web_research', title: 'Research the web' }]
-  return { buildSystemPrompt, tools, dataToolList }
+  const buildInstructions = (choice, selectedPathways, route) => {
+    const cache = choice.id.startsWith('anthropic/') ? { anthropic: { cacheControl: { type: 'ephemeral' } } } : null
+    const system = (content, cached = false) => ({ role: 'system', content, ...(cached && cache ? { providerOptions: cache } : {}) })
+    const requestPathway = pathways.pathwayBlock(selectedPathways)
+    return [
+      system(prompt.buildCorePrompt({ signedIn: true, dataTools: dataToolList }), true),
+      ...(requestPathway ? [system(requestPathway, true)] : []),
+      system(prompt.buildVolatileContext({ route, signedIn: true })),
+    ]
+  }
+  return { buildInstructions, tools, dataToolList, ...routing, ...triage, ...models, ...pastedLog }
 }
 
 // Mirrors api/chat.mjs: one breakpoint on the system prompt covers the tools too.
@@ -366,22 +659,81 @@ function cacheTools(modelId, tools) {
   return tools
 }
 
-async function runTurn({ model, modelId, gateway, runtime, priorTurns, replay, scenarioTurn, budget }) {
+// Mirrors api/chat.mjs cacheConversation.
+function cacheConversation(modelId, messages) {
+  if (!modelId.startsWith('anthropic/') || messages.length === 0) return messages
+  return messages.map((message, index) => {
+    const providerOptions = { ...(message.providerOptions ?? {}) }
+    const anthropic = { ...(providerOptions.anthropic ?? {}) }
+    delete anthropic.cacheControl
+    if (Object.keys(anthropic).length) providerOptions.anthropic = anthropic
+    else delete providerOptions.anthropic
+    if (index === messages.length - 1) providerOptions.anthropic = { ...(providerOptions.anthropic ?? {}), cacheControl: { type: 'ephemeral' } }
+    return { ...message, providerOptions: Object.keys(providerOptions).length ? providerOptions : undefined }
+  })
+}
+
+// Mirrors api/chat.mjs's latest/previous text extraction while retaining tool
+// parts for carriedFromHistory and answeringAsk.
+function routingMessages(priorTurns, scenarioTurn) {
+  return [
+    ...priorTurns.flatMap((turn) => [
+      { role: 'user', parts: [{ type: 'text', text: turn.user }] },
+      { role: 'assistant', parts: [
+        ...(turn.text ? [{ type: 'text', text: turn.text }] : []),
+        ...(turn.calls ?? []).map((call) => ({ type: `tool-${call.name}`, toolName: call.name, input: call.input, state: call.output_error ? 'output-error' : 'output-available' })),
+      ] },
+    ]),
+    { role: 'user', parts: [{ type: 'text', text: scenarioTurn.user }] },
+  ]
+}
+
+async function routedChoice({ runtime, gateway, mock, priorTurns, scenario, scenarioTurn, budget }) {
+  const route = scenarioTurn.route ?? scenarioTurn.page ?? scenario.route ?? scenario.page ?? '/'
+  const uiMessages = routingMessages(priorTurns, scenarioTurn)
+  const rawModel = mock ? mockTriageModel(scenario.expected_pathway ?? scenario.pathway ?? 'general') : gateway(runtime.TRIAGE.id)
+  let triageUsage = { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0 }
+  const model = new Proxy(rawModel, {
+    get(target, property, receiver) {
+      if (property !== 'doGenerate') return Reflect.get(target, property, receiver)
+      return async (options) => {
+        const result = await target.doGenerate(options)
+        const measured = readUsage(result.usage, result.providerMetadata)
+        for (const key of Object.keys(triageUsage)) triageUsage[key] += measured[key] ?? 0
+        return result
+      }
+    },
+  })
+  const started = performance.now()
+  const triage = await runtime.runTriage({
+    message: scenarioTurn.user,
+    previousReply: String(priorTurns.at(-1)?.text ?? '').slice(-800),
+    page: route,
+    pasted: runtime.extractPastedLog([uiMessages.at(-1)]) !== null,
+    answering: runtime.answeringAsk(uiMessages),
+    model,
+  })
+  const triageMs = Math.round(performance.now() - started)
+  budget.spent += triageUsage.cost_usd
+  if (budget.spent > budget.limit + 1e-9) throw new Error(`Budget exceeded after a model call: $${budget.spent.toFixed(6)} > $${budget.limit.toFixed(6)}`)
+  const decision = runtime.decideTier({ triage, carried: runtime.carriedFromHistory(uiMessages), deepApproved: false })
+  return { route, triage, triageMs, triageUsage, decision, choice: runtime.TIERS[decision.tier] }
+}
+
+async function runTurn({ model, modelId, fallback, maxOutputTokens = 8000, effort, gateway, runtime, priorTurns, replay, pathways, route = '/', scenarioTurn, budget, routing }) {
   const messages = [...(replay === 'full' ? fullHistory(priorTurns) : compactHistory(priorTurns)), { role: 'user', content: [{ type: 'text', text: scenarioTurn.user }] }]
   const calls = []
   const started = performance.now()
   let first = null
   let text = ''
+  let inputTokens = 0
   let outputTokens = 0
   let cacheReadTokens = 0
   let cacheWriteTokens = 0
   let turnCost = 0
   let stepCount = 0
   const modelMessages = []
-  const instructionsText = runtime.buildSystemPrompt({ route: '/decks', signedIn: true, dataTools: runtime.dataToolList })
-  const instructions = modelId.startsWith('anthropic/')
-    ? { role: 'system', content: instructionsText, providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } } }
-    : instructionsText
+  const instructions = runtime.buildInstructions({ id: modelId }, pathways, route)
   const allTools = cacheTools(modelId, runtime.tools)
   let legMessages = messages
   let pendingApprovedCalls = new Set()
@@ -395,8 +747,13 @@ async function runTurn({ model, modelId, gateway, runtime, priorTurns, replay, s
       instructions,
       messages: legMessages,
       tools: allTools,
+      ...((fallback || (modelId.startsWith('anthropic/') && effort)) ? { providerOptions: {
+        ...(fallback ? { gateway: { models: [fallback] } } : {}),
+        ...(modelId.startsWith('anthropic/') && effort ? { anthropic: { effort, thinking: { type: 'adaptive' } } } : {}),
+      } } : {}),
+      prepareStep: ({ messages: stepMessages }) => ({ messages: cacheConversation(modelId, stepMessages) }),
       stopWhen: stepCountIs(24),
-      maxOutputTokens: 8000,
+      maxOutputTokens,
       onStepFinish(step) {
         const stepMeasured = readUsage(step.usage, step.providerMetadata)
         observedStepCost += stepMeasured.cost_usd
@@ -441,6 +798,7 @@ async function runTurn({ model, modelId, gateway, runtime, priorTurns, replay, s
     stepCount += steps.length
     legMetadata = { ...legMetadata, ...finalMetadata }
     const measured = readUsage(usage, legMetadata)
+    inputTokens += measured.input_tokens
     outputTokens += measured.output_tokens
     cacheReadTokens += measured.cache_read_tokens
     cacheWriteTokens += measured.cache_write_tokens
@@ -475,22 +833,38 @@ async function runTurn({ model, modelId, gateway, runtime, priorTurns, replay, s
     const approvals = legResponseMessages.flatMap((message) => Array.isArray(message.content) ? message.content : [])
       .filter((part) => part.type === 'tool-approval-request')
     if (!approvals.length) break
+    for (const approval of approvals) {
+      const found = calls.find((call) => call.id === approval.toolCallId)
+      if (found) found.approval_requested = true
+    }
     const answer = { role: 'tool', content: approvals.map((part) => ({ type: 'tool-approval-response', approvalId: part.approvalId, approved: true, reason: 'approved by the fixture reader' })) }
+    for (const approval of approvals) {
+      const found = calls.find((call) => call.id === approval.toolCallId)
+      if (found) found.approved = true
+    }
     modelMessages.push(answer)
     legMessages = [...legMessages, ...(resumedMessage ? [resumedMessage] : []), ...legResponseMessages, answer]
     pendingApprovedCalls = new Set(approvals.map((part) => part.toolCallId))
     if (approvalRound === 7) throw new Error('Write approval loop exceeded 8 rounds')
   }
   return {
-    user: scenarioTurn.user, tags: scenarioTurn.tags, text: text.trim(), calls,
+    user: scenarioTurn.user, tags: scenarioTurn.tags, expectations: scenarioTurn.expectations ?? [], text: text.trim(), calls,
     ttft_ms: Math.round((first ?? performance.now()) - started), total_ms: Math.round(performance.now() - started),
-    output_tokens: outputTokens, cost_usd: turnCost, cache_read_tokens: cacheReadTokens,
-    cache_write_tokens: cacheWriteTokens, steps: stepCount, modelMessages, declined: false,
+    input_tokens: inputTokens + (routing?.triageUsage.input_tokens ?? 0),
+    output_tokens: outputTokens + (routing?.triageUsage.output_tokens ?? 0),
+    cost_usd: turnCost + (routing?.triageUsage.cost_usd ?? 0),
+    cache_read_tokens: cacheReadTokens + (routing?.triageUsage.cache_read_tokens ?? 0),
+    cache_write_tokens: cacheWriteTokens + (routing?.triageUsage.cache_write_tokens ?? 0),
+    steps: stepCount, modelMessages, declined: false, model: modelId, model_used: modelId,
+    ...(routing ? {
+      tier: routing.decision.tier, pathways: routing.decision.pathways, effort: routing.decision.effort,
+      reasons: routing.decision.reasons, triage_source: routing.triage.source, triage_ms: routing.triageMs,
+    } : {}),
   }
 }
 
 function aggregateRows(runs) {
-  return runs.map((run) => ({ model: run.model, replay: run.replay, scenario: run.scenario, sample: run.sample, ...scoreTranscript(run.turns) }))
+  return runs.map((run) => ({ arm: run.arm ?? run.model, model: run.model, effort: run.effort ?? '', replay: run.replay, scenario: run.scenario, sample: run.sample, pass: run.grade?.pass ?? false, ...scoreTranscript(run.turns) }))
 }
 
 function annotateTurnMetrics(turns) {
@@ -507,10 +881,44 @@ function annotateTurnMetrics(turns) {
   })
 }
 
-function markdown(rows) {
-  const cols = ['model', 'replay', 'scenario', 'sample', ...METRIC_COLUMNS]
+function markdown(rows, scenarioResults, armResults) {
+  const cols = ['arm', 'replay', 'scenario', 'sample', 'pass', ...METRIC_COLUMNS]
+  const outcomeCols = ['arm', 'replay', 'scenario', 'passed', 'samples', 'pass_rate', 'pass_k', 'mean_cost_usd', 'cost_per_passed_run_usd']
+  const armCols = ['arm', 'passed', 'samples', 'pass_rate', 'pass_k', 'cost_per_scenario_usd', 'cost_per_passed_run_usd', 'quick_pct', 'standard_pct', 'deep_pct']
   const show = (value) => typeof value === 'number' && !Number.isInteger(value) ? value.toFixed(6) : String(value)
-  return [`# Deck-E conversation replay probe`, '', `| ${cols.join(' | ')} |`, `| ${cols.map(() => '---').join(' | ')} |`, ...rows.map((row) => `| ${cols.map((key) => show(row[key] ?? 0)).join(' | ')} |`), ''].join('\n')
+  const displayedArms = armResults.map((row) => ({
+    ...row,
+    quick_pct: row.tier_mix.quick,
+    standard_pct: row.tier_mix.standard,
+    deep_pct: row.tier_mix.deep,
+  }))
+  return [
+    '# Deck-E conversation replay probe', '',
+    '## Arm summary', '',
+    `| ${armCols.join(' | ')} |`,
+    `| ${armCols.map(() => '---').join(' | ')} |`,
+    ...displayedArms.map((row) => `| ${armCols.map((key) => show(row[key] ?? '—')).join(' | ')} |`),
+    '',
+    '## Scenario outcomes', '',
+    `| ${outcomeCols.join(' | ')} |`,
+    `| ${outcomeCols.map(() => '---').join(' | ')} |`,
+    ...scenarioResults.map((row) => `| ${outcomeCols.map((key) => show(row[key] ?? '—')).join(' | ')} |`),
+    '', '## Raw samples', '',
+    `| ${cols.join(' | ')} |`,
+    `| ${cols.map(() => '---').join(' | ')} |`,
+    ...rows.map((row) => `| ${cols.map((key) => show(row[key] ?? 0)).join(' | ')} |`), '',
+  ].join('\n')
+}
+
+function outcomeTable(rows) {
+  const header = ['arm', 'scenario', 'pass', 'pass^k', 'mean $', '$ / pass']
+  const values = rows.map((row) => [
+    row.arm, row.scenario, `${row.passed}/${row.samples}`, row.pass_k ? 'yes' : 'no',
+    row.mean_cost_usd.toFixed(6), row.cost_per_passed_run_usd == null ? '—' : row.cost_per_passed_run_usd.toFixed(6),
+  ])
+  const widths = header.map((name, i) => Math.max(name.length, ...values.map((row) => String(row[i]).length)))
+  const line = (row) => row.map((value, i) => String(value).padEnd(widths[i])).join('  ')
+  return [line(header), line(widths.map((width) => '-'.repeat(width))), ...values.map(line)].join('\n')
 }
 
 export async function main(argv = process.argv.slice(2)) {
@@ -531,22 +939,36 @@ export async function main(argv = process.argv.slice(2)) {
   // run that hits --budget-usd keeps what it already paid for.
   const save = (stopped) => {
     const rows = aggregateRows(runs)
-    const result = { generated_at: new Date().toISOString(), options: { ...opts, out: undefined }, spent_usd: Number(budget.spent.toFixed(8)), stopped: stopped ?? null, metrics: METRIC_COLUMNS, rows, runs, writes }
+    const scenarioResults = summarizeScenarioResults(runs)
+    const armResults = summarizeArmResults(runs)
+    const result = { generated_at: new Date().toISOString(), options: { ...opts, out: undefined }, spent_usd: Number(budget.spent.toFixed(8)), stopped: stopped ?? null, metrics: METRIC_COLUMNS, arm_results: armResults, scenario_results: scenarioResults, rows, runs, writes }
     writeFileSync(resolve(opts.out, 'results.json'), `${JSON.stringify(result, null, 2)}
 `)
-    writeFileSync(resolve(opts.out, 'summary.md'), markdown(rows))
+    writeFileSync(resolve(opts.out, 'summary.md'), markdown(rows, scenarioResults, armResults))
   }
   try {
-  for (const modelId of opts.models) {
-    const model = opts.mock ? mockModel() : gateway(modelId)
+  for (const arm of opts.arms) {
     for (const scenario of selected) {
       for (let sample = 1; sample <= opts.n; sample++) {
         const priorTurns = []
         for (const scenarioTurn of scenario.turns) {
-          priorTurns.push(await runTurn({ model, modelId, gateway, runtime, priorTurns, replay: opts.replay, scenarioTurn, budget }))
+          const routing = arm.routed
+            ? await routedChoice({ runtime, gateway, mock: opts.mock, priorTurns, scenario, scenarioTurn, budget })
+            : null
+          const choice = routing?.choice
+          const modelId = choice?.id ?? arm.model
+          const model = opts.mock ? mockModel() : gateway(modelId)
+          priorTurns.push(await runTurn({
+            model, modelId, fallback: choice?.fallback, maxOutputTokens: choice?.maxOutputTokens ?? 8000,
+            effort: routing?.decision.effort ?? arm.effort,
+            gateway, runtime, priorTurns, replay: opts.replay,
+            pathways: routing?.decision.pathways ?? [scenario.pathway ?? 'general'],
+            route: routing?.route ?? scenario.route ?? scenario.page ?? '/', scenarioTurn, budget, routing,
+          }))
         }
-        runs.push({ model: modelId, replay: opts.replay, scenario: scenario.id, sample, turns: annotateTurnMetrics(priorTurns) })
-        process.stdout.write(`completed ${modelId} / ${scenario.id} / ${sample}
+        const annotated = annotateTurnMetrics(priorTurns)
+        runs.push({ arm: arm.id, model: arm.routed ? 'routed' : arm.model, effort: arm.effort, replay: opts.replay, scenario: scenario.id, sample, grade: gradeScenario(annotated), turns: annotated })
+        process.stdout.write(`completed ${arm.id} / ${scenario.id} / ${sample}
 `)
         save()
       }
@@ -559,6 +981,7 @@ export async function main(argv = process.argv.slice(2)) {
 `)
   }
   save()
+  process.stdout.write(`${outcomeTable(summarizeScenarioResults(runs))}\n`)
   process.stdout.write(`wrote ${resolve(opts.out, 'summary.md')} and results.json; cost $${budget.spent.toFixed(6)}\n`)
 }
 

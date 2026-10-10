@@ -74,6 +74,15 @@ test('recent turns replay complete bounded server results', () => {
   assert.match(HOOK, /const bounded = capOutput\(output\)/, 'captured outputs are not bounded')
 })
 
+test('a completed ask replays as the SDK tool part that keeps its question attached', () => {
+  const wire = HOOK.slice(HOOK.indexOf('function messagesToWire'))
+  assert.match(
+    wire,
+    /for \(const ask of m\.parts\)[\s\S]{0,240}ask\.kind === 'ask'[\s\S]{0,320}type: 'tool-ask_user'[\s\S]{0,200}toolCallId: ask\.toolCallId,[\s\S]{0,200}input: ask\.input,[\s\S]{0,200}output: ask\.output,/,
+    'a completed ask is not replayed as tool-ask_user with its input and output',
+  )
+})
+
 test('old compact turns still replay exact declines', () => {
   const wire = HOOK.slice(HOOK.indexOf('function messagesToWire'))
   assert.match(wire, /else \{[\s\S]{0,400}declineParts\(chips,/, 'old declines fell back to a lossy lookup line')

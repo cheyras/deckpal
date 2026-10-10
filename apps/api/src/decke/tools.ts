@@ -35,6 +35,7 @@ import { briefArgs } from './toolArgs.js'
 import { NO_WORK } from './deepOutcome.js'
 import type { Queryable } from '@deckpal/db'
 import { canAskToShare } from './improvement.js'
+import { PATHWAY_NAMES } from './pathways/names.js'
 
 /**
  * Routes Deck-E may navigate to.
@@ -1053,6 +1054,27 @@ export function buildTools(
         return "The sharing choices are under your message. Don't mention sharing again in this chat; carry on."
       },
     }),
+
+    ask_user: tool({
+      description:
+        'Ask the reader for information only they can supply when it would change the work. Do cheap DeckPal lookups first, and never ask for something a DeckPal tool can answer. Show one card per turn with 1–4 questions and 2–4 short options each. The card always adds Other free text and Skip, so do not add those options yourself. Set about to the pathway you are on. The reader answers as their next ordinary user message; after calling this tool, end your turn now.',
+      inputSchema: z.object({
+        about: z.enum(PATHWAY_NAMES).optional(),
+        questions: z.array(z.object({
+          header: z.string().trim().min(1).max(12),
+          question: z.string().trim().min(1).max(200),
+          options: z.array(z.object({
+            label: z.string().trim().min(1).max(40),
+            description: z.string().trim().min(1).max(120).optional(),
+          }).strict()).min(2).max(4),
+          multi: z.boolean().default(false),
+        }).strict()).min(1).max(4),
+      }).strict(),
+      execute: async () => ({
+        status: 'shown' as const,
+        note: 'The questions are on screen. The reader will answer in their next message; end your turn now.',
+      }),
+    }),
   }
 }
 
@@ -1075,14 +1097,16 @@ export const CLIENT_TOOLS = [
  * half is not a union. `tools.test.ts` pins both halves against the structural
  * property that actually decides it — whether the tool has an `execute`.
  */
-export const SERVER_TOOLS = ['express', 'showScreen', 'showDeck', 'ask_to_share_chat'] as const
+export const SERVER_TOOLS = ['express', 'showScreen', 'showDeck', 'ask_to_share_chat', 'ask_user'] as const
 
 /**
  * EVERY tool `buildTools` exposes: the character's own vocabulary.
  *
- * The repo counts Deck-E's tools as "9 cosmetic, 23 data, 4 deep" (see
- * `focus.ts`); this is the first nine, whoever runs them. It exists because two
- * places need the WHOLE set rather than either half:
+ * This began as the nine cosmetic/navigation tools counted in `focus.ts`.
+ * `ask_user` now lives in the same factory because it is Deck-E-only and
+ * server-executed, even though its effect is a conversation card rather than
+ * scenery. The name is historical; the contract is structural: this is every
+ * tool returned above, whoever runs it. Two places need that WHOLE set:
  *
  *   - `narration.ts` strips these names when the model writes one as prose
  *     instead of calling it. That list was hand-written and went stale the day

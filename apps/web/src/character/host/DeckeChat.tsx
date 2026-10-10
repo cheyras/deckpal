@@ -61,6 +61,8 @@ import { ShareChoice } from './chat/ShareChoice'
 import { submitImprovementConsent } from './chat/improvementConsent'
 import { FeedbackCard, ReplyFeedback } from './chat/Feedback'
 import type { FeedbackVote } from './chat/feedbackState'
+import { AskCard } from './chat/AskCard'
+import { formatAnswers, pendingAsk, SKIP_TEXT } from './chat/askState'
 import {
   creditHeaderLabel,
   creditState,
@@ -944,6 +946,14 @@ export type ChatPart =
   | { kind: 'tool'; id: string; chip: ToolChip }
   | { kind: 'screen'; id: string; spec: ScreenSpec }
   | { kind: 'consent'; id: string }
+  | {
+      kind: 'ask'
+      id: string
+      toolCallId: string
+      state: 'output-available'
+      input: { questions: import('./chat/askState').AskQuestion[] }
+      output: unknown
+    }
   /**
    * A refusal, and it is a PART KIND rather than a string for one reason.
    *
@@ -1260,6 +1270,7 @@ export function DeckeChat({
   // Not while he is working: a vote cast under an approval card would otherwise
   // pop its question up mid-turn, after the approval clears the slot.
   const [feedbackAsk, setFeedbackAsk] = useState<{ seq: number; vote: FeedbackVote } | null>(null)
+  const askQuestions = busy ? null : pendingAsk(messages)
   const feedbackBusyRef = useRef(busy)
   feedbackBusyRef.current = busy
   const openFeedback = useCallback((seq: number, vote: FeedbackVote) => {
@@ -1620,7 +1631,7 @@ export function DeckeChat({
   // exit bar, and the panel observer measured "no composer" (0) meanwhile. The
   // composer that comes back is a new element; without re-measuring it, the
   // park box stayed at the not-measured fallback, 100 px low at 390x844.
-  }, [visible, shownMinimised, empty, spent, desktop, asking, viewing, feedbackAsk])
+  }, [visible, shownMinimised, empty, spent, desktop, asking, askQuestions, viewing, feedbackAsk])
 
 
   // HIS FOOTPRINT, from the one number that decides his size.
@@ -3139,6 +3150,10 @@ export function DeckeChat({
                     if (part.kind === 'consent') {
                       return <ShareChoice key={part.id} onChoose={saveConsent} />
                     }
+                    // The ask has one home: the dock below. Keeping its message
+                    // part here is state, not a second rendering of the card in
+                    // the scrolling transcript.
+                    if (part.kind === 'ask') return null
                     // Full width rather than inside a bubble: a panel is a
                     // figure, and an 85%-wide column with a card grid in it is
                     // a column of one card.
@@ -3284,6 +3299,20 @@ export function DeckeChat({
             cost={deepCost(asking[0].name, quote)}
             onTopUp={onTopUp}
           />
+          </div>
+        ) : askQuestions && !viewing ? (
+          /* A reader question uses the same dock and the same physical floor.
+             It is hidden while streaming, so no choice can race a turn that
+             has not finished producing the card yet. */
+          <div ref={askRef} data-decke-ask-card="" className="mx-auto w-full max-w-[760px]">
+            <AskCard
+              questions={askQuestions}
+              onSubmit={(answers) => {
+                const text = formatAnswers(askQuestions, answers)
+                onSend(text || SKIP_TEXT)
+              }}
+              onSkip={() => onSend(SKIP_TEXT)}
+            />
           </div>
         ) : feedbackAsk && !viewing ? (
           /* The same floor as the approval card: he stands on it, and on a

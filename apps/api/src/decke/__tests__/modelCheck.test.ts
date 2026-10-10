@@ -14,7 +14,7 @@ import {
   modelCheckStatus,
   modelCheckWarning,
 } from '../modelCheck.js';
-import { MODELS } from '../models.js';
+import { MODELS, TIERS, TRIAGE, budgetFor } from '../models.js';
 
 /** A Gateway that has exactly these ids. */
 const gatewayWith = (ids: string[]): typeof fetch =>
@@ -33,7 +33,31 @@ test('every configured id is checked — primary, fallback AND escalate', () => 
   assert.ok(ids.includes('anthropic/claude-opus-5'), 'an escalate target');
   assert.ok(ids.includes('typesafe-ai/jev'), 'the judgment model, which fails open and so fails silently');
   assert.ok(ids.includes('anthropic/claude-sonnet-5.5'), 'the chat primary');
+  assert.ok(ids.includes('anthropic/claude-haiku-5.5'), 'the triage and Quick primary');
+  assert.ok(ids.includes('anthropic/claude-opus-5.5'), 'the Deep primary');
   assert.equal(new Set(ids).size, ids.length, 'ids are deduplicated');
+});
+
+test('conversation tiers pin model, fallback and all-in adaptive-thinking cap', () => {
+  assert.deepEqual(TIERS.quick, {
+    id: 'anthropic/claude-haiku-5.5',
+    fallback: 'anthropic/claude-sonnet-5.5',
+    maxOutputTokens: 16_000,
+  });
+  assert.deepEqual(TIERS.standard, {
+    id: 'anthropic/claude-sonnet-5.5',
+    fallback: 'google/gemini-2.5-flash',
+    maxOutputTokens: 16_000,
+  });
+  assert.deepEqual(TIERS.deep, {
+    id: 'anthropic/claude-opus-5.5',
+    fallback: 'anthropic/claude-sonnet-5.5',
+    maxOutputTokens: 32_000,
+  });
+  assert.deepEqual(TRIAGE, { id: 'anthropic/claude-haiku-5.5', maxOutputTokens: 400 });
+  assert.equal(budgetFor(TIERS.quick), 16_000, 'adaptive thinking is already inside the tier cap');
+  assert.equal(budgetFor(TIERS.standard), 16_000);
+  assert.equal(budgetFor(TIERS.deep), 32_000);
 });
 
 test('chat has room to plan and emit a complete deck', () => {
