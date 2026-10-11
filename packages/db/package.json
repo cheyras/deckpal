@@ -24,12 +24,12 @@
     "test:migrations": "node --import tsx --test src/__tests__/migrationLint.test.ts"
   },
   "dependencies": {
-    "pg": "^8.23.0"
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@types/pg": "^8.23.1",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "@types/node": "^26.6.2"
+    "@types/node": "^26.6.4"
   }
 }

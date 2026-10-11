@@ -33,19 +33,19 @@
     "test:redirects": "node scripts/check-redirects.mjs"
   },
   "devDependencies": {
-    "@types/node": "^26.6.2",
+    "@types/node": "^26.6.4",
     "axe-core": "^4.12.1",
     "playwright": "1.63.0",
-    "sharp": "^0.35.4",
+    "sharp": "^0.35.5",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@ai-sdk/gateway": "4.0.91",
+    "@ai-sdk/gateway": "4.0.103",
     "@deckpal/db": "workspace:*",
     "@vercel/functions": "3.9.11",
-    "ai": "7.0.113",
-    "pg": "^8.23.0",
+    "ai": "7.0.127",
+    "pg": "^8.23.1",
     "zod": "4.6.5"
   }
 }
