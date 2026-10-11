@@ -6,7 +6,7 @@ import { def, type Env, type GameContext } from './context.js';
 import type { Cond, Expr, Filter, PType, SlotRef, SlotZone, SpecialCondition, Who } from './dsl.js';
 import { allSlots, findSlot, opp, topCard } from './state.js';
 import { CUSTOM_CONDS } from './customs.js'; // lane:ghost
-import { benchLimit } from './query.js';
+import { benchLimit, energyReplacement, staticsForEnergy, type LiveStatic } from './query.js';
 import type { CardDef, GameState, Player, Slot, Val } from './types.js';
 import { ASLEEP, BURNED, CONFUSED, PARALYZED, POISONED } from './types.js'; // lane:metal
 
@@ -51,7 +51,7 @@ export function defMatches(d: CardDef, f: Filter | undefined): boolean {
   if (f.basicEnergy !== undefined && (d.kind !== 'energy' || d.basicEnergy !== f.basicEnergy)) return false;
   if (f.energyType && !(d.kind === 'energy' && d.basicEnergy && d.provides.includes(f.energyType))) return false;
   // Off a Pokémon (no slot to ask), an unconditional "every type" counts; on one, discardEnergy asks the slot.
-  if (f.providesType && !(d.kind === 'energy' && (d.provides.includes(f.providesType) || (d.script?.providesAny && !d.script.providesAny.when)))) return false;
+  if (f.providesType && !(d.kind === 'energy' && (d.provides.includes(f.providesType) || d.script?.providesFlex?.types.includes(f.providesType) || (d.script?.providesAny && !d.script.providesAny.when)))) return false;
   if (f.name) {
     const names = Array.isArray(f.name) ? f.name : [f.name];
     if (!names.includes(d.name)) return false;
@@ -73,6 +73,8 @@ export function slotTypes(env: Env, slot: Slot): readonly PType[] {
   const d = def(env.ctx, topCard(slot));
   const fix = d.typeFix;
   if (!fix) return d.types;
+  // "As long as this Pokémon has a Future Booster Energy Capsule attached, it is {F} and {M} type": a condition on the Pokémon itself.
+  if (fix.ifSlot && !slotMatches(env, slot, fix.ifSlot, false)) return d.types;
   return fix.add ? [...new Set([...d.types, ...fix.types])] : fix.types;
 }
 
@@ -101,24 +103,33 @@ export function cardMatches(env: Env, iid: number, f: Filter | undefined): boole
 // lane:metal: in-play-only filter keys `energy`, `tool`, `condition`.
 const COND_BIT: Record<SpecialCondition, number> = { asleep: ASLEEP, confused: CONFUSED, paralyzed: PARALYZED, poisoned: POISONED, burned: BURNED };
 
-export function slotMatches(env: Env, slot: Slot, f: Filter | undefined): boolean {
+export function slotMatches(env: Env, slot: Slot, f: Filter | undefined, withTypeFix = true): boolean {
   if (!f) return true;
+  if (f.toolCard && !slot.tools.some((c) => cardMatches(env, c, f.toolCard))) return false;
   if (f.damaged !== undefined && slot.damage > 0 !== f.damaged) return false;
   if (f.energy && !slot.energy.some((c) => cardMatches(env, c, f.energy))) return false; // lane:metal
   if (f.tool !== undefined && slot.tools.length > 0 !== f.tool) return false; // lane:metal
   if (f.condition && !(slot.cond & COND_BIT[f.condition])) return false; // lane:metal
   if (f.energized !== undefined && slot.energy.length > 0 !== f.energized) return false; // lane:ghost
   // lane:trevenant — `any` alternatives may use in-play keys too (Ruffian: has a Tool, or has a Special Energy).
-  if (f.any && !f.any.some((x) => slotMatches(env, slot, x))) return false;
+  if (f.any && !f.any.some((x) => slotMatches(env, slot, x, withTypeFix))) return false;
   let d = def(env.ctx, topCard(slot));
   // lane:ghost — a Trainer in play was played as a Pokémon (Antique fossils): match it as one.
   if (d.kind !== 'pokemon') d = { ...d, kind: 'pokemon', ttype: null };
-  if (d.typeFix) d = { ...d, types: slotTypes(env, slot) as PType[] };
-  return defMatches(d, { ...f, damaged: undefined, energized: undefined, any: undefined });
+  if (d.typeFix && withTypeFix) d = { ...d, types: slotTypes(env, slot) as PType[] };
+  return defMatches(d, { ...f, damaged: undefined, energized: undefined, any: undefined, toolCard: undefined });
 }
 
-/** One Energy unit: a type, or 'Any' for "provides every type of Energy" (Legacy Energy). */ // lane:fighting
-export type EnergyUnit = PType | 'Any'; // lane:fighting
+/**
+ * One Energy unit: a type, 'Any' for "provides every type of Energy" (Legacy Energy), or a flexible unit that is any one of two types
+ * ("Psychic|Darkness": Team Rocket's Energy provides 2 in any combination of {P} and {D}).
+ */ // lane:fighting
+export type EnergyUnit = PType | 'Any' | `${PType}|${PType}`; // lane:fighting
+
+/** Can this unit pay a requirement of type `t` (an exact unit, a flexible one that includes it, or an 'Any' unit)? */
+export function unitFits(u: EnergyUnit, t: PType): boolean {
+  return u === t || u === 'Any' || (u.includes('|') && u.split('|').includes(t));
+}
 
 /** lane:misc — the Energy an attached card provides on this Pokémon (CardScript.providesIf, e.g. Ignition Energy). */
 export function providesOn(env: Env, slot: Slot, card: number): PType[] {
@@ -133,8 +144,22 @@ export function providesOn(env: Env, slot: Slot, card: number): PType[] {
  * this sits under every attack-cost check). Every count of attached Energy goes through here, so
  * paying costs, Retreat and "for each Energy attached" agree on multi-unit cards.
  */
-export function pushUnits(env: Env, slot: Slot, card: number, out: EnergyUnit[]): void {
+export function pushUnits(env: Env, slot: Slot, card: number, out: EnergyUnit[], s?: GameState, all?: LiveStatic[]): void {
   const d = def(env.ctx, card);
+  // "provides 2 in any combination of {P} and {D}": each unit is either.
+  const flex = d.script?.providesFlex;
+  if (flex) {
+    for (let i = 0; i < flex.n; i++) out.push(flex.types.join('|') as EnergyUnit);
+    return;
+  }
+  // "Each Basic {G} Energy attached to all of your Pokémon provides {G}{G} Energy": a static in play replaces what the card provides.
+  if (s && env.ctx.energyMods) {
+    const r = energyReplacement(env, s, slot, card, all);
+    if (r) {
+      out.push(...r);
+      return;
+    }
+  }
   // lane:fighting — "provides every type of Energy but provides only n Energy at a time"
   const any = d.script?.providesAny;
   if (any && (!any.when || slotMatches(env, slot, any.when))) {
@@ -228,10 +253,11 @@ export function evalExpr(env: Env, s: GameState, ec: EvalCtx, e: Expr): number {
     if (!sl) return 0;
     let n = 0;
     const units: EnergyUnit[] = [];
+    const all = env.ctx.energyMods ? staticsForEnergy(env, s) : undefined;
     for (const c of sl.energy) {
       units.length = 0;
-      pushUnits(env, sl, c, units);
-      const typed = e.type ? units.filter((t) => t === e.type || t === 'Any').length : units.length;
+      pushUnits(env, sl, c, units, s, all);
+      const typed = e.type ? units.filter((t) => unitFits(t, e.type!)).length : units.length;
       n += e.cards ? (typed > 0 ? 1 : 0) : typed;
     }
     return n;

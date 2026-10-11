@@ -9,7 +9,7 @@
 import { codeOf, def, ensureCode, type Env } from './context.js';
 import type { Op } from './compile.js';
 import type { CardZone, DamageIgnore, Dest, Filter, ReactEvent, SlotRef, SlotZone, SpecialCondition, Step, TriggerOn } from './dsl.js';
-import { cardMatches, evalCond, evalExpr, resolveSlot, side, slotMatches, slotsIn, slotTypes, type EvalCtx } from './eval.js';
+import { cardMatches, evalCond, evalExpr, resolveSlot, side, slotMatches, slotsIn, slotTypes, unitFits, type EvalCtx } from './eval.js';
 import {
   attackCost,
   benchLimit,
@@ -21,9 +21,12 @@ import {
   countersPrevented, // lane:darkrai
   effectsPrevented,
   canAttachFromHand,
+  coinReflipTool,
+  damageCoinFlips,
   hasNoAbilities,
   maxHp,
   ownerOf,
+  returnToHandBlocked,
   statics,
   surviveKoSources, // lane:zoroark
   toolsDisabled, // lane:fighting
@@ -132,6 +135,17 @@ function onFrameDone(env: Env, s: GameState, f: Frame): void {
     const slot = findSlot(s, f.slot);
     for (const c of re) {
       if (slot && removeFrom(s.p[f.player].discard, c)) slot.slot.energy.push(c);
+    }
+  }
+  // Nitro Fire Energy: discarded by an effect of its Pokémon's own attack, it goes into its owner's hand after the attack's damage and effects.
+  const th = f.vars.__toHand;
+  if (Array.isArray(th) && th.length) {
+    const ps = s.p[f.player];
+    for (const c of th) {
+      if (removeFrom(ps.discard, c)) {
+        ps.hand.push(c);
+        ps.revealed.push(c); // it was discarded face up: the opponent knows where it went
+      }
     }
   }
 }
@@ -292,6 +306,11 @@ function dealDamage(
     // lane:ghost (attacker). A reduction that left nothing is still checked: prevented damage is not "damaged by an attack" for the Berries.
     const prevented = (dmg > 0 || reducers.length > 0) && !noDefEffects && damagePrevented(env, s, target, f.player, all, attacker ?? undefined, dmg);
     if (prevented) dmg = 0;
+    // "If any damage is done to this Pokémon by attacks, flip a coin. If heads, prevent that damage." Its owner flips, only when damage
+    // would really be done, and not at all for an attack that isn't affected by effects on the Defending Pokémon (ruling 2040).
+    if (dmg > 0 && !noDefEffects && f.kind === 'attack') {
+      for (let n = damageCoinFlips(env, s, target, all); n > 0 && dmg > 0; n--) if (flipCoin(env, s, owner)) dmg = 0;
+    }
     // "If the Pokémon this card is attached to is damaged by an attack ..., it takes N less damage, and discard this card": the Tool
     // whose effect reduced the damage reacts, even when the reduction took it to 0 and wherever the Pokémon is.
     if (reducers.length && preIn > 0 && !prevented && f.kind === 'attack' && owner !== f.player) {
@@ -321,12 +340,12 @@ function dealDamage(
       target.attackDmgTurn = s.turn;
     }
     emit(env, { type: 'damage', player: owner, slot: target.id, amount: dmg, bySlot: f.slot });
-    if (owner !== f.player && isActive) queueTriggers(env, s, target, owner, 'damagedByAttackActive');
+    if (owner !== f.player && isActive) queueTriggers(env, s, target, owner, 'damagedByAttackActive', { __attacker: f.slot, __damage: dmg });
     // Timed effects an attack left on this Pokémon: "if this Pokémon is damaged by an attack (even if it is Knocked Out), ..."
     if (f.kind === 'attack' && owner !== f.player) {
       queueReactions(env, s, target, 'damagedByAttack', { __attacker: f.slot, __def: target.id }, true);
       // Abilities and Tools of the damaged Pokémon, Active or Benched: once per attack, not once per damage instance.
-      queueTriggers(env, s, target, owner, 'damagedByAttack', { __attacker: f.slot }, undefined, true);
+      queueTriggers(env, s, target, owner, 'damagedByAttack', { __attacker: f.slot, __damage: dmg }, undefined, true);
       // ...and the Abilities of the owner's other Pokémon that watch for their Active Pokémon being damaged (Spiritomb's Spiteful Swirl).
       if (isActive) {
         for (const w of allSlots(s.p[owner])) {
@@ -378,6 +397,12 @@ export function queueTriggers(
         kind: isPokemon ? 'ability' : slot.tools.includes(c) ? 'tool' : 'energy',
       };
       if (t.t.when && !evalCond(env, s, ec(frame), t.t.when)) continue;
+      // "takes 240 or more damage from an attack from your opponent's Mega Evolution Pokémon ex": the amount and the attacker.
+      if (t.t.minDamage !== undefined && !(typeof vars?.__damage === 'number' && vars.__damage >= t.t.minDamage)) continue;
+      if (t.t.attacker) {
+        const by = typeof vars?.__attacker === 'number' ? findSlot(s, vars.__attacker)?.slot : undefined;
+        if (!by || !slotMatches(env, by, t.t.attacker)) continue;
+      }
       if (dedupe && s.queued.some((q) => q.code === frame.code && q.slot === frame.slot && q.src === frame.src)) continue;
       if (t.t.noStack && seen) {
         if (seen.has(frame.code)) continue;
@@ -469,7 +494,7 @@ function cardsInZone(s: GameState, p: Player, z: CardZone): number[] {
   return s.p[p][z];
 }
 
-function moveCards(env: Env, s: GameState, f: Frame, cards: number[], to: Dest, who: Player): number[] {
+function moveCards(env: Env, s: GameState, f: Frame, cards: number[], to: Dest, who: Player, anyStage = false): number[] {
   const ps = s.p[who];
   const moved: number[] = [];
   const revealed = (f.vars.__revealed as number[] | undefined) ?? [];
@@ -482,7 +507,7 @@ function moveCards(env: Env, s: GameState, f: Frame, cards: number[], to: Dest, 
     if (to === 'bench') {
       const d = def(env.ctx, c);
       const asBasic = d.kind === 'trainer' && !!d.script?.fix?.playAsBasic; // lane:ghost (Antique fossils)
-      if ((d.kind !== 'pokemon' && !asBasic) || d.stage !== 0 || ops.bench.length >= (room[owner] ??= benchLimit(env, s, owner))) continue;
+      if ((d.kind !== 'pokemon' && !asBasic) || (d.stage !== 0 && !anyStage) || ops.bench.length >= (room[owner] ??= benchLimit(env, s, owner))) continue;
       if (!takeFromZones(ops, c)) continue;
       const sl = newSlot(s, c);
       ops.bench.push(sl);
@@ -491,6 +516,8 @@ function moveCards(env: Env, s: GameState, f: Frame, cards: number[], to: Dest, 
       moved.push(c);
       continue;
     }
+    // "This card can't be put into your hand or deck from the discard pile": it stays where it is.
+    if ((to === 'hand' || to === 'deck' || to === 'deckTop' || to === 'deckBottom') && def(env.ctx, c).script?.noRecoverFromDiscard && ops.discard.includes(c)) continue;
     const fromDeck = to === 'discard' && owner !== f.player && ops.deck.includes(c);
     if (!takeFromZones(ops, c) && !removeFrom(s.limbo, c)) continue;
     moved.push(c);
@@ -574,7 +601,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
       } else {
         cards = cardsInZone(s, side(e, st.cards.who), st.cards.all).slice();
       }
-      const moved = moveCards(env, s, f, cards, st.to, who);
+      const moved = moveCards(env, s, f, cards, st.to, who, st.anyStage);
       if (st.as) f.vars[st.as] = moved;
       return 'next';
     }
@@ -621,6 +648,8 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
         const owner = env.ctx.owner[c] as Player;
         const fromHand = s.p[owner].hand.includes(c); // lane:ghost
         if (fromHand && !canAttachFromHand(env, s, target)) continue;
+        const only = def(env.ctx, c).script?.attachOnly; // "This card can only be attached to a Team Rocket's Pokémon."
+        if (only && !slotMatches(env, target, only)) continue;
         if (!takeFromZones(s.p[owner], c)) continue;
         target.energy.push(c);
         emit(env, { type: 'attach', player: owner, card: c, slot: target.id });
@@ -680,15 +709,39 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
     case 'switch':
       return switchStep(env, s, f, st);
     case 'flip': {
-      let heads = 0;
-      if (st.n === 'untilTails') {
-        // Bounded so a forced-heads replay can't loop forever.
-        for (let i = 0; i < 100 && flipCoin(env, s, f.player); i++) heads++;
-      } else {
-        const n = evalExpr(env, s, e, st.n);
-        for (let i = 0; i < n; i++) if (flipCoin(env, s, f.player)) heads++;
+      const doFlip = (): void => {
+        let heads = 0;
+        if (st.n === 'untilTails') {
+          // Bounded so a forced-heads replay can't loop forever.
+          for (let i = 0; i < 100 && flipCoin(env, s, f.player); i++) heads++;
+        } else {
+          const n = evalExpr(env, s, e, st.n);
+          for (let i = 0; i < n; i++) if (flipCoin(env, s, f.player)) heads++;
+        }
+        f.vars[st.as] = heads;
+      };
+      // Backtrack Badge: asked whether to ignore the results and flip the attack's coins again.
+      if (f.vars.__rfp !== undefined) {
+        const a = takeAnswer(f);
+        if (a === undefined) return 'wait';
+        const tool = f.vars.__rfp as number;
+        delete f.vars.__rfp;
+        if (a === true) {
+          s.p[f.player].toolUsed = [...(s.p[f.player].toolUsed ?? []), tool];
+          doFlip();
+        }
+        return 'next';
       }
-      f.vars[st.as] = heads;
+      doFlip();
+      if (f.kind === 'attack') {
+        const holder = findSlot(s, f.slot)?.slot;
+        const tool = holder ? coinReflipTool(env, s, holder) : undefined;
+        if (tool !== undefined && flipsOnce(env, f)) {
+          f.vars.__rfp = tool;
+          ask(s, { player: f.player, kind: 'yesno', prompt: 'Ignore the results of those coin flips and flip them again?', min: 1, max: 1, labels: ['Yes', 'No'] }, 'bool');
+          return 'wait';
+        }
+      }
       return 'next';
     }
     case 'effect': {
@@ -724,6 +777,13 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
       return 'next';
     }
     case 'delay': {
+      if (st.global) {
+        // Not tied to a Pokémon: it runs at the end of the turn whatever happens to the board.
+        const gturn = st.duration === 'thisTurn' ? s.turn : st.duration === 'oppNextTurn' ? s.turn + 1 : s.turn + 2;
+        const gcode = ensureCode(env.ctx, `${f.code}@${f.pc}`, st.program);
+        s.delayed = [...(s.delayed ?? []), { code: gcode, slot: 0, player: f.player, src: f.src, from: f.slot, turn: gturn, fromAttack: false }];
+        return 'next';
+      }
       const t = resolveSlot(s, e, st.on ?? 'defender');
       if (!t) return 'next';
       if (f.kind === 'attack' && ownerOf(s, t) !== f.player && effectsPrevented(env, s, t, f.player, 'attack')) return 'next';
@@ -746,7 +806,10 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
     case 'custom': {
       const fn = CUSTOMS[st.fn];
       if (!fn) throw new Error(`unknown custom effect ${st.fn}`);
-      return fn(env, s, f, st.args ?? {}, takeAnswer(f));
+      const guard = env.ctx.handLock ? guardHand(env, s) : null;
+      const r = fn(env, s, f, st.args ?? {}, takeAnswer(f));
+      if (guard) enforceHandGuard(s, guard);
+      return r;
     }
     case 'end':
       return 'pop';
@@ -782,6 +845,93 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
     default:
       throw new Error(`step ${(st as Step).op} must be compiled`);
   }
+}
+
+/** A player's board as it was before a custom effect, while their Pokémon in play and the cards attached can't be put into their hand. */
+interface HandGuard {
+  p: Player;
+  slots: Slot[];
+  active: number;
+  hand: Set<number>;
+  discard: Set<number>;
+}
+
+function guardHand(env: Env, s: GameState): HandGuard[] | null {
+  const all = statics(env, s);
+  const out: HandGuard[] = [];
+  for (const p of [0, 1] as Player[]) {
+    if (!returnToHandBlocked(env, s, p, all)) continue;
+    const ps = s.p[p];
+    out.push({
+      p,
+      slots: allSlots(ps).map((sl) => ({ ...sl, cards: sl.cards.slice(), energy: sl.energy.slice(), tools: sl.tools.slice(), usedAbilities: sl.usedAbilities.slice() })),
+      active: ps.active?.id ?? 0,
+      hand: new Set(ps.hand),
+      discard: new Set(ps.discard),
+    });
+  }
+  return out.length ? out : null;
+}
+
+/**
+ * Milotic's Mentally Calm: "Your opponent's Pokémon in play and all attached cards can't be put into your opponent's hand." A custom
+ * effect (they are written without knowing about it) that put such a card into the hand has it taken back to where it was: the effect is
+ * still used, but the card stays (TPCi Rules Team 2026-06-04, ruling 2370: the attack's bonus damage is still got; 2025-04-03, ruling 2129:
+ * all cards stay attached to the Pokémon that did not go to the hand).
+ */
+function enforceHandGuard(s: GameState, guards: HandGuard[]): void {
+  for (const g of guards) {
+    const ps = s.p[g.p];
+    for (const snap of g.slots) {
+      const cards = [...snap.cards, ...snap.energy, ...snap.tools];
+      if (!cards.some((c) => !g.hand.has(c) && ps.hand.includes(c))) continue;
+      const cur = allSlots(ps).find((x) => x.id === snap.id);
+      if (cur) {
+        for (const c of cards) {
+          if (g.hand.has(c) || !ps.hand.includes(c)) continue;
+          removeFrom(ps.hand, c);
+          removeFrom(ps.revealed, c);
+          if (snap.cards.includes(c)) cur.cards.splice(Math.min(snap.cards.indexOf(c), cur.cards.length), 0, c);
+          else if (snap.energy.includes(c)) cur.energy.push(c);
+          else cur.tools.push(c);
+        }
+        continue;
+      }
+      // The whole Pokémon left play: it stays, with everything that went with it.
+      for (const c of cards) {
+        removeFrom(ps.hand, c);
+        removeFrom(ps.revealed, c);
+        if (!g.discard.has(c)) removeFrom(ps.discard, c);
+      }
+      if (g.active === snap.id && !ps.active) ps.active = snap;
+      else ps.bench.push(snap);
+    }
+  }
+}
+
+/** Is the first `move` of the cards in variable `as`, further on in this frame's program, one into the hand or the deck? */
+function movesToHandOrDeck(env: Env, f: Frame, as: string): boolean {
+  const code = codeOf(env.ctx, f.code);
+  for (let i = f.pc + 1; i < code.length; i++) {
+    const op = code[i] as Op;
+    if (op.o === 'step' && op.s.op === 'move' && op.s.cards === as) return op.s.to === 'hand' || op.s.to === 'deck' || op.s.to === 'deckTop' || op.s.to === 'deckBottom';
+  }
+  return false;
+}
+
+/**
+ * Does the program this frame runs flip coins at one place only, once (one `flip` op, not in a loop)? Backtrack Badge's "flip those coins
+ * again" is then exactly this flip step flipped again.
+ */
+function flipsOnce(env: Env, f: Frame): boolean {
+  const code = codeOf(env.ctx, f.code);
+  let n = 0;
+  for (let i = 0; i < code.length; i++) {
+    const op = code[i] as Op;
+    if (op.o === 'step' && op.s.op === 'flip') n++;
+    if (op.o === 'jmp' && op.to <= f.pc && i > f.pc) return false; // a loop around this flip
+  }
+  return n === 1;
 }
 
 /**
@@ -852,7 +1002,9 @@ function chooseCards(env: Env, s: GameState, f: Frame, st: Extract<Step, { op: '
     if (st.reveal) f.vars.__revealed = [...((f.vars.__revealed as number[]) ?? []), ...(a as number[])];
     return 'next';
   }
-  const opts = zone.filter((c) => (!st.others || c !== f.src) && cardMatches(env, c, st.filter));
+  // Cards that "can't be put into your hand or deck from the discard pile" are not offered when the chosen cards are about to be put there.
+  const noRecover = st.from === 'discard' && movesToHandOrDeck(env, f, st.as);
+  const opts = zone.filter((c) => (!st.others || c !== f.src) && cardMatches(env, c, st.filter) && !(noRecover && def(env.ctx, c).script?.noRecoverFromDiscard));
   const [min, max] = bounds(opts.length, evalExpr(env, s, e, st.min), evalExpr(env, s, e, st.max));
   if (forced(opts.length, min, max)) {
     const pick = max === 0 ? [] : opts.slice(0, max);
@@ -875,13 +1027,13 @@ function discardEnergy(env: Env, s: GameState, f: Frame, st: Extract<Step, { op:
   // "{M} Energy" attached: what each card provides on THIS Pokémon (Neo Upper Energy only on a Stage 2).
   const pt = st.filter?.providesType;
   const rest = pt ? { ...st.filter, providesType: undefined } : st.filter;
-  const pool = t.energy.filter((c) => cardMatches(env, c, rest) && (!pt || cardUnits(env, t, c).some((u) => u === pt || u === 'Any')));
+  const pool = t.energy.filter((c) => cardMatches(env, c, rest) && (!pt || cardUnits(env, t, c, s).some((u) => unitFits(u, pt))));
   let chosen: number[];
   if (st.count === 'all') chosen = pool;
-  else if (st.units && pool.some((c) => cardUnits(env, t, c).length !== 1)) {
+  else if (st.units && pool.some((c) => cardUnits(env, t, c, s).length !== 1)) {
     // Paying in units with a multi-unit card attached: offer each minimal covering set.
     const n = evalExpr(env, s, e, st.count);
-    const covers = unitCovers(env, t, pool, n);
+    const covers = unitCovers(env, s, t, pool, n);
     const a = takeAnswer(f);
     if (a !== undefined) chosen = covers[(a as number[])[0] ?? 0] ?? pool;
     else if (covers.length <= 1) chosen = covers[0] ?? pool; // none covers it: discard what there is
@@ -912,6 +1064,15 @@ function discardEnergy(env: Env, s: GameState, f: Frame, st: Extract<Step, { op:
       const root = s.stack.find((x) => x.kind === 'attack' && x.slot === f.slot) ?? f;
       root.vars.__reattach = [...((root.vars.__reattach as number[]) ?? []), ...back];
     }
+    // Nitro Fire Energy: only when the Pokémon that used the attack is of the kind the card names.
+    const toHand = chosen.filter((c) => {
+      const h = def(env.ctx, c).script?.handAfterOwnAttack;
+      return !!h && slotMatches(env, t, h.holder);
+    });
+    if (toHand.length) {
+      const root = s.stack.find((x) => x.kind === 'attack' && x.slot === f.slot) ?? f;
+      root.vars.__toHand = [...((root.vars.__toHand as number[]) ?? []), ...toHand];
+    }
   }
   return 'next';
 }
@@ -922,12 +1083,12 @@ function discardEnergy(env: Env, s: GameState, f: Frame, st: Extract<Step, { op:
  * each distinct set appears once. Order = the default choice first: fewest Special Energy given
  * up, then least overpaid, then fewest cards.
  */
-function unitCovers(env: Env, t: Slot, pool: number[], n: number): number[][] {
+function unitCovers(env: Env, s: GameState, t: Slot, pool: number[], n: number): number[][] {
   const groups = new Map<number, { units: number; special: boolean; cards: number[] }>();
   for (const c of pool) {
     const d = def(env.ctx, c);
     let g = groups.get(d.idx);
-    if (!g) groups.set(d.idx, (g = { units: cardUnits(env, t, c).length, special: !d.basicEnergy, cards: [] }));
+    if (!g) groups.set(d.idx, (g = { units: cardUnits(env, t, c, s).length, special: !d.basicEnergy, cards: [] }));
     g.cards.push(c);
   }
   const gs = [...groups.values()];

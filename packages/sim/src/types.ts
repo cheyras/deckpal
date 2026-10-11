@@ -107,7 +107,7 @@ export interface CardDef {
   statics: StaticDef[];
   triggers: { t: TriggerScript; code: string }[];
   /** An Ability or card text that makes this Pokémon other types ("it is {F} and {P} type"): see StaticEffect `types`. */
-  typeFix?: { types: PType[]; add: boolean };
+  typeFix?: { types: PType[]; add: boolean; /** Only while the Pokémon matches this (a condition on the Pokémon itself: "has a Future Booster Energy Capsule attached"). */ ifSlot?: import('./dsl.js').Filter };
   /** The printed "Ancient" / "Future" tag of this PRINTING (src/cards/tags.ts), or null. See Filter `tag`. */
   tag: 'Ancient' | 'Future' | null;
   /** Printed text, joined, for the round-trip check and the debug view. */
@@ -239,6 +239,8 @@ export interface PlayerState {
    */
   attackRec?: AttackRecord;
   prevAttackRec?: AttackRecord;
+  /** Tool cards (instance ids) whose once-per-turn use (Backtrack Badge's re-flip) has been spent this turn. Replace, never mutate: clones share it. */
+  toolUsed?: number[];
   /** Names of "can't be applied more than once per game" effects already applied (Legacy Energy). Replace, never mutate: clones share it. */ // lane:fighting
   oncePerGame?: string[]; // lane:fighting
 }
@@ -344,7 +346,8 @@ export type Action =
   | { t: 'trainer'; card: number }
   | { t: 'tool'; card: number; slot: number }
   | { t: 'retreat' }
-  | { t: 'ability'; slot: number; idx: number }
+  /** `card`: an Ability used from the hand (Klinklang): the instance id of that card; `slot` is 0 then. */
+  | { t: 'ability'; slot: number; idx: number; card?: number }
   | { t: 'stadium' }
   /** `card`: an attack printed on an attached Tool (instance id of that card) that the Pokémon can use; `idx` indexes the attacks of that card. */
   | { t: 'attack'; idx: number; card?: number };
@@ -395,7 +398,11 @@ export interface Pending {
     /** A player with more Benched Pokémon than their Bench allows chooses which to discard. */
     | { k: 'benchDiscard'; p: Player }
     /** The owner of a Pokémon being Knocked Out decides whether some of its cards go to their hand instead of the discard pile (`koToHand`). */
-    | { k: 'koHand'; slot: number };
+    | { k: 'koHand'; slot: number }
+    /** The owner of a Pokémon with more Tools than it may now have chooses which to discard. */
+    | { k: 'toolDiscard'; slot: number }
+    /** Several effects wait for the end of the turn and the turn's player chooses which goes first; the answer picks one in the queue. */
+    | { k: 'endOrder' };
 }
 
 // ---------------------------------------------------------------------------

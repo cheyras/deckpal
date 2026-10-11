@@ -70,6 +70,8 @@ export interface Filter {
   condition?: SpecialCondition;
   /** In-play only: the Pokémon has at least one Energy attached. */ // lane:ghost
   energized?: boolean;
+  /** In-play only: at least one attached Pokémon Tool card matches ("has a Future Booster Energy Capsule attached"). */
+  toolCard?: Filter;
   /**
    * The card has this tag ("Ancient Pokémon", "Future Supporter card"). A tag is printed on the card but is in no frame, so it is
    * looked up per PRINTING (src/cards/tags.ts): an untagged reprint of the same name does not match. Pokémon, Trainers and Energy,
@@ -292,7 +294,11 @@ export type StaticEffect =
    * unless they share a `noStack` key.
    */
   | { k: 'checkupCounters'; cond: 'poisoned' | 'burned'; n: number; noStack?: string }
-  | { k: 'cantAttack' }
+  /**
+   * The affected Pokémon can't attack. `ifEnergyAtMost`: only while it has that many Energy attached or fewer, counted in the units
+   * they provide (Walrein, Frigid Fangs: "Pokémon that have 2 or less Energy attached can't attack").
+   */
+  | { k: 'cantAttack'; ifEnergyAtMost?: number }
   | { k: 'cantRetreat' }
   /** The affected Pokémon have no Abilities (other than this source's own). */
   | { k: 'noAbilities' }
@@ -392,7 +398,46 @@ export type StaticEffect =
    * lane:zoroark — Survival Brace: if the affected Pokémon has full HP (no damage) and damage from an
    * opponent's attack would Knock it Out, it is left with 10 HP instead; a Tool source is then discarded.
    */
-  | { k: 'surviveKoAtFullHp' }; // lane:zoroark
+  | { k: 'surviveKoAtFullHp' } // lane:zoroark
+  /**
+   * The affected Pokémon may have up to `n` Pokémon Tool cards attached (Rotom ex, Multi Adapter), where the rules allow 1. The most
+   * any effect on it allows counts. When the effect stops applying, its owner discards Tools from the Pokémon until only as many
+   * remain as it now allows (checked after every action, with Knock Outs).
+   */
+  | { k: 'toolSlots'; n: number }
+  /**
+   * "If any damage is done to this Pokémon by attacks, flip a coin. If heads, prevent that damage." (Cinccino ex, Kecleon, Fezandipiti:
+   * put the condition in the static's `when`.) The affected Pokémon's owner flips, once for each such effect, only when the attack
+   * would really do damage to it (not for 0, not for damage that something else already prevented). It is an effect on the Defending
+   * Pokémon, so an attack that "isn't affected by any effects on your opponent's Active Pokémon" skips the flip and does its damage
+   * (TPCi Rules Team 2024-11-07, ruling 2040). A Bench or Active Pokémon alike.
+   */
+  | { k: 'damageCoinFlip' }
+  /**
+   * Player-level (scope 'opp' from the Pokémon with the Ability): "When your opponent's Active Pokémon retreats, your opponent flips a
+   * coin. If tails, Energy for its Retreat Cost is not discarded, and they don't switch Pokémon." The retreat still counts as their
+   * retreat for the turn (TPCi Rules Team 2026-05-21, ruling 2348). Several of these never stack: one flip.
+   */
+  | { k: 'retreatCoinFlip' }
+  /**
+   * From a Tool (scope 'self', with a `filter` for the Pokémon it works on): "Once during your turn, after you flip any coins for an
+   * attack of this Pokémon, you may ignore all results of those coin flips and begin flipping those coins again." Offered after the
+   * attack's coin flips (not Confusion's: TPCi Rules Team 2026-07-16, ruling 2417); all of the attack's flips are flipped again, never
+   * only the tails (ruling 2416). Offered for an attack whose program has one flip step it runs once.
+   */
+  | { k: 'coinReflip' }
+  /** Confused Pokémon don't recover from Confusion when they evolve or devolve (Dizzying Valley). */
+  | { k: 'keepConfusion' }
+  /**
+   * Energy cards matching `cards` attached to the affected Pokémon provide `provides` instead of what they print ("Each Basic {G}
+   * Energy attached to all of your Pokémon provides {G}{G} Energy"). A replacement, not an addition: two of them don't add up, the
+   * first that applies is used (TPCi Rules Team 2025-10-23, ruling 2236). It changes every count of attached Energy (ruling 2237).
+   */
+  | { k: 'energyProvides'; cards: Filter; provides: PType[] }
+  /** Player-level: that player's Pokémon in play and all cards attached to them can't be put into their hand (Milotic, Mentally Calm). */
+  | { k: 'noReturnToHand' }
+  /** The affected evolved Pokémon can use any attack of the cards beneath its top card, with the Energy it needs (Relicanth, Memory Dive). */
+  | { k: 'previousAttacks' };
 
 /** Parts of the damage pipeline an attack's damage skips ("isn't affected by Weakness or Resistance"). */ // lane:fighting
 export interface DamageIgnore {
@@ -488,6 +533,8 @@ export type Step =
       who?: Who;
       /** Store the moved cards in this variable. */
       as?: string;
+      /** `to: 'bench'` only: Pokémon of any Stage may be put onto the Bench (Klinklang: "put this Pokémon onto your Bench"), not only Basic ones. */
+      anyStage?: boolean;
     }
   /** Put cards from a variable on top of the deck in an order the controller picks. */
   | { op: 'putOnTop'; cards: string }
@@ -533,8 +580,11 @@ export type Step =
    * Checkup. The Pokémon in `on` (default the Defending Pokémon) is tracked: if it leaves the Active Spot, evolves or is
    * Knocked Out first, the program is dropped (TPCi 2026-07-16, ruling 2404). In the program, 'defender' is that Pokémon.
    * From an attack, it is not scheduled on a Pokémon protected from the effects of attacks.
+   * `global`: an effect that is not tied to a Pokémon (Amarys: "At the end of this turn, if you have 5 or more cards in your hand,
+   * discard your hand"): nothing is tracked, it always runs. When it and another effect both wait for the end of the turn, the
+   * turn's player chooses which goes first (TPCi Rules Team 2025-05-01, ruling 2135).
    */
-  | { op: 'delay'; duration: Duration; program: Step[]; on?: SlotRef }
+  | { op: 'delay'; duration: Duration; program: Step[]; on?: SlotRef; global?: boolean }
   /** Create a timed effect on a Pokémon or a player. */
   | {
       op: 'effect';
@@ -671,6 +721,13 @@ export type TriggerOn =
   | 'allyActiveDamagedByAttack';
 
 export interface TriggerScript {
+  /**
+   * 'damagedByAttack' / 'damagedByAttackActive' only: the attack must have done at least this much damage to the Pokémon, as it was
+   * done (after Weakness, Resistance and every effect), in one instance of damage (Tremendous Bomb: "takes 240 or more damage").
+   */
+  minDamage?: number;
+  /** 'damagedByAttack' / 'damagedByAttackActive' only: the attack must be by a Pokémon that matches this ("from your opponent's Mega Evolution Pokémon ex"). */
+  attacker?: Filter;
   on: TriggerOn;
   /**
    * "Once during your turn, when ... you may use this Ability": a Pokémon's trigger that fires only during its controller's turn
@@ -701,7 +758,20 @@ export interface AbilityScript {
     when?: Cond;
     /** Only usable while this Pokémon is in the Active Spot. */
     activeOnly?: boolean;
+    /**
+     * Used from the HAND (Klinklang, Emergency Rotation: "if this Pokémon is in your hand ..."), not from play. The program runs with no
+     * Pokémon in play: the card is the variable `__this` (a `move` of it with `anyStage` puts it onto the Bench). `when` is checked with
+     * no source Pokémon. Offered once per turn per card.
+     */
+    fromHand?: boolean;
   };
+  /** "If this Pokémon is in your hand when you are setting up to play, you may put it face down in the Active Spot." (Cinderace, Explosiveness). */
+  setupActive?: boolean;
+  /**
+   * "Put this Pokémon into play only with the effect of <by>" (Palafin ex, Hero's Spirit): the card can't be benched or played to evolve
+   * from the hand, nor with Rare Candy; only an effect that names it puts it into play.
+   */
+  putIntoPlayOnlyBy?: string;
   statics?: StaticDef[];
   triggers?: TriggerScript[];
 }
@@ -740,6 +810,19 @@ export interface CardScript {
   providesIf?: { filter: Filter; provides: PType[] };
   /** Energy: when discarded by an effect of the attached Pokémon's own attack, reattach it after attacking (Boomerang Energy). */
   reattachAfterOwnAttack?: boolean;
+  /**
+   * Energy: when discarded by an effect of an attack used by the attached Pokémon (if it matches `holder`), put it into its owner's hand after
+   * the attack's damage and effects (Nitro Fire Energy: "used by the {R} Pokémon this card is attached to").
+   */
+  handAfterOwnAttack?: { holder: Filter };
+  /** Energy: "This card can only be attached to a <filter>. If it is attached to anything else, discard it." Checked on every way of attaching and after every action. */
+  attachOnly?: Filter;
+  /** Energy: provides `n` Energy, each of which is any one of `types` ("2 in any combination of {P} Energy and {D} Energy"). */
+  providesFlex?: { n: number; types: PType[] };
+  /** Trainer (Stadium): may be played even though a Stadium was already played this turn (Ange Floette: with `playable` naming the Stadium it replaces). */
+  extraStadium?: boolean;
+  /** "This card can't be put into your hand or deck from the discard pile." (Neutralization Zone, Poké Vital A): effects can't move it from the discard pile there. */
+  noRecoverFromDiscard?: boolean;
   /** Energy: "provides every type of Energy but provides only n Energy at a time" (while the holder matches `when`). */ // lane:fighting
   providesAny?: { n: number; when?: Filter }; // lane:fighting
   /** Energy: when the holder is Knocked Out by damage from an opponent's attack, that player takes `delta` more Prizes (negative = fewer). */ // lane:fighting

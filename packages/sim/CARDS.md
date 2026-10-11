@@ -311,6 +311,34 @@ Ability, a Tool, a Stadium or an Energy, and it holds while its source is in pla
   hidden-information copy keeps in place. The condition `{ attackedLastTurn: { who, filter, other } }` reads which of a
   player's Pokémon used an attack in their last turn (recorded per Pokémon in play, as the card when it has left; a
   Confused Pokémon that fails its flip did not attack, ruling 2087): Koraidon.
+  Added with std-engine7: `toolSlots` (`n`: a Pokémon may hold up to n Tools, the most any effect on it allows; when the effect
+  stops its owner discards down, checked after every action: Rotom ex, Multi Adapter), `damageCoinFlip` ("if any damage is done to
+  this Pokémon by attacks, flip a coin. If heads, prevent that damage"; the owner flips, only when damage would really be done and
+  not for an attack that ignores effects on the Defending Pokémon, ruling 2040; put "has any {D} Energy" in `when`: Cinccino ex,
+  Fezandipiti, Kecleon), `retreatCoinFlip` (player-level, scope `opp`: Goodra, the retreat is used up on tails, never two flips),
+  `coinReflip` (a Tool's: after the attack's coin flips, once during your turn, the same flip step is flipped again, offered when the
+  attack's program flips in one place only; Confusion's flip is never offered, ruling 2417: Backtrack Badge), `keepConfusion`
+  (Dizzying Valley: evolving keeps Confusion, `confusionKept` in query.ts), `energyProvides` (`cards`, `provides`: Basic {G} Energy
+  provides {G}{G}; a replacement that never adds up, counts everywhere Energy is counted, and needs the game state: pass `s` to
+  `energyUnits` / `cardUnits` / `pushUnits`, ctx flag `energyMods`: Meganium), `noReturnToHand` (player-level: nothing of that
+  player's Pokémon in play or attached goes to their hand. Knock Out to hand is stopped in flow.ts; custom effects of other lanes
+  run as written and `enforceHandGuard` in interp.ts takes the cards back, ctx flag `handLock`: Milotic), `previousAttacks` (an
+  evolved Pokémon uses the attacks of the cards under it; they are attack options with `card` = that card, as a Tool's: Relicanth)
+  and `cantAttack` with `ifEnergyAtMost` (Energy units, as `attackerMaxEnergy` counts: Walrein). `types` takes a `when` that is
+  `slotIs` self (Iron Treads, with the Filter key `toolCard`: an attached Tool matches). The `delay` step takes `global`
+  (Amarys: not tied to a Pokémon; if it and another effect wait for the end of the turn the turn's player is asked which first,
+  ruling 2135). `move` takes `anyStage` (Klinklang puts a Stage 2 onto the Bench); an Ability can be `activated.fromHand` (an `ability`
+  action with `card`, the card in the variable `__this`), have `setupActive` (Cinderace may start face down in the Active Spot, a card
+  that still needs a Basic Pokémon in the hand to avoid a mulligan) and `putIntoPlayOnlyBy` (Palafin ex, Hero's Spirit: stopped from
+  the hand and Rare Candy by `pokemonPlayLocked`; Palafin's Zero to Hero puts it into play with the custom `engine7.swapTopCard`).
+  Triggers `damagedByAttack` / `damagedByAttackActive` take `minDamage` (the damage done in one hit, after every effect) and
+  `attacker` (a Filter on the Attacking Pokémon; its slot is `__attacker`): Tremendous Bomb. Card fields: `extraStadium` (played
+  though a Stadium was played this turn, with `playable` naming the Stadium it goes over: Ange Floette), `handAfterOwnAttack`
+  (Energy discarded by its own Pokémon's attack goes to the hand after it, if the Pokémon matches `holder`: Nitro Fire Energy),
+  `attachOnly` (Energy that only goes on some Pokémon, discarded if it is on another, checked after every action: Team Rocket's
+  Energy), `providesFlex` (`n` Energy each any of `types`, an `EnergyUnit` like "Psychic|Darkness", pays any mix) and
+  `noRecoverFromDiscard` (moves to the hand or deck from the discard pile do nothing, and `chooseCards` does not offer it when the
+  chosen cards are about to go there: Neutralization Zone, Poké Vital A).
 - **Say whose attacks.** `damageIn` applies to damage from *every* attack unless `fromOpp: true`.
   If the card says "from attacks from your opponent's Pokémon", set it (Full Metal Lab, Iron
   Defender, Antique Armor Fossil). The round trip caught Protective Armor without it.

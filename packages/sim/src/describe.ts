@@ -26,6 +26,7 @@ export function describeAction(ctx: GameContext, s: GameState, a: Action): strin
     case 'retreat':
       return 'Retreat';
     case 'ability': {
+      if (a.card !== undefined) return `Use ${def(ctx, a.card).abilities[a.idx]?.name ?? 'Ability'} (${def(ctx, a.card).name} in hand)`;
       const f = findSlot(s, a.slot);
       const d = f ? def(ctx, topCard(f.slot)) : null;
       return `Use ${d?.abilities[a.idx]?.name ?? 'Ability'} (${slotName(ctx, s, a.slot)})`;

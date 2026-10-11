@@ -20,6 +20,10 @@ import {
   canAttackTwice,
   canPayAttack,
   checkupExtraCounters,
+  confusionKept,
+  retreatCoinFlip,
+  returnToHandBlocked,
+  toolLimit,
   playLocked,
   pokemonPlayLocked,
   extraPrizeEffects,
@@ -193,6 +197,23 @@ export function submit(env: Env, s: GameState, choice: number[]): void {
       queueMovedToActive(env, s, sl, r.p);
       break;
     }
+    case 'toolDiscard': {
+      // The Pokémon may now have fewer Tools than it has: the cards chosen go to their owner's discard pile.
+      const loc = findSlot(s, r.slot);
+      if (loc) {
+        const gone = choice.map((i) => (d.values as number[])[i] as number);
+        loc.slot.tools = loc.slot.tools.filter((c) => !gone.includes(c));
+        s.p[loc.owner].discard.push(...gone);
+        emit(env, { type: 'discard', player: loc.owner, cards: gone });
+      }
+      break;
+    }
+    case 'endOrder': {
+      // Several effects wait for the end of the turn: the one chosen goes first.
+      const pick = s.queued.splice(choice[0] as number, 1);
+      s.queued.unshift(...pick);
+      break;
+    }
     case 'koHand': {
       // "you may put ... into your hand instead of the discard pile": the answer waits on the Knocked Out Pokémon until it leaves play.
       const loc = findSlot(s, r.slot);
@@ -272,6 +293,12 @@ function isBasic(env: Env, c: number): boolean {
   return d.kind === 'pokemon' && d.stage === 0;
 }
 
+/** "If this Pokémon is in your hand when you are setting up to play, you may put it face down in the Active Spot." */
+function setupActiveAbility(env: Env, c: number): boolean {
+  const d = def(env.ctx, c);
+  return d.kind === 'pokemon' && d.coverage === 'full' && d.abilities.some((a) => a.script?.setupActive);
+}
+
 function setupStep(env: Env, s: GameState): void {
   switch (s.step) {
     case 'coin': {
@@ -339,7 +366,8 @@ function setupStep(env: Env, s: GameState): void {
     case 'place0':
     case 'place1': {
       const p: Player = s.step === 'place0' ? 0 : 1;
-      const basics = s.p[p].hand.filter((c) => isBasic(env, c));
+      // Explosiveness: a Pokémon in the hand with that Ability may be put face down in the Active Spot too.
+      const basics = s.p[p].hand.filter((c) => isBasic(env, c) || setupActiveAbility(env, c));
       s.pending = {
         decision: { player: p, kind: 'setupActive', prompt: 'Choose your Active Pokémon', min: 1, max: 1, values: basics },
         resume: { k: 'setupActive', p },
@@ -403,6 +431,7 @@ function turnStep(env: Env, s: GameState): void {
       ps.stadiumAbilityUsed = false;
       ps.globalAbilitiesUsed = [];
       ps.playedThisTurn = [];
+      delete ps.toolUsed;
       delete s.attackUses; // attack bookkeeping of the turn before (absent = none yet)
       delete s.attackedViaTool;
       delete s.noMoreAttacks;
@@ -446,19 +475,39 @@ function turnStep(env: Env, s: GameState): void {
       return;
     case 'endTurn': {
       emit(env, { type: 'end_turn', player: s.current, turn: s.turn });
+      let global = false;
       // "At the end of ... turn" programs scheduled by the `delay` step, before Checkup. A target that is no longer
       // the Active Pokémon (left play by some route that did not clear it) drops the effect.
       if (s.delayed?.length) {
         const due = s.delayed.filter((d) => d.turn === s.turn);
         s.delayed = s.delayed.filter((d) => d.turn > s.turn);
         for (const d of due) {
-          const t = findSlot(s, d.slot);
-          if (!t?.active) continue;
+          if (d.slot > 0) {
+            const t = findSlot(s, d.slot);
+            if (!t?.active) continue;
+          } else global = true;
           s.queued.push({ code: d.code, pc: 0, vars: { __def: d.slot }, player: d.player, src: d.src, slot: d.from, kind: d.fromAttack ? 'attack' : 'trigger' });
         }
       }
       // lane:misc — "at the end of your turn" effects (Powerglass, Ignition Energy) resolve before Checkup.
       for (const sl of allSlots(s.p[s.current])) queueTriggers(env, s, sl, s.current, 'endOfTurn');
+      // Both happen at the end of the turn, so the turn's player chooses the order (TPCi Rules Team 2025-05-01, ruling 2135). Asked only
+      // when an effect not tied to a Pokémon (Amarys) is among at least two.
+      if (global && s.queued.length >= 2) {
+        s.step = 'checkup';
+        s.pending = {
+          decision: {
+            player: s.current,
+            kind: 'option',
+            prompt: 'Resolve which end-of-turn effect first?',
+            min: 1,
+            max: 1,
+            labels: s.queued.map((q) => def(env.ctx, q.src).name),
+          },
+          resume: { k: 'endOrder' },
+        };
+        return;
+      }
       s.step = 'checkup';
       return;
     }
@@ -510,7 +559,7 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
   const attacks = (): void => {
     if (!act || act.cond & (ASLEEP | PARALYZED) || cantAttack(env, s, act, all)) return;
     if (attacked && !secondAttackOpen(env, s, act, all)) return;
-    const units = energyUnits(env, act);
+    const units = energyUnits(env, act, s, all);
     for (const o of attackOptions(env, s, act, all)) {
       if (attacked && o.card !== undefined) continue;
       const sc = o.d.coverage === 'full' ? o.d.script?.attacks?.[o.atk.name] : undefined;
@@ -549,7 +598,8 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
       }
     } else if (d.kind === 'energy') {
       if (ps.energyAttached || d.coverage === 'none') continue;
-      for (const sl of slots) if (canAttachFromHand(env, s, sl, all) && once(`a${d.idx}:${sl.id}`)) out.push({ t: 'attach', card: c, slot: sl.id });
+      const only = d.script?.attachOnly; // "This card can only be attached to a Team Rocket's Pokémon."
+      for (const sl of slots) if (canAttachFromHand(env, s, sl, all) && (!only || slotMatches(env, sl, only)) && once(`a${d.idx}:${sl.id}`)) out.push({ t: 'attach', card: c, slot: sl.id });
     } else if (d.kind === 'trainer') {
       if (d.coverage === 'none') continue;
       if (d.needsDeck && !ps.deck.length) continue; // it would do nothing (see CardDef.needsDeck)
@@ -566,14 +616,15 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
         // lane:metal: `firstTurnSupporter` (Carmine) lifts the first player's turn-1 ban.
         if (!noSupporter && !ps.supporterPlayed && (s.turn !== 1 || d.script?.firstTurnSupporter) && once(`t${d.idx}`)) out.push({ t: 'trainer', card: c });
       } else if (d.ttype === 'stadium') {
-        if (ps.stadiumPlayed || noStadium) continue;
+        // Ange Floette may be played over a Prism Tower even though a Stadium was played this turn.
+        if ((ps.stadiumPlayed && !d.script?.extraStadium) || noStadium) continue;
         if (s.stadium && def(env.ctx, s.stadium.card).name === d.name) continue;
         if (once(`t${d.idx}`)) out.push({ t: 'trainer', card: c });
       } else if (d.ttype === 'tool') {
         // Pokémon Tools are their own Trainer category, not Items: an Item lock (Itchy Pollen) does not stop them, a Tool lock does.
         if (noTool) continue;
         for (const sl of slots) {
-          if (sl.tools.length >= 1) continue;
+          if (sl.tools.length >= toolLimit(env, s, sl, all)) continue;
           if (once(`o${d.idx}:${sl.id}`)) out.push({ t: 'tool', card: c, slot: sl.id });
         }
       }
@@ -582,7 +633,7 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
 
   // Retreat: once a turn; not while Asleep or Paralyzed; pay the cost in Energy.
   if (act && ps.bench.length && !ps.retreated && !(act.cond & (ASLEEP | PARALYZED)) && !cantRetreat(env, s, act, all)) {
-    if (energyUnits(env, act).length >= retreatCost(env, s, act, all)) out.push({ t: 'retreat' });
+    if (energyUnits(env, act, s, all).length >= retreatCost(env, s, act, all)) out.push({ t: 'retreat' });
   }
 
   // Activated Abilities.
@@ -592,13 +643,25 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
     if (hasNoAbilities(env, s, sl, all)) continue;
     d.abilities.forEach((ab, i) => {
       const a = ab.script?.activated;
-      if (!a || !ab.code) return;
+      if (!a || !ab.code || a.fromHand) return; // (an Ability used from the hand is offered below)
       if (a.oncePerTurn !== false && sl.usedAbilities.includes(i)) return;
       if (a.globalOncePerTurn && ps.globalAbilitiesUsed.includes(ab.name)) return;
       if (a.activeOnly && ps.active !== sl) return;
       if (a.when && !evalCond(env, s, { player: p, slot: sl.id, vars: {} }, a.when)) return;
       if (abilityLost(env, s, sl, ab, all)) return; // lane:misc — Damp
       if (once(`ab${d.idx}:${i}:${a.globalOncePerTurn ? 'g' : sl.id}`)) out.push({ t: 'ability', slot: sl.id, idx: i });
+    });
+  }
+
+  // Abilities used from the hand (Klinklang, Emergency Rotation): the Pokémon is a card in the hand, not in play.
+  for (const c of ps.hand) {
+    const d = def(env.ctx, c);
+    if (d.kind !== 'pokemon' || d.coverage !== 'full') continue;
+    d.abilities.forEach((ab, i) => {
+      const a = ab.script?.activated;
+      if (!a?.fromHand || !ab.code) return;
+      if (a.when && !evalCond(env, s, { player: p, slot: 0, vars: { __this: [c] } }, a.when)) return;
+      if (once(`h${d.idx}:${i}`)) out.push({ t: 'ability', slot: 0, idx: i, card: c });
     });
   }
 
@@ -681,8 +744,9 @@ function doAction(env: Env, s: GameState, a: Action): void {
       sl.cards.push(a.card);
       sl.usedAbilities = def(env.ctx, a.card).abilities.flatMap((ab, i) => (spent.includes(ab.name) ? [i] : []));
       sl.evolvedTurn = s.turn;
-      // Evolving clears Special Conditions and attack effects on the Pokémon (and "moved to the Active Spot": ruling 2265).
-      sl.cond = 0;
+      // Evolving clears Special Conditions and attack effects on the Pokémon (and "moved to the Active Spot": ruling 2265). Dizzying Valley
+      // keeps Confusion.
+      sl.cond = confusionKept(env, s, sl) ? sl.cond & CONFUSED : 0;
       delete sl.movedActiveTurn;
       clearAttackEffects(s, sl.id);
       emit(env, { type: 'evolve', player: p, card: a.card, slot: sl.id });
@@ -741,10 +805,22 @@ function doAction(env: Env, s: GameState, a: Action): void {
       const act = ps.active as Slot;
       const cost = retreatCost(env, s, act);
       ps.retreated = true;
+      // Goodra, Slimy Sliding: "your opponent flips a coin. If tails, Energy for its Retreat Cost is not discarded, and they don't switch
+      // Pokémon." The retreat is used up all the same (TPCi Rules Team 2026-05-21, ruling 2348). The effect doesn't stack: one flip.
+      if (retreatCoinFlip(p, statics(env, s)) && !flipCoin(env, s, p)) return;
       pushFrame(s, { code: retreatCode(env), vars: { cost }, player: p, src: topCard(act), slot: act.id, kind: 'rule' });
       return;
     }
     case 'ability': {
+      if (a.card !== undefined) {
+        // Used from the hand: the card stays there until the Ability's effect moves it.
+        const hd = def(env.ctx, a.card);
+        const hab = hd.abilities[a.idx];
+        if (!hab?.code || !ps.hand.includes(a.card)) return;
+        emit(env, { type: 'use_ability', player: p, slot: 0, name: hab.name });
+        pushFrame(s, { code: hab.code, vars: { __this: [a.card] }, player: p, src: a.card, slot: 0, kind: 'ability' });
+        return;
+      }
       const sl = allSlots(ps).find((x) => x.id === a.slot) as Slot;
       const d = def(env.ctx, topCard(sl));
       const ab = d.abilities[a.idx];
@@ -940,8 +1016,43 @@ function enforceBenchLimit(env: Env, s: GameState): boolean {
   return false;
 }
 
+/**
+ * Energy that "can only be attached to" a kind of Pokémon and is on another is discarded (Team Rocket's Energy), and a Pokémon with more
+ * Pokémon Tool cards than it may have (Rotom ex's Multi Adapter went away) discards down: its owner chooses which. Returns true when a
+ * decision is pending.
+ */
+function enforceAttachments(env: Env, s: GameState): boolean {
+  let all: ReturnType<typeof statics> | null = null;
+  for (const p of [s.current, opp(s.current)] as Player[]) {
+    for (const sl of allSlots(s.p[p])) {
+      const bad = sl.energy.filter((c) => {
+        const only = def(env.ctx, c).script?.attachOnly;
+        return !!only && !slotMatches(env, sl, only);
+      });
+      if (bad.length) {
+        sl.energy = sl.energy.filter((c) => !bad.includes(c));
+        s.p[p].discard.push(...bad);
+        emit(env, { type: 'discard', player: p, cards: bad });
+      }
+      if (sl.tools.length > 1) {
+        const limit = toolLimit(env, s, sl, (all ??= statics(env, s)));
+        const excess = sl.tools.length - limit;
+        if (excess > 0) {
+          s.pending = {
+            decision: { player: p, kind: 'cards', prompt: `Discard ${excess} Pokémon Tool card${excess === 1 ? '' : 's'} from ${def(env.ctx, topCard(sl)).name}`, min: excess, max: excess, values: sl.tools.slice() },
+            resume: { k: 'toolDiscard', slot: sl.id },
+          };
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 function resolveKOs(env: Env, s: GameState): void {
   stripImmuneConditions(env, s);
+  if (enforceAttachments(env, s)) return;
   // A Bench that is too big is dealt with first, before Knock Outs: a Pokémon with lethal damage may be the one discarded (TPCi Rules
   // Team 2026-03-12, ruling 2305).
   if (enforceBenchLimit(env, s)) return;
@@ -983,7 +1094,8 @@ function resolveKOs(env: Env, s: GameState): void {
     const toHand = new Map<Slot, number[]>();
     for (const k of ko) {
       if (!koByAttack(s, k.owner, k.slot)) continue;
-      const { always, may } = koToHandCards(env, s, k.slot, all);
+      // Milotic's Mentally Calm: nothing of that player's Pokémon can be put into their hand.
+      const { always, may } = returnToHandBlocked(env, s, k.owner, all) ? { always: [], may: [] } : koToHandCards(env, s, k.slot, all);
       if (may.length && k.slot.koHandAnswer === undefined) {
         s.pending = {
           decision: {

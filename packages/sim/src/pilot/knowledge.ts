@@ -12,7 +12,7 @@
  */
 import { def, type Env, type GameContext } from '../context.js';
 import type { Cond, Expr, Filter, PType, Program, Step } from '../dsl.js';
-import { defMatches, evalCond, evalExpr, type EvalCtx } from '../eval.js';
+import { defMatches, evalCond, evalExpr, unitFits, type EvalCtx } from '../eval.js';
 import {
   attackCost,
   attackOptions,
@@ -44,6 +44,7 @@ export function missingUnits(cost: readonly PType[], units: readonly EnergyUnit[
       continue;
     }
     let i = pool.indexOf(t);
+    if (i < 0) i = pool.findIndex((u) => u !== 'Any' && unitFits(u, t)); // a unit that is either of two types ({P}/{D})
     if (i < 0) i = pool.indexOf('Any'); // "provides every type" units (Legacy/Neo Upper Energy)
     if (i < 0) missing++;
     else pool.splice(i, 1);
@@ -326,7 +327,7 @@ export interface Threat {
  */
 export function bestAttack(env: Env, s: GameState, attacker: Slot, owner: Player, target: Slot, extra: number, all: LiveStatic[], viewer: Player): Threat {
   const d = def(env.ctx, topCard(attacker));
-  const units = energyUnits(env, attacker);
+  const units = energyUnits(env, attacker, s, all);
   let dmg = 0;
   let bestMissing = 99;
   let bestAny = 0;

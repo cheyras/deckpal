@@ -9,7 +9,7 @@
  */
 import { def, type Env } from './context.js';
 import type { Filter, PlayLock, PType, Scope, SpecialCondition, StaticEffect } from './dsl.js';
-import { cardMatches, defMatches, evalCond, evalExpr, providesOn, pushUnits, slotMatches, type EnergyUnit, type EvalCtx } from './eval.js';
+import { cardMatches, defMatches, evalCond, evalExpr, providesOn, pushUnits, slotMatches, unitFits, type EnergyUnit, type EvalCtx } from './eval.js';
 import { allSlots, findSlot, opp, topCard } from './state.js';
 import type { AttackDef, CardDef, GameState, Player, Slot } from './types.js';
 
@@ -223,6 +223,13 @@ export function attackOptions(env: Env, s: GameState, slot: Slot, all = statics(
     const td = def(env.ctx, x.src);
     td.attacks.forEach((atk, idx) => out.push({ idx, card: x.src, d: td, atk }));
   }
+  // Memory Dive: an evolved Pokémon can use any attack of the cards beneath its top card (its Basic and Stage 1 cards).
+  if (slot.cards.length > 1 && onSlot(env, s, all, slot, 'previousAttacks').length) {
+    for (const c of slot.cards.slice(0, -1)) {
+      const pd = def(env.ctx, c);
+      pd.attacks.forEach((atk, idx) => out.push({ idx, card: c, d: pd, atk }));
+    }
+  }
   return out;
 }
 
@@ -280,17 +287,48 @@ export function canPayAttack(env: Env, s: GameState, slot: Slot, idx: number, un
 }
 
 /** Energy units a Pokémon has: one entry per unit, each a type (Colorless = only Colorless). */
-export function energyUnits(env: Env, slot: Slot): EnergyUnit[] {
+export function energyUnits(env: Env, slot: Slot, s?: GameState, all?: LiveStatic[]): EnergyUnit[] {
   const out: EnergyUnit[] = [];
-  for (const c of slot.energy) pushUnits(env, slot, c, out);
+  if (s && env.ctx.energyMods) all ??= staticsForEnergy(env, s);
+  for (const c of slot.energy) pushUnits(env, slot, c, out, s, all);
   return out;
 }
 
 /** The Energy units one attached card provides on this Pokémon. */
-export function cardUnits(env: Env, slot: Slot, card: number): EnergyUnit[] {
+export function cardUnits(env: Env, slot: Slot, card: number, s?: GameState, all?: LiveStatic[]): EnergyUnit[] {
   const out: EnergyUnit[] = [];
-  pushUnits(env, slot, card, out);
+  pushUnits(env, slot, card, out, s, all);
   return out;
+}
+
+let replacing = 0;
+/**
+ * The live statics, for counting Energy under a replacement (Wild Growth), or undefined while they are already being gathered: a
+ * static whose own condition counts Energy would otherwise ask for them again without end. Then nothing is replaced.
+ */
+export function staticsForEnergy(env: Env, s: GameState): LiveStatic[] | undefined {
+  if (replacing) return undefined;
+  replacing++;
+  try {
+    return statics(env, s);
+  } finally {
+    replacing--;
+  }
+}
+
+/**
+ * The Energy an attached card provides in place of what it prints, when a static in play replaces it (`energyProvides`: Meganium's Wild
+ * Growth), or null. The first that applies is used: two replacements don't add up.
+ */
+export function energyReplacement(env: Env, s: GameState, slot: Slot, card: number, all?: LiveStatic[]): PType[] | null {
+  const live = all ?? staticsForEnergy(env, s);
+  if (!live) return null;
+  const owner = ownerOf(s, slot);
+  for (const x of live) {
+    if (x.effect.k !== 'energyProvides' || !affectsSlot(env, s, x, slot, owner)) continue;
+    if (cardMatches(env, card, x.effect.cards)) return x.effect.provides;
+  }
+  return null;
 }
 
 /** Can these units pay this cost? Typed requirements first (exact type, then an 'Any' unit), Colorless from anything left. */
@@ -313,6 +351,7 @@ export function canPay(cost: readonly PType[], units: readonly EnergyUnit[], wai
   for (const t of cost) {
     if (t === 'Colorless') continue;
     let i = pool.indexOf(t);
+    if (i < 0) i = pool.findIndex((u) => u !== 'Any' && unitFits(u, t)); // a unit that is either of two types ({P}/{D})
     if (i < 0) i = pool.indexOf('Any'); // lane:fighting
     if (i < 0) return false;
     pool.splice(i, 1);
@@ -402,7 +441,7 @@ export function damagePrevented(
     if (e.ifAtLeast !== undefined && !(amount !== undefined && amount >= e.ifAtLeast)) return false;
     const max = e.attackerMaxEnergy;
     if (max === undefined) return true;
-    return !!attacker && energyUnits(env, attacker).length <= max;
+    return !!attacker && energyUnits(env, attacker, s, all).length <= max;
   });
 }
 
@@ -522,7 +561,46 @@ export function surviveKoCoinFlips(env: Env, s: GameState, slot: Slot, all = sta
 }
 
 export function cantAttack(env: Env, s: GameState, slot: Slot, all = statics(env, s)): boolean {
-  return onSlot(env, s, all, slot, 'cantAttack').length > 0;
+  return onSlot(env, s, all, slot, 'cantAttack').some((x) => {
+    const max = (x.effect as { ifEnergyAtMost?: number }).ifEnergyAtMost;
+    return max === undefined || energyUnits(env, slot, s, all).length <= max;
+  });
+}
+
+/** How many Pokémon Tool cards this Pokémon may have attached: 1, or more under a `toolSlots` effect (the largest counts). */
+export function toolLimit(env: Env, s: GameState, slot: Slot, all = statics(env, s)): number {
+  let n = 1;
+  for (const x of onSlot(env, s, all, slot, 'toolSlots')) n = Math.max(n, (x.effect as { n: number }).n);
+  return n;
+}
+
+/** How many "if any damage is done to this Pokémon by attacks, flip a coin. If heads, prevent that damage" effects apply to it (one flip each). */
+export function damageCoinFlips(env: Env, s: GameState, slot: Slot, all = statics(env, s)): number {
+  return onSlot(env, s, all, slot, 'damageCoinFlip').length;
+}
+
+/** Does a "retreat coin flip" effect (Goodra's Slimy Sliding) apply to this player's retreat? One flip however many there are. */
+export function retreatCoinFlip(p: Player, all: LiveStatic[]): boolean {
+  return all.some((x) => x.effect.k === 'retreatCoinFlip' && affectsPlayer(x, p));
+}
+
+/** The Tool card that lets this Pokémon's attack's coin flips be flipped again now (Backtrack Badge, unspent this turn), or undefined. */
+export function coinReflipTool(env: Env, s: GameState, slot: Slot, all = statics(env, s)): number | undefined {
+  const owner = ownerOf(s, slot);
+  const used = s.p[owner].toolUsed ?? [];
+  return onSlot(env, s, all, slot, 'coinReflip').find((x) => x.kind === 'tool' && !used.includes(x.src))?.src;
+}
+
+/** Does this Pokémon keep its Confusion when it evolves or devolves (Dizzying Valley)? */
+export function confusionKept(env: Env, s: GameState, slot: Slot, all = statics(env, s)): boolean {
+  return onSlot(env, s, all, slot, 'keepConfusion').length > 0;
+}
+
+/** Are this player's Pokémon in play, and the cards attached to them, kept out of their hand (Milotic's Mentally Calm)? */
+export function returnToHandBlocked(env: Env, s: GameState, p: Player, all = statics(env, s)): boolean {
+  void env;
+  void s;
+  return all.some((x) => x.effect.k === 'noReturnToHand' && affectsPlayer(x, p));
 }
 
 /** The "tries to use an attack" coin flips that apply to this Pokémon's attack right now: one entry per effect, each the number of coins it flips. */
@@ -572,6 +650,11 @@ export function playLocked(env: Env, s: GameState, p: Player, what: PlayLock, al
   return all.some((x) => x.effect.k === 'playLock' && x.effect.what === what && affectsPlayer(x, p));
 }
 
+/** A Pokémon with the Ability "Put this Pokémon into play only with the effect of ...": it can't be played from the hand. */
+export function putOnlyByEffect(d: CardDef): boolean {
+  return d.kind === 'pokemon' && d.coverage === 'full' && d.abilities.some((a) => a.script?.putIntoPlayOnlyBy !== undefined);
+}
+
 /**
  * Is this player stopped from playing this card (an Ability-having Pokémon in the hand, put onto the Bench or played to evolve) by an
  * `abilityPokemon` play lock that applies to them? The Ability is the one printed on the card in hand: a Pokémon in hand has it
@@ -579,6 +662,7 @@ export function playLocked(env: Env, s: GameState, p: Player, what: PlayLock, al
  */
 export function pokemonPlayLocked(env: Env, s: GameState, p: Player, d: CardDef, all = statics(env, s)): boolean {
   if (d.kind !== 'pokemon' || !d.abilities.length) return false;
+  if (putOnlyByEffect(d)) return true; // Hero's Spirit: only an effect that names this Pokémon puts it into play
   return all.some((x) => x.effect.k === 'playLock' && x.effect.what === 'abilityPokemon' && affectsPlayer(x, p) && !(x.effect.except && defMatches(d, x.effect.except)));
 }
 

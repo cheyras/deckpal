@@ -137,6 +137,8 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
     `Count the ${a.kind === 'tool' ? 'Pokémon Tools' : 'Energy'} attached to all of ${slotZoneNoun(String(a.zone) as SlotZone)} (into "${String(a.as ?? 'n')}")`,
   'seed2.healEach': (a) => `Heal ${Number(a.amount)} damage from each of ${slotZoneNoun(String(a.zone ?? 'myPokemon') as SlotZone)}`,
   'seed2.randomOppHandCard': (a) => `Choose a random card from your opponent's hand (into "${String(a.as ?? 'x')}")`,
+  'engine7.swapTopCard': (a) =>
+    `Switch this Pokémon with the card chosen as "${String(a.cards ?? 'x')}": that card takes the place of this Pokémon's top card, and any attached cards, damage counters, Special Conditions, turns in play and effects on the Pokémon stay on it (the cards underneath stay too); the card it replaced is put into your deck`,
   'engine6.revealAndSwitch': (a) =>
     `Your opponent reveals the card chosen as "${String(a.card ?? 'pick')}". You may have your opponent switch that card with the Prize card turned face up as "${String(a.prize ?? 'up')}" (the hand card takes the Prize card's place, face up; no question when either is missing)`,
   'seed2.tormentDefender': () =>
@@ -409,6 +411,12 @@ const TTYPE: Record<NonNullable<Filter['ttype']>, Noun> = {
   tool: { sg: 'Pokémon Tool card', pl: 'Pokémon Tool cards' },
 };
 
+/** An attached Pokémon Tool filter as text: "a Future Booster Energy Capsule". */
+function toolCardText(f: Filter): string {
+  const names = f.name ? (Array.isArray(f.name) ? f.name : [f.name]) : [];
+  return names.length ? names.map(art).join(' or ') : art(noun(f).sg);
+}
+
 /** A Filter as a noun phrase. `inPlay`: the filter is over Pokémon in play (head noun defaults to "Pokémon"). */
 export function noun(f: Filter = {}, inPlay = false): Noun {
   if (f.any?.length) {
@@ -434,6 +442,7 @@ export function noun(f: Filter = {}, inPlay = false): Noun {
     f.tool !== undefined ||
     !!f.condition ||
     f.energized !== undefined ||
+    f.toolCard !== undefined ||
     (!!f.type && f.cat !== 'energy');
   if (f.cat === 'trainer' || f.ttype) {
     head = f.ttype ? TTYPE[f.ttype] : { sg: 'Trainer card', pl: 'Trainer cards' };
@@ -469,6 +478,10 @@ export function noun(f: Filter = {}, inPlay = false): Noun {
   if (f.energy) post.push([`that has ${energyNoun(f.energy)} attached`, `that have ${energyNoun(f.energy)} attached`]);
   if (f.energized === true) post.push(['that has any Energy attached', 'that have any Energy attached']);
   if (f.energized === false) post.push(['that has no Energy attached', 'that have no Energy attached']);
+  if (f.toolCard) {
+    const t = toolCardText(f.toolCard);
+    post.push([`that has ${t} attached`, `that have ${t} attached`]);
+  }
   if (f.tool === true) post.push(['that has a Pokémon Tool attached', 'that have a Pokémon Tool attached']);
   if (f.tool === false) post.push(['that has no Pokémon Tool attached', 'that have no Pokémon Tool attached']);
   if (f.condition) post.push([`that is ${CONDITION[f.condition]}`, `that are ${CONDITION[f.condition]}`]);
@@ -709,7 +722,11 @@ class Renderer {
       const pl = v?.k === 'cards' && v.plural;
       return pl ? `each of those cards is ${art(noun(c.cardIs.filter).sg)}` : `that card is ${art(noun(c.cardIs.filter).sg)}`;
     }
-    if ('slotIs' in c) return `${this.ref(c.slotIs.ref)} is ${art(noun(c.slotIs.filter, true).sg)}`;
+    if ('slotIs' in c) {
+      const sf = c.slotIs.filter;
+      if (sf.toolCard && Object.keys(sf).length === 1) return `${this.ref(c.slotIs.ref)} has ${toolCardText(sf.toolCard)} attached`;
+      return `${this.ref(c.slotIs.ref)} is ${art(noun(sf, true).sg)}`;
+    }
     if ('movedToActiveThisTurn' in c) {
       const r = c.movedToActiveThisTurn;
       return `${this.ref(r)} moved from ${r === 'defender' || r === 'oppActive' ? "your opponent's" : 'your'} Bench to the Active Spot this turn`;
@@ -1130,6 +1147,7 @@ class Renderer {
 
   private move(st: Extract<Step, { op: 'move' }>, next: Step | undefined): { text: string; ateShuffle: boolean } {
     const dest = destOf(st.to, st.who);
+    if (st.cards === '__this') return { text: `Put this Pokémon ${dest}`, ateShuffle: false };
     if (typeof st.cards === 'string') {
       const v = this.vars.get(st.cards);
       if (v?.k === 'cards') {
@@ -1301,7 +1319,27 @@ class Renderer {
         return `During Pokémon Checkup, put ${e.n} more damage counters on ${x}${filt}${e.noStack ? `. The effect of ${e.noStack} doesn't stack` : ''}`;
       }
       case 'cantAttack':
-        return `${X} can't attack`;
+        return e.ifEnergyAtMost !== undefined
+          ? `${X} that ${plural ? 'have' : 'has'} ${e.ifEnergyAtMost} or less Energy attached can't attack. (This includes new Pokémon that come into play.)`
+          : `${X} can't attack`;
+      case 'toolSlots':
+        return `${X} may have up to ${e.n} Pokémon Tool cards attached. If this Ability goes away, discard Pokémon Tools from ${plural ? 'those Pokémon' : 'that Pokémon'} until only 1 remains on ${plural ? 'each' : 'it'}`;
+      case 'damageCoinFlip':
+        return `If any damage is done to ${x} by attacks, flip a coin. If heads, prevent that damage`;
+      case 'retreatCoinFlip':
+        return `When your opponent's Active Pokémon retreats, ${x} flips a coin. If tails, Energy for its Retreat Cost is not discarded, and they don't switch Pokémon. The effect of ${this.abilityName ?? 'this effect'} doesn't stack`;
+      case 'coinReflip':
+        return `Once during your turn, after you flip any coins for an attack of ${x}, you may ignore all results of those coin flips and begin flipping those coins again`;
+      case 'keepConfusion':
+        return "Confused Pokémon (both yours and your opponent's) don't recover from that Special Condition when they evolve or devolve";
+      case 'energyProvides':
+        return `Each ${energyNoun(e.cards)} attached to ${plural ? 'all of ' : ''}${x} provides ${e.provides.map(sym).join('')} Energy. The effect of ${this.abilityName ?? 'this effect'} doesn't stack`;
+      case 'noReturnToHand': {
+        const who = x === 'you' ? 'your' : x === 'your opponent' ? "your opponent's" : 'their';
+        return `${cap(who)} Pokémon in play and all attached cards can't be put into ${who} hand`;
+      }
+      case 'previousAttacks':
+        return `Each of ${x} can use any attack from its previous Evolutions. (You still need the necessary Energy to use each attack.)`;
       case 'cantRetreat':
         return `${X} can't retreat`;
       case 'noAbilities':
@@ -1411,6 +1449,14 @@ class Renderer {
       const who = d.filter ? noun(d.filter, true).sg : 'Pokémon';
       return `The ${who} this card is attached to can use the attack on this card. (You still need the necessary Energy to use this attack.)`;
     }
+    if (d.effect.k === 'coinReflip') {
+      const who = d.filter ? noun(d.filter, true).sg : 'Pokémon';
+      return `Once during your turn, after you flip any coins for an attack of the ${who} this card is attached to, you may ignore all results of those coin flips and begin flipping those coins again`;
+    }
+    if (d.effect.k === 'previousAttacks') return this.clause(d.effect, 'your evolved Pokémon', true, true);
+    if (d.effect.k === 'types' && d.when && 'slotIs' in d.when) {
+      return `As long as ${this.cond(d.when)}, ${this.selfName === 'this Pokémon' ? 'it' : 'that Pokémon'} is ${d.effect.add ? 'also ' : ''}${d.effect.types.map(sym).join(' and ')} type`;
+    }
     // "Each player's {G} Pokémon can evolve into ...": a Stadium that lifts a rule for both players' Pokémon.
     const both = d.effect.k === 'evolveTiming' && d.scope === 'allPokemon';
     const { x, plural } = both ? { x: `each player's ${noun(d.filter ?? {}, true).pl}`, plural: true } : this.scope(d.scope, d.filter);
@@ -1437,9 +1483,12 @@ class Renderer {
       case 'evolveFromHand':
         lead = 'When you play this Pokémon from your hand to evolve 1 of your Pokémon';
         break;
-      case 'damagedByAttackActive':
-        lead = `If ${this.selfName} is in the Active Spot and is damaged by an attack from your opponent's Pokémon (even if this Pokémon is Knocked Out)`;
+      case 'damagedByAttackActive': {
+        const dmg = t.minDamage !== undefined ? `takes ${t.minDamage} or more damage from` : 'is damaged by';
+        const by = t.attacker ? noun(t.attacker, true).sg : 'Pokémon';
+        lead = `If ${this.selfName} is in the Active Spot and ${dmg} an attack from your opponent's ${by} (even if this Pokémon is Knocked Out)`;
         break;
+      }
       case 'knockedOutByAttack':
         lead = `If ${this.selfName} is Knocked Out by damage from an attack from your opponent's Pokémon`;
         break;
@@ -1481,9 +1530,12 @@ class Renderer {
         lead = `${t.oncePerTurn ? 'Once during your turn, w' : 'W'}hen ${what} moves from your Bench to the Active Spot`;
         break;
       }
-      case 'damagedByAttack':
-        lead = `If ${this.selfName} is damaged by an attack from your opponent's Pokémon (even if this Pokémon is Knocked Out)`;
+      case 'damagedByAttack': {
+        const dmg = t.minDamage !== undefined ? `takes ${t.minDamage} or more damage from` : 'is damaged by';
+        const by = t.attacker ? noun(t.attacker, true).sg : 'Pokémon';
+        lead = `If ${this.selfName} ${dmg} an attack from your opponent's ${by} (even if this Pokémon is Knocked Out)`;
         break;
+      }
       case 'damageReduced':
         lead = 'If an effect of this card reduced damage from an attack done to the Pokémon it is attached to';
         break;
@@ -1531,11 +1583,14 @@ class Renderer {
   ability(a: AbilityScript): string {
     this.abilityName = a.name;
     const out: string[] = [];
+    if (a.putIntoPlayOnlyBy) out.push(`Put this Pokémon into play only with the effect of ${a.putIntoPlayOnlyBy}`);
+    if (a.setupActive) out.push('If this Pokémon is in your hand when you are setting up to play, you may put it face down in the Active Spot');
     if (a.activated) {
       const g = a.activated;
       let s = g.oncePerTurn === false ? 'As often as you like during your turn' : 'Once during your turn';
       if (g.activeOnly) s += ', if this Pokémon is in the Active Spot';
-      if (g.when) s += `, if ${this.cond(g.when)}`;
+      if (g.fromHand) s += ', if this Pokémon is in your hand';
+      if (g.when) s += g.fromHand ? ` and ${this.cond(g.when)}` : `, if ${this.cond(g.when)}`;
       out.push(`${s}, you may use this Ability`, this.program(g.program));
       if (g.globalOncePerTurn) out.push(`You can't use more than 1 ${a.name} Ability each turn`);
     }
@@ -1636,7 +1691,13 @@ export function renderCardText(s: CardScript, f: CardFrame | null, problems: str
     if (pa.noConditions) out.push("This card can't be affected by any Special Conditions");
     if (pa.discardable) out.push('At any time during your turn, you may discard this card from play');
   }
-  if (s.provides && src === 'energy') out.push(`As long as this card is attached to a Pokémon, it provides ${s.provides.map(sym).join('')} Energy`);
+  if (s.attachOnly) {
+    const ao = s.attachOnly;
+    const nn = ao.nameIncludes && Object.keys(ao).length === 1 ? `${ao.nameIncludes} Pokémon` : noun(ao, true).sg;
+    out.push(`This card can only be attached to ${art(nn)}. If this card is attached to anything other than ${art(nn)}, discard this card`);
+  }
+  if (s.providesFlex) out.push(`As long as this card is attached to a Pokémon, it provides ${s.providesFlex.n} in any combination of ${s.providesFlex.types.map((t) => `${sym(t)} Energy`).join(' and ')}`);
+  if (s.provides && src === 'energy' && !s.providesFlex) out.push(`As long as this card is attached to a Pokémon, it provides ${s.provides.map(sym).join('')} Energy`);
   if (s.providesIf) {
     out.push(`As long as this card is attached to ${art(noun(s.providesIf.filter, true).sg)}, it provides ${s.providesIf.provides.map(sym).join('')} Energy instead`);
   }
@@ -1652,13 +1713,23 @@ export function renderCardText(s: CardScript, f: CardFrame | null, problems: str
     if (s.koPrizeDelta.oncePerGame) out.push("This effect can't be applied more than once per game");
   }
   if (s.firstTurnSupporter) out.push('If you go first, you may use this card during your first turn');
-  if (s.playable) out.push(`You can use this card only if ${r.cond(s.playable)}`);
+  const over = s.extraStadium && s.playable && 'stadium' in s.playable && s.playable.stadium !== true ? (s.playable.stadium as Filter).name : undefined;
+  if (typeof over === 'string') {
+    // Ange Floette: played over the Stadium it names, even in the turn that Stadium was played.
+    out.push(`You can put this card into play only if you discard ${art(over)} in play, and you can put this card into play during the same turn you play ${over}`);
+  } else if (s.playable) out.push(`You can use this card only if ${r.cond(s.playable)}`);
+  if (s.noRecoverFromDiscard) out.push("This card can't be put into your hand or deck from the discard pile");
   if (s.play) out.push(r.program(s.play));
   for (const d of s.statics ?? []) out.push(r.static(d));
   for (const t of s.triggers ?? []) out.push(r.trigger(t, false));
   if (s.stadiumAbility) {
     const w = s.stadiumAbility.when ? `, if ${r.cond(s.stadiumAbility.when)}` : '';
     out.push(`Once during each player's turn${w}, that player may ${lc(r.program(s.stadiumAbility.program))}`);
+  }
+  if (s.handAfterOwnAttack) {
+    out.push(
+      `If this card is discarded by an effect of an attack used by the ${noun(s.handAfterOwnAttack.holder, true).sg} this card is attached to, put this card into your hand after attack damage and effects`,
+    );
   }
   if (s.reattachAfterOwnAttack) {
     out.push(
@@ -2627,6 +2698,11 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv05-158|text': {
     problems: ['"any number of" is rendered but not printed'],
     why: 'The cards chosen are exactly as many as the smaller of your Future Pokémon and the Basic Energy cards in your discard pile (a computed count, which the renderer words as "any number of"); each Future Pokémon gets at most one, so "a Basic Energy card ... to each of your Future Pokémon" as far as the discard pile allows.',
+  },
+  // std-engine7
+  'me01-028|attack:Turbo Flare': {
+    problems: ['"up to', 'similarity'],
+    why: '"Search your deck for up to 3 Basic Energy cards and attach them … in any way you like" is `repeat 3` of an optional (min 0) deck pick, each attached to its own chosen Benched Pokémon; declining stops the loop, and the deck is shuffled once at the end (as Punk Up).',
   },
   // std-engine6
   'sv10.5w-045|attack:Power Press': {

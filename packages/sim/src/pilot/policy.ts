@@ -152,7 +152,7 @@ function board(env: Env, s: GameState, p: Player): Board {
     const d = def(env.ctx, topCard(sl));
     inPlay.set(d.name, (inPlay.get(d.name) ?? 0) + 1);
     if (fx.copier.has(d.idx)) copier = true;
-    const units = energyUnits(env, sl);
+    const units = energyUnits(env, sl, s, all);
     for (let i = 0; i < d.attacks.length; i++) {
       if (missingUnits(attackCost(env, s, sl, i, all), units) > 0 && (fx.power[d.idx] ?? 0) > 0) needEnergy = true;
     }
@@ -290,7 +290,7 @@ function gustValue(b: Board, sl: Slot): number {
       if (v > best) best = v;
     }
     // Stall value: a Pokémon that can't attack and is hard to retreat.
-    best += retreatCost(env, s, sl, all) * 8 - energyUnits(env, sl).length * 4;
+    best += retreatCost(env, s, sl, all) * 8 - energyUnits(env, sl, s, all).length * 4;
   } finally {
     them.active = oldActive;
     them.bench = oldBench;
