@@ -48,15 +48,19 @@ and the model does not separate the eras' designs. No same-art test caught it,
 because the art is not the same.
 
 **Measured.** Through the shipping path (`bench.ts`: OCR, the ladder, v2 and
-the guard), each bench changed by exactly one row:
+the guard), one OUTCOME changed across both benches:
 
 | bench | before | after |
 |---|---|---|
-| scan bench, 244 cards | 202 auto-ID, 0 wrong | identical, 0 rows changed |
+| scan bench, 244 cards | 202 auto-ID, 0 wrong | 202 auto-ID, 0 wrong, every outcome unchanged |
 | owner verified photos, 477 cards | 140 auto-ID, 2 wrong | 140 auto-ID, **1** wrong |
 
-The one changed row is the Fighting Energy, which went from confidently wrong
-to asking.
+The one changed outcome is the Fighting Energy, which went from confidently
+wrong to asking, with its same-picture printings (base1-97, base4-125,
+neo1-106 and xy12-96) among the choices. Two scan-bench rows, basic Water
+Energy captures that already asked, gained type mates at the end of their
+choice lists. Their first five choices, and the right answer at the top, are
+unchanged.
 
 The first version of this rule matched on the name alone. It also swept in
 Neo Genesis's special Metal Energy and turned a right answer into a question.
