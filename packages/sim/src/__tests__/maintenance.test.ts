@@ -1,0 +1,194 @@
+/** The new-set / rotation / FAQ-update pipeline's pure parts (src/maintenance, driven by packages/sim/scripts). */
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import test from 'node:test';
+import { PRINTED_WR } from '../cards/printed-wr.js';
+import { CARD_TAGS } from '../cards/tags.js';
+import { TERA_PRINTINGS } from '../cards/tera.js';
+import { citedRulingIds, parseRulingsHtml, rulingHash, rulingMatch, rulingsNamingCard, sourceDate, toIndexEntry, type Ruling, type RulingIndexEntry } from '../maintenance/rulings.js';
+import { diffTables, normName, ptcgCardToOurs, ptcgSetToOurs, renderPrintedWR, renderTags, renderTera, type WRTable } from '../maintenance/tables.js';
+
+const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+
+test('pokemontcg.io set ids map to ours', () => {
+  const cases: [string, string | null][] = [
+    ['sv1', 'sv01'], ['sv5', 'sv05'], ['sv10', 'sv10'], ['sv3pt5', 'sv03.5'], ['sv6pt5', 'sv06.5'], ['sv8pt5', 'sv08.5'],
+    ['zsv10pt5', 'sv10.5b'], ['rsv10pt5', 'sv10.5w'], ['me1', 'me01'], ['me2pt5', 'me02.5'], ['me4', 'me04'], ['svp', 'svp'],
+    ['swsh12pt5', null], ['base1', null],
+  ];
+  for (const [ptcg, ours] of cases) assert.equal(ptcgSetToOurs(ptcg), ours, ptcg);
+  assert.equal(ptcgCardToOurs('sv6pt5', '15'), 'sv06.5-015');
+  assert.equal(ptcgCardToOurs('svp', '165'), 'svp-165');
+  assert.equal(ptcgCardToOurs('sv1', '231'), 'sv01-231');
+  assert.equal(ptcgCardToOurs('swsh1', '1'), null);
+});
+
+test('names compare ignoring case, accents and punctuation', () => {
+  assert.equal(normName('Pokémon Center Lady'), normName('Pokemon Center Lady'));
+  assert.equal(normName('Team Rocket’s Mewtwo ex'), normName("Team Rocket's Mewtwo ex"));
+  assert.notEqual(normName('Mewtwo ex'), normName('Mew ex'));
+});
+
+test('the renderers reproduce the committed tables byte for byte', () => {
+  assert.equal(renderTera(read('../cards/tera.ts'), TERA_PRINTINGS), read('../cards/tera.ts'));
+  assert.equal(renderTags(read('../cards/tags.ts'), CARD_TAGS), read('../cards/tags.ts'));
+  assert.equal(renderPrintedWR(read('../cards/printed-wr.ts'), PRINTED_WR as WRTable), read('../cards/printed-wr.ts'));
+});
+
+test('the renderers sort, de-duplicate and keep the header and footer', () => {
+  const tera = renderTera(read('../cards/tera.ts'), ['sv02-005', 'sv01-032', 'sv01-032']);
+  assert.ok(tera.includes('Tera Pokémon printings'));
+  assert.ok(tera.indexOf('"sv01-032"') < tera.indexOf('"sv02-005"'));
+  assert.equal(tera.split('"sv01-032"').length, 2);
+  const wr = renderPrintedWR(read('../cards/printed-wr.ts'), { 'svp-001': { weaknesses: [{ type: 'Fire', value: '×2' }], resistances: [] } });
+  assert.ok(wr.includes(' 1 printings,'));
+  assert.ok(wr.includes('"svp-001": {weaknesses:[{type:"Fire",value:"×2"}],resistances:[]},'));
+  assert.ok(wr.includes('export function withPrintedWR'));
+});
+
+test('diffTables reports added, removed and changed keys', () => {
+  assert.deepEqual(diffTables({ a: 1, b: 2, c: 3 }, { b: 2, c: 4, d: 5 }), { added: ['d'], removed: ['a'], changed: ['c'] });
+});
+
+const PAGE = `<div class="entry-summary"><button></button><div class="ruling-2354">
+<div class="ruling-categories"><a href="x">Attacks</a> &raquo; <a href="y">Pleasing Present</a> | <a href="x">Abilities</a> &raquo; <a href="z">Unaware</a></div>
+<dl class="q-and-a"><dt>If I use Delibird's &quot;Pleasing Present&quot; attack, what happens with Skeledirge&#8217;s Unaware?</dt>
+<dd>Because Skeledirge's Unaware &quot;prevents all effects&quot;, the energy is discarded.<br />Second line.</dd></dl>
+<div id="source"><span style="font-weight: bold;">Source: </span>
+ Chaos Rising FAQ; TPCi Rules Team (2026-05-21)</div></div></div>
+<div class="entry-summary"><button></button><div class="ruling-2176">
+<div class="ruling-categories"><a href="x">Errata</a> &raquo; <a href="y">Sacred Ash</a></div>
+<dl class="single-entry"><dd>The new card text for Sacred Ash will be: "Shuffle up to 5 Pokemon".</dd></dl>
+<div id="source"><span style="font-weight: bold;">Source: </span>Jun 13, 2025 TPCi Announcements (date approximate), TPCi Rules Team (2025-06-05)</div></div></div>`;
+
+test('the Compendium page parses into rulings', () => {
+  const rs = parseRulingsHtml(PAGE);
+  assert.equal(rs.length, 2);
+  const [a, b] = rs as [Ruling, Ruling];
+  assert.equal(a.id, 2354);
+  assert.equal(a.date, '2026-05-21');
+  assert.deepEqual(a.categories, ['Pleasing Present', 'Unaware']);
+  assert.deepEqual(a.paths, ['Attacks » Pleasing Present', 'Abilities » Unaware']);
+  assert.ok(a.q!.includes('Delibird\'s "Pleasing Present"') && a.q!.includes('Skeledirge’s'));
+  assert.equal(a.a, 'Because Skeledirge\'s Unaware "prevents all effects", the energy is discarded.\nSecond line.');
+  assert.equal(a.source, 'Chaos Rising FAQ; TPCi Rules Team (2026-05-21)');
+  assert.equal(b.id, 2176);
+  assert.equal(b.q, null);
+  assert.equal(b.date, '2025-06-05');
+  assert.throws(() => parseRulingsHtml('<html></html>'), /no rulings/);
+});
+
+test('source dates', () => {
+  assert.equal(sourceDate('A (2024-01-02); B (2025-03-04)'), '2025-03-04');
+  assert.equal(sourceDate('Jun 13, 2025 TPCi Announcements (date approximate)'), '2025-06-13');
+  assert.equal(sourceDate('nothing'), null);
+});
+
+test('a ruling is matched to a card by category (strong) or by name in the text (weak)', () => {
+  const [a, b] = parseRulingsHtml(PAGE) as [Ruling, Ruling];
+  assert.deepEqual(rulingMatch(a, ['Delibird', 'Pleasing Present']), { by: 'category', name: 'Pleasing Present' });
+  assert.deepEqual(rulingMatch(a, ['Delibird']), { by: 'text', name: 'Delibird' });
+  assert.equal(rulingMatch(a, ['Deli']), null, 'a prefix of a word is not a mention');
+  assert.deepEqual(rulingMatch(b, ['Sacred Ash']), { by: 'category', name: 'Sacred Ash' });
+  assert.equal(rulingsNamingCard([a, b], 'Skeledirge').length, 1);
+});
+
+test('cited ruling ids are found in every citation style', () => {
+  const text = `// https://compendium.pokegym.net/ruling/2352/ and (compendium.pokegym.net/ruling/12), Compendium #994, Compendium #5 and #6, Compendium #7, #8`;
+  assert.deepEqual([...citedRulingIds(text)].sort((x, y) => x - y), [5, 6, 7, 8, 12, 994, 2352]);
+});
+
+test('an index entry carries no ruling text and a hash that follows the text', () => {
+  const [a] = parseRulingsHtml(PAGE) as [Ruling, Ruling];
+  const e = toIndexEntry(a);
+  assert.deepEqual(Object.keys(e).sort(), ['categories', 'date', 'hash', 'id', 'source']);
+  assert.match(e.hash, /^[0-9a-f]{16}$/);
+  assert.equal(e.hash, rulingHash(a.q, a.a));
+  assert.notEqual(e.hash, rulingHash(a.q, a.a + ' edited'));
+  assert.notEqual(rulingHash(null, 'x'), rulingHash('x', ''));
+});
+
+test('the committed rulings index is well formed and holds no ruling text', () => {
+  const raw = read('../../data/rulings-compendium.json');
+  const snap = JSON.parse(raw) as { source: string; _comment: string; count: number; rulings: RulingIndexEntry[] };
+  assert.equal(snap.source, 'https://compendium.pokegym.net/all-rulings-by-date/');
+  assert.match(snap._comment, /holds no ruling text/);
+  assert.equal(snap.count, snap.rulings.length);
+  assert.ok(snap.rulings.length > 1900);
+  assert.equal(new Set(snap.rulings.map((r) => r.id)).size, snap.rulings.length, 'ids are unique');
+  assert.ok(snap.rulings.every((r, i, all) => i === 0 || all[i - 1]!.id > r.id), 'newest id first');
+  assert.ok(snap.rulings.every((r) => Object.keys(r).sort().join() === 'categories,date,hash,id,source' && /^[0-9a-f]{16}$/.test(r.hash) && r.source));
+  assert.ok(raw.length < 600_000, 'an index, not the Compendium text');
+});
+
+// ── refresh-card-tables decision logic, on fixtures ────────────────────────────────────────────────────────────────
+import { buildTables, type Printing, type PtcgCard, type RefreshInput } from '../maintenance/refresh.js';
+
+const P = (cardId: string, name: string, mark: string | null = 'I'): Printing => ({ cardId, name, category: 'Pokemon', mark, setId: cardId.slice(0, cardId.lastIndexOf('-')) });
+const U = (id: string, name: string, number: string, set: string, extra: Partial<PtcgCard> = {}): PtcgCard => ({ id, name, number, set: { id: set }, ...extra });
+const FIRE_WEAK = [{ type: 'Fire', value: '×2' }];
+function input(over: Partial<RefreshInput> = {}): RefreshInput {
+  return {
+    marks: ['H', 'I', 'J'],
+    printings: [P('sv06-001', 'Snivy'), P('sv06-002', 'Servine'), P('sv01-001', 'Old Card', 'G')],
+    tera: [],
+    tags: { Ancient: [], Future: [] },
+    lacking: new Map(),
+    wrUpstream: new Map(),
+    existing: { tera: new Set(), tags: {}, wr: {} },
+    ...over,
+  };
+}
+
+test('a matching upstream entry is added; a clean build has no problems', () => {
+  const r = buildTables(input({ tera: [U('sv6-1', 'Snivy', '1', 'sv6')], tags: { Ancient: [U('sv6-2', 'Servine', '2', 'sv6')], Future: [] } }));
+  assert.deepEqual([...r.tera], ['sv06-001']);
+  assert.deepEqual(r.tags, { 'sv06-002': 'Ancient' });
+  assert.deepEqual(r.problems, []);
+});
+
+test('a name mismatch is a problem, the entry is left out, and the existing entry shows as an unverified removal', () => {
+  const r = buildTables(input({ tera: [U('sv6-1', 'Snivy ex', '1', 'sv6')], existing: { tera: new Set(['sv06-001']), tags: {}, wr: {} } }));
+  assert.equal(r.problems.length, 1);
+  assert.match(r.problems[0]!, /"Snivy ex" but the catalog's sv06-001 is "Snivy"/);
+  assert.equal(r.tera.size, 0);
+  assert.deepEqual(r.unverifiedRemovals, [{ table: 'tera.ts', ids: ['sv06-001'] }]);
+});
+
+test('an unmapped set and an id missing from the catalog are problems', () => {
+  const r = buildTables(input({ tera: [U('swsh1-1', 'X', '1', 'swsh1'), U('sv6-99', 'Ghost', '99', 'sv6')] }));
+  assert.equal(r.problems.length, 2);
+  assert.match(r.problems[0]!, /no mapping/);
+  assert.match(r.problems[1]!, /not in the catalog/);
+});
+
+test('printed W/R: written when upstream has it; kept when upstream is missing, unmapped or empty; dropped only when the catalog supplies it', () => {
+  const lack = [P('sv06-001', 'Snivy')];
+  const old = { weaknesses: FIRE_WEAK, resistances: [] };
+  // upstream has it
+  let r = buildTables(input({ lacking: new Map([['sv06', lack]]), wrUpstream: new Map([['sv06', [U('sv6-1', 'Snivy', '1', 'sv6', { weaknesses: FIRE_WEAK })]]]) }));
+  assert.deepEqual(r.wr['sv06-001'], old);
+  // card missing upstream: the existing entry stays, as a gap
+  r = buildTables(input({ lacking: new Map([['sv06', lack]]), wrUpstream: new Map([['sv06', []]]), existing: { tera: new Set(), tags: {}, wr: { 'sv06-001': old } } }));
+  assert.deepEqual(r.wr['sv06-001'], old);
+  assert.equal(r.gaps.length, 1);
+  assert.equal(r.keptUnresolved, 1);
+  // set has no upstream mapping: kept
+  r = buildTables(input({ lacking: new Map([['sv06', lack]]), existing: { tera: new Set(), tags: {}, wr: { 'sv06-001': old } } }));
+  assert.deepEqual(r.wr['sv06-001'], old);
+  // upstream card exists but now has neither: kept, counted
+  r = buildTables(input({ lacking: new Map([['sv06', lack]]), wrUpstream: new Map([['sv06', [U('sv6-1', 'Snivy', '1', 'sv6')]]]), existing: { tera: new Set(), tags: {}, wr: { 'sv06-001': old } } }));
+  assert.deepEqual(r.wr['sv06-001'], old);
+  assert.equal(r.noUpstream, 1);
+  // upstream name mismatch: a problem, and the entry is still kept
+  r = buildTables(input({ lacking: new Map([['sv06', lack]]), wrUpstream: new Map([['sv06', [U('sv6-1', 'Other', '1', 'sv6', { weaknesses: FIRE_WEAK })]]]), existing: { tera: new Set(), tags: {}, wr: { 'sv06-001': old } } }));
+  assert.equal(r.problems.length, 1);
+  assert.deepEqual(r.wr['sv06-001'], old);
+  // the catalog supplies W/R itself now (printing no longer lacks it): a verified removal
+  r = buildTables(input({ lacking: new Map([['sv06', []]]), existing: { tera: new Set(), tags: {}, wr: { 'sv06-001': old } } }));
+  assert.equal(r.wr['sv06-001'], undefined);
+  // a rotated printing is never dropped
+  r = buildTables(input({ existing: { tera: new Set(), tags: {}, wr: { 'sv01-001': old } } }));
+  assert.deepEqual(r.wr['sv01-001'], old);
+  assert.equal(r.keptRotated, 1);
+});
