@@ -38,7 +38,12 @@ test('card codes map to TCGdex ids', () => {
   // A code names one printing: an absent printing does NOT fall back to a same-named card.
   assert.equal(resolveFrame('Riolu', 'sv08.5-050').frame?.hp, 70);
   assert.equal(resolveFrame('Riolu', 'me01-076').frame?.hp, 80);
-  assert.equal(resolveFrame('Pecharunt ex', 'sv08.5-163').frame, null);
+  assert.equal(resolveFrame('Pecharunt ex', 'sv08.5-999').frame, null);
+  // Only Scarlet & Violet / Mega Evolution pad the set number; older sets and the Mega promos do not.
+  assert.equal(codeToCardId('swsh1_213'), 'swsh1-213');
+  assert.equal(codeToCardId('sm2_124'), 'sm2-124');
+  assert.equal(codeToCardId('swsh12-5_141'), 'swsh12.5-141');
+  assert.equal(codeToCardId('mebsp_12'), 'mep-012');
   // Without a code, a name resolves only when every printing shares one game text.
   assert.equal(resolveFrame('Riolu').frame, null);
   assert.equal(resolveFrame('Mega Kangaskhan ex').frame?.hp, 300);
@@ -223,4 +228,66 @@ test('audit catches a log the rules cannot produce', () => {
   );
   assert.equal(ko.totals.damage.mismatch, 1); // the engine applies the Weakness Live "forgot"
   assert.equal(ko.totals.kos.mismatch, 1);
+});
+
+// Full replay (replay/replay.ts): every logged action must be one the engine offers, with the log's
+// choices, and the engine's damage / counters / Knock Outs / Prizes / conditions compared with the log's.
+// A RULE mismatch (one on cards the engine fully scripts) must never appear. A card the engine doesn't
+// script is applied from the log, and differences on it are coverage gaps; each log NAMES the cards it
+// may do that for (`allow`), so a card that loses its script shows up as a new name and fails, instead
+// of being quietly supplied by the log. A ratchet: each log replays at least this far, and a complete
+// one stays complete. Raise floors and shrink `allow` as coverage grows; never loosen one without a
+// written reason. Where a log stops today:
+//   hns-05  the opponent's Lurantis ex (Leaf Guard: 50 less damage next turn) is unscripted, so the
+//           engine Knocks it Out a turn early and the log's next lines can't happen.
+const DECK_SIZE = '(deck size: the real deck was about empty)';
+const REPLAY_FLOOR: Record<string, { replayed: number; complete?: boolean; allow: string[] }> = {
+  'hns-05.txt': { replayed: 45, allow: ['Bug Catching Set', 'Growing Grass Energy', 'Lurantis ex', 'Petilil'] },
+  'hns-10.txt': { replayed: 26, complete: true, allow: [] },
+  'hns-11.txt': { replayed: 43, complete: true, allow: ['Salvatore'] },
+  'hns-12.txt': { replayed: 50, complete: true, allow: [] },
+  'hns-34.txt': { replayed: 71, complete: true, allow: ['Yveltal ex', DECK_SIZE] },
+  'hns-36.txt': { replayed: 65, complete: true, allow: [] },
+  'tbs-57.txt': { replayed: 50, complete: true, allow: [] },
+  'tbs-58.txt': { replayed: 28, complete: true, allow: [] },
+  'tbs-62.txt': { replayed: 28, complete: true, allow: ['Okidogi ex'] },
+  'tbs-65.txt': { replayed: 49, complete: true, allow: ['Thwackey'] },
+};
+
+type Replayed = import('../replay/replay.js').ReplayResult;
+type Floor = (typeof REPLAY_FLOOR)[string];
+/** Everything wrong with a replay against its ratchet entry (empty = it passes). */
+function ratchetProblems(r: Replayed, floor: Floor): string[] {
+  const out: string[] = [];
+  const allowed = new Set(floor.allow.map((x) => x.toLowerCase()));
+  if (r.replayed < floor.replayed) out.push(`replayed ${r.replayed} < floor ${floor.replayed}`);
+  if (floor.complete && !r.completed) out.push('no longer complete');
+  for (const m of r.mismatches.filter((x) => !x.unscripted)) out.push(`rule mismatch line ${m.line}: ${m.what}`);
+  for (const m of r.mismatches.filter((x) => x.unscripted)) {
+    const extra = m.unscripted!.filter((n) => !allowed.has(n.toLowerCase()));
+    if (extra.length) out.push(`a gap on a card not allowed here: ${extra.join(', ')} (line ${m.line}, ${m.what})`);
+  }
+  for (const d of r.logDriven) if (!allowed.has(d.card.toLowerCase())) out.push(`applied from the log, not the engine: ${d.card} (line ${d.line})`);
+  return out;
+}
+
+test("full replay: the owner's logged games play through the engine with no rule mismatch (ratchet per log)", async () => {
+  const { replayLog, replaySummary } = await import('../replay/replay.js');
+  for (const f of FILES) {
+    const floor = REPLAY_FLOOR[f];
+    assert.ok(floor, `${f}: add a REPLAY_FLOOR entry`);
+    const r = replayLog(read(f));
+    assert.deepEqual(ratchetProblems(r, floor), [], `${f}\n${replaySummary(r)}`);
+  }
+});
+
+test('the replay ratchet fails when a card the engine scripted is supplied by the log instead', async () => {
+  // Astra review of #309: losing a script must not pass as a complete, gap-free replay.
+  const { replayLog } = await import('../replay/replay.js');
+  const r = replayLog(read('hns-10.txt'));
+  assert.deepEqual(ratchetProblems(r, REPLAY_FLOOR['hns-10.txt']!), []);
+  const lost = { ...r, logDriven: [...r.logDriven, { line: 30, turn: 1, action: 'P0 played Hilda', card: 'Hilda' }] };
+  assert.match(ratchetProblems(lost, REPLAY_FLOOR['hns-10.txt']!).join('\n'), /applied from the log, not the engine: Hilda/);
+  const gap = { ...r, mismatches: [{ line: 40, turn: 2, what: 'damage' as const, log: ['P1:X=30'], engine: [], unscripted: ['hilda'] }] };
+  assert.match(ratchetProblems(gap, REPLAY_FLOOR['hns-10.txt']!).join('\n'), /a gap on a card not allowed here: hilda/);
 });

@@ -265,7 +265,7 @@ export const FIGHTING: CardScript[] = [
         op: 'chooseCards',
         from: 'discard',
         filter: { any: [{ cat: 'pokemon', type: 'Fighting' }, BASIC_F] },
-        min: 0,
+        min: 1, // "up to 4" on a Trainer is 1-4 (TPCi 2026-02-19)
         max: 4,
         as: 'x',
         prompt: 'Put up to 4 Fighting Pokémon / Basic Fighting Energy into your hand',

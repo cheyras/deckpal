@@ -18,7 +18,7 @@ const QUESTIONS = [
     ],
   },
   {
-    header: 'Priorities',
+    header: 'Priorities for this deck', // 24 — the longest header ask_user allows
     question: 'What should I optimize for?',
     multi: true,
     options: [
@@ -32,7 +32,7 @@ const QUESTIONS = [
 // used to keep only `questions`.
 const ASK_INPUT = { about: 'deck_build', questions: QUESTIONS }
 const ASK_OUTPUT = { shown: true }
-const SUBMITTED = 'Format — Standard\nPriorities — Speed, Sources'
+const SUBMITTED = 'Format — Standard\nPriorities for this deck — Speed, Sources'
 const SKIPPED = 'Skip those questions — go with your best judgment.'
 const ASKED = 'Deck-E asks: How much detail should I use? Plus 1 more question.'
 // What the server streams on a turn's first leg (`data-decke-route`).
@@ -193,7 +193,19 @@ export async function checkAskCard(browser, server, out) {
       // Words AND a card: both are said, the question read rather than focused.
       await waitForAnnouncement(page, 'Deck-E replied. ' + ASKED)
       const format = card.getByRole('group', { name: 'Format: How much detail should I use?' })
-      const priorities = card.getByRole('group', { name: 'Priorities: What should I optimize for?' })
+      const priorities = card.getByRole('group', { name: 'Priorities for this deck: What should I optimize for?' })
+      // A 24-character header is shown whole, inside the card, and never leaves
+      // its question a sliver: at 390px the question wraps under the chip.
+      const form = card.locator('.decke-ask-card')
+      const formBox = await rect(form)
+      assert.ok(await form.evaluate(el => el.scrollWidth <= el.clientWidth), `the ask card scrolls sideways at ${width}px`)
+      for (const group of [format, priorities]) {
+        const chip = await rect(group.locator('.decke-ask-header'))
+        const question = await rect(group.locator('p').first())
+        assert.ok(chip.right <= formBox.right + 0.5, `a header chip overflows the ask card at ${width}px`)
+        assert.ok(question.right - question.left >= 150, `a question was squeezed to ${Math.round(question.right - question.left)}px at ${width}px`)
+      }
+      assert.equal(await priorities.locator('.decke-ask-header').textContent(), 'Priorities for this deck')
       // Multi-select says so where it can be seen, and describes its group with it.
       const cue = priorities.getByText('Choose any', { exact: true })
       assert.ok(await cue.isVisible(), 'the multi-select question has no visible "Choose any" cue')
@@ -273,7 +285,7 @@ export async function checkAskCard(browser, server, out) {
       await waitForAnnouncement(page, ASKED)
       await card.getByRole('group', { name: 'Format: How much detail should I use?' })
         .getByRole('button', { name: /^Standard/ }).click()
-      const askOnlyPriorities = card.getByRole('group', { name: 'Priorities: What should I optimize for?' })
+      const askOnlyPriorities = card.getByRole('group', { name: 'Priorities for this deck: What should I optimize for?' })
       await askOnlyPriorities.getByRole('button', { name: /^Speed/ }).click()
       await askOnlyPriorities.getByRole('button', { name: /^Sources/ }).click()
       await card.getByRole('button', { name: 'Submit' }).click()

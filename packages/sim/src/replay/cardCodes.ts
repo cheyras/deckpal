@@ -26,12 +26,16 @@ const CARD_CODE_RE = /^([A-Za-z0-9][A-Za-z0-9.-]*)_(\d+)(?:_([A-Za-z][A-Za-z0-9]
 const SET_TOKEN_OVERRIDES: Record<string, string> = {
   'zsv10.5': 'sv10.5b',
   'rsv10.5': 'sv10.5w',
+  mebsp: 'mep', // Mega Evolution Black Star Promos: (mebsp_12) Mega Lucario ex = mep-012
 };
+
+/** Only the Scarlet & Violet and Mega Evolution families pad their set number (sv06, me05); swsh1, sm2 do not. */
+const PADDED = new Set(['sv', 'me', 'zsv', 'rsv']);
 
 function normaliseSetToken(raw: string): string {
   let s = raw.toLowerCase().replace(/-(\d+[a-z]?)$/, '.$1');
   const m = s.match(/^([a-z]+)(\d)(\D.*)?$/);
-  if (m) s = `${m[1]}0${m[2]}${m[3] ?? ''}`;
+  if (m && PADDED.has(m[1]!)) s = `${m[1]}0${m[2]}${m[3] ?? ''}`;
   return SET_TOKEN_OVERRIDES[s] ?? s;
 }
 

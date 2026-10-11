@@ -1,105 +1,130 @@
 {
- "source": "images.pokemontcg.io/cel25c/{originalNumber}_{A-D} (art audit 2026-10-10): each Celebrations Classic Collection card reprints the card with this name and collector number",
+ "source": "images.pokemontcg.io/cel25c/{originalNumber}_{A-D} (art audit 2026-10-10): each Celebrations Classic Collection card reprints the card with this name and collector number; originalSet: the one set each reprints (its printed number with that set's denominator, e.g. Charizard 4/102 = Base Set, not Base Set 2's 4/130), from the Celebrations card list (pokemon.com 25th_web_cardlist_en.pdf: name and printed number) and each original's set symbol",
  "cards": {
   "cel25cc-CC001": {
    "name": "Blastoise",
-   "originalNumber": 2
+   "originalNumber": 2,
+   "originalSet": "base1"
   },
   "cel25cc-CC002": {
    "name": "Charizard",
-   "originalNumber": 4
+   "originalNumber": 4,
+   "originalSet": "base1"
   },
   "cel25cc-CC003": {
    "name": "Venusaur",
-   "originalNumber": 15
+   "originalNumber": 15,
+   "originalSet": "base1"
   },
   "cel25cc-CC004": {
    "name": "Imposter Professor Oak",
-   "originalNumber": 73
+   "originalNumber": 73,
+   "originalSet": "base1"
   },
   "cel25cc-CC005": {
    "name": "Dark Gyarados",
-   "originalNumber": 8
+   "originalNumber": 8,
+   "originalSet": "base5"
   },
   "cel25cc-CC006": {
    "name": "Here Comes Team Rocket!",
-   "originalNumber": 15
+   "originalNumber": 15,
+   "originalSet": "base5"
   },
   "cel25cc-CC007": {
    "name": "Rocket's Zapdos",
-   "originalNumber": 15
+   "originalNumber": 15,
+   "originalSet": "gym2"
   },
   "cel25cc-CC008": {
    "name": "_____'s Pikachu",
-   "originalNumber": 24
+   "originalNumber": 24,
+   "originalSet": "basep"
   },
   "cel25cc-CC009": {
    "name": "Cleffa",
-   "originalNumber": 20
+   "originalNumber": 20,
+   "originalSet": "neo1"
   },
   "cel25cc-CC010": {
    "name": "Shining Magikarp",
-   "originalNumber": 66
+   "originalNumber": 66,
+   "originalSet": "neo3"
   },
   "cel25cc-CC011": {
    "name": "Team Magma's Groudon",
-   "originalNumber": 9
+   "originalNumber": 9,
+   "originalSet": "ex4"
   },
   "cel25cc-CC012": {
    "name": "Rocket's Admin.",
-   "originalNumber": 86
+   "originalNumber": 86,
+   "originalSet": "ex7"
   },
   "cel25cc-CC013": {
    "name": "Mew ex",
-   "originalNumber": 88
+   "originalNumber": 88,
+   "originalSet": "ex12"
   },
   "cel25cc-CC014": {
    "name": "Gardevoir ex",
-   "originalNumber": 93
+   "originalNumber": 93,
+   "originalSet": "ex15"
   },
   "cel25cc-CC015": {
    "name": "Umbreon ☆",
-   "originalNumber": 17
+   "originalNumber": 17,
+   "originalSet": "pop5"
   },
   "cel25cc-CC016": {
    "name": "Claydol",
-   "originalNumber": 15
+   "originalNumber": 15,
+   "originalSet": "dp4"
   },
   "cel25cc-CC017": {
    "name": "Luxray GL LV.X",
-   "originalNumber": 109
+   "originalNumber": 109,
+   "originalSet": "pl2"
   },
   "cel25cc-CC018": {
    "name": "Garchomp C LV.X",
-   "originalNumber": 145
+   "originalNumber": 145,
+   "originalSet": "pl3"
   },
   "cel25cc-CC019": {
    "name": "Donphan",
-   "originalNumber": 107
+   "originalNumber": 107,
+   "originalSet": "hgss1"
   },
   "cel25cc-CC020": {
    "name": "Reshiram",
-   "originalNumber": 113
+   "originalNumber": 113,
+   "originalSet": "bw1"
   },
   "cel25cc-CC021": {
    "name": "Zekrom",
-   "originalNumber": 114
+   "originalNumber": 114,
+   "originalSet": "bw1"
   },
   "cel25cc-CC022": {
    "name": "Mewtwo EX",
-   "originalNumber": 54
+   "originalNumber": 54,
+   "originalSet": "bw4"
   },
   "cel25cc-CC023": {
    "name": "Xerneas EX",
-   "originalNumber": 97
+   "originalNumber": 97,
+   "originalSet": "xy1"
   },
   "cel25cc-CC024": {
    "name": "M Rayquaza EX",
-   "originalNumber": 76
+   "originalNumber": 76,
+   "originalSet": "xy6"
   },
   "cel25cc-CC025": {
    "name": "Tapu Lele GX",
-   "originalNumber": 60
+   "originalNumber": 60,
+   "originalSet": "sm2"
   }
  }
 }

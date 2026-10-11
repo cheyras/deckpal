@@ -9,6 +9,7 @@ import { FRAMES as CHARIZARD } from './charizard.js';
 import { FRAMES as DARKRAI } from './darkrai.js';
 import { FRAMES as EXCADRILL } from './excadrill.js';
 import { FRAMES as GRIMMSNARL } from './grimmsnarl.js';
+import { FRAMES as REPLAY } from './replay.js';
 import { FRAMES as TREVENANT } from './trevenant.js';
 import { FRAMES as ZOROARK } from './zoroark.js';
 
@@ -18,6 +19,7 @@ export const EXTRA_FRAMES: Record<string, CardFrame> = {
   ...DARKRAI,
   ...EXCADRILL,
   ...GRIMMSNARL,
+  ...REPLAY,
   ...TREVENANT,
   ...ZOROARK,
 };

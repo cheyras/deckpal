@@ -94,12 +94,7 @@ export const METAL: CardScript[] = [
       'Irritated Outburst': { damage: { mul: [60, { prizesTaken: 'opp' }] } },
     },
   },
-  {
-    id: 'mep-078',
-    name: 'Toxel',
-    // "Search your deck for up to 2 Basic Pokémon and put them onto your Bench. Then, shuffle your deck."
-    attacks: { 'Call for Family': { program: searchToBench({}, 2) } },
-  },
+  // Toxel mep-078: the same card as me02-067 (scripted in opp.ts); its catalog Weakness reads "x2".
   {
     id: 'me02-068',
     name: 'Toxtricity',

@@ -223,7 +223,8 @@ export const OPP: CardScript[] = [
     },
     play: [
       { op: 'chooseSlots', from: 'myPokemon', filter: { stage: 'stage2' }, min: 1, max: 1, as: 't', prompt: 'Attach to which Stage 2 Pokémon?' },
-      { op: 'chooseCards', from: 'discard', filter: { basicEnergy: true }, min: 0, max: 2, as: 'e', prompt: 'Attach up to 2 Basic Energy' },
+      // "up to 2" on a Trainer is 1-2 (TPCi 2026-02-19)
+      { op: 'chooseCards', from: 'discard', filter: { basicEnergy: true }, min: 1, max: 2, as: 'e', prompt: 'Attach up to 2 Basic Energy' },
       { op: 'attach', cards: 'e', to: { v: 't' } },
     ],
     notes: 'Playable only with a Stage 2 in play and a Basic Energy in the discard pile (a card with no effect cannot be played); then 1-2 are attached.',

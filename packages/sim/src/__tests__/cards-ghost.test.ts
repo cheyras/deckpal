@@ -478,3 +478,36 @@ test("lane ghost: none of this lane's cards in its primary decks is approximated
     assert.deepEqual(uncovered.map((d) => d.id), [], `${deck}: lane cards not fully covered`);
   }
 });
+
+// Official rulings on Hide 'n' Sneak (TPCi Rules Team 2026-07-16, Pitch Black FAQ):
+// https://compendium.pokegym.net/?s=Hide+n+Sneak
+test("ruling: Cursed Blast on a Hide 'n' Sneak Banette - Dusknoir is Knocked Out and a Prize is taken, but no counters land", () => {
+  // "Dusknoir is KO'd and the opponent takes a prize, but Hide 'n' Sneak prevents the damage counters from being placed."
+  const g = scenario(PUP, HNS, [
+    { active: 'Shuppet', bench: ['Duskull'], evolve: { 0: ['Dusclops', 'Dusknoir'] } },
+    { active: 'Shuppet', evolve: { active: ['Banette'] } },
+  ]);
+  choose(g, 'Cursed Blast');
+  if (g.decision?.kind === 'slots') choose(g, 'Banette');
+  assert.equal(g.state.p[1].active!.damage, 0, "Hide 'n' Sneak let the counters land");
+  assert.ok(!allSlots(g.state.p[0]).some((sl) => name(g, topCard(sl)) === 'Dusknoir'), 'Dusknoir was not Knocked Out');
+  assert.equal(g.state.p[1].prizesTaken, 1, 'the Hide n Sneak player took no Prize');
+});
+
+test("ruling: Ancient Bulwark still stops a Banette with 2 Energy - it is an effect on Bastiodon's side, not on Banette", () => {
+  // "Ancient Bulwark is an effect on all of the Bastiodon player's Pokemon, not an effect on Banette. Therefore,
+  //  Hide 'n' Sneak does not prevent Ancient Bulwark's protection."
+  const g = scenario(HNS, FOSSIL, [
+    { active: 'Shuppet', evolve: { active: ['Banette'] }, energy: { active: [P, P] } },
+    { active: 'Gastly', bench: ['Antique Armor Fossil'], evolve: { 0: ['Shieldon', 'Bastiodon'] } },
+  ]);
+  choose(g, 'Attack: Puppet Pull');
+  assert.equal(g.state.p[1].active!.damage, 0, 'Puppet Pull damaged through Ancient Bulwark');
+  // Control: with no Bastiodon in play, the same attack does its damage.
+  const c = scenario(HNS, FOSSIL, [
+    { active: 'Shuppet', evolve: { active: ['Banette'] }, energy: { active: [P, P] } },
+    { active: 'Gastly', bench: ['Antique Armor Fossil'] },
+  ]);
+  choose(c, 'Attack: Puppet Pull');
+  assert.ok((c.state.p[1].active?.damage ?? 999) > 0, 'the control attack did no damage');
+});

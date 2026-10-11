@@ -178,7 +178,7 @@ function exec(env: Env, s: GameState, f: Frame, op: Op): R {
 function confusion(env: Env, s: GameState, f: Frame): R {
   const slot = findSlot(s, f.slot)?.slot;
   if (!slot || !(slot.cond & CONFUSED)) return 'next';
-  if (flipCoin(env, s, f.player)) return 'next';
+  if (flipCoin(env, s, f.player, 'confusion')) return 'next';
   // Tails: put 3 damage counters on the attacker and the attack ends.
   slot.damage += 30;
   emit(env, { type: 'counters', player: f.player, slot: slot.id, n: 3 });
@@ -616,6 +616,7 @@ function chooseCards(env: Env, s: GameState, f: Frame, st: Extract<Step, { op: '
     }
     if (k >= st.oneEach.length) {
       f.vars[st.as] = acc;
+      if (st.from === 'deck') emit(env, { type: 'search', player: chooser, found: acc.slice() });
       delete f.vars.__k;
       delete f.vars.__acc;
       if (st.reveal) f.vars.__revealed = [...((f.vars.__revealed as number[]) ?? []), ...acc];
@@ -635,6 +636,7 @@ function chooseCards(env: Env, s: GameState, f: Frame, st: Extract<Step, { op: '
   const a = takeAnswer(f);
   if (a !== undefined) {
     f.vars[st.as] = a as number[];
+    if (st.from === 'deck') emit(env, { type: 'search', player: chooser, found: (a as number[]).slice() });
     if (st.reveal) f.vars.__revealed = [...((f.vars.__revealed as number[]) ?? []), ...(a as number[])];
     return 'next';
   }
@@ -643,6 +645,7 @@ function chooseCards(env: Env, s: GameState, f: Frame, st: Extract<Step, { op: '
   if (forced(opts.length, min, max)) {
     const pick = max === 0 ? [] : opts.slice(0, max);
     f.vars[st.as] = pick;
+    if (st.from === 'deck') emit(env, { type: 'search', player: chooser, found: pick.slice() });
     if (st.reveal) f.vars.__revealed = [...((f.vars.__revealed as number[]) ?? []), ...pick];
     return 'next';
   }
@@ -656,7 +659,10 @@ function discardEnergy(env: Env, s: GameState, f: Frame, st: Extract<Step, { op:
   if (!t) return 'next';
   const owner = ownerOf(s, t);
   if (f.kind === 'attack' && owner !== f.player && effectsPrevented(env, s, t, f.player, 'attack')) return 'next';
-  const pool = t.energy.filter((c) => cardMatches(env, c, st.filter));
+  // "{M} Energy" attached: what each card provides on THIS Pokémon (Neo Upper Energy only on a Stage 2).
+  const pt = st.filter?.providesType;
+  const rest = pt ? { ...st.filter, providesType: undefined } : st.filter;
+  const pool = t.energy.filter((c) => cardMatches(env, c, rest) && (!pt || cardUnits(env, t, c).some((u) => u === pt || u === 'Any')));
   let chosen: number[];
   if (st.count === 'all') chosen = pool;
   else if (st.units && pool.some((c) => cardUnits(env, t, c).length !== 1)) {
@@ -764,12 +770,12 @@ function switchStep(env: Env, s: GameState, f: Frame, st: Extract<Step, { op: 's
     }
   }
   if (!target || !ps.bench.includes(target)) return 'next';
-  swapActive(env, s, who, target);
+  swapActive(env, s, who, target, f.code === '__retreat');
   return 'next';
 }
 
 /** Move the Active to the Bench and `target` to the Active Spot; clears conditions and attack effects. */
-export function swapActive(env: Env, s: GameState, who: Player, target: Slot): void {
+export function swapActive(env: Env, s: GameState, who: Player, target: Slot, retreat = false): void {
   const ps = s.p[who];
   const old = ps.active;
   ps.bench = ps.bench.filter((b) => b !== target);
@@ -779,7 +785,7 @@ export function swapActive(env: Env, s: GameState, who: Player, target: Slot): v
     ps.bench.push(old);
   }
   ps.active = target;
-  emit(env, { type: 'switch', player: who, from: old?.id ?? 0, to: target.id });
+  emit(env, { type: retreat ? 'retreat' : 'switch', player: who, from: old?.id ?? 0, to: target.id });
 }
 
 function useAttackOf(env: Env, s: GameState, f: Frame, cardVar: string): R {
