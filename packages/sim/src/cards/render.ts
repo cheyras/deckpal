@@ -2367,4 +2367,13 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
     problems: ['"any number of" is rendered but not printed'],
     why: '"For each of your Benched Pokémon" selects every Benched Pokémon: the chooseSlots min and max are both the Bench count (an expression, which the renderer words "any number of"), so none is skipped.',
   },
+  // std-c39
+  'svp-158|attack:Crackling Charge': {
+    problems: ['"up to" is printed but not rendered', '"any number of" is rendered but not printed'],
+    why: '"Up to the number of heads" is a search of the discard pile with min 0 and max = the heads count variable of the flip step; the renderer words a variable maximum "any number of" and does not name the variable. The cards are then split among the Benched Pokémon.',
+  },
+  'svp-188|attack:Nab \x27n\x27 Dash': {
+    problems: ['"Bench" is printed but not rendered', '"up to" is printed but not rendered', '"any number of" is rendered but not printed', '"your bench" is printed but not rendered'],
+    why: '"Up to the number of your Benched Pokémon" is a search of the deck with min 0 and max = the count of the controller\x27s Benched Pokémon; the renderer words an Expr maximum "any number of" and does not name it.',
+  },
 };
