@@ -91,6 +91,21 @@ export interface SimReport {
   cardImpact: { byTurn: number; minN: number; cards: CardImpact[] };
   /** Subject first, then each opponent in matchup order. */
   coverage: DeckCoverage[];
+  /**
+   * Present when this report is the sum of several calls (continue.ts). Then
+   * `matchups` hold the cumulative totals; card impact, Prize rows and the
+   * median first attack are per-call detail and are left out.
+   */
+  cumulative?: { calls: number; thisCall: number };
+}
+
+/** The line a cumulative report carries instead of the per-call tables. */
+export const CUMULATIVE_DROPPED =
+  'Cumulative reports leave out card impact, Prize rows and median first attack (per-call detail): a run without continue_token shows them.';
+
+/** "Cumulative over 3 calls: 92 games (30 added by this call)". */
+export function cumulativeHead(c: { calls: number; thisCall: number }, games: number, per = ''): string {
+  return `Cumulative over ${c.calls} call${c.calls === 1 ? '' : 's'}: ${games} games${per} (${c.thisCall} added by this call)`;
 }
 
 export interface BuildReportInput {
@@ -168,7 +183,7 @@ function prizeRows(rows: PrizeRow[]): string {
 
 type Detail = 'full' | 'compact' | 'minimal';
 
-function matchupLines(m: MatchupStats, i: number, detail: Detail): string[] {
+function matchupLines(m: MatchupStats, i: number, detail: Detail, cumulative = false): string[] {
   const head =
     `${i + 1}. vs ${m.b} — ${m.played}${m.played < m.requested ? ` of ${m.requested}` : ''} played: ${recordText(m.record)} → ` +
     `win ${rateText(m.winRate)}; first ${shortRate(m.goingFirst)}, second ${shortRate(m.goingSecond)}`;
@@ -177,7 +192,11 @@ function matchupLines(m: MatchupStats, i: number, detail: Detail): string[] {
   const lp = m.lossPatterns;
   const turns = m.avgTurns === null ? '–' : m.avgTurns.toFixed(1);
   lines.push(`   Avg ${turns} turns. Won by ${reasonsText(m.winReasons)}; lost by ${reasonsText(m.lossReasons)}.`);
-  if (detail === 'full') {
+  if (detail === 'full' && cumulative) {
+    // Opening speed adds across calls (counts); the Prize rows and the median do not.
+    const o = (s: SideSetup) => (s.attackByTurn2 === null ? '–' : `attack by T2 ${pct(s.attackByTurn2)}, never ${pct(s.neverAttacked)}`);
+    lines.push(`   Setup — you ${o(m.setup[0])}; them ${o(m.setup[1])}.`);
+  } else if (detail === 'full') {
     lines.push(`   Setup — you ${setupText(m.setup[0])}; them ${setupText(m.setup[1])}.`);
     lines.push(`   Prizes taken by yours: ${prizeRows(m.prizeTakers[0])} | theirs: ${prizeRows(m.prizeTakers[1])}.`);
     lines.push(`   You gave up most Prizes with: ${prizeRows(m.liabilities[0])}.`);
@@ -235,19 +254,24 @@ function render(r: SimReport, detail: Detail, impactMax: number, coverageMax: nu
   const n = r.matchups.length;
   const lines: string[] = [];
   lines.push(`SIMULATED BATTLES (not real games) — ${r.subject} vs ${n} opponent${n === 1 ? '' : 's'}`);
-  lines.push(
-    `${r.gamesPlayed} of ${r.gamesRequested} games played${r.stoppedEarly ? ' (time budget reached: fewer games than asked)' : ''}; ` +
-      `seats swapped each pair, so each deck goes first half the time. Pilot: ${r.pilot}. Seed ${r.seed}. Turn cap ${r.maxTurns}. ${(r.elapsedMs / 1000).toFixed(1)} s.`,
-  );
+  const seats = `seats swapped each pair, so each deck goes first half the time. Pilot: ${r.pilot}. Seed ${r.seed}. Turn cap ${r.maxTurns}. ${(r.elapsedMs / 1000).toFixed(1)} s`;
+  if (r.cumulative) {
+    lines.push(
+      `${cumulativeHead(r.cumulative, r.gamesPlayed)}${r.stoppedEarly ? '; the last call hit its time budget: fewer games than asked' : ''}; ${seats} in all.`,
+    );
+  } else {
+    lines.push(`${r.gamesPlayed} of ${r.gamesRequested} games played${r.stoppedEarly ? ' (time budget reached: fewer games than asked)' : ''}; ${seats}.`);
+  }
   lines.push('Key: [a–b%] = 95% interval; n = decided games (draws, time-outs excluded); T2 = own turn 2; turns count both players.');
   if (r.pilot.includes('random')) lines.push(RANDOM_PILOT_WARNING);
   lines.push(
     `Overall: ${recordText(r.overall.record)} → win ${rateText(r.overall.winRate)}; first ${shortRate(r.overall.goingFirst)}, second ${shortRate(r.overall.goingSecond)}.`,
   );
   lines.push('');
-  r.matchups.forEach((m, i) => lines.push(...matchupLines(m, i, detail)));
+  r.matchups.forEach((m, i) => lines.push(...matchupLines(m, i, detail, !!r.cumulative)));
   lines.push('');
-  if (impactMax > 0) lines.push(...impactLines(r, impactMax), '');
+  if (r.cumulative) lines.push(CUMULATIVE_DROPPED, '');
+  else if (impactMax > 0) lines.push(...impactLines(r, impactMax), '');
   lines.push(...coverageLines(r, coverageMax));
   lines.push('');
   lines.push(`Caveat: ${r.caveat}`);

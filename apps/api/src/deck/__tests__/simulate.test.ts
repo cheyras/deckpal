@@ -31,7 +31,7 @@ function rejects(fn: () => unknown, re: RegExp): void {
 
 test('parseSimulateBody: defaults, one subject, bounds', () => {
   const p = parseSimulateBody({ deck_id: 'Toolbox Slowking' });
-  assert.deepEqual(p, { deckRef: 'Toolbox Slowking', adHoc: false, name: 'Your list', opponents: null, games: SIM_GAMES_DEFAULT, seed: 1, speed: 'strong', compare: null });
+  assert.deepEqual(p, { deckRef: 'Toolbox Slowking', adHoc: false, name: 'Your list', opponents: null, games: SIM_GAMES_DEFAULT, seed: 1, speed: 'strong', compare: null, continueToken: null });
   assert.equal(parseSimulateBody({ deck_id: 'x', speed: 'fast' }).speed, 'fast');
   assert.throws(() => parseSimulateBody({ deck_id: 'x', speed: 'turbo' }), /speed/);
   assert.equal(parseSimulateBody({ cards: [{ name: 'Pikachu', quantity: 4 }], games: 200, seed: 0 }).adHoc, true);

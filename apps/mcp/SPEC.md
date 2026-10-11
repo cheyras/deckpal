@@ -551,7 +551,7 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
    the battle simulator that plays cards will report the same way.
 8c. **`simulate_battles`** — read-only `{ deck_id? | cards? | ptcgl_text?, name?, format?, opponents?: [deck id or
    name, or `meta` / `meta:<archetype>` for the built-in Standard meta pool] (≤8; default up to 6 of the caller's other decks, else the top 6 meta decks), games? = 24 (2..200, per opponent, rounded up to
-   pairs), seed? = 1, speed? = strong|fast, compare_with? | compare_cards? | compare_ptcgl_text?, compare_name? }` → `POST /decks/simulate`. Plays the deck against each opponent in `@deckpal/sim` with
+   pairs), seed? = 1, speed? = strong|fast, compare_with? | compare_cards? | compare_ptcgl_text?, compare_name?, continue_token? }` → `POST /decks/simulate`. Plays the deck against each opponent in `@deckpal/sim` with
    a CPU pilot on both sides: paired games (seats swapped per seed, so each deck goes first half the time)
    inside a 25 s budget that is also a hard deadline (a game still running at it is a time-out), on decks
    of 40–70 cards (else `400`), one run per account at a time (else `429`, whose message the tool passes
@@ -572,6 +572,14 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
    interval excludes 0 with at least 6 seeds, else "no clear difference at this n"; it lists the card
    counts that differ and their early-play splits in each version. The 25 s budget is shared by the two
    versions; the text stays within 5,000 characters and keeps the caveat.
+   **Continuing a run** (2026-10-11): each result ends with a `continue_token` line. Called again with the SAME inputs plus that
+   token (`continue_token`; the tool repeats `deck_id`/`cards`, `opponents`, `compare_*`, `speed`, `seed` and the API refuses a
+   token whose deck lists, opponents, speed or seed differ — a deck edited between calls is a fresh run), `games` is the number to
+   ADD and the result is CUMULATIVE ("Cumulative over 3 calls: 92 games…", the interval at the cumulative n; for a comparison the
+   verdict a single long run would give). The new games use the seeds one longer run would have used. The token is HMAC-signed
+   (keyed from `DECKE_APPROVAL_SECRET`, bound to the account), expires after 2 hours, dies with a deploy, and a run takes at most 12
+   calls; unset secret = no token. The tool description tells assistants to continue only for more certainty or an undecided
+   verdict and to stop once the verdict is clear or the intervals are narrow. Still read-only: nothing is stored.
 9. **`save_deck`** — `{ deck_id?, name?, format?, cards?: [{card_id, quantity}], ptcgl_text?,
    version_note?, dry_run? = true }`. Create or replace the list with ONE request to
    `POST /decks/save` (2026-09-29), which resolves every card first and writes the deck,

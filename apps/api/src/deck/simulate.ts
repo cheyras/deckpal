@@ -28,10 +28,12 @@
 import * as sim from '@deckpal/sim';
 import {
   META_POOL, metaDecksMatching, topMetaDecks, type MetaDeck,
-  buildComparison, buildReport, renderComparison, renderReport, simulateAsync, simulatePairedAsync,
-  type CardFrame, type ComparisonReport, type DeckInput, type PilotFactory, type SimReport, type SimulationResult,
+  addCompareTotals, addTotals, buildComparison, buildCumulativeComparison, buildCumulativeReport, buildReport, compareTotalsOf,
+  renderComparison, renderReport, simulateAsync, simulatePairedAsync, totalsOf,
+  type CardFrame, type CompareTotals, type ComparisonReport, type DeckInput, type MatchupTotals, type PilotFactory, type SimReport, type SimulationResult,
 } from '@deckpal/sim';
 import { badRequest, UUID_RE } from '../http.js';
+import { CONTINUE_MAX_CALLS } from './simulateContinue.js';
 
 export const SIM_GAMES_DEFAULT = 24;
 export const SIM_GAMES_MAX = 200;
@@ -69,6 +71,8 @@ export interface SimulateParams {
    * opponents on the same seeds and seats. Null = a plain run.
    */
   compare: CompareParams | null;
+  /** A continuation token from an earlier call's response: add games to that run (simulateContinue.ts). */
+  continueToken: string | null;
 }
 
 export interface CompareParams {
@@ -103,7 +107,14 @@ export function parseSimulateBody(body: Record<string, unknown>): SimulateParams
   const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 80) : 'Your list';
   if (body.speed !== undefined && body.speed !== 'strong' && body.speed !== 'fast') throw badRequest("speed must be 'strong' or 'fast'");
   const speed: 'strong' | 'fast' = body.speed === 'fast' ? 'fast' : 'strong';
-  return { deckRef, adHoc, name, opponents, games, seed, speed, compare: parseCompare(body) };
+  let continueToken: string | null = null;
+  if (body.continue_token !== undefined) {
+    if (typeof body.continue_token !== 'string' || !body.continue_token.trim() || body.continue_token.length > 16_000) {
+      throw badRequest('continue_token must be the token string the previous response returned');
+    }
+    continueToken = body.continue_token.trim();
+  }
+  return { deckRef, adHoc, name, opponents, games, seed, speed, compare: parseCompare(body), continueToken };
 }
 
 function parseCompare(body: Record<string, unknown>): CompareParams | null {
@@ -390,11 +401,49 @@ export interface RunMatchupsOptions {
   /** Per-game decision cap. Default SIM_MAX_DECISIONS. */
   maxDecisions?: number;
   now?: () => number;
+  /**
+   * CONTINUATION. The earlier calls' totals, one per opponent in the order played, and how many calls
+   * they took: each opponent's games start at the seed pair its totals say is next, and the report is
+   * the cumulative one (@deckpal/sim continue.ts). Absent: a fresh run.
+   */
+  prior?: { calls: number; totals: MatchupTotals[] };
+  /** Same, for a paired comparison. */
+  priorCompare?: { calls: number; totals: CompareTotals[] };
+  /**
+   * Mints the token for the totals this call ends with (null: continuation is off, or the chain is at
+   * its last call). Given `calls` (this one included) and the cumulative totals.
+   */
+  mint?: (state: { calls: number; run: MatchupTotals[] | null; cmp: CompareTotals[] | null }) => string | null;
+}
+
+/** What a response says about continuing it. */
+export interface Continuation {
+  token: string;
+  /** Calls so far, this one included. */
+  calls: number;
+  max_calls: number;
 }
 
 export interface SimulateResponse {
   text: string;
-  report: SimReport & { notes: string[] };
+  report: SimReport & { notes: string[]; continuation?: Continuation };
+  /** The token, also in the text's last line; absent when continuation is off or this was the last allowed call. */
+  continue_token?: string;
+}
+
+/** The line a response ends with when it can be continued. */
+export function continueLine(token: string, calls: number): string {
+  return (
+    `Continue: for a bigger sample call again with the SAME inputs plus continue_token=${token} — new seeds, cumulative results (${calls} of at most ${CONTINUE_MAX_CALLS} calls). ` +
+    'Stop when the intervals are narrow enough to decide, or the verdict is clear.'
+  );
+}
+
+/** The report text with the continue line, rendered into the room the line leaves. */
+function finish(render: (limit: number) => string, token: string | null, calls: number): string {
+  if (!token) return render(SIM_TEXT_LIMIT);
+  const line = continueLine(token, calls);
+  return render(SIM_TEXT_LIMIT - line.length - 1) + '\n' + line;
 }
 
 /** Play the subject against each opponent in turn, sharing one time budget. */
@@ -405,9 +454,15 @@ export async function runMatchups(subject: DeckInput, opponents: DeckInput[], op
   // One wall-clock stop for the whole run, inside games as well as between them.
   const deadline = started + budget;
   const pilot = opts.pilot ?? pilotFactory();
+  const prior = opts.prior;
+  if (prior && prior.totals.length !== opponents.length) throw new Error('continuation totals do not match the opponents');
   const results: SimulationResult[] = [];
+  const firstPairs: number[] = [];
   for (const [i, opponent] of opponents.entries()) {
     const left = Math.max(0, budget - (now() - started));
+    // A continued call starts each opponent at its own next seed pair: the games one longer run would have played.
+    const firstPair = prior?.totals[i]?.next ?? 0;
+    firstPairs.push(firstPair);
     // Past the deadline the engine plays nothing and says so (played 0, stopped early) for this opponent.
     results.push(
       await simulateAsync({
@@ -415,6 +470,7 @@ export async function runMatchups(subject: DeckInput, opponents: DeckInput[], op
         b: opponent,
         games: opts.games,
         seed: opts.seed,
+        firstPair,
         pilotFactory: pilot,
         timeBudgetMs: left / (opponents.length - i),
         deadline,
@@ -423,8 +479,22 @@ export async function runMatchups(subject: DeckInput, opponents: DeckInput[], op
       }),
     );
   }
-  const report = { ...buildReport({ subject, opponents, results, elapsedMs: now() - started }), notes: opts.notes ?? [] };
-  return { text: renderWithNotes(report), report };
+  const calls = (prior?.calls ?? 0) + 1;
+  const thisCall = results.map((r, i) => totalsOf(r, firstPairs[i]));
+  const totals = prior ? thisCall.map((t, i) => addTotals(prior.totals[i]!, t)) : thisCall;
+  const token = opts.mint?.({ calls, run: totals, cmp: null }) ?? null;
+  const base: SimReport = prior
+    ? buildCumulativeReport({
+        subject, opponents, totals, calls, thisCall: thisCall.reduce((n, t) => n + t.played, 0),
+        pilot: results[0]?.pilot ?? 'unknown', seed: results[0]?.seed ?? opts.seed, maxTurns: results[0]?.maxTurns ?? 60,
+      })
+    : buildReport({ subject, opponents, results, elapsedMs: now() - started });
+  const report = {
+    ...base,
+    notes: opts.notes ?? [],
+    ...(token ? { continuation: { token, calls, max_calls: CONTINUE_MAX_CALLS } } : {}),
+  };
+  return { text: finish((limit) => renderWithNotes(report, limit), token, calls), report, ...(token ? { continue_token: token } : {}) };
 }
 
 /**
@@ -461,7 +531,8 @@ export function clampNotes(notes: string[], max: number): string {
 
 export interface CompareResponse {
   text: string;
-  report: ComparisonReport & { notes: string[] };
+  report: ComparisonReport & { notes: string[]; continuation?: Continuation };
+  continue_token?: string;
 }
 
 /**
@@ -476,9 +547,14 @@ export async function runComparison(a: DeckInput, b: DeckInput, opponents: DeckI
   // The same hard wall-clock stop as runMatchups, inside games as well as between them.
   const deadline = started + budget;
   const pilot = opts.pilot ?? pilotFactory();
+  const prior = opts.priorCompare;
+  if (prior && prior.totals.length !== opponents.length) throw new Error('continuation totals do not match the opponents');
   const results: [SimulationResult, SimulationResult][] = [];
+  const firstPairs: number[] = [];
   for (const [i, opponent] of opponents.entries()) {
     const left = Math.max(0, budget - (now() - started));
+    const firstPair = prior?.totals[i]?.a.next ?? 0;
+    firstPairs.push(firstPair);
     if (left <= 0 && i > 0) {
       const requested = Math.max(2, opts.games + (opts.games % 2));
       const empty = (r: SimulationResult): SimulationResult => ({ ...r, b: opponent.name, requested, played: 0, stoppedEarly: true, elapsedMs: 0, games: [] });
@@ -488,22 +564,39 @@ export async function runComparison(a: DeckInput, b: DeckInput, opponents: DeckI
     }
     results.push(
       await simulatePairedAsync({
-        a, b, opponent, games: opts.games, seed: opts.seed, pilotFactory: pilot, timeBudgetMs: left / (opponents.length - i),
+        a, b, opponent, games: opts.games, seed: opts.seed, firstPair, pilotFactory: pilot, timeBudgetMs: left / (opponents.length - i),
         deadline, maxDecisions: opts.maxDecisions ?? SIM_MAX_DECISIONS, now,
       }),
     );
   }
-  const report = { ...buildComparison({ a, b, opponents, results, elapsedMs: now() - started }), notes: opts.notes ?? [] };
+  const calls = (prior?.calls ?? 0) + 1;
+  const thisCall = results.map((r, i) => compareTotalsOf(r, firstPairs[i]));
+  const totals = prior ? thisCall.map((t, i) => addCompareTotals(prior.totals[i]!, t)) : thisCall;
+  const token = opts.mint?.({ calls, run: null, cmp: totals }) ?? null;
+  const base: ComparisonReport = prior
+    ? buildCumulativeComparison({
+        a, b, opponents, totals, calls, thisCall: thisCall.reduce((n, t) => n + t.a.played, 0),
+        pilot: results[0]?.[0].pilot ?? 'unknown', seed: results[0]?.[0].seed ?? opts.seed, maxTurns: results[0]?.[0].maxTurns ?? 60,
+      })
+    : buildComparison({ a, b, opponents, results, elapsedMs: now() - started });
+  const report = {
+    ...base,
+    notes: opts.notes ?? [],
+    ...(token ? { continuation: { token, calls, max_calls: CONTINUE_MAX_CALLS } } : {}),
+  };
   // The same bounded notes as a single run (renderWithNotes): the verdict and the caveat always fit.
   const noteText = clampNotes(report.notes, Math.min(SIM_NOTES_LIMIT, Math.floor(SIM_TEXT_LIMIT / 4)));
-  let text = renderComparison(report, SIM_TEXT_LIMIT - (noteText ? noteText.length + 1 : 0));
-  if (noteText) {
-    // Notes go under the verdict and the overall line, within the same limit.
-    const lines = text.split('\n');
-    lines.splice(3, 0, noteText);
-    text = lines.join('\n');
-  }
-  return { text, report };
+  const text = finish((limit) => {
+    let t = renderComparison(report, limit - (noteText ? noteText.length + 1 : 0));
+    if (noteText) {
+      // Notes go under the verdict and the overall line, within the same limit.
+      const lines = t.split('\n');
+      lines.splice(3, 0, noteText);
+      t = lines.join('\n');
+    }
+    return t;
+  }, token, calls);
+  return { text, report, ...(token ? { continue_token: token } : {}) };
 }
 
 /** Notes a deck's shape earns before it is played: not 60 cards, or cards the catalogue has no frame for. */

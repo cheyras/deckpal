@@ -57,9 +57,12 @@ export function deckeGateStatus(): DeckeGateStatus {
  * exists precisely because a control that is off silently is the expensive
  * kind.
  *
- * Deep Think (Opus) is the one feature that DOES fail closed here: its consent
- * is a signed approval plus server-minted tokens keyed by the same secret
- * (`deepThink.ts`), so an unsigned deployment never offers or routes it.
+ * Deep Think (Opus) DOES fail closed here: its consent is a signed approval plus
+ * server-minted tokens keyed by the same secret (`deepThink.ts`), so an unsigned
+ * deployment never offers or routes it. So does the battle simulator's run
+ * continuation (`deck/simulateContinue.ts`): its token carries the running
+ * totals, signed with a key derived from the same secret, so unsigned means no
+ * token is issued and a call carrying one gets a 503.
  */
 export function deckeApprovalSigning(): 'signed' | 'unsigned' {
   return process.env.DECKE_APPROVAL_SECRET ? 'signed' : 'unsigned'
@@ -81,8 +84,9 @@ export function deckeApprovalWarning(): string | null {
     'the approval it receives came from a request this server issued, so a ' +
     'crafted client could approve a write it was never offered or change the ' +
     'arguments after approval. Deep Think (Claude Opus) is also OFF until it is ' +
-    'set, because its consent is a signed approval. Set it to a long random ' +
-    'string and redeploy.'
+    'set, because its consent is a signed approval. Continuing a ' +
+    'battle simulation (continue_token) is OFF for the same reason: its ' +
+    'totals are signed. Set it to a long random string and redeploy.'
   )
 }
 

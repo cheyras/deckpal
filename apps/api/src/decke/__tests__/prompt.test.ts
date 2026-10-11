@@ -203,5 +203,10 @@ test('simulated matchups are run, paired, and reported as a bot\'s with their un
   assert.match(p, /Name approximated or unplayable cards/)
   assert.match(p, /"strong" by default, "fast" when they want more games/)
   assert.match(p, /A `table` of opponent, W–L, win % \[interval\]/)
+  // More certainty means continuing the same run, within a small cap (not starting over, not looping).
+  assert.match(p, /CONTINUE it rather than starting over/)
+  assert.match(p, /the same inputs and the `continue_token` the last result ended with/)
+  assert.match(p, /At most three continuations, then stop and say how sure you are/)
+  assert.match(p, /Editing a deck starts a fresh run/)
   assert.match(flat(pathwayText('deck_build')), /simulate_battles/)
 })

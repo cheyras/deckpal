@@ -21,6 +21,7 @@ import {
   RANDOM_PILOT_WARNING,
   buildReport,
   coverageLine,
+  cumulativeHead,
   deckCoverage,
   pct,
   rateText,
@@ -72,6 +73,8 @@ export interface ComparisonReport {
   reportB: SimReport;
   /** A, B, then each opponent. */
   coverage: DeckCoverage[];
+  /** Present when this is the sum of several calls (continue.ts); changed-card impact is then left out. */
+  cumulative?: { calls: number; thisCall: number };
 }
 
 export const PAIRED_METHOD =
@@ -183,10 +186,14 @@ function render(r: ComparisonReport, detail: Detail, impactMax: number, coverage
   lines.push(`VERDICT: ${verdictText(r.overall, r.a, r.b)}`);
   lines.push(`Overall: ${diffText(r.overall)}.`);
   lines.push(changeText(r.changes));
-  lines.push(
-    `${r.gamesPlayed} of ${r.gamesRequested} games per version played${r.stoppedEarly ? ' (time budget reached: fewer than asked)' : ''}; ` +
-      `both versions on the same seeds and seats, seats swapped each pair. Pilot: ${r.pilot}. Seed ${r.seed}. Turn cap ${r.maxTurns}. ${(r.elapsedMs / 1000).toFixed(1)} s.`,
-  );
+  const same = `both versions on the same seeds and seats, seats swapped each pair. Pilot: ${r.pilot}. Seed ${r.seed}. Turn cap ${r.maxTurns}. ${(r.elapsedMs / 1000).toFixed(1)} s`;
+  if (r.cumulative) {
+    lines.push(
+      `${cumulativeHead(r.cumulative, r.gamesPlayed, ' per version')}${r.stoppedEarly ? '; the last call hit its time budget: fewer than asked' : ''}; ${same} in all.`,
+    );
+  } else {
+    lines.push(`${r.gamesPlayed} of ${r.gamesRequested} games per version played${r.stoppedEarly ? ' (time budget reached: fewer than asked)' : ''}; ${same}.`);
+  }
   lines.push(
     'Key: Δ = B − A in points of game score (win 1, draw/time-out ½, loss 0) on paired games; [x, y] = its 95% interval (t, per-seed clusters); ' +
       'win rates show [a–b%] = Wilson 95% interval, n = decided games.',
@@ -204,7 +211,8 @@ function render(r: ComparisonReport, detail: Detail, impactMax: number, coverage
     if (detail === 'full') lines.push(`   A win ${rateText(ma.winRate)}; B win ${rateText(mb.winRate)}.`);
   });
   lines.push('');
-  if (impactMax > 0) {
+  if (r.cumulative) lines.push('Cumulative reports leave out changed-card impact (per-call detail): a run without continue_token shows it.', '');
+  else if (impactMax > 0) {
     const imp = changedImpactLines(r, impactMax);
     if (imp.length) lines.push(...imp, '');
   }

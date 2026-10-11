@@ -1,5 +1,5 @@
 import { Router, type Response } from 'express'
-import { metaLabel, type DeckInput, type MetaDeck } from '@deckpal/sim'
+import { metaLabel, type CompareTotals, type DeckInput, type MatchupTotals, type MetaDeck } from '@deckpal/sim'
 import { dbHandle, q, rlsStore } from '../db.js'
 import type { FormatCode } from '../deck/index.js'
 import {
@@ -9,6 +9,10 @@ import {
 import { asyncHandler, badRequest, oneOf, userCache } from '../http.js'
 import { currentUserId } from '../identity.js'
 import { cardFrames, cardsByTcgdexId } from '../sim/frames.js'
+import {
+  CONTINUE_MAX_CALLS, continuationUnavailable, continueSecret, fingerprintCounts, identityMismatch, mintContinueToken, openContinueToken,
+  type ContinueIdentity,
+} from '../deck/simulateContinue.js'
 import { deckCheckInputLines, resolveCheckLines } from './deckCheck.js'
 
 /**
@@ -29,6 +33,13 @@ import { deckCheckInputLines, resolveCheckLines } from './deckCheck.js'
  * COMPARISON instead: both versions play every opponent on the same seeds and
  * seats, and the text leads with the paired difference and a verdict. The same
  * bounds, gate, deadline and connection release apply.
+ *
+ * CONTINUATION (deck/simulateContinue.ts). Every response carries a signed
+ * `continue_token` (when the deployment can sign). Sent back with the SAME
+ * inputs, it adds `games` more games on new seeds — the games one longer run
+ * would have played — and the response is the cumulative result. The decks are
+ * re-resolved and fingerprinted on each call and must match the token's, so a
+ * deck edited between calls is refused, never blended.
  */
 export const deckSimulateRouter: Router = Router()
 const FORMATS = ['standard', 'expanded', 'glc', 'unlimited'] as const
@@ -57,6 +68,16 @@ deckSimulateRouter.post('/', asyncHandler(async (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>
   const params = parseSimulateBody(body)
   const userId = currentUserId(req)
+  // A continuation token is verified before any work: a bad one costs no slot and no query.
+  const secret = continueSecret()
+  let prior: ReturnType<typeof openContinueToken> | null = null
+  if (params.continueToken) {
+    if (!secret) throw continuationUnavailable()
+    prior = openContinueToken(secret, userId, params.continueToken)
+  }
+  // Omitted on a continued call, speed and seed are the run's own; given, they must match it (checked with the identity below).
+  const speed = prior && body.speed === undefined ? prior.speed : params.speed
+  const seed = prior && body.seed === undefined ? prior.seed : params.seed
 
   // One run per account and two per instance, before any work (deck/simulate.ts, THE BOUNDS).
   const slot = SIM_RUN_GATE.tryAcquire(userId)
@@ -175,6 +196,8 @@ deckSimulateRouter.post('/', asyncHandler(async (req, res) => {
     if (second && !second.deck.cards.length) throw badRequest(`${compareName} has no cards to simulate.`)
     notes.unshift(...subject.notes, ...(second?.notes ?? []))
     const opponentDecks: DeckInput[] = []
+    const opponentPrints: string[] = []
+    const opponentNames: string[] = []
     for (const p of played) {
       const built = buildDeckInput(p.name, p.counts, frames)
       if (!built.deck.cards.length) {
@@ -183,15 +206,33 @@ deckSimulateRouter.post('/', asyncHandler(async (req, res) => {
       }
       notes.push(...built.notes)
       opponentDecks.push(built.deck)
+      opponentPrints.push(fingerprintCounts(p.counts))
+      opponentNames.push(p.name)
     }
     if (!opponentDecks.length) throw badRequest('No opponent deck has cards the simulator knows — nothing to play against.')
+
+    // What this request is about, for the token to carry or to be checked against.
+    const identity: ContinueIdentity = {
+      subject: fingerprintCounts(subjectCounts),
+      b: secondCounts ? fingerprintCounts(secondCounts) : null,
+      opponents: opponentPrints,
+      format: adHocCounts || compareCounts ? format() : '',
+    }
+    if (prior) {
+      const why = identityMismatch(prior, { speed, seed, identity, names: opponentNames, subjectName, bName: second ? compareName : null })
+      if (why) throw badRequest(why)
+    }
+    const mint = (state: { calls: number; run: MatchupTotals[] | null; cmp: CompareTotals[] | null }): string | null =>
+      secret && state.calls < CONTINUE_MAX_CALLS ? mintContinueToken(secret, userId, { ...state, speed, seed, identity }) : null
 
     // The database work is done. Give the connection back before the CPU work, so
     // a 25 s run holds none of the pool; if the request is already gone, stop here.
     if (!await releaseRequestDb(res)) return
-    const run = { games: params.games, seed: params.seed, notes, pilot: pilotFactory(params.speed), startedAt }
+    const run = { games: params.games, seed, notes, pilot: pilotFactory(speed), startedAt, mint }
     const out = await rlsStore.exit(() =>
-      second ? runComparison(subject.deck, second.deck, opponentDecks, run) : runMatchups(subject.deck, opponentDecks, run),
+      second
+        ? runComparison(subject.deck, second.deck, opponentDecks, { ...run, ...(prior?.cmp ? { priorCompare: { calls: prior.calls, totals: prior.cmp } } : {}) })
+        : runMatchups(subject.deck, opponentDecks, { ...run, ...(prior?.run ? { prior: { calls: prior.calls, totals: prior.run } } : {}) }),
     )
     if (res.destroyed) return
     userCache(res)

@@ -1144,8 +1144,8 @@ hard deadline: a game still running when it arrives ends as a time-out draw, and
 it; a game is likewise abandoned as a time-out after 3,000 decisions. The report says when the budget,
 not `games`, decided how many were played. The decks are read first and the request's database
 connection is released before any game is played. Returns `{ text, report }`: `text` is at most 5,000
-characters (Deck-E clamps tool results at 6,000) and always ends with the caveat, notes clamped to
-fit; `report` is the structured form (`kind: "deckpal.simulation"`, `simulated: true`, per-matchup
+characters (Deck-E clamps tool results at 6,000) and always contains the caveat (a continuation line follows it when the response carries a
+`continue_token`), notes clamped to fit; `report` is the structured form (`kind: "deckpal.simulation"`, `simulated: true`, per-matchup
 stats with Wilson 95% intervals and n, card impact, per-deck coverage naming every approximated or
 unplayable card, the standing caveat, and every note — decks that are not 60 cards, cards with no
 catalogue data, skipped opponents). The meta pool (`packages/sim/src/meta/data.ts`, refreshed by hand with
@@ -1168,6 +1168,24 @@ message saying which.
   cluster; `verdict` `"b"`/`"a"` only when the interval excludes 0 with ≥6 seeds, else `"none"`),
   `changes` (card counts that differ), `changedImpact`, `method`, both versions' full reports
   (`reportA`, `reportB`) and `coverage`. The text leads with a `VERDICT:` line and keeps the caveat; the same bounds, deadline and run gate apply.
+- **Continuing a run** (a bigger sample). One call plays only a few dozen games, so a run can be continued: every
+  response carries `continue_token` (also the last line of `text`, and `report.continuation = { token, calls, max_calls }`).
+  Send it back as `continue_token` with the SAME inputs (the same deck, opponents, compare list, `speed`, `seed`; an omitted
+  `speed`/`seed` is taken from the token) and `games` = games to ADD per opponent on this call. The new games are on new
+  seeds — opponent i continues at its next seed pair, so N calls of g games play exactly the games one run of N·g would have —
+  and the response is CUMULATIVE: the text starts "Cumulative over 3 calls: 92 games (30 added by this call)…" and every rate
+  carries the interval at the cumulative n. For a paired comparison the token keeps the sums the paired interval needs, so the
+  cumulative `overall`/`matchups` difference, interval and verdict are exactly what one long run gives. Cumulative reports leave out
+  per-call detail that does not add up (card impact, changed-card impact, Prize-taker and liability rows, median first attack);
+  the first call's report has them. The token is `sc1.<payload>.<mac>`: deflated JSON (format version, issue time, calls so far, speed,
+  seed, an identity of fingerprints of the subject's, version B's and each opponent's resolved card list plus the format, and the
+  running totals per opponent), signed with HMAC-SHA256 over the caller's user id and the payload, under a key derived from
+  `DECKE_APPROVAL_SECRET` — it cannot be forged, edited, or used by another account. The decks are re-resolved on each call and
+  must fingerprint the same: a deck edited, a different opponent set or order, or a changed `speed`/`seed` is `400` naming what
+  differs (start a fresh run without the token). Also `400`: a token that does not verify or parse, one older than 2 hours (each
+  response issues a fresh one), one issued by an earlier deployment (when `VERCEL_DEPLOYMENT_ID` is set), and a run that has used its
+  12 calls (the 12th response carries no token). With `DECKE_APPROVAL_SECRET` unset no token is issued and a call carrying one is `503`
+  `continuation_unavailable`. Each continued call takes its own 25 s budget, run gate and rate-limit slot; nothing is stored.
 Rate limit: 6 calls a minute per account (`429` `rate_limited` with
 `Retry-After` beyond that).
 
