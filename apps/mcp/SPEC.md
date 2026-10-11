@@ -355,7 +355,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   "call set_progress with NO set_id" and got seven calls with `set_id: 'none'`. Ids in a failure
   message come from the caller's own data or are absent.
 
-## 5. Tool surface (26 ordinary tools + 3 capability-gated tools + 1 resource)
+## 5. Tool surface (28 ordinary tools + 3 capability-gated tools + 1 resource)
 
 ### Reads — direct SQL (`readOnlyHint: true`)
 
