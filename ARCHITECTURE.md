@@ -1685,9 +1685,11 @@ rather than pretending to measure something it cannot reach.
 ### 15d. Routing, planning and live research in the chat loop
 
 The pathway table in `pathways/names.ts` is the quality/cost dial. `deck_build`,
-`deck_iterate` and `battle_review` have a Standard/Sonnet floor; `battle_log`,
-`collection_plan`, `lists`, `price_value`, `card_rules`, `research`, `navigate`,
-`small_talk` and `general` start Quick/Haiku. Quick navigation and small talk use
+`deck_iterate`, `battle_review` and `card_rules` have a Standard/Sonnet floor
+(`card_rules` since 2026-10-11: game rules come from the model's memory, and
+Haiku 5.5 got a basic one wrong 16 times in 18); `battle_log`, `collection_plan`,
+`lists`, `price_value`, `research`, `navigate`, `small_talk` and `general`
+start Quick/Haiku. Quick navigation and small talk use
 low effort; the other Quick pathways use medium. Standard uses medium and the
 Deep tier uses high. Signals such as dissatisfaction or correction,
 carried guard failures, repeated tool errors and Deep interest raise Quick to

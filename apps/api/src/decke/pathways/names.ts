@@ -108,7 +108,10 @@ export const PATHWAY_META: Readonly<Record<PathwayName, PathwayMeta>> = {
   card_rules: {
     name: 'card_rules',
     summary: 'What a card does: card text, attacks and abilities, rulings, format legality.',
-    floor: 'quick',
+    // Standard since 2026-10-11: Haiku 5.5 got 'can I evolve on my first turn?' right
+    // 2 of 18 times across five setups, Sonnet 5.5 6 of 6. Game rules come from
+    // the model's memory (card text comes from tools), and that is Haiku's gap.
+    floor: 'standard',
     quickEffort: 'medium',
   },
   research: {
