@@ -44,3 +44,13 @@ export {
   META_POOL, metaDeck, metaDeckSize, metaDecksMatching, metaLabel, topMetaDecks,
   type MetaDeck, type MetaPool,
 } from './meta/index.js';
+export {
+  addPairedStats, diffFromStats, emptyPairedStats, pairedStatsOf, type PairedStats,
+} from './compare.js';
+export {
+  addCompareTotals, addTotals, buildCumulativeComparison, buildCumulativeReport, compareFromWire, compareToWire,
+  compareTotalsOf, emptyCompareTotals, emptyTotals, overallFromTotals, pairedFromWire, pairedToWire, statsFromTotals,
+  totalsFromWire, totalsOf, totalsToWire,
+  type CompareTotals, type CumulativeCompareInput, type CumulativeRunInput, type MatchupTotals, type SideSetupTotals,
+} from './continue.js';
+export { CUMULATIVE_DROPPED, cumulativeHead } from './report.js';

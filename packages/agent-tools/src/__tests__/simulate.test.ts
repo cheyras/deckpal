@@ -92,3 +92,29 @@ test('simulateBattles: an ambiguous saved name is reported, not handed to the po
   await simulateBattles(ctx, { cards, opponents: ['Slowking'] })
   assert.deepEqual((calls[0]![2] as { opponents: string[] }).opponents, ['Slowking'], 'a name no saved deck matches is left to the pool')
 })
+
+test('simulate_battles teaches continuing a run: the token input, the same-inputs rule, when to stop', () => {
+  const shape = simulateBattlesInputSchema.shape
+  const token = shape.continue_token.description ?? ''
+  assert.match(token, /SAME inputs/)
+  assert.match(token, /CUMULATIVE/)
+  assert.match(token, /deck edited since is refused/)
+  assert.match(token, /at most 12 calls/)
+  assert.match(token, /stop once the verdict is clear/)
+  assert.match(simulateBattlesTool.description, /continue_token/)
+  assert.match(simulateBattlesTool.description, /a few times at most/)
+  assert.match(shape.games.description ?? '', /games to add/)
+  assert.equal(simulateBattlesTool.annotations?.readOnlyHint, true, 'still read-only: continuing adds games, not records')
+  assert.ok(simulateBattlesInputSchema.safeParse({ deck_id: 'v4', continue_token: 'sc1.abcdefgh.ijklmnopqrstuvwxyzABCD' }).success)
+  assert.ok(!simulateBattlesInputSchema.safeParse({ continue_token: 'sc1.abcdefgh.ijklmnopqrstuvwxyzABCD' }).success, 'the inputs are repeated with the token, not replaced by it')
+})
+
+test('simulateBattles forwards continue_token with the repeated inputs', async () => {
+  const calls: unknown[][] = []
+  const ctx = { userId: 'u', db: {} as never, api: {
+    base: 'test', get: async () => ({}),
+    send: async (...args: unknown[]) => { calls.push(args); return { text: 'Cumulative over 2 calls', report: {} } },
+  } } as never
+  await simulateBattles(ctx, { cards, opponents: ['meta'], games: 20, continue_token: 'sc1.abcdefgh.ijklmnopqrstuvwxyzABCD' })
+  assert.deepEqual(calls[0]![2], { cards, opponents: ['meta'], games: 20, continue_token: 'sc1.abcdefgh.ijklmnopqrstuvwxyzABCD' })
+})

@@ -44,6 +44,8 @@ export interface PairedOptions {
   /** Games per version. Rounded UP to an even number (pairs). */
   games: number;
   seed?: number;
+  /** CONTINUATION: the first seed pair to play (see SimulateOptions.firstPair). Default 0. */
+  firstPair?: number;
   pilotFactory?: PilotFactory;
   /** For BOTH versions together: stop starting new seed pairs once this much time is spent. */
   timeBudgetMs?: number;
@@ -76,6 +78,7 @@ export function runPaired(opts: PairedOptions): PairedSimulation {
     b: opts.opponent,
     games: opts.games,
     seed: opts.seed,
+    firstPair: opts.firstPair,
     pilotFactory: opts.pilotFactory,
     maxTurns: opts.maxTurns,
     maxDecisions: opts.maxDecisions,
@@ -220,16 +223,68 @@ export function pairClusters(a: SimulationResult, b: SimulationResult): Cluster[
   return [...byPair.values()];
 }
 
+/**
+ * What the paired interval needs from the clusters, as plain SUMS — so batches
+ * played on different calls add up to exactly what one long batch would give
+ * (every cluster sum is a multiple of ½ and every n a small integer, so the sums
+ * are exact in floating point and independent of the order they were added in).
+ */
+export interface PairedStats {
+  /** Clusters (seed pairs with at least one paired game). */
+  m: number;
+  /** Σ n: paired games. */
+  n: number;
+  /** Σ sum: the summed score difference B − A. */
+  sum: number;
+  /** Σ sum². */
+  sumSq: number;
+  /** Σ sum·n. */
+  sumN: number;
+  /** Σ n². */
+  nSq: number;
+  bAhead: number;
+  aAhead: number;
+}
+
+export const emptyPairedStats = (): PairedStats => ({ m: 0, n: 0, sum: 0, sumSq: 0, sumN: 0, nSq: 0, bAhead: 0, aAhead: 0 });
+
+export function pairedStatsOf(clusters: Cluster[]): PairedStats {
+  const s = emptyPairedStats();
+  for (const c of clusters) {
+    s.m++;
+    s.n += c.n;
+    s.sum += c.sum;
+    s.sumSq += c.sum * c.sum;
+    s.sumN += c.sum * c.n;
+    s.nSq += c.n * c.n;
+    s.bAhead += c.bAhead;
+    s.aAhead += c.aAhead;
+  }
+  return s;
+}
+
+export function addPairedStats(a: PairedStats, b: PairedStats): PairedStats {
+  return {
+    m: a.m + b.m, n: a.n + b.n, sum: a.sum + b.sum, sumSq: a.sumSq + b.sumSq, sumN: a.sumN + b.sumN, nSq: a.nSq + b.nSq,
+    bAhead: a.bAhead + b.bAhead, aAhead: a.aAhead + b.aAhead,
+  };
+}
+
 /** Ratio estimate Σd/Σn over clusters, with a cluster-robust t-interval. */
 export function diffOf(clusters: Cluster[], minPairs = MIN_VERDICT_PAIRS): PairedDiff {
-  const m = clusters.length;
-  const games = clusters.reduce((s, c) => s + c.n, 0);
-  const bAhead = clusters.reduce((s, c) => s + c.bAhead, 0);
-  const aAhead = clusters.reduce((s, c) => s + c.aAhead, 0);
+  return diffFromStats(pairedStatsOf(clusters), minPairs);
+}
+
+/** The same from the summed statistics (what a continuation keeps). */
+export function diffFromStats(s: PairedStats, minPairs = MIN_VERDICT_PAIRS): PairedDiff {
+  const m = s.m;
+  const games = s.n;
+  const { bAhead, aAhead } = s;
   if (!games) return { pairs: m, games, diff: null, lo: null, hi: null, bAhead, aAhead, verdict: 'none' };
-  const r = clusters.reduce((s, c) => s + c.sum, 0) / games;
+  const r = s.sum / games;
   if (m < 2) return { pairs: m, games, diff: r, lo: null, hi: null, bAhead, aAhead, verdict: 'none' };
-  const ss = clusters.reduce((s, c) => s + (c.sum - r * c.n) ** 2, 0);
+  // Σ (sum − r·n)² expanded, so it needs only the sums above; clamped against a −0 from rounding.
+  const ss = Math.max(0, s.sumSq - 2 * r * s.sumN + r * r * s.nSq);
   const se = Math.sqrt((m / (m - 1)) * ss) / games;
   const half = t95(m - 1) * se;
   const lo = Math.max(-1, r - half);

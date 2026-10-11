@@ -33,6 +33,7 @@ export interface SimulateBattlesInput {
   compare_cards?: Array<{ name?: string; card_id?: string; quantity: number }>
   compare_ptcgl_text?: string
   compare_name?: string
+  continue_token?: string
 }
 
 export const simulateBattlesInputSchema = z.object({
@@ -55,7 +56,7 @@ export const simulateBattlesInputSchema = z.object({
       "a snapshot and not today's ladder. Use it when the user has no rivals saved or asks 'how does it do into the meta'. " +
       "Default: up to 6 of the user's other decks, and when they have none, the top 6 meta decks."),
   games: z.number().int().min(2).max(200).optional()
-    .describe('Games per opponent, default 24, at most 200; rounded up to an even number. More games means narrower intervals but a longer run. The whole call stops at about 25 seconds and reports how many games it actually played.'),
+    .describe('Games per opponent, default 24, at most 200; rounded up to an even number. More games means narrower intervals but a longer run. The whole call stops at about 25 seconds and reports how many games it actually played. With continue_token it is the games to add on this call.'),
   speed: z.enum(['strong', 'fast']).optional()
     .describe("'strong' (default): a CPU that searches its whole turn — better play, about 1 second a game, so a run plays roughly 25–30 games in total. 'fast': a one-step CPU — weaker play but about 20× more games, for narrower intervals. Both are bots; say which one ran."),
   seed: z.number().int().min(0).max(2_147_483_647).optional()
@@ -76,6 +77,17 @@ export const simulateBattlesInputSchema = z.object({
     .describe('Version B as PTCG Live export text, instead of compare_with or compare_cards.'),
   compare_name: z.string().trim().min(1).max(80).optional()
     .describe('A label for an unsaved version B (for example "v4 with 2 Gwynn").'),
+  continue_token: z.string().trim().min(8).max(16_000).optional()
+    .describe(
+      'CONTINUE a run for a bigger sample. Every result ends with a continue_token line. To add games, call again with the SAME inputs ' +
+      '(the same deck_id / cards, opponents, compare_* , speed, seed) plus that token: the new games are on new seeds, exactly the games ' +
+      'one longer run would have played, and the result is CUMULATIVE ("Cumulative over 3 calls: 92 games…") with the interval at the ' +
+      "cumulative n. games then means games to ADD on this call. Pass the token back exactly as given and use the newest one each time. " +
+      'The token is signed and tied to the user and to the exact card lists: a deck edited since is refused (start a fresh run without it), ' +
+      'as is a token older than 2 hours or after a deploy; a run allows at most 12 calls. Cumulative results leave out the per-call detail ' +
+      '(card impact, Prize rows) that the first call shows. Continue only when the user asks for more certainty or the answer is not yet ' +
+      'decided; stop once the verdict is clear or the intervals are narrow enough to act on — two or three continuations is usually plenty.',
+    ),
 }).refine((input) => Number(input.deck_id !== undefined) + Number(input.cards !== undefined) + Number(input.ptcgl_text !== undefined) === 1, {
   message: 'Provide exactly one of deck_id, cards or ptcgl_text.',
 }).refine((input) => Number(input.compare_with !== undefined) + Number(input.compare_cards !== undefined) + Number(input.compare_ptcgl_text !== undefined) <= 1, {
@@ -141,6 +153,7 @@ export async function simulateBattles(ctx: Ctx, input: SimulateBattlesInput): Pr
   if (input.games !== undefined) body.games = input.games
   if (input.seed !== undefined) body.seed = input.seed
   if (input.speed !== undefined) body.speed = input.speed
+  if (input.continue_token !== undefined) body.continue_token = input.continue_token
   const result = (await ctx.api.send('POST', '/decks/simulate', body)) as SimulateResponse
   return ok(result.text, result.report)
 }
@@ -161,7 +174,11 @@ export const simulateBattlesTool: ToolDefinition = defineTool({
     'treat differences whose intervals overlap as noise, and never present them as real-world or ladder win rates. ' +
     "Opponents can be the user's saved decks or the built-in Standard meta pool ('meta', or 'meta:<archetype>'): one representative list per current archetype, " +
     "refreshed by hand from online tournament results (the report shows each list's source, date and record, and the pool's as-of date) — so a user with one deck still has opponents. " +
-    'A run takes up to about 25 seconds.',
+    'A run takes up to about 25 seconds and plays only a few dozen games, so a single result is a small sample: to tighten the intervals ' +
+    "or settle a 'no clear difference', call again with the same inputs and the continue_token the result ends with — the games add up " +
+    'across calls (cumulative n, same seeds a longer run would use). Do that when the user wants more certainty or the verdict is still ' +
+    'open, a few times at most, and stop when the verdict is clear or the intervals are narrow enough; the result says how many calls are used. ' +
+    'Editing a deck between calls starts a fresh run.',
   inputSchema: simulateBattlesInputSchema,
   annotations: { readOnlyHint: true, idempotentHint: true },
   handler: async (input, ctx): Promise<ToolResult> => {

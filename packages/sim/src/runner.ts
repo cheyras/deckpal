@@ -48,6 +48,12 @@ export interface SimulateOptions {
   games: number;
   /** Base seed; pair i plays seed deriveSeed(seed, i). Default 1. */
   seed?: number;
+  /**
+   * CONTINUATION: index of the first pair to play. Pair firstPair + k plays exactly the seed, seats and
+   * pilots a single longer run would have given it, so a batch of N pairs from 0 and then one from N are
+   * the same games as one batch of both. GameSummary.pair is this absolute index. Default 0.
+   */
+  firstPair?: number;
   /** Default: the own-turn search pilot (makePilot("search")). */
   pilotFactory?: PilotFactory;
   /** Stop starting new pairs once this much time is spent. Default: no limit. */
@@ -148,6 +154,7 @@ export function runSimulation(opts: SimulateOptions): Simulation {
   const now = opts.now ?? Date.now;
   const started = now();
   const seed = opts.seed ?? 1;
+  const firstPair = Math.max(0, Math.floor(opts.firstPair ?? 0));
   const pairs = Math.max(1, Math.ceil(Math.max(1, opts.games) / 2));
   const requested = pairs * 2;
   const maxTurns = opts.maxTurns ?? 60;
@@ -235,19 +242,21 @@ export function runSimulation(opts: SimulateOptions): Simulation {
     step(): boolean {
       if (!mayStart()) return false;
       const t0 = now();
-      const gameSeed = deriveSeed(seed, next);
-      games.push(play(next, gameSeed, true));
+      const pair = firstPair + next;
+      const gameSeed = deriveSeed(seed, pair);
+      games.push(play(pair, gameSeed, true));
       if (!midPairOk()) return false;
-      games.push(play(next, gameSeed, false));
+      games.push(play(pair, gameSeed, false));
       return endPair(t0);
     },
     async stepAsync(): Promise<boolean> {
       if (!mayStart()) return false;
       const t0 = now();
-      const gameSeed = deriveSeed(seed, next);
-      games.push(await playAsync(next, gameSeed, true));
+      const pair = firstPair + next;
+      const gameSeed = deriveSeed(seed, pair);
+      games.push(await playAsync(pair, gameSeed, true));
       if (!midPairOk()) return false;
-      games.push(await playAsync(next, gameSeed, false));
+      games.push(await playAsync(pair, gameSeed, false));
       return endPair(t0);
     },
     result(): SimulationResult {

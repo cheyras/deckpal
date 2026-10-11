@@ -55,6 +55,13 @@ export const MAX_KEYS = 12
 type Brief = Record<string, unknown>
 
 /**
+ * Keys whose value is a credential-like token: kept as a presence/length marker,
+ * never as a prefix. A simulator `continue_token` carries a run's signed totals;
+ * the live call still gets the real one, only the persisted diagnostic does not.
+ */
+const TOKEN_KEYS = new Set(['continue_token'])
+
+/**
  * Shorten one value.
  *
  * Numbers, booleans and null pass through — they are already small and their
@@ -98,7 +105,10 @@ export function briefArgs(input: unknown): Brief | undefined {
   if (keys.length === 0) return undefined
 
   const out: Brief = {}
-  for (const k of keys.slice(0, MAX_KEYS)) out[k] = briefValue(src[k])
+  for (const k of keys.slice(0, MAX_KEYS)) {
+    const v = src[k]
+    out[k] = TOKEN_KEYS.has(k) && typeof v === 'string' ? `(token, ${v.length} chars)` : briefValue(v)
+  }
   if (keys.length > MAX_KEYS) out['…'] = `${keys.length - MAX_KEYS} more field(s)`
 
   // A LAST-RESORT CEILING. The per-value and per-key caps bound the ordinary
