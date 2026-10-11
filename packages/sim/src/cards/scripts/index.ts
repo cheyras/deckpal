@@ -14,5 +14,6 @@ import { META_GRIMMSNARL } from './meta-grimmsnarl.js';
 import { META_TREVENANT } from './meta-trevenant.js';
 import { META_ZOROARK } from './meta-zoroark.js';
 import { OPP } from './opp.js';
+import { STD_SEED2 } from './std-seed2.js';
 
-export const SCRIPTS: CardScript[] = [...SV, ...ME, ...GHOST, ...FIGHTING, ...METAL, ...MISC, ...META_BLAZIKEN, ...META_CHARIZARD, ...META_DARKRAI, ...META_EXCADRILL, ...META_GRIMMSNARL, ...META_TREVENANT, ...META_ZOROARK, ...OPP];
+export const SCRIPTS: CardScript[] = [...SV, ...ME, ...GHOST, ...FIGHTING, ...METAL, ...MISC, ...META_BLAZIKEN, ...META_CHARIZARD, ...META_DARKRAI, ...META_EXCADRILL, ...META_GRIMMSNARL, ...META_TREVENANT, ...META_ZOROARK, ...OPP, ...STD_SEED2];

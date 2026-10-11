@@ -118,6 +118,18 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   countersUntilHp: (a) => `Count the damage counters that would leave your opponent's Active Pokémon with ${Number(a.hp ?? 50)} HP remaining (into "${String(a.as ?? 'n')}")`,
   discardThisCard: () => 'Discard this card',
   'trevenant.discardToolFrom': () => "Discard the Pokémon Tool attached to that Pokémon (if any) to its owner's discard pile", // lane:trevenant
+  // std-seed2-customs.ts
+  'seed2.evolveFromDeck': (a) =>
+    a.zone === 'bench'
+      ? 'For each of your Benched Pokémon, search your deck for a card that evolves from that Pokémon and put it onto that Pokémon to evolve it'
+      : 'Search your deck for a card that evolves from this Pokémon and put it onto this Pokémon to evolve it',
+  'seed2.sumAttached': (a) =>
+    `Count the ${a.kind === 'tool' ? 'Pokémon Tools' : 'Energy'} attached to all of ${slotZoneNoun(String(a.zone) as SlotZone)} (into "${String(a.as ?? 'n')}")`,
+  'seed2.healEach': (a) => `Heal ${Number(a.amount)} damage from each of ${slotZoneNoun(String(a.zone ?? 'myPokemon') as SlotZone)}`,
+  'seed2.randomOppHandCard': (a) => `Choose a random card from your opponent's hand (into "${String(a.as ?? 'x')}")`,
+  'seed2.tormentDefender': () =>
+    "Choose 1 of your opponent's Active Pokémon's attacks. During your opponent's next turn, that Pokémon can't use that attack",
+  'seed2.energyToHand': () => 'Put an Energy attached to this Pokémon into your hand',
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -1514,5 +1526,18 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me05-062|ability:Ancient Bulwark': {
     problems: ['"each" is printed'],
     why: '"each of your Pokémon" is scope myPokemon, which the renderer words as "your Pokémon in play".',
+  },
+  // std-seed2
+  'sv08-134|attack:Humming Charge': {
+    problems: ['"up to'],
+    why: '"Search your deck for up to 2 Basic Energy cards and attach them … in any way you like" is `repeat 2` of an optional (min 0, max 1) search-and-attach, each pick choosing its own Pokémon; that covers every choice of 0 to 2 cards and targets.',
+  },
+  'sv08.5-064|attack:Tyrannical Crush': {
+    problems: ['"discard" is printed but not rendered'],
+    why: '"Discard a random card" is the custom random pick followed by a `move` to the opponent\'s discard pile, which the renderer words "put … in your opponent\'s discard pile" (it names the pile, not the verb).',
+  },
+  'me02.5-161|attack:Paw-cket Pilfer': {
+    problems: ['"reveal" is printed but not rendered'],
+    why: 'The random card is revealed and then immediately shuffled into the deck, so the reveal has no later effect and nothing in the script keeps it; the custom picks the card uniformly at random and the card moves to the deck.',
   },
 };
