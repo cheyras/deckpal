@@ -354,7 +354,7 @@ test('edit_battle_log dry_run:false applies and recomputes the version record', 
       assert.equal(method, 'PATCH');
       assert.equal(path, '/decks/deck-1/logs/7');
       assert.deepEqual(body, {
-        result: 'loss', opponentArchetype: 'Dragapult ex', notes: 'new notes', reviewMd: 'new review',
+        result: 'loss', opponentArchetype: 'Dragapult ex', notes: 'new notes', reviewMd: 'new review', source: 'deckpal-mcp',
       });
       return {
         log: {
@@ -412,7 +412,7 @@ test('edit_battle_log null CLEARS a field explicitly — omitted and null are di
       throw new Error(`unexpected get ${path}`);
     },
     send: (method, path, body) => {
-      assert.deepEqual(body, { opponent: null });
+      assert.deepEqual(body, { opponent: null, source: 'deckpal-mcp' });
       return {
         log: {
           id: 7,

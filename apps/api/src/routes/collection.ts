@@ -19,6 +19,7 @@ import {
   SOURCE_SHAPE,
   type MutationEventInput,
 } from '../mutations.js';
+import { requestWriteKey } from '../writeOnce.js';
 
 export const collectionRouter: Router = Router();
 
@@ -339,6 +340,10 @@ collectionRouter.post(
       if (trimmed.length > 200) throw badRequest('idempotencyKey must be 200 characters or fewer');
       callerKey = trimmed;
     }
+    // The `Idempotency-Key` header every other write route takes means the
+    // same here: a caller-scoped key, honoured unbucketed. The body key wins,
+    // because `log_cards` already sends its signed call key there.
+    callerKey ??= requestWriteKey(req);
 
     // The fingerprint is over the FOLDED ops — so the same intent expressed as
     // two `+1`s or one `+2`, or with the items in a different order, hashes the
