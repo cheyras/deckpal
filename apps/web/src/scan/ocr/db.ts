@@ -303,11 +303,14 @@ function clamp(v: number, lo: number, hi: number): number {
  * post-grouping, so the extractor's unit tests are tests of the pair.
  *
  * Boxes whose vertical midlines differ by less than half the mean box height are
- * one line; within a line, left to right; lines, top to bottom.
+ * one line; within a line, left to right; lines, top to bottom. `parts` is the
+ * line's fragments in that same left-to-right order — `text` is their texts
+ * joined by single spaces — for a caller that needs more of each fragment than
+ * its text (the corner rung's per-character confidences).
  */
 export function groupIntoLines<T extends { box: Box; text: string; mean: number }>(
   items: readonly T[],
-): { text: string; mean: number; y: number }[] {
+): { text: string; mean: number; y: number; parts: T[] }[] {
   if (items.length === 0) return []
   const midline = (b: Box) => (b[0][1] + b[2][1]) / 2
   const height = (b: Box) => Math.abs(b[2][1] - b[0][1])
@@ -325,6 +328,7 @@ export function groupIntoLines<T extends { box: Box; text: string; mean: number 
         text: sorted.map((s) => s.text).join(' '),
         mean: sorted.reduce((s, x) => s + x.mean, 0) / sorted.length,
         y: midline(sorted[0].box),
+        parts: sorted,
       }
     })
     .sort((a, b) => a.y - b.y)

@@ -222,6 +222,130 @@ export function resolveSetCode(
  */
 const NUMBER_PAIR = /(?<![0-9])(\d{1,3})\s*[/／|l¡i]\s*(\d{1,3})(?![0-9])/
 
+// ─────────────────────────────────────────────── the vintage corner pair ────
+
+/** A collector number and its printed denominator, both as printed. */
+export interface NumberPair {
+  number: string
+  denominator: string
+}
+
+/**
+ * The most a printed numerator ever exceeds its denominator in a set whose
+ * number sits in the bottom-right corner. Secret rares number past the
+ * denominator (`66/64` Shining Magikarp, `113/108` in Evolutions) but nowhere
+ * near 1.5× of it — the catalog's ratios above 1.3 are all Scarlet & Violet and
+ * Mega Evolution sets, which print bottom-LEFT and are read by `strip`.
+ */
+const CORNER_MAX_RATIO = 1.5
+
+/**
+ * The largest printed denominator a bottom-right-corner set has is 165
+ * (Expedition Base Set); everything bigger in the catalog is Sun & Moon or
+ * later, and prints bottom-left. 199 keeps a margin without admitting the
+ * `9/711` the corner was seen to produce.
+ */
+const CORNER_MAX_DENOMINATOR = 199
+
+/**
+ * Every digit of a corner pair must have been emitted at least this sure.
+ *
+ * A blurred 5 px `6` read as `3` is a SUBSTITUTION, and the recogniser is
+ * usually unsure of it even when it is sure of the rest of the line — which is
+ * why a line's MEAN cannot catch it and its weakest digit can. Measured on every
+ * pair any of eight corner configurations (two ROIs × 3-6×) read off
+ * `quad-verify`'s 44 sharpest pre-2017 crops (2026-10-10):
+ *
+ *   floor    right pairs kept    wrong pairs kept
+ *   0.50          64 / 67             9 / 17
+ *   0.60          62 / 67             4 / 17     <- this
+ *   0.70          53 / 67             3 / 17
+ *
+ * The pair the two shipped scales once AGREED on wrongly (`53/147` for
+ * `56/147`) had weakest digits of 0.48 and 0.36. The 4 wrong pairs a floor
+ * cannot see are three DROPPED digits (`9/62` for `19/62`) and one `16/102` for
+ * `26/102`, at 0.69-0.90; none of the four was read the same at a second scale,
+ * which is what `sameCornerPair` is for.
+ */
+const CORNER_MIN_DIGIT_CONFIDENCE = 0.6
+
+/** One emitted character and the confidence it was emitted at. */
+export interface Glyph {
+  ch: string
+  conf: number
+}
+
+/**
+ * The bottom-right corner's collector number, or null — the parse of ONE corner
+ * read, given as lines of glyphs (`pipeline.readGlyphLines`).
+ * `pipeline.readFields` only believes it when a second read at another scale
+ * returns the same pair (`sameCornerPair`).
+ *
+ * The same `NUMBER_PAIR` as the strip, first match in reading order, plus three
+ * gates the strip does not need, because the strip reads 9-10 px digits and this
+ * reads 5 px ones (`rois.CORNER_SCALES`):
+ *
+ *  1. THE DENOMINATOR IS 10-199 WITH NO LEADING ZERO. Every set that prints its
+ *     number in this corner has a printed count in that range; a one-digit
+ *     "denominator" is a digit dropped beside the slash (`5/0` and `9/1` were
+ *     both observed) and `9/711` is a glyph read twice.
+ *  2. THE NUMERATOR IS AT LEAST 1 AND AT MOST 1.5× THE DENOMINATOR. `53/17` and
+ *     `5/14` were both observed misreads of `56/147`.
+ *  3. EVERY DIGIT WAS READ AT `CORNER_MIN_DIGIT_CONFIDENCE` OR BETTER.
+ *
+ * The first two matter even though the server would find no card for most such
+ * pairs: a pair the server finds NOTHING for falls to its `name + number` rung,
+ * which keeps the numerator and drops the denominator — so a garbage
+ * denominator is a way for a garbage numerator to name a card.
+ *
+ * NO REPAIR. The corner's misreads include a slash read as `7` (`27762`), a
+ * dropped slash (`26102`) and the rarity glyph glued on as a digit
+ * (`89/1620`). Each could be undone by a rule, and each rule would also
+ * manufacture pairs out of text that never held one. Silence, as everywhere in
+ * this file.
+ */
+export function readCornerPair(lines: readonly (readonly Glyph[])[]): NumberPair | null {
+  for (const line of lines) {
+    // Whitespace out, as the strip does — keeping, for every UTF-16 unit of the
+    // compacted text, which glyph it came from, so the match can be mapped back
+    // to the confidences of exactly the characters it covers.
+    const kept = line.filter((g) => !/^\s*$/.test(g.ch))
+    let text = ''
+    const owner: number[] = []
+    kept.forEach((g, i) => {
+      text += g.ch
+      for (let k = 0; k < g.ch.length; k++) owner.push(i)
+    })
+    const m = NUMBER_PAIR.exec(text)
+    if (!m) continue
+    const [, number, denominator] = m as unknown as [string, string, string]
+    const num = Number.parseInt(number, 10)
+    const den = Number.parseInt(denominator, 10)
+    // First match only, as in the strip: a later line is flavour text or the
+    // copyright, never a second number — and a first match that fails a gate is
+    // evidence the corner was misread, not an invitation to keep looking.
+    if (denominator.startsWith('0') || den < 10 || den > CORNER_MAX_DENOMINATOR) return null
+    if (num < 1 || num > den * CORNER_MAX_RATIO) return null
+    const span = kept.slice(owner[m.index], (owner[m.index + m[0].length - 1] ?? -1) + 1)
+    if (span.some((g) => /^\d$/.test(g.ch) && g.conf < CORNER_MIN_DIGIT_CONFIDENCE)) return null
+    return { number, denominator }
+  }
+  return null
+}
+
+/**
+ * Do two corner reads name the same printed pair? Compared as NUMBERS, so a
+ * zero-padded `07/102` at one scale and `7/102` at the other agree, and the
+ * first read's spelling is what is kept.
+ */
+export function sameCornerPair(a: NumberPair | null, b: NumberPair | null): NumberPair | null {
+  if (!a || !b) return null
+  const same =
+    Number.parseInt(a.number, 10) === Number.parseInt(b.number, 10) &&
+    Number.parseInt(a.denominator, 10) === Number.parseInt(b.denominator, 10)
+  return same ? a : null
+}
+
 // ────────────────────────────────────────────────────────────── the name ────
 
 /**

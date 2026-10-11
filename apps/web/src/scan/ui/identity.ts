@@ -735,10 +735,12 @@ export function identityOutcome(s: IdentityState): IdentityOutcome | null {
  * endpoint does not enforce.
  *
  * `ocr` is the RUNG, straight off the read: `'roi'` for the shipped two-pass
- * recipe, `'escalated'` when the full-crop rung ran too, `'null'` when there was
- * no read at all (lane off for the session, model fetch failed, or the read
- * timed out). Written as the string `'null'` and not as JSON null because it is
- * one of three values of an enum, not a missing field.
+ * recipe, `'corner'` when the bands found no number and the bottom-right corner
+ * supplied it (a pre-2017 card, 2026-10-10), `'escalated'` when the full-crop
+ * rung ran too, `'null'` when there was no read at all (lane off for the
+ * session, model fetch failed, or the read timed out). Written as the string
+ * `'null'` and not as JSON null because it is one of the enum's values, not a
+ * missing field.
  */
 export function identityRecord(s: IdentityState, msToResolve: number): Record<string, unknown> | null {
   const outcome = identityOutcome(s)
