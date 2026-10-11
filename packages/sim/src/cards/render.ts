@@ -340,6 +340,9 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   // std-30d-customs.ts
   'n30d.basicEnergyTypes': (a) => `Count the different types of Basic Energy attached to all of your Pokémon (into "${String(a.as ?? 'n')}")`,
   'n30d.benchWithMaxHp': (a) => `Count your Benched Pokémon that have a maximum HP of ${Number(a.hp)} (into "${String(a.as ?? 'n')}")`,
+  // rul-r12-customs.ts
+  'rul12.moveCountersLossy': (a) =>
+    `Move up to ${Number(a.max ?? 3)} damage counters from the Pokémon chosen as "${String(a.from)}" to the Pokémon chosen as "${String(a.to)}" (lost if they cannot be placed there)`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */

@@ -74,7 +74,8 @@ export const GHOST: CardScript[] = [
           program: [
             { op: 'chooseSlots', from: 'myPokemon', filter: { damaged: true }, min: 1, max: 1, as: 'from', prompt: 'Move damage counters from which of your Pokémon?' },
             { op: 'chooseSlots', from: 'oppPokemon', min: 1, max: 1, as: 'to', prompt: "Move them to which of your opponent's Pokémon?" },
-            { op: 'custom', fn: 'moveCounters', args: { from: 'from', to: 'to', max: 3 } },
+            // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2257/): under Battle Cage the counters still come off the source Pokémon but cannot be placed on a Benched Pokémon, so they vanish.
+            { op: 'custom', fn: 'rul12.moveCountersLossy', args: { from: 'from', to: 'to', max: 3 } },
           ],
         },
       },
@@ -83,7 +84,7 @@ export const GHOST: CardScript[] = [
       // "Your opponent's Active Pokémon is now Confused."
       'Mind Bend': { post: [{ op: 'condition', cond: 'confused', to: 'oppActive' }] },
     },
-    notes: "Adrena-Brain is not offered while a Watchful Eye-style countersFixed static is live, or when none of your Pokémon has damage counters.",
+    notes: "Adrena-Brain is not offered while a Watchful Eye-style countersFixed static is live, or when none of your Pokémon has damage counters. Compendium #2257 (2025-11-13): under Battle Cage the counters are still removed from the source and vanish when aimed at a Benched Pokémon (rul12.moveCountersLossy). Compendium #2254, #1995: moving counters is not healing.",
   },
   {
     id: 'me02.5-016',
