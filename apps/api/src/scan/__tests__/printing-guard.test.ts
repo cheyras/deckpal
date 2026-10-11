@@ -348,6 +348,45 @@ test('the shipped table carries every Celebrations original as a printed twin', 
   assert.deepEqual(printedTwinsOf('sv02-050'), []);
 });
 
+test('a Celebrations card twins ONE original: later printings at the same number are not twins', async () => {
+  // Base Set 2's Charizard prints 4/130, Secret Wonders' Blastoise 2/132: the
+  // Classic Collection reprints Base Set's 4/102 and 2/102 only, so a printed
+  // key reading 4/130 is not shared with any reprint (Astra, PR #294).
+  const { printedTwinsOf, artSiblings } = await import('../artFamilies.js');
+  for (const id of ['base4-4', 'base4-2', 'dp3-2', 'ex14-2', 'pl1-2', 'ex14-4', '30th-024', 'sm3-93', 'ex11-17', 'bw11-54']) {
+    assert.deepEqual(printedTwinsOf(id), [], id);
+  }
+  // ...and a different picture is no longer joined to the reprint's family.
+  assert.ok(!artSiblings('dp3-2').includes('cel25cc-CC001'));
+  const C: CatalogCard[] = [card('base4-4', 'Charizard', '4', 'base4'), card('base1-4', 'Charizard', '4', 'base1')];
+  const counts: Record<string, number> = { base4: 130, base1: 102 };
+  const p: CatalogPort = {
+    async bySetAndNumber(setId, n) {
+      return C.filter((c) => c.setId === setId && c.numberNumeric === n);
+    },
+    async byNumberAndDenominator(n, d) {
+      return C.filter((c) => c.numberNumeric === n && counts[c.setId] === d);
+    },
+    async byNumber(n) {
+      return C.filter((c) => c.numberNumeric === n);
+    },
+    async byIds(ids) {
+      return C.filter((c) => ids.includes(c.cardId));
+    },
+    async officialCounts(setIds) {
+      return new Map(setIds.map((s) => [s, counts[s] ?? null]));
+    },
+  };
+  const out = await resolveCard({ number: '4', denominator: '130' }, [], p, {
+    phashConfidentMax: 9,
+    artSiblings,
+    printedTwins: printedTwinsOf,
+  });
+  assert.equal(out.resolvedBy, 'number+denominator');
+  assert.equal(out.confident, true, '4/130 names Base Set 2 Charizard, which no reprint prints');
+  assert.equal(out.matches[0]?.cardId, 'base4-4');
+});
+
 test('a vector that broke a tie inside a printed key still leaves a Celebrations twin open (keyedBy path)', async () => {
   // 4/102 is base1-4 Charizard OR another /102 set's #4; the vector picks
   // base1-4 ('corroborated' over a keyed list). The key excluded no twin: the

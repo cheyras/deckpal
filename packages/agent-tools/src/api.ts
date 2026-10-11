@@ -93,8 +93,18 @@ interface ApiErrorBody {
 export interface Api {
   /** GET a JSON payload. `path` starts with '/', e.g. '/health'. */
   get(path: string): Promise<unknown>;
-  /** Send a JSON body (POST/PATCH/PUT/DELETE …). */
-  send(method: 'POST' | 'PATCH' | 'PUT' | 'DELETE', path: string, body?: unknown): Promise<unknown>;
+  /**
+   * Send a JSON body (POST/PATCH/PUT/DELETE …). `headers` go on this one
+   * request only. Deck-E uses them for the per-write `Idempotency-Key` that its
+   * adapter derives from a signed tool call (`apps/api/src/decke/ctx.ts`). The
+   * tools never pass any, so the MCP server's requests are unchanged.
+   */
+  send(
+    method: 'POST' | 'PATCH' | 'PUT' | 'DELETE',
+    path: string,
+    body?: unknown,
+    headers?: Record<string, string>,
+  ): Promise<unknown>;
   /** The base URL this client talks to (for diagnostics; carries no secret). */
   base: string;
 }
@@ -138,11 +148,18 @@ export function makeApi(
     ...(extraHeaders ?? {}),
   };
 
-  async function request(method: string, path: string, body?: unknown): Promise<unknown> {
+  async function request(
+    method: string,
+    path: string,
+    body?: unknown,
+    headers?: Record<string, string>,
+  ): Promise<unknown> {
     const url = resolveApiUrl(base, path);
     const init: RequestInit = {
       method,
       headers: {
+        // First, so a per-request header can never displace the credential.
+        ...(headers ?? {}),
         ...authHeader,
         ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
       },
@@ -173,7 +190,7 @@ export function makeApi(
 
   return {
     get: (path) => request('GET', path),
-    send: (method, path, body) => request(method, path, body),
+    send: (method, path, body, headers) => request(method, path, body, headers),
     base,
   };
 }
