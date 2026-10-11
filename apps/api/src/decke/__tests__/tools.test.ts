@@ -160,6 +160,91 @@ test('showDeck writes no screen and reports ids omitted by its check', async () 
   assert.equal(events.at(-1)?.summary, "Couldn't show that deck — some cards weren't verified")
 })
 
+/**
+ * A revision of the reader's own deck: Save becomes "the next version of it".
+ *
+ * The audit: "make a v2 of my Dragapult deck" got a Save that could only make
+ * a NEW deck, so the version history and battle logs stayed on the old one.
+ */
+const SIXTY = {
+  format: 'standard', total: 60, legal: true, issues: [], evolution_gaps: [], owned: 60,
+  missing_cost_usd: 0, ptcgl: 'Pokémon: 1\n60 Pikachu SVI 1\n',
+  lines: [{ card_id: 'sv01-1', name: 'Pikachu', supertype: 'Pokémon' as const, quantity: 60, owned: 60, unit_price_usd: 1, resolved: true }],
+}
+type DeckScreenWrite = { data: { screen: { blocks: Array<Record<string, unknown>> } } }
+type ShowDeck = { execute: (input: unknown, opts: { toolCallId: string }) => Promise<string> }
+
+test('showDeck with a deck_id the reader owns offers its next version, named from the reader\'s deck', async () => {
+  const writes: DeckScreenWrite[] = []
+  const events: Array<{ phase: string; summary?: string }> = []
+  const asked: string[] = []
+  const tools = buildTools(
+    { write: (part) => writes.push(part as DeckScreenWrite) }, undefined, undefined, (event) => events.push(event),
+    {
+      checkDeck: async () => SIXTY,
+      ownedDeck: async (ref) => { asked.push(ref); return { deck: { id: 'deck-uuid-1', name: 'Dragapult ex' } } },
+    },
+  ) as unknown as Record<string, ShowDeck>
+  const output = await tools.showDeck!.execute({
+    // The model's NAME for the list is not the deck's name; the button says the stored one.
+    name: 'Dragapult v2', format: 'standard', cards: [{ card_id: 'sv01-1', quantity: 60 }],
+    deck_id: 'deck-uuid-1', version_note: '  Cut Switch for Jet Energy after Gardevoir losses  ',
+  }, { toolCallId: 'deck-rev' })
+  assert.deepEqual(asked, ['deck-uuid-1'])
+  const block = writes[0]!.data.screen.blocks[0]!
+  assert.deepEqual(block.base, { id: 'deck-uuid-1', name: 'Dragapult ex' })
+  assert.equal(block.versionNote, 'Cut Switch for Jet Energy after Gardevoir losses')
+  assert.equal(block.name, 'Dragapult v2')
+  assert.match(output, /Save button that saves it as the next version of "Dragapult ex".*Do not list its cards again/)
+  assert.equal(events.at(-1)?.summary, 'Showed "Dragapult v2" · 60 cards · a new version of "Dragapult ex"')
+})
+
+test('showDeck with a deck_id that is not the reader\'s still shows the deck, as a new one, and says why', async () => {
+  const writes: DeckScreenWrite[] = []
+  const tools = buildTools(
+    { write: (part) => writes.push(part as DeckScreenWrite) }, undefined, undefined, undefined,
+    { checkDeck: async () => SIXTY, ownedDeck: async () => ({ miss: "No deck 'someone-elses' — your decks are listed by `decks`." }) },
+  ) as unknown as Record<string, ShowDeck>
+  const output = await tools.showDeck!.execute({
+    name: 'Copy', cards: [{ card_id: 'sv01-1', quantity: 60 }], deck_id: 'someone-elses', version_note: 'ignored',
+  }, { toolCallId: 'deck-miss' })
+  const block = writes[0]!.data.screen.blocks[0]!
+  assert.equal(block.base, undefined, 'a deck the reader does not own is never offered as a version')
+  assert.equal(block.versionNote, undefined)
+  assert.match(output, /with a Save button\. Do not list/)
+  assert.match(output, /deck_id "someone-elses" is not one of the reader's decks, so its Save makes a separate deck: No deck 'someone-elses'/)
+})
+
+test('showDeck with a deck_id but no way to check it offers no version', async () => {
+  const writes: DeckScreenWrite[] = []
+  const throwing = buildTools(
+    { write: (part) => writes.push(part as DeckScreenWrite) }, undefined, undefined, undefined,
+    { checkDeck: async () => SIXTY, ownedDeck: async () => { throw new Error('offline') } },
+  ) as unknown as Record<string, ShowDeck>
+  const out1 = await throwing.showDeck!.execute({ name: 'A', cards: [{ card_id: 'sv01-1', quantity: 60 }], deck_id: 'd' }, { toolCallId: 'a' })
+  assert.match(out1, /could not check deck_id "d" \(offline\), so its Save makes a separate deck/)
+  const unwired = buildTools(
+    { write: (part) => writes.push(part as DeckScreenWrite) }, undefined, undefined, undefined, { checkDeck: async () => SIXTY },
+  ) as unknown as Record<string, ShowDeck>
+  const out2 = await unwired.showDeck!.execute({ name: 'B', cards: [{ card_id: 'sv01-1', quantity: 60 }], deck_id: 'd' }, { toolCallId: 'b' })
+  assert.match(out2, /could not be checked here/)
+  assert.deepEqual(writes.map((w) => w.data.screen.blocks[0]!.base), [undefined, undefined])
+})
+
+test('showDeck without a deck_id never looks one up and draws exactly what it always drew', async () => {
+  const writes: DeckScreenWrite[] = []
+  let lookups = 0
+  const tools = buildTools(
+    { write: (part) => writes.push(part as DeckScreenWrite) }, undefined, undefined, undefined,
+    { checkDeck: async () => SIXTY, ownedDeck: async () => { lookups++; return { deck: { id: 'x', name: 'x' } } } },
+  ) as unknown as Record<string, ShowDeck>
+  const output = await tools.showDeck!.execute({ name: 'Fresh', cards: [{ card_id: 'sv01-1', quantity: 60 }] }, { toolCallId: 'fresh' })
+  assert.equal(lookups, 0)
+  assert.deepEqual(Object.keys(writes[0]!.data.screen.blocks[0]!).sort(),
+    ['format', 'issues', 'kind', 'legal', 'missingCostUsd', 'name', 'owned', 'ptcgl', 'sections', 'total'])
+  assert.match(output, /The deck is on screen with a Save button\. Do not list its cards again in words\.$/)
+})
+
 test('showDeck rejects a checked result whose displayed quantities do not equal total', async () => {
   const writes: unknown[] = []
   const tools = buildTools(

@@ -50,6 +50,43 @@ async function test(name, fn) {
 }
 const rejects = (promise, code) => assert.rejects(promise, (e) => { assert.equal(e.code, code, e.message); return true; });
 
+/**
+ * The real decks router behind the real RLS request session, as user A — or
+ * as whoever the request's `x-test-user` names, for the cross-account cases.
+ */
+async function decksApp() {
+  const { default: express } = await import('express');
+  const database = await import('../db.ts');
+  const { decksRouter } = await import('../routes/decks.ts');
+  const { errorMiddleware } = await import('../http.ts');
+  const { requestAccessStore } = await import('../admin/access.ts');
+  const app = express();
+  app.use(express.json());
+  app.use(async (req, res, next) => {
+    const user = req.get('x-test-user') ?? A;
+    req.user = { id: user };
+    req.authKind = 'jwt';
+    const c = await database.pool.connect();
+    await c.query(`BEGIN; SELECT set_config('request.jwt.claims', $$${JSON.stringify({ sub: user, role: 'authenticated', deckpal_auth_kind: 'jwt', deckpal_server_request: true })}$$, true); SET LOCAL role = 'authenticated'`);
+    let done = false;
+    const finish = async (sql) => { if (done) return; done = true; try { await c.query(sql); c.release(); } catch { c.release(true); } };
+    res.once('finish', () => void finish('COMMIT; RESET ROLE'));
+    res.once('close', () => void finish('ROLLBACK; RESET ROLE'));
+    database.rlsStore.run(c, () => requestAccessStore.run(new Map(), next));
+  });
+  app.use('/decks', decksRouter);
+  app.use(errorMiddleware);
+  const server = await new Promise((resolveServer) => { const s = app.listen(0, '127.0.0.1', () => resolveServer(s)); });
+  const post = async (path, body, user) => {
+    const r = await fetch(`http://127.0.0.1:${server.address().port}${path}`, {
+      method: 'POST', headers: { 'content-type': 'application/json', ...(user ? { 'x-test-user': user } : {}) },
+      body: JSON.stringify(body), signal: AbortSignal.timeout(10000),
+    });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  };
+  return { server, post };
+}
+
 /** One transaction as `role` (with `user` as the JWT subject), always rolled back. */
 async function as(role, user, fn, extraClaims = {}) {
   assert.ok(role === 'anon' || role === 'authenticated');
@@ -488,33 +525,7 @@ try {
     });
 
     await test('POST /decks/save writes a whole deck or nothing, replays a retry, and a deleted deck can be saved again', async () => {
-      const { default: express } = await import('express');
-      const database = await import('../db.ts');
-      const { decksRouter } = await import('../routes/decks.ts');
-      const { errorMiddleware } = await import('../http.ts');
-      const { requestAccessStore } = await import('../admin/access.ts');
-      const app = express();
-      app.use(express.json());
-      app.use(async (req, res, next) => {
-        req.user = { id: A };
-        req.authKind = 'jwt';
-        const c = await database.pool.connect();
-        await c.query(`BEGIN; SELECT set_config('request.jwt.claims', $$${JSON.stringify({ sub: A, role: 'authenticated', deckpal_auth_kind: 'jwt', deckpal_server_request: true })}$$, true); SET LOCAL role = 'authenticated'`);
-        let done = false;
-        const finish = async (sql) => { if (done) return; done = true; try { await c.query(sql); c.release(); } catch { c.release(true); } };
-        res.once('finish', () => void finish('COMMIT; RESET ROLE'));
-        res.once('close', () => void finish('ROLLBACK; RESET ROLE'));
-        database.rlsStore.run(c, () => requestAccessStore.run(new Map(), next));
-      });
-      app.use('/decks', decksRouter);
-      app.use(errorMiddleware);
-      const server = await new Promise((resolveServer) => { const s = app.listen(0, '127.0.0.1', () => resolveServer(s)); });
-      const post = async (path, body) => {
-        const r = await fetch(`http://127.0.0.1:${server.address().port}${path}`, {
-          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(10000),
-        });
-        return { status: r.status, body: await r.json().catch(() => null) };
-      };
+      const { server, post } = await decksApp();
       const decksNamed = async (name) => Number((await db.query(
         'SELECT count(*) FROM deck WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL', [A, name])).rows[0].count);
       try {
@@ -593,6 +604,77 @@ try {
         assert.equal(againRetry.status, 200, JSON.stringify(againRetry.body));
         assert.equal(againRetry.body.replayed, true);
         assert.equal(await decksNamed('Atomic'), 1, 'the retry of a re-save does not make a twin');
+      } finally {
+        server.closeAllConnections();
+        await new Promise((resolveClose) => server.close(() => resolveClose()));
+      }
+    });
+
+    // The deck widget's "Save as new version" (2026-10-10). The audit: "make a
+    // v2 of my Dragapult deck" could only be saved as a SECOND deck, leaving the
+    // version history and the battle logs on the first.
+    await test('POST /decks/save newVersion lands a revision as the next version of the reader\'s own deck, and only theirs', async () => {
+      const { server, post } = await decksApp();
+      const versions = async (deckId) => (await db.query(
+        'SELECT version, note, cards FROM deck_version WHERE deck_id = $1 ORDER BY version', [deckId])).rows
+        .map((r) => ({ v: r.version, note: r.note, cards: r.cards.map((c) => `${c.tcgdexId}x${c.quantity}`).sort().join(' ') }));
+      try {
+        const first = await post('/decks/save', { name: 'Revisable', cards: [{ cardId: 'rch2.5-001', quantity: 3 }, { cardId: 'rch2.5-003', quantity: 2 }] });
+        assert.equal(first.status, 201, JSON.stringify(first.body));
+        const deckId = first.body.deck.id;
+        // The reader chose and pinned a printing; a version must not undo that.
+        const doubler = (await db.query("SELECT id FROM card WHERE tcgdex_id = 'rch2.5-003'")).rows[0].id;
+        const alt = (await db.query("SELECT id FROM card_variant WHERE card_id = $1 AND variant_kind_code = 'reach-alt'", [doubler])).rows[0].id;
+        await db.query('UPDATE deck_card SET card_variant_id = $3, pin_exact = true WHERE deck_id = $1 AND card_id = $2', [deckId, doubler, alt]);
+
+        // v1 was never played. An ordinary edit would amend it in place and the
+        // v1 list would be gone; a new version keeps it.
+        const v2 = await post('/decks/save', { deckId, newVersion: true, versionNote: 'Fourth Flipper',
+          cards: [{ cardId: 'rch2.5-001', quantity: 4 }, { cardId: 'rch2.5-003', quantity: 2 }] });
+        assert.equal(v2.status, 200, JSON.stringify(v2.body));
+        assert.deepEqual([v2.body.deck.version, v2.body.bumped], [2, true]);
+        assert.deepEqual(await versions(deckId), [
+          { v: 1, note: null, cards: 'rch2.5-001x3 rch2.5-003x2' },
+          { v: 2, note: 'Fourth Flipper', cards: 'rch2.5-001x4 rch2.5-003x2' },
+        ]);
+        assert.deepEqual((await db.query('SELECT card_variant_id::text AS v, pin_exact FROM deck_card WHERE deck_id = $1 AND card_id = $2', [deckId, doubler])).rows,
+          [{ v: String(alt), pin_exact: true }], 'the pinned printing survives the version');
+
+        // Played on v2, then revised: the game stays on v2, on THIS deck.
+        await db.query("INSERT INTO battle_log (deck_id, deck_version, raw_log, user_id) VALUES ($1, 2, 'a game', $2)", [deckId, A]);
+        const v3 = await post('/decks/save', { deckId, newVersion: true, versionNote: 'Back to three',
+          cards: [{ cardId: 'rch2.5-001', quantity: 3 }, { cardId: 'rch2.5-003', quantity: 2 }] });
+        assert.deepEqual([v3.status, v3.body.deck.version, v3.body.bumped], [200, 3, true], JSON.stringify(v3.body));
+        assert.deepEqual((await db.query('SELECT deck_id, deck_version FROM battle_log WHERE deck_id = $1', [deckId])).rows,
+          [{ deck_id: deckId, deck_version: 2 }]);
+        assert.equal(Number((await db.query("SELECT count(*) FROM deck WHERE user_id = $1 AND name = 'Revisable'", [A])).rows[0].count), 1,
+          'a version never makes a second deck');
+
+        // The same list again changes nothing, so it writes nothing — no v4,
+        // no touched deck — and says so. Its retry replays that answer.
+        const touched = (await db.query('SELECT updated_at::text AS at FROM deck WHERE id = $1', [deckId])).rows[0].at;
+        const same = await post('/decks/save', { deckId, newVersion: true, versionNote: 'nothing',
+          cards: [{ cardId: 'rch2.5-003', quantity: 2 }, { cardId: 'rch2.5-001', quantity: 3 }] });
+        assert.deepEqual([same.status, same.body.deck.version, same.body.bumped], [200, 3, false], JSON.stringify(same.body));
+        assert.equal((await versions(deckId)).length, 3);
+        assert.equal((await db.query('SELECT updated_at::text AS at FROM deck WHERE id = $1', [deckId])).rows[0].at, touched);
+        const sameRetry = await post('/decks/save', { deckId, newVersion: true, versionNote: 'nothing',
+          cards: [{ cardId: 'rch2.5-001', quantity: 3 }, { cardId: 'rch2.5-003', quantity: 2 }] });
+        assert.deepEqual([sameRetry.body.replayed, sameRetry.body.bumped], [true, false]);
+
+        // An ordinary edit keeps the old rule: v3 is unplayed, so it is amended.
+        const plain = await post('/decks/save', { deckId, cards: [{ cardId: 'rch2.5-001', quantity: 2 }, { cardId: 'rch2.5-003', quantity: 2 }] });
+        assert.deepEqual([plain.status, plain.body.deck.version, plain.body.bumped], [200, 3, false], JSON.stringify(plain.body));
+
+        // Someone else's deck cannot be versioned, whatever id they send.
+        const theirs = await post('/decks/save', { deckId, newVersion: true, cards: [{ cardId: 'rch2.5-004', quantity: 4 }] }, B);
+        assert.equal(theirs.status, 404, JSON.stringify(theirs.body));
+        assert.equal((await versions(deckId)).length, 3);
+        assert.equal(Number((await db.query(
+          "SELECT count(*) FROM mutation_batch WHERE user_id = $1 AND tool = 'deck.save'", [B])).rows[0].count), 0);
+
+        const loose = await post('/decks/save', { name: 'Loose', newVersion: true, cards: [{ cardId: 'rch2.5-001', quantity: 1 }] });
+        assert.equal(loose.status, 400, 'a new deck starts at v1; newVersion needs a deck');
       } finally {
         server.closeAllConnections();
         await new Promise((resolveClose) => server.close(() => resolveClose()));

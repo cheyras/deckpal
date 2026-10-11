@@ -577,6 +577,13 @@ export function buildTools(
   onEvent?: (e: ToolEvent) => void,
   opts?: {
     checkDeck?: (input: { format?: string; cards: { card_id: string; quantity: number }[] }) => Promise<DeckCheckResult>
+    /**
+     * Find a deck among the READER'S OWN, as the reader — `showDeck`'s
+     * `deck_id`. A miss comes back as the sentence saying why (with the
+     * reader's real deck ids when there are near misses), never as a guess.
+     * Absent in the dev preview and the tests, where nobody owns anything.
+     */
+    ownedDeck?: (ref: string) => Promise<{ deck: { id: string; name: string } } | { miss: string }>
     db?: Queryable
     userId?: string
     conversationId?: string
@@ -590,6 +597,24 @@ export function buildTools(
   }
   const ended = (id: string, name: string, title: string, summary: string): void => {
     onEvent?.({ phase: 'ok', id, name, title, summary })
+  }
+  /**
+   * The reader's own deck a shown list revises — or, when there is none to
+   * offer, the reason, for the model. Never a failure of the show itself: a
+   * deck that cannot be versioned can still be shown and saved as a new one.
+   */
+  const revisionOf = async (deckId: string | undefined): Promise<{ base?: { id: string; name: string }; problem?: string }> => {
+    if (!deckId) return {}
+    const fallback = 'so its Save makes a separate deck'
+    if (!opts?.ownedDeck) return { problem: `deck_id "${deckId}" could not be checked here, ${fallback}` }
+    try {
+      const found = await opts.ownedDeck(deckId)
+      if ('deck' in found) return { base: found.deck }
+      return { problem: `deck_id "${deckId}" is not one of the reader's decks, ${fallback}: ${found.miss}` }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      return { problem: `could not check deck_id "${deckId}" (${reason}), ${fallback}` }
+    }
   }
   return {
     express: tool({
@@ -937,7 +962,8 @@ export function buildTools(
 
     showDeck: tool({
       description:
-        'Show a complete proposed or revised deck as a card widget with Save and builder actions. Use this whenever proposing or revising a whole deck, and only after check_deck has checked the list.',
+        'Show a complete proposed or revised deck as a card widget with Save and builder actions. Use this whenever proposing or revising a whole deck, and only after check_deck has checked the list. ' +
+        "When the list is a revision of one of the reader's existing decks, pass that deck's deck_id: the widget then offers to save it as the next version of that deck, keeping its history and battle logs, instead of as a separate deck.",
       inputSchema: z.object({
         name: z.string().trim().min(1).max(80),
         format: z.string().trim().min(1).max(24).default('standard'),
@@ -946,8 +972,34 @@ export function buildTools(
           quantity: z.number().int().min(1).max(60),
         })).min(1).max(60),
         note: z.string().trim().max(500).optional(),
+        // ── OPTIONAL, AND ABSENT MEANS EXACTLY WHAT IT ALWAYS DID ───────────
+        //
+        // Without it the widget's Save makes a NEW deck, which was the only
+        // thing it could do — so "make a v2 of my Dragapult deck" saved a twin,
+        // and the version history and battle logs stayed on the old one. With
+        // it, and only once the server has found that deck among the reader's
+        // own, Save writes the list as that deck's next version.
+        deck_id: z
+          .string()
+          .trim()
+          .min(1)
+          .max(120)
+          .optional()
+          .describe(
+            "Only for a revision of a deck the reader already has: that deck's id, as `decks` returned it. " +
+              'Leave it out for a brand-new deck.',
+          ),
+        version_note: z
+          .string()
+          .trim()
+          .max(500)
+          .optional()
+          .describe(
+            'With deck_id: one short line saying what changed and why (e.g. "cut Switch for Jet Energy after losses to Gardevoir"). ' +
+              'The reader sees it, can edit it, and it is saved on the version.',
+          ),
       }),
-      execute: async ({ name, format, cards }, { toolCallId }) => {
+      execute: async ({ name, format, cards, deck_id, version_note }, { toolCallId }) => {
         began(toolCallId, 'showDeck', 'Show a deck', { name, format, cards })
         let checked: DeckCheckResult | null = null
         try {
@@ -1021,14 +1073,34 @@ export function buildTools(
             `Ids to verify again: ${cards.map((card) => card.card_id).join(', ')}. ` +
             'Run check_deck for them before trying showDeck again.'
         }
-        writer.write({ type: 'data-decke-screen', data: { screen }, transient: true })
-        const summary = `Showed "${name}" · ${total} cards`
+        // ── THE DECK IT REVISES, FOUND AMONG THE READER'S OWN ───────────────
+        //
+        // The id is the model's; the deck is not. `ownedDeck` resolves it
+        // through the API as the reader (their token, under RLS), so an id
+        // from another account, a deleted deck or a guess finds nothing, and
+        // the widget falls back to saving a new deck — it never offers a
+        // version of a deck the reader does not own. The name shown is the
+        // stored one, never the model's. `/decks/save` checks ownership again
+        // when the reader presses Save; neither check trusts the other.
+        const revision = await revisionOf(deck_id)
+        const versionNote = revision.base ? version_note?.trim().slice(0, 500) || undefined : undefined
+        const shown = revision.base
+          ? { ...screen, blocks: [{ ...cleanDeck, base: revision.base, ...(versionNote ? { versionNote } : {}) }] }
+          : screen
+        writer.write({ type: 'data-decke-screen', data: { screen: shown }, transient: true })
+        const summary = revision.base
+          ? `Showed "${name}" · ${total} cards · a new version of "${revision.base.name}"`
+          : `Showed "${name}" · ${total} cards`
         ended(toolCallId, 'showDeck', 'Show a deck', summary)
         const legality = checked ? checked.legal === true ? 'legal' : checked.legal === false ? 'not legal' : 'legality unknown' : 'could not be checked'
         const cost = checked?.missing_cost_usd == null ? 'missing cost unavailable' : `missing cost about $${checked.missing_cost_usd.toFixed(2)}`
+        const save = revision.base
+          ? `a Save button that saves it as the next version of "${revision.base.name}" (or as a separate deck)`
+          : 'a Save button'
         const line = `${total} cards · ${legality} · own ${checked?.owned ?? 0}/${total} · ${cost}. ` +
-          'The deck is on screen with a Save button. Do not list its cards again in words.'
-        return dropped.length ? `${line} (${dropped.join('; ')})` : line
+          `The deck is on screen with ${save}. Do not list its cards again in words.`
+        const notes = [...dropped, ...(revision.problem ? [revision.problem] : [])]
+        return notes.length ? `${line} (${notes.join('; ')})` : line
       },
     }),
 

@@ -604,11 +604,32 @@ function saveDeckKey(input: {
   // The deck's updated_at before this write. An edit's key must change when the
   // deck does, or A → B → A would replay the first save and leave the deck on B.
   state: string | null;
+  newVersion?: true;
 }): string {
   const cards = input.cards === undefined
     ? null
     : [...input.cards].sort((a, b) => a.cardId.localeCompare(b.cardId));
-  return contentKey('deck-save', { ...input, cards });
+  // `newVersion` joins the key only when it is asked for, so every key a
+  // caller derived before the field existed is still the key it derives now.
+  const { newVersion, ...rest } = input;
+  return contentKey('deck-save', { ...rest, cards, ...(newVersion ? { newVersion } : {}) });
+}
+
+/**
+ * `newVersion: true` — "this whole list is a new version of the deck".
+ *
+ * An ordinary edit follows the auto-bump rule (deck/versions.ts): it amends an
+ * unplayed version in place, so a burst of stepper taps stays one version. A
+ * revision the reader saves from Deck-E's deck widget is not stepper noise. It
+ * is one deliberate act, like a revert, and amending would erase the only copy
+ * of the list it replaces (DECISIONS 2026-09-26). So it always lands as the next
+ * version — unless it changes nothing, and then it writes nothing.
+ */
+function parseNewVersion(value: unknown, deckId: string | null): boolean {
+  if (value === undefined || value === null || value === false) return false;
+  if (value !== true) throw badRequest('newVersion must be true or false');
+  if (!deckId) throw badRequest('newVersion needs deckId — a new deck starts at v1');
+  return true;
 }
 
 async function resolveRetryKey(userId: string, key: string): Promise<{ key: string; replay: StoredBatch | null }> {
@@ -643,6 +664,7 @@ decksRouter.post(
     const deckId = body.deckId === undefined || body.deckId === null || String(body.deckId).trim() === ''
       ? null
       : parseDeckId(String(body.deckId));
+    const newVersion = parseNewVersion(body.newVersion, deckId);
     const cards = parseSaveDeckCards(body.cards);
     const requestedName = body.name === undefined ? null : parseName(body.name);
     if (!deckId && !requestedName) throw badRequest('name is required to create a deck');
@@ -660,17 +682,20 @@ decksRouter.post(
       ? body.idempotencyKey.trim()
       : saveDeckKey({
           deckId, name: requestedName, format: formatGiven ? format : null, glcType: glcGiven,
-          cards, state: before?.updated_at ?? null,
+          cards, state: before?.updated_at ?? null, ...(newVersion ? { newVersion: true as const } : {}),
         });
     if (requestedKey.length > 200) throw badRequest('idempotencyKey must be 200 characters or fewer');
     const { key: callerKey, replay } = await resolveRetryKey(userId, requestedKey);
     const keys = [callerKey];
 
-    let outcome: { deckId: string; created: boolean; replayed: boolean };
+    // `bumped`: whether this write made a NEW version (rather than amending the
+    // current one, or changing nothing). Stored with the result so a replay says
+    // the same; a result stored before the field existed replays as false.
+    let outcome: { deckId: string; created: boolean; replayed: boolean; bumped: boolean };
     if (replay) {
-      const stored = replay.response as { deckId?: string; created?: boolean } | null;
+      const stored = replay.response as { deckId?: string; created?: boolean; bumped?: boolean } | null;
       if (!stored?.deckId) throw badRequest('saved deck replay is missing its deck id');
-      outcome = { deckId: stored.deckId, created: stored.created === true, replayed: true };
+      outcome = { deckId: stored.deckId, created: stored.created === true, replayed: true, bumped: stored.bumped === true };
     } else {
       try {
         outcome = await withTx(async (client) => {
@@ -701,6 +726,7 @@ decksRouter.post(
           let id = deckId;
           let created = false;
           let formatChanged = false;
+          let cardsChanged = false;
           if (!id) {
             const glcType = format === 'glc' ? (glcGiven ?? glcTypes()[0] ?? null) : null; // NOT NULL constraint for glc
             const inserted = await client.query<{ id: string }>(
@@ -762,6 +788,7 @@ decksRouter.post(
               for (const cardId of held.keys()) {
                 if (!want.has(cardId)) {
                   await client.query(`DELETE FROM deck_card WHERE deck_id = $1 AND card_id = $2 AND user_id = $3`, [id, cardId, userId]);
+                  cardsChanged = true;
                 }
               }
               for (const [cardId, line] of want) {
@@ -771,6 +798,7 @@ decksRouter.post(
                     `INSERT INTO deck_card (deck_id, card_id, card_variant_id, user_id, quantity) VALUES ($1, $2, $3, $4, $5)`,
                     [id, cardId, await resolveVariantId(client, cardId, null), userId, line.quantity],
                   );
+                  cardsChanged = true;
                   continue;
                 }
                 const total = printings.reduce((sum, p) => sum + p.quantity, 0);
@@ -785,29 +813,39 @@ decksRouter.post(
                   `UPDATE deck_card SET quantity = $4 WHERE deck_id = $1 AND card_variant_id = $2 AND user_id = $3`,
                   [id, printings[0]!.variantId, userId, line.quantity],
                 );
+                cardsChanged = true;
               }
             }
-            await client.query(`UPDATE deck SET updated_at = now() WHERE id = $1 AND user_id = $2`, [id, userId]);
+            // A new version that changes nothing writes nothing: no version, no
+            // touched deck. Every other caller keeps the old behaviour exactly.
+            if (!newVersion || cardsChanged) {
+              await client.query(`UPDATE deck SET updated_at = now() WHERE id = $1 AND user_id = $2`, [id, userId]);
+            }
           }
 
-          if (created || cards !== undefined || formatChanged) {
-            await recordDeckChange(client, id, { source, note: versionNote });
+          const versionable = created || cards !== undefined || formatChanged;
+          const nothingToVersion = newVersion && !cardsChanged && !formatChanged;
+          let bumped = false;
+          if (versionable && !nothingToVersion) {
+            bumped = (await recordDeckChange(client, id, {
+              source, note: versionNote, ...(newVersion ? { forceBump: true } : {}),
+            })).bumped;
           }
           await recordEvents(client, batchId, userId, [{
             entityType: 'deck', entityId: id, operation: OPS.deckCards,
             before: created ? null : { cardsReplaced: cards !== undefined, formatChanged },
             after: { name: requestedName, format: created || formatChanged ? format : null, cards: cards ?? null },
           }]);
-          const stored = { deckId: id, created };
+          const stored = { deckId: id, created, bumped };
           await closeBatch(client, batchId, stored, { cards: want.size, created });
           return { ...stored, replayed: false };
         });
       } catch (error) {
         if (!(error instanceof ReplayError)) throw error;
         const stored = await withTx((client) => loadBatchResponse(client, userId, keys));
-        const response = stored.response as { deckId?: string; created?: boolean } | null;
+        const response = stored.response as { deckId?: string; created?: boolean; bumped?: boolean } | null;
         if (!response?.deckId) throw badRequest('saved deck replay is missing its deck id');
-        outcome = { deckId: response.deckId, created: response.created === true, replayed: true };
+        outcome = { deckId: response.deckId, created: response.created === true, replayed: true, bumped: response.bumped === true };
       }
     }
 
@@ -815,7 +853,8 @@ decksRouter.post(
     if (!meta) throw notFound(`No deck '${outcome.deckId}'`);
     const payload = await detailPayload(meta, userId);
     userCache(res);
-    res.status(outcome.created && !outcome.replayed ? 201 : 200).json({ ...payload, replayed: outcome.replayed });
+    res.status(outcome.created && !outcome.replayed ? 201 : 200)
+      .json({ ...payload, replayed: outcome.replayed, bumped: outcome.bumped });
   }),
 );
 

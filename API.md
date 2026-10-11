@@ -1079,10 +1079,12 @@ with `resolved:false`; no deck or collection data is written.
 
 ### POST /deckpal/api/decks/save
 Create a deck, or set an existing deck's card list, in ONE transaction. This is what
-`save_deck` (Deck-E and MCP) writes through. Body `{ "deckId"? (edit when present),
+`save_deck` (Deck-E and MCP) writes through, and what Deck-E's deck widget uses to save
+a revision as a new version. Body `{ "deckId"? (edit when present),
 "name"? (required to create), "formatCode"|"format"?, "glcType"?, "cards"?:
 [{ "cardId", "quantity" 1..60 }] (≤60 distinct; the whole intended list when present),
-"versionNote"?, "source"?, "idempotencyKey"? (≤200) }`. Every `cardId` (a TCGdex id or a
+"versionNote"?, "newVersion"? (boolean, edits only), "source"?, "idempotencyKey"? (≤200) }`.
+`deckId` must be one of the caller's own live decks (`404` otherwise). Every `cardId` (a TCGdex id or a
 catalogue id; two refs to one card are summed) is resolved before anything is written;
 one that does not resolve fails the whole request with `400` naming every bad id, and
 nothing is saved.
@@ -1098,8 +1100,17 @@ nothing is saved.
   `"replayed": true`) only while the deck it made is alive and unchanged since; once it
   was deleted or edited the key moves to its next generation, so a later identical save
   writes normally and a retry of THAT save replays it.
+- **Versions.** An ordinary edit follows the auto-bump rule: a new version only when the
+  current one has battle logs, otherwise the current snapshot is amended. `"newVersion":
+  true` (2026-10-10, the deck widget's "Save as new version") always lands a CHANGED list
+  as the next version, so the list it replaces stays in the history; a list the deck
+  already matches writes nothing (no version, `updated_at` untouched). Without `deckId` it
+  is a `400` — a new deck starts at v1. `newVersion` joins the derived retry key only when
+  it is `true`, so keys derived without it are unchanged.
 
-`201` (create) or `200` returns the detail payload plus `replayed`.
+`201` (create) or `200` returns the detail payload plus `replayed` and `bumped` (whether
+this write created a new version; a replay repeats the stored answer, `false` for results
+stored before 2026-10-10).
 
 ### POST /deckpal/api/decks/import
 Paste a decklist and create a new deck from it. Body `{ "text" (required, ≤20000),

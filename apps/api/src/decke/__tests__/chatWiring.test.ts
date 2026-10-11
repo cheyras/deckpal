@@ -386,9 +386,13 @@ test('Anthropic prompt caching, deck checks and the expanded step budget are wir
   assert.match(CODE, /cacheControl: \{ type: 'ephemeral' \}/);
   // Through apps/api/dist, never '@deckpal/agent-tools' directly: the root
   // package does not declare it, so the deployed function could not load it.
-  assert.match(CODE, /import \{ checkDeck \} from '\.\.\/apps\/api\/dist\/decke\/deckCheck\.js'/);
+  assert.match(CODE, /import \{ checkDeck, ownedDeck \} from '\.\.\/apps\/api\/dist\/decke\/deckCheck\.js'/);
   assert.doesNotMatch(CODE, /from '@deckpal\/agent-tools'/);
+  // Both take the turn's tool OPTIONS and build the tool Ctx themselves
+  // (deckCheck.ts). `toolCtx` has no `api`; handing it to the shared
+  // `checkDeck(ctx, …)` directly is what made every showDeck throw.
   assert.match(CODE, /checkDeck: \(input\) => checkDeck\(toolCtx, input\)/);
+  assert.match(CODE, /ownedDeck: \(ref\) => ownedDeck\(toolCtx, ref\)/);
   assert.match(CODE, /for \(const output of replayedToolOutputs\(messages\)\) grounding\.observe\(output\)/);
 });
 
