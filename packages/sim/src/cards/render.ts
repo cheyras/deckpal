@@ -282,6 +282,10 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c27.lookDeckPick': (a) => `Look at the ${a.from === 'bottom' ? 'bottom' : 'top'} ${Number(a.n ?? 7)} cards of your deck. You may reveal ${((a.picks as Filter[]) ?? []).map((p) => (p.cat === 'trainer' ? 'a Trainer card' : p.cat === 'pokemon' ? 'a Pokémon' : 'a card')).join(' and ')} you find there and put ${((a.picks as Filter[]) ?? []).length > 1 ? 'them' : 'it'} into your hand. Shuffle the other cards back into your deck`,
   'c27.discardOppToolsAndSpecialEnergy': () => "Discard all Pokémon Tools and Special Energy from all of your opponent's Pokémon (Active and Benched)",
   'c27.moveEnergyBetween': (a) => `You may choose 1 or more of the Energy attached to the Pokémon "${String(a.from ?? 'old')}" and move them to the Pokémon "${String(a.to ?? 't')}"`,
+  // std-c29-customs.ts
+  'c29.attackingPokemon': (a) => `Choose the Pokémon that used the attack that Knocked Out this Pokémon (into "${String(a.as ?? 'a')}"); none when it is no longer in play`,
+  'c29.lookTopTakeAny': (a) => `Look at the top ${Number(a.n ?? 4)} cards of your deck. You may reveal any number of ${noun(a.filter as Filter | undefined).pl} you find there and put them into your hand. Shuffle the other cards back into your deck (the deck is shuffled even when none are left)`,
+  'c29.countEnergyOnPokemon': (a) => `Count the ${sym(a.type as PType)} Energy attached to all of your ${String((a.slotFilter as Filter | undefined)?.nameIncludes ?? '')} Pokémon (an Energy that provides every type counts once) (into "${String(a.as ?? 'n')}")`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -2185,5 +2189,10 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv08-176|text': {
     problems: ['"any number of" is printed but not rendered'],
     why: 'Any number of Basic Energy of different types is one card of each of the 8 types at most (oneEach, 0 to 8 cards), which renders as the list of types; the ruling (#2063) that a type can be taken only once is what the list says.',
+  },
+  // std-c29
+  'sv09-004|attack:Leech Life': {
+    problems: ['similarity'],
+    why: '"The same amount of damage you did" is measured as the change in the Defending Pokémon\'s damage counters across the attack (snapshot before, difference after), so the renderer spells out the arithmetic instead of the printed phrase; the card test checks it heals exactly the damage dealt, after Weakness.',
   },
 };
