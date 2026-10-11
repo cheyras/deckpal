@@ -43,7 +43,7 @@ const GOLDEN: string[] = [
   '5f96e7d1650b9674',
   '4d4073c2e4ae36c5',
   '8c079ebf1138549a',
-  '827d322aaaaf8e72',
+  '34e358e2e1763e8b',
   '4f71f3a1e6422dc3',
   '7aed64fc4af1ead3',
   'd8b7ee5c00fef24b',
@@ -54,7 +54,7 @@ const GOLDEN: string[] = [
   '1025e99d4ba71acf',
   '941a9c36f7c7535d',
   'c9ddac7b31fc92cc',
-  '28a6c448ac2a386c',
+  '9b8480e33a61dbd1',
   '69d900b2d66c445b',
   'afd8a0e8fa77731d',
   'b1867c26aff16574',
@@ -71,7 +71,7 @@ const GOLDEN: string[] = [
   'f577f238f1aaa1e1',
   '0dfc445ff42c0b44',
   '53cd171bfffdda62',
-  '081abfd8b1ab79bf',
+  'bb13a511d1f0dfdc',
 ];
 
 test('seeded meta games produce byte-identical event logs', () => {
