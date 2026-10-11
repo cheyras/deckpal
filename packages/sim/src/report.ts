@@ -130,11 +130,11 @@ export function buildReport(input: BuildReportInput): SimReport {
 // ---------------------------------------------------------------------------
 
 
-const pct = (x: number | null | undefined) => (x == null ? '–' : `${Math.round(x * 100)}%`);
+export const pct = (x: number | null | undefined) => (x == null ? '–' : `${Math.round(x * 100)}%`);
 const num = (x: number | null | undefined) => (x == null ? '–' : `${Math.round(x * 100)}`);
 
 /** "36% [15–65%, n=11]": the bracket is the Wilson 95% interval (the key line says so). */
-function rateText(r: Rate): string {
+export function rateText(r: Rate): string {
   if (!r.n) return '– (n=0)';
   return `${pct(r.p)} [${num(r.lo)}–${pct(r.hi)}, n=${r.n}]`;
 }
@@ -143,7 +143,7 @@ function shortRate(r: Rate): string {
   return r.n ? `${pct(r.p)} (n=${r.n})` : '– (n=0)';
 }
 
-function recordText(m: { wins: number; losses: number; draws: number; timeouts: number; errors: number }): string {
+export function recordText(m: { wins: number; losses: number; draws: number; timeouts: number; errors: number }): string {
   const parts = [`${m.wins}W–${m.losses}L`];
   parts.push(`${m.draws} draw${m.draws === 1 ? '' : 's'}`);
   parts.push(`${m.timeouts} time-out${m.timeouts === 1 ? '' : 's'}`);
@@ -212,24 +212,23 @@ function impactLines(r: SimReport, max: number): string[] {
   return out;
 }
 
+export const COVERAGE_KEY = 'Coverage — approx: attacks deal printed damage, effects and Abilities ignored; unplayable: never played.';
+
+/** One deck's coverage line, with at most `maxNames` names per list. */
+export function coverageLine(c: DeckCoverage, label: string, maxNames: number): string {
+  if (!c.approx.length && !c.none.length) return `  ${label}: all ${c.total} cards fully played.`;
+  const names = (xs: { name: string; count: number }[]) => {
+    const shown = xs.slice(0, maxNames).map((x) => `${x.count} ${x.name}`);
+    return xs.length > maxNames ? `${shown.join(', ')} +${xs.length - maxNames} more` : shown.join(', ');
+  };
+  const parts = [`${c.covered}/${c.total} fully played`];
+  if (c.approx.length) parts.push(`approx ${names(c.approx)}`);
+  if (c.none.length) parts.push(`unplayable ${names(c.none)}`);
+  return `  ${label}: ${parts.join('; ')}.`;
+}
+
 function coverageLines(r: SimReport, maxNames: number): string[] {
-  const out = ['Coverage — approx: attacks deal printed damage, effects and Abilities ignored; unplayable: never played.'];
-  r.coverage.forEach((c, i) => {
-    const label = i === 0 ? `${c.deck} (yours)` : `#${i} ${c.deck}`;
-    if (!c.approx.length && !c.none.length) {
-      out.push(`  ${label}: all ${c.total} cards fully played.`);
-      return;
-    }
-    const names = (xs: { name: string; count: number }[]) => {
-      const shown = xs.slice(0, maxNames).map((x) => `${x.count} ${x.name}`);
-      return xs.length > maxNames ? `${shown.join(', ')} +${xs.length - maxNames} more` : shown.join(', ');
-    };
-    const parts = [`${c.covered}/${c.total} fully played`];
-    if (c.approx.length) parts.push(`approx ${names(c.approx)}`);
-    if (c.none.length) parts.push(`unplayable ${names(c.none)}`);
-    out.push(`  ${label}: ${parts.join('; ')}.`);
-  });
-  return out;
+  return [COVERAGE_KEY, ...r.coverage.map((c, i) => coverageLine(c, i === 0 ? `${c.deck} (yours)` : `#${i} ${c.deck}`, maxNames))];
 }
 
 function render(r: SimReport, detail: Detail, impactMax: number, coverageMax: number): string {

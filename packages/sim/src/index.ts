@@ -31,3 +31,12 @@ export {
   CAVEAT, RANDOM_PILOT_WARNING, buildReport, deckCoverage, renderReport,
   type BuildReportInput, type CoverageLine, type DeckCoverage, type SimReport,
 } from './report.js';
+export {
+  MIN_VERDICT_PAIRS, deckChanges, diffOf, gameScore, pairClusters, pairedDiff, pairedOverall, runPaired, simulatePaired,
+  simulatePairedAsync, t95,
+  type CardChange, type PairedDiff, type PairedOptions, type PairedSimulation, type Verdict,
+} from './compare.js';
+export {
+  PAIRED_METHOD, buildComparison, renderComparison,
+  type BuildComparisonInput, type ChangedCardImpact, type ComparisonMatchup, type ComparisonReport,
+} from './compareReport.js';
