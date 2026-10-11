@@ -28,10 +28,15 @@ import cv2
 import numpy as np
 
 def queue_dir() -> Path:
-    """SCAN_QUEUE_DIR (absolute, outside the repo) or ~/deckpal-data/quad-queue."""
+    """SCAN_QUEUE_DIR (outside the repo) or ~/deckpal-data/quad-queue.
+
+    The check compares REAL paths (symlinks and junctions resolved by
+    os.path.realpath) case-folded with os.path.normcase, so neither a junction
+    nor a different-case spelling of the checkout on Windows gets past it."""
     q = Path(os.environ.get("SCAN_QUEUE_DIR") or Path.home() / "deckpal-data" / "quad-queue").resolve()
-    repo = Path(__file__).resolve().parents[2]
-    if q == repo or repo in q.parents:
+    real = lambda p: os.path.normcase(os.path.realpath(p))
+    repo, target = real(Path(__file__).resolve().parents[2]), real(q)
+    if target == repo or target.startswith(repo + os.sep):
         raise SystemExit(f"SCAN_QUEUE_DIR resolves inside the repo ({q}); the owner's photos must stay outside git")
     return q
 
@@ -95,15 +100,18 @@ def candidates(img: np.ndarray) -> list[np.ndarray]:
     # CONTAINS two or more other candidates is such a page, not a card: drop it.
     # (Centre-distance de-duplication used to keep the page and drop the cards
     # whose centres sat near its centre — a whole middle row of a 3x3 page.)
-    out = [q for q in out if sum(1 for o in out if o is not q and _contains(q, o)) < 2]
-    # Then de-duplicate by OVERLAP: a card and its own sleeve or inner border
-    # overlap ~0.85; neighbouring cards barely at all. Keep the larger.
+    #
+    # De-duplicate FIRST, by overlap: a card and its own sleeve or inner border
+    # overlap ~0.85, neighbouring cards barely at all; keep the larger. Only then
+    # count containment, over DISTINCT regions — one card's art box can yield
+    # several near-identical contours, and counting those would reject the card
+    # itself as a "page" (Astra review of #298).
     out.sort(key=lambda q: -cv2.contourArea(q))
     kept: list[np.ndarray] = []
     for q in out:
         if all(_iou(q, k) < 0.5 for k in kept):
             kept.append(q)
-    return kept
+    return [q for q in kept if sum(1 for o in kept if o is not q and _contains(q, o)) < 2]
 
 
 def _poly(q: np.ndarray) -> np.ndarray:

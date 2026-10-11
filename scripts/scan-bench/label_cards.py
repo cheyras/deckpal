@@ -46,10 +46,15 @@ sys.path.insert(0, str(HERE))
 import embed as E  # noqa: E402
 
 def queue_dir() -> Path:
-    """SCAN_QUEUE_DIR (absolute, outside the repo) or ~/deckpal-data/quad-queue."""
+    """SCAN_QUEUE_DIR (outside the repo) or ~/deckpal-data/quad-queue.
+
+    The check compares REAL paths (symlinks and junctions resolved by
+    os.path.realpath) case-folded with os.path.normcase, so neither a junction
+    nor a different-case spelling of the checkout on Windows gets past it."""
     q = Path(os.environ.get("SCAN_QUEUE_DIR") or Path.home() / "deckpal-data" / "quad-queue").resolve()
-    repo = HERE.parents[1]
-    if q == repo or repo in q.parents:
+    real = lambda p: os.path.normcase(os.path.realpath(p))
+    repo, target = real(HERE.parents[1]), real(q)
+    if target == repo or target.startswith(repo + os.sep):
         raise SystemExit(f"SCAN_QUEUE_DIR resolves inside the repo ({q}); the owner's photos must stay outside git")
     return q
 
@@ -59,6 +64,13 @@ Q = queue_dir()
 # packages/matching/src/confidence.ts, main tier only. `deckpal-card-b32-v1`
 # is the fine-tuned model from PR #288; `clip-vit-b32-openai` is shipped.
 GATES = {"deckpal-card-b32-v1": (0.65, 0.03, 0.45), "clip-vit-b32-openai": (0.74, 0.02, 0.55)}
+
+
+# gallery tag -> the THRESHOLDS key it was calibrated for.
+KNOWN_GALLERY_TAGS = {
+    "deckpal-card-b32-v1.fp32": "deckpal-card-b32-v1",
+    "vit_base_patch32_clip_224.openai": "clip-vit-b32-openai",
+}
 
 
 def gallery_tag(spec: str) -> str:
@@ -75,7 +87,10 @@ def main():
     ap.add_argument("--model-id", choices=sorted(GATES),
                     help="which gate to tier with (default: inferred from --model; required when it cannot be)")
     a = ap.parse_args()
-    inferred = next((k for k in GATES if k in gallery_tag(a.model)), "clip-vit-b32-openai" if "clip" in a.model.lower() else None)
+    # Only checkpoints this script knows exactly: a gallery tag that IS one of
+    # them. Any other model (a TinyCLIP, a LAION CLIP) needs --model-id spelled
+    # out, rather than borrowing a gate measured on a different vector space.
+    inferred = KNOWN_GALLERY_TAGS.get(gallery_tag(a.model))
     if a.model_id and inferred and a.model_id != inferred:
         raise SystemExit(f"--model-id {a.model_id} does not match --model {a.model} ({inferred}): the tiers would use the wrong thresholds")
     a.model_id = a.model_id or inferred

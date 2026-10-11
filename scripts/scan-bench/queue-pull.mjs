@@ -38,14 +38,38 @@ if (args.length) {
 
 const { ORIGIN, qaToken } = await import('./live.mjs')
 
-const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+/**
+ * The real, canonical location of `p`: symlinks and junctions resolved on the
+ * longest part that exists, and — on Windows, where paths are case-insensitive
+ * — lower-cased, so `E:\USERS\…` cannot slip past a check written for `E:\users\…`.
+ */
+function canonical(p) {
+  let head = path.resolve(p)
+  const tail = []
+  while (!fs.existsSync(head)) {
+    const up = path.dirname(head)
+    if (up === head) break
+    tail.unshift(path.basename(head))
+    head = up
+  }
+  const real = path.join(fs.realpathSync.native(head), ...tail)
+  return process.platform === 'win32' ? real.toLowerCase() : real
+}
+
+const REPO = canonical(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..'))
 const OUT = path.resolve(process.env.SCAN_QUEUE_DIR || path.join(os.homedir(), 'deckpal-data', 'quad-queue'))
-if (OUT === REPO || OUT.startsWith(REPO + path.sep)) {
+const outReal = canonical(OUT)
+if (outReal === REPO || outReal.startsWith(REPO + path.sep)) {
   console.error(`SCAN_QUEUE_DIR resolves inside the repo (${OUT}); the owner's photos must stay outside git`)
   process.exit(2)
 }
 const RAW = path.join(OUT, 'raw')
 fs.mkdirSync(RAW, { recursive: true })
+// ...and once more after creating it, in case a junction appeared along the way.
+if (canonical(RAW).startsWith(REPO + path.sep)) {
+  console.error(`${RAW} resolves inside the repo; refusing to write the owner's photos there`)
+  process.exit(2)
+}
 
 const token = await qaToken()
 async function get(url, kind) {
