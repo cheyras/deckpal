@@ -559,9 +559,10 @@ test('Bouffalant ex, Bouffer: takes 30 less damage from attacks, never below 0',
   const g = game([{ active: 'Bouffalant ex' }, { active: DRA, energy: { active: [P] } }], OPP_TURN);
   choose(g, 'Attack: Jet Headbutt');
   assert.equal(dmg(g, 0), 40, '70 − 30');
-  const small = game([{ active: 'Bouffalant ex' }, { active: 'Sawk', energy: { active: [F] } }], OPP_TURN);
-  choose(small, 'Attack: Elbow Strike');
-  assert.equal(dmg(small, 0), 0, '30 − 30');
+  // Psyduck Ram (20) rather than Sawk Elbow Strike (30): the printed Bouffalant ex is weak to Fighting x2, so Sawk now does 60 - 30.
+  const small = game([{ active: 'Bouffalant ex' }, { active: 'Psyduck', energy: { active: [P, P] } }], OPP_TURN);
+  choose(small, 'Attack: Ram');
+  assert.equal(dmg(small, 0), 0, '20 − 30');
 });
 
 test('Bouffalant ex, Bouffer: also on the Bench', () => {

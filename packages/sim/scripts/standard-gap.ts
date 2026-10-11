@@ -7,8 +7,9 @@ import { readFileSync } from 'node:fs';
 import { isVanilla, textKey } from '../src/cards/frame.js';
 import { scriptFor } from '../src/cards/registry.js';
 import type { CardFrame } from '../src/types.js';
+import { withPrintedWR } from '../src/cards/printed-wr.js';
 
-const frames = Object.values(JSON.parse(readFileSync(process.argv[2]!, 'utf8')) as Record<string, CardFrame>);
+const frames = Object.values(JSON.parse(readFileSync(process.argv[2]!, 'utf8')) as Record<string, CardFrame>).map(withPrintedWR);
 const byKey = new Map<string, CardFrame[]>();
 for (const f of frames) {
   const k = textKey(f);

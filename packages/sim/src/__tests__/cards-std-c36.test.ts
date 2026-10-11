@@ -269,7 +269,7 @@ test('Scolipede, Venoshock: 90 damage, and 90 more if the Defending Pokémon is 
 test('Scolipede, Poison Point: the Pokémon that damages it while it is Active is Poisoned, even if it is Knocked Out', () => {
   const g = mk([{ active: 'Scolipede', bench: [DRA] }, { active: EXC, energy: { active: [F, F] } }], OPP_TURN);
   choose(g, 'Attack: Piercing Drill');
-  assert.equal(dmg(g, 0), 60);
+  assert.equal(dmg(g, 0), 120, '60 doubled: the printed Scolipede has Fighting Weakness x2 (the catalog frame lacked it)');
   assert.equal(g.state.p[1].active!.cond & POISONED, POISONED);
   const ko = mk([{ active: 'Scolipede', bench: [DRA], damage: { active: 120 } }, { active: EXC, energy: { active: [F, F] } }], OPP_TURN);
   choose(ko, 'Attack: Piercing Drill');
@@ -446,7 +446,8 @@ test("Tranquill, Fly: heads is 40 damage and no damage or effects from attacks d
   choose(tails, 'Attack: Fly');
   assert.equal(dmg(tails, 1), 0, 'tails: the attack does nothing');
   choose(tails, 'Attack: Piercing Drill');
-  assert.equal(dmg(tails, 0), 60, 'and nothing protects Tranquill');
+  // The printed Tranquill resists Fighting -30 (the catalog frame lacked it): Piercing Drill 60 - 30.
+  assert.equal(dmg(tails, 0), 30, 'and nothing protects Tranquill');
 });
 
 test('Cinccino, Do the Wave: 20 damage, and 20 more for each of your Benched Pokémon', () => {

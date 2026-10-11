@@ -394,31 +394,6 @@ export const STD_C04: CardScript[] = [
     },
   },
   {
-    id: 'me02.5-060',
-    name: 'Eelektrik',
-    abilities: [
-      {
-        name: 'Dynamotor',
-        // "Once during your turn, you may attach a Basic {L} Energy card from your discard pile to 1 of your Benched Pokémon."
-        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2182/): the Black Bolt Eelektrik "specifies Basic Energy" -- this text is
-        // the Basic-only one, so only Basic {L} Energy cards qualify.
-        activated: {
-          when: {
-            and: [
-              { gte: [{ count: { zone: 'discard', filter: { energyType: 'Lightning' } } }, 1] },
-              { gte: [{ pokemon: { zone: 'myBench' } }, 1] },
-            ],
-          },
-          program: [
-            { op: 'chooseSlots', from: 'myBench', min: 1, max: 1, as: 't', prompt: 'Choose a Benched Pokémon' },
-            { op: 'chooseCards', from: 'discard', filter: { energyType: 'Lightning' }, min: 1, max: 1, as: 'e' },
-            { op: 'attach', cards: 'e', to: { v: 't' } },
-          ],
-        },
-      },
-    ],
-  },
-  {
     id: 'me02.5-061',
     name: 'Mega Eelektross ex',
     attacks: {

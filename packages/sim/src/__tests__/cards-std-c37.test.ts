@@ -561,7 +561,8 @@ test("Boldore, Smack Down: 30, or 50 more if your opponent's Active Pokémon has
   };
   assert.equal(hit(DRA), 30);
   assert.equal(hit('Spectrier'), 50, '30 + 50, then -30 for the Resistance');
-  assert.equal(hit('Lillipup'), 30, 'no Resistance');
+  // Vanilluxe, not Lillipup (printed Weakness Fighting x2: Boldore's 30 doubles and Knocks it Out) or Slowpoke (printed Resistance Fighting -30).
+  assert.equal(hit('Vanilluxe'), 30, 'no Resistance');
 });
 
 // ------------------------------------------------------------------ Gigalith
