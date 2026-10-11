@@ -1091,7 +1091,7 @@ plus optional `queries` (≤12), `trials` (1000..200000, default 50000), `seed`
 (uint32, default a fixed 60 so a repeat call agrees) and `format` (which format's
 printings an unsaved list's bare names resolve to, as in `/decks/check`; default
 `standard`). The list may hold at most 120 cards. A list that mulligans a lot has
-its games cut so the call deals at most 2,000,000 opening hands (`trials` is then
+its games cut so the call deals an expected 2,000,000 opening hands at most (`trials` is then
 below `trials_requested`, and a note says why). A query is
 `{ "label"?, "all_of": [Group, …1..6], "by_turn"? 0..10 = 0, "prized"? = false }`
 and a Group is `{ "cards"?: [card name in the deck], "kinds"?: ["basic" |
@@ -1119,6 +1119,45 @@ deck's names), a list name the catalog cannot resolve, a list with no Basic
 Pokémon, fewer than 7 or more than 120 cards, or a malformed body. A list that is not 60 cards,
 or has more than 4 of a non-basic-Energy card, is still computed and listed in
 `warnings`. Nothing is written.
+
+### POST /deckpal/api/decks/simulate
+Read-only battle simulation (`@deckpal/sim`; the `simulate_battles` agent tool). Body has exactly one
+of `deck_id` (one of the caller's decks, by id or name; a name fragment must match exactly one deck),
+`cards` or `ptcgl_text` (an unsaved list in `POST /decks/check`'s shape, with optional `format` and
+`name`; every line must resolve, else `400` naming the ones that did not), plus optional `opponents`
+(1..8 of the caller's deck ids or names; default up to 6 of their other decks, favourites and most
+recently updated first), `games` (per opponent, default 24, 2..200, rounded up to whole pairs),
+`speed` (`strong` default, or `fast`) and `seed` (default 1; the same seed, decks and pilot replay the same games). Every deck played is 40–70
+cards: the subject or a named opponent outside that is a `400` naming the deck and its count; a
+default opponent outside it is skipped with a note. Each opponent is played in paired games — one
+seed, seats swapped, so each deck goes first half the time — by a CPU pilot on both sides, inside one
+25 s budget counted from the request's arrival and shared across the opponents. The budget is also a
+hard deadline: a game still running when it arrives ends as a time-out draw, and no game starts after
+it; a game is likewise abandoned as a time-out after 3,000 decisions. The report says when the budget,
+not `games`, decided how many were played. The decks are read first and the request's database
+connection is released before any game is played. Returns `{ text, report }`: `text` is at most 5,000
+characters (Deck-E clamps tool results at 6,000) and always ends with the caveat, notes clamped to
+fit; `report` is the structured form (`kind: "deckpal.simulation"`, `simulated: true`, per-matchup
+stats with Wilson 95% intervals and n, card impact, per-deck coverage naming every approximated or
+unplayable card, the standing caveat, and every note — decks that are not 60 cards, cards with no
+catalogue data, skipped opponents). Results are simulations, never real-game statistics, and nothing
+is written. Concurrency: one run per account and two per server instance at a time — beyond that,
+`429` `simulator_busy` with `Retry-After` (seconds until the run in the way should finish) and a
+message saying which.
+- **Paired comparison.** At most one of `compare_with` (another of the caller's decks, by id or name; `400`
+  if it is the subject itself), `compare_cards` or `compare_ptcgl_text` (an unsaved whole list in the same
+  shape as `cards` / `ptcgl_text`, resolved with the same `format`; every line must resolve), with optional
+  `compare_name` (label for an unsaved list, default "Version B"; `400` without a compare list). The subject
+  is version A, the compare list version B; neither is a default opponent. Each opponent is played by both
+  versions on the same seeds and seats, inside the same 25 s budget (so each version gets about half the
+  games), stopping both after the same seed pair. `report` is then `kind: "deckpal.simulation.comparison"`:
+  `overall` and per-`matchups` paired differences (`diff` = mean B − A game score per game, win 1,
+  draw/time-out ½, loss 0; `lo`/`hi` = 95% t-interval with each seed's two seat-swapped games as one
+  cluster; `verdict` `"b"`/`"a"` only when the interval excludes 0 with ≥6 seeds, else `"none"`),
+  `changes` (card counts that differ), `changedImpact`, `method`, both versions' full reports
+  (`reportA`, `reportB`) and `coverage`. The text leads with a `VERDICT:` line and keeps the caveat; the same bounds, deadline and run gate apply.
+Rate limit: 6 calls a minute per account (`429` `rate_limited` with
+`Retry-After` beyond that).
 
 ### POST /deckpal/api/decks/save
 Create a deck, or set an existing deck's card list, in ONE transaction. This is what

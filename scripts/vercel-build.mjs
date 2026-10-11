@@ -12,6 +12,7 @@ const steps = [
   'pnpm --filter @deckpal/matching build',
   'pnpm --filter @deckpal/storage build',
   'pnpm --filter @deckpal/agent-tools build',
+  'pnpm --filter @deckpal/sim build',
   'pnpm --filter deckpal-api build',
   'pnpm --filter deckpal-mcp build',
   'pnpm --filter deckpal-web build',

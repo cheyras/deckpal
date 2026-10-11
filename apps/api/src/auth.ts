@@ -453,7 +453,7 @@ const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
  * first was missing here, so a read-only connection was offered check_deck and
  * then refused it (2026-10-10). Anything added here must never write.
  */
-const READ_ONLY_POSTS = new Set(['/massentry', '/decks/check', '/decks/odds']);
+const READ_ONLY_POSTS = new Set(['/massentry', '/decks/check', '/decks/odds', '/decks/simulate']);
 
 /**
  * A read-only connection (chosen on the consent screen, migration 075) may

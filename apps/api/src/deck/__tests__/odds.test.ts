@@ -14,7 +14,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { deckOdds, foldCardName, kindMaskOf, margin95, ODDS_MAX_DECK, ODDS_MAX_HANDS, ODDS_MAX_WARNINGS, OddsError, type OddsEntry, type OddsQuery } from '../odds.js'
+import { deckOdds, foldCardName, kindMaskOf, margin95, wilson95, ODDS_LABEL_MAX, ODDS_MAX_DECK, ODDS_MAX_HANDS, ODDS_MAX_WARNINGS, OddsError, type OddsEntry, type OddsQuery } from '../odds.js'
 import { hypergeometricMulligan } from '../testhand.js'
 import { deckOddsInput } from '../../routes/deckOdds.js'
 import { ApiError } from '../../http.js'
@@ -453,4 +453,17 @@ test('warnings are capped so the answer stays under the chat clamp', () => {
   assert.equal(r.warnings.length, ODDS_MAX_WARNINGS)
   // One over-copied name (54 Basic Mon) and twelve impossible queries: seven shown, six summarised.
   assert.equal(r.warnings.at(-1), '…and 6 more notes like these.')
+})
+
+test('wilson95: the interval is not centred on p — 1 success in 1,000 games reaches ~0.56%, not 0.1% ± 0.3', () => {
+  const [lo, hi] = wilson95(0.001, 1000)
+  assert.ok(lo > 0.0001 && lo < 0.0003, `lo ${lo}`)
+  assert.ok(hi > 0.0050 && hi < 0.0060, `hi ${hi}`)
+  const [lo0, hi0] = wilson95(0, 50000)
+  assert.equal(lo0, 0)
+  assert.ok(hi0 > 0 && hi0 < 0.0001)
+})
+
+test('generated query labels are bounded', () => {
+  assert.equal(ODDS_LABEL_MAX, 80)
 })
