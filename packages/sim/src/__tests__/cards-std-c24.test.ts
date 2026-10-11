@@ -231,7 +231,7 @@ test('Skeledirge, Unaware: Delibird\'s Pleasing Present Energy is discarded afte
 test('Armarouge, Crimson Blaster: discard all {R} Energy from this Pokémon, and 180 damage to 1 of your opponent\'s Benched Pokémon', () => {
   const g = game([
     { active: 'Armarouge', energy: { active: [F, F, F, W] } },
-    { active: DRA, bench: ['Ceruledge ex', 'Black Kyurem ex'] },
+    { active: DRA, bench: ['Black Kyurem ex', 'Ceruledge ex'] }, // the target first: Ceruledge ex is a Tera Pokémon (no Bench damage)
   ]);
   const [target] = g.state.p[1].bench;
   choose(g, 'Attack: Crimson Blaster');

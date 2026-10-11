@@ -72,7 +72,7 @@ const URSA = 'sv06-141'; // Bloodmoon Ursaluna ex: 260 HP, Colorless, weak Fight
 const MANECTRIC = 'me01-158'; // Mega Manectric ex: 330 HP, Lightning, Retreat 0
 const DUN = 'sv05-128'; // Dunsparce: 60 HP, weak Fighting, Retreat 0
 const QUILLADIN = 'me04-006'; // Quilladin: 100 HP Grass, Vine Whip {G}{G}{C} 80 (no effect text)
-const KORAIDON = 'me02.5-121'; // Koraidon ex: 230 HP Fighting, weak Psychic
+const OKIDOGI = 'me02.5-122'; // Okidogi: 140 HP, weak Psychic, not a Tera Pokémon (Koraidon ex me02.5-121 is Tera: no Bench damage)
 
 const F = 'Fire Energy';
 const W = 'Water Energy';
@@ -636,8 +636,8 @@ test("Deoxys (Genome Charge / Psychic): up to 2 Basic {P} Energy from the deck o
 });
 
 test("Deoxys, Psyspear: 120; with at least 2 extra Energy attached, also 120 to 1 of your opponent's Benched Pokémon, with no Weakness", () => {
-  const dk = deck('me04-032', LATIAS, KORAIDON);
-  const run = (energy: string[], bench: string[] = ['Koraidon ex']): Game => {
+  const dk = deck('me04-032', LATIAS, OKIDOGI);
+  const run = (energy: string[], bench: string[] = ['Okidogi']): Game => {
     const g = scenario(dk, dk, [{ active: 'Deoxys', energy: { active: energy } }, { active: 'Mega Latias ex', bench }]);
     choose(g, 'Attack: Psyspear');
     return g;
@@ -648,7 +648,7 @@ test("Deoxys, Psyspear: 120; with at least 2 extra Energy attached, also 120 to 
   assert.equal(run([P, P, P, F]).state.p[1].bench[0]!.damage, 0, '1 extra Energy is not enough');
   const five = run([P, P, P, F, F]);
   assert.equal(five.state.p[1].active!.damage, 120);
-  assert.equal(five.state.p[1].bench[0]!.damage, 120, 'Koraidon ex is weak to {P} but Weakness is not applied to the Bench');
+  assert.equal(five.state.p[1].bench[0]!.damage, 120, 'Okidogi is weak to {P} but Weakness is not applied to the Bench');
   // No Benched Pokémon: just the 120.
   const alone = run([P, P, P, F, F], []);
   assert.equal(alone.state.p[1].active!.damage, 120);
