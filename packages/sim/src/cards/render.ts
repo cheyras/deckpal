@@ -136,6 +136,10 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'seed2.tormentDefender': () =>
     "Choose 1 of your opponent's Active Pokémon's attacks. During your opponent's next turn, that Pokémon can't use that attack",
   'seed2.energyToHand': () => 'Put an Energy attached to this Pokémon into your hand',
+  // std-seed3-customs.ts
+  'seed3.countWithAttack': (a) => `Count ${slotZoneNoun(String(a.zone ?? 'myPokemon') as SlotZone)} that have the ${String(a.attack)} attack (into "${String(a.as ?? 'n')}")`,
+  'seed3.healEach': (a) => `Heal ${Number(a.amount)} damage from each of ${slotZoneNoun(String(a.zone ?? 'allPokemon') as SlotZone)}`,
+  'seed3.doubleCounters': (a) => `Put as many damage counters as it already has on each of ${slotZoneNoun(String(a.zone ?? 'oppPokemon') as SlotZone)} that has any`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -143,6 +147,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   countersMovable: () => 'damage counters can be moved (no effect on either side stops it)',
   'trevenant.hopsKoByAttackLastTurn': () => "one of your Pokémon with \"Hop's\" in its name was Knocked Out by damage from an attack during your opponent's last turn", // lane:trevenant
   'std.attackKoLastTurn': () => "one of your Pokémon was Knocked Out by damage from an attack during your opponent's last turn",
+  'seed3.defenderKnockedOutByThisAttack': () => "your opponent's Pokémon (the Defending Pokémon) was damaged by this attack and now has damage equal to or over its HP (it is Knocked Out)",
   rareCandyPlayable: () => "it isn't your first turn and you have a Basic Pokémon in play, not put into play this turn, that a Stage 2 card in your hand evolves from",
 };
 
@@ -1555,5 +1560,26 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me02.5-161|attack:Paw-cket Pilfer': {
     problems: ['"reveal" is printed but not rendered'],
     why: 'The random card is revealed and then immediately shuffled into the deck, so the reveal has no later effect and nothing in the script keeps it; the custom picks the card uniformly at random and the card moves to the deck.',
+  },
+  // std-seed3
+  'me01-030|attack:Coiling Crush': {
+    problems: ['"each" is printed'],
+    why: '"For each heads, discard an Energy" is a `repeat` of one discard, run as many times as there were heads; the renderer words a repeat "do this the number of heads times".',
+  },
+  'me01-060|attack:Overflowing Wishes': {
+    problems: ['"any number of" is rendered'],
+    why: '"For each of your Benched Pokémon" is a chooseSlots whose min and max both equal the size of the Bench: every Benched Pokémon is chosen (forced, no decision), which the renderer words "any number of"; metal.attachFromDeckToEach then gives each one a Basic {P} Energy.',
+  },
+  'me02-020|attack:Infernal Slash': {
+    problems: ['"can\'t" is printed'],
+    why: '"If you can\'t discard 4 cards in this way, this attack does nothing" is the positive guard (4 or more Basic {R} Energy cards in hand) around the discard and the damage; with fewer, nothing at all happens, not even a partial discard.',
+  },
+  'me03-063|attack:Gormandizer': {
+    problems: ['"heads" is printed', '"up to" is printed', '"any number of" is rendered'],
+    why: '"An amount of Basic Energy up to the number of heads" is a search with min 0 and max = the heads count variable; the renderer words a variable maximum "any number of" and does not name the variable.',
+  },
+  'me04-035|attack:Eternity Bloom': {
+    problems: ['"up to'],
+    why: '"Search your deck for up to 4 Basic {P} Energy cards and attach them … in any way you like" is `repeat 4` of an optional (min 0, max 1) search-and-attach, each pick choosing its own Benched Pokémon; that covers every choice of 0 to 4 cards and targets.',
   },
 };
