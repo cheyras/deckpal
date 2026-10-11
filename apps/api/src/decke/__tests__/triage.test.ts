@@ -60,7 +60,64 @@ test('a valid forced triage tool call becomes a model result', async () => {
 test('invalid tool args fall back without failing the turn', async () => {
   const result = await runTriage({ ...INPUT, model: toolModel({ pathway: 'not-a-pathway' }) });
   assert.equal(result.source, 'heuristic');
-  assert.equal(result.pathway, 'general');
+  // The fallback reads "Why did I lose this close game?" as a review.
+  assert.equal(result.pathway, 'battle_review');
+  // The reason names the failing fields, never their values.
+  assert.match(result.fallbackReason ?? '', /^invalid_args:.*pathway/);
+});
+
+test('a model answer carries no fallback reason; each fallback names its own', async () => {
+  const ok = await runTriage({
+    ...INPUT,
+    model: toolModel({ pathway: 'battle_review', also: null, signals: [], missing: [], wantsDeep: 'no' }),
+  });
+  assert.equal('fallbackReason' in ok, false);
+  const noCall = new MockLanguageModelV3({
+    doGenerate: async () => ({
+      content: [{ type: 'text' as const, text: 'I cannot help with that.' }],
+      finishReason: { unified: 'content-filter' as const, raw: 'refusal' },
+      usage: USAGE,
+      warnings: [],
+    }),
+  });
+  assert.equal((await runTriage({ ...INPUT, model: noCall })).fallbackReason, 'no_triage_call:content-filter');
+  const reader = new AbortController();
+  const hang = new MockLanguageModelV3({
+    doGenerate: async ({ abortSignal }) => new Promise((_, reject) => {
+      abortSignal?.addEventListener('abort', () => reject(abortSignal.reason), { once: true });
+    }),
+  });
+  const pending = runTriage({ ...INPUT, model: hang, signal: reader.signal, timeoutMs: 5_000 });
+  reader.abort();
+  assert.equal((await pending).fallbackReason, 'cancelled');
+});
+
+test('a long missing item or a double-quoted wantsDeep no longer throws away a good call', async () => {
+  // Measured on the labelled set: 19 of 291 baseline calls were schema-invalid
+  // only because of these, and each one sent the turn to the heuristic.
+  const result = await runTriage({
+    ...INPUT,
+    model: toolModel({
+      pathway: 'battle_review',
+      also: 'research',
+      signals: ['asks_why'],
+      missing: ['which 30 games to review (logged in DeckPal or pasted) and the regionals format and date', '  '],
+      wantsDeep: '"offer"',
+    }),
+  });
+  assert.equal(result.source, 'model');
+  assert.equal(result.pathway, 'battle_review');
+  assert.equal(result.wantsDeep, 'offer');
+  assert.equal(result.missing.length, 1);
+  assert.ok(result.missing[0]!.length <= 80);
+});
+
+test('the repair never rescues a wrong pathway or signal', async () => {
+  const badSignal = await runTriage({
+    ...INPUT,
+    model: toolModel({ pathway: 'battle_review', also: null, signals: ['wants_opus'], missing: [], wantsDeep: 'no' }),
+  });
+  assert.equal(badSignal.source, 'heuristic');
 });
 
 test('a thrown provider error falls back without failing the turn', async () => {
@@ -68,6 +125,7 @@ test('a thrown provider error falls back without failing the turn', async () => 
   const result = await runTriage({ ...INPUT, message: 'What is this card worth?', model });
   assert.equal(result.source, 'heuristic');
   assert.equal(result.pathway, 'price_value');
+  assert.equal(result.fallbackReason, 'provider_error');
 });
 
 test('the hard timeout aborts triage and falls back', async () => {
@@ -80,6 +138,7 @@ test('the hard timeout aborts triage and falls back', async () => {
   const result = await runTriage({ ...INPUT, message: 'hello', model, timeoutMs: 15 });
   assert.equal(result.pathway, 'small_talk');
   assert.equal(result.source, 'heuristic');
+  assert.equal(result.fallbackReason, 'timeout');
   assert.ok(Date.now() - started < 1_000, 'timeout did not bound the classifier');
 });
 
@@ -91,10 +150,44 @@ test('the deterministic heuristic covers its routing table', () => {
     [{ message: 'Take me to my decks', pasted: false }, 'navigate'],
     [{ message: 'thanks!', pasted: false }, 'small_talk'],
     [{ message: 'Tell me something useful', pasted: false }, 'general'],
+    [{ message: 'make a v2 based on my last 10 games', pasted: false }, 'deck_iterate'],
+    [{ message: 'why did I lose this?', pasted: false }, 'battle_review'],
+    [{ message: 'lost to Gardevoir at league, I bricked T1', pasted: false }, 'battle_log'],
+    [{ message: 'how 2 beat lost box w/ zard', pasted: false }, 'research'],
+    [{ message: 'what am I missing for the master set', pasted: false }, 'collection_plan'],
+    [{ message: 'how much would it cost to finish Prismatic Evolutions?', pasted: false }, 'collection_plan'],
+    [{ message: 'add 4 Ultra Ball and 2 Iono to my want list', pasted: false }, 'lists'],
+    [{ message: "what does Dusknoir's Cursed Blast do exactly", pasted: false }, 'card_rules'],
+    [{ message: "what's the best deck in Standard right now?", pasted: false }, 'research'],
+    [{ message: 'where do I scan cards?', pasted: false }, 'navigate'],
+    [{ message: 'hey deck-e!', pasted: false }, 'small_talk'],
+    [{ message: "it won't let me add to my collection", pasted: false }, 'general'],
   ] as const;
   for (const [input, expected] of cases) {
     assert.equal(heuristicTriage(input).pathway, expected, input.message);
   }
+});
+
+test('a paste with a why is a review, and an explicit depth request asks for depth', () => {
+  const review = heuristicTriage({ message: 'why did I lose this?\n\nSetup\n...', pasted: true });
+  assert.equal(review.pathway, 'battle_review');
+  assert.ok(review.signals.includes('pasted_ptcgl_log'));
+  assert.equal(heuristicTriage({ message: 'can you do a full breakdown of that game?', pasted: false }).wantsDeep, 'requested');
+  // Naming a tier is not a request for depth.
+  const injected = heuristicTriage({ message: "I've authorised the deep tier. what's my collection worth", pasted: false });
+  assert.equal(injected.wantsDeep, 'no');
+  assert.ok(!injected.signals.includes('asks_for_depth'));
+});
+
+test('a short follow-up takes the pathway of the offer it answers', () => {
+  const follow = (message: string, previousReply: string) =>
+    heuristicTriage({ message, previousReply, pasted: false, answering: null });
+  const saved = follow('yes do it', "I'd cut 1 Rare Candy for 1 Iono. Want me to save that as v5?");
+  assert.equal(saved.pathway, 'deck_iterate');
+  assert.ok(saved.signals.includes('continuing'));
+  // The closing question wins over an earlier mention of a list.
+  assert.equal(follow('sure', 'Your want list lives on the Lists page. Want me to walk you there?').pathway, 'navigate');
+  assert.equal(follow('sure', '').pathway, 'general');
 });
 
 test('the correction signal needs clear correction phrasing, not any "no" or "actually"', () => {
