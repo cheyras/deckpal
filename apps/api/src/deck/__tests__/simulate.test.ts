@@ -10,7 +10,7 @@ import { ApiError } from '../../http.js';
 import {
   SIM_DECK_MAX, SIM_DECK_MIN, SIM_GAMES_DEFAULT, SIM_NOTES_LIMIT, SIM_OPPONENTS_DEFAULT, SIM_RUN_GATE, SIM_TEXT_LIMIT,
   assertDeckSize, buildDeckInput, busyMessage, cardTotal, clampNotes, createRunGate, deckNotes, deckSizeOk,
-  metaCounts, metaNote, playableMeta, parseSimulateBody, pickOpponents, pickOpponentsWithMeta, pilotFactory, resolveDeckRef, runComparison, runMatchups, type OwnedDeck,
+  metaCounts, metaFallback, metaNote, playableMeta, parseSimulateBody, pickOpponents, pickOpponentsWithMeta, pilotFactory, resolveDeckRef, runComparison, runMatchups, type OwnedDeck,
 } from '../simulate.js';
 
 const ID = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -314,6 +314,13 @@ test('pickOpponentsWithMeta: with no opponents named, the caller\'s other decks;
   assert.deepEqual(none.map((o) => o.deck.id), META_POOL.decks.slice(0, SIM_OPPONENTS_DEFAULT).map((d) => d.id));
   // Their only deck is the subject: still nobody to play, so the pool.
   assert.ok(pickOpponentsWithMeta(null, [DECKS[0]!], ID(1)).every((o) => o.kind === 'meta'));
+});
+
+test("metaFallback: default opponents that can't be played (a deck still being built) fall back to the pool; named ones never do", () => {
+  const top = META_POOL.decks.slice(0, SIM_OPPONENTS_DEFAULT).map((d) => d.id);
+  assert.deepEqual(metaFallback(false, 0).map((d) => d.id), top, 'defaults, none playable: the top pool decks');
+  assert.deepEqual(metaFallback(false, 2), [], 'defaults with playable decks: no fallback');
+  assert.deepEqual(metaFallback(true, 0), [], 'named opponents: the caller asked for those, so no substitute');
 });
 
 test('metaCounts: catalogue ids for the pool\'s TCGdex ids; a missing card is noted, a different card refuses the deck', () => {

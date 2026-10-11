@@ -3,7 +3,7 @@ import { metaLabel, type CompareTotals, type DeckInput, type MatchupTotals, type
 import { dbHandle, q, rlsStore } from '../db.js'
 import type { FormatCode } from '../deck/index.js'
 import {
-  SIM_RUN_GATE, assertDeckSize, buildDeckInput, busyMessage, cardTotal, deckSizeOk, metaNote, playableMeta, parseSimulateBody, pickOpponentsWithMeta,
+  SIM_RUN_GATE, assertDeckSize, buildDeckInput, busyMessage, cardTotal, deckSizeOk, metaFallback, metaNote, playableMeta, parseSimulateBody, pickOpponentsWithMeta,
   pilotFactory, resolveDeckRef, runComparison, runMatchups, SIM_DECK_MAX, SIM_DECK_MIN, type CardCount, type OwnedDeck,
 } from '../deck/simulate.js'
 import { asyncHandler, badRequest, oneOf, userCache } from '../http.js'
@@ -169,6 +169,15 @@ deckSimulateRouter.post('/', asyncHandler(async (req, res) => {
       // A named opponent is the caller's choice: tell them. A default one is skipped with a note.
       else if (params.opponents) assertDeckSize(o.deck.name, total)
       else notes.push(`${o.deck.name} has ${total} cards, outside the simulator's ${SIM_DECK_MIN}–${SIM_DECK_MAX} — skipped.`)
+    }
+    const fallback = metaFallback(!!params.opponents, played.length)
+    if (fallback.length) {
+      notes.push('None of your other decks can be played yet, so these are the built-in meta decks.')
+      for (const deck of fallback) {
+        const slot = { name: metaLabel(deck), counts: [] as CardCount[] }
+        played.push(slot)
+        metaSlots.push({ slot, deck })
+      }
     }
     if (metaSlots.length) {
       const catalog = await cardsByTcgdexId(dbHandle(), metaSlots.flatMap((m) => m.deck.list.map(([id]) => id)))
