@@ -16,14 +16,22 @@ const SYMBOL: Readonly<Record<string, string>> = {
 
 const ENTITY: Readonly<Record<string, string>> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
 
+/** Drops tags until none are left (one pass can leave a tag behind, e.g. `<<b>i>`). */
+function stripTags(s: string): string {
+  let prev: string;
+  do { prev = s; s = s.replace(/<[^<>]*>/g, ''); } while (s !== prev);
+  return s;
+}
+
 /** Text with energy-symbol spans as `{X}`, other tags dropped and entities decoded. Text with no markup is returned as is. */
 export function cleanText(s: string): string;
 export function cleanText(s: string | null | undefined): string | null | undefined;
 export function cleanText(s: string | null | undefined): string | null | undefined {
   if (s == null || (!s.includes('<') && !s.includes('&'))) return s;
-  return s
-    .replace(/<span\b[^>]*\bclass\s*=\s*"[^"]*\benergy-symbol\s+([A-Za-z]+)[^"]*"[^>]*>[^<]*<\/span>/gi, (m, t: string) => SYMBOL[t] ?? m)
-    .replace(/<[^>]*>/g, '')
+  return stripTags(s.replace(/<span\b([^>]*)>[^<]*<\/span>/gi, (m, attrs: string) => {
+    const t = /\benergy-symbol\s+([A-Za-z]+)/.exec(/\bclass\s*=\s*"([^"]*)"/i.exec(attrs)?.[1] ?? '')?.[1];
+    return (t && SYMBOL[t]) ?? m;
+  }))
     .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) => {
       if (e[0] === '#') {
         const n = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
