@@ -40,6 +40,8 @@ interface ArtFamiliesFile {
   method: string;
   cards: number;
   families: string[][];
+  /** original -> reprints printing ITS collector number under another catalogue number. */
+  printedTwins?: Record<string, string[]>;
 }
 
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), 'data');
@@ -49,6 +51,15 @@ const FAMILY_OF = new Map<string, readonly string[]>();
 for (const fam of FILE.families) {
   const frozen = Object.freeze([...fam]);
   for (const id of fam) FAMILY_OF.set(id, frozen);
+}
+
+/**
+ * Reprints that print this card's own collector number but are catalogued under
+ * another (Celebrations Classic Collection: CC002 prints 4/102 like base1-4), so
+ * not even a printed key can tell them apart. Empty when none.
+ */
+export function printedTwinsOf(cardId: string): readonly string[] {
+  return FILE.printedTwins?.[cardId] ?? [];
 }
 
 /** The other printings that share this card's picture (empty when none). */

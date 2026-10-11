@@ -29,7 +29,7 @@ import { fileURLToPath } from 'node:url'
 
 import sharp from 'sharp'
 
-import { artSiblings, hashMayNameAlone, printingOpenFor } from '../../apps/api/src/scan/artFamilies.js'
+import { artSiblings, hashMayNameAlone, printedTwinsOf, printingOpenFor } from '../../apps/api/src/scan/artFamilies.js'
 import { resolveCard, type ResolveOutcome } from '../../apps/api/src/scan/resolve.js'
 import type { ScanResolveResponse, ScanResponse } from '../../apps/web/src/lib/api.js'
 import type { OcrRead } from '../../apps/web/src/scan/ocr/pipeline.js'
@@ -195,7 +195,7 @@ async function runRow(r: BenchRow): Promise<RowResult> {
   if (body) {
     const outcome = await resolveCard(body.fields, body.priorMatches, port, {
       phashConfidentMax: CONFIDENT_MAX,
-      ...(GUARD_ON ? { artSiblings } : {}),
+      ...(GUARD_ON ? { artSiblings, printedTwins: printedTwinsOf } : {}),
       ...(FUSION_ON ? { fusion: { vectorMatches: body.vectorMatches ?? [], modelId: EMBED_MODEL_ID } } : {}),
     })
     resolved = toWire(outcome)

@@ -3,7 +3,7 @@ import { cardImages, q } from '../db.js';
 import { ApiError, asyncHandler, badRequest, clampInt, notFound, oneOf, toBuffer } from '../http.js';
 import { ALGO, hashQueryCandidates, hashToHex } from './phash.js';
 import { pgCatalogPort } from './catalogPort.js';
-import { artSiblings, hashMayNameAlone, printingOpenFor } from './artFamilies.js';
+import { artSiblings, hashMayNameAlone, printedTwinsOf, printingOpenFor } from './artFamilies.js';
 import { resolveCard, type FusionInput, type OcrFields, type PriorMatch, type RankedCard } from './resolve.js';
 import { scanEmbedGate } from './embedGate.js';
 import { CURRENT_STAMP, assertQueryVector, buildResponse, pgNeighbours } from './embedMatch.js';
@@ -601,6 +601,7 @@ scanRouter.post(
       phashConfidentMax: CONFIDENT_MAX,
       fusion,
       artSiblings,
+      printedTwins: printedTwinsOf,
     });
     res.json({
       matched: outcome.matched,

@@ -296,3 +296,94 @@ test('the hash may not name a WotC-era card on its own, nor a card whose printin
   assert.equal(hashMayNameAlone('swsh7-87'), true);
   assert.equal(hashMayNameAlone(undefined), false);
 });
+
+test('a printed number shared with a Celebrations reprint does not settle the printing', async () => {
+  // Classic Collection prints its originals' numbers (CC002 Charizard reads
+  // 4/102, like Base Set's) but is catalogued as CC002, so a number lookup can
+  // only find base1-4. Both printed-key paths must leave the printing open.
+  const C: CatalogCard[] = [
+    card('base1-4', 'Charizard', '4', 'base1'),
+    card('cel25cc-CC002', 'Charizard', 'CC002', 'cel25cc'),
+    card('xy11-4', 'Charmeleon', '4', 'xy11'),
+  ];
+  const counts: Record<string, number> = { base1: 102, cel25cc: 25, xy11: 114 };
+  const p: CatalogPort = {
+    async bySetAndNumber(setId, n) {
+      return C.filter((c) => c.setId === setId && c.numberNumeric === n);
+    },
+    async byNumberAndDenominator(n, d) {
+      return C.filter((c) => c.numberNumeric === n && counts[c.setId] === d);
+    },
+    async byNumber(n) {
+      return C.filter((c) => c.numberNumeric === n);
+    },
+    async byIds(ids) {
+      return C.filter((c) => ids.includes(c.cardId));
+    },
+    async officialCounts(setIds) {
+      return new Map(setIds.map((s) => [s, counts[s] ?? null]));
+    },
+  };
+  const twins = (id: string) => (id === 'base1-4' ? ['cel25cc-CC002'] : []);
+  const sib = (id: string) => (id === 'base1-4' ? ['cel25cc-CC002'] : id === 'cel25cc-CC002' ? ['base1-4'] : []);
+  const out = await resolveCard({ number: '4', denominator: '102' }, [], p, {
+    phashConfidentMax: 9,
+    artSiblings: sib,
+    printedTwins: twins,
+  });
+  assert.equal(out.resolvedBy, 'number+denominator');
+  assert.equal(out.confident, false, 'the number cannot tell base1-4 from the reprint that prints it');
+  assert.equal(out.printingOpen, true);
+  assert.deepEqual(out.matches.map((m) => m.cardId).slice(0, 2), ['base1-4', 'cel25cc-CC002']);
+
+  // Without the twin, the printed key decides as before.
+  const plain = await resolveCard({ number: '4', denominator: '102' }, [], p, { phashConfidentMax: 9, artSiblings: sib });
+  assert.equal(plain.confident, true);
+});
+
+test('the shipped table carries every Celebrations original as a printed twin', async () => {
+  const { printedTwinsOf } = await import('../artFamilies.js');
+  assert.deepEqual(printedTwinsOf('base1-4'), ['cel25cc-CC002']);
+  assert.ok(printedTwinsOf('neo3-66').includes('cel25cc-CC010'), 'Shining Magikarp');
+  assert.deepEqual(printedTwinsOf('sv02-050'), []);
+});
+
+test('a vector that broke a tie inside a printed key still leaves a Celebrations twin open (keyedBy path)', async () => {
+  // 4/102 is base1-4 Charizard OR another /102 set's #4; the vector picks
+  // base1-4 ('corroborated' over a keyed list). The key excluded no twin: the
+  // Classic Collection reprint prints 4/102 too, so the printing stays open.
+  const C: CatalogCard[] = [
+    card('base1-4', 'Charizard', '4', 'base1'),
+    card('hgss1-4', 'Ampharos', '4', 'hgss1'),
+    card('cel25cc-CC002', 'Charizard', 'CC002', 'cel25cc'),
+  ];
+  const counts: Record<string, number> = { base1: 102, hgss1: 102, cel25cc: 25 };
+  const p: CatalogPort = {
+    async bySetAndNumber(setId, n) {
+      return C.filter((c) => c.setId === setId && c.numberNumeric === n);
+    },
+    async byNumberAndDenominator(n, d) {
+      return C.filter((c) => c.numberNumeric === n && counts[c.setId] === d);
+    },
+    async byNumber(n) {
+      return C.filter((c) => c.numberNumeric === n);
+    },
+    async byIds(ids) {
+      return C.filter((c) => ids.includes(c.cardId));
+    },
+    async officialCounts(setIds) {
+      return new Map(setIds.map((s) => [s, counts[s] ?? null]));
+    },
+  };
+  const twins = (id: string) => (id === 'base1-4' ? ['cel25cc-CC002'] : []);
+  const sib = (id: string) => (id === 'base1-4' ? ['cel25cc-CC002'] : []);
+  const out = await resolveCard({ number: '4', denominator: '102' }, [], p, {
+    phashConfidentMax: 9,
+    fusion: { vectorMatches: [{ cardId: 'base1-4', similarity: 0.86 }, { cardId: 'hgss1-4', similarity: 0.6 }], modelId: MODEL },
+    artSiblings: sib,
+    printedTwins: twins,
+  });
+  assert.equal(out.confident, false);
+  assert.equal(out.printingOpen, true);
+  assert.ok(out.matches.some((m) => m.cardId === 'cel25cc-CC002'));
+});

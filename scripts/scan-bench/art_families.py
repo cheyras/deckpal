@@ -176,6 +176,7 @@ def main():
     num = {c["cardId"]: c.get("number") for c in cards}
     fold = lambda s: "".join(ch for ch in s.lower() if ch.isalnum())
     n_cc = 0
+    printed_twins: dict[str, list[str]] = defaultdict(list)
     for ccid, o in cc.items():
         if ccid not in name:
             continue
@@ -184,6 +185,7 @@ def main():
                 and _close(fold(c["name"]), fold(o["name"]))]
         for y in hits:
             union(ccid, y)
+            printed_twins[y].append(ccid)
             n_cc += 1
     rules_txt = ", ".join(k + "<-" + "/".join(v) for k, v in REPRINT_SETS.items())
     holo_txt = "/".join(WITHIN_SET_HOLO)
@@ -203,6 +205,9 @@ def main():
                    f"transitive closure. scripts/scan-bench/art_families.py"),
         "cards": sum(len(f) for f in families),
         "families": families,
+        # original -> the Celebrations reprints that print ITS collector number
+        # (catalogued as CCnnn, so no number lookup can find them).
+        "printedTwins": {k: sorted(v) for k, v in sorted(printed_twins.items())},
     }
     Path(a.out).write_text(json.dumps(out, separators=(",", ":")) + "\n", encoding="utf8")
     print(f"{n_art} image pairs + {n_foil} foil pairs + {n_hash} hash pairs ({n_vetoed} hash joins vetoed) + {n_rule} reprint-set joins + {n_cc} Celebrations joins -> {len(families)} families, "

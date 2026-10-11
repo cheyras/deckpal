@@ -1495,7 +1495,11 @@ e.g. Base Set and its Base Set 2 reprint, which a whole-card hash cannot tell
 apart). When the distance is within the threshold and only that same-art guard
 said no, the response is `matched: false` **with `printingOpen: true`**: the
 card is likely right, its printing is for the reader to choose from `matches`.
-`printingOpen` is absent in every other response. Read-only.
+`printingOpen` is absent in every other response. Separately, the hash never
+names a **WotC-era card** (Base Set through the e-Card sets) on its own —
+`matched: false` without `printingOpen` — because their shared yellow frame
+dominates a whole-card hash (`hashMayNameAlone`); the resolve leg still can.
+Read-only.
 ```json
 { "query": { "algo": "dhash8v3", "hash": "f0e1…08" },
   "matched": true, "threshold": 9, "indexSize": 23104,
@@ -1643,7 +1647,10 @@ So `confident: false` on a `vector` or `corroborated` answer can now mean
 (`badge+number`, `number+denominator`, `name+number`, `name+denominator`) are
 never reopened, nor is a `corroborated` tie-break inside such a key's
 candidates when the key already excluded every same-art printing (`87/114`
-names bw1-87 or xy11-87; a same-art 2011bw-12 prints another number).
+names bw1-87 or xy11-87; a same-art 2011bw-12 prints another number) —
+except for a **printed twin**: a Celebrations Classic Collection reprint prints
+its original's number (CC002 Charizard reads `4/102`) under a `CCnnn` catalogue
+number, so a number key cannot tell them apart and the printing stays open.
 `printingOpen` is absent whenever the guard did not fire, so those responses
 are byte-identical to before it.
 

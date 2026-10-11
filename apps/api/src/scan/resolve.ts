@@ -348,6 +348,12 @@ export interface ResolveOptions {
    * cards with different pictures. Absent, the ladder behaves exactly as before.
    */
   artSiblings?: (cardId: string) => readonly string[];
+  /**
+   * Reprints that print THIS card's collector number but are catalogued under
+   * another (Celebrations Classic Collection: CC002 prints 4/102), so no
+   * printed key can separate them. Kept open even after a printed-key rung.
+   */
+  printedTwins?: (cardId: string) => readonly string[];
 }
 
 /** The rungs whose key is PRINTED on one printing only: the set badge or the
@@ -1099,10 +1105,18 @@ export async function resolveCard(
     prev: ResolveOutcome,
     siblingsOf: (cardId: string) => readonly string[],
   ): Promise<ResolveOutcome> {
-    if (!prev.confident || PRINTED_KEYS.has(prev.resolvedBy)) return prev;
+    if (!prev.confident) return prev;
     const top = prev.matches[0];
     if (!top) return prev;
-    const siblings = siblingsOf(top.cardId);
+    // A PRINTED NUMBER SHARED WITH A REPRINT. Celebrations Classic Collection
+    // prints its originals' numbers (its Charizard says 4/102, like Base Set's)
+    // while the catalogue numbers it CC002 — so a number lookup can only ever
+    // find the original, and a printed key "decides" between cards it cannot
+    // tell apart. Those twins stay open even after a printed key.
+    const twins = opts.printedTwins?.(top.cardId) ?? [];
+    const keyed = PRINTED_KEYS.has(prev.resolvedBy);
+    if (keyed && !twins.length) return prev;
+    const siblings = keyed ? twins : siblingsOf(top.cardId);
     if (!siblings.length) return prev;
     const have = new Set(prev.matches.map((m) => m.cardId));
     // THE KEY ALREADY RULED THE SIBLINGS OUT. A vector that broke a tie inside
@@ -1112,7 +1126,14 @@ export async function resolveCard(
     // `keyedBy` guarantees `matches` is that whole keyed list. A sibling IN
     // the list means the key could not tell the two printings apart, and the
     // vector cannot either: that one stays open.
-    if (prev.keyedBy && PRINTED_KEYS.has(prev.keyedBy) && !siblings.some((id) => have.has(id))) return prev;
+    if (
+      !keyed &&
+      prev.keyedBy &&
+      PRINTED_KEYS.has(prev.keyedBy) &&
+      !siblings.some((id) => have.has(id)) &&
+      !twins.length
+    )
+      return prev;
     const missing = siblings.filter((id) => !have.has(id));
     const hydratedRows = missing.length ? await port.byIds(missing) : [];
     const family = new Set(siblings);
