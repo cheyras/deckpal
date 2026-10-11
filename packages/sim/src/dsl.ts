@@ -112,6 +112,8 @@ export type Expr =
   | { pokemon: { zone: SlotZone; filter?: Filter } }
   | { prizesLeft: Who }
   | { prizesTaken: Who }
+  /** That player's Prize cards that are face up / face down (matching `filter`; a face-up card is known to both players). */
+  | { prizeCards: { who?: Who; face: 'up' | 'down'; filter?: Filter } }
   /** Prize cards that player took during their own most recent turn (0 if none). On your turn, `opp` is the opponent's last turn. */
   | { prizesTakenLastTurn: Who }
   /**
@@ -166,6 +168,13 @@ export type Cond =
   | { onBench: SlotRef }
   /** Any of this side's Pokémon (matching `filter`, if given: the card it was when Knocked Out) were Knocked Out during the opponent's last turn. */
   | { koLastTurn: Who; filter?: Filter }
+  /**
+   * Any of that player's Pokémon (matching `filter`; `other`: not the Pokémon this is asked of) used an attack during that player's
+   * last turn (default: the effect's controller). A Confused Pokémon whose flip failed, or one stopped by a coin flip, did not use
+   * one (TPCi Rules Team 2024-11-14, ruling 2087). The record belongs to the Pokémon in play, not to the card: a card swapped into its
+   * place by Thorton is the same Pokémon (ruling 2092).
+   */
+  | { attackedLastTurn: { who?: Who; filter?: Filter; other?: boolean } }
   /**
    * That player played a card matching `filter` from their hand during the current turn (`who`: default the effect's controller).
    * Cards put into play by the player's own actions count: Trainers (Items, Supporters, Stadiums, Tools), Pokémon (benched or
@@ -274,7 +283,15 @@ export type StaticEffect =
   | { k: 'react'; event: ReactEvent; program: Program }
   /** Energy can't be attached from hand to the affected Pokémon (by the owner's turn action or by an effect). */
   | { k: 'cantAttachFromHand' }
-  | { k: 'hp'; delta: number }
+  /** Add to the affected Pokémon's max HP. `noStack`: "The effect of <name> doesn't stack": hp statics sharing the key count once. */
+  | { k: 'hp'; delta: number; noStack?: string }
+  /**
+   * "During Pokémon Checkup, put N more damage counters on <the affected Pokémon that is Poisoned / Burned>" (Magma Surge,
+   * Perilous Jungle). The counters are part of that Special Condition's own, placed before a Burn flip, so a Pokémon that recovers
+   * from Burn at that flip still takes them (TPCi Rules Team 2025-03-27, ruling 2112: 2+3+3 with a second source). Several sources add up
+   * unless they share a `noStack` key.
+   */
+  | { k: 'checkupCounters'; cond: 'poisoned' | 'burned'; n: number; noStack?: string }
   | { k: 'cantAttack' }
   | { k: 'cantRetreat' }
   /** The affected Pokémon have no Abilities (other than this source's own). */
@@ -286,7 +303,12 @@ export type StaticEffect =
    * Energy with the ACE SPEC rule), or Pokémon to evolve their Pokémon ('evolve': evolving from the hand by their turn action or by
    * Rare Candy). Player-level, like `itemLock`: scope 'me' / 'opp' / 'both', or as a timed effect on a player.
    */
-  | { k: 'playLock'; what: PlayLock }
+  | {
+      k: 'playLock';
+      what: PlayLock;
+      /** 'abilityPokemon' only: "except for Team Rocket's Pokémon": cards matching this are not locked (matched on the card in hand). */
+      except?: Filter;
+    }
   /**
    * Prevent all effects of Item and/or Supporter cards the OPPONENT plays from their hand that are done to the affected Pokémon
    * ("Whenever your opponent plays a Supporter card from their hand, prevent all effects of that card done to this Pokémon").
@@ -328,14 +350,22 @@ export type StaticEffect =
   // Generalised: `amount` (default 1) more Prize cards; with `attacker`, only when the Knock Out is by damage from an attack of an
   // attacking Pokémon matching it ("an attack used by your N's Pokémon"); `noStack`: effects sharing the key count once (a
   // legacy effect with no `amount` and no key never stacks).
-  | { k: 'extraPrize'; flip?: boolean; amount?: number; attacker?: Filter; noStack?: string }
+  // `ko`: the Knocked Out Pokémon must match this, wherever it was (Active or Benched), and it must have been Knocked Out by damage
+  // from an attack; each such Pokémon gives the extra Prize cards ("If your opponent's Basic Pokémon is Knocked Out by damage from
+  // an attack used by this Pokémon, take 1 more Prize card"). `byThis`: the attack must be one used by the Pokémon this effect comes
+  // from (an Ability of the Pokémon), not just any matching Pokémon of yours.
+  | { k: 'extraPrize'; flip?: boolean; amount?: number; attacker?: Filter; noStack?: string; ko?: Filter; byThis?: boolean }
   /**
    * "If the affected Pokémon is Knocked Out by damage from an attack from your opponent's Pokémon (matching `attacker`), that
    * player takes `delta` fewer/more Prize cards" (negative = fewer), or with `none`, "your opponent can't take any Prize cards
    * for it". Checked before the Knock Out, so the source may be Knocked Out in the same moment (TPCi Rules Team 2025-11-13,
    * ruling 2262). `noStack`: effects sharing the key count once. Never takes the total below 0.
    */
-  | { k: 'koPrizes'; delta?: number; none?: boolean; attacker?: Filter; noStack?: string }
+  // `anyKo`: any Knock Out of the Pokémon counts (not only by damage from an attack). `duringTakersTurn`: only while it is the turn of
+  // the player who takes the Prize cards -- a timed effect "During your next turn, if the Defending Pokémon is Knocked Out, take 2 more
+  // Prize cards" (Plentiful Pollen) lasts through the opponent's turn in between, but does nothing then. As an attack's lasting effect
+  // it ends when the Pokémon leaves the Active Spot or evolves (TPCi Rules Team 2024-03-21, ruling 1957).
+  | { k: 'koPrizes'; delta?: number; none?: boolean; attacker?: Filter; noStack?: string; anyKo?: boolean; duringTakersTurn?: boolean }
   /**
    * "If the affected Pokémon would be Knocked Out by damage from an attack, flip a coin. If heads, it is not Knocked Out, and
    * its remaining HP becomes 10." The full damage is dealt first; the flip is made when Knock Outs are checked, after the
@@ -400,7 +430,18 @@ export interface StaticDef {
 }
 
 /** What a `playLock` stops a player playing from their hand. */
-export type PlayLock = 'stadium' | 'supporter' | 'aceSpec' | 'evolve';
+export type PlayLock =
+  | 'stadium'
+  | 'supporter'
+  | 'aceSpec'
+  | 'evolve'
+  /** Pokémon Tool cards (attaching a Tool from the hand). */
+  | 'tool'
+  /**
+   * Pokémon that have an Ability (printed on the card in hand: an effect that takes away Abilities in play doesn't change that,
+   * TPCi Rules Team 2025-05-29, ruling 2147), put onto the Bench or played to evolve, from the hand. `except` on the static spares some.
+   */
+  | 'abilityPokemon';
 
 export type Duration = 'thisTurn' | 'oppNextTurn' | 'myNextTurn';
 
@@ -472,8 +513,9 @@ export type Step =
       to: SlotRef;
       /**
        * Poisoned: "During Pokémon Checkup, place N damage counters on that Pokémon instead of 1" (every Checkup while it stays
-       * Poisoned: TPCi 2026-06-04, ruling 2373). Confused: "Put N damage counters instead of 3 on that Pokémon for this Special
-       * Condition" (when the flip fails). A later application of the condition replaces the amount (plain Poison: ruling 1044).
+       * Poisoned: TPCi 2026-06-04, ruling 2373). Burned: the same, instead of 2 (placed before the Burn flip). Confused: "Put N damage
+       * counters instead of 3 on that Pokémon for this Special Condition" (when the flip fails). A later application of the
+       * condition replaces the amount (plain Poison: ruling 1044).
        */
       counters?: number;
     }
@@ -516,6 +558,12 @@ export type Step =
    * you find there", "put them back in any order").
    */
   | { op: 'look'; n: Expr; who?: Who; filter?: Filter; as: string; reveal?: boolean }
+  /**
+   * Turn 1 of a player's face-down Prize cards face up ("That Prize card remains face up for the rest of the game"). Nothing happens
+   * with no face-down Prize card. The Prize card is the controller's pick among cards they can't see, so the engine takes the first
+   * face-down one. The card lands in `as`.
+   */
+  | { op: 'turnPrizeUp'; who?: Who; as?: string }
   /** "Your turn ends": as after an attack, once the effect has resolved (no attack is used, so nothing counts as damaged by one). */
   | { op: 'endTurn' };
 
@@ -598,7 +646,29 @@ export type TriggerOn =
    * to 0 (the Berries: "it takes 60 less damage..., and discard this card"). Fires for the card whose static (a `damageIn` with a
    * negative amount) took effect, once per damage instance, when the attack has resolved.
    */
-  | 'damageReduced';
+  | 'damageReduced'
+  /**
+   * The controller attached an Energy card from their hand to one of their Pokémon (by their turn action or by an effect), for every
+   * Pokémon of theirs with the trigger: the program sees the Pokémon that Energy went to in `__target` (Magearna, Auto Heal).
+   */
+  | 'allyAttachFromHand'
+  /**
+   * The OPPONENT played a Pokémon from their hand to evolve one of their Pokémon (by their turn action or Rare Candy). Fires for every
+   * Pokémon of the other side with the trigger; `__target` is the Pokémon that evolved (Team Rocket's Ampharos, Darkest Impulse).
+   */
+  | 'oppEvolveFromHand'
+  /**
+   * This card, in its owner's DECK, was discarded from there by an effect of the opponent's attack or Ability or of an Item or
+   * Supporter card, during the opponent's turn (Ferrothorn, Startling Drop). The card is not in play: the program runs with no
+   * Pokémon slot, for the card's owner.
+   */
+  | 'discardedFromDeck'
+  /**
+   * The controller's Active Pokémon was damaged by an attack from the opponent's Pokémon (even if it is Knocked Out by it), for every
+   * Pokémon of theirs with the trigger, Active or Benched (Spiritomb, Spiteful Swirl). The program runs once the attack has resolved:
+   * `__target` is the Pokémon that was damaged and `__attacker` the Attacking Pokémon; once per Pokémon with the trigger per attack.
+   */
+  | 'allyActiveDamagedByAttack';
 
 export interface TriggerScript {
   on: TriggerOn;
@@ -611,6 +681,8 @@ export interface TriggerScript {
   when?: Cond;
   /** "you may": the controller decides whether it resolves. */
   optional?: boolean;
+  /** "The effect of <name> doesn't stack": for one event only one Pokémon's copy of this trigger fires (`oppEvolveFromHand`). */
+  noStack?: boolean;
   program: Program;
 }
 

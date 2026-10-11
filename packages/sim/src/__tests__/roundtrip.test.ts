@@ -181,6 +181,7 @@ test('every DSL step renders', () => {
     delay: { op: 'delay', duration: 'oppNextTurn', program: [{ op: 'counters', n: 9, to: 'defender' }] },
     look: { op: 'look', n: 5, filter: { tag: 'Future' }, as: 'f', reveal: true },
     endTurn: { op: 'endTurn' },
+    turnPrizeUp: { op: 'turnPrizeUp', who: 'opp', as: 'up' },
   };
   for (const [op, st] of Object.entries(STEPS)) {
     const text = renderProgram([{ op: 'flip', n: 1, as: 'h' }, { op: 'chooseCards', from: 'hand', min: 1, max: 1, as: 'x' }, st as Step]);
@@ -227,6 +228,7 @@ test('every static effect, scope and trigger renders', () => {
     evolveTiming: { k: 'evolveTiming', firstTurn: true, justPlayed: true, into: { type: 'Grass' } },
     evolveInto: { k: 'evolveInto', evolvesFrom: 'Eevee', filter: { ex: true } },
     koToHand: { k: 'koToHand', cards: 'energy', filter: { energyType: 'Water' }, optional: true },
+    checkupCounters: { k: 'checkupCounters', cond: 'burned', n: 3, noStack: 'X' },
   };
   const SCOPES: Scope[] = ['self', 'myActive', 'myBench', 'myPokemon', 'oppActive', 'oppBench', 'oppPokemon', 'allPokemon', 'me', 'opp', 'both'];
   for (const [k, effect] of Object.entries(EFFECTS)) {
@@ -253,6 +255,10 @@ test('every static effect, scope and trigger renders', () => {
     damageReduced: true,
     movedToActive: true,
     allyMovedToActive: true,
+    allyAttachFromHand: true,
+    oppEvolveFromHand: true,
+    discardedFromDeck: true,
+    allyActiveDamagedByAttack: true,
   };
   for (const on of Object.keys(ON) as TriggerOn[]) {
     const t: TriggerScript = { on, optional: on === 'playToBench', when: { firstTurn: true }, program: [{ op: 'draw', n: 1 }] };
@@ -295,6 +301,8 @@ test('every expression and condition renders', () => {
     { prizesLeft: 'opp' },
     { prizesTaken: 'self' },
     { prizesTakenLastTurn: 'opp' },
+    { prizeCards: { who: 'opp', face: 'up', filter: { cat: 'energy' } } },
+    { prizeCards: { face: 'down' } },
     { damageTakenLastTurn: 'self' },
     { energyOn: 'self', type: 'Water' },
     { countersOn: 'defender' },
@@ -316,6 +324,8 @@ test('every expression and condition renders', () => {
     { and: [{ firstTurn: true }, { benchFull: 'self' }] },
     { or: [{ koLastTurn: 'opp' }, { stadium: { name: 'Prism Tower' } }] },
     { koLastTurn: 'self', filter: { nameIncludes: "Team Rocket's" } },
+    { attackedLastTurn: { other: true, filter: { tag: 'Ancient' } } },
+    { attackedLastTurn: { who: 'opp' } },
     { playedThisTurn: { filter: { name: 'Canari' } } },
     { playedThisTurn: { filter: { ttype: 'supporter', nameIncludes: 'Team Rocket' }, who: 'opp' } },
     { slotIs: { ref: 'defender', filter: { anyAbility: true } } },

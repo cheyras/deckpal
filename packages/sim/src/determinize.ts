@@ -34,6 +34,8 @@ import type { GameState, Player } from './types.js';
 
 function pinnedCards(s: GameState, player: Player): Set<number> {
   const pins = new Set<number>(s.limbo);
+  // Prize cards turned face up are known to both players.
+  for (const p of s.p) for (const c of p.prizesUp ?? []) pins.add(c);
   const addVal = (v: unknown) => {
     if (Array.isArray(v)) for (const c of v) pins.add(c as number);
   };

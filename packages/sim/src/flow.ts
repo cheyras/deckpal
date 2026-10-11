@@ -10,7 +10,7 @@
 import { def, type Env } from './context.js';
 import type { Op } from './compile.js';
 import type { Filter, SpecialCondition } from './dsl.js';
-import { evalCond } from './eval.js';
+import { evalCond, slotMatches } from './eval.js';
 import { applyCondition, queueMovedToActive, queueOppAttachTriggers, queueStadiumBench, queueTriggers, run, swapActive } from './interp.js';
 import {
   abilityLost,
@@ -19,7 +19,9 @@ import {
   benchLimit,
   canAttackTwice,
   canPayAttack,
+  checkupExtraCounters,
   playLocked,
+  pokemonPlayLocked,
   extraPrizeEffects,
   koPrizeEffects,
   surviveKoCoinFlips,
@@ -528,14 +530,16 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
   const noSupporter = playLocked(env, s, p, 'supporter', all);
   const noAce = playLocked(env, s, p, 'aceSpec', all);
   const noEvolve = playLocked(env, s, p, 'evolve', all);
+  const noTool = playLocked(env, s, p, 'tool', all);
 
   for (const c of ps.hand) {
     const d = def(env.ctx, c);
     if (d.aceSpec && noAce && d.kind !== 'pokemon') continue; // "your opponent can't play any ACE SPEC cards from their hand"
     if (d.kind === 'pokemon') {
       if (d.stage === 0) {
-        if (ps.bench.length < room && once(`b${d.idx}`)) out.push({ t: 'bench', card: c });
-      } else if (!noEvolve) {
+        // "Your opponent can't play any Pokémon that has an Ability from their hand" (Potent Glare) stops benching them too.
+        if (ps.bench.length < room && !pokemonPlayLocked(env, s, p, d, all) && once(`b${d.idx}`)) out.push({ t: 'bench', card: c });
+      } else if (!noEvolve && !pokemonPlayLocked(env, s, p, d, all)) {
         // The name it evolves from, and the timing (not on the first turn, not the turn it was played or evolved), as the effects on
         // each Pokémon bend them (Boosted Evolution, Forest of Vitality, Rainbow DNA).
         for (const sl of slots) {
@@ -566,7 +570,8 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
         if (s.stadium && def(env.ctx, s.stadium.card).name === d.name) continue;
         if (once(`t${d.idx}`)) out.push({ t: 'trainer', card: c });
       } else if (d.ttype === 'tool') {
-        // Pokémon Tools are their own Trainer category, not Items: an Item lock (Itchy Pollen) does not stop them.
+        // Pokémon Tools are their own Trainer category, not Items: an Item lock (Itchy Pollen) does not stop them, a Tool lock does.
+        if (noTool) continue;
         for (const sl of slots) {
           if (sl.tools.length >= 1) continue;
           if (once(`o${d.idx}:${sl.id}`)) out.push({ t: 'tool', card: c, slot: sl.id });
@@ -999,7 +1004,7 @@ function resolveKOs(env: Env, s: GameState): void {
     // Prize cards for each Knocked Out Pokémon: its value, changed by Energy (Legacy Energy) and by Abilities of Pokémon in play
     // (Shadowy Concealment, Fragile Husk), checked while everything is still in play.
     for (const k of ko) {
-      const m = koByAttack(s, k.owner, k.slot) ? koPrizeEffects(env, s, k.slot, all) : { delta: 0, none: false };
+      const m = koPrizeEffects(env, s, k.slot, all, koByAttack(s, k.owner, k.slot));
       const energy = koPrizeDelta(env, s, k.owner, k.slot); // lane:fighting
       k.prizes = m.none ? 0 : Math.max(0, def(env.ctx, topCard(k.slot)).prizeValue + energy + m.delta);
     }
@@ -1009,10 +1014,28 @@ function resolveKOs(env: Env, s: GameState): void {
     const extra: [number, number] = [0, 0];
     for (const taker of [0, 1] as Player[]) {
       const kos = ko.filter((k) => k.owner !== taker && s.p[k.owner].active === k.slot);
-      if (!kos.length) continue;
       const counted = new Set<string>();
       for (const x of extraPrizeEffects(taker, all)) {
-        const e = x.effect as { flip?: boolean; amount?: number; attacker?: Filter; noStack?: string };
+        const e = x.effect as { flip?: boolean; amount?: number; attacker?: Filter; noStack?: string; ko?: Filter; byThis?: boolean };
+        if (e.ko || e.byThis) {
+          // "If your opponent's Basic Pokémon is Knocked Out by damage from an attack used by this Pokémon, take 1 more Prize card":
+          // each Pokémon Knocked Out that way, wherever it was, with the attack the effect names.
+          for (const k of ko) {
+            if (k.owner === taker || !koByAttack(s, k.owner, k.slot)) continue;
+            if (e.ko && !slotMatches(env, k.slot, e.ko)) continue;
+            if (e.byThis && s.attackBy !== x.slot) continue;
+            if (e.attacker && !attackIsFrom(env, s, e.attacker, all)) continue;
+            const key = e.noStack ?? (e.amount === undefined ? 'extraPrize' : undefined);
+            if (key) {
+              if (counted.has(`${key}:${k.slot.id}`)) continue;
+              counted.add(`${key}:${k.slot.id}`);
+            }
+            if (e.flip && !flipCoin(env, s, taker)) continue;
+            extra[taker] += e.amount ?? 1;
+          }
+          continue;
+        }
+        if (!kos.length) continue;
         if (e.attacker && !(koByAttack(s, kos[0]!.owner, kos[0]!.slot) && attackIsFrom(env, s, e.attacker, all))) continue;
         const key = e.noStack ?? (e.amount === undefined ? 'extraPrize' : undefined);
         if (key) {
@@ -1115,13 +1138,16 @@ function checkup(env: Env, s: GameState): void {
     if (!sl) continue;
     if (sl.cond & POISONED) {
       // 1 damage counter, or the amount the Poison came with ("place 16 damage counters instead of 1"), at every Checkup.
-      const n = sl.poisonCounters ?? 1;
+      // ...plus what Perilous Jungle and the like add to it.
+      const n = (sl.poisonCounters ?? 1) + checkupExtraCounters(env, s, sl, 'poisoned');
       sl.damage += 10 * n;
       emit(env, { type: 'counters', player: p, slot: sl.id, n, checkup: true });
     }
     if (sl.cond & BURNED) {
-      sl.damage += 20;
-      emit(env, { type: 'counters', player: p, slot: sl.id, n: 2, checkup: true });
+      // 2 damage counters, or the amount the Burn came with, and what Magma Surge adds: all before the flip below.
+      const bn = (sl.burnCounters ?? 2) + checkupExtraCounters(env, s, sl, 'burned');
+      sl.damage += 10 * bn;
+      emit(env, { type: 'counters', player: p, slot: sl.id, n: bn, checkup: true });
       if (flipCoin(env, s, p)) sl.cond &= ~BURNED;
     }
     if (sl.cond & ASLEEP) {

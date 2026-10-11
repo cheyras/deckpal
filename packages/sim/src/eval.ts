@@ -211,6 +211,13 @@ export function evalExpr(env: Env, s: GameState, ec: EvalCtx, e: Expr): number {
   }
   if ('prizesLeft' in e) return s.p[side(ec, e.prizesLeft)].prizes.length;
   if ('prizesTaken' in e) return s.p[side(ec, e.prizesTaken)].prizesTaken;
+  if ('prizeCards' in e) {
+    const ps = s.p[side(ec, e.prizeCards.who)];
+    const up = (ps.prizesUp ?? []).filter((c) => ps.prizes.includes(c));
+    // A face-down card is unknown: only the face-up ones can be asked about by type.
+    if (e.prizeCards.face === 'down') return ps.prizes.length - up.length;
+    return up.filter((c) => cardMatches(env, c, e.prizeCards.filter)).length;
+  }
   if ('prizesTakenLastTurn' in e) return s.p[side(ec, e.prizesTakenLastTurn)].prizesLastTurn ?? 0;
   if ('damageTakenLastTurn' in e) {
     const sl = resolveSlot(s, ec, e.damageTakenLastTurn);
@@ -291,6 +298,21 @@ export function evalCond(env: Env, s: GameState, ec: EvalCtx, c: Cond): boolean 
       return !!cards?.some((x) => cardMatches(env, x, c.filter));
     }
     return s.p[p].lastKoTurn === s.turn - 1 || s.p[p].prevKoTurn === s.turn - 1; // lane:misc — prevKoTurn
+  }
+  if ('attackedLastTurn' in c) {
+    const p = side(ec, c.attackedLastTurn.who);
+    const ps = s.p[p];
+    // The player's last turn: two turns back on their own turn, one back on the other's.
+    const last = s.current === p ? s.turn - 2 : s.turn - 1;
+    const rec = ps.attackRec?.turn === last ? ps.attackRec : ps.prevAttackRec?.turn === last ? ps.prevAttackRec : undefined;
+    if (!rec) return false;
+    const f = c.attackedLastTurn.filter;
+    return rec.slots.some((id, i) => {
+      if (c.attackedLastTurn.other && id === ec.slot) return false;
+      const loc = findSlot(s, id);
+      // The Pokémon as it is now, or, once it has left play, the card it was.
+      return loc ? slotMatches(env, loc.slot, f) : cardMatches(env, rec.cards[i] as number, f);
+    });
   }
   if ('playedThisTurn' in c) {
     const ps = s.p[side(ec, c.playedThisTurn.who)];

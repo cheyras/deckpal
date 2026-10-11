@@ -158,6 +158,8 @@ export interface Slot {
   attackDmg?: number;
   /** Damage counters Poison places at each Checkup, when not 1 (while Poisoned; every application of Poison sets or clears it). */
   poisonCounters?: number;
+  /** Damage counters Burn places at each Checkup, when not 2 (while Burned; every application of Burn sets or clears it). */
+  burnCounters?: number;
   /** Damage counters a failed Confusion flip places, when not 3 (while Confused; every application of Confusion sets or clears it). */
   confusionCounters?: number;
 }
@@ -176,6 +178,13 @@ export interface DelayedEffect {
   /** Runs at the end of this turn number. */
   turn: number;
   fromAttack: boolean;
+}
+
+/** The Pokémon of one player that used an attack in turn `turn`. */
+export interface AttackRecord {
+  turn: number;
+  slots: number[];
+  cards: number[];
 }
 
 export interface PlayerState {
@@ -222,6 +231,14 @@ export interface PlayerState {
   koCardsTurn?: number;
   prevKoCards?: number[];
   prevKoCardsTurn?: number;
+  /** Prize cards (instance ids) of this player turned face up: they stay so for the rest of the game, known to both players. Replace, never mutate. */
+  prizesUp?: number[];
+  /**
+   * Which of this player's Pokémon used an attack in the turn `turn` (slot ids, and the card each was), and in the turn before
+   * (`prevAttackRec`): "if 1 of your other Ancient Pokémon used an attack during your last turn". Replaced, never mutated.
+   */
+  attackRec?: AttackRecord;
+  prevAttackRec?: AttackRecord;
   /** Names of "can't be applied more than once per game" effects already applied (Legacy Energy). Replace, never mutate: clones share it. */ // lane:fighting
   oncePerGame?: string[]; // lane:fighting
 }
@@ -253,6 +270,8 @@ export interface TimedEffect {
   /** Attack effects on a Pokémon end when it leaves the Active Spot or evolves. */
   fromAttack: boolean;
   src: number;
+  /** The turn the effect was created in: "During your next turn" effects that care don't count it (`koPrizes` `duringTakersTurn`). */
+  since?: number;
   filter?: import('./dsl.js').Filter;
   /** Player-level effect that covers that player's Pokémon (see the `effect` step's `scope`). */ // lane:metal
   scope?: import('./dsl.js').Scope;
