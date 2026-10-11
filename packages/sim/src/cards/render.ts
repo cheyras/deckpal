@@ -167,6 +167,10 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
     `Look at the top ${Number(a.n ?? 6)} cards of your deck and choose ${art(noun(a.filter as Filter | undefined).sg)} you find there (into "${String(a.as ?? 'e')}"), none if there is none`,
   'c07.moveEnergyToActive': (a) =>
     `Choose 1 of your Pokémon on your Bench that has an Energy card providing ${sym(a.type as PType)} Energy where it is attached (Basic or Special), and move 1 such Energy card from it to your Active Pokémon`,
+  // std-c04-customs.ts
+  'c04.searchToBench': (a) => `Search your deck for ${((a.names as string[]) ?? []).map((n) => art(n)).join(' or ')} (a Pokémon of any Stage) and put it onto your Bench, then shuffle your deck. With a full Bench, nothing happens`,
+  'c04.pickEnergyOnSelf': (a) => `Choose up to ${Number(a.n ?? 5)} of the ${energyNoun(a.filter as Filter | undefined)} cards attached to this Pokémon, to be discarded after the damage (into "${String(a.as ?? 'd')}")`,
+  'c04.oppActiveEnergyToHand': () => "Put an Energy attached to your opponent's Active Pokémon into their hand",
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -176,6 +180,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'std.attackKoLastTurn': () => "one of your Pokémon was Knocked Out by damage from an attack during your opponent's last turn",
   'seed3.defenderKnockedOutByThisAttack': () => "your opponent's Pokémon (the Defending Pokémon) was damaged by this attack and now has damage equal to or over its HP (it is Knocked Out)",
   'c03.ownFirstTurn': () => 'it is your first turn (turn 1 if you went first, turn 2 if you did not)',
+  'c04.evolvedFromThisTurn': (a) => `this Pokémon evolved from ${String(a.name)} during this turn`,
   rareCandyPlayable: () => "it isn't your first turn and you have a Basic Pokémon in play, not put into play this turn, that a Stage 2 card in your hand evolves from",
   'c07.benchHasEnergyOfType': (a) => `one of your Benched Pokémon has an attached Energy card providing ${sym(a.type as PType)} Energy`,
 };
@@ -1612,6 +1617,15 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
     why: '"Search your deck for up to 4 Basic {P} Energy cards and attach them … in any way you like" is `repeat 4` of an optional (min 0, max 1) search-and-attach, each pick choosing its own Benched Pokémon; that covers every choice of 0 to 4 cards and targets.',
   },
   // std-seed4
+  // std-c04
+  'me02.5-057|ability:Resolute Heart': {
+    problems: ['the rendering involves the opponent'],
+    why: 'surviveKoAtFullHp is the one engine clause for "would be Knocked Out by damage from an attack at full HP" and it only reacts to damage from an opponent\'s attack (Survival Brace\'s wording); damage from an attack of the controller\'s own Pokémon (self-damage) is not covered. Every such hit in the pool is from the opponent, and the card test pins the opponent case. The renderer\'s trailing "discard this card" is the Tool half of the clause and does not apply to an Ability source.',
+  },
+  'me02.5-061|attack:Split Bomb': {
+    problems: ['"each" is printed but not rendered'],
+    why: '"Each of 2 of your opponent\'s Pokémon" is two chosen Pokémon (min 2, max 2) and one damage step to both; the renderer words a damage step on a chosen list as "to 2 of your opponent\'s Pokémon", and the card test pins 60 on each.',
+  },
   'me05-067|attack:Fly': {
     problems: ['"tails" is printed but not rendered'],
     why: '"If tails, this attack does nothing" is the else branch of the heads test: the flip renders as "If heads, ... Otherwise, this effect ends here", so tails is the unnamed complement; the card test pins tails (no damage, no protection) and heads.',
