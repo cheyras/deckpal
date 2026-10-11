@@ -231,7 +231,7 @@ and later steps refer to them.
 | `discardEnergy` | Spectrier: `{ op: 'discardEnergy', from: 'self', count: 'all' }`. Metagross: `count: 3, filter: { energyType: 'Metal' }`. |
 
 Helpers (`src/cards/scripts/helpers.ts`): `searchToHand(filter, n, { reveal })`,
-`searchToBench(filter, n)` (adds `stage: 'basic'` and clamps to Bench space),
+`searchToBench(filter, n)` (adds `stage: 'basic'` and clamps to Bench space; with no Bench space it does nothing at all: no search, no shuffle, ruling 362),
 `discardOthers(n)` (the Ultra Ball cost), `damageOneOf(zone, amount, filter)`,
 `inDiscard(filter)`, `NO_RULE_BOX`, `BENCH_SPACE`, `HIDE_N_SNEAK`.
 
@@ -335,8 +335,8 @@ Ability, a Tool, a Stadium or an Energy, and it holds while its source is in pla
 - `effect` is one of the `StaticEffect` kinds: `preventEffects` (Hide 'n' Sneak),
   `preventDamage` (`andEffects`: Rabsca, Spherical Shield), `retreatCost` (`delta`:
   Air Balloon −2; `set`: Latias ex 0), `attackCostC` (Bloodmoon Ursaluna ex, per
-  Prize taken), `attackCostSet` (Kyurem, Trifrost for {C}), `weaknessType` (Lillie's
-  Clefairy ex), `damageOut`, `damageIn`, `hp`, `cantAttack`, `cantRetreat`,
+  Prize taken), `attackCostSet` (Kyurem, Trifrost for {C}; a set cost is final, cost increases and reductions do not change it: ruling 2032), `weaknessType` (Lillie's
+  Clefairy ex), `damageOut` (a reduction applies to all damage the attack does, Benched and own Pokémon included; an increase only to the opponent's Active: ruling 1822), `damageIn`, `hp`, `cantAttack`, `cantRetreat`,
   `noAbilities`, `itemLock`, `countersFixed` (Patrat), `cantUseAttack` (Mega Lucario ex,
   Mega Brave), `extraPrize` (Togekiss, Wonder Kiss), `loseSelfKoAbilities` (Psyduck, Damp),
   `noToolEffects` (Jamming Tower). Added with std-engine4: `benchSize` (Area Zero Underdepths: `size: 8,
@@ -391,8 +391,8 @@ Ability, a Tool, a Stadium or an Energy, and it holds while its source is in pla
   `slotIs` self (Iron Treads, with the Filter key `toolCard`: an attached Tool matches). The `delay` step takes `global`
   (Amarys: not tied to a Pokémon; if it and another effect wait for the end of the turn the turn's player is asked which first,
   ruling 2135). `move` takes `anyStage` (Klinklang puts a Stage 2 onto the Bench); an Ability can be `activated.fromHand` (an `ability`
-  action with `card`, the card in the variable `__this`), have `setupActive` (Cinderace may start face down in the Active Spot, a card
-  that still needs a Basic Pokémon in the hand to avoid a mulligan) and `putIntoPlayOnlyBy` (Palafin ex, Hero's Spirit: stopped from
+  action with `card`, the card in the variable `__this`), have `setupActive` (Cinderace may start face down in the Active Spot, a hand with
+  no Basic but such a card asks the player: put it Active, or mulligan, ruling 2212) and `putIntoPlayOnlyBy` (Palafin ex, Hero's Spirit: stopped from
   the hand and Rare Candy by `pokemonPlayLocked`; Palafin's Zero to Hero puts it into play with the custom `engine7.swapTopCard`).
   Triggers `damagedByAttack` / `damagedByAttackActive` take `minDamage` (the damage done in one hit, after every effect) and
   `attacker` (a Filter on the Attacking Pokémon; its slot is `__attacker`): Tremendous Bomb. Card fields: `extraStadium` (played

@@ -2786,8 +2786,4 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
     why: 'The catalog frame of this printing carries no Trainer text at all (effect null); the script follows the text of its earlier printing (me01-131), which reprints unchanged and does say "reveal it" and the cost of discarding 2 other cards.',
   },
   // lane:rul04
-  'me01-024|ability:Intimidating Fang': {
-    problems: ['similarity'],
-    why: 'One printed sentence ("attacks used by your opponent\'s Active Pokémon do 30 less damage") is three statics, because the engine applies the reduction in three places: to the Defending Pokémon before Weakness and Resistance, to the controller\'s Bench, and (ruling 158) to the opponent\'s own Pokémon during their turn. Each renders as its own sentence.',
-  },
 };

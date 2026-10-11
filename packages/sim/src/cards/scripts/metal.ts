@@ -215,7 +215,7 @@ export const METAL: CardScript[] = [
     id: 'sv08.5-095',
     name: 'Binding Mochi',
     // "Attacks used by the Poisoned Pokémon this card is attached to do 40 more damage to your opponent's Active Pokémon (before applying Weakness and Resistance)."
-    // damageOut only ever applies to the opponent's Active Pokémon (interp.ts dealDamage).
+    // damageOut increases only ever apply to the opponent's Active Pokémon (interp.ts dealDamage); reductions apply to all damage.
     statics: [{ effect: { k: 'damageOut', amount: 40 }, scope: 'self', filter: { condition: 'poisoned' } }],
   },
   {

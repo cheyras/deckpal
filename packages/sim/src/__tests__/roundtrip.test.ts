@@ -92,7 +92,7 @@ test('the round trip catches planted bugs: wrong numbers', () => {
 
 test('the round trip catches planted bugs: counts, options, reveal', () => {
   caught('sv08.5-101', '"up to', (s) => {
-    (s.play![0] as AnyRec).min = 2; // exactly 2, not "up to 2"
+    (s.play![0] as AnyRec).then[0].min = 2; // exactly 2, not "up to 2"
   });
   caught('me05-034', '"may"', (s) => {
     s.attacks!['Puppet Pull']!.post = (s.attacks!['Puppet Pull']!.post![0] as AnyRec).body; // mandatory search
@@ -122,7 +122,7 @@ test('the round trip catches planted bugs: whose Pokémon, which type, when', ()
     (s.attacks!.Tantrum!.post![0] as AnyRec).to = 'oppActive'; // "This Pokémon is now Confused."
   });
   caught('me03-088', 'type psychic', (s) => {
-    (s.triggers![0]!.program[0] as AnyRec).filter.type = 'Darkness';
+    (s.triggers![0]!.program[0] as AnyRec).then[0].filter.type = 'Darkness';
   });
   caught('me05-065', '"discard" is printed', (s) => {
     delete (s.attacks!.Undermine!.post![0] as AnyRec).who; // the opponent's top 2 cards into YOUR discard pile

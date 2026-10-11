@@ -291,8 +291,13 @@ function dealDamage(
     // lane:fighting — "isn't affected by any effects on your opponent's Active Pokémon" (or "on those Pokémon": Benched ones too)
     const noDefEffects = !!ignore?.defenderEffects && owner !== f.player;
     let dmg = base;
-    if (dmg > 0 && attacker && owner !== f.player && isActive) dmg += damageOut(env, s, attacker, target, all);
-    if (dmg > 0 && isActive && owner !== f.player) {
+    // "Attacks used by ... do 30 less damage" reduce all the damage the attack does, Benched Pokémon and its own side included (ruling 1822);
+    // the increases ("30 more damage") are for the opponent's Active Pokémon.
+    if (dmg > 0 && attacker) {
+      if (owner !== f.player && isActive) dmg += damageOut(env, s, attacker, target, all);
+      else if (f.kind === 'attack') dmg += damageOut(env, s, attacker, target, all, true);
+    }
+    if (dmg > 0 && isActive && (owner !== f.player || f.kind === 'attack')) { // an attack's damage to its own Active Pokémon counts too (ruling 620)
       // Weakness and Resistance, and effects that change them, are not "effects on" the Defending
       // Pokémon for `defenderEffects` (Shred rulings: Allergy Panic still makes Weakness x4).
       const w = weaknessOf(env, s, target, all);
@@ -324,12 +329,13 @@ function dealDamage(
       const hp = maxHp(env, s, target, all);
       const brace = dmg >= hp ? surviveKoSources(env, s, target, all)[0] : undefined;
       if (brace) {
-        dmg = hp - 10;
+        // The attack's full damage is placed; "10 HP remaining" is settled when Knock Outs are checked, at the max HP it has then
+        // (Lively Stadium discarded by the same attack: 190 damage on a 200 HP Pikachu ex, ruling 2041). See resolveKOs.
+        target.braced = true;
         if (brace.kind === 'tool' && target.tools.includes(brace.src)) {
           target.tools = target.tools.filter((c) => c !== brace.src);
           s.p[owner].discard.push(brace.src);
         }
-        if (dmg <= 0) continue;
       }
     }
     target.damage += dmg;
@@ -375,7 +381,10 @@ export function queueTriggers(
   /** For triggers marked `noStack`: the ones already queued for this event, so that only the first Pokémon's copy fires. */
   seen?: Set<string>,
 ): void {
-  const sources = [topCard(slot), ...(toolsDisabled(env, s) ? [] : slot.tools), ...slot.energy]; // lane:misc energy triggers; lane:fighting Jamming Tower
+  // A Pokémon that evolves with damage at or over its new HP (a Basic-only HP bonus stopped applying) is Knocked Out before any "when you
+  // play this Pokémon from your hand to evolve" trigger could happen (ruling 2122): its own triggers are not queued.
+  const koOnEvolve = on === 'evolveFromHand' && slot.damage > 0 && slot.damage >= maxHp(env, s, slot);
+  const sources = koOnEvolve ? [] : [topCard(slot), ...(toolsDisabled(env, s) ? [] : slot.tools), ...slot.energy]; // lane:misc energy triggers; lane:fighting Jamming Tower
   let noAb: boolean | undefined; // computed only when the Pokemon's own card has a trigger for this event (it walks every static)
   for (const c of sources) {
     if (only !== undefined && c !== only) continue;

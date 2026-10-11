@@ -500,10 +500,11 @@ test('Dwebble, Ascension: search my deck for a card that evolves from this Poké
   g.submit([0]);
   assert.equal(activeName(g, 0), 'Crustle');
   assert.equal(g.state.p[0].active!.cards.length, 2);
-  // On my own first turn nobody may evolve.
+  // Ruling 342: an attack's evolution is not stopped by the first-turn rule, so it works on my own first turn too.
   const first = G([FOE(), { active: 'Dwebble', energy: { active: [P] } }], { turn: 2, current: 1, first: 0 });
   choose(first, 'Attack: Ascension');
-  assert.equal(activeName(first, 1), 'Dwebble', "the second player's own first turn");
+  first.submit([0]);
+  assert.equal(activeName(first, 1), 'Crustle', "the second player's own first turn");
 });
 
 // ------------------------------------------------------------------ Crustle

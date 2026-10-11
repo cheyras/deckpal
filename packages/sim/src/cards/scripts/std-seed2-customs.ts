@@ -21,11 +21,6 @@ function ask(s: GameState, d: Decision, mode: 'cards' | 'slots' | 'index'): 'wai
   return 'wait';
 }
 
-/** The player's own first turn (the second player's first turn is turn 2): no Pokémon can evolve then. */
-function ownFirstTurn(s: GameState, p: Player): boolean {
-  return s.turn === (p === s.first ? 1 : 2);
-}
-
 /** Cards in the controller's deck that evolve from the Pokémon in this slot (by name). */
 function evolutionsInDeck(env: Env, s: GameState, p: Player, sl: Slot): number[] {
   const name = def(env.ctx, topCard(sl)).name;
@@ -43,7 +38,7 @@ function evolutionsInDeck(env: Env, s: GameState, p: Player, sl: Slot): number[]
  * For each target the controller may pick one matching card from the deck (none is allowed: a search can come up
  * empty). The card goes on top of the Pokémon's stack, which clears its Special Conditions and the effects of
  * attacks on it, exactly as evolving from hand does -- but it is not played from the hand, so no "when you play this
- * Pokémon from your hand to evolve" trigger runs. Rules kept: no evolving on a player's own first turn, and not a
+ * Pokémon from your hand to evolve" trigger runs. An effect can evolve on the player's own first turn (rulings 342, 1820, 98), but not a
  * Pokémon that already evolved this turn. A Pokémon put into play this turn CAN be evolved this way (Compendium #2054).
  */
 registerCustom('seed2.evolveFromDeck', (env, s, f, args, answer) => {
@@ -60,7 +55,6 @@ registerCustom('seed2.evolveFromDeck', (env, s, f, args, answer) => {
     delete f.vars.__evI;
     return 'next';
   };
-  if (ownFirstTurn(s, p)) return done();
   for (;;) {
     const i = f.vars.__evI as number;
     if (i >= ids.length) return done();

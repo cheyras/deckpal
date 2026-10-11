@@ -102,11 +102,12 @@ test('Misdreavus, Ascension: with no card that evolves from it in the deck nothi
   assert.deepEqual(stack(h, 0, 'active'), ['Misdreavus'], 'declined, yet it evolved');
 });
 
-test("Misdreavus, Ascension: a player can't evolve on their own first turn (the second player's first attack included)", () => {
+test("Misdreavus, Ascension: the attack can evolve it on the second player's own first turn (ruling 342: an attack's evolution is not stopped by the first-turn rule)", () => {
   const dk = deck('me02.5-085', 'me02.5-086', SLO);
   const g = scenario(dk, dk, [{ active: 'Slowpoke' }, { active: 'Misdreavus', energy: { active: [P] } }], { turn: 2, current: 1, first: 0 });
   choose(g, 'Attack: Ascension');
-  assert.deepEqual(stack(g, 1, 'active'), ['Misdreavus']);
+  g.submit([0]);
+  assert.deepEqual(stack(g, 1, 'active'), ['Misdreavus', 'Mismagius']);
 });
 
 // ------------------------------------------------------------------ Spritzee

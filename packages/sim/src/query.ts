@@ -324,11 +324,15 @@ export function attackCostParts(env: Env, s: GameState, slot: Slot, idx: number,
   if (!atk) return { cost: [], waive: 0 };
   let cost = atk.cost.slice();
   let waive = 0;
+  let fixed = false;
   for (const x of onSlot(env, s, all, slot, 'attackCostSet')) {
     const e = x.effect as { attack: string; cost: PType[] };
-    if (e.attack === atk.name) cost = e.cost.slice();
+    if (e.attack === atk.name) {
+      cost = e.cost.slice();
+      fixed = true; // a fixed cost is final: cost increases and reductions do not change it (ruling 2032)
+    }
   }
-  for (const x of onSlot(env, s, all, slot, 'attackCostC')) {
+  for (const x of fixed ? [] : onSlot(env, s, all, slot, 'attackCostC')) {
     const e = x.effect as { delta: import('./dsl.js').Expr; attack?: string };
     if (e.attack && e.attack !== atk.name) continue;
     const delta = evalExpr(env, s, { player: x.player, slot: x.slot, vars: {} }, e.delta);
@@ -563,11 +567,16 @@ export function damagePrevented(
   });
 }
 
-export function damageOut(env: Env, s: GameState, attacker: Slot, target: Slot, all = statics(env, s)): number {
+/**
+ * What the attacker's `damageOut` effects add to its damage against `target`. `reduceOnly`: only the "do N less damage" ones, which
+ * apply to every Pokémon the attack damages (Benched and its own: ruling 1822); the "N more damage" ones are for the Defending Pokémon.
+ */
+export function damageOut(env: Env, s: GameState, attacker: Slot, target: Slot, all = statics(env, s), reduceOnly = false): number {
   let n = 0;
   const once = new Set<string>(); // lane:trevenant — noStack keys already counted
   for (const x of onSlot(env, s, all, attacker, 'damageOut')) {
     const e = x.effect as { amount: number; vs?: Filter; noStack?: string };
+    if (reduceOnly && e.amount >= 0) continue;
     if (e.vs && !slotMatches(env, target, e.vs, true, s)) continue;
     if (e.noStack) {
       if (once.has(e.noStack)) continue;

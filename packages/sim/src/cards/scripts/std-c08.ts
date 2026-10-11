@@ -322,8 +322,7 @@ export const STD_C08: CardScript[] = [
     ],
     status: 'implemented',
     notes:
-      'Played and discarded like Antique Armor Fossil (see ghost.ts). The reduction is a damageOut on the opponent\'s Active Pokémon, which the ' +
-      'engine applies to damage done to the Defending Pokémon (damage to Benched Pokémon is not reduced).',
+      "Played and discarded like Antique Armor Fossil (see ghost.ts). The reduction is a damageOut on the opponent's Active Pokémon, which the engine applies to everything that Pokémon's attacks damage, Benched Pokémon included (ruling 1822).",
   },
   {
     id: 'me03-073',

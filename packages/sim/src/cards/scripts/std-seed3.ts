@@ -283,7 +283,7 @@ export const STD_SEED3: CardScript[] = [
       // "This attack does 10 less damage for each damage counter on this Pokémon."
       'Fiery Big Bang': { damage: { sub: [290, { mul: [10, { countersOn: 'self' }] }] } },
     },
-    notes: "Ferocious Bellow: `damageOut` only ever applies to damage done to the opponent's Active Pokémon (interp.ts dealDamage), so damage the Defending Pokémon's attacks do to Benched Pokémon is not reduced.",
+    notes: "Ferocious Bellow: a `damageOut` reduction applies to all damage the Defending Pokémon's attacks do, Benched Pokémon and its own side included (ruling 1822).",
   },
   {
     id: 'me04-035',

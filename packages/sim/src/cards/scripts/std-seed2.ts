@@ -31,7 +31,7 @@ export const STD_SEED2: CardScript[] = [
     },
     notes:
       'Ascension evolves from the deck, not the hand: no "when you play this Pokémon from your hand to evolve" trigger runs; it still clears Special Conditions ' +
-      'and attack effects, and (like any evolving) cannot happen on your own first turn or to a Pokémon that already evolved this turn.',
+      'and attack effects, and an attack can evolve a Pokémon even on your own first turn (ruling 342), but not one that already evolved this turn.',
   },
   {
     id: 'me03-035',
