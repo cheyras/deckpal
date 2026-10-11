@@ -14,8 +14,23 @@ export const template = (t: string) =>
   t.replace(/\{[A-Z]\}/g, '{T}').replace(/\b\d+\b/g, 'N').replace(/Pokemon/g, 'Pokémon').replace(/\s+/g, ' ').trim();
 
 const [lanesDir, outDir] = process.argv.slice(2);
+// Every test block in the suite, by title, so a cookbook entry can carry the test of its example card.
+const TEST_DIR = new URL('../src/__tests__/', import.meta.url);
+const testBlocks: { title: string; src: string }[] = [];
+for (const f of readdirSync(TEST_DIR).filter((x) => x.endsWith('.test.ts'))) {
+  const lines = readFileSync(new URL(f, TEST_DIR), 'utf8').replace(/\r\n/g, '\n').split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^test\((['"`])(.*?)\1/.exec(lines[i]!);
+    if (!m) continue;
+    let j = i;
+    while (j < lines.length && lines[j] !== '});') j++;
+    if (j - i <= 60) testBlocks.push({ title: m[2]!, src: lines.slice(i, j + 1).join('\n') });
+  }
+}
+const testFor = (name: string, attack: string) =>
+  (testBlocks.find((t) => t.title.includes(name) && t.title.includes(attack)) ?? testBlocks.find((t) => t.title.startsWith(name)))?.src;
 // Cookbook: template → up to 2 existing implementations (card id, attack, its DSL).
-const cookbook = new Map<string, { id: string; name: string; attack: string; text: string; dsl: unknown }[]>();
+const cookbook = new Map<string, { id: string; name: string; attack: string; text: string; dsl: unknown; test?: string }[]>();
 for (const s of SCRIPTS) {
   const f = FRAMES[s.id];
   if (!f) continue;
@@ -23,7 +38,7 @@ for (const s of SCRIPTS) {
     if (!a.effect || !s.attacks?.[a.name]) continue;
     const k = template(a.effect);
     const list = cookbook.get(k) ?? [];
-    if (list.length < 2) list.push({ id: s.id, name: s.name, attack: a.name, text: a.effect, dsl: s.attacks[a.name] });
+    if (list.length < 2) list.push({ id: s.id, name: s.name, attack: a.name, text: a.effect, dsl: s.attacks[a.name], test: testFor(s.name, a.name) });
     cookbook.set(k, list);
   }
 }
