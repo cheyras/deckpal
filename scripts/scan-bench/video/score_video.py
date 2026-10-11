@@ -33,9 +33,13 @@ sys.path.insert(0, str(HERE.parent))
 import embed as E  # noqa: E402
 
 VB = Path.home() / "deckpal-data" / "video-bench"
-EXP = Path.home() / "deckpal-data" / "scan-embed" / "export" / "deckpal-card-b32-v1"
+# The identity model the scanner ships (packages/matching EMBED_MODEL_ID) and
+# its gate, confidence.ts THRESHOLDS['deckpal-card-b32-v2']. Until #288 this
+# scored with v1, so video numbers before it are v1's.
+MODEL = "deckpal-card-b32-v2"
+EXP = Path.home() / "deckpal-data" / "scan-embed" / "export" / MODEL
 GATE = (0.65, 0.03)
-WIDE = (0.45, 0.12)  # confidence.ts THRESHOLDS['deckpal-card-b32-v1'].wide (PR #288)
+WIDE = (0.45, 0.12)
 LAG_S = 0.6   # a capture may land a little after the card's last fully-shown frame
 LEAD_S = 0.25
 
@@ -50,9 +54,9 @@ def main():
     gts = {p.stem: json.loads(p.read_text(encoding="utf8")) for p in (VB / "gt").glob("*.json")}
     vids = a.videos or sorted(gts)
     root = VB / a.run if a.run else VB
-    g = np.load(E.BENCH / "embed" / "deckpal-card-b32-v1.fp32" / "gallery.npz")
+    g = np.load(E.BENCH / "embed" / f"{MODEL}.fp32" / "gallery.npz")
     gids, gv = g["ids"], g["vecs"]
-    emb = E.Embedder("x", str(EXP / "deckpal-card-b32-v1.int8.onnx"))
+    emb = E.Embedder("x", str(EXP / f"{MODEL}.int8.onnx"))
     tot = dict(cap=0, capt=0, auto=0, dup=0, stray=0, wrong=0, transition=0, captures=0)
     rows_out = []
     for vid in vids:

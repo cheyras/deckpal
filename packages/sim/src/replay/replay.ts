@@ -36,16 +36,19 @@
  * `divergence`: an engine rule, a card script, or a harness gap). Consequence
  * differences are `mismatches` and the replay carries on.
  */
+import { evolveOnto } from '../evolve.js';
 import { def, type DeckEntry, type DeckInput, type Env } from '../context.js';
 import { legalActions } from '../flow.js';
 import { Game } from '../game.js';
 import { applyCondition } from '../interp.js';
-import { allSlots, findSlot, newSlot, opp, removeFrom, topCard } from '../state.js';
+import { benchLimit } from '../query.js';
+import { allSlots, findSlot, healSlot, newSlot, opp, removeFrom, topCard } from '../state.js';
 import type { Action, CardFrame, Decision, GameEvent, GameState, Player, Slot } from '../types.js';
 import { scriptFor } from '../cards/registry.js';
 import { transcript } from '../transcript.js';
 import { FRAMES } from '../cards/frames-all.js';
 import { textKey } from '../cards/frame.js';
+import { withPrintedWR } from '../cards/printed-wr.js';
 import { canonicalName, resolveFrame } from './cardCodes.js';
 import { parseLiveLog, type CardMention, type LiveEvent, type ParseOptions, type Side } from './liveLog.js';
 
@@ -136,6 +139,10 @@ function eventCards(e: LiveEvent): CardMention[] {
     case 'attach':
       push(e.card);
       break;
+    case 'evolve':
+      // An Evolution an effect put onto a Pokémon (Salvatore, from the deck) is the result of a card choice; a played one is an action.
+      if (e.sub) push(e.to);
+      break;
     case 'hand_add':
       push(e.card);
       break;
@@ -159,6 +166,8 @@ function fromZone(e: LiveEvent, zone: string): boolean {
     case 'attach':
     case 'move_cards':
       return true;
+    case 'evolve':
+      return zone === 'deck' || zone === 'discard';
     default:
       return false;
   }
@@ -181,6 +190,9 @@ function eventTarget(e: LiveEvent): [Side | null, string] | null {
       return [e.p, e.to.name];
     case 'attack':
       return [e.target.player, e.target.card.name];
+    case 'evolve':
+      // The Pokémon an effect evolved (the choice of which one comes after the choice of the Evolution).
+      return e.sub ? [e.p, e.from.name] : null;
     case 'use':
       return e.target ? [e.target.player, e.target.card.name] : null;
     default:
@@ -620,7 +632,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
   const iidKey: string[] = [];
   for (const p of [0, 1] as Player[]) {
     let j = 0;
-    for (const entry of decks[p]!.cards) for (let k = 0; k < entry.count; k++) iidKey[ctx.iids[p][j++] as number] = textKey(entry.frame);
+    for (const entry of decks[p]!.cards) for (let k = 0; k < entry.count; k++) iidKey[ctx.iids[p][j++] as number] = textKey(withPrintedWR(entry.frame));
   }
   const name = (iid: number) => def(ctx, iid).name;
   /** Is this card the one the log names? (Its printing too, when the log gave a code.) */
@@ -894,8 +906,8 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
           const st = idx((a) => a.t === 'stadium');
           if (st >= 0) return st;
         }
-        // "PlayerA played Dudunsparce." — a self-played Ability.
-        return idx((a) => a.t === 'ability' && slotMatches(a.slot, e.card.name));
+        // "PlayerA played Dudunsparce." — a self-played Ability (or one used from the hand: Klinklang's Emergency Rotation).
+        return idx((a) => a.t === 'ability' && (a.card !== undefined ? same(name(a.card), e.card.name) : slotMatches(a.slot, e.card.name)));
       }
       case 'evolve':
         return both((x) => pickAction(A, (a) => a.t === 'evolve' && isCard(a.card, want(e.to), x) && slotMatches(a.slot, e.from.name, e.where)));
@@ -904,6 +916,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       case 'use': {
         const ab = idx((a) => {
           if (a.t !== 'ability') return false;
+          if (a.card !== undefined) return same(name(a.card), e.user.name) && same(def(ctx, a.card).abilities[a.idx]?.name ?? '', e.move);
           const f = findSlot(s, a.slot);
           return !!f && same(slotLabel(f.slot), e.user.name) && same(def(ctx, topCard(f.slot)).abilities[a.idx]?.name ?? '', e.move);
         });
@@ -1002,7 +1015,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
           const who = (it.name === HIDDEN ? it.side : own({ name: it.name }, it.side)) as Player;
           const c = findIn(s.p[who].deck, it);
           if (c === undefined || !removeFrom(s.p[who].deck, c)) continue;
-          if (l.toBench && s.p[who].bench.length < 5) {
+          if (l.toBench && s.p[who].bench.length < benchLimit(env, s, who)) {
             const sl = newSlot(s, c);
             s.p[who].bench.push(sl);
             slotName.set(sl.id, name(c));
@@ -1033,6 +1046,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
           sw.bench = sw.bench.filter((x) => x !== inc);
           sw.bench.push(sw.active);
           sw.active = inc;
+          inc.movedActiveTurn = s.turn;
         }
       } else if (l.t === 'evolve') {
         // An evolution an unscripted card made (Salvatore: from the deck onto a Pokémon).
@@ -1041,9 +1055,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
         const c = findIn(ps2.deck, want(l.to)) ?? findIn(ps2.hand, want(l.to));
         if (sl && c !== undefined) {
           if (!removeFrom(ps2.deck, c)) removeFrom(ps2.hand, c);
-          sl.cards.push(c);
-          sl.evolvedTurn = s.turn;
-          sl.cond = 0;
+          evolveOnto(env, s, sl, c);
           slotName.set(sl.id, name(c));
         }
       } else if (l.t === 'attach' && l.sub) {
@@ -1060,7 +1072,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
         if (sl && s.p[lp].active === sl) applyCondition(sl, l.cond.toLowerCase() as Parameters<typeof applyCondition>[1], s.turn);
       } else if (l.t === 'heal') {
         const sl = slotNamed(lp, l.target.name);
-        if (sl) sl.damage = Math.max(0, sl.damage - l.amount);
+        if (sl) healSlot(s, sl, l.amount);
       } else if (l.t === 'counters') {
         const sl = slotNamed(l.target.player as Player, l.target.card.name);
         if (sl) sl.damage += 10 * l.count;
@@ -1087,6 +1099,11 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       const t = eventTarget(e);
       if (t) involved.add(norm(t[1]));
       if (e.t === 'attack') involved.add(norm(e.attacker.name));
+      // "(Ability) Sunny Day: 20 damage" in a damage breakdown: a card with that Ability the engine doesn't script is a gap too.
+      for (const b of (e as { breakdown?: { label: string }[] }).breakdown ?? []) {
+        const ab = /^\(Ability\) (.+)$/.exec(b.label)?.[1];
+        if (ab) for (const d of ctx.defs) if (partial(d.coverage) && d.abilities.some((x) => x.name === ab)) involved.add(norm(d.name));
+      }
       if (e.t === 'use') involved.add(norm(e.user.name));
       if (e.t === 'play_card' || e.t === 'play_stadium' || e.t === 'play_bench') involved.add(norm(e.card.name));
     }
@@ -1097,6 +1114,11 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       if (a.join('|') !== b.join('|')) result.mismatches.push({ line, turn, what, log: a, engine: b, ...(gaps.length ? { unscripted: gaps } : {}) });
     };
     const sideName = (p: Player | Side | null, n: string) => `P${(p ?? 9) as number}:${canonicalName(n)}`;
+    // Live can name the wrong player for a target ("PlayerA put a damage counter on PlayerA's Petilil" when the
+    // Petilil is PlayerB's): a side that never had a Pokémon of that name, while the other did, is the other side.
+    const hadSlot = (p: Player, n: string) => [...slotName].some(([id, nm]) => same(nm, n) && slotOwner.get(id) === p);
+    const boardSide = (p: Player | Side | null, n: string): Player | Side | null =>
+      p === null || hadSlot(p as Player, n) || !hadSlot(opp(p as Player), n) ? p : opp(p as Player);
     const eName = (slot: number) => slotName.get(slot) ?? `#${slot}`;
     const engineOwner = (slot: number): Player | null => {
       const f = findSlot(s, slot);
@@ -1115,7 +1137,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
     };
     check(
       'counters',
-      sumBy(all.flatMap((e) => (e.t === 'counters' ? [[sideName(e.target.player, e.target.card.name), e.count] as [string, number]] : []))),
+      sumBy(all.flatMap((e) => (e.t === 'counters' ? [[sideName(boardSide(e.target.player, e.target.card.name), e.target.card.name), e.count] as [string, number]] : []))),
       sumBy(engine.flatMap((e) => (e.type === 'counters' ? [[sideName(engineOwner(e.slot), eName(e.slot)), e.n] as [string, number]] : []))),
     );
     check(
@@ -1213,7 +1235,17 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       const n = left.filter((w) => values.some((v) => isCard(v, w, false)) || names.includes(HIDDEN)).length;
       return n > 0 && n >= Math.min(left.length, d.min);
     });
-    if (at < 0) return null;
+    if (at < 0) {
+      // A search whose result the log hides: Live prints the opponent's deck search as "<player> drew a card." (hidden), with
+      // no card to match. The search answers it: as many cards as the log shows drawn (the hidden cards are not named, so which
+      // ones is the engine's business), taking those draw lines so they are not left over as a draw the engine never made.
+      if (zone !== 'deck') return null;
+      const hidden = drawItems.filter((x) => !x.used && x.name === HIDDEN && x.side === p && x.seq > scopeSeqs[0] && x.seq <= scopeSeqs[1]);
+      const n = Math.min(d.max, hidden.length, values.length);
+      if (n < Math.max(d.min, 1)) return null;
+      for (const it of hidden.slice(0, n)) it.used = true;
+      return Array.from({ length: n }, (_, i) => i);
+    }
     take(lines[at]!);
     // One effect, several lines: Metal Maker attaches each Energy on a line of its own.
     if (lines[at]!.t === 'attach') for (const e of lines.slice(at + 1)) if (e.t === 'attach' && pick.length < d.max) take(e);
@@ -1234,8 +1266,9 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       const t: [Side | null, string] | null = discardFrom ? (e.t === 'discard' && e.from ? [e.from.player, e.from.card.name] : null) : eventTarget(e);
       if (!t) continue;
       // The side the line names, else the other (Live credits a Hammer's discard to the wrong player).
-      const named = values.some((id) => slotMatches(id, t[1]) && (t[0] === null || findSlot(s, id)?.owner === t[0]));
-      const fits = (id: number, k: number) => !picked.includes(k) && slotMatches(id, t[1]) && (!named || t[0] === null || findSlot(s, id)?.owner === t[0]);
+      const where = e.t === 'evolve' ? e.where : undefined; // "on the Bench" / "in the Active Spot"
+      const named = values.some((id) => slotMatches(id, t[1], where) && (t[0] === null || findSlot(s, id)?.owner === t[0]));
+      const fits = (id: number, k: number) => !picked.includes(k) && slotMatches(id, t[1], where) && (!named || t[0] === null || findSlot(s, id)?.owner === t[0]);
       if (e.t === 'counters') {
         const left = countersLeft.get(e.seq) ?? e.count;
         if (left <= 0) continue;

@@ -3,6 +3,7 @@
  * Each is written from the printed text quoted above it and tested in
  * src/__tests__/cards-fighting.test.ts.
  */
+import { devolve } from '../../evolve.js';
 import { def } from '../../context.js';
 import { registerCustom } from '../../customs.js';
 import type { Filter, SlotZone } from '../../dsl.js';
@@ -26,12 +27,10 @@ registerCustom('devolveDefender', (env, s, f) => {
   const owner = s.p[0].active === t || s.p[0].bench.includes(t) ? 0 : 1;
   if (owner === f.player || s.p[owner].active !== t) return 'next';
   if (effectsPrevented(env, s, t, f.player, 'attack')) return 'next';
-  const card = t.cards.pop() as number;
+  const [card] = devolve(env, s, t);
   const ps = s.p[owner];
-  ps.hand.push(card);
-  ps.revealed.push(card); // both players saw it leave play
-  t.cond = 0;
-  s.effects = s.effects.filter((x) => !(x.slot === t.id && x.fromAttack));
+  ps.hand.push(card as number);
+  ps.revealed.push(card as number); // both players saw it leave play
   return 'next';
 });
 
@@ -40,7 +39,7 @@ registerCustom('sumCounters', (env, s, f, args) => {
   const zone = String(args.zone) as SlotZone;
   const filter = args.filter as Filter | undefined;
   const n = slotsIn(s, f.player, zone)
-    .filter((sl) => slotMatches(env, sl, filter))
+    .filter((sl) => slotMatches(env, sl, filter, true, s))
     .reduce((a, sl) => a + sl.damage / 10, 0);
   f.vars[String(args.as ?? 'n')] = n;
   return 'next';

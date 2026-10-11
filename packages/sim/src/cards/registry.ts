@@ -9,16 +9,26 @@ import { SCRIPTS } from './scripts/index.js';
 import type { CardScript } from '../dsl.js';
 import type { CardFrame } from '../types.js';
 import { textKey } from './frame.js';
+import { withPrintedWR } from './printed-wr.js';
 
 export { FRAMES };
 
 let byKey: Map<string, CardScript> | null = null;
 let byId: Map<string, CardScript> | null = null;
 
+/**
+ * Test tooling only (scripts/mutation-check.ts): ids in SIM_DISABLE_SCRIPTS (comma-separated) are left
+ * out, so a card's tests can be run without its script to prove they would catch it missing.
+ */
+const DISABLED = new Set(
+  (typeof process !== 'undefined' ? (process.env?.SIM_DISABLE_SCRIPTS ?? '') : '').split(',').map((x) => x.trim()).filter(Boolean),
+);
+
 function build(): void {
   byKey = new Map();
   byId = new Map();
   for (const s of SCRIPTS) {
+    if (DISABLED.has(s.id)) continue;
     const f = FRAMES[s.id];
     if (!f) throw new Error(`script ${s.id} (${s.name}) has no frame in frames.json -- run the frames script`);
     if (f.name.trim() !== s.name) throw new Error(`script ${s.id} names "${s.name}" but the card is "${f.name}"`);
@@ -32,7 +42,7 @@ function build(): void {
 /** The script for this printing, or null when none exists. */
 export function scriptFor(f: CardFrame): CardScript | null {
   if (!byKey) build();
-  return byKey!.get(textKey(f)) ?? null;
+  return byKey!.get(textKey(withPrintedWR(f))) ?? null;
 }
 
 export function scriptById(id: string): CardScript | null {

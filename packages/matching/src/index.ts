@@ -19,7 +19,7 @@ export {
 } from './input-spec.js'
 export type { EmbedInputOptions, RgbaImage } from './input-spec.js'
 
-export { THRESHOLDS, identityConfidence, variantConfidence } from './confidence.js'
+export { THRESHOLDS, identityConfidence, isConfidentScore, variantConfidence } from './confidence.js'
 export type {
   EmbedThresholds,
   IdentityCandidate,

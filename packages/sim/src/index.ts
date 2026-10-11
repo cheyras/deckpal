@@ -15,7 +15,7 @@ export { determinize } from './determinize.js';
 export { makePilot, type PilotName, type PilotOptions } from './pilot/index.js';
 export { GreedyPilot, type GreedyOptions } from './pilot/greedy.js';
 export { SearchPilot, DEFAULT_SEARCH, type SearchOptions } from './pilot/search.js';
-export { PolicyPilot, policyChoose, DEFAULT_PROFILE, type PolicyProfile } from './pilot/policy.js';
+export { PolicyPilot, policyChoose, publicPolicyChoose, DEFAULT_PROFILE, type PolicyProfile } from './pilot/policy.js';
 export { evaluate, DEFAULT_WEIGHTS, type EvalWeights } from './pilot/eval.js';
 export {
   defaultPilotFactory, isTimeout, ownTurn, runSimulation, simulate, simulateAsync,
