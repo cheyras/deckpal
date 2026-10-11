@@ -38,3 +38,25 @@ test('simulateBattles forwards the compare list to POST /decks/simulate', async 
   assert.deepEqual(calls[0]![2], { cards, compare_cards: cards, compare_name: 'v4 with 2 Gwynn' })
   assert.ok(JSON.stringify(out).includes('VERDICT'))
 })
+
+test('simulate_battles: the built-in meta pool is named in the schema and the description', () => {
+  const opp = simulateBattlesInputSchema.shape.opponents.description ?? ''
+  assert.match(opp, /'meta'/)
+  assert.match(opp, /'meta:<archetype>'/)
+  assert.match(opp, /as-of date/)
+  assert.match(opp, /snapshot/)
+  assert.match(simulateBattlesTool.description, /built-in Standard meta pool/)
+  assert.equal(simulateBattlesTool.annotations?.readOnlyHint, true)
+  assert.ok(simulateBattlesInputSchema.safeParse({ deck_id: 'v4', opponents: ['meta', 'meta:Dragapult', 'Gengar'] }).success)
+})
+
+test('simulateBattles passes meta and meta:<archetype> to the API as written, without a deck lookup', async () => {
+  const calls: unknown[][] = []
+  // A ctx whose database throws: a meta reference must never reach the deck resolver.
+  const ctx = { userId: 'u', db: new Proxy({}, { get: () => { throw new Error('deck lookup') } }) as never, api: {
+    base: 'test', get: async () => ({}),
+    send: async (...args: unknown[]) => { calls.push(args); return { text: 'SIMULATED', report: {} } },
+  } } as never
+  await simulateBattles(ctx, { cards, opponents: ['meta', ' Meta : Dragapult Dusknoir'] })
+  assert.deepEqual((calls[0]![2] as { opponents: string[] }).opponents, ['meta', ' Meta : Dragapult Dusknoir'])
+})
