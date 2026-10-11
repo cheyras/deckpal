@@ -27,8 +27,9 @@ export type ModelChoice = {
   /** Gateway model id. */
   readonly id: string
   /** Used when the primary errors. A DIFFERENT LAB, so a provider outage that
-   *  takes the primary down does not take the fallback with it. */
-  readonly fallback: string
+   *  takes the primary down does not take the fallback with it. Absent only
+   *  where no other model can do the job at all (research: see below). */
+  readonly fallback?: string
   /**
    * Reasoning effort, when the model supports it.
    *
@@ -240,9 +241,20 @@ export const MODELS: Record<Job, ModelChoice> = {
    * vendor is down it FAILS LOUDLY. A research tool that cannot research has
    * to say so.
    */
+  //
+  // ── sonar-pro LEFT THE GATEWAY (found 2026-10-10) ───────────────────────────
+  //
+  // The Gateway catalogue (`/v1/models`) stopped listing `perplexity/sonar-pro`;
+  // only `perplexity/sonar` remains. Production's startup check said so on every
+  // cold start ("DO NOT EXIST on this Gateway key"), and every research call
+  // 404'd on the primary before falling back to sonar. Reader-visible research
+  // was already sonar's; this removes the failing hop and its latency. No other
+  // Perplexity search model is listed, so there is no fallback: per the rule
+  // above, research that cannot reach a search model fails loudly rather than
+  // answering from training data. Sonar measured "thin" (table above), so a
+  // stronger search engine is a measured follow-up, not this fix.
   research: {
-    id: 'perplexity/sonar-pro',
-    fallback: 'perplexity/sonar',
+    id: 'perplexity/sonar',
     maxOutputTokens: 2500,
   },
 }
