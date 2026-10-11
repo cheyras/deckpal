@@ -1627,13 +1627,20 @@ the vector alone: where they disagree, the printed key wins and the response is
 identical to the flag being off. The one exception (2026-10-10) is a key
 resolved on the printed NUMBER (`badge+number`, `number+denominator`) whose
 card the printed NAME does not agree with. If the name agrees with the
-vector's decisive top-1 and that card fits the denominator, badge or number,
-the answer is `"corroborated"` on that card. If it fits none of them, or if the
-name together with the denominator names other cards, the answer becomes
-unconfident and lists both readings. That is how a dropped digit
-(`23/197` read off `223/197`) that lands on a real card stops being a confident
-wrong answer. A garbled name that agrees with nothing changes nothing. A phash
-distance <= 2 can CONFIRM the vector and can never substitute for it.
+vector's decisive top-1 and that card carries the number read, is in the
+badge's set, or (for `number+denominator` only) is in a set of the denominator
+read, the answer is `"corroborated"` on that card. If it fits none of them, the
+answer becomes unconfident and lists both cards. If the name together with the
+denominator names other cards (for `badge+number`: other cards in the badge's
+own set), the answer becomes unconfident and lists the keyed card with them, and
+a vector top-1 inside that list still corroborates it, exactly as on any other
+key-narrowed list. That is how a dropped digit (`23/197` read off `223/197`)
+that lands on a real card stops being a confident wrong answer. The key stands
+unchanged when no name was read, when the name agrees with the keyed card, when
+the read is a whole-word piece of the keyed card's own name (`Charizard EX` off
+`M Charizard EX`), when the vector's own top-1 (showable or better) or a
+near-exact phash is the keyed card, and when a garbled name agrees with nothing.
+A phash distance <= 2 can CONFIRM the vector and can never substitute for it.
 
 Note: `setCode` here is the code PRINTED on 2023+ cards (SVI, DRI, ...) — a
 different namespace from PTCGL codes (`PR-SV` vs `SVP`), see
