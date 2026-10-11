@@ -88,3 +88,11 @@ On the owner photos, the Fossil Dragonite that was confidently named as its holo
   - **The vintage hash rule:** `/api/scan` also no longer lets the hash name a WotC-era card on its own (`hashMayNameAlone`). Those sets share one yellow frame, which dominates a whole-card 9x8 hash. A study of the owner's verified photos (96 vintage crops) found that, within today's bar, 22 of the hash's 64 confident vintage answers were a different card. Under the client's solo gate, 8 of 11 vintage claims were wrong.
   - **Effect on the owner photos:** confident-wrong goes from 7/81 to 6/80, with auto-ID unchanged at 74/218. The scan benchmark is unchanged (167/244, 1 wrong).
   - **The sharper fix:** a 256-bit hash with the 5% margin cropped and full-cell averaging reached zero wrong-card answers at today's coverage. It needs a re-index, so it is a separate change, and no hash can tell vintage printings apart.
+- **Addendum, known reprint sets (2026-10-10):** image tests miss pairs whose catalogue scans differ too much. Base Set Magneton against its Base Set 2 reprint has 6 art-band inliers and a dHash of 12, because both are foil scans. So the table also joins by name within the sets a reprint set draws from:
+  - Base Set 2 reprints Base Set and Jungle.
+  - Legendary Collection reprints Base Set, Jungle, Fossil and Team Rocket.
+  - Evolutions reprints Base Set art in a new frame, and the vector confuses them.
+  - Jungle, Fossil and Team Rocket print each holo again as a non-holo.
+  - Celebrations Classic Collection has no catalogue art. It is joined to its originals by name and collector number (`scripts/scan-bench/cel25cc-originals.json`, from the approved host's file names).
+
+  The table grows to 1,018 families and 2,434 cards; the largest family is still 8. Joining too much only turns an answer into a question (Base Set and Jungle Pikachu now ask), and the main benchmark is unchanged. On a second, held-out set of owner photos verified by eye (259 cards, `quad-verify2`), confident-wrong goes from 14/67 to **4/57** with auto-ID unchanged at 53. On the first set it goes from 6/80 to 4/77.

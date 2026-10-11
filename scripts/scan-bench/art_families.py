@@ -48,6 +48,25 @@ sys.path.insert(0, str(HERE))
 import embed as E  # noqa: E402
 
 
+REPRINT_SETS = {"base4": ["base1", "base2"], "lc": ["base1", "base2", "base3", "base5"], "xy12": ["base1"]}
+WITHIN_SET_HOLO = ["base2", "base3", "base5"]
+
+
+def _close(a: str, b: str) -> bool:
+    """Same folded name, allowing one or two edits (Imposter / Impostor)."""
+    if a == b:
+        return True
+    if abs(len(a) - len(b)) > 2:
+        return False
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1] <= 2
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--same-art", default=str(BENCH / "same-art.json"))
@@ -121,6 +140,53 @@ def main():
                         continue
                     union(x, y)
                     n_hash += 1
+    # KNOWN REPRINT SETS. Some sets are reprints by definition, and the image
+    # tests miss pairs whose catalogue scans differ too much (Base Set Magneton
+    # vs its Base Set 2 reprint: 6 art-band inliers, dHash 12 — two foil scans).
+    # Joining too much only turns an answer into a question, so these rules join
+    # by name within the sets a reprint set draws from:
+    #   Base Set 2 reprints Base Set and Jungle; Legendary Collection reprints
+    #   Base Set, Jungle, Fossil and Team Rocket; Evolutions reprints Base Set's
+    #   art in a new frame (the vector confuses them); and Jungle, Fossil and
+    #   Team Rocket print each holo again as a non-holo in the same set.
+    by_set_name = defaultdict(list)
+    set_of = {c["cardId"]: c["setId"] for c in cards}
+    for c in cards:
+        by_set_name[(c["setId"], name[c["cardId"]])].append(c["cardId"])
+    n_rule = 0
+    for reprint, sources in REPRINT_SETS.items():
+        for (sid, nm), ids in list(by_set_name.items()):
+            if sid != reprint:
+                continue
+            for src in sources:
+                for y in by_set_name.get((src, nm), []):
+                    for x in ids:
+                        union(x, y)
+                        n_rule += 1
+    for sid in WITHIN_SET_HOLO:
+        for (s, nm), ids in by_set_name.items():
+            if s == sid and len(ids) > 1 and not any(i in energy for i in ids):
+                for y in ids[1:]:
+                    union(ids[0], y)
+                    n_rule += 1
+    # Celebrations Classic Collection: no catalogue art, so no image test can
+    # see it — but each card reprints the card with its name and collector
+    # number (cel25cc-originals.json, from the approved host's file names).
+    cc = json.loads((HERE / "cel25cc-originals.json").read_text(encoding="utf8"))["cards"]
+    num = {c["cardId"]: c.get("number") for c in cards}
+    fold = lambda s: "".join(ch for ch in s.lower() if ch.isalnum())
+    n_cc = 0
+    for ccid, o in cc.items():
+        if ccid not in name:
+            continue
+        hits = [c["cardId"] for c in cards
+                if not c["cardId"].startswith("cel25") and str(num.get(c["cardId"]) or "").lstrip("0") == str(o["originalNumber"])
+                and _close(fold(c["name"]), fold(o["name"]))]
+        for y in hits:
+            union(ccid, y)
+            n_cc += 1
+    rules_txt = ", ".join(k + "<-" + "/".join(v) for k, v in REPRINT_SETS.items())
+    holo_txt = "/".join(WITHIN_SET_HOLO)
     groups = defaultdict(set)
     for k in list(parent):
         groups[find(k)].add(k)
@@ -132,12 +198,14 @@ def main():
                    f"aligned with >= 150 inliers and shift <= 0.05, shared figure >= {a.figure_min}, frame colour "
                    f">= {a.frame_colour_min}, figure colour >= {a.figure_colour_min}, not an Energy card; "
                    f"dHash joins vetoed where the image comparison measured different pictures (art inliers < {a.art_floor}, no shared figure; Energy exempt); "
+                   f"plus known reprint sets joined by name ({rules_txt}; holo/non-holo within {holo_txt}) "
+                   f"and Celebrations Classic Collection to its originals by name and number; "
                    f"transitive closure. scripts/scan-bench/art_families.py"),
         "cards": sum(len(f) for f in families),
         "families": families,
     }
     Path(a.out).write_text(json.dumps(out, separators=(",", ":")) + "\n", encoding="utf8")
-    print(f"{n_art} image pairs + {n_foil} foil pairs + {n_hash} hash pairs ({n_vetoed} hash joins vetoed) -> {len(families)} families, "
+    print(f"{n_art} image pairs + {n_foil} foil pairs + {n_hash} hash pairs ({n_vetoed} hash joins vetoed) + {n_rule} reprint-set joins + {n_cc} Celebrations joins -> {len(families)} families, "
           f"{out['cards']} cards -> {a.out}")
 
 
