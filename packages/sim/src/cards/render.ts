@@ -149,6 +149,11 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'seed4.discardPicked': (a) => `Discard the Energy cards chosen as "${String(a.cards ?? 'd')}" from the Pokémon they are attached to`,
   'seed4.energyToOppHand': (a) => `Put ${Number(a.n ?? 2)} Energy attached to your opponent's Active Pokémon into their hand (all of them if it has fewer)`,
   'seed4.shuffleSlotIntoDeck': (a) => `Shuffle the Pokémon chosen as "${String(a.slot ?? 't')}" and all attached cards into their deck`,
+  // std-c07-customs.ts
+  'c07.lookTopPick': (a) =>
+    `Look at the top ${Number(a.n ?? 6)} cards of your deck and choose ${art(noun(a.filter as Filter | undefined).sg)} you find there (into "${String(a.as ?? 'e')}"), none if there is none`,
+  'c07.moveEnergyToActive': (a) =>
+    `Choose 1 of your Pokémon on your Bench that has an Energy card providing ${sym(a.type as PType)} Energy where it is attached (Basic or Special), and move 1 such Energy card from it to your Active Pokémon`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -158,6 +163,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'std.attackKoLastTurn': () => "one of your Pokémon was Knocked Out by damage from an attack during your opponent's last turn",
   'seed3.defenderKnockedOutByThisAttack': () => "your opponent's Pokémon (the Defending Pokémon) was damaged by this attack and now has damage equal to or over its HP (it is Knocked Out)",
   rareCandyPlayable: () => "it isn't your first turn and you have a Basic Pokémon in play, not put into play this turn, that a Stage 2 card in your hand evolves from",
+  'c07.benchHasEnergyOfType': (a) => `one of your Benched Pokémon has an attached Energy card providing ${sym(a.type as PType)} Energy`,
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
@@ -1595,5 +1601,26 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me05-067|attack:Fly': {
     problems: ['"tails" is printed but not rendered'],
     why: '"If tails, this attack does nothing" is the else branch of the heads test: the flip renders as "If heads, ... Otherwise, this effect ends here", so tails is the unnamed complement; the card test pins tails (no damage, no protection) and heads.',
+  },
+  // std-c07
+  'me02.5-202|text': {
+    problems: ['"instead" is printed', '"your pokemon" is printed'],
+    why: '"Draw cards until you have 5 (8) cards" is a draw of max(0, target − hand size) with the target picked by the all-Team-Rocket\'s condition: it renders as a subtraction and a "no Pokémon that aren\'t Team Rocket\'s Pokémon" test, not the words "instead" / "your Pokémon". The card test pins 5 versus 8 and the unplayable case.',
+  },
+  'me02.5-205|text': {
+    problems: ['"tails" is printed'],
+    why: '"If tails, search for a Basic ..." is the else branch of the heads test, rendered "Otherwise"; the card test pins both flips (heads takes an Evolution, tails a Basic).',
+  },
+  'me02.5-289|ability:X-Boot': {
+    problems: ['"each" is printed', '"your pokemon" is printed'],
+    why: '"A Basic {P} Energy card, a Basic {M} Energy card, or 1 of each" is two searches (one {P}, one {M}; at least one in total while the deck has either) and one attach per card found, each to its own {P} or {M} Pokémon; there is no word "each" or "your Pokémon" to render.',
+  },
+  "me03-012|ability:Sniper's Eye": {
+    problems: ['"Energy" is printed'],
+    why: '"Ignore all {C} Energy in the costs" is `attackCostC` with a delta larger than any cost, rendered "the attacks of this Pokémon cost {C}... less"; the card test pins that the {C} costs (including the underlying Dartrix\'s) are free at exactly 4 cards and paid otherwise.',
+  },
+  'me03-016|attack:Nasty Plot': {
+    problems: ['"up to" is printed', '"up to 2" is printed'],
+    why: 'Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2315/): "you have to take at least one card if there are any cards in your deck", so "up to 2" is min 1, max 2 and renders "1 to 2".',
   },
 };
