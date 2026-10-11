@@ -163,6 +163,13 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c02.energyAllToHand': (a) => `Put all Energy attached to the Pokémon chosen as "${String(a.slot ?? 't')}" into your hand (it is not discarded; Tools stay)`,
   'c02.devolve': (a) =>
     `Devolve the Pokémon chosen as "${String(a.slot ?? 't')}" by putting any number of Evolution cards (the number in "${String(a.n)}", from the top of its stack, at most all of them) on it into your hand; it recovers from all Special Conditions and attack effects, and can't evolve this turn`,
+  // std-c08-customs.ts
+  'c08.flipEach': (a) =>
+    `Flip a coin for each of ${slotZoneNoun(String(a.zone ?? 'oppPokemon') as SlotZone)} (including one that can't be damaged); the ones whose coin was heads are kept in "${String(a.as ?? 'hit')}"`,
+  'c08.koLowHp': (a) =>
+    `Knock Out each of your opponent's Pokémon, Active or Benched, that has ${Number(a.max ?? 50)} HP or less remaining (its HP minus its damage), unless it is protected from the effects of attacks`,
+  'c08.pickByResistance': (a) =>
+    `Search your deck: choose up to ${Number(a.max ?? 2)} Pokémon cards printed with ${sym(a.type as PType)} Resistance and reveal them (into "${String(a.as ?? 'found')}") (choosing none is allowed)`,
   // std-c07-customs.ts
   'c07.lookTopPick': (a) =>
     `Look at the top ${Number(a.n ?? 6)} cards of your deck and choose ${art(noun(a.filter as Filter | undefined).sg)} you find there (into "${String(a.as ?? 'e')}"), none if there is none`,
@@ -1777,5 +1784,18 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me01-066|attack:Horrifying Bite': {
     problems: ['"each" is printed but not rendered', '"reveal" is printed but not rendered'],
     why: '"For each heads" is a repeat of the heads count, rendered "the number of heads times"; "reveals those cards" is information only (the cards are shuffled into the deck at once, and the engine tracks no memory of revealed cards leaving the hand), so the move to the deck has no reveal step.',
+  },
+  // std-c08
+  'me03-029|attack:Tail Generator': {
+    problems: ['"up to" is printed but not rendered', '"any number of" is rendered but not printed'],
+    why: '"Choose Basic {L} Energy cards from your discard pile up to the amount of Energy attached to all of your opponent\'s Pokémon" is a pick with min 0 and a maximum that is the counted Energy (variable n); the renderer words a variable maximum "any number of" and does not name the variable.',
+  },
+  'me03-031|attack:Shooting Moons': {
+    problems: ['"may" is printed but not rendered'],
+    why: '"You may discard up to 4 Energy cards from your hand": choosing min 0 of up to 4 IS the option to discard none, so a `may` wrapper would only add a redundant yes/no decision.',
+  },
+  'me03-045|attack:Wreak Havoc': {
+    problems: ['"each" is printed but not rendered'],
+    why: '"For each heads, discard the top card of your opponent\'s deck" is a repeat of the heads count of a one-card discard, rendered "Do this the number of heads times".',
   },
 };
