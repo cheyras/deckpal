@@ -170,8 +170,12 @@ def main():
                     union(ids[0], y)
                     n_rule += 1
     # Celebrations Classic Collection: no catalogue art, so no image test can
-    # see it — but each card reprints the card with its name and collector
-    # number (cel25cc-originals.json, from the approved host's file names).
+    # see it — but each card reprints ONE card, with its name and collector
+    # number, from one set (cel25cc-originals.json). Matching on name and
+    # number alone also caught later printings of that name at that number:
+    # Base Set 2's Charizard 4/130 beside Base Set's 4/102, Secret Wonders'
+    # Blastoise 2/132. Those are other pictures, and a printed key reading
+    # 4/130 can tell them from a 4/102 reprint (Astra, PR #294).
     cc = json.loads((HERE / "cel25cc-originals.json").read_text(encoding="utf8"))["cards"]
     num = {c["cardId"]: c.get("number") for c in cards}
     fold = lambda s: "".join(ch for ch in s.lower() if ch.isalnum())
@@ -182,7 +186,9 @@ def main():
             continue
         hits = [c["cardId"] for c in cards
                 if not c["cardId"].startswith("cel25") and str(num.get(c["cardId"]) or "").lstrip("0") == str(o["originalNumber"])
-                and _close(fold(c["name"]), fold(o["name"]))]
+                and _close(fold(c["name"]), fold(o["name"])) and c["setId"] == o["originalSet"]]
+        if len(hits) != 1:
+            raise SystemExit(f"{ccid}: expected one original ({o['name']} {o['originalNumber']} in {o['originalSet']}), found {hits}")
         for y in hits:
             union(ccid, y)
             printed_twins[y].append(ccid)
@@ -201,7 +207,7 @@ def main():
                    f">= {a.frame_colour_min}, figure colour >= {a.figure_colour_min}, not an Energy card; "
                    f"dHash joins vetoed where the image comparison measured different pictures (art inliers < {a.art_floor}, no shared figure; Energy exempt); "
                    f"plus known reprint sets joined by name ({rules_txt}; holo/non-holo within {holo_txt}) "
-                   f"and Celebrations Classic Collection to its originals by name and number; "
+                   f"and Celebrations Classic Collection to its one original each by set, name and number; "
                    f"transitive closure. scripts/scan-bench/art_families.py"),
         "cards": sum(len(f) for f in families),
         "families": families,
