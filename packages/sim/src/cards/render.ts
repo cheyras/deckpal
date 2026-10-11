@@ -291,6 +291,8 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c28.discardBenchBasicEnergy': (a) => `You may discard up to ${Number(a.max ?? 2)} Basic Energy cards attached to your Benched Pokémon (0 allowed; Special Energy can't be chosen); the number of cards discarded lands in "${String(a.as ?? 'n')}"`,
   'c28.devolveOppToDeck': () =>
     "Devolve each of your opponent's evolved Pokémon, Active and Benched, by shuffling the highest Stage Evolution card on it into your opponent's deck (it recovers from all Special Conditions and loses attack effects; one that is protected from the effects of attacks is left alone); your opponent's deck is shuffled once afterwards",
+  // std-c30-customs.ts
+  'c30.winGame': () => 'The controller wins the game on the spot (nothing happens if the game is already over)',
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -2262,5 +2264,18 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   "sv08.5-082|attack:Hyper Whirlpool": {
     problems: ["\"each\" is printed but not rendered"],
     why: "\"For each heads\" is a repeat of the heads count, rendered \"the number of heads times\".",
+  },
+  // std-c30
+  'sv09-058|attack:Mimic': {
+    problems: ['"each" is printed but not rendered'],
+    why: '"Draw a card for each card in your opponent\'s hand" is a draw whose count is the size of that hand, which the renderer words "the number of cards in your opponent\'s hand"; same count.',
+  },
+  'sv09-069|attack:Mischievous Hands': {
+    problems: ['"each" is printed but not rendered'],
+    why: '"Put 3 damage counters on each of them" is one counters step over both chosen Pokémon (the 2 chosen in the step before), which the renderer words "3 damage counters on 2 of your opponent\'s Pokémon"; same targets.',
+  },
+  'sv09-090|attack:Snipping Pincers': {
+    problems: ['"each" is printed but not rendered'],
+    why: '"For each heads, discard an Energy" is a repeat of the discard by the number of heads, which the renderer words "Do this the number of heads times"; same count.',
   },
 };
