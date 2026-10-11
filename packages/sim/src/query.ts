@@ -28,6 +28,8 @@ export interface LiveStatic {
   kind: 'ability' | 'tool' | 'energy' | 'stadium' | 'timed' | 'card';
   /** Timed effects: the turn it was created in. */
   since?: number;
+  /** Timed effects set by an attack that name it (`extraPrize` `thisAttack`): the attacker's slot and the turn's attack number. */
+  atk?: { by: number; use: number };
 }
 
 /** Which static sources any card in this game has at all, decided once per game from the card definitions. */
@@ -36,6 +38,21 @@ interface Sources {
   ability: boolean;
 }
 const sourcesOf = new WeakMap<object, Sources>();
+const kindsOf = new WeakMap<object, Set<string>>();
+/** Every static effect kind any card in this game carries (card, Ability, Tool, Energy or Stadium), decided once per game. */
+function kindsIn(ctx: Env['ctx']): Set<string> {
+  let r = kindsOf.get(ctx);
+  if (!r) {
+    r = new Set();
+    for (const d of ctx.defs) {
+      for (const st of d.statics) r.add(st.effect.k);
+      for (const st of d.script?.statics ?? []) r.add(st.effect.k);
+      for (const ab of d.abilities) for (const st of ab.script?.statics ?? []) r.add(st.effect.k);
+    }
+    kindsOf.set(ctx, r);
+  }
+  return r;
+}
 function sources(ctx: Env['ctx']): Sources {
   let r = sourcesOf.get(ctx);
   if (!r) {
@@ -107,6 +124,7 @@ function gatherStatics(env: Env, s: GameState): LiveStatic[] {
       src: te.src,
       kind: 'timed',
       since: te.since,
+      ...(te.atk ? { atk: te.atk } : {}),
     });
   }
   const pre = out.length;
@@ -278,6 +296,21 @@ export function attackOptions(env: Env, s: GameState, slot: Slot, all = statics(
       pd.attacks.forEach((atk, idx) => out.push({ idx, card: c, d: pd, atk }));
     }
   }
+  // Memory Helix: the attacks of any of the owner's Benched Pokémon, as this Pokémon's own (once for each distinct attack).
+  if (staticMayExist(env, s, 'borrowAttacks') && onSlot(env, s, all, slot, 'borrowAttacks').length) {
+    const seen = new Set(out.map((o) => `${o.d.idx}:${o.atk.name}`));
+    for (const b of s.p[ownerOf(s, slot)].bench) {
+      if (b === slot) continue;
+      const bc = topCard(b);
+      const bd = def(env.ctx, bc);
+      bd.attacks.forEach((atk, idx) => {
+        const key = `${bd.idx}:${atk.name}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        out.push({ idx, card: bc, d: bd, atk });
+      });
+    }
+  }
   return out;
 }
 
@@ -406,6 +439,43 @@ export function canPay(cost: readonly PType[], units: readonly EnergyUnit[], wai
   }
   const colorless = cost.filter((t) => t === 'Colorless').length;
   return pool.length >= colorless;
+}
+
+/** How Weakness multiplies damage to this Pokémon: ×2, or the highest `weaknessMultiplier` that applies (Illumise). */
+export function weaknessMultiplier(env: Env, s: GameState, slot: Slot, all?: LiveStatic[]): number {
+  let m = 2;
+  if (!staticMayExist(env, s, 'weaknessMultiplier')) return m;
+  for (const x of onSlot(env, s, all ?? statics(env, s), slot, 'weaknessMultiplier')) m = Math.max(m, (x.effect as { mult: number }).mult);
+  return m;
+}
+
+/**
+ * Can a static of this effect kind exist in this game right now? False when no card in the game has one and no timed effect carries
+ * it, so a caller can skip gathering every live static (the common case for a rare effect: Quaking Fist, Life-Locked, Weakness ×3).
+ */
+export function staticMayExist(env: Env, s: GameState, kind: StaticEffect['k']): boolean {
+  if (kindsIn(env.ctx).has(kind)) return true;
+  for (const te of s.effects) if (te.static.k === kind && te.until >= s.turn) return true;
+  return false;
+}
+
+/**
+ * Can this Pokémon not be healed right now (Yveltal, Life-Locked)? A lock that is an opposing Pokémon's Ability does nothing to a
+ * Pokémon that prevents the effects of such Abilities (Luminous Wing) while that protection is itself on.
+ */
+export function healLocked(env: Env, s: GameState, slot: Slot, all?: LiveStatic[]): boolean {
+  if (!staticMayExist(env, s, 'noHeal')) return false;
+  const live = all ?? statics(env, s);
+  for (const x of onSlot(env, s, live, slot, 'noHeal')) {
+    if (x.kind === 'ability' && effectsPrevented(env, s, slot, x.player, 'ability', live)) continue;
+    return true;
+  }
+  return false;
+}
+
+/** How many coins this player flips when they try to use a Trainer card from their hand (Quaking Fist): one for each such effect. */
+export function trainerCoinFlips(p: Player, all: LiveStatic[]): number {
+  return all.filter((x) => x.effect.k === 'trainerCoinFlip' && affectsPlayer(x, p)).length;
 }
 
 export function weaknessOf(env: Env, s: GameState, slot: Slot, all = statics(env, s)): PType | null {

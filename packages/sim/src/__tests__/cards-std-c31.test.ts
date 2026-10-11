@@ -385,6 +385,15 @@ test('Super Potion: heal 60 damage from 1 of my Pokémon; if I healed any damage
   assert.deepEqual(namesOf(h, h.state.p[0].discard).sort(), [FI, 'Super Potion'].sort());
 });
 
+test("Super Potion: a Pokémon that can't be healed loses no damage, so no Energy is discarded (\"if you healed any damage in this way\")", () => {
+  const g = G([{ active: SUDO, energy: { active: [W, FI] }, damage: { active: 100 }, hand: ['Super Potion'] }, FOE()]);
+  g.state.effects.push({ static: { k: 'noHeal' }, slot: g.state.p[0].active!.id, player: 0, until: g.state.turn + 1, fromAttack: false, src: 0 }); // Life-Locked (Yveltal), as a timed effect
+  choose(g, 'Play Super Potion');
+  assert.equal(dmg(g, 0), 100, 'nothing was healed');
+  assert.deepEqual(namesOf(g, g.state.p[0].active!.energy).sort(), [FI, W].sort(), 'so it keeps its Energy');
+  assert.notEqual(g.decision?.kind, 'cards', 'and no Energy is asked for');
+});
+
 test('Super Potion: a Pokémon with no Energy still heals (ruling 1178); less than 60 damage heals what is there; only a damaged Pokémon can be chosen', () => {
   // Ruling (XY FAQ, TPCi Rules Team 2014-02-06, https://compendium.pokegym.net/ruling/1178/): "You still remove 60 damage (or as much as you can), but that's all."
   const g = G([{ active: SUDO, bench: [SLO, REL], energy: { active: [W] }, damage: { active: 0, 0: 30 }, hand: ['Super Potion'] }, FOE()]);

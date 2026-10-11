@@ -255,8 +255,8 @@ export const STD_C02: CardScript[] = [
     playable: { gte: [{ pokemon: { zone: 'myPokemon', filter: MEGA_EX } }, 1] },
     play: [
       { op: 'chooseSlots', from: 'myPokemon', filter: MEGA_EX, min: 1, max: 1, as: 't', prompt: 'Heal all damage from which Mega Evolution Pokémon ex?' },
-      { op: 'set', v: 'd', value: { countersOn: { v: 't' } } },
-      { op: 'heal', amount: { mul: [10, { v: 'd' }] }, to: { v: 't' } },
+      { op: 'set', v: 'n', value: { countersOn: { v: 't' } } },
+      { op: 'heal', amount: { mul: [10, { v: 'n' }] }, to: { v: 't' }, as: 'd' }, // d: the damage actually removed (0 under a heal lock)
       { op: 'if', cond: { gte: [{ v: 'd' }, 1] }, then: [{ op: 'custom', fn: 'c02.energyAllToHand', args: { slot: 't' } }] },
     ],
   },

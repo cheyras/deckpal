@@ -32,6 +32,7 @@ import {
   toolsDisabled, // lane:fighting
   trainerEffectsPrevented,
   weaknessOf,
+  weaknessMultiplier,
 } from './query.js';
 import {
   allSlots,
@@ -295,7 +296,7 @@ function dealDamage(
       // Weakness and Resistance, and effects that change them, are not "effects on" the Defending
       // Pokémon for `defenderEffects` (Shred rulings: Allergy Panic still makes Weakness x4).
       const w = weaknessOf(env, s, target, all);
-      if (!ignore?.weakness && w && atkTypes.includes(w)) dmg *= 2;
+      if (!ignore?.weakness && w && atkTypes.includes(w)) dmg *= weaknessMultiplier(env, s, target, all);
       const r = def(env.ctx, topCard(target)).resistance;
       if (!ignore?.resistance && r && atkTypes.includes(r.type)) dmg -= r.amount;
     }
@@ -684,14 +685,17 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
         // "heal all damage from each of your Tera Pokémon": every Pokémon in the zone that matches. Healing the opponent's is an
         // effect of the attack or Ability (Hide 'n' Sneak protects it).
         const all = statics(env, s);
+        let total = 0;
         for (const t of targetsOf(env, s, f, st.to)) {
           if ((f.kind === 'attack' || f.kind === 'ability') && ownerOf(s, t) !== f.player && effectsPrevented(env, s, t, f.player, f.kind, all)) continue;
-          healSlot(s, t, amount);
+          total += healSlot(s, t, amount, env);
         }
+        if (st.as) f.vars[st.as] = total;
         return 'next';
       }
       const t = resolveSlot(s, e, st.to);
-      if (t) healSlot(s, t, amount);
+      const removed = t ? healSlot(s, t, amount, env) : 0;
+      if (st.as) f.vars[st.as] = removed; // "if you healed any damage in this way": 0 when the Pokémon can't be healed
       return 'next';
     }
     case 'condition': {
@@ -773,6 +777,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
           src: f.src,
           filter: st.filter,
           ...(st.scope ? { scope: st.scope } : {}), // lane:metal
+          ...(st.static.k === 'extraPrize' && st.static.thisAttack && s.attackBy !== undefined ? { atk: { by: s.attackBy, use: s.attackUses ?? 0 } } : {}),
         });
       }
       return 'next';

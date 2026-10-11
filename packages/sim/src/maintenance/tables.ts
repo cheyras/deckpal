@@ -17,6 +17,7 @@ export const PTCG_SET_OVERRIDES: Readonly<Record<string, string>> = {
   sve: 'sve', // Scarlet & Violet energies
   mep: 'mep', // Mega Evolution promos
   mee: 'mee', // Mega Evolution energies
+  me55: '30th', // 30th Celebration (me55c, the Classic Collection reprints, has no regulation mark: not Standard)
 };
 
 /** `sv5` -> `sv05`, `sv6pt5` -> `sv06.5`, `me2pt5` -> `me02.5`, `zsv10pt5` -> `sv10.5b`; null when the id is not one we know. */

@@ -24,6 +24,7 @@ import {
   maxHp,
   type LiveStatic,
   weaknessOf,
+  weaknessMultiplier,
 } from '../query.js';
 import { allSlots, opp, topCard } from '../state.js';
 import type { CardDef, GameState, Player, Slot } from '../types.js';
@@ -198,7 +199,7 @@ export function throughPipeline(env: Env, s: GameState, attacker: Slot, owner: P
     dmg += damageOut(env, s, attacker, target, all);
     const w = weaknessOf(env, s, target, all);
     const types = slotTypes(env, attacker, s); // "it is {G} and {R} type": both count (and stop counting under a no-Abilities lock)
-    if (w && types.includes(w)) dmg *= 2;
+    if (w && types.includes(w)) dmg *= weaknessMultiplier(env, s, target, all);
     const r = def(env.ctx, topCard(target)).resistance;
     if (r && types.includes(r.type)) dmg -= r.amount;
   }

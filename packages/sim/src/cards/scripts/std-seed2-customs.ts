@@ -108,9 +108,11 @@ registerCustom('seed2.sumAttached', (env, s, f, args) => {
  * args: { amount, zone } -- every Pokémon in the controller-relative zone loses that much damage (to a floor of 0).
  */
 registerCustom('seed2.healEach', (_env, s, f, args) => {
+  let total = 0;
   for (const sl of slotsIn(s, f.player, String(args.zone ?? 'myPokemon') as SlotZone)) {
-    healSlot(s, sl, Number(args.amount));
+    total += healSlot(s, sl, Number(args.amount), _env);
   }
+  if (args.as) f.vars[String(args.as)] = total; // the damage actually removed, for "if you healed any damage in this way"
   return 'next';
 });
 

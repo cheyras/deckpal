@@ -22,6 +22,8 @@ import {
   canPayAttack,
   checkupExtraCounters,
   retreatCoinFlip,
+  trainerCoinFlips,
+  staticMayExist,
   returnToHandBlocked,
   toolLimit,
   playLocked,
@@ -714,6 +716,22 @@ function pushFrame(s: GameState, f: Omit<Frame, 'pc'> & { pc?: number }): void {
   s.stack.push({ pc: 0, ...f });
 }
 
+/**
+ * Seismitoad, Quaking Fist: "whenever they try to use a Trainer card from their hand, they flip a coin. If tails, ... discards that
+ * Trainer card instead of using it." True when the card was discarded: it never reaches the table (no effect, not played this turn).
+ */
+function trainerIntercepted(env: Env, s: GameState, p: Player, card: number): boolean {
+  if (!staticMayExist(env, s, 'trainerCoinFlip')) return false;
+  let tails = false;
+  for (let n =trainerCoinFlips(p, statics(env, s)); n > 0; n--) if (!flipCoin(env, s, p)) tails = true;
+  if (!tails) return false;
+  const ps = s.p[p];
+  leaveHand(ps, card);
+  ps.discard.push(card);
+  emit(env, { type: 'discard', player: p, cards: [card] });
+  return true;
+}
+
 function doAction(env: Env, s: GameState, a: Action): void {
   const p = s.current;
   const ps = s.p[p];
@@ -725,6 +743,7 @@ function doAction(env: Env, s: GameState, a: Action): void {
       s.afterKo = 'endTurn';
       return;
     case 'bench': {
+      if (def(env.ctx, a.card).kind === 'trainer' && trainerIntercepted(env, s, p, a.card)) return; // a Trainer played as a Basic Pokémon
       leaveHand(ps, a.card);
       played(ps, a.card);
       const sl = newSlot(s, a.card);
@@ -765,6 +784,7 @@ function doAction(env: Env, s: GameState, a: Action): void {
     }
     case 'trainer': {
       const d = def(env.ctx, a.card);
+      if (trainerIntercepted(env, s, p, a.card)) return;
       leaveHand(ps, a.card);
       played(ps, a.card);
       emit(env, { type: 'play_trainer', player: p, card: a.card });
@@ -786,6 +806,7 @@ function doAction(env: Env, s: GameState, a: Action): void {
       return;
     }
     case 'tool': {
+      if (trainerIntercepted(env, s, p, a.card)) return;
       const sl = allSlots(ps).find((x) => x.id === a.slot) as Slot;
       leaveHand(ps, a.card);
       played(ps, a.card);
@@ -1120,8 +1141,10 @@ function resolveKOs(env: Env, s: GameState): void {
       const kos = ko.filter((k) => k.owner !== taker && s.p[k.owner].active === k.slot);
       const counted = new Set<string>();
       for (const x of extraPrizeEffects(taker, all)) {
-        const e = x.effect as { flip?: boolean; amount?: number; attacker?: Filter; noStack?: string; ko?: Filter; byThis?: boolean };
-        if (e.ko || e.byThis) {
+        const e = x.effect as { flip?: boolean; amount?: number; attacker?: Filter; noStack?: string; ko?: Filter; byThis?: boolean; thisAttack?: boolean };
+        // "...by damage from this attack": only while the attack that set the effect is the one being resolved.
+        if (e.thisAttack && !(x.atk && x.atk.by === s.attackBy && x.atk.use === (s.attackUses ?? 0))) continue;
+        if (e.ko || e.byThis || e.thisAttack) {
           // "If your opponent's Basic Pokémon is Knocked Out by damage from an attack used by this Pokémon, take 1 more Prize card":
           // each Pokémon Knocked Out that way, wherever it was, with the attack the effect names.
           for (const k of ko) {

@@ -332,6 +332,14 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
     'Search your deck for up to 1 card that has no Ability and evolves from 1 of your Pokémon (an Evolution) and put it onto that Pokémon to evolve it (a Pokémon put into play this turn counts; one that already evolved this turn does not); when more than 1 of your Pokémon could evolve into it, you choose which',
   's02.rememberCodeProtect': () =>
     "Mark this Pokémon through the end of your opponent's next turn; the mark ends when it is no longer your Active Pokémon. While the mark holds, the static on the card prevents all damage done to each of your Future Pokémon (your Pokémon in play) by attacks from Pokémon ex",
+  // std-30b-customs.ts
+  'n30b.devolveOppAllToHand': () =>
+    "Devolve each of your opponent's evolved Pokémon, Active and Benched, by putting the highest Stage Evolution card on it into your opponent's hand, face up (it recovers from all Special Conditions and loses attack effects; one that is protected from the effects of attacks is left alone)",
+  'n30b.discardTopPickToHand': (a) =>
+    `Discard the top ${Number(a.n ?? 3)} cards of your deck (fewer if it is smaller), then put 1 of those discarded cards (no other card in your discard pile; none that can't leave the discard pile for the hand) into your hand`,
+  // std-30d-customs.ts
+  'n30d.basicEnergyTypes': (a) => `Count the different types of Basic Energy attached to all of your Pokémon (into "${String(a.as ?? 'n')}")`,
+  'n30d.benchWithMaxHp': (a) => `Count your Benched Pokémon that have a maximum HP of ${Number(a.hp)} (into "${String(a.as ?? 'n')}")`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -1340,6 +1348,17 @@ class Renderer {
       }
       case 'previousAttacks':
         return `Each of ${x} can use any attack from its previous Evolutions. (You still need the necessary Energy to use each attack.)`;
+      case 'weaknessMultiplier':
+        return `Apply Weakness for ${x} as ×${e.mult}`;
+      case 'trainerCoinFlip': {
+        const them = x === 'you' ? 'you' : x === 'your opponent' ? 'your opponent' : 'a player';
+        const me = them === 'you';
+        return `Whenever ${them} ${me ? 'try' : 'tries'} to use a Trainer card from ${me ? 'your' : 'their'} hand, ${me ? 'you' : 'they'} flip a coin. If tails, ${them} discard${me ? '' : 's'} that Trainer card instead of using it`;
+      }
+      case 'noHeal':
+        return `${X} can't be healed`;
+      case 'borrowAttacks':
+        return `${X} can use the attacks of any of your Benched Pokémon. (You still need the necessary Energy to use each attack.)`;
       case 'cantRetreat':
         return `${X} can't retreat`;
       case 'noAbilities':
@@ -1391,6 +1410,7 @@ class Renderer {
         const more = `${n} more Prize card${n === 1 ? '' : 's'}`;
         const stack = e.noStack ? `. The effect of ${e.noStack} doesn't stack` : '';
         const act = e.flip ? `flip a coin. If heads, ${take}` : take;
+        if (e.thisAttack && !e.ko) return `If your opponent's Pokémon is Knocked Out by damage from this attack, ${act} ${more}${stack}`;
         if (e.ko || e.byThis) {
           // A Knocked Out Pokémon of a kind, wherever it was, by an attack of this Pokémon.
           const by = e.byThis ? this.selfName : e.attacker ? noun(e.attacker, true).pl : 'Pokémon of yours';
@@ -1452,6 +1472,11 @@ class Renderer {
     if (d.effect.k === 'coinReflip') {
       const who = d.filter ? noun(d.filter, true).sg : 'Pokémon';
       return `Once during your turn, after you flip any coins for an attack of the ${who} this card is attached to, you may ignore all results of those coin flips and begin flipping those coins again`;
+    }
+    if (d.effect.k === 'weaknessMultiplier' && d.scope === 'allPokemon') {
+      // Weakness only applies to Active Pokémon: "apply Weakness for both Active Pokémon as ×3".
+      const s = 'Apply Weakness for both Active Pokémon as ×' + d.effect.mult;
+      return d.when ? 'If ' + this.cond(d.when) + ', ' + lc(s) : s;
     }
     if (d.effect.k === 'previousAttacks') return this.clause(d.effect, 'your evolved Pokémon', true, true);
     if (d.effect.k === 'types' && d.when && 'slotIs' in d.when) {
@@ -2712,5 +2737,45 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv05-076|attack:Plentiful Pollen': {
     problems: ['the rendering involves the opponent'],
     why: 'The Defending Pokémon is the opponent\'s Active Pokémon, and the Prize cards are taken by "that player" (the opponent of the Knocked Out Pokémon\'s owner: the one who used the attack); the printed "take 2 more Prize cards" leaves both implicit. The effect only counts during the attacker\'s next turn and ends if the Pokémon leaves the Active Spot or evolves (ruling 1957), which the card test pins.',
+  },
+  // std-30a
+  '30th-042|attack:Charge-Up Dash': {
+    problems: ["\"heads\" is printed", "\"up to\" is printed", "\"any number of\" is rendered"],
+    why: "\"Up to the number of heads\" is a deck pick with min 0 and max the heads count, which renders as \"any number of\" (the count variable is not shown).",
+  },
+  '30th-040|attack:Overwriting Bolt': {
+    problems: ["the rendering involves the opponent"],
+    why: "\"Until the end of your next turn, the Defending Pokémon's Weakness is now {L}\" is a weaknessType effect on the Defending Pokémon lasting through your next turn (the same effect as Oranguru, Now You're in My Power), which renders as \"During your next turn, the Weakness of your opponent's Active Pokémon is now {L}\".",
+  },
+  '30th-022|ability:Counterattack Grouping': {
+    problems: ["\"your pokemon\" is printed"],
+    why: "The printed \"(even if your Pokémon is Knocked Out)\" refers back to the Wishiwashi or Wishiwashi ex in the Active Spot; the script names it, so the rendering says \"your Active Pokémon named ...\".",
+  },
+  // std-30c
+  '30th-099|attack:Three-Headed Bite': {
+    problems: ['"each" is printed but not rendered'],
+    why: '"For each heads, discard an Energy" is a discard whose count is the number of heads; the renderer words a counted discard as "the number of heads Energy" without "each", and the card test pins 0 to 3 heads.',
+  },
+  // std-30b
+  '30th-071|attack:Colorful Harmony': {
+    problems: ['"your pokemon" is printed', 'similarity'],
+    why: '"Each type of Basic Energy attached to all of your Pokémon" is a sum over the 8 Basic Energy types (there is no Basic Colorless Energy) of 1 when any of your Pokémon has a Basic Energy of that type attached, so the one sentence renders as eight clauses.',
+  },
+  // std-30d
+  '30th-110|attack:Screech': {
+    problems: ['the rendering involves the opponent'],
+    why: "The Defending Pokémon is the opponent's Active Pokémon; the printed text says 'the Defending Pokémon' and the rendering says whose it is.",
+  },
+  '30th-125|attack:Gnaw Together': {
+    problems: ['"each" is printed but not rendered'],
+    why: '"For each Maushold you have in play" is the number of coins flipped (the count of your Pokémon named Maushold) and "for each heads" is the repeat of the discard by the heads count, which the renderer words as "the number of ... coins" and "the number of heads times".',
+  },
+  '30th-126|text': {
+    problems: ['"reveal" is rendered but not printed'],
+    why: 'The catalog frame of this printing carries no Trainer text at all (effect null); the script follows the text of its earlier printing (me03-081), which reprints unchanged and does say "reveal it".',
+  },
+  '30th-128|text': {
+    problems: ['"reveal" is rendered but not printed'],
+    why: 'The catalog frame of this printing carries no Trainer text at all (effect null); the script follows the text of its earlier printing (me01-131), which reprints unchanged and does say "reveal it" and the cost of discarding 2 other cards.',
   },
 };

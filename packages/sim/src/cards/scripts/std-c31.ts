@@ -319,8 +319,8 @@ export const STD_C31: CardScript[] = [
     playable: HAS_DAMAGED,
     play: [
       { op: 'chooseSlots', from: 'myPokemon', filter: { damaged: true }, min: 1, max: 1, as: 't', prompt: 'Heal 60 damage from which of your Pokémon?' },
-      { op: 'heal', amount: 60, to: { v: 't' } },
-      { op: 'discardEnergy', from: { v: 't' }, count: 1 },
+      { op: 'heal', amount: 60, to: { v: 't' }, as: 'healed' },
+      { op: 'if', cond: { gte: [{ v: 'healed' }, 1] }, then: [{ op: 'discardEnergy', from: { v: 't' }, count: 1 }] },
     ],
   },
 

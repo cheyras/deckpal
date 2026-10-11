@@ -277,6 +277,8 @@ export interface TimedEffect {
   filter?: import('./dsl.js').Filter;
   /** Player-level effect that covers that player's Pokémon (see the `effect` step's `scope`). */ // lane:metal
   scope?: import('./dsl.js').Scope;
+  /** The attack that set the effect (`extraPrize` `thisAttack`): the attacking Pokémon's slot and the turn's attack number. */
+  atk?: { by: number; use: number };
   /** A `react` effect: its compiled program (key in GameContext.code), the player who controls it and the Pokémon slot it came from. */
   code?: string;
   by?: Player;

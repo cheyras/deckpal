@@ -277,6 +277,15 @@ test('Whimsicott, Wafting Heal: evolving a Pokémon, you may heal all damage fro
   assert.equal(activeName(g, 0), 'Roselia', 'it was the Benched Cottonee that evolved');
 });
 
+test("Whimsicott, Wafting Heal: an Active {G} Pokémon that can't be healed loses no damage, so its Energy stay", () => {
+  const g = G([{ active: 'Roselia', bench: ['Cottonee'], hand: ['Whimsicott'], damage: { active: 40 }, energy: { active: [GR, FI] } }, FOE()]);
+  g.state.effects.push({ static: { k: 'noHeal' }, slot: g.state.p[0].active!.id, player: 0, until: g.state.turn + 1, fromAttack: false, src: 0 }); // Life-Locked (Yveltal), as a timed effect
+  choose(g, 'Evolve Cottonee into Whimsicott');
+  yes(g);
+  assert.equal(g.state.p[0].active!.damage, 40, 'nothing was healed');
+  assert.equal(g.state.p[0].active!.energy.length, 2, 'so it discards no Energy');
+});
+
 test('Whimsicott, Wafting Heal: declining keeps the damage and the Energy', () => {
   const g = G([{ active: 'Roselia', bench: ['Cottonee'], hand: ['Whimsicott'], damage: { active: 40 }, energy: { active: [GR, FI] } }, FOE()]);
   choose(g, 'Evolve Cottonee into Whimsicott');

@@ -360,7 +360,9 @@ export type StaticEffect =
   // from an attack; each such Pokémon gives the extra Prize cards ("If your opponent's Basic Pokémon is Knocked Out by damage from
   // an attack used by this Pokémon, take 1 more Prize card"). `byThis`: the attack must be one used by the Pokémon this effect comes
   // from (an Ability of the Pokémon), not just any matching Pokémon of yours.
-  | { k: 'extraPrize'; flip?: boolean; amount?: number; attacker?: Filter; noStack?: string; ko?: Filter; byThis?: boolean }
+  // `thisAttack`: only the attack that set this (timed) effect, whoever uses it - the Pokémon and the attack of that turn, not a
+  // printed card name (a Pokémon borrowing the attack counts: Mew ex using Unown's Mysterious Signal).
+  | { k: 'extraPrize'; flip?: boolean; amount?: number; attacker?: Filter; noStack?: string; ko?: Filter; byThis?: boolean; thisAttack?: boolean }
   /**
    * "If the affected Pokémon is Knocked Out by damage from an attack from your opponent's Pokémon (matching `attacker`), that
    * player takes `delta` fewer/more Prize cards" (negative = fewer), or with `none`, "your opponent can't take any Prize cards
@@ -437,7 +439,26 @@ export type StaticEffect =
   /** Player-level: that player's Pokémon in play and all cards attached to them can't be put into their hand (Milotic, Mentally Calm). */
   | { k: 'noReturnToHand' }
   /** The affected evolved Pokémon can use any attack of the cards beneath its top card, with the Energy it needs (Relicanth, Memory Dive). */
-  | { k: 'previousAttacks' };
+  | { k: 'previousAttacks' }
+  /**
+   * Weakness is applied as ×`mult` instead of ×2 for the affected Pokémon (Illumise, Supereffective Pheromones: "apply Weakness for both
+   * Active Pokémon as ×3": scope 'allPokemon', since Weakness only ever applies to an Active Pokémon). Where several apply, the highest wins.
+   */
+  | { k: 'weaknessMultiplier'; mult: number }
+  /**
+   * Player-level (timed, from Seismitoad's Quaking Fist): "whenever they try to use a Trainer card from their hand, they flip a coin. If
+   * tails, ... discards that Trainer card instead of using it." Checked when the card is played (an Item, Supporter, Stadium or Pokémon
+   * Tool): on tails it goes to the discard pile, none of its effects happen, and it does not count as played this turn.
+   */
+  | { k: 'trainerCoinFlip' }
+  /** The affected Pokémon can't be healed: no heal effect, from anyone, removes damage counters from it (Yveltal, Life-Locked). */
+  | { k: 'noHeal' }
+  /**
+   * The affected Pokémon can use the attacks of any of its owner's Benched Pokémon (Mew ex, Memory Helix). The Energy cost is the
+   * attack's own, and the attack is used as an attack of this Pokémon: its effects happen to and from it, and "can't use this attack"
+   * restrictions it sets are kept by name on this Pokémon.
+   */
+  | { k: 'borrowAttacks' };
 
 /** Parts of the damage pipeline an attack's damage skips ("isn't affected by Weakness or Resistance"). */ // lane:fighting
 export interface DamageIgnore {
@@ -553,7 +574,8 @@ export type Step =
   | { op: 'damage'; amount: Expr; to?: SlotRef | { each: SlotZone; filter?: Filter } | { v: string }; ignore?: DamageIgnore /* lane:fighting */ }
   /** Place damage counters: no Weakness, Resistance or damage modifiers. */
   | { op: 'counters'; n: Expr; to: SlotRef | { each: SlotZone; filter?: Filter } }
-  | { op: 'heal'; amount: Expr; to: SlotRef | { each: SlotZone; filter?: Filter } }
+  /** Heal damage. `as` keeps the damage actually removed (0 when the Pokémon had none or can't be healed), for "if you healed any damage in this way". */
+  | { op: 'heal'; amount: Expr; to: SlotRef | { each: SlotZone; filter?: Filter }; as?: string }
   | {
       op: 'condition';
       cond: SpecialCondition;

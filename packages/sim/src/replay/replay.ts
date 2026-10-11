@@ -49,6 +49,8 @@ import { transcript } from '../transcript.js';
 import { FRAMES } from '../cards/frames-all.js';
 import { textKey } from '../cards/frame.js';
 import { withPrintedWR } from '../cards/printed-wr.js';
+import { withEvolvesFrom } from '../cards/evolves-from.js';
+import { withCleanText } from '../cards/clean-text.js';
 import { canonicalName, resolveFrame } from './cardCodes.js';
 import { parseLiveLog, type CardMention, type LiveEvent, type ParseOptions, type Side } from './liveLog.js';
 
@@ -632,7 +634,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
   const iidKey: string[] = [];
   for (const p of [0, 1] as Player[]) {
     let j = 0;
-    for (const entry of decks[p]!.cards) for (let k = 0; k < entry.count; k++) iidKey[ctx.iids[p][j++] as number] = textKey(withPrintedWR(entry.frame));
+    for (const entry of decks[p]!.cards) for (let k = 0; k < entry.count; k++) iidKey[ctx.iids[p][j++] as number] = textKey(withPrintedWR(withEvolvesFrom(withCleanText(entry.frame))));
   }
   const name = (iid: number) => def(ctx, iid).name;
   /** Is this card the one the log names? (Its printing too, when the log gave a code.) */

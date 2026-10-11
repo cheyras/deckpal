@@ -236,6 +236,20 @@ test('Dachsbun ex, Time to Chow Down: the Energy of an Evolution Pokémon that h
   assert.deepEqual(names(g, g.state.p[0].discard), [FI, FI]);
 });
 
+test("Dachsbun ex, Time to Chow Down: an Evolution Pokémon that can't be healed loses no damage, so it keeps its Energy; the others still heal and discard", () => {
+  // "If you healed any damage in this way, discard all Energy from those Pokémon." Life-Locked (Yveltal): the Active Pokémon can't be healed.
+  const g = dachsbunGame({ fidoughDamage: 20, evoDamage: 50 });
+  g.state.effects.push({ static: { k: 'noHeal' }, slot: g.state.p[0].active!.id, player: 0, until: g.state.turn + 1, fromAttack: false, src: 0 });
+  choose(g, 'Evolve Fidough (Active) into Dachsbun ex');
+  yes(g);
+  assert.equal(activeName(g, 0), 'Dachsbun ex');
+  assert.equal(damageOf(g, 0), 20, 'the locked Dachsbun ex is not healed');
+  assert.deepEqual(energyNames(g, 0, 'active'), [F, W].sort(), 'and it healed nothing, so it keeps its Energy');
+  assert.equal(damageOf(g, 0, 0), 0, 'the Benched Medicham ex is healed');
+  assert.deepEqual(energyNames(g, 0, 0), [], 'and discards its Energy');
+  assert.deepEqual(names(g, g.state.p[0].discard), [FI, FI]);
+});
+
 test('Dachsbun ex, Time to Chow Down: "you may" decline, and with no damaged Evolution Pokémon it is not offered', () => {
   const declined = dachsbunGame({ fidoughDamage: 20, evoDamage: 50 });
   choose(declined, 'Evolve Fidough (Active) into Dachsbun ex');

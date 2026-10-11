@@ -3,6 +3,7 @@
  * rules; it only keeps every card in exactly one zone.
  */
 import type { Env, GameContext } from './context.js';
+import { healLocked } from './query.js'; // a function-level import cycle (query.ts reads state.ts): only called, never run at load
 import { deriveSeed, step } from './rng.js';
 import type { Decision, GameEvent, GameState, Player, PlayerState, Slot } from './types.js';
 
@@ -243,8 +244,12 @@ export function newSlot(s: GameState, card: number): Slot {
   };
 }
 
-/** Heal a Pokémon. Records the turn when damage was actually removed ("was healed during this turn"). Returns the damage removed. */
-export function healSlot(s: GameState, slot: Slot, amount: number): number {
+/**
+ * Heal a Pokémon. Records the turn when damage was actually removed ("was healed during this turn"). Returns the damage removed.
+ * With `env`, a Pokémon that can't be healed (Yveltal's Life-Locked) is left as it is: every effect that heals passes it.
+ */
+export function healSlot(s: GameState, slot: Slot, amount: number, env?: Env): number {
+  if (env && healLocked(env, s, slot)) return 0;
   const removed = Math.max(0, Math.min(slot.damage, amount));
   if (removed > 0) {
     slot.damage -= removed;
