@@ -382,7 +382,7 @@ test('https://compendium.pokegym.net/ruling/2012/ Pummeling Payback counts the M
 
 // ------------------------------------------------------------------ Pull
 
-test("https://compendium.pokegym.net/ruling/1511/ Pull: the attacking player chooses which of the opponent's Benched Pokémon becomes Active", () => {
+test("https://compendium.pokegym.net/ruling/1511/ Pull: the new Active is picked from the opponent's Bench by the player who attacked", () => {
   const dk = deck(DRIFLOON, PANGORO, PANCHAM, TOEDSCRUEL, TOEDSCOOL, DREEPY, DRAGAPULT);
   const cases: [string, SideLayout][] = [
     ['Drifloon', { active: 'Drifloon', energy: { active: [P] } }],
