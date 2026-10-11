@@ -118,12 +118,19 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   countersUntilHp: (a) => `Count the damage counters that would leave your opponent's Active Pokémon with ${Number(a.hp ?? 50)} HP remaining (into "${String(a.as ?? 'n')}")`,
   discardThisCard: () => 'Discard this card',
   'trevenant.discardToolFrom': () => "Discard the Pokémon Tool attached to that Pokémon (if any) to its owner's discard pile", // lane:trevenant
+  // std-seed1-customs.ts
+  'std.discardRandomFromHand': (a) => `Discard a random card from ${a.who === 'self' ? 'your' : "your opponent's"} hand`,
+  'std.revealHand': (a) => `${a.who === 'self' ? 'You reveal your' : 'Your opponent reveals their'} hand`,
+  'std.discardStadium': () => 'Discard the Stadium in play',
+  'std.energyInPlay': (a) => `Count the ${sym(String(a.type) as PType)} Energy attached to all of your Pokémon (into "${String(a.as ?? 'n')}")`,
+  'std.discardOppActiveTools': () => "Discard all Pokémon Tools attached to your opponent's Active Pokémon",
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
 export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) => string> = {
   countersMovable: () => 'damage counters can be moved (no effect on either side stops it)',
   'trevenant.hopsKoByAttackLastTurn': () => "one of your Pokémon with \"Hop's\" in its name was Knocked Out by damage from an attack during your opponent's last turn", // lane:trevenant
+  'std.attackKoLastTurn': () => "one of your Pokémon was Knocked Out by damage from an attack during your opponent's last turn",
   rareCandyPlayable: () => "it isn't your first turn and you have a Basic Pokémon in play, not put into play this turn, that a Stage 2 card in your hand evolves from",
 };
 
@@ -1514,5 +1521,10 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me05-062|ability:Ancient Bulwark': {
     problems: ['"each" is printed'],
     why: '"each of your Pokémon" is scope myPokemon, which the renderer words as "your Pokémon in play".',
+  },
+  // std-seed1
+  'sv06-013|attack:Giga Drain': {
+    problems: ['similarity'],
+    why: '"The same amount of damage you did" is measured as the change in the Defending Pokémon\'s damage counters across the attack (snapshot before, difference after), so the renderer spells out the arithmetic instead of the printed phrase; the card test checks it heals exactly the damage dealt, after Weakness.',
   },
 };
