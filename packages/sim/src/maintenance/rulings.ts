@@ -33,16 +33,30 @@ export function decodeEntities(s: string): string {
   });
 }
 
-/** HTML fragment -> plain text, keeping paragraph and list breaks. */
+/** Remove every tag, repeating until none is left (a single pass can leave one formed from the pieces of two). */
+function stripTags(s: string): string {
+  let prev: string;
+  do {
+    prev = s;
+    s = s.replace(/<[^<>]*>/g, '');
+  } while (s !== prev);
+  return s;
+}
+
+/** HTML fragment -> plain text, keeping paragraph and list breaks. The result is plain text, never HTML. */
 export function htmlToText(html: string): string {
-  return decodeEntities(
-    html
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/(p|div|ul|ol)>/gi, '\n\n')
-      .replace(/<li[^>]*>/gi, '- ')
-      .replace(/<\/li>/gi, '\n')
-      .replace(/<[^>]+>/g, ''),
-  )
+  const text = decodeEntities(
+    stripTags(
+      html
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/(p|div|ul|ol)>/gi, '\n\n')
+        .replace(/<li[^>]*>/gi, '- ')
+        .replace(/<\/li>/gi, '\n'),
+    ),
+  );
+  // An entity such as `&lt;` decodes to a literal bracket in the ruling's words: this is plain text for the console and
+  // the index hash, never inserted into HTML.
+  return text
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]{2,}/g, ' ')
