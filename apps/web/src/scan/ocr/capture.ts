@@ -164,3 +164,14 @@ export function cropRois(
 export function cropFullCard(source: CanvasImageSource, width: number, height: number): FullCropInput {
   return rasterise(source, { x: 0, y: 0, w: width, h: height }, 1)
 }
+
+/**
+ * THE CORNER RUNG'S INPUT: `ROIS.corner` at the scale `readCorner` asks for
+ * (`CORNER_SCALES` — 4×, then 6× only if the 4× read found a pair). The same
+ * smoothed-upscale-and-letterbox as a band, so the same kernel measurement
+ * above holds. Called through a thunk, never on a read whose strip found its
+ * number.
+ */
+export function cropCorner(source: CanvasImageSource, width: number, height: number, scale: number): Raster {
+  return rasterise(source, roiPixels(ROIS.corner, width, height), scale).raster
+}
