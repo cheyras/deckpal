@@ -318,6 +318,13 @@ export interface ResolveOutcome {
    * `router.ts` puts it on the wire as `printingOpen: true`.
    */
   printingOpen?: true;
+  /**
+   * Not part of the wire response. The card `done` was told the `MAX_MATCHES`
+   * cut may not drop (`capKeeping`): the reading a printed number gave, when
+   * the name's review turned it into a question. A later step that re-cuts
+   * `matches` (the printing guard) must carry it through too.
+   */
+  pinned?: string;
 }
 
 export interface ResolveOptions {
@@ -849,6 +856,7 @@ export async function resolveCard(
   ): ResolveOutcome => {
     const matches = capKeeping(rank(cards, priors.distance, evidence.similarity), keep);
     if (matches.length === 0) return { matched: false, confident: false, resolvedBy, matches, badge };
+    const pin = keep != null && matches.some((m) => m.cardId === keep) ? { pinned: keep } : {};
     // RULE 1: a key that resolved is not up for review here. Nothing below can
     // demote it, and the vector is not consulted about it at all. (The one
     // review a confident key gets is after the climb, and it needs the printed
@@ -868,9 +876,10 @@ export async function resolveCard(
         matches: [lead, ...matches.filter((m) => m.cardId !== winner)],
         badge,
         ...keyedFrom(resolvedBy, cards),
+        ...pin,
       };
     }
-    return { matched: true, confident: false, resolvedBy, matches, badge };
+    return { matched: true, confident: false, resolvedBy, matches, badge, ...pin };
   };
 
   /**
@@ -1220,7 +1229,10 @@ export async function resolveCard(
       ...prev,
       confident: false,
       printingOpen: true,
-      matches: [top, ...open, ...rest].slice(0, MAX_MATCHES),
+      // The same cut `done` makes, keeping the card it pinned: a number's
+      // reading the name questioned, on a list the siblings now lengthen
+      // (Astra's review of the #297 merge).
+      matches: capKeeping([top, ...open, ...rest], prev.pinned),
     };
   }
 
