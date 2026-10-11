@@ -78,7 +78,7 @@ jobs:
       - name: Build @deckpal/storage
         run: pnpm --filter @deckpal/storage build
 
-      # @deckpal/agent-tools holds the 24 tool definitions the MCP server and
+      # @deckpal/agent-tools holds the 26 tool definitions the MCP server and
       # Deck-E both serve. Same deal: consumed through its dist/, so it has to
       # be built before anything that imports it is loaded — which includes the
       # serverless-function check further down, since api/mcp.mjs pulls
@@ -289,8 +289,22 @@ jobs:
       # capture geometry this app really produces IS the geometry the parity
       # golden was built from. These existed and were only ever run by hand —
       # the same way the two rows above this file already describe.
+      # The script globs every `src/scan/*/__tests__` directory (engine,
+      # labeler, ocr, ui, voice, and any new one), so a new suite cannot be
+      # left out by forgetting to list it.
       - name: Scan engine tests (pure, no DB)
         run: pnpm --filter deckpal-web test:scan
+
+      # The server half of the scanner: the identification ladder (resolve,
+      # fuse, printed set codes, family text), the vector match, the embed
+      # model fetch and the query-embed orientation fallback. These used to be
+      # a hand-picked list inside `test:pure`, and two files added after it was
+      # written (resolve-field-fixes, rotateTensor) were never run by CI. The
+      # script globs `src/scan/__tests__/*.test.ts`, so every file runs.
+      # Pure: no DB, no network, no model (onnxruntime is imported lazily and
+      # no test reaches it).
+      - name: API scanner tests (pure, no DB)
+        run: pnpm --filter deckpal-api test:scan
 
       # tools/ is not a pnpm workspace, so `--filter` cannot reach it and the
       # suite would never run. Invoked directly instead. What it guards is the

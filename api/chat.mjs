@@ -132,7 +132,7 @@ import {
 } from '../apps/api/dist/decke/pasteBackstop.js'
 import { meteredCapText, outOfCreditsText } from '../apps/api/dist/decke/credits.js'
 import { buildDataTools, correctiveApplyTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
-import { apiBaseFor, selfHopHeadersFor } from '../apps/api/dist/decke/ctx.js'
+import { apiBaseFor, selfHopHeadersFor, withToolCtx } from '../apps/api/dist/decke/ctx.js'
 import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
 import { checkDeck } from '../apps/api/dist/decke/deckCheck.js'
 import { seedMeteredRefusals } from '../apps/api/dist/decke/meteredRefusals.js'
@@ -805,7 +805,12 @@ async function serve(request) {
         // that drew a panel and then flew somewhere came back not knowing the
         // panel existed and narrated its contents a second time.
         ...buildTools(writer, groundingForTools, repairs, emitToolEvent(writer), {
-          checkDeck: (input) => checkDeck(toolCtx, input),
+          // THROUGH `withToolCtx`, LIKE EVERY DATA TOOL. `toolCtx` is the
+          // options a `Ctx` is built from, not a `Ctx`: it has no `api`, and
+          // passing it straight to `checkDeck` failed every showDeck since #267
+          // with "Cannot read properties of undefined (reading 'send')". Driven
+          // end to end by `decke/__tests__/deckCheckWiring.test.ts`.
+          checkDeck: (input) => withToolCtx(toolCtx, (ctx) => checkDeck(ctx, input)),
           db: chatPool(),
           userId: user.id,
           conversationId,

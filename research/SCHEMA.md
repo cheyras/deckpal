@@ -917,6 +917,8 @@ CREATE TABLE card_set (
   --   set-info bar renders "Cards: 165 + 42 Secret" but the counter renders "0 / 207 Collected".
   card_count_official SMALLINT,         -- 165 — DISPLAY ONLY. This is the printed denominator that
                                         -- appears in "#006/165". It is NOT a progress denominator.
+                                        -- (Its one non-display use: the set_progress tool's
+                                        -- 'numbered' goal reads it as a MEMBERSHIP bound, §9.2.)
   card_count_total    SMALLINT,         -- 207 — TCGdex cardCount.total, for display/health checks.
                                         -- The AUTHORITATIVE progress denominator is
                                         -- COUNT(*) FROM card WHERE set_id = this. See §9.1.
@@ -1778,6 +1780,17 @@ Denominators:
   `card_set.card_count_official` (165) is display-only and is commented as such in §6.
 - **Master:** `COUNT(*)` over `card_variant` joined to `variant_tier_resolved` where `tier='standard'`.
 - **Grandmaster:** `COUNT(*)` over `card_variant` for the set.
+
+**A fourth, unstored goal: `numbered` (agent tool only, 2026-10-10).** The `set_progress` agent
+tool also answers "the regular numbered set": one of any variant of each card with
+`local_id_numeric BETWEEN 1 AND card_set.card_count_official` — the 165 of `165 + 42 Secret`,
+leaving out secret rares numbered above it and unnumbered subset cards (`TG01`, `GG01`). The
+unit is cards, like Complete. This does not reopen the rule above: the printed total decides
+which cards are *in* the numbered set, and the denominator is still `COUNT(*)` over the real
+card rows that pass that test (the tool says so when the catalog holds fewer than the printed
+total). It is computed live per request, never written to `user_set_progress` (whose `goal`
+CHECK stays the three goals below), never a `default_goal`, and has no bar in the web app. A set
+whose `card_count_official` is NULL or 0 gets "not available", not an estimate.
 
 Percentage: `owned_required / total_required × 100`, **one decimal, round-half-up**. [E]
 `BEHAVIOR-SPEC.md` §2.1 item 4, now verified against **nine** observed pairs in

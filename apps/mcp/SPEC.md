@@ -168,9 +168,11 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   only because Claude requests a refresh token when it sees it; DeckPal checks no OAuth scope
   string). The consent screen offers a scope choice only when `GET /oauth/client`
   includes `trust`, which the older scope-ignoring API omits. Its **read-only** connection resolves with
-  `scope: 'read'`, is built a server with only the 13 `readOnlyHint` tools, runs in `BEGIN READ
+  `scope: 'read'`, is built a server with only the 15 `readOnlyHint` tools, runs in `BEGIN READ
   ONLY`, and is refused every non-GET REST call (`403 insufficient_scope`) except `POST /massentry`,
-  which only builds `set_cart`'s cart links. Tokens that existed
+  `POST /decks/check` and `POST /decks/odds` (2026-10-10: `/decks/check` had been missing, so `check_deck` was
+  served and then refused),
+  which only build `set_cart`'s cart links and the two deck reads. Tokens that existed
   before 075, including hand-made ones and live claude.ai connectors, resolve exactly as before:
   full scope, no expiry. The consent screen names the redirect's host and marks only Claude's exact
   documented callback as Verified; see SECURITY.md. Session routes that changed shape:
@@ -245,7 +247,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
 
 ## 4. Tool conventions
 
-- **The 24 tool definitions live in `packages/agent-tools/src/tools/*.ts`** (`@deckpal/agent-tools`),
+- **The 26 tool definitions live in `packages/agent-tools/src/tools/*.ts`** (`@deckpal/agent-tools`),
   each a `ToolDefinition` — `{ name, title, description, inputSchema, annotations, handler }` — written
   against `Ctx` alone, with no MCP SDK import anywhere in that package. `apps/mcp/src/adapters/mcp.ts`
   is the only file that turns one into an MCP registration: it walks `allTools()` and calls
@@ -353,7 +355,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   "call set_progress with NO set_id" and got seven calls with `set_id: 'none'`. Ids in a failure
   message come from the caller's own data or are absent.
 
-## 5. Tool surface (25 ordinary tools + 3 capability-gated tools + 1 resource)
+## 5. Tool surface (26 ordinary tools + 3 capability-gated tools + 1 resource)
 
 ### Reads — direct SQL (`readOnlyHint: true`)
 
@@ -425,7 +427,7 @@ sees them in `tools/list`:
    display name, tier (from `variant_tier_resolved` — never re-derive), owned qty, market price,
    TCGplayer link when present. Ambiguous → candidate list. Same trailing `series <slug>` addition
    as `search_cards`.
-5. **`set_progress`** — `{ set_id?, goal? ∈ complete|master|grandmaster, rarity?, rarity_exclude?,
+5. **`set_progress`** — `{ set_id?, goal? ∈ complete|master|grandmaster|numbered, rarity?, rarity_exclude?,
    page?, page_size? }`. Every missing row carries its **rarity**, and `rarity`/`rarity_exclude`
    filter on it (case-insensitive; an unknown name is an error listing the vocabulary, never a
    silently empty result). Rarity is NOT `variant_tier_resolved.tier`: an Illustration Rare and a
@@ -439,6 +441,18 @@ sees them in `tools/list`:
    `set_id`: all three goals' numbers + the missing cards for the
    requested goal (via `master_required_variant` for master; paged) + **cost-to-complete** (Σ
    cheapest market price of missing required variants; unpriced listed separately, never $0).
+   **`goal: 'numbered'`** (2026-10-10) is the regular numbered set: one of any variant of each
+   card whose collector number is a plain integer from 1 to the set's printed total
+   (`card_set.card_count_official`, the 165 in "006/165"), so secret rares numbered above it and
+   unnumbered subset cards (TG01, GG01) are out. It is this tool's alone and computed live — not a
+   `user_set_progress` goal, not `default_goal`, not accepted by `set_cart` or `edit_list`. With
+   `set_id` it prints the three stored goals for context, a `numbered owned/total` line that says
+   how many cards fell outside the range (and when the catalog holds fewer cards than the printed
+   total), then `complete`'s card-level missing list over the numbered cards only (`rarity`
+   filters still apply). A set with no printed total (NULL or 0) answers "numbered: not
+   available" with no missing list — never a guess. The overview ranks the same sets by numbered
+   completion and marks a set with no printed total `numbered n/a`. Before this, the only way to
+   ask was `rarity_exclude` with that set's exact secret-rare rarity names.
 6. **`collection_log`** — `{ since?: ISO, source?, limit? = 50 }`. The agentic-logging read
    face: `collection_event` joined to card/variant — `occurred_at | card | variant | Δdelta →
    qty_after | source | note`. Needs migration 018 (below).
@@ -492,7 +506,7 @@ sees them in `tools/list`:
 Exact request/response shapes: **read `apps/api/src/routes/decks.ts` / `lists.ts` first**; the
 routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST /decks/:id/cards`,
 `PATCH/DELETE /decks/:id/cards/:cardId`, `GET /decks/:id/{validate,export,testhand,pricing}`,
-`POST /decks/check`, `POST /decks/import`, `PUT /decks/:id/strategy`, `GET /decks/:id/versions[/:v]`,
+`POST /decks/check`, `POST /decks/odds`, `POST /decks/import`, `PUT /decks/:id/strategy`, `GET /decks/:id/versions[/:v]`,
 `POST /decks/:id/revert`, `GET/POST /decks/:id/logs`, `GET/PATCH/DELETE /decks/:id/logs/:logId`;
 `GET/POST /lists`, `GET/PATCH/DELETE /lists/:id`, `POST /lists/:id/items`,
 `DELETE /lists/:id/items/:itemId`).
@@ -513,6 +527,28 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
    one list form. Resolves names or card ids, checks the 60-card and format rules plus evolution
    gaps, and reports ownership, missing-copy cost and normalized PTCG Live text. Run it before
    showing or saving any proposed deck, fix its findings, and check again.
+8b. **`deck_odds`** — read-only (2026-10-10) `{ deck_id? | cards? | ptcgl_text?, queries?,
+   trials? = 50000 (1000–200000), seed?, format? }`, with exactly one deck form: a saved deck (UUID or
+   name, resolved by `needDeck`) or an unsaved list in check_deck's shapes, so a hypothetical
+   change can be tested before it is saved. `POST /decks/odds` shuffles it `trials` times with
+   a seeded mulberry32 (default seed fixed, so a repeat call agrees) under the Standard setup:
+   draw 7, mulligan until a Basic, 6 Prizes, one draw per turn with turn 1 included — so hand
+   odds are for the KEPT hand. Each of ≤ 12 `queries` is `{ label?, all_of: Group[1..6],
+   by_turn? 0–10 = 0, prized? = false }`, a `Group` being `{ cards?: names in the deck,
+   kinds?: basic|pokemon|supporter|item|tool|stadium|energy, count? = 1 }` met when at least
+   `count` seen (or prized) cards match any listed name or kind; a query succeeds when every
+   group is met. Without queries: one line per card name — ≥1 copy in the opening hand, seen by
+   turn 2, prized, and every copy prized. Every answer states method, trials, seed, the
+   simulated AND closed-form mulligan rate, a 95% margin per value, the exact hypergeometric
+   value for any single-group query, and the standing caveat that it is draw-only (search and
+   draw cards are never played; name them in a group to count them as outs). An unknown card
+   name fails with the deck's real names; a short, long or over-copied list is still computed
+   and says so; a list with no Basic fails. CPU is bounded twice: a list over 120 cards is
+   refused, and the games are cut to fit 2,000,000 dealt hands (a game deals 1/(1 − p) of them,
+   p the exact mulligan probability), the answer saying so (`trials_requested`). Margins are
+   Wilson; "every copy prized" is the closed form; notes are capped at 8 lines; `format?`
+   picks which printings an unsaved list's bare names resolve to. First of the simulation tools —
+   the battle simulator that plays cards will report the same way.
 9. **`save_deck`** — `{ deck_id?, name?, format?, cards?: [{card_id, quantity}], ptcgl_text?,
    version_note?, dry_run? = true }`. Create or replace the list with ONE request to
    `POST /decks/save` (2026-09-29), which resolves every card first and writes the deck,
