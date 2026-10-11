@@ -77,6 +77,7 @@ function cloneSlot(s: Slot): Slot {
     ...(s.koHandAnswer !== undefined ? { koHandAnswer: s.koHandAnswer } : {}),
     ...(s.attackDmgTurn !== undefined ? { attackDmgTurn: s.attackDmgTurn, attackDmg: s.attackDmg } : {}),
     ...(s.poisonCounters !== undefined ? { poisonCounters: s.poisonCounters } : {}),
+    ...(s.burnCounters !== undefined ? { burnCounters: s.burnCounters } : {}),
     ...(s.confusionCounters !== undefined ? { confusionCounters: s.confusionCounters } : {}),
   };
 }

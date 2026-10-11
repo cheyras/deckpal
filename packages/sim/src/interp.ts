@@ -190,13 +190,34 @@ function exec(env: Env, s: GameState, f: Frame, op: Op): R {
 
 function confusion(env: Env, s: GameState, f: Frame): R {
   const slot = findSlot(s, f.slot)?.slot;
-  if (!slot || !(slot.cond & CONFUSED)) return 'next';
-  if (flipCoin(env, s, f.player, 'confusion')) return 'next';
+  if (!slot || !(slot.cond & CONFUSED)) {
+    if (slot) recordAttack(s, f.player, slot);
+    return 'next';
+  }
+  if (flipCoin(env, s, f.player, 'confusion')) {
+    recordAttack(s, f.player, slot);
+    return 'next';
+  }
   // Tails: put 3 damage counters on the attacker (more when the Confusion came with a larger amount) and the attack ends.
   const n = slot.confusionCounters ?? 3;
   slot.damage += n * 10;
   emit(env, { type: 'counters', player: f.player, slot: slot.id, n });
   return 'pop';
+}
+
+/**
+ * This Pokémon used an attack (it was not stopped by a coin flip, nor by a failed Confusion flip: ruling 2087): note it for "used an
+ * attack during your last turn". The record is per player and turn, and keeps the turn before.
+ */
+function recordAttack(s: GameState, p: Player, slot: Slot): void {
+  const ps = s.p[p];
+  const rec = ps.attackRec;
+  if (rec && rec.turn === s.turn) {
+    if (!rec.slots.includes(slot.id)) ps.attackRec = { turn: s.turn, slots: [...rec.slots, slot.id], cards: [...rec.cards, topCard(slot)] };
+    return;
+  }
+  if (rec) ps.prevAttackRec = rec;
+  ps.attackRec = { turn: s.turn, slots: [slot.id], cards: [topCard(slot)] };
 }
 
 function attackDamage(env: Env, s: GameState, f: Frame): R {
@@ -306,6 +327,12 @@ function dealDamage(
       queueReactions(env, s, target, 'damagedByAttack', { __attacker: f.slot, __def: target.id }, true);
       // Abilities and Tools of the damaged Pokémon, Active or Benched: once per attack, not once per damage instance.
       queueTriggers(env, s, target, owner, 'damagedByAttack', { __attacker: f.slot }, undefined, true);
+      // ...and the Abilities of the owner's other Pokémon that watch for their Active Pokémon being damaged (Spiritomb's Spiteful Swirl).
+      if (isActive) {
+        for (const w of allSlots(s.p[owner])) {
+          queueTriggers(env, s, w, owner, 'allyActiveDamagedByAttack', { __target: target.id, __attacker: f.slot }, undefined, true);
+        }
+      }
     }
   }
   return 'next';
@@ -325,6 +352,8 @@ export function queueTriggers(
   only?: number,
   /** Skip a trigger already waiting for this Pokémon (the event can repeat within one action). */
   dedupe?: boolean,
+  /** For triggers marked `noStack`: the ones already queued for this event, so that only the first Pokémon's copy fires. */
+  seen?: Set<string>,
 ): void {
   const sources = [topCard(slot), ...(toolsDisabled(env, s) ? [] : slot.tools), ...slot.energy]; // lane:misc energy triggers; lane:fighting Jamming Tower
   const noAb = hasNoAbilities(env, s, slot);
@@ -350,9 +379,20 @@ export function queueTriggers(
       };
       if (t.t.when && !evalCond(env, s, ec(frame), t.t.when)) continue;
       if (dedupe && s.queued.some((q) => q.code === frame.code && q.slot === frame.slot && q.src === frame.src)) continue;
+      if (t.t.noStack && seen) {
+        if (seen.has(frame.code)) continue;
+        seen.add(frame.code);
+      }
       if (t.t.optional) frame.vars.__optional = true;
       s.queued.push(frame);
     }
+  }
+  // The opponent's Abilities that watch for a Pokémon evolving from the hand (Team Rocket's Ampharos): every route that fires the
+  // Evolution's own triggers (the turn action, Rare Candy) fires these, after them (the evolved Pokémon's owner has theirs first:
+  // TPCi Rules Team 2025-05-29, ruling 2146).
+  if (on === 'evolveFromHand' && s.phase === 'main') {
+    const seen = new Set<string>();
+    for (const w of allSlots(s.p[opp(owner)])) queueTriggers(env, s, w, opp(owner), 'oppEvolveFromHand', { __target: slot.id }, undefined, false, seen);
   }
 }
 
@@ -367,6 +407,26 @@ export function queueStadiumBench(env: Env, s: GameState, slot: Slot, owner: Pla
   for (const t of d.triggers) {
     if (t.t.on !== 'pokemonBenched') continue;
     const frame: Frame = { code: t.code, pc: 0, vars: {}, player: owner, src: s.stadium.card, slot: slot.id, kind: 'stadium' };
+    if (t.t.when && !evalCond(env, s, ec(frame), t.t.when)) continue;
+    if (t.t.optional) frame.vars.__optional = true;
+    s.queued.push(frame);
+  }
+}
+
+/**
+ * A card of `owner`'s deck was discarded from there by the other player's effect `f`: its own "if this Pokémon is discarded from
+ * your deck by an effect of an attack or Ability from your opponent's Pokémon, or by an effect of your opponent's Item or Supporter
+ * cards" trigger (Ferrothorn's Startling Drop) is queued, for the card's owner, during the opponent's turn.
+ */
+function queueDeckDiscard(env: Env, s: GameState, f: Frame, card: number, owner: Player): void {
+  if (s.phase !== 'main' || s.current === owner) return;
+  const by = f.kind === 'attack' || f.kind === 'ability' || (f.kind === 'trainer' && ['item', 'supporter'].includes(def(env.ctx, f.src).ttype ?? ''));
+  if (!by) return;
+  const d = def(env.ctx, card);
+  if (d.coverage !== 'full') return;
+  for (const t of d.triggers) {
+    if (t.t.on !== 'discardedFromDeck') continue;
+    const frame: Frame = { code: t.code, pc: 0, vars: {}, player: owner, src: card, slot: 0, kind: 'ability' };
     if (t.t.when && !evalCond(env, s, ec(frame), t.t.when)) continue;
     if (t.t.optional) frame.vars.__optional = true;
     s.queued.push(frame);
@@ -396,6 +456,8 @@ export function queueReactions(env: Env, s: GameState, slot: Slot, event: ReactE
 export function queueOppAttachTriggers(env: Env, s: GameState, owner: Player, target: Slot): void {
   const watcher = opp(owner);
   for (const w of allSlots(s.p[watcher])) queueTriggers(env, s, w, watcher, 'oppAttachFromHand', { __target: target.id });
+  // ...and the Abilities of the player's own Pokémon that watch for it (Magearna's Auto Heal).
+  for (const w of allSlots(s.p[owner])) queueTriggers(env, s, w, owner, 'allyAttachFromHand', { __target: target.id });
   queueReactions(env, s, target, 'attachFromHand', { __target: target.id, __def: target.id });
 }
 
@@ -429,8 +491,10 @@ function moveCards(env: Env, s: GameState, f: Frame, cards: number[], to: Dest, 
       moved.push(c);
       continue;
     }
+    const fromDeck = to === 'discard' && owner !== f.player && ops.deck.includes(c);
     if (!takeFromZones(ops, c) && !removeFrom(s.limbo, c)) continue;
     moved.push(c);
+    if (fromDeck) queueDeckDiscard(env, s, f, c, owner);
     switch (to) {
       case 'hand':
         ops.hand.push(c);
@@ -640,6 +704,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
           until,
           fromAttack: f.kind === 'attack',
           src: f.src,
+          since: s.turn,
           filter: st.filter,
           // A reacting effect carries its program, compiled once per op instance (as `delay` does), and who controls it.
           ...(st.static.k === 'react' ? { code: ensureCode(env.ctx, `${f.code}@${f.pc}`, st.static.program), by: f.player, from: f.slot } : {}),
@@ -697,6 +762,15 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
       if (w === f.player) s.p[w].knownTop = Math.max(s.p[w].knownTop, Math.min(n, deck.length));
       return 'next';
     }
+    case 'turnPrizeUp': {
+      // One of the player's face-down Prize cards (a pick among cards nobody can see: the first) is turned face up for good.
+      const ps = s.p[side(e, st.who)];
+      const up = (ps.prizesUp ?? []).filter((c) => ps.prizes.includes(c));
+      const c = ps.prizes.find((x) => !up.includes(x));
+      if (c !== undefined) ps.prizesUp = [...up, c];
+      if (st.as) f.vars[st.as] = c === undefined ? [] : [c];
+      return 'next';
+    }
     case 'endTurn':
       // As after an attack (the flow ends the turn once Knock Outs are resolved), without an attack: nothing was damaged by one.
       if (!s.attacked) {
@@ -723,6 +797,10 @@ export function applyCondition(t: Slot, c: SpecialCondition, turn?: number, coun
   if (bit === POISONED) {
     if (counters !== undefined && counters !== 1) t.poisonCounters = counters;
     else delete t.poisonCounters;
+  }
+  if (bit === BURNED) {
+    if (counters !== undefined && counters !== 2) t.burnCounters = counters;
+    else delete t.burnCounters;
   }
   if (bit === CONFUSED) {
     if (counters !== undefined && counters !== 3) t.confusionCounters = counters;

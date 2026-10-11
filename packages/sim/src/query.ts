@@ -26,6 +26,8 @@ export interface LiveStatic {
   bound: number;
   src: number;
   kind: 'ability' | 'tool' | 'energy' | 'stadium' | 'timed' | 'card';
+  /** Timed effects: the turn it was created in. */
+  since?: number;
 }
 
 /** Gather every live static. Ability statics of Pokémon under a no-Abilities effect are dropped. */
@@ -67,6 +69,7 @@ export function statics(env: Env, s: GameState): LiveStatic[] {
       bound: te.slot,
       src: te.src,
       kind: 'timed',
+      since: te.since,
     });
   }
   const pre = out.length;
@@ -178,7 +181,15 @@ export function ownerOf(s: GameState, slot: Slot): Player {
 
 export function maxHp(env: Env, s: GameState, slot: Slot, all = statics(env, s)): number {
   let hp = def(env.ctx, topCard(slot)).hp;
-  for (const x of onSlot(env, s, all, slot, 'hp')) hp += (x.effect as { delta: number }).delta;
+  const once = new Set<string>(); // noStack keys already counted
+  for (const x of onSlot(env, s, all, slot, 'hp')) {
+    const e = x.effect as { delta: number; noStack?: string };
+    if (e.noStack) {
+      if (once.has(e.noStack)) continue;
+      once.add(e.noStack);
+    }
+    hp += e.delta;
+  }
   return Math.max(10, hp);
 }
 
@@ -476,13 +487,25 @@ export function attackIsFrom(env: Env, s: GameState, f: Filter | undefined, all 
  * Prize cards a Knock Out by damage from the current attack changes by, for a Pokémon (`koPrizes` statics on it): the sum of
  * the deltas, each `noStack` key counted once; `none` means no Prize cards at all.
  */
-export function koPrizeEffects(env: Env, s: GameState, slot: Slot, all = statics(env, s)): { delta: number; none: boolean } {
+export function koPrizeEffects(
+  env: Env,
+  s: GameState,
+  slot: Slot,
+  all = statics(env, s),
+  /** The Pokémon is being Knocked Out by damage from an attack (the effects without `anyKo` need that). */
+  byAttack = true,
+): { delta: number; none: boolean } {
   let delta = 0;
   let none = false;
   const once = new Set<string>();
+  const owner = ownerOf(s, slot);
   for (const x of onSlot(env, s, all, slot, 'koPrizes')) {
-    const e = x.effect as { delta?: number; none?: boolean; attacker?: Filter; noStack?: string };
-    if (!attackIsFrom(env, s, e.attacker, all)) continue;
+    const e = x.effect as { delta?: number; none?: boolean; attacker?: Filter; noStack?: string; anyKo?: boolean; duringTakersTurn?: boolean };
+    if (!e.anyKo && !byAttack) continue;
+    // "During your next turn": only while the player who takes the Prize cards is the one whose turn it is, and not the turn in which
+    // the effect was made (that is the turn before "your next turn").
+    if (e.duringTakersTurn && (s.current === owner || (x.since ?? -1) >= s.turn)) continue;
+    if (!e.anyKo && !attackIsFrom(env, s, e.attacker, all)) continue;
     if (e.noStack) {
       if (once.has(e.noStack)) continue;
       once.add(e.noStack);
@@ -547,6 +570,35 @@ export function itemLocked(env: Env, s: GameState, p: Player, all = statics(env,
 /** Is this player stopped from playing these cards from their hand right now (a `playLock` of that kind applies to them)? */
 export function playLocked(env: Env, s: GameState, p: Player, what: PlayLock, all = statics(env, s)): boolean {
   return all.some((x) => x.effect.k === 'playLock' && x.effect.what === what && affectsPlayer(x, p));
+}
+
+/**
+ * Is this player stopped from playing this card (an Ability-having Pokémon in the hand, put onto the Bench or played to evolve) by an
+ * `abilityPokemon` play lock that applies to them? The Ability is the one printed on the card in hand: a Pokémon in hand has it
+ * whatever is switching Abilities off in play (TPCi Rules Team 2025-05-29, ruling 2147).
+ */
+export function pokemonPlayLocked(env: Env, s: GameState, p: Player, d: CardDef, all = statics(env, s)): boolean {
+  if (d.kind !== 'pokemon' || !d.abilities.length) return false;
+  return all.some((x) => x.effect.k === 'playLock' && x.effect.what === 'abilityPokemon' && affectsPlayer(x, p) && !(x.effect.except && defMatches(d, x.effect.except)));
+}
+
+/**
+ * The damage counters a Special Condition of this Pokémon places at Pokémon Checkup on top of its own (`checkupCounters` effects on
+ * it): the sum, each `noStack` key counted once.
+ */
+export function checkupExtraCounters(env: Env, s: GameState, slot: Slot, cond: 'poisoned' | 'burned', all = statics(env, s)): number {
+  let n = 0;
+  const once = new Set<string>();
+  for (const x of onSlot(env, s, all, slot, 'checkupCounters')) {
+    const e = x.effect as { cond: string; n: number; noStack?: string };
+    if (e.cond !== cond) continue;
+    if (e.noStack) {
+      if (once.has(e.noStack)) continue;
+      once.add(e.noStack);
+    }
+    n += e.n;
+  }
+  return n;
 }
 
 /**

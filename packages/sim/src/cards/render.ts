@@ -137,6 +137,8 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
     `Count the ${a.kind === 'tool' ? 'Pokémon Tools' : 'Energy'} attached to all of ${slotZoneNoun(String(a.zone) as SlotZone)} (into "${String(a.as ?? 'n')}")`,
   'seed2.healEach': (a) => `Heal ${Number(a.amount)} damage from each of ${slotZoneNoun(String(a.zone ?? 'myPokemon') as SlotZone)}`,
   'seed2.randomOppHandCard': (a) => `Choose a random card from your opponent's hand (into "${String(a.as ?? 'x')}")`,
+  'engine6.revealAndSwitch': (a) =>
+    `Your opponent reveals the card chosen as "${String(a.card ?? 'pick')}". You may have your opponent switch that card with the Prize card turned face up as "${String(a.prize ?? 'up')}" (the hand card takes the Prize card's place, face up; no question when either is missing)`,
   'seed2.tormentDefender': () =>
     "Choose 1 of your opponent's Active Pokémon's attacks. During your opponent's next turn, that Pokémon can't use that attack",
   'seed2.energyToHand': () => 'Put an Energy attached to this Pokémon into your hand',
@@ -600,6 +602,8 @@ class Renderer {
   selfName: string;
   /** See `counted`: 1 outside attacks. */
   upFrom = 1;
+  /** The Ability being rendered, for "The effect of <name> doesn't stack". */
+  abilityName?: string;
 
   constructor(
     readonly src: Source,
@@ -625,6 +629,10 @@ class Renderer {
     if ('prizesLeft' in e) return `the number of Prize cards ${e.prizesLeft === 'opp' ? 'your opponent has' : 'you have'} remaining`;
     if ('prizesTaken' in e) return `the number of Prize cards ${e.prizesTaken === 'opp' ? 'your opponent has' : 'you have'} taken`;
     if ('prizesTakenLastTurn' in e) return `the number of Prize cards ${e.prizesTakenLastTurn === 'opp' ? 'your opponent took during their last turn' : 'you took during your last turn'}`;
+    if ('prizeCards' in e) {
+      const p = e.prizeCards;
+      return `the number of ${p.face === 'up' ? 'face-up' : 'face-down'}${p.filter ? ` ${noun(p.filter).pl}` : ''} Prize cards ${p.who === 'opp' ? 'your opponent has' : 'you have'}`;
+    }
     if ('damageTakenLastTurn' in e) return `the damage ${this.ref(e.damageTakenLastTurn)} took from an attack during your opponent's last turn`;
     if ('energyOn' in e) return `the amount of ${e.type ? `${sym(e.type)} ` : ''}Energy attached to ${this.ref(e.energyOn)}`;
     if ('countersOn' in e) return `the number of damage counters on ${this.ref(e.countersOn)}`;
@@ -714,6 +722,12 @@ class Renderer {
       return c.koLastTurn === 'opp'
         ? `any of your opponent's ${pk} were Knocked Out during your last turn`
         : `any of your ${pk} were Knocked Out during your opponent's last turn`;
+    }
+    if ('attackedLastTurn' in c) {
+      const a = c.attackedLastTurn;
+      const mine = a.who !== 'opp';
+      const pk = a.filter ? noun(a.filter, true).pl : 'Pokémon';
+      return `1 of ${mine ? 'your' : "your opponent's"} ${a.other ? 'other ' : ''}${pk} used an attack during ${mine ? 'your' : 'their'} last turn`;
     }
     if ('playedThisTurn' in c) {
       const w = c.playedThisTurn.who === 'opp' ? 'your opponent' : 'you';
@@ -988,7 +1002,9 @@ class Renderer {
             t +=
               st.cond === 'poisoned'
                 ? `. During Pokémon Checkup, place ${st.counters} damage counters on that Pokémon instead of 1`
-                : `. Put ${st.counters} damage counters instead of 3 on that Pokémon for this Special Condition`;
+                : st.cond === 'burned'
+                  ? `. During Pokémon Checkup, place ${st.counters} damage counters on that Pokémon instead of 2 for this Special Condition (before the Burn flip)`
+                  : `. Put ${st.counters} damage counters instead of 3 on that Pokémon for this Special Condition`;
           }
           out.push(t);
           break;
@@ -1066,6 +1082,12 @@ class Renderer {
           const what = st.n === 1 ? `the top card of ${zoneOf('deck', st.who)}` : `the top ${this.num(st.n)} cards of ${zoneOf('deck', st.who)}`;
           out.push(`${st.reveal ? 'Reveal' : 'Look at'} ${what}${st.filter ? `. Find ${noun(st.filter).pl} among them` : ''}`);
           this.vars.set(st.as, { k: 'cards', text: 'those cards', plural: st.n !== 1, zone: 'top', who: st.who, reveal: !!st.reveal, mentioned: true, done: st.filter ? 'found' : 'looked at' });
+          break;
+        }
+        case 'turnPrizeUp': {
+          const w = st.who === 'opp' ? "your opponent's" : 'your';
+          out.push(`Turn 1 of ${w} face-down Prize cards face up. (That Prize card remains face up for the rest of the game.)`);
+          if (st.as) this.vars.set(st.as, { k: 'cards', text: 'that Prize card', plural: false, zone: 'prizes', who: st.who, reveal: false, mentioned: true, done: 'turned face up' });
           break;
         }
         case 'endTurn':
@@ -1271,7 +1293,13 @@ class Renderer {
         return `Energy can't be attached from ${opp ? "your opponent's" : mine ? 'your' : 'their'} hand to ${x === 'you' ? 'your Pokémon' : x === 'your opponent' ? "your opponent's Pokémon" : x === 'each player' ? 'their Pokémon' : x}`;
       }
       case 'hp':
-        return `${X} ${plural ? 'get' : 'gets'} ${e.delta < 0 ? '-' : '+'}${Math.abs(e.delta)} HP`;
+        return `${X} ${plural ? 'get' : 'gets'} ${e.delta < 0 ? '-' : '+'}${Math.abs(e.delta)} HP${e.noStack ? `. The effect of ${e.noStack} doesn't stack` : ''}`;
+      case 'checkupCounters': {
+        // The affected Pokémon is already limited to those with the Special Condition when the filter says so; else say it.
+        const cond = CONDITION[e.cond];
+        const filt = /Poisoned|Burned/.test(x) ? '' : ` ${plural ? 'that are' : 'that is'} ${cond}`;
+        return `During Pokémon Checkup, put ${e.n} more damage counters on ${x}${filt}${e.noStack ? `. The effect of ${e.noStack} doesn't stack` : ''}`;
+      }
       case 'cantAttack':
         return `${X} can't attack`;
       case 'cantRetreat':
@@ -1280,7 +1308,13 @@ class Renderer {
         return `${X} ${has} no Abilities`;
       case 'playLock': {
         const them = x === 'you' ? 'your' : 'their';
-        const what = { stadium: 'Stadium cards', supporter: 'Supporter cards', aceSpec: 'ACE SPEC cards' }[e.what as string];
+        const what = { stadium: 'Stadium cards', supporter: 'Supporter cards', aceSpec: 'ACE SPEC cards', tool: 'Pokémon Tool cards' }[e.what as string];
+        if (e.what === 'abilityPokemon') {
+          // "except for Team Rocket's Pokémon": a name fragment alone reads as the owner's possessive.
+          const ex = e.except;
+          const except = !ex ? '' : `, except for ${ex.nameIncludes && Object.keys(ex).length === 1 ? `${ex.nameIncludes} Pokémon` : noun(ex, true).pl}`;
+          return `${X} can't play any Pokémon that ${plural ? 'have' : 'has'} an Ability from ${them} hand${except}`;
+        }
         return e.what === 'evolve'
           ? `${X} can't play any Pokémon from ${them} hand to evolve ${them} Pokémon`
           : `${X} can't play any ${what} from ${them} hand`;
@@ -1319,6 +1353,11 @@ class Renderer {
         const more = `${n} more Prize card${n === 1 ? '' : 's'}`;
         const stack = e.noStack ? `. The effect of ${e.noStack} doesn't stack` : '';
         const act = e.flip ? `flip a coin. If heads, ${take}` : take;
+        if (e.ko || e.byThis) {
+          // A Knocked Out Pokémon of a kind, wherever it was, by an attack of this Pokémon.
+          const by = e.byThis ? this.selfName : e.attacker ? noun(e.attacker, true).pl : 'Pokémon of yours';
+          return `If your opponent's ${noun(e.ko ?? {}, true).sg} is Knocked Out by damage from an attack used by ${by}, ${act} ${more}${stack}`;
+        }
         if (e.attacker) {
           // "your N's Pokémon": a name fragment alone reads as the owner's possessive.
           const a = e.attacker;
@@ -1331,6 +1370,11 @@ class Renderer {
         const from = e.attacker ? noun(e.attacker, true).pl : 'Pokémon';
         const subj = plural ? `1 of ${x} is` : `${x} is`;
         const d = e.delta ?? 0;
+        if (e.anyKo) {
+          // Any Knock Out: "During your next turn, if the Defending Pokémon is Knocked Out, take 2 more Prize cards".
+          const more = e.none ? "your opponent can't take any Prize cards for it" : `that player takes ${Math.abs(d)} ${d < 0 ? 'fewer' : 'more'} Prize card${Math.abs(d) === 1 ? '' : 's'}`;
+          return `If ${subj} Knocked Out${e.duringTakersTurn ? ' during your turn' : ''}, ${more}${e.noStack ? `. The effect of ${e.noStack} doesn't stack` : ''}`;
+        }
         const what = e.none
           ? "your opponent can't take any Prize cards for it"
           : `that player takes ${Math.abs(d)} ${d < 0 ? 'fewer' : 'more'} Prize card${Math.abs(d) === 1 ? '' : 's'}`;
@@ -1443,6 +1487,31 @@ class Renderer {
       case 'damageReduced':
         lead = 'If an effect of this card reduced damage from an attack done to the Pokémon it is attached to';
         break;
+      case 'allyAttachFromHand':
+        // The program sees the Pokémon the Energy went to as '__target' ("that Pokémon").
+        lead = 'Whenever you attach an Energy card from your hand to 1 of your Pokémon';
+        if (when && 'inActive' in when && when.inActive === 'self') {
+          lead = `As long as ${this.selfName} is in the Active Spot, w${lead.slice(1)}`;
+          when = undefined;
+        }
+        break;
+      case 'oppEvolveFromHand':
+        // The program sees the Pokémon that evolved as '__target' ("that Pokémon").
+        lead = 'Whenever your opponent plays a Pokémon from their hand to evolve 1 of their Pokémon';
+        break;
+      case 'discardedFromDeck':
+        lead = "During your opponent's turn, if this Pokémon is discarded from your deck by an effect of an attack or Ability from your opponent's Pokémon, or by an effect of your opponent's Item or Supporter cards";
+        break;
+      case 'allyActiveDamagedByAttack': {
+        // The program sees the damaged Pokémon as '__target' and the Attacking Pokémon as '__attacker'.
+        let what = 'your Active Pokémon';
+        if (when && 'slotIs' in when && typeof when.slotIs.ref === 'object' && when.slotIs.ref.v === '__target') {
+          what = `your Active ${noun(when.slotIs.filter, true).pl}`;
+          when = undefined;
+        }
+        lead = `If ${what} is damaged by an attack from your opponent's Pokémon (even if ${what} is Knocked Out)`;
+        break;
+      }
       case 'oppActiveMovedToBench':
         // The program sees the Pokémon that moved as '__target' ("that Pokémon").
         lead = "Whenever your opponent's Active Pokémon moves to the Bench during their turn";
@@ -1453,12 +1522,14 @@ class Renderer {
         break;
     }
     if (when) lead += `, and if ${this.cond(when)}`;
-    const body = this.program(t.program);
-    if (t.optional) return ability ? `${lead}, you may use this Ability. ${body}` : `${lead}, you may ${lc(body)}`;
-    return `${lead}, ${lc(body)}`;
+    const body = t.noStack ? this.program(t.program).replace(/\.$/, '') : this.program(t.program);
+    const stack = t.noStack ? `. The effect of ${this.abilityName ?? 'this Ability'} doesn't stack` : '';
+    if (t.optional) return (ability ? `${lead}, you may use this Ability. ${body}` : `${lead}, you may ${lc(body)}`) + stack;
+    return `${lead}, ${lc(body)}${stack}`;
   }
 
   ability(a: AbilityScript): string {
+    this.abilityName = a.name;
     const out: string[] = [];
     if (a.activated) {
       const g = a.activated;
@@ -2560,5 +2631,14 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv05-158|text': {
     problems: ['"any number of" is rendered but not printed'],
     why: 'The cards chosen are exactly as many as the smaller of your Future Pokémon and the Basic Energy cards in your discard pile (a computed count, which the renderer words as "any number of"); each Future Pokémon gets at most one, so "a Basic Energy card ... to each of your Future Pokémon" as far as the discard pile allows.',
+  },
+  // std-engine6
+  'sv10.5w-045|attack:Power Press': {
+    problems: ['number 2'],
+    why: '"At least 2 extra Energy (in addition to this attack\'s cost)": the cost is {P}{C}, so the script tests 4 or more Energy attached (counted in the Energy provided).',
+  },
+  'sv05-076|attack:Plentiful Pollen': {
+    problems: ['the rendering involves the opponent'],
+    why: 'The Defending Pokémon is the opponent\'s Active Pokémon, and the Prize cards are taken by "that player" (the opponent of the Knocked Out Pokémon\'s owner: the one who used the attack); the printed "take 2 more Prize cards" leaves both implicit. The effect only counts during the attacker\'s next turn and ends if the Pokémon leaves the Active Spot or evolves (ruling 1957), which the card test pins.',
   },
 };
