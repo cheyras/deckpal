@@ -237,6 +237,13 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c16.lookTopTakeDiscardRest': (a) => `Look at the top ${Number(a.n ?? 6)} cards of your deck. Put ${Number(a.take ?? 2)} of them into your hand (your choice; all of them if there are no more). Discard the other cards. The deck is not shuffled`,
   'c16.energyOnOpp': (a) => `Count the ${sym(a.type as PType)} Energy provided by Energy attached to all of your opponent's Pokémon, Active and Benched (Basic or Special; into "${String(a.as ?? 'n')}")`,
   'c16.discardEnergyAmong': (a) => `Discard up to ${Number(a.max ?? 3)} Energy cards that provide ${sym(a.type as PType)} Energy where they are attached (Basic or Special) from among your Pokémon, your choice, and count the cards discarded (into "${String(a.as ?? 'n')}")`,
+  // std-c19-customs.ts
+  'c19.attachToolFromDeck': () => 'Search your deck for a Pokémon Tool card and attach it to this Pokémon (a Pokémon with a Tool already attached gets none)',
+  'c19.revealTopPick': (a) => `Reveal the top ${Number(a.n ?? 5)} cards of your opponent's deck and you may choose any number of the Basic Pokémon you find there, as many as fit on their Bench (into "${String(a.as ?? 'x')}")`,
+  'c19.searchSameNameAsOpp': () => "Search your deck for a Pokémon with the same name as 1 of your opponent's Pokémon in play, reveal it, and put it into your hand",
+  'c19.shuffleSelfIntoDeck': () => 'Shuffle this card into your deck instead of discarding it',
+  'c19.coinDraw': (a) => `Each player flips a coin. If heads, that player draws ${Number(a.heads ?? 6)} cards. If tails, they draw ${Number(a.tails ?? 3)} cards`,
+  'c19.scoopUp': (a) => `Put the Pokémon chosen as "${String(a.slot ?? 't')}" and all attached cards into your hand`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -260,6 +267,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'c15.lowHpDamaged': () => 'one of your Pokémon has damage on it and 30 or less HP remaining (HP counting any HP changes)',
   'c21.oppBenchLowHp': (a) => `your opponent has a Pokémon on their Bench that has ${Number(a.max ?? 90)} HP or less remaining`,
   'c16.remainingHpAtMost': (a) => `the HP of the Pokémon this is attached to (with any HP changes) minus its damage is ${Number(a.n ?? 30)} or less`,
+  'c19.supporterPlayedThisTurn': () => 'the player played a Supporter card from their hand this turn',
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
@@ -2061,5 +2069,22 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv06-029|attack:Ground Burn': {
     problems: ['the rendering involves the opponent'],
     why: '"The top card of each player\'s deck" is two discards, one from each deck, and the renderer words the second as "your opponent\'s deck", which is the other player\'s deck the card prints as "each player\'s".',
+  },
+  // std-c19
+  "sv06-138|ability:Wicked Tail": {
+    problems: ["\"each\" is printed but not rendered", "\"reveal\" is printed but not rendered"],
+    why: "\"For each heads\" is a repeat of the heads count, rendered \"the number of heads times\"; the cards are revealed and immediately shuffled into the deck, so the reveal has no later effect and nothing in the script keeps it (as Team Rocket Meowth, Paw-cket Pilfer).",
+  },
+  "sv06-150|text": {
+    problems: ["\"Bench\" is printed but not rendered", "\"opponent's bench\" is printed but not rendered"],
+    why: "The Energy moves from the Attacking Pokémon (the opponent's Active Pokémon) to one of the other Pokémon of that same side, all Benched, which is what metal.moveEnergy does when its source is the Active Pokémon; its gloss is worded from the mover's side, so it names no Bench.",
+  },
+  "sv06-157|text": {
+    problems: ["the rendering involves the opponent; the printed text does not"],
+    why: "\"Each player\" is two calls of shuffleHandToBottom (one per side), and the shared gloss words the opponent's call \"Your opponent shuffles their hand\"; the coin flips and draws are one c19.coinDraw for both players.",
+  },
+  "sv06.5-005|attack:Power Shot": {
+    problems: ["\"can't\" is printed but not rendered"],
+    why: "\"If you can't\" is the case of having no Basic {G} Energy card in hand: the choice comes back empty, and the discard and the damage are inside the \"if you chose 1 or more cards\" branch, so nothing happens.",
   },
 };
