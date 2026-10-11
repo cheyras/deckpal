@@ -301,6 +301,10 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c31.tallyChoices': (a) => `Total the ${Number(a.n ?? 6)} choices made as "${String(a.from ?? 'a')}1" onwards per Pokémon: each distinct Pokémon chosen gets ${Number(a.per ?? 20)} damage for each time it was chosen (into "${String(a.into ?? 't')}" and "${String(a.amounts ?? 'k')}")`,
   // std-c32-customs.ts
   'c32.flusteredLeap': () => 'If this Pokémon is on your Bench and your deck has a card: discard the bottom card of your deck, discard every Energy and Tool attached to this Pokémon, and put this Pokémon (the card itself) on top of your deck, without shuffling (not a Knock Out); nothing happens with an empty deck',
+  // std-c29-customs.ts
+  'c29.attackingPokemon': (a) => `Choose the Pokémon that used the attack that Knocked Out this Pokémon (into "${String(a.as ?? 'a')}"); none when it is no longer in play`,
+  'c29.lookTopTakeAny': (a) => `Look at the top ${Number(a.n ?? 4)} cards of your deck. You may reveal any number of ${noun(a.filter as Filter | undefined).pl} you find there and put them into your hand. Shuffle the other cards back into your deck (the deck is shuffled even when none are left)`,
+  'c29.countEnergyOnPokemon': (a) => `Count the ${sym(a.type as PType)} Energy attached to all of your ${String((a.slotFilter as Filter | undefined)?.nameIncludes ?? '')} Pokémon (an Energy that provides every type counts once) (into "${String(a.as ?? 'n')}")`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -2316,5 +2320,10 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv10-077|attack:Astonish': {
     problems: ['"reveal" is printed but not rendered'],
     why: 'The random card is revealed and then immediately shuffled into the deck, so the reveal has no later effect and nothing in the script keeps it (as Team Rocket Meowth, Paw-cket Pilfer).',
+  },
+  // std-c29
+  'sv09-004|attack:Leech Life': {
+    problems: ['similarity'],
+    why: '"The same amount of damage you did" is measured as the change in the Defending Pokémon\'s damage counters across the attack (snapshot before, difference after), so the renderer spells out the arithmetic instead of the printed phrase; the card test checks it heals exactly the damage dealt, after Weakness.',
   },
 };
