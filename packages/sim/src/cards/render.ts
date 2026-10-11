@@ -2362,4 +2362,9 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
     problems: ['"tails" is printed but not rendered'],
     why: 'One coin: "If tails" is the else branch of the heads check ("otherwise"), which is the same flip.',
   },
+  // std-c40
+  'svp-212|attack:Cellular Ascension': {
+    problems: ['"any number of" is rendered but not printed'],
+    why: '"For each of your Benched Pokémon" selects every Benched Pokémon: the chooseSlots min and max are both the Bench count (an expression, which the renderer words "any number of"), so none is skipped.',
+  },
 };
