@@ -244,6 +244,9 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c19.shuffleSelfIntoDeck': () => 'Shuffle this card into your deck instead of discarding it',
   'c19.coinDraw': (a) => `Each player flips a coin. If heads, that player draws ${Number(a.heads ?? 6)} cards. If tails, they draw ${Number(a.tails ?? 3)} cards`,
   'c19.scoopUp': (a) => `Put the Pokémon chosen as "${String(a.slot ?? 't')}" and all attached cards into your hand`,
+  // std-c26-customs.ts
+  'c26.attachToOppPokemon': (a) => `Attach the cards chosen as "${String(a.cards ?? 'e')}" to their Pokémon in any way you like (you pick the Pokémon for each card; one protected from the effects of attacks is skipped)`,
+  'c26.lookTopChoose': (a) => `Look at the top ${Number(a.n ?? 10)} cards of your deck and you may choose any number of the ${(a.filter as { cat?: string } | undefined)?.cat === 'pokemon' ? 'Pokémon' : ''} cards you find there, no more than the Bench has room for (into "${String(a.as ?? 'found')}"); nothing leaves the deck yet`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -2086,5 +2089,14 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   "sv06.5-005|attack:Power Shot": {
     problems: ["\"can't\" is printed but not rendered"],
     why: "\"If you can't\" is the case of having no Basic {G} Energy card in hand: the choice comes back empty, and the discard and the damage are inside the \"if you chose 1 or more cards\" branch, so nothing happens.",
+  },
+  // std-c26
+  'sv08-137|attack:Fully Singe': {
+    problems: ['similarity'],
+    why: "The one printed sentence is the c11.discardOppActiveEnergy step behind an 'if' on the Defending Pokemon being a Pokemon ex; the shared gloss spells out the Ability/attack protection, which the card does not print.",
+  },
+  'sv08-141|attack:World Ender': {
+    problems: ["\"can't\" is printed but not rendered", 'similarity'],
+    why: "\"If you can't\" is the case of no Stadium in play: the discard and the 230 damage are both inside the 'if a Stadium is in play' branch, so with none nothing happens; the shared std.discardStadium gloss is short.",
   },
 };
