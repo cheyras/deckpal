@@ -212,6 +212,13 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c11.multiplyCounters': (a) => `Put on each Pokémon chosen as "${String(a.slots ?? 't')}" ${Number(a.factor ?? 2) - 1} times the number of damage counters already on it (so each Pokémon has ${Number(a.factor ?? 2)} times as many damage counters); a Pokémon with none gets none`,
   'c11.retreatCostOf': (a) => `Count the {C} in the Retreat Cost your opponent's Active Pokémon has right now, after every effect (into "${String(a.as ?? 'n')}"); an Antique fossil has none`,
   'c11.discardOppActiveEnergy': () => "Discard an Energy of your choice from your opponent's Active Pokémon, unless it is protected from the effects of Abilities (or attacks)",
+  // std-c17-customs.ts
+  'c17.moveEnergyToNewBenched': (a) => `Move 1 Energy attached to this Pokémon (the controller picks which when they differ) to the Benched Pokémon that the card in "${String(a.cards ?? 'put')}" became`,
+  'c17.pickSelfEnergy': (a) => `Choose ${Number(a.n ?? 3)} of the Energy cards attached to this Pokémon (all of them when it has ${Number(a.n ?? 3)} or fewer, none when it has none) into "${String(a.as ?? 'e')}"; nothing leaves the Pokémon yet`,
+  'c17.selfEnergyToDeck': (a) => `Put the Energy cards in "${String(a.cards ?? 'e')}" that are still attached to this Pokémon into your deck`,
+  'c17.moveOppCounters': () =>
+    "One at a time, choose a damaged Pokémon of your opponent's (choosing none stops this, so you may move any number of damage counters, even none) and another of your opponent's Pokémon, and move 1 damage counter from the first to the second; a Pokémon that gave a counter never receives one in this way, and one that received a counter never gives one",
+  'c17.lookTopMayDiscard': () => 'Look at the top card of your deck. You may discard that card (it stays on top otherwise)',
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -1890,5 +1897,30 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me05-020|attack:Aqua Return': {
     problems: ['"your deck" is printed but not rendered'],
     why: 'The shuffle is the shared seed4.shuffleSlotIntoDeck, glossed for any Pokémon ("into their deck"); the Pokémon chosen here is always the attacking player own Active Pokémon (Primarina itself), so its owner is the attacker and the deck is "your deck".',
+  },
+  // std-c17
+  'sv06-038|ability:Alluring Light': {
+    problems: ['the rendering involves the opponent; the printed text does not'],
+    why: '"Each player draws a card" has the opponent draw too (the printed "each player"); the opponent word comes from that second draw step and from the `when` guard that the Ability is not offered when neither player has a card to draw.',
+  },
+  'sv06-043|attack:Jumping Uppercut': {
+    problems: ['"your deck" is printed but not rendered'],
+    why: 'The shuffle is the shared seed4.shuffleSlotIntoDeck, glossed for any Pokémon ("into their deck"); the Pokémon chosen here is always the attacking player own Active Pokémon (Poliwrath itself), so its owner is the attacker and the deck is "your deck".',
+  },
+  'sv06-048|attack:Snip Snip': {
+    problems: ['"each" is printed but not rendered'],
+    why: '"For each heads" is the heads count of a 2-coin flip used as the number of cards moved from the top of the opponent deck; the renderer words a count variable "the number of heads" rather than "each".',
+  },
+  'sv06-051|attack:Astonish': {
+    problems: ['"reveal" is printed but not rendered'],
+    why: 'The random card is revealed and then immediately shuffled into the deck, so the reveal has no later effect and nothing in the script keeps it; the custom picks the card uniformly at random and the card moves to the deck.',
+  },
+  'sv06-063|attack:Undulating Slice': {
+    problems: ['"up to" is printed but not rendered', '"up to 9" is printed but not rendered'],
+    why: '"Up to 9 damage counters" on an attack is 0 to 9, which is a choice among the ten options "0" to "9" (the vocabulary has no choose-a-number step); the counters placed are that number and the damage is 20 times it, which the renderer words as a choice among labelled options.',
+  },
+  'sv06-080|ability:Teleporter': {
+    problems: ['"your deck" is printed but not rendered'],
+    why: 'The shuffle is the shared seed4.shuffleSlotIntoDeck, glossed for any Pokémon ("into their deck"); the Pokémon chosen here is always the controller own Active Pokémon (the Abra using the Ability, activeOnly), so its owner is the controller and the deck is "your deck".',
   },
 };
