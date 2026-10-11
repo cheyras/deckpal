@@ -8,7 +8,7 @@
  * controller. `statics()` gathers every live one; the queries filter it.
  */
 import { def, type Env } from './context.js';
-import type { Filter, PType, Scope, StaticEffect } from './dsl.js';
+import type { Filter, PType, Scope, SpecialCondition, StaticEffect } from './dsl.js';
 import { cardMatches, defMatches, evalCond, evalExpr, providesOn, pushUnits, slotMatches, type EnergyUnit, type EvalCtx } from './eval.js';
 import { allSlots, findSlot, opp, topCard } from './state.js';
 import type { GameState, Player, Slot } from './types.js';
@@ -89,9 +89,26 @@ export function statics(env: Env, s: GameState): LiveStatic[] {
   return out.filter((x, i) => {
     if (i < pre) return live(env, s, x);
     const sl = findSlot(s, x.slot);
-    if (sl && locks.some((l) => l !== x && affectsSlot(env, s, l, sl.slot, sl.owner))) return false;
+    if (sl && locks.some((l) => l !== x && affectsSlot(env, s, l, sl.slot, sl.owner) && lockBites(env, s, out, l, sl.slot, sl.owner))) return false;
     return live(env, s, x);
   });
+}
+
+/**
+ * Does a "no Abilities" effect take the Abilities of this Pokémon away? Not when the lock is an Ability of the other player's
+ * Pokémon and this Pokémon has an Ability that prevents the effects of Abilities done to it: "Luminous Wing takes precedence
+ * over Initialization. It doesn't matter which one comes into play first" (TPCi Rules Team 2026-03-26, ruling 2309).
+ */
+function lockBites(env: Env, s: GameState, all: LiveStatic[], lock: LiveStatic, slot: Slot, owner: Player): boolean {
+  if (lock.kind !== 'ability' || lock.player === owner) return true;
+  return !all.some(
+    (y) =>
+      y.kind === 'ability' &&
+      y.effect.k === 'preventEffects' &&
+      y.effect.from.includes('ability') &&
+      affectsSlot(env, s, y, slot, owner) &&
+      live(env, s, y),
+  );
 }
 
 function live(env: Env, s: GameState, x: LiveStatic): boolean {
@@ -338,7 +355,8 @@ export function damageIn(env: Env, s: GameState, target: Slot, all = statics(env
 }
 
 export function hasNoAbilities(env: Env, s: GameState, slot: Slot, all = statics(env, s)): boolean {
-  return onSlot(env, s, all, slot, 'noAbilities').some((x) => x.slot !== slot.id);
+  const owner = ownerOf(s, slot);
+  return onSlot(env, s, all, slot, 'noAbilities').some((x) => x.slot !== slot.id && lockBites(env, s, all, x, slot, owner));
 }
 
 /** lane:misc — Damp: "this Pokémon is Knocked Out" Abilities are lost while a loseSelfKoAbilities effect applies. */
@@ -401,9 +419,17 @@ export function cantAttack(env: Env, s: GameState, slot: Slot, all = statics(env
   return onSlot(env, s, all, slot, 'cantAttack').length > 0;
 }
 
-/** How many "tries to use an attack" coin flips apply to this Pokémon's attack right now (one per effect). */
-export function attackCoinFlips(env: Env, s: GameState, slot: Slot, all = statics(env, s)): number {
-  return onSlot(env, s, all, slot, 'attackCoinFlip').length;
+/** The "tries to use an attack" coin flips that apply to this Pokémon's attack right now: one entry per effect, each the number of coins it flips. */
+export function attackCoinFlips(env: Env, s: GameState, slot: Slot, all = statics(env, s)): number[] {
+  return onSlot(env, s, all, slot, 'attackCoinFlip').map((x) => (x.effect as { coins?: number }).coins ?? 1);
+}
+
+/** Can this Special Condition not affect this Pokémon (a `conditionImmunity` static on it)? */
+export function conditionImmune(env: Env, s: GameState, slot: Slot, cond: SpecialCondition, all = statics(env, s)): boolean {
+  return onSlot(env, s, all, slot, 'conditionImmunity').some((x) => {
+    const c = (x.effect as { conditions?: SpecialCondition[] }).conditions;
+    return !c || c.includes(cond);
+  });
 }
 
 /** Can Energy be attached from hand to this Pokémon? */

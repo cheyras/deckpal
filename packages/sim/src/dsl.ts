@@ -70,6 +70,12 @@ export interface Filter {
   condition?: SpecialCondition;
   /** In-play only: the Pokémon has at least one Energy attached. */ // lane:ghost
   energized?: boolean;
+  /**
+   * The card has this tag ("Ancient Pokémon", "Future Supporter card"). A tag is printed on the card but is in no frame, so it is
+   * looked up per PRINTING (src/cards/tags.ts): an untagged reprint of the same name does not match. Pokémon, Trainers and Energy,
+   * in every zone.
+   */
+  tag?: 'Ancient' | 'Future';
   not?: Filter;
   any?: Filter[];
 }
@@ -212,7 +218,29 @@ export type StaticEffect =
    * "If the affected Pokémon tries to use an attack, its owner's opponent flips a coin. If tails, that attack doesn't happen."
    * The flip comes before Confusion's (TPCi 2026-04-02 ruling 2326, 2026-03-26 ruling 2317).
    */
-  | { k: 'attackCoinFlip' }
+  | {
+      k: 'attackCoinFlip';
+      /** "flips 2 coins. If either of them is tails, that attack doesn't happen": how many coins are flipped (default 1); all are flipped. */
+      coins?: number;
+    }
+  /**
+   * The affected Pokémon can't be affected by these Special Conditions (default: any of them). They are not applied, and any it
+   * has are removed as soon as the immunity applies (the Energy was attached, the Ability is on again). Checked when Knock Outs
+   * are, i.e. after every action, and at Checkup.
+   */
+  | { k: 'conditionImmunity'; conditions?: SpecialCondition[] }
+  /**
+   * A timed effect that reacts to an event on the affected Pokémon (an attack's lasting effect, not an Ability: "no Abilities"
+   * doesn't stop it, and Mist Energy-style prevention of effects of attacks applies to what the program does to the Attacking
+   * Pokémon). Only meaningful on the `effect` step, with `on`. The program runs once the current action has resolved, before Knock
+   * Outs are checked.
+   *  - 'damagedByAttack': the Pokémon took damage from an opponent's attack, wherever it is (even if that Knocks it Out). In the
+   *    program `{ v: '__attacker' }` is the Attacking Pokémon. Reacts once per effect per attack.
+   *  - 'attachFromHand': its owner attached an Energy card from their hand to it, by their turn action or by an effect.
+   *    `{ v: '__target' }` (and 'defender') is the Pokémon the Energy went to.
+   * The effect's controller (the player whose attack made it) runs the program.
+   */
+  | { k: 'react'; event: ReactEvent; program: Program }
   /** Energy can't be attached from hand to the affected Pokémon (by the owner's turn action or by an effect). */
   | { k: 'cantAttachFromHand' }
   | { k: 'hp'; delta: number }
@@ -269,7 +297,10 @@ export type StaticEffect =
 export interface DamageIgnore {
   weakness?: boolean;
   resistance?: boolean;
-  /** "isn't affected by any effects on your opponent's Active Pokémon": no damageIn, no prevention, printed Weakness. */
+  /**
+   * "isn't affected by any effects on your opponent's Active Pokémon" (or "... on those Pokémon", for attacks that hit several): no
+   * damageIn, no prevention, printed Weakness. Applies to every opposing target the damage goes to, Benched ones included.
+   */
   defenderEffects?: boolean;
 }
 
@@ -298,6 +329,9 @@ export interface StaticDef {
 }
 
 export type Duration = 'thisTurn' | 'oppNextTurn' | 'myNextTurn';
+
+/** What a `react` timed effect waits for. */
+export type ReactEvent = 'damagedByAttack' | 'attachFromHand';
 
 export type Step =
   /** Choose cards from a zone. Searching the deck lets the chooser see it. */
@@ -358,7 +392,17 @@ export type Step =
   /** Place damage counters: no Weakness, Resistance or damage modifiers. */
   | { op: 'counters'; n: Expr; to: SlotRef | { each: SlotZone; filter?: Filter } }
   | { op: 'heal'; amount: Expr; to: SlotRef }
-  | { op: 'condition'; cond: SpecialCondition; to: SlotRef }
+  | {
+      op: 'condition';
+      cond: SpecialCondition;
+      to: SlotRef;
+      /**
+       * Poisoned: "During Pokémon Checkup, place N damage counters on that Pokémon instead of 1" (every Checkup while it stays
+       * Poisoned: TPCi 2026-06-04, ruling 2373). Confused: "Put N damage counters instead of 3 on that Pokémon for this Special
+       * Condition" (when the flip fails). A later application of the condition replaces the amount (plain Poison: ruling 1044).
+       */
+      counters?: number;
+    }
   /** Switch the Active Pokémon of `who` with one of their Benched Pokémon. */
   | { op: 'switch'; who: Who; chooser?: Who; with?: SlotRef }
   /** Flip coins; heads count lands in `as`. 'untilTails' flips until a tails. */
@@ -391,7 +435,15 @@ export type Step =
   | { op: 'useAttackOf'; card: string }
   /** Escape hatch for genuinely bespoke effects: a named, tested function in customs.ts. */
   | { op: 'custom'; fn: string; args?: Record<string, unknown> }
-  | { op: 'end' };
+  | { op: 'end' }
+  /**
+   * Look at (or with `reveal`, reveal) the top `n` cards of a deck, without moving them. The cards among them that match
+   * `filter` (all of them without one) are kept in `as`, for a later `move` / `putOnTop` / count ("70 damage for each Future card
+   * you find there", "put them back in any order").
+   */
+  | { op: 'look'; n: Expr; who?: Who; filter?: Filter; as: string; reveal?: boolean }
+  /** "Your turn ends": as after an attack, once the effect has resolved (no attack is used, so nothing counts as damaged by one). */
+  | { op: 'endTurn' };
 
 export type Program = Step[];
 

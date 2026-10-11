@@ -8,11 +8,12 @@
  */
 import { codeOf, def, ensureCode, type Env } from './context.js';
 import type { Op } from './compile.js';
-import type { CardZone, DamageIgnore, Dest, Filter, SlotRef, SlotZone, SpecialCondition, Step, TriggerOn } from './dsl.js';
+import type { CardZone, DamageIgnore, Dest, Filter, ReactEvent, SlotRef, SlotZone, SpecialCondition, Step, TriggerOn } from './dsl.js';
 import { cardMatches, evalCond, evalExpr, resolveSlot, side, slotMatches, slotsIn, slotTypes, type EvalCtx } from './eval.js';
 import {
   attackCost,
   cardUnits,
+  conditionImmune,
   damageIn,
   damageOut,
   damagePrevented,
@@ -189,9 +190,10 @@ function confusion(env: Env, s: GameState, f: Frame): R {
   const slot = findSlot(s, f.slot)?.slot;
   if (!slot || !(slot.cond & CONFUSED)) return 'next';
   if (flipCoin(env, s, f.player, 'confusion')) return 'next';
-  // Tails: put 3 damage counters on the attacker and the attack ends.
-  slot.damage += 30;
-  emit(env, { type: 'counters', player: f.player, slot: slot.id, n: 3 });
+  // Tails: put 3 damage counters on the attacker (more when the Confusion came with a larger amount) and the attack ends.
+  const n = slot.confusionCounters ?? 3;
+  slot.damage += n * 10;
+  emit(env, { type: 'counters', player: f.player, slot: slot.id, n });
   return 'pop';
 }
 
@@ -237,8 +239,8 @@ function dealDamage(
   for (const target of targetsOf(env, s, f, to)) {
     const owner = ownerOf(s, target);
     const isActive = s.p[owner].active === target;
-    // lane:fighting — "isn't affected by any effects on your opponent's Active Pokémon"
-    const noDefEffects = !!ignore?.defenderEffects && isActive && owner !== f.player;
+    // lane:fighting — "isn't affected by any effects on your opponent's Active Pokémon" (or "on those Pokémon": Benched ones too)
+    const noDefEffects = !!ignore?.defenderEffects && owner !== f.player;
     let dmg = base;
     if (dmg > 0 && attacker && owner !== f.player && isActive) dmg += damageOut(env, s, attacker, target, all);
     if (dmg > 0 && isActive && owner !== f.player) {
@@ -277,6 +279,8 @@ function dealDamage(
     }
     emit(env, { type: 'damage', player: owner, slot: target.id, amount: dmg, bySlot: f.slot });
     if (owner !== f.player && isActive) queueTriggers(env, s, target, owner, 'damagedByAttackActive');
+    // Timed effects an attack left on this Pokémon: "if this Pokémon is damaged by an attack (even if it is Knocked Out), ..."
+    if (f.kind === 'attack' && owner !== f.player) queueReactions(env, s, target, 'damagedByAttack', { __attacker: f.slot, __def: target.id }, true);
   }
   return 'next';
 }
@@ -338,12 +342,29 @@ export function queueStadiumBench(env: Env, s: GameState, slot: Slot, owner: Pla
 }
 
 /**
+ * The `react` timed effects on a Pokémon that wait for `event`: queue their programs (they run once the stack is empty, before
+ * Knock Outs are checked). The effect's controller runs them; an attack's effect stays an effect of an attack, so what it does to
+ * the Attacking Pokémon can be prevented (Mist Energy: TPCi 2024-03-21 ruling 1958, 2026-07-16 ruling 2408). `once`: not again
+ * for an effect that is already queued for this Pokémon (one reaction per attack, however many times it was hit).
+ */
+export function queueReactions(env: Env, s: GameState, slot: Slot, event: ReactEvent, vars: Record<string, Val>, once = false): void {
+  void env;
+  for (const te of s.effects) {
+    if (te.slot !== slot.id || te.until < s.turn || te.static.k !== 'react' || te.static.event !== event || !te.code) continue;
+    if (once && s.queued.some((q) => q.code === te.code && q.vars.__def === slot.id)) continue;
+    s.queued.push({ code: te.code, pc: 0, vars: { ...vars }, player: te.by ?? te.player, src: te.src, slot: te.from ?? slot.id, kind: te.fromAttack ? 'attack' : 'trigger' });
+  }
+}
+
+/**
  * lane:ghost — `owner` attached an Energy card from their hand to `target`: fire the
- * opponent's "whenever your opponent attaches an Energy card from their hand" Abilities.
+ * opponent's "whenever your opponent attaches an Energy card from their hand" Abilities, and the timed effects on `target`
+ * that wait for it.
  */
 export function queueOppAttachTriggers(env: Env, s: GameState, owner: Player, target: Slot): void {
   const watcher = opp(owner);
   for (const w of allSlots(s.p[watcher])) queueTriggers(env, s, w, watcher, 'oppAttachFromHand', { __target: target.id });
+  queueReactions(env, s, target, 'attachFromHand', { __target: target.id, __def: target.id });
 }
 
 // ---------------------------------------------------------------------------
@@ -539,7 +560,8 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
       if (!findSlot(s, t.id)?.active) return 'next';
       if ((f.kind === 'attack' || f.kind === 'ability') && effectsPrevented(env, s, t, f.player, f.kind)) return 'next';
       if (def(env.ctx, topCard(t)).script?.fix?.playAsBasic?.noConditions) return 'next'; // lane:ghost
-      applyCondition(t, st.cond, s.turn);
+      if (conditionImmune(env, s, t, st.cond)) return 'next'; // "can't be affected by any Special Conditions" / "can't be Confused"
+      applyCondition(t, st.cond, s.turn, st.counters);
       emit(env, { type: 'condition', player: ownerOf(s, t), slot: t.id, cond: st.cond });
       return 'next';
     }
@@ -571,6 +593,8 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
           fromAttack: f.kind === 'attack',
           src: f.src,
           filter: st.filter,
+          // A reacting effect carries its program, compiled once per op instance (as `delay` does), and who controls it.
+          ...(st.static.k === 'react' ? { code: ensureCode(env.ctx, `${f.code}@${f.pc}`, st.static.program), by: f.player, from: f.slot } : {}),
         });
       } else {
         s.effects.push({
@@ -612,17 +636,48 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
     }
     case 'end':
       return 'pop';
+    case 'look': {
+      // The top n cards of a deck, seen and left where they are; the ones matching the filter are kept for the program.
+      const w = side(e, st.who);
+      const deck = s.p[w].deck;
+      const n = Math.max(0, evalExpr(env, s, e, st.n));
+      f.vars[st.as] = deck
+        .slice(Math.max(0, deck.length - n))
+        .reverse()
+        .filter((c) => cardMatches(env, c, st.filter));
+      if (w === f.player) s.p[w].knownTop = Math.max(s.p[w].knownTop, Math.min(n, deck.length));
+      return 'next';
+    }
+    case 'endTurn':
+      // As after an attack (the flow ends the turn once Knock Outs are resolved), without an attack: nothing was damaged by one.
+      if (!s.attacked) {
+        s.attacked = true;
+        s.attackHits = [];
+      }
+      return 'next';
     default:
       throw new Error(`step ${(st as Step).op} must be compiled`);
   }
 }
 
-/** Apply a Special Condition; `turn` (the current turn) records when Paralysis began, for the Checkup. */
-export function applyCondition(t: Slot, c: SpecialCondition, turn?: number): void {
+/**
+ * Apply a Special Condition; `turn` (the current turn) records when Paralysis began, for the Checkup. `counters`: the damage
+ * counters Poison places at each Checkup (instead of 1) or a failed Confusion flip places (instead of 3). Applying the condition
+ * again replaces the amount, a plain application restores the usual one (TPCi 2013-02-21, ruling 1044).
+ */
+export function applyCondition(t: Slot, c: SpecialCondition, turn?: number, counters?: number): void {
   const bit = COND_BITS[c];
   if (bit & ROTATION) t.cond = (t.cond & ~ROTATION) | bit;
   else t.cond |= bit;
   if (bit === PARALYZED && turn !== undefined) t.paralyzedTurn = turn;
+  if (bit === POISONED) {
+    if (counters !== undefined && counters !== 1) t.poisonCounters = counters;
+    else delete t.poisonCounters;
+  }
+  if (bit === CONFUSED) {
+    if (counters !== undefined && counters !== 3) t.confusionCounters = counters;
+    else delete t.confusionCounters;
+  }
 }
 
 function chooseCards(env: Env, s: GameState, f: Frame, st: Extract<Step, { op: 'chooseCards' }>): R {
