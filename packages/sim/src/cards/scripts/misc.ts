@@ -163,9 +163,9 @@ export const MISC: CardScript[] = [
     notes:
       'Any Knock Out of the opposing Active (attack, Checkup, Ability), on either player\'s turn, while Togekiss is in play with its Ability; ' +
       'one flip however many Togekiss; a Togekiss Knocked Out at the same time still applies (checked before the KO). Rulings ' +
-      '(https://compendium.pokegym.net/?s=Wonder+Kiss): "The KO can be during either player\'s turn or during Pokemon Checkup, and it ' +
-      'doesn\'t have to be from an attack" (Surging Sparks FAQ 2024-11-07); 4 Togekiss flip once (TPCi 2024-11-14); an Active Dusknoir ' +
-      'whose Cursed Blast KOs Togekiss still gives the Wonder Kiss flip -- "All effects have to be resolved before resolving KO\'s" ' +
+      '(https://compendium.pokegym.net/?s=Wonder+Kiss): the KO can happen on either turn or in Pokemon Checkup and need not come from an attack ' +
+      '(Surging Sparks FAQ 2024-11-07); 4 Togekiss flip once (TPCi 2024-11-14); an Active Dusknoir ' +
+      'whose Cursed Blast KOs Togekiss still gives the Wonder Kiss flip, since all effects resolve before KOs ' +
       '(TPCi 2024-11-14, 2024-12-12).',
   },
 

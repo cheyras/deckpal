@@ -163,7 +163,7 @@ test('Roto-Stick: you may take none, and only Supporter cards are offered', () =
 });
 
 test('Roto-Stick: four Supporter cards all put into the hand, the deck is still shuffled (Compendium #2377)', () => {
-  // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2377/): "Yes, the deck is shuffled."
+  // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2377/): Deck is shuffled even if all found cards were taken.
   const g = game([{ hand: ['Roto-Stick'], active: DRA, deckTop: [LIL, BOSS, LIL, BOSS] }, { active: DRA }], { events: true });
   choose(g, 'Play Roto-Stick');
   pick(g, [LIL, BOSS, LIL, BOSS]);
@@ -329,8 +329,7 @@ test('Maractus, Exploding Needles: the Pokémon that used the attack gets the co
   const accelgor = sw.state.p[1].bench.find((b) => name(sw, b.cards[0]!) === 'Accelgor') ?? sw.state.p[1].active!;
   assert.equal(name(sw, accelgor.cards[0]!), 'Accelgor');
   assert.equal(accelgor.damage, 60, 'the Attacking Pokémon, now on the Bench');
-  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2106/): "No, Lillie's Comfey would go to the hand first
-  // and then Exploding Needles would be triggered and find no valid target." The same shape: Meowth ex's Tuck Tail does damage, then goes to the hand.
+  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2106/): Comfey goes to the hand first, then Exploding Needles triggers and finds no valid target. The same shape: Meowth ex's Tuck Tail does damage, then goes to the hand.
   const tuck = game(
     [{ active: 'Maractus', bench: [REL], damage: { active: 60 } }, { active: 'Meowth ex', bench: [SLO], damage: { active: 120 }, energy: { active: [G, G, G] } }],
     OPP_TURN,
@@ -552,8 +551,7 @@ test("Iono's Voltorb, Voltaic Chain: 20, and 20 more for each {L} Energy attache
 });
 
 test("Iono's Voltorb, Voltaic Chain: an Energy that provides every type counts, the opponent's Iono's Pokémon do not (Compendium #2119)", () => {
-  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2119/): "Yes. The attack does not specify that it has to be
-  // Basic {L} Energy, so Luminous Energy will count while it is attached to one of Iono's Pokemon." Legacy Energy is the same kind of Energy in this catalog.
+  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2119/): yes, the attack does not require Basic {L} Energy, so a Luminous Energy on one of Iono's Pokémon counts. Legacy Energy is the same kind of Energy in this catalog.
   const g = game([
     { active: "Iono's Voltorb", bench: ["Iono's Electrode"], energy: { active: [L, F], 0: [LEGACY] } },
     { active: DRA, bench: ["Iono's Voltorb"], energy: { 0: [L, L] } },

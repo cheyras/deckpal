@@ -398,7 +398,7 @@ test("Accompanying Flute: reveal the top 5 of the opponent's deck; any number of
   assert.deepEqual(benchNames(g, 1).sort(), ['Chansey', 'Snorlax']);
   assert.equal(g.state.p[1].deck.length, deckBefore - 2);
   assert.equal(g.state.p[1].bench[0]!.cards.length, 1);
-  // Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1986/): "No, since Accompanying Flute says "you may choose any number", you don't have to choose any Basic Pokemon if you don't want to."
+  // Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1986/): Choosing is optional with no minimum.
   const none = play(top);
   none.submit([]);
   assert.deepEqual(benchNames(none, 1), []);
@@ -406,7 +406,7 @@ test("Accompanying Flute: reveal the top 5 of the opponent's deck; any number of
   // Only as many as fit on the Bench.
   const tight = play(top, ['Eevee', 'Eevee', 'Chansey']);
   assert.equal(tight.decision?.max, 2);
-  // Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1985/): "No, you cannot." (play it when the opponent's Bench is full)
+  // Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1985/): Cannot play when opponent's Bench is full.
   const full = scenario(dk, dk, [{ active: 'Tyranitar ex', hand: ['Accompanying Flute'] }, { active: 'Tyranitar ex', bench: ['Eevee', 'Eevee', 'Chansey', 'Chansey', 'Snorlax'] }]);
   assert.ok(!has(full, 'Play Accompanying Flute'));
 });
@@ -566,7 +566,7 @@ test("Handheld Fan: if the Active Pokémon it's on is damaged by an attack, move
 });
 
 test('Handheld Fan, ruling 2091: an attack that puts the attacker into the deck first (Aqua Return) leaves no Energy to move', () => {
-  // Ruling (TPCi Rules Team 2024-12-19, https://compendium.pokegym.net/ruling/2091/): "Aqua Return puts Lumineon V into the deck as part of its attack before the Energy can be moved for Handheld Fan's effect.  The order of operations is that effects of the Pokemon's attack happen first, and then any triggered effects on the Defending Pokemon happen next."
+  // Ruling (TPCi Rules Team 2024-12-19, https://compendium.pokegym.net/ruling/2091/): Attack effects resolve before triggered effects on the Defending Pokémon.
   const dk = deck('me05-020', URSA, FAN, CHANSEY);
   const g = scenario(dk, dk, [
     { active: 'Primarina', bench: ['Chansey', 'Chansey'], energy: { active: [W, F] } },
@@ -582,7 +582,7 @@ test('Handheld Fan, ruling 2091: an attack that puts the attacker into the deck 
 });
 
 test('Handheld Fan, ruling 2125: a Boomerang Energy discarded by the attack is attached again before the Fan moves an Energy', () => {
-  // Ruling (TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2125/): "The step to process effects such as Handheld Fan comes after the effects of attacks, so Boomerang Energy would be attached again when that check occurs."
+  // Ruling (TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2125/): The Handheld Fan step runs after attack effects, so Boomerang Energy is already reattached to Darmanitan when it checks.
   const dk = deck('me02.5-033', URSA, FAN, CHANSEY, BOOMERANG);
   const g = scenario(dk, dk, [
     { active: "N's Darmanitan", bench: ['Chansey'], energy: { active: [F, F, 'Boomerang Energy'] } },
@@ -731,7 +731,7 @@ test("Ogre's Mask: switch an Ogerpon ex in your discard pile with an Ogerpon ex 
   assert.equal(a.cond, 4, 'Special Conditions stay');
   assert.ok(g.state.p[0].discard.includes(oldCard), 'the Pokémon that was in play is in the discard pile now');
   assert.equal(a.cards.length, 1);
-  // Ruling (Twilight Masquerade FAQ, TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1988/): "Yes, that is allowed." -- a Teal Mask Ogerpon ex in play for another in the discard pile.
+  // Ruling (Twilight Masquerade FAQ, TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1988/): Can switch to another copy of the same Pokémon in the discard pile.
   const same = scenario(dk, dk, [{ active: 'Teal Mask Ogerpon ex', hand: ["Ogre's Mask"], discard: ['Teal Mask Ogerpon ex'] }, { active: 'Teal Mask Ogerpon ex' }]);
   const inPlay = topCard(same.state.p[0].active!);
   const inDiscard = same.state.p[0].discard[0]!;

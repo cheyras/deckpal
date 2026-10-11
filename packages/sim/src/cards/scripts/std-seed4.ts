@@ -64,7 +64,7 @@ export const STD_SEED4: CardScript[] = [
     notes:
       'The count is the Retreat Cost as modified by effects: a Tool or Energy that lowers it lowers the damage. ' +
       'Compendium #1620 (TPCi Rules Team 2021-10-07, about Leafeon VMAX, Grass Knot) settles the same question for an identical damage clause: ' +
-      '"it is still 60x the Retreat Cost, but the Retreat Cost is now effectively zero."',
+      'Hiding Energy and Snow Leaf Badge change the Retreat Cost stat rather than blocking damage, so the multiplier uses the reduced (here zero) cost.',
   },
   {
     id: 'me05-067',
@@ -133,7 +133,7 @@ export const STD_SEED4: CardScript[] = [
     name: 'Reuniclus',
     attacks: {
       // "Look at the top 8 cards of your deck. You may put any number of Pokémon you find there onto your Bench. Shuffle the other cards back into your deck."
-      // Ruling (TPCi Rules Team 2024-03-21, https://compendium.pokegym.net/ruling/1962/): "No, Summoning Gate does not allow you to exceed the normal limits of the game. You can put any number of Pokemon you find onto your Bench up to the maximum size of the Bench. In fact, if you use this attack when your Bench is full, the attack does nothing; you can't even look at the top 8 cards of your deck."
+      // Ruling (TPCi Rules Team 2024-03-21, https://compendium.pokegym.net/ruling/1962/): the attack cannot exceed the Bench limit; when the Bench is full, the attack fails entirely and doesn't let you look at cards.
       // Ruling #1959 (TPCi 2024-03-21, https://compendium.pokegym.net/ruling/1959/): non-Basic Pokémon found there may go straight onto the Bench.
       'Summoning Gate': { program: [{ op: 'custom', fn: 'seed4.summoningGate', args: { n: 8 } }] },
       // "Your opponent's Active Pokémon is now Confused."
@@ -152,7 +152,7 @@ export const STD_SEED4: CardScript[] = [
         ],
       },
       // "You may discard any amount of Basic Energy from your Pokémon. This attack does 70 damage for each card you discarded in this way."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2423/): "Bellowing Thunder does damage first, and then the energy is discarded. So Ancient Bulwark would not prevent the damage because it was done before the energy was discarded."
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2423/): Bellowing Thunder damages first and discards Energy afterwards, so Ancient Bulwark has nothing to prevent.
       // -- the cards are chosen first (that sets the damage), the damage is done, and only then are they discarded.
       'Bellowing Thunder': {
         pre: [{ op: 'custom', fn: 'seed4.pickBasicEnergyAmong', args: { as: 'd' } }],

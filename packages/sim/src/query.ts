@@ -154,8 +154,8 @@ function gatherStatics(env: Env, s: GameState): LiveStatic[] {
 
 /**
  * Does a "no Abilities" effect take the Abilities of this Pokémon away? Not when the lock is an Ability of the other player's
- * Pokémon and this Pokémon has an Ability that prevents the effects of Abilities done to it: "Luminous Wing takes precedence
- * over Initialization. It doesn't matter which one comes into play first" (TPCi Rules Team 2026-03-26, ruling 2309).
+ * Pokémon and this Pokémon has an Ability that prevents the effects of Abilities done to it: Luminous Wing beats Initialization
+ * whichever of the two was put into play first (TPCi Rules Team 2026-03-26, ruling 2309).
  */
 function lockBites(env: Env, s: GameState, all: LiveStatic[], lock: LiveStatic, slot: Slot, owner: Player): boolean {
   if (lock.kind !== 'ability' || lock.player === owner) return true;

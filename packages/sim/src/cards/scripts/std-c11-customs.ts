@@ -23,7 +23,7 @@ function idsOf(v: Val | undefined): number[] {
 /**
  * Tropius, Fruity Aroma: "Look at the top 6 cards of your deck, and you may reveal any number of Pokémon you find there
  * and put them into your hand. Shuffle the other cards back into your deck."
- * Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2403/): "No, since you are not putting any cards back into the deck, you do not shuffle your deck."
+ * Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2403/): you don't shuffle if no cards go back into the deck.
  * args: { n, filter } -- the controller picks any number (0 to all) of the cards among the top n that match `filter`;
  * they are revealed and go to the hand. The deck is shuffled only if some of the looked-at cards stay in it.
  */
@@ -52,7 +52,7 @@ registerCustom('c11.lookTakeAny', (env, s, f, args, answer) => {
 /**
  * Sizzlipede, Bug Out: "Reveal the bottom 7 cards of your deck, and this attack does 50 damage for each Pokémon you find
  * there that has the Bug Out attack. Then, shuffle any revealed Pokémon back into your deck. Discard the other cards."
- * Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2401/): "No, all Pokemon get shuffled back into the deck whether they have the Bug Out attack or not.  Other non-Pokemon cards like Trainer or Energy cards would get discarded."
+ * Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2401/): all revealed Pokémon get shuffled back; non-Pokémon are discarded.
  * args: { n, attack, as } -- looks at the bottom n cards (all of them if the deck is smaller), counts the Pokémon among them
  * that have the attack named `attack` into variable `as`, discards every revealed card that is not a Pokémon, and shuffles
  * the deck if a Pokémon was revealed (the revealed Pokémon never left it).
@@ -85,7 +85,7 @@ registerCustom('c11.revealBottom', (env, s, f, args) => {
 
 /**
  * Spiritomb, Spiritual End: "... quadruple the number of damage counters on each of them."
- * Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2411/): "No damage counters are placed on that Pokemon. For example, 0 times 4 is 0; if it has 1 damage counter 1 times 4 is 4, you would add 3 to make 4 total, etc."
+ * Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2411/): multiply existing counters by 4; if none, no counters appear.
  * args: { slots, factor } -- each Pokémon chosen into variable `slots` that has damage counters gets (factor - 1) times
  * that many MORE counters. Placing them is an effect, so a Pokémon protected from the effects of attacks or from having
  * damage counters placed on it is left as it is.
@@ -109,7 +109,7 @@ registerCustom('c11.multiplyCounters', (env, s, f, args) => {
 
 /**
  * Mega Chandelure ex, Phantom Maze: "This attack does 50 more damage for each {C} in your opponent's Active Pokémon's Retreat Cost."
- * Ruling (TPCi Rules Team 2026-04-02, https://compendium.pokegym.net/ruling/2386/): "No. The text on all Antique Fossil cards say they have no Retreat cost. Not zero, "no" retreat cost. It is a fixed attribute and it cannot be changed."
+ * Ruling (TPCi Rules Team 2026-04-02, https://compendium.pokegym.net/ruling/2386/): Antique Fossils have no Retreat Cost at all (not a cost of zero); that is fixed, so Binding Flame cannot give them one.
  * args: { as } -- sets variable `as` (default `n`) to the Retreat Cost the Defending Pokémon has right now, after every
  * effect that changes it, or 0 when that "Pokémon" is a Trainer card played as one (an Antique fossil has no Retreat
  * Cost for an effect to add to).
@@ -122,7 +122,7 @@ registerCustom('c11.retreatCostOf', (env, s, f, args) => {
 
 /**
  * Rampardos ex, Destructive Headbutting: "... discard an Energy from your opponent's Active Pokémon."
- * Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2393/): "You can use the Destructive Headbutting Ability but Hide 'n' Sneak will prevent Energy from getting discarded."
+ * Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2393/): Hide 'n' Sneak blocks energy discard from Destructive Headbutting.
  * The controller picks which Energy card is discarded (no question when the choices are identical). A Defending Pokémon
  * protected from the effects of Abilities (or attacks, when an attack uses this) keeps its Energy: the plain
  * `discardEnergy` step only honours that protection for attacks.

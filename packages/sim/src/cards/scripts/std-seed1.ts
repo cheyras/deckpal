@@ -120,7 +120,7 @@ export const STD_SEED1: CardScript[] = [
     name: 'Krookodile',
     attacks: {
       // "If any of your Pokémon were Knocked Out by damage from an attack during your opponent's last turn, this attack does 160 more damage."
-      // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2245/): "Yes, because your Pokemon was still Knocked Out even if your opponent didn't take a prize for it."
+      // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2245/): yes, a Pokémon that was Knocked Out still counts when Shadowy Concealment stopped the opponent taking a Prize card for it.
       // The condition tests the Knock Out itself, never the Prize cards.
       'Vengeful Fang': { damage: { add: [60, { cond: { custom: 'std.attackKoLastTurn' }, then: 160, else: 0 }] } },
     },
@@ -181,8 +181,7 @@ export const STD_SEED1: CardScript[] = [
     name: 'Morpeko ex',
     attacks: {
       // "Shuffle your hand into your deck. Then, draw 6 cards."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2413/): "Yes. You always have a hand, even if there are zero cards in it."
-      // So the deck is shuffled even with an empty hand.
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2413/): The deck is shuffled even when no hand cards exist.
       'Wheely Draw': {
         program: [{ op: 'move', cards: { all: 'hand' }, to: 'deck' }, { op: 'shuffle' }, { op: 'draw', n: 6 }],
       },
@@ -195,7 +194,7 @@ export const STD_SEED1: CardScript[] = [
     name: 'Mawile',
     attacks: {
       // "Switch in 1 of your opponent's Benched Pokémon to the Active Spot. This attack does 30 damage to the new Active Pokémon."
-      // Ruling (TPCi Rules Team 2024-03-21, https://compendium.pokegym.net/ruling/1956/): "No, damage is only done to the "new Active Pokemon". If there is no switch, then no damage is done."
+      // Ruling (TPCi Rules Team 2024-03-21, https://compendium.pokegym.net/ruling/1956/): Damage is only dealt if the switch succeeds.
       'Invite and Strike': {
         program: [
           {

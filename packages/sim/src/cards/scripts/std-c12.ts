@@ -39,8 +39,8 @@ export const STD_C12: CardScript[] = [
     name: 'Thievul',
     attacks: {
       // "If you have no cards in your hand, choose an attack from 1 of your opponent's Pokémon in play and use it as this attack."
-      // Ruling (Pitch Black FAQ, TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2409/): "Yes. You do not need to have the Energy that the opponent's Pokemon's attack requires. You just need to be able to do Skill Thief."
-      // Ruling (Pitch Black FAQ, TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2402/): "Thievul is the Pokemon using the attack, which is an Evolution Pokemon.  Therefore the damage is prevented."
+      // Ruling (Pitch Black FAQ, TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2409/): yes, you need not have the Energy the copied attack requires; you only need to be able to use Skill Thief.
+      // Ruling (Pitch Black FAQ, TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2402/): Thievul is the Pokémon using the copied attack and is an Evolution Pokémon, so Flashing Barrier prevents the damage.
       'Skill Thief': {
         program: [
           {
@@ -185,7 +185,7 @@ export const STD_C12: CardScript[] = [
     status: 'implemented',
     notes:
       'Played from hand as an Item, like Antique Armor Fossil. Ruling (Pitch Black FAQ, TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2386/): ' +
-      '"No. The text on all Antique Fossil cards say they have no Retreat cost. Not zero, "no" retreat cost. It is a fixed attribute and it cannot be changed." -- cantRetreat.',
+      'Antique Fossils have no Retreat Cost at all (not a cost of zero), and no effect, such as Binding Flame, can give them one. -- cantRetreat.',
   },
   {
     id: 'me05-079',
@@ -326,7 +326,7 @@ export const STD_C12: CardScript[] = [
     abilities: [
       {
         // "Once during your turn, you may discard a Basic Fire Energy card from your hand in order to use this Ability. Draw cards until you have 7 cards in your hand."
-        // Ruling (Chaos Rising FAQ, TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2343/): "No. With this ability, you're discarding a {R} energy to pay the cost of using the ability, then draw until you have 7 cards in your hand.  But since you already have 7 cards you can't draw any more cards, so you can't even choose to use the ability and you don't get to put the {R} in the discard pile."
+        // Ruling (Chaos Rising FAQ, TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2343/): no, with 8 or more cards in hand the discard is a cost that leaves nothing to draw, so the Ability cannot be used and the {R} stays in hand.
         // With 8 or more cards the discard would leave 7 or more and nothing could be drawn, so it can't be used.
         name: 'Flaring Magic',
         activated: {

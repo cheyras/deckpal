@@ -56,7 +56,7 @@ export const STD_C02: CardScript[] = [
       {
         name: 'Powerful a-Salt',
         // "Attacks used by your {F} Pokémon do 30 more damage to your opponent's Active Pokémon (before applying Weakness and Resistance)."
-        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2215/): "Yes, it does." (the Ability stacks: no noStack key)
+        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2215/): Multiple copies of the ability stack for cumulative bonuses.
         statics: [{ effect: { k: 'damageOut', amount: 30 }, scope: 'myPokemon', filter: { type: 'Fighting' } }],
       },
     ],
@@ -230,8 +230,7 @@ export const STD_C02: CardScript[] = [
     id: 'me01-128',
     name: 'Strange Timepiece',
     // "Devolve 1 of your evolved {P} Pokémon by putting any number of Evolution cards on it into your hand. (That Pokémon can't evolve this turn.)"
-    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2328/): "No, devolving does not count as putting a Pokemon onto the Bench."
-    // Ruling #2327 (https://compendium.pokegym.net/ruling/2327/): the parenthesis is only reminder text of the normal rules, so Eevee's Boosted Evolution can still evolve the devolved Pokémon at once.
+    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2328/): devolving a Pokémon does not count as putting it onto the Bench. Ruling #2327 (https://compendium.pokegym.net/ruling/2327/): the parenthesis is only reminder text of the normal rules, and Boosted Evolution overrides them, so Espeon can evolve back at once.
     playable: { gte: [{ pokemon: { zone: 'myPokemon', filter: { type: 'Psychic', stage: 'evolution' } } }, 1] },
     play: [
       { op: 'chooseSlots', from: 'myPokemon', filter: { type: 'Psychic', stage: 'evolution' }, min: 1, max: 1, as: 't', prompt: 'Devolve which of your evolved {P} Pokémon?' },
@@ -251,7 +250,7 @@ export const STD_C02: CardScript[] = [
     id: 'me01-132',
     name: "Wally's Compassion",
     // "Heal all damage from 1 of your Mega Evolution Pokémon ex. If you healed any damage in this way, put all Energy attached to that Pokémon into your hand."
-    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2234/): "Yes, you can." (use it on a Mega Evolution Pokémon ex with no Energy attached)
+    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2234/): yes, it can heal a Mega Evolution Pokémon ex that has no Energy attached.
     playable: { gte: [{ pokemon: { zone: 'myPokemon', filter: MEGA_EX } }, 1] },
     play: [
       { op: 'chooseSlots', from: 'myPokemon', filter: MEGA_EX, min: 1, max: 1, as: 't', prompt: 'Heal all damage from which Mega Evolution Pokémon ex?' },
@@ -267,7 +266,7 @@ export const STD_C02: CardScript[] = [
       {
         name: 'Excited Heal',
         // "Once during your turn, if you have any {G} Mega Evolution Pokémon ex in play, you may use this Ability. Heal 60 damage from 1 of your Pokémon."
-        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2241/): "Yes, you can.  Excited Heal does not require the {G} Mega Evolution Pokemon ex to be an evolved Pokemon."
+        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2241/): a Basic Mega Heracross ex satisfies the requirement; the {G} Mega Evolution Pokémon ex need not be an evolved Pokémon.
         activated: {
           when: { gte: [{ pokemon: { zone: 'myPokemon', filter: { type: 'Grass', ...MEGA_EX } } }, 1] },
           program: [
@@ -283,7 +282,7 @@ export const STD_C02: CardScript[] = [
     name: 'Lokix',
     attacks: {
       // "Shuffle this Pokémon and all attached cards into your deck."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2248/): "No, it will not." (a Confused Lokix's replacement is not Confused)
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2248/): the Pokémon that replaces a Confused Lokix is not Confused.
       'Jumping Shot': {
         post: [
           { op: 'chooseSlots', from: 'myActive', min: 1, max: 1, as: 'me' },

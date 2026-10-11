@@ -49,8 +49,8 @@ registerCustom('c17.moveEnergyToNewBenched', (env, s, f, args, answer) => {
  * (the choice half). args: { n, as } -- the controller picks exactly n of the Energy cards attached to this Pokémon (all
  * of them when it has n or fewer, with no question) into variable `as`; an empty list when it has none. Nothing moves yet:
  * the Energy leaves with `c17.selfEnergyToDeck`, after the attack's damage.
- * Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2031/): with fewer than 3 Energy attached "you
- * must shuffle in SOME energy in order to get the bonus".
+ * Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2031/): the bonus requires shuffling at least one Energy;
+ * with fewer than 3, you must shuffle what you have.
  */
 registerCustom('c17.pickSelfEnergy', (env, s, f, args, answer) => {
   const as = String(args.as ?? 'e');

@@ -163,7 +163,7 @@ test('oppActiveMovedToBench: a retreat in the mover\'s own turn fires the other 
   assert.equal(nameOf(one, one.state.p[1].active!.cards[0]!), 'Rellor', 'the replacement is the new Active Pokémon');
   assert.equal(one.state.p[1].bench[0]!.damage, 20, '2 damage counters on the Pokémon that moved (the Dugtrio is Benched: it works anywhere)');
   assert.equal(one.state.p[1].active!.damage, 0, 'and none on its replacement');
-  // Ruling (Ascending Heroes FAQ, TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2285/): "They place 4 damage counters. The Ability can stack."
+  // Ruling (Ascending Heroes FAQ, TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2285/): two Dugtrio place 4 damage counters in total (2 each), because the Ability stacks.
   const two = retreat([DUG, DUG]);
   assert.equal(two.state.p[1].bench[0]!.damage, 40);
 });
@@ -175,7 +175,7 @@ test('oppActiveMovedToBench: only during the mover\'s own turn, and a Knock Out 
   choose(gust, "Play Boss's Orders");
   assert.equal(nameOf(gust, gust.state.p[1].active!.cards[0]!), 'Rellor');
   assert.equal(gust.state.p[1].bench[0]!.damage, 0, 'not "during their turn": no counters');
-  // Ruling (Phantasmal Flames FAQ, TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2247/): "No, because that replacement happens during your turn, not theirs."
+  // Ruling (Phantasmal Flames FAQ, TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2247/): no: after you Knock Out their Active, the replacement comes up during your turn, not theirs, so Swirling Prose does not confuse it.
   const ko = scenario(dk, dk, [{ active: DRA, bench: [DUG], energy: { active: [P] } }, { active: SLO, bench: [REL], damage: { active: 20 } }]);
   choose(ko, 'Attack: Jet Headbutt');
   assert.equal(ko.state.p[1].active!.damage, 0, 'the promoted Pokémon is untouched');
@@ -470,7 +470,7 @@ test('Filter.anyAbility: matches Pokémon (and cards) that have an Ability print
   };
   assert.equal(hit(DUG, 'Mud Shot', [FI, FI]), 20, '50 - 30 from an attacker with an Ability');
   assert.equal(hit(SLO, 'Headbutt', [P, P]), 20, 'a Pokémon with no Ability is not reduced');
-  // Ruling (Phantasmal Flames FAQ, TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2260/): Pokémon that "have no Abilities" are not Pokémon that have an Ability.
+  // Ruling (Phantasmal Flames FAQ, TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2260/): Team Rocket's Watchtower makes Colorless Pokémon "have no Abilities", so Sacred Charm's reduction does not apply: such a Pokémon is not one that has an Ability.
   assert.equal(hit(DUG, 'Mud Shot', [FI, FI], true), 50, 'with its Abilities switched off the reduction does not apply');
 });
 

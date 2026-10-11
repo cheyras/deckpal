@@ -96,7 +96,7 @@ export const STD_SEED3: CardScript[] = [
     name: 'Gloom',
     attacks: {
       // "This attack also does 20 damage to each Benched Pokémon (both yours and your opponent's). (Don't apply Weakness and Resistance for Benched Pokémon.)"
-      // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2250/): "No. Tera Pokemon are protected from damage on the bench even from your own attacks."
+      // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2250/): Tera Pokémon on the Bench are protected from all attack damage regardless of who uses the attack.
       // -- the Tera rule already protects a Benched Tera Pokémon of either player from every attack's damage.
       'Disperse Drool': {
         post: [
@@ -119,7 +119,7 @@ export const STD_SEED3: CardScript[] = [
     name: 'Ceruledge',
     attacks: {
       // "Discard 4 Basic {R} Energy cards from your hand. If you can't discard 4 cards in this way, this attack does nothing."
-      // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2252/): "If you cannot discard 4 Basic {R} Energy cards the attack does nothing. You can't even discard those three cards from your hand."
+      // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2252/): The attack fails entirely without the full cost; partial discards are not permitted.
       // -- the discard and the 220 damage both happen only when the hand holds at least 4 Basic {R} Energy cards.
       'Infernal Slash': {
         program: [
@@ -192,11 +192,11 @@ export const STD_SEED3: CardScript[] = [
     name: "N's Vanilluxe",
     attacks: {
       // "Double the number of damage counters on each of your opponent's Pokémon."
-      // Ruling (TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2293/): "No, that's not now it works. Snow Coating counts how many damage counters are already on the Pokemon and places the same number of additional damage counters on it. So in your example a Pokemon with two damage counters would now have a total of four on it, not six."
-      // Ruling (TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2294/): "Doubling the number of damage counters requires damage counters to be placed. So the damage counters would not be added to your opponent's Benched Pokemon; it would be protected by the Battle Cage."
+      // Ruling (TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2293/): Snow Coating adds as many counters as are already there (2 becomes 4, not 6).
+      // Ruling (TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2294/): under Battle Cage a Benched Pokémon gets no added counters, since doubling means placing counters.
       'Snow Coating': { program: [{ op: 'custom', fn: 'seed3.doubleCounters', args: { zone: 'oppPokemon' } }] },
       // "This attack also does 10 damage to each of your opponent's Benched Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)"
-      // Ruling (TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2289/): "No. Doing damage is not an effect and is different from placing damage counters. Battle Cage only protects against placing damage counters, not damage done, even if that damage came from the attack text."
+      // Ruling (TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2289/): Attack damage bypasses counter-placement blocks; Battle Cage protects counters only, not damage.
       Blizzard: { post: [{ op: 'damage', amount: 10, to: { each: 'oppBench' } }] },
     },
   },
@@ -229,7 +229,7 @@ export const STD_SEED3: CardScript[] = [
     name: 'Regirock ex',
     attacks: {
       // "Attach up to 2 Basic {F} Energy cards from your discard pile to this Pokémon."
-      // Ruling (TPCi Rules Team 2026-02-19, https://compendium.pokegym.net/ruling/2304/): "No, you don't have to attach any if you don't want to."
+      // Ruling (TPCi Rules Team 2026-02-19, https://compendium.pokegym.net/ruling/2304/): Zero attachments are valid; the "up to" is optional.
       // -- an attack's "up to 2" is 0 to 2.
       'Regi Charge': {
         program: [

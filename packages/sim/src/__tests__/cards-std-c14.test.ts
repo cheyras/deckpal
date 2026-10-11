@@ -398,7 +398,7 @@ test("Flutter Mane, Midnight Fluttering: while Active, the opponent's Active Pok
   const both = scenario(dk, dk, [{ active: 'Flutter Mane' }, { active: 'Flutter Mane' }]);
   assert.ok(!off(both, 1, 'active'));
   assert.ok(!off(both, 0, 'active'));
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2426/): "Hide 'n' Sneak takes precedence over Midnight Fluttering. It doesn't matter which one comes into play first. Hide 'n' Sneak keeps working."
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2426/): Banette's Hide 'n' Sneak overrides Midnight Fluttering regardless of play order.
   const h = scenario(dk, dk, [{ active: 'Flutter Mane' }, { active: 'Banette' }]);
   assert.ok(!off(h, 1, 'active'), "Banette's Hide 'n' Sneak is not turned off");
   assert.ok(def(h.ctx, topCard(h.state.p[1].active!)).abilities.some((a) => a.name === "Hide 'n' Sneak"));

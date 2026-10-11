@@ -152,7 +152,7 @@ export const STD_C04: CardScript[] = [
     name: 'Mega Charizard Y ex',
     attacks: {
       // "Discard 3 Energy from this Pokémon, and this attack does 280 damage to 1 of your opponent's Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)"
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2290/): "Yes, even though you are only discarding two Energy you can use the attack."
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2290/): you can use the attack even if you discard fewer than the required 3 Energy.
       // -- the attack's cost can be met by fewer than 3 Energy (Counter Gain); it discards what is there and still does 280.
       'Explosion Y': {
         program: [

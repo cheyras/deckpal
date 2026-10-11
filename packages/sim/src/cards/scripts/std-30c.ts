@@ -33,7 +33,7 @@ export const STD_30C: CardScript[] = [
     name: 'Lycanroc',
     attacks: {
       // "If this Pokémon was damaged by an attack during your opponent's last turn, this attack does that much more damage."
-      // Ruling (TPCi Rules Team 2020-05-07, https://compendium.pokegym.net/ruling/384/): "It doesn't matter where Cinderace VMAX was when it was damaged during your opponent's last turn, nor whether it has switched in or out of the Active Slot." (same wording as Counter)
+      // Ruling (TPCi Rules Team 2020-05-07, https://compendium.pokegym.net/ruling/384/): damage dealt counts regardless of the Pokémon's position or whether it switched since. (same wording as Counter)
       Counter: { damage: { add: [10, { damageTakenLastTurn: 'self' }] } },
     },
   },
@@ -99,7 +99,7 @@ export const STD_30C: CardScript[] = [
     name: 'Umbreon',
     attacks: {
       // "If any of your Pokémon were Knocked Out by damage from an attack during your opponent's last turn, this attack does 100 more damage."
-      // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2200/): "Yes, you would. Even though the Pokemon with Legacy Energy attached does not give up a prize card, it still counts as a KO'd Pokemon." (same wording as Retaliate)
+      // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2200/): a Knocked Out Pokémon counts even when no Prize card is taken for it (Legacy Energy). (same wording as Retaliate)
       Retaliate: { damage: { add: [30, moreIf({ custom: 'std.attackKoLastTurn' }, 100)] } },
     },
   },

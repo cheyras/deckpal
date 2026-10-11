@@ -155,7 +155,7 @@ export const STD_C25: CardScript[] = [
       // "During your opponent's next turn, attacks used by the Defending Pokémon do 100 less damage (before applying Weakness and Resistance)."
       'Magical Charm': { post: [{ op: 'effect', static: { k: 'damageOut', amount: -100 }, on: 'defender', duration: 'oppNextTurn' }] },
       // "Choose 2 of your opponent's Benched Pokémon. Shuffle those Pokémon and all attached cards into your opponent's deck. If 1 of your Pokémon used Angelite during your last turn, this attack can't be used."
-      // Ruling (TPCi Rules Team 2025-01-09, https://compendium.pokegym.net/ruling/2094/): "Yes, you can. Mew ex used "the effect" of Angelite last turn, but the "attack" it did was Genome Hacking, so the restriction of Angelite does not apply."
+      // Ruling (TPCi Rules Team 2025-01-09, https://compendium.pokegym.net/ruling/2094/): using a copied attack doesn't count as using Angelite, so the restriction doesn't apply.
       // -- a copy of Angelite is not a use of it: only a Pokémon using Angelite itself leaves the mark, and a copy is never blocked.
       Angelite: {
         program: [
@@ -386,7 +386,7 @@ export const STD_C25: CardScript[] = [
     name: 'Grapploct',
     attacks: {
       // "If this Pokémon has any damage counters on it, this attack can be used for {F}."
-      // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2374/): "The attack cost is set at one {F} and is not further reduced.  It is an alternate cost that cannot be increased or decreased."
+      // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2374/): an alternate attack cost cannot be modified by effects that increase or reduce costs.
       // -- the replaced cost is only {F}, so a reduction of the Colorless part finds nothing to reduce.
       'Raging Tentacles': {},
     },

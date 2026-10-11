@@ -36,9 +36,9 @@ export const STD_C34: CardScript[] = [
     abilities: [
       {
         // "If this Pokémon is in the Active Spot and is damaged by an attack from your opponent's Pokémon (even if this Pokémon is Knocked Out), search your deck for up to 2 Pokémon that have "Koffing" in their name and put them onto your Bench. Then, shuffle your deck."
-        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2153/): "Yes, you get to use the Ability before you lose. Team Rocket's Koffing takes the damage and you search your deck for 2 Pokemon with Koffing in their names and put them onto your Bench, then you check for KO's afterward."
-        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2172/): "The step to check for effects that activate when a Pokemon is damaged by an attack occurs after the step to check for effects other than damage. So the attack effect of discarding their top card is done first, then the triggered effect of searching is done afterwards."
-        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2171/): "The use of the Ability is not optional, so if you have bench space available you must search your deck and shuffle it afterwards. ... If your bench is full, then you cannot search as there is no place to put a Weezing if you did get one."
+        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2153/): Smog Signals activates before the KO check.
+        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2172/): Attack effects resolve before triggered effects from damage.
+        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2171/): Mandatory if bench space exists; nothing searches if bench full.
         // -- not optional (no `optional`), "up to 2" is 1 to 2 for an Ability (TPCi 2026-02-19); with a full Bench nothing is searched or shuffled.
         // The Pokémon go onto the Bench as they are, whatever their Stage.
         name: 'Smog Signals',
@@ -152,7 +152,7 @@ export const STD_C34: CardScript[] = [
     name: "Team Rocket's Persian ex",
     attacks: {
       // "Reveal the top 10 cards of your opponent's deck. You may choose an attack from a Pokémon you find there and use it as this attack. Shuffle the revealed cards into your opponent's deck."
-      // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2157/): "No, you only have to pay the attack cost of Haughty Order."
+      // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2157/): The copied attack's cost is not paid; only Haughty Order's cost.
       // -- the copied attack's cost is not paid (`useAttackOf`). The revealed cards are shuffled into the deck after the attack.
       'Haughty Order': {
         program: [
@@ -211,7 +211,7 @@ export const STD_C34: CardScript[] = [
     abilities: [
       {
         // "You must discard 2 cards from your hand in order to use this Ability. Once during your turn, you may draw a card."
-        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2149/): "No, because the discard is a cost to use its Ability. If you aren't able to draw a card, then you can't just pay the cost of the Ability."
+        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2149/): Needs 2 cards to discard and 1 card to draw available.
         // -- usable only with 2 cards in hand and at least 1 card in the deck.
         name: 'Reconstitute',
         activated: {

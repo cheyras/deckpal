@@ -320,7 +320,7 @@ for (const [label, d, thunder] of [
       return g;
     };
     const both = ko();
-    // Ruling (Pitch Black FAQ, TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2399/): "No. If you have any Basic {L} Energy cards attached to Miraidon, you must move at least one per the Rule Book. Only attacks can choose zero for "up to" effects."
+    // Ruling (Pitch Black FAQ, TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2399/): at least one Basic {L} Energy must be moved (only attacks may choose zero for "up to").
     assert.equal(cardsMin(both), 1, 'at least one is moved');
     both.submit([0, 1]);
     // Rellor was the only Benched Pokémon; with Miraidon Knocked Out it is the Active Pokémon now.
@@ -360,7 +360,7 @@ for (const [label, d, thunder] of [
   });
 
   test(`${label} Miraidon, Photon Cord: still usable when an attack moves it to the Bench before it is Knocked Out, but the Energy cannot go onto itself (ruling 2400)`, () => {
-    // Ruling (Pitch Black FAQ, TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2400/): "Yes, you would still have the opportunity to use Photon Cord. However, even though Miraidon is on the bench due to Push Down you cannot move the Energy onto itself. Moving means that the Energy has to go to a different Pokemon."
+    // Ruling (Pitch Black FAQ, TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2400/): Photon Cord works when Miraidon moves to the Bench, but Energy cannot go onto Miraidon itself.
     // Cranidos's Push Down does 70 ({F} Weakness doubles it to 140) and then switches Miraidon out.
     const mk = (bench: string[]): Game => {
       const g = T([{ active: 'Miraidon', bench, energy: { active: [L, L] } }, { active: 'Cranidos', energy: { active: [FI, FI] } }], OPP_TURN);

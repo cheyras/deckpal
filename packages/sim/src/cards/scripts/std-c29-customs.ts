@@ -31,8 +31,7 @@ registerCustom('c29.attackingPokemon', (_env, s, f, args) => {
 /**
  * Roto-Stick: "Look at the top 4 cards of your deck. You may reveal any number of Supporter cards you find there and put them
  * into your hand. Shuffle the other cards back into your deck."
- * Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2377/): "Yes, the deck is shuffled." (even when every
- * card looked at was put into the hand).
+ * Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2377/): Deck is shuffled even if all looked-at cards go to hand.
  * args: { n, filter } -- the controller picks any number (0 to all) of the top n cards that match `filter`; they are revealed and
  * go to the hand; the deck is shuffled whatever is left.
  */

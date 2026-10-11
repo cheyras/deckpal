@@ -80,7 +80,7 @@ export const STD_C15: CardScript[] = [
     name: 'Sableye',
     attacks: {
       // "You may move any number of damage counters from your opponent's Benched Pokémon to their Active Pokémon."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1955/): "You can choose as many Benched Pokemon as you like, but all of the damage gets moved to the opponent's Active Pokemon."
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1955/): any number of Benched Pokémon can donate counters, all moving to the Active Pokémon.
       'Damage Collection': { program: [{ op: 'may', body: [{ op: 'custom', fn: 'c15.collectCounters' }] }] },
     },
     notes:
@@ -109,7 +109,7 @@ export const STD_C15: CardScript[] = [
       // "During your opponent's next turn, this Pokémon takes 50 less damage from attacks (after applying Weakness and Resistance)."
       'Steel Wing': { post: [{ op: 'effect', static: { k: 'damageIn', amount: -50 }, on: 'self', duration: 'oppNextTurn' }] },
       // "Discard up to 2 {M} Energy from this Pokémon. This attack does 120 damage for each card you discarded in this way."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2423/), Raging Bolt ex's identically worded Bellowing Thunder: "Bellowing Thunder does damage first, and then the energy is discarded."
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2423/), Raging Bolt ex's identically worded Bellowing Thunder: the attack does damage first, then the chosen Energy is discarded.
       // -- the cards are chosen first (that sets the damage), the damage is done, and only then are they discarded.
       'Cross Breaker': {
         pre: [{ op: 'custom', fn: 'c04.pickEnergyOnSelf', args: { n: 2, filter: { providesType: 'Metal' }, as: 'd' } }],
@@ -124,7 +124,7 @@ export const STD_C15: CardScript[] = [
     name: 'Metagross',
     attacks: {
       // "During your next turn, this Pokémon's Meteor Mash attack does 60 more damage (before applying Weakness and Resistance)."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/518/): "No, Meteor Mash tops out at 120. It only adds +60 to the base 60 damage, it does not accumulate on successive turns."
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/518/): the bonus maxes at 120 total and never accumulates on consecutive turns.
       // -- the attack leaves a mark on this Pokémon through the end of your next turn; the bonus is "+60 if the mark is there",
       // checked before the new mark is written, so it is 60, then 120, then 120 ....
       'Meteor Mash': {
@@ -210,7 +210,7 @@ export const STD_C15: CardScript[] = [
       {
         // "Once during your turn, if this Pokémon's remaining HP is 30 or less, you may search your deck for an Unfezant or Unfezant ex
         //  and put it onto this Pidove to evolve it. Then, shuffle your deck."
-        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1949/): "Yes, as long as its remaining HP is 30 or less." (during your first turn or the turn it was put into play)
+        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1949/): usable on your first turn or the turn it enters play, provided its remaining HP is at most 30.
         name: 'Emergency Evolution',
         activated: {
           program: [{ op: 'custom', fn: 'c15.evolveSelfFromDeck', args: { names: ['Unfezant', 'Unfezant ex'] } }, { op: 'shuffle' }],
@@ -292,7 +292,7 @@ export const STD_C15: CardScript[] = [
     id: 'sv05-143',
     name: 'Boxed Order',
     // "Search your deck for up to 2 Item cards, reveal them, and put them into your hand. Then, shuffle your deck. Your turn ends."
-    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1963/): "Yes, it does." (the turn ends even if no Item cards are found)
+    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1963/): the turn ends even if no Items were found.
     play: [...searchToHand({ ttype: 'item' }, 2, { min: 1 }), { op: 'custom', fn: 'c09.endTurn' }],
   },
 ];

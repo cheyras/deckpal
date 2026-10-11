@@ -84,7 +84,7 @@ export const STD_ENGINE5: CardScript[] = [
     id: 'me01-117',
     name: 'Forest of Vitality',
     // "Each player's {G} Pokémon can evolve into {G} Pokémon during the turn they play those Pokémon, except during their first turn."
-    // Ruling (TPCi Rules Team 2025-09-25, https://compendium.pokegym.net/ruling/2229/): "Yes, as long as it isn't your first turn of the game. Bulbasaur can evolve into Ivysaur on the turn it comes into play, and since Ivysaur has come into play that turn the stadium would allow it to evolve into Venusaur right away too."
+    // Ruling (TPCi Rules Team 2025-09-25, https://compendium.pokegym.net/ruling/2229/): yes, unless it is your first turn of the game: a Pokémon that evolved this turn can evolve again, so Bulbasaur can reach Venusaur in one turn.
     // `justPlayed` covers both a Pokémon put into play and one that evolved this turn; without `firstTurn` the rules' ban on evolving on a
     // player's first turn stays, which is the "except during their first turn".
     statics: [{ effect: { k: 'evolveTiming', justPlayed: true, into: { type: 'Grass' } }, scope: 'allPokemon', filter: { type: 'Grass' } }],
@@ -122,7 +122,7 @@ export const STD_ENGINE5: CardScript[] = [
     playable: { lte: [{ prizesLeft: 'opp' }, 2] },
     play: [
       // "Choose 1 of your Pokémon in play. During your opponent's next turn, prevent all damage from and effects of attacks done to that Pokémon by your opponent's Pokémon ex."
-      // Ruling (TPCi Rules Team 2025-09-25, https://compendium.pokegym.net/ruling/2228/): "No. It is not an attack effect, so it does not get removed by moving to the Bench."
+      // Ruling (TPCi Rules Team 2025-09-25, https://compendium.pokegym.net/ruling/2228/): no, Acerola's Mischief is not an attack effect, so moving the protected Pokémon to the Bench does not remove it.
       { op: 'chooseSlots', from: 'myPokemon', min: 1, max: 1, as: 't', prompt: 'Choose 1 of your Pokémon in play' },
       { op: 'effect', static: { k: 'preventDamage', andEffects: true, attacker: { ex: true } }, on: { v: 't' }, duration: 'oppNextTurn' },
     ],
@@ -163,7 +163,7 @@ export const STD_ENGINE5: CardScript[] = [
     abilities: [
       {
         // "As long as this Pokémon is on your Bench, prevent all damage from and effects of attacks from your opponent's Pokémon done to this Pokémon."
-        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2155/): "No, damage is only done to the "new Active Pokemon". The damage doesn't happen because So Submerged prevents Drag Off from bringing Misty's Magikarp into the Active Spot."
+        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2155/): no, Drag Off's damage goes to the new Active Pokémon, and So Submerged stops Misty's Magikarp being brought up, so no damage happens.
         // The switch step checks the Benched Pokémon it would bring up for protection from the effects of attacks (interp.ts switchStep), and
         // a switch that didn't happen leaves no new Active Pokémon to damage.
         name: 'So Submerged',
@@ -178,8 +178,8 @@ export const STD_ENGINE5: CardScript[] = [
     name: 'Metapod',
     attacks: {
       // "During your opponent's next turn, prevent all damage done to this Pokémon by attacks if that damage is 60 or less."
-      // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2197/), on Roggenrola's identical Harden: "Weakness & Resistance are factored in before determining whether Harden blocks it or not. So if a Grass Pokemon's attack does 30 damage to Roggenrola and then +30 more is added for Roggenrola's Weakness, Harden would not prevent the damage. However, if the Grass Pokemon's attack does 20 damage to Roggenrola and then +20 more is added for Roggenrola's Weakness, Harden would prevent the damage."
-      // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2196/), likewise: "No, once Roggenrola leaves the Active Spot the effect of Harden goes away." (an effect of an attack: it ends when the Pokémon leaves the Active Spot)
+      // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2197/), on Roggenrola's identical Harden: the threshold is checked after Weakness/Resistance (for its 40-or-less: 30 + 30 is not prevented, 20 + 20 is).
+      // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2196/), likewise: no, once the Pokémon leaves the Active Spot, Harden stops protecting it. (an effect of an attack: it ends when the Pokémon leaves the Active Spot)
       Harden: harden(60),
     },
   },
@@ -188,8 +188,8 @@ export const STD_ENGINE5: CardScript[] = [
     name: 'Roggenrola',
     attacks: {
       // "During your opponent's next turn, prevent all damage done to this Pokémon by attacks if that damage is 40 or less."
-      // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2197/): "Weakness & Resistance are factored in before determining whether Harden blocks it or not. So if a Grass Pokemon's attack does 30 damage to Roggenrola and then +30 more is added for Roggenrola's Weakness, Harden would not prevent the damage. However, if the Grass Pokemon's attack does 20 damage to Roggenrola and then +20 more is added for Roggenrola's Weakness, Harden would prevent the damage."
-      // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2196/): "No, once Roggenrola leaves the Active Spot the effect of Harden goes away."
+      // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2197/): the 40-or-less check uses damage after Weakness/Resistance: 30 + 30 is not prevented, 20 + 20 is.
+      // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2196/): no, once Roggenrola leaves the Active Spot, Harden stops protecting it, even on the Bench.
       Harden: harden(40),
     },
   },
@@ -258,7 +258,7 @@ export const STD_ENGINE5: CardScript[] = [
     abilities: [
       {
         // "Once during your turn, when this Pokémon moves from your Bench to the Active Spot, you may search your deck for up to 3 Basic {G} Energy cards and attach them to this Pokémon. Then, shuffle your deck."
-        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2142/): "You must complete the use of Surfer first and draw cards, then you get to use Buzzing Boost afterward."
+        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2142/): Surfer must finish first, including its draw, and only then can Buzzing Boost be used.
         // (The trigger waits until the card that moved it has finished.)
         name: 'Buzzing Boost',
         triggers: [
@@ -316,8 +316,8 @@ export const STD_ENGINE5: CardScript[] = [
     abilities: [
       {
         // "If this Pokémon is Knocked Out by damage from an attack from your opponent's Pokémon, put it into your hand instead of the discard pile. (Discard all attached cards.)"
-        // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2308/): "The phrase "this Pokemon" includes the underlying Basic & Stage cards that got it to the point of being Gengar, so those underlying cards would get put into your hand as well."
-        // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2307/): "Yes. It was still Knocked Out even though Gengar is going to your hand instead of to the discard pile."
+        // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2308/): the Pokémon includes the Basic and Stage cards under Gengar, so those go to your hand with it.
+        // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2307/): yes, the opponent still takes a Prize: it was Knocked Out even though Gengar goes to the hand.
         name: 'Infinite Shadow',
         statics: [{ effect: { k: 'koToHand', cards: 'pokemon' }, scope: 'self' }],
       },

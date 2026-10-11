@@ -97,7 +97,7 @@ export const STD_ENGINE6: CardScript[] = [
     attacks: {
       'Plentiful Pollen': {
         // "During your next turn, if the Defending Pokémon is Knocked Out, take 2 more Prize cards."
-        // Ruling (TPCi Rules Team 2024-03-21, https://compendium.pokegym.net/ruling/1957/): "Nope, if the Defending Pokemon is switched with a new Pokemon or evolves the effect of Plentiful Pollen goes away."
+        // Ruling (TPCi Rules Team 2024-03-21, https://compendium.pokegym.net/ruling/1957/): the effect ends if the pokémon switches or evolves.
         // An attack's lasting effect on the Defending Pokémon ends when it leaves the Active Spot or evolves, which is that ruling; it
         // counts any Knock Out of the Pokémon during your next turn, not only one by damage from an attack.
         post: [{ op: 'effect', static: { k: 'koPrizes', delta: 2, anyKo: true, duringTakersTurn: true }, on: 'defender', duration: 'myNextTurn' }],
@@ -163,8 +163,8 @@ export const STD_ENGINE6: CardScript[] = [
     abilities: [
       {
         // "Whenever your opponent plays a Pokémon from their hand to evolve 1 of their Pokémon, put 4 damage counters on that Pokémon. The effect of Darkest Impulse doesn't stack."
-        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2145/): "Yes, you can. The phrase "doesn't stack" means that if you had two Team Rocket's Ampharos in play, you would not be able to use both Darkest Impulse Abilities to put 8 damage counters on each of those evolving Pokemon."
-        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2146/): "Yes, you can.  Since both Abilities are happening at the same time, the owner of Team Rocket's Golbat gets to choose the order they are applied."
+        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2145/): it puts 4 counters on each of two Pokémon evolving the same turn; "doesn't stack" only means two Ampharos would not give 8 to each.
+        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2146/): yes, Golbat's Sneaky Bite can be used before it is Knocked Out; both Abilities happen together, so Golbat's owner picks the order.
         // Each Pokémon that evolves gets its own 4 counters; the evolved Pokémon's own Abilities are queued first, and Knock Outs are
         // checked only once they are all done.
         name: 'Darkest Impulse',
@@ -193,8 +193,8 @@ export const STD_ENGINE6: CardScript[] = [
     abilities: [
       {
         // "If your Active {D} Pokémon is damaged by an attack from your opponent's Pokémon (even if your Active {D} Pokémon is Knocked Out), place 1 damage counter on the Attacking Pokémon."
-        // Ruling (TPCi Rules Team 2025-09-25, https://compendium.pokegym.net/ruling/2217/): "Yes, it does." (works from the Bench)
-        // Ruling (TPCi Rules Team 2025-09-25, https://compendium.pokegym.net/ruling/2218/): "Yes, it does." (stacks: each Spiritomb puts its own counter)
+        // Ruling (TPCi Rules Team 2025-09-25, https://compendium.pokegym.net/ruling/2217/): yes. (works from the Bench)
+        // Ruling (TPCi Rules Team 2025-09-25, https://compendium.pokegym.net/ruling/2218/): yes. (stacks: each Spiritomb puts its own counter)
         name: 'Spiteful Swirl',
         triggers: [
           {
@@ -229,7 +229,7 @@ export const STD_ENGINE6: CardScript[] = [
     id: 'sv10-172',
     name: "Team Rocket's Bother-Bot",
     // "Turn 1 of your opponent's face-down Prize cards face up and choose a random card from your opponent's hand. Your opponent reveals that card. You may have your opponent switch those cards. (That Prize card remains face up for the rest of the game.)"
-    // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2167/): "You can always play this card unless the opponent has no face-down Prize cards AND has no cards in hand. If there's no face-down Prize card, or if there's no cards in the opponent's hand (only meeting 1 of the conditions), you cannot make a switch but you would get to look at a card."
+    // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2167/): playable unless the opponent has neither a face-down Prize nor a card in hand; if only one is missing, no switch is possible but you still look at a card.
     playable: { or: [{ gte: [{ prizeCards: { who: 'opp', face: 'down' } }, 1] }, { gte: [{ handSize: 'opp' }, 1] }] },
     play: [
       { op: 'turnPrizeUp', who: 'opp', as: 'up' },
@@ -247,9 +247,9 @@ export const STD_ENGINE6: CardScript[] = [
     name: 'Koraidon',
     attacks: {
       // "If 1 of your other Ancient Pokémon used an attack during your last turn, this attack does 150 more damage."
-      // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2060/): "Yes. Unrelenting Onslaught only cares about whether a different Ancient Pokemon attacked during your last turn." (a different Koraidon counts)
-      // Ruling (TPCi Rules Team 2024-11-14, https://compendium.pokegym.net/ruling/2087/): "No. A failed attack attempt while Confused does not count as an attack."
-      // Ruling (TPCi Rules Team 2024-12-19, https://compendium.pokegym.net/ruling/2092/): "No, all effects carry over when using Thorton, so the game sees Koraidon as the same Pokemon for all intents and purposes, including having attacked last turn."
+      // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2060/): yes, it checks if a different ancient pokémon attacked. (a different Koraidon counts)
+      // Ruling (TPCi Rules Team 2024-11-14, https://compendium.pokegym.net/ruling/2087/): no, failed attacks while confused don't count.
+      // Ruling (TPCi Rules Team 2024-12-19, https://compendium.pokegym.net/ruling/2092/): no, Thorton carries all effects over, so the swapped-in Koraidon is the same Pokémon as the Ancient one that attacked, including having attacked last turn.
       // The record belongs to the Pokémon in play (its slot), so a card swapped into the place of the Pokémon that attacked is that same Pokémon, not an "other" one.
       'Unrelenting Onslaught': { damage: { add: [30, { cond: ANCIENT_ATTACKED_LAST_TURN, then: 150, else: 0 }] } },
     },

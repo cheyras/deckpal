@@ -42,8 +42,8 @@ export const STD_ENGINE7: CardScript[] = [
       {
         // "Each of your Pokémon that has "Rotom" in its name may have up to 2 Pokémon Tool cards attached. If this Ability goes away,
         //  discard Pokémon Tools from those Pokémon until only 1 remains on each."
-        // Rulings (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2242/): "Sure, any Pokemon with Rotom in its name qualifies."
-        //  (2026-01-22, https://compendium.pokegym.net/ruling/2292/): Fan Rotom and Rotom ex are both Pokémon with "Rotom" in their name.
+        // Rulings (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2242/): Pokémon containing "Rotom" in their names qualify.
+        //  (2026-01-22, https://compendium.pokegym.net/ruling/2292/): Pokémon names like Fan Rotom and Rotom ex count as having "Rotom" in them.
         // The owner chooses which Tools to discard when the Ability goes away (nothing says otherwise).
         name: 'Multi Adapter',
         statics: [{ effect: { k: 'toolSlots', n: 2 }, scope: 'myPokemon', filter: { nameIncludes: 'Rotom' } }],
@@ -77,8 +77,7 @@ export const STD_ENGINE7: CardScript[] = [
     abilities: [
       {
         // "If this Pokémon has any {D} Energy attached and is damaged by an attack, flip a coin. If heads, prevent that damage."
-        // Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1969/): "Yes, although Legacy Energy only provides one unit of
-        //  energy, it is providing all energy types all the time." So an Energy card counts as {D} Energy when it provides {D} where it is attached.
+        // Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1969/): Legacy Energy provides every Energy type all the time, so it counts for the {D} condition. So an Energy card counts as {D} Energy when it provides {D} where it is attached.
         name: 'Adrena-Pheromone',
         statics: [{ effect: { k: 'damageCoinFlip' }, scope: 'self', when: { slotIs: { ref: 'self', filter: { energy: { providesType: 'Darkness' } } } } }],
       },
@@ -94,8 +93,7 @@ export const STD_ENGINE7: CardScript[] = [
     abilities: [
       {
         // "If any damage is done to this Pokémon by attacks, flip a coin. If heads, prevent that damage."
-        // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2040/): "Surprise Pump will do 100 damage. The attack ignores
-        //  the damage reduction because Expert Hider is an effect." (an attack that isn't affected by effects on the Defending Pokémon skips the flip)
+        // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2040/): Surprise Pump still does its 100 damage, as it ignores effects on the Defending Pokémon and Expert Hider is an effect. (an attack that isn't affected by effects on the Defending Pokémon skips the flip)
         name: 'Expert Hider',
         statics: [{ effect: { k: 'damageCoinFlip' }, scope: 'self' }],
       },
@@ -112,8 +110,7 @@ export const STD_ENGINE7: CardScript[] = [
       {
         // "When your opponent's Active Pokémon retreats, your opponent flips a coin. If tails, Energy for its Retreat Cost is not discarded,
         //  and they don't switch Pokémon. The effect of Slimy Sliding doesn't stack."
-        // Ruling (TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2348/): "No. This uses up your Retreat for the turn even though
-        //  your Pokemon did not go to the Bench nor pay its Retreat Cost."
+        // Ruling (TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2348/): a retreat attempt uses your retreat for the turn even if it fails.
         name: 'Slimy Sliding',
         statics: [{ effect: { k: 'retreatCoinFlip' }, scope: 'opp' }],
       },
@@ -128,9 +125,7 @@ export const STD_ENGINE7: CardScript[] = [
     name: 'Backtrack Badge',
     // "Once during your turn, after you flip any coins for an attack of the {C} Pokémon this card is attached to, you may ignore all results
     //  of those coin flips and begin flipping those coins again."
-    // Rulings (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2417/): "No, Backtrack Badge only applies to flips that are done as
-    //  part of the attack. You cannot use it for checking status effects." (https://compendium.pokegym.net/ruling/2416/): "No. You must reflip all
-    //  of the flips for an attack if you choose to use Backtrack Badge."
+    // Rulings (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2417/): only attack-related coin flips can be re-flipped; status checks cannot. (https://compendium.pokegym.net/ruling/2416/): all flips for an attack must be re-flipped together, not selectively.
     statics: [{ effect: { k: 'coinReflip' }, scope: 'self', filter: { type: 'Colorless' } }],
     notes: 'Offered after the flips of an attack whose program flips at one place only, once (every attack the {C} Pokémon in the Standard pool has); the reflip is the same flip step again, never only the tails.',
   },
@@ -149,10 +144,8 @@ export const STD_ENGINE7: CardScript[] = [
     abilities: [
       {
         // "Each Basic {G} Energy attached to all of your Pokémon provides {G}{G} Energy. The effect of Wild Growth doesn't stack."
-        // Rulings (TPCi Rules Team 2025-10-23, https://compendium.pokegym.net/ruling/2237/): "You get +180 more damage. When an effect counts "attached"
-        //  energy you count the total amount of energy including the amount added by abilities like Wild Growth."
-        //  (https://compendium.pokegym.net/ruling/2236/): "No. Each Ability is a replacement effect, not an additive effect. So one would replace the
-        //  other and you would still wind up with each Basic Grass energy providing 2 Grass energy."
+        // Rulings (TPCi Rules Team 2025-10-23, https://compendium.pokegym.net/ruling/2237/): an effect that counts attached energy uses the total after Abilities like Wild Growth add to it.
+        //  (https://compendium.pokegym.net/ruling/2236/): Wild Growth and Jungle Totem are replacements, not additions; they do not combine, so each Basic Grass still provides 2 Grass energy.
         //  (Ascending Heroes FAQ, 2026-01-22, https://compendium.pokegym.net/ruling/2288/): the 2 Basic Grass Energy count as 4, so a 4-Energy cost is paid.
         name: 'Wild Growth',
         statics: [{ effect: { k: 'energyProvides', cards: { energyType: 'Grass' }, provides: ['Grass', 'Grass'] }, scope: 'myPokemon' }],
@@ -168,8 +161,7 @@ export const STD_ENGINE7: CardScript[] = [
     // "As long as this card is attached to a Pokémon, it provides 2 in any combination of {P} Energy and {D} Energy."
     provides: ['Psychic', 'Darkness'],
     providesFlex: { n: 2, types: ['Psychic', 'Darkness'] },
-    // Ruling (TPCi Rules Team 2026-04-16, https://compendium.pokegym.net/ruling/2340/): discarding it to an attack that counts "cards" discarded is
-    //  +60 (it is one card), even though it provides 2 Energy; one Energy from it and one from another card can be 2 cards (+120).
+    // Ruling (TPCi Rules Team 2026-04-16, https://compendium.pokegym.net/ruling/2340/): this one card is +60 for "cards discarded" even though it provides 2 Energy; picking one Energy from it and one from another card discards 2 cards (+120).
     notes: 'Each of the 2 Energy is {P} or {D}; a cost is paid with them in any mix. Counted as 2 Energy for "for each Energy attached" and Retreat.',
   },
   {
@@ -190,8 +182,7 @@ export const STD_ENGINE7: CardScript[] = [
     abilities: [
       {
         // "If this Pokémon is in your hand when you are setting up to play, you may put it face down in the Active Spot."
-        // Rulings (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2394/, .../2397/): it is not an "Evolved Pokémon" but it is an
-        //  "Evolution Pokémon" card, so effects about Evolution Pokémon (Battle Claw's bonus, Flashing Barrier) apply to it.
+        // Rulings (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2394/, .../2397/): a Cinderace placed at setup is not an "Evolved Pokémon" but is still an "Evolution Pokémon" card, so effects about Evolution Pokémon (Battle Claw's bonus, Flashing Barrier) apply.
         name: 'Explosiveness',
         setupActive: true,
       },
@@ -282,8 +273,7 @@ export const STD_ENGINE7: CardScript[] = [
     id: 'sv08.5-093',
     name: 'Amarys',
     // "Draw 4 cards. At the end of this turn, if you have 5 or more cards in your hand, discard your hand."
-    // Ruling (TPCi Rules Team 2025-05-01, https://compendium.pokegym.net/ruling/2135/): "Both of these effects happen at the end of the turn, so the
-    //  player can choose the order." (with Togekiss's Precious Gift)
+    // Ruling (TPCi Rules Team 2025-05-01, https://compendium.pokegym.net/ruling/2135/): end-of-turn effects can be ordered by the player. (with Togekiss's Precious Gift)
     play: [
       { op: 'draw', n: 4 },
       {
@@ -333,9 +323,7 @@ export const STD_ENGINE7: CardScript[] = [
         // "Once during your turn, when this Pokémon moves from the Active Spot to the Bench, you may search your deck for a Palafin ex and switch it with
         //  this Pokémon. Any attached cards, damage counters, Special Conditions, turns in play, and any other effects remain on the new Pokémon. If you
         //  switched a Pokémon in this way, put this card into your deck. Then, shuffle your deck."
-        // Rulings (TPCi Rules Team 2024-09-05, https://compendium.pokegym.net/ruling/2007/): "Zero to Hero is used when Palafin has moved to the Bench.
-        //  Therefore, it is not blocked by Midnight Fluttering." (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1977/): "Only the
-        //  Palafin goes back into the deck. Finizen stays in play, going underneath the Palafin ex."
+        // Rulings (TPCi Rules Team 2024-09-05, https://compendium.pokegym.net/ruling/2007/): the Ability is used once Palafin has already moved to the Bench, so Midnight Fluttering does not block it. (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1977/): only the Palafin card goes back to the deck; Finizen stays in play under the Palafin ex.
         name: 'Zero to Hero',
         triggers: [
           {
@@ -375,10 +363,7 @@ export const STD_ENGINE7: CardScript[] = [
     abilities: [
       {
         // "Your opponent's Pokémon in play and all attached cards can't be put into your opponent's hand."
-        // Rulings (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2370/): "No, you cannot put a Water Energy into your hand. You may CHOOSE
-        //  to try to do so and will get the bonus damage from Ninja Spinner, but the Water Energy would stay attached to Mega Greninja ex due to Milotic's
-        //  Mentally Calm ability." (2025-04-03, https://compendium.pokegym.net/ruling/2129/): the Supporter is still played, but "since your Pokemon did not get
-        //  put into your hand due to Mentally Calm all cards would stay attached to that Pokemon."
+        // Rulings (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2370/): the Energy cannot go to hand and stays attached, but you may still choose to try and get Ninja Spinner's bonus damage. (2025-04-03, https://compendium.pokegym.net/ruling/2129/): the Supporter still counts as played, and all cards stay attached since the Pokémon never reaches the hand.
         name: 'Mentally Calm',
         statics: [{ effect: { k: 'noReturnToHand' }, scope: 'opp' }],
       },
@@ -405,8 +390,7 @@ export const STD_ENGINE7: CardScript[] = [
     abilities: [
       {
         // "Each of your evolved Pokémon can use any attack from its previous Evolutions. (You still need the necessary Energy to use each attack.)"
-        // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2311/): "Yes. Sniper's Eye removes all colorless energy costs from any attack
-        //  that Decidueye ex can use." (so cost effects on the Pokémon apply to the borrowed attacks)
+        // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2311/): Sniper's Eye's removal of {C} costs applies to a borrowed Dartrix attack. (so cost effects on the Pokémon apply to the borrowed attacks)
         name: 'Memory Dive',
         statics: [{ effect: { k: 'previousAttacks' }, scope: 'myPokemon', filter: { stage: 'evolution' } }],
       },
@@ -420,8 +404,7 @@ export const STD_ENGINE7: CardScript[] = [
     name: 'Neutralization Zone',
     // "Prevent all damage done to Pokémon that don't have a Rule Box (both yours and your opponent's) by attacks from the opponent's Pokémon ex and Pokémon V."
     // Pokémon V: no V is legal in Standard 2026 (as in std-c13, std-seed2), so the attackers are Pokémon ex.
-    // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2034/): the choice to discard the Stadium and the damage calculation come
-    //  first; "Neutralization Zone stadium prevents that damage from being done. After that the Stadium is discarded."
+    // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2034/): the discard choice is made and damage calculated first, then Neutralization Zone prevents that damage, then the Stadium is discarded.
     statics: [{ effect: { k: 'preventDamage', attacker: { ex: true } }, scope: 'allPokemon', filter: { ruleBox: false } }],
     // "This card can't be put into your hand or deck from the discard pile."
     noRecoverFromDiscard: true,
@@ -445,8 +428,7 @@ export const STD_ENGINE7: CardScript[] = [
     name: 'Walrein',
     attacks: {
       // "During your opponent's next turn, Pokémon that have 2 or less Energy attached can't attack. (This includes new Pokémon that come into play.)"
-      // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2055/): "Yes. The effect resides on all of the opponent's Pokemon, not
-      //  on Walrein, so moving Walrein to the Bench does not get rid of the effect."
+      // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2055/): the effect stays on opponent's Pokémon even if Walrein moves to Bench.
       'Frigid Fangs': {
         post: [{ op: 'effect', static: { k: 'cantAttack', ifEnergyAtMost: 2 }, onPlayer: 'opp', scope: 'myPokemon', duration: 'oppNextTurn' }],
       },

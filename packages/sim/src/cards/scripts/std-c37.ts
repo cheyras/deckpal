@@ -111,7 +111,7 @@ export const STD_C37: CardScript[] = [
     name: 'Litwick',
     attacks: {
       // "Look at the top card of your deck. You may discard that card."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2189/): "You put it back on top of your deck if you don't discard it."
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2189/): card goes back on top if not discarded.
       'Brighten and Burn': { program: [{ op: 'custom', fn: 'c17.lookTopMayDiscard' }] },
     },
   },
@@ -152,7 +152,7 @@ export const STD_C37: CardScript[] = [
     abilities: [
       {
         // "Once during your turn, you may switch your Active Pokémon with 1 of your Benched Pokémon. If you do, switch out your opponent's Active Pokémon to the Bench. (Your opponent chooses the new Active Pokémon.)"
-        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2187/): "Sure, that would work." (each Samurott in play can use it once)
+        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2187/): each Samurott can use once per turn. (each Samurott in play can use it once)
         // Usable only with a Benched Pokémon to switch with ("If you do").
         name: 'Torrential Whirlpool',
         activated: {
@@ -184,7 +184,7 @@ export const STD_C37: CardScript[] = [
     name: 'Ducklett',
     attacks: {
       // "Discard a {R} Energy from your opponent's Active Pokémon."
-      // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2194/): "Yes, assuming that Prism Energy is attached to a Basic Pokemon.  But Prism Energy does not count as {R} Energy when attached to non-Basic Pokemon." ("{R} Energy" is any Energy providing {R}.)
+      // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2194/): Prism counts as Fire if on Basic, not on other Pokémon. ("{R} Energy" is any Energy providing {R}.)
       Firefighting: { post: [{ op: 'discardEnergy', from: 'oppActive', count: 1, filter: { providesType: 'Fire' } }] },
     },
   },
@@ -205,7 +205,7 @@ export const STD_C37: CardScript[] = [
     name: 'Keldeo ex',
     attacks: {
       // "If this Pokémon moved from your Bench to the Active Spot this turn, this attack does 90 more damage."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2195/): "No, Keldeo ex was moved to the Active Spot during the opponent's turn, not during "this turn"." (replacing a Knocked Out Active Pokémon)
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2195/): it was moved up during the opponent's turn, not "this turn", so no bonus. (replacing a Knocked Out Active Pokémon)
       'Gale Thrust': { damage: { add: [30, { cond: { movedToActiveThisTurn: 'self' }, then: 90, else: 0 }] } },
       // "This attack's damage isn't affected by any effects on your opponent's Active Pokémon."
       'Sonic Edge': { ignore: { defenderEffects: true } },
@@ -271,7 +271,7 @@ export const STD_C37: CardScript[] = [
     name: 'Cofagrigus',
     attacks: {
       // "Move all damage counters from 1 of your Benched Pokémon to 1 of your opponent's Pokémon."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2192/): "Your benched Pokemon would remove its damage counters, but the opponent's Antique Cover Fossil would not remove nor receive any. If you try to move damage *to* something that blocks effects, the damage disappears. If you try to move damage *from* something that blocks effects, the damage stays there."
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2192/): the source Pokémon loses its counters, but the protected Antique Cover Fossil neither receives them nor loses any; counters aimed at a blocker vanish, counters on a blocker stay.
       'Extended Damagriiigus': {
         program: [
           { op: 'chooseSlots', from: 'myBench', min: 1, max: 1, as: 'from', prompt: 'Move all damage counters from which of your Benched Pokémon?' },

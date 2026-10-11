@@ -26,7 +26,7 @@ registerCustomCond('c03.ownFirstTurn', (_env, s, ec) => s.turn === (ec.player ==
 /**
  * Grimsley's Move: "Look at the top 7 cards of your deck and put a {D} Pokémon you find there onto your Bench.
  * Shuffle the other cards and put them on the bottom of your deck."
- * Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2258/): "Yes, when using this Supporter you can place any stage of {D} Pokemon you find directly onto your bench."
+ * Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2258/): all stages of Dark-type Pokémon can be placed onto the bench.
  * args: { n } cards to look at (default 7).
  * The controller picks one {D} Pokémon of any Stage among the top cards (no question when only one kind is there) and it
  * goes onto the Bench if there is room. All the other cards are shuffled and go to the bottom of the deck; with a full

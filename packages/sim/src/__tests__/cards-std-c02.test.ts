@@ -97,7 +97,7 @@ test("Garganacl, Powerful a-Salt: +30 for each of your {F} Pokémon's attacks, a
   };
   // "Attacks used by your {F} Pokémon do 30 more damage to your opponent's Active Pokémon" -- Garganacl itself is {F}.
   assert.equal(hit([{ active: 'Garganacl', energy: { active: [FI, FI, FI] } }, { active: 'Tyranitar ex' }]), 160);
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2215/): "Yes, it does." -- two Garganacl are +60.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2215/): Garganacl's Powerful a-Salt stacks, so two Garganacl give +60.
   assert.equal(hit([{ active: 'Garganacl', bench: ['Garganacl'], energy: { active: [FI, FI, FI] } }, { active: 'Tyranitar ex' }]), 190);
   // A Benched Garganacl still adds to the Active {F} Pokémon.
   // Not for a Pokémon of another type: Steelix ({M}) with a Garganacl on the Bench does its printed 40.
@@ -484,7 +484,7 @@ test("Wally's Compassion: a Mega Evolution Pokémon ex that can't be healed lose
 test('Ludicolo, Excited Heal: with a {G} Mega Evolution Pokémon ex in play (even a Basic one, #2241), heal 60 from 1 of your Pokémon', () => {
   const dk = deck('me02-007', 'me02-004', 'me01-086', URSA);
   const g = scenario(dk, dk, [{ active: 'Mega Heracross ex', bench: ['Ludicolo'], damage: { active: 100, 0: 20 } }, { active: 'Bloodmoon Ursaluna ex' }]);
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2241/): "Yes, you can." -- Mega Heracross ex is a Basic.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2241/): Excited Heal needs no evolved Mega Pokémon, so a Basic Mega Heracross ex satisfies it.
   assert.ok(has(g, 'Excited Heal'), 'Mega Heracross ex is enough');
   choose(g, 'Excited Heal');
   choose(g, 'Mega Heracross ex');
@@ -510,7 +510,7 @@ test('Lokix, Jumping Shot: 150, then Lokix and all attached cards are shuffled i
   if (g.decision?.kind === 'promote') choose(g, 'Dunsparce');
   assert.equal(g.state.p[0].deck.length, before + 4, 'Lokix and 3 Energy');
   assert.equal(name(g, topCard(g.state.p[0].active!)), 'Dunsparce');
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2248/): "No, it will not."
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2248/): Replacement Active Pokémon is not Confused.
   assert.equal(g.state.p[0].active!.cond, 0, 'the new Active Pokémon is not Confused');
   assert.ok(![...g.state.p[0].discard, ...g.state.p[0].hand].some((c) => name(g, c) === 'Lokix'), 'Lokix went to the deck, not elsewhere');
   endTurn(g);

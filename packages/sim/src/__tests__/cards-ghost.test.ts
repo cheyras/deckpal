@@ -482,7 +482,7 @@ test("lane ghost: none of this lane's cards in its primary decks is approximated
 // Official rulings on Hide 'n' Sneak (TPCi Rules Team 2026-07-16, Pitch Black FAQ):
 // https://compendium.pokegym.net/?s=Hide+n+Sneak
 test("ruling: Cursed Blast on a Hide 'n' Sneak Banette - Dusknoir is Knocked Out and a Prize is taken, but no counters land", () => {
-  // "Dusknoir is KO'd and the opponent takes a prize, but Hide 'n' Sneak prevents the damage counters from being placed."
+  // Dusknoir is Knocked Out and a Prize is taken, yet Hide 'n' Sneak keeps the damage counters from landing.
   const g = scenario(PUP, HNS, [
     { active: 'Shuppet', bench: ['Duskull'], evolve: { 0: ['Dusclops', 'Dusknoir'] } },
     { active: 'Shuppet', evolve: { active: ['Banette'] } },
@@ -495,8 +495,7 @@ test("ruling: Cursed Blast on a Hide 'n' Sneak Banette - Dusknoir is Knocked Out
 });
 
 test("ruling: Ancient Bulwark still stops a Banette with 2 Energy - it is an effect on Bastiodon's side, not on Banette", () => {
-  // "Ancient Bulwark is an effect on all of the Bastiodon player's Pokemon, not an effect on Banette. Therefore,
-  //  Hide 'n' Sneak does not prevent Ancient Bulwark's protection."
+  // Ancient Bulwark acts on the Bastiodon side's Pokémon rather than on Banette, so Hide 'n' Sneak leaves its protection working.
   const g = scenario(HNS, FOSSIL, [
     { active: 'Shuppet', evolve: { active: ['Banette'] }, energy: { active: [P, P] } },
     { active: 'Gastly', bench: ['Antique Armor Fossil'], evolve: { 0: ['Shieldon', 'Bastiodon'] } },

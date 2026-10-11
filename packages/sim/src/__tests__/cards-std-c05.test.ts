@@ -224,7 +224,7 @@ test("Iono's Kilowattrel, Flashing Draw: discard a Basic {L} Energy from it, the
 });
 
 test("Iono's Kilowattrel, Flashing Draw: needs a Basic {L} Energy to discard, a card in the deck and fewer than 6 cards in hand (Ruling #2108)", () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2108/): "No. ... if you have no cards in your deck or if you already have 6 or more cards in hand you can't use it."
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2108/): no, the Ability cannot be used with an empty deck or 6 or more cards already in hand, since it draws cards.
   const noEnergy = G([{ active: IONO_KILO, energy: { active: [F, F] }, hand: [P] }, FOE()]);
   assert.ok(!has(noEnergy, 'Use Flashing Draw'), 'no Basic {L} Energy attached');
   const emptyDeck = G([{ active: IONO_KILO, energy: { active: [L] }, hand: [P], emptyDeck: true }, FOE()]);
@@ -318,7 +318,7 @@ test("Team Rocket's Mewtwo ex, Erasure Ball: 160, +60 for each Energy card (0 to
 });
 
 test('Team Rocket\'s Mewtwo ex, Erasure Ball: the bonus counts cards, not Energy: a card providing 3 Energy is +60; with another card +120 (Ruling #2340)', () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2340/): discarding the Team Rocket's Energy card does +60 because the attack does +60 for each "card" discarded.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2340/): The bonus counts per card discarded, not per energy; one card provides one bonus.
   // Ignition Energy on an Evolution Pokémon provides {C}{C}{C}, standing in for the 2-Energy Team Rocket's Energy.
   const layout = (): SideLayout => ({
     active: ROCKET_MEWTWO,
@@ -445,7 +445,7 @@ test('Banette, Cursed Words: with fewer than 3 cards in hand, all of them are sh
 // ------------------------------------------------------------------ Rotom
 
 test('Rotom, Roto Call: any Pokémon with "Rotom" in its name goes onto the Bench, as many as fit (Ruling #2292)', () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2292/): "If you have room on your bench, yes. Any Pokemon that has "Rotom" in their name can be chosen."
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2292/): Any Pokémon containing Rotom in its name can be chosen if bench space is available.
   const g = G([{ active: 'Rotom', bench: ['Marill', 'Marill'], energy: { active: [P] } }, FOE()]);
   choose(g, 'Attack: Roto Call');
   assert.ok(labels(g).includes('Fan Rotom'), 'Fan Rotom has Rotom in its name');

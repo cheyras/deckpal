@@ -241,8 +241,8 @@ test('a Stadium cannot be played onto a same-name Stadium, whoever played it', (
 // (Compendium, rules.test.ts); and the three below, from the rulebook and official rulings.
 
 test("a Trainer that would do nothing can't be played: a draw or search card with an empty deck (TPCi 2014-11-13, 2017-04-27)", () => {
-  // "No, you cannot play a Trainer when it is known that it will have no effect" (Professor Juniper with no
-  // cards in deck, TPCi Rules Team 2014-11-13); Ultra Ball's discard is "a cost not the effect" (2017-04-27).
+  // A Trainer that is known to do nothing can't be played (Professor Juniper with no cards in deck, TPCi Rules
+  // Team 2014-11-13); Ultra Ball's discard is a cost, not its effect (2017-04-27).
   // With cards in the deck a search may still find nothing (deck contents are hidden), so it stays playable.
   const empty = at([{ active: 'Pup', hand: ['Coach'], emptyDeck: true }, { active: 'Pup' }]);
   assert.ok(!has(empty, 'Coach'), 'a draw Supporter was offered with an empty deck');
@@ -251,8 +251,8 @@ test("a Trainer that would do nothing can't be played: a draw or search card wit
 });
 
 test('an Ability used this turn stays used when its Pokémon evolves into one with the same Ability (TPCi 2016-02-11)', () => {
-  // Greninja's Water Shuriken, then evolving to Greninja BREAK: "it still remembers that it has already used
-  // up its once-per-turn Water Shuriken ability for that turn" (TPCi Rules Team 2016-02-11).
+  // Greninja's Water Shuriken, then evolving to Greninja BREAK: the Ability counts as already used this turn
+  // (TPCi Rules Team 2016-02-11).
   const g = at([{ active: 'Seer', hand: ['Oracle'] }, { active: 'Pup' }]);
   choose(g, 'Use Peek');
   choose(g, 'Evolve Seer (Active) into Oracle');

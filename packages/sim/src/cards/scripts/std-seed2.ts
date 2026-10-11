@@ -51,7 +51,7 @@ export const STD_SEED2: CardScript[] = [
     name: 'Koraidon',
     attacks: {
       // "If your opponent's Active Pokémon is an Evolution Pokémon, this attack does 30 more damage."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2394/): "Yes. Even though Cinderace is not an "Evolved Pokemon" it is still an "Evolution Pokemon" card, and therefore meets the condition of Battle Claw to do the extra damage."
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2394/): a Cinderace put into play at setup by Explosiveness is not "Evolved" but is still an Evolution Pokémon card, so Battle Claw's extra 30 applies.
       // -- the test is on the card's Stage, not on whether it evolved in play.
       'Battle Claw': { damage: { add: [30, { cond: { slotIs: { ref: 'defender', filter: { stage: 'evolution' } } }, then: 30, else: 0 }] } },
       // "Discard all Energy from this Pokémon."
@@ -317,7 +317,7 @@ export const STD_SEED2: CardScript[] = [
     name: 'Vivillon',
     attacks: {
       // "For each of your Benched Pokémon, search your deck for a card that evolves from that Pokémon and put it onto that Pokémon to evolve it. Then, shuffle your deck."
-      // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2054/): "Yes, you can." (evolve Basic Pokémon put into play this turn)
+      // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2054/): Can evolve Basic Pokémon even if put into play this turn.
       'Evo-Powder': { program: EVOLVE_THEN_SHUFFLE('bench') },
     },
   },

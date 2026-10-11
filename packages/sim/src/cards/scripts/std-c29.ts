@@ -63,7 +63,7 @@ export const STD_C29: CardScript[] = [
     id: 'sv08.5-127',
     name: 'Roto-Stick',
     // "Look at the top 4 cards of your deck. You may reveal any number of Supporter cards you find there and put them into your hand. Shuffle the other cards back into your deck."
-    // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2377/): "Yes, the deck is shuffled." (all four put into the hand: the deck is shuffled anyway)
+    // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2377/): even with all cards taken, the deck is shuffled.
     playable: { gte: [{ deckSize: 'self' }, 1] },
     play: [{ op: 'custom', fn: 'c29.lookTopTakeAny', args: { n: 4, filter: { ttype: 'supporter' } } }],
   },
@@ -130,7 +130,7 @@ export const STD_C29: CardScript[] = [
     abilities: [
       {
         // "If this Pokémon is in the Active Spot and is Knocked Out by damage from an attack from your opponent's Pokémon, put 6 damage counters on the Attacking Pokémon."
-        // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2106/): "No, Lillie's Comfey would go to the hand first and then Exploding Needles would be triggered and find no valid target." (the Attacking Pokémon must still be in play)
+        // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2106/): the target must remain in play; if moved away first, there's nothing to target.
         name: 'Exploding Needles',
         triggers: [
           {
@@ -299,7 +299,7 @@ export const STD_C29: CardScript[] = [
     name: "Iono's Voltorb",
     attacks: {
       // "This attack does 20 more damage for each {L} Energy attached to all of your Iono's Pokémon."
-      // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2119/): "Yes. The attack does not specify that it has to be Basic {L} Energy, so Luminous Energy will count while it is attached to one of Iono's Pokemon." (any Energy providing {L} counts, Special Energy too)
+      // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2119/): any Energy providing Lightning counts, including Special Energy.
       'Voltaic Chain': {
         pre: [{ op: 'custom', fn: 'c29.countEnergyOnPokemon', args: { zone: 'myPokemon', slotFilter: IONO, type: 'Lightning', as: 'n' } }],
         damage: { add: [20, { mul: [20, { v: 'n' }] }] },

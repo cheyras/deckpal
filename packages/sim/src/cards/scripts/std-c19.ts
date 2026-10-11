@@ -195,8 +195,8 @@ export const STD_C19: CardScript[] = [
     id: 'sv06-142',
     name: 'Accompanying Flute',
     // "Reveal the top 5 cards of your opponent's deck. You may choose any number of Basic Pokémon you find there and put those Pokémon onto their Bench. Your opponent shuffles the other cards back into their deck."
-    // Ruling (Twilight Masquerade FAQ, TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1985/): "No, you cannot." (play it if your opponent's Bench is full)
-    // Ruling (Twilight Masquerade FAQ, TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1986/): "No, since Accompanying Flute says "you may choose any number", you don't have to choose any Basic Pokemon if you don't want to."
+    // Ruling (Twilight Masquerade FAQ, TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1985/): you can't play it with a full opponent bench.
+    // Ruling (Twilight Masquerade FAQ, TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1986/): you may skip choosing any Pokémon if desired.
     playable: { and: [{ not: { benchFull: 'opp' } }, { gte: [{ deckSize: 'opp' }, 1] }] },
     play: [
       { op: 'custom', fn: 'c19.revealTopPick', args: { n: 5, as: 'x' } },
@@ -253,8 +253,8 @@ export const STD_C19: CardScript[] = [
     id: 'sv06-150',
     name: 'Handheld Fan',
     // "If the Pokémon this card is attached to is in the Active Spot and is damaged by an attack from your opponent's Pokémon (even if this Pokémon is Knocked Out), move an Energy from the Attacking Pokémon to 1 of your opponent's Benched Pokémon."
-    // Ruling (TPCi Rules Team 2024-12-19, https://compendium.pokegym.net/ruling/2091/): "Aqua Return puts Lumineon V into the deck as part of its attack before the Energy can be moved for Handheld Fan's effect.  The order of operations is that effects of the Pokemon's attack happen first, and then any triggered effects on the Defending Pokemon happen next."
-    // Ruling (TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2125/): "The step to process effects such as Handheld Fan comes after the effects of attacks, so Boomerang Energy would be attached again when that check occurs."
+    // Ruling (TPCi Rules Team 2024-12-19, https://compendium.pokegym.net/ruling/2091/): attack effects happen before triggered effects, so Lumineon V enters the deck before the Energy move.
+    // Ruling (TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2125/): Handheld Fan's effect step happens after attacks, allowing Boomerang Energy to reattach.
     triggers: [
       {
         on: 'damagedByAttackActive',
@@ -311,7 +311,7 @@ export const STD_C19: CardScript[] = [
     name: "Ogre's Mask",
     // "Choose a Pokémon ex in your discard pile that has "Ogerpon" in its name, and switch it with 1 of your Pokémon ex in play that has "Ogerpon" in its name.
     //  Any attached cards, damage counters, Special Conditions, turns in play, and any other effects remain on the new Pokémon."
-    // Ruling (Twilight Masquerade FAQ, TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1988/): "Yes, that is allowed." (swap Teal Mask Ogerpon ex for another Teal Mask Ogerpon ex in the discard pile)
+    // Ruling (Twilight Masquerade FAQ, TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1988/): you can swap copies of the same Ogerpon ex.
     playable: {
       and: [
         { gte: [{ count: { zone: 'discard', filter: { cat: 'pokemon', ...OGERPON_EX } } }, 1] },

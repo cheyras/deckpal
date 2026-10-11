@@ -186,7 +186,7 @@ export const STD_C31: CardScript[] = [
     abilities: [
       {
         // "Prevent all damage done to this Pokémon by attacks from your opponent's Pokémon ex."
-        // Ruling (TPCi Rules Team 2026-04-16, https://compendium.pokegym.net/ruling/2335/): "No, the effect of Mysterious Rock Inn is not being done to Mega Clefable ex. It is like a shield on Crustle." (about Mega Clefable ex's Luminous Wing, which is not scripted here)
+        // Ruling (TPCi Rules Team 2026-04-16, https://compendium.pokegym.net/ruling/2335/): Mysterious Rock Inn is a shield on Crustle, not the attacker. (about Mega Clefable ex's Luminous Wing, which is not scripted here)
         name: 'Mysterious Rock Inn',
         statics: [{ effect: { k: 'preventDamage', attacker: { ex: true } }, scope: 'self' }],
       },
@@ -209,7 +209,7 @@ export const STD_C31: CardScript[] = [
     name: "Team Rocket's Blipbug",
     attacks: {
       // "Look at 1 of your opponent's face-down Prize cards."
-      // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2163/): "Your opponent does not get to see the Prize card, and you must replace it in the same position in the Prize area that you took it from."
+      // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2163/): opponent doesn't see it; replace it in the same position.
       'Searching Eyes': { program: [{ op: 'custom', fn: 'c31.lookAtOppPrize' }] },
     },
   },
@@ -218,7 +218,7 @@ export const STD_C31: CardScript[] = [
     name: 'Hydrapple',
     attacks: {
       // "Discard 6 Basic {G} Energy cards from your hand, and Knock Out your opponent's Active Pokémon. If you can't discard 6 cards in this way, this attack does nothing."
-      // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2158/): "No, if you can't discard the six required Energy you cannot discard any Energy cards."
+      // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2158/): all-or-nothing: discard all six or none.
       'Hydra Breath': { program: discardGrassFromHand(6, [{ op: 'knockOut', target: 'oppActive' }]) },
     },
   },
@@ -227,8 +227,8 @@ export const STD_C31: CardScript[] = [
     name: 'Arboliva ex',
     attacks: {
       // "Choose 1 of your opponent's Pokémon 6 times. (You can choose the same Pokémon more than once.) For each time you chose a Pokémon, do 20 damage to it. This damage isn't affected by Weakness or Resistance."
-      // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2161/): "Oil Salvo is a single attack. The attack's damage is calculated after you finish making all choices, so all damage modifiers are applied to the total damage for each Pokemon. In this example, each of the chosen Pokemon receive 40 damage (20 times two) which is then reduced by 30 for each Steven's Pokémon due to Granite Cave, so each will ultimately take 10 damage."
-      // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2160/): "No, you cannot. All damage is done before KO's happen, so the Shaymin is still there to protect Benched Pokemon that don't have a Rule Box."
+      // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2161/): Oil Salvo is one attack; damage is totalled after all choices, then modifiers apply.
+      // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2160/): all damage resolves before KOs; Shaymin still protects non-Rule Box bench.
       // -- the six choices come first and are totalled per Pokémon (c31.tallyChoices), then each Pokémon is damaged once with its total; Knock Outs are checked after.
       'Oil Salvo': {
         program: [...OIL_SALVO_CHOICES, { op: 'custom', fn: 'c31.tallyChoices', args: { n: 6, per: 20 } }, ...OIL_SALVO_HITS],
@@ -314,7 +314,7 @@ export const STD_C31: CardScript[] = [
     id: 'sv09-158',
     name: 'Super Potion',
     // "Heal 60 damage from 1 of your Pokémon. If you healed any damage in this way, discard an Energy from that Pokémon."
-    // Ruling (XY FAQ, TPCi Rules Team 2014-02-06, https://compendium.pokegym.net/ruling/1178/): "You still remove 60 damage (or as much as you can), but that's all." (no Energy attached: the damage is still healed)
+    // Ruling (XY FAQ, TPCi Rules Team 2014-02-06, https://compendium.pokegym.net/ruling/1178/): damage is healed even if no Energy to discard. (no Energy attached: the damage is still healed)
     // Only a damaged Pokémon can be chosen (No effect, no play): the heal always removes damage, so the Energy is always discarded.
     playable: HAS_DAMAGED,
     play: [
@@ -331,8 +331,8 @@ export const STD_C31: CardScript[] = [
     // "As long as this card is attached to a Pokémon, it provides {C} Energy."
     provides: ['Colorless'],
     // "If the Pokémon this card is attached to is in the Active Spot and is damaged by an attack from your opponent's Pokémon (even if this Pokémon is Knocked Out), put 2 damage counters on the Attacking Pokémon."
-    // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2371/): "The Quaquaval ex still takes the damage counters from Spiky Energy since it is the Attacking Pokemon. Even though neither Pokemon are still in the Active Spot, the 60 damage from Exciting Dance was done to the Active Defending Pokemon. It doesn't matter where they end up as long as they are still in play."
-    // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2121/): "4 damage counters would be placed on the attacking Pokemon. The effect of Spiky Energy can stack."
+    // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2371/): Quaquaval ex, as the Attacking Pokémon, still takes the counters although both Pokémon ended on the Bench; the 60 damage went to the Active Defending Pokémon.
+    // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2121/): Spiky Energy stacks, so 2 copies on the damaged Pokémon put 4 damage counters on the attacker.
     triggers: [{ on: 'damagedByAttackActive', program: [{ op: 'custom', fn: 'c31.countersOnAttacker', args: { n: 2 } }] }],
   },
 ];

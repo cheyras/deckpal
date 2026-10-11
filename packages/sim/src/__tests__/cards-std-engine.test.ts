@@ -165,7 +165,7 @@ test('Mega Lopunny ex, Gale Thrust: 60, or 170 more if it moved from the Bench t
   assert.equal(dmg(g, 1), 230, 'moved this turn');
 });
 
-test('Mega Lopunny ex, Gale Thrust: earlier moves do not count (TPCi 2025-12-04, https://compendium.pokegym.net/ruling/2265/)', () => {
+test('Mega Lopunny ex, Gale Thrust: this-turn movement only (TPCi 2025-12-04, https://compendium.pokegym.net/ruling/2265/)', () => {
   // Moved on an earlier turn of its owner.
   const g = lopunny();
   choose(g, 'Retreat');
@@ -174,7 +174,7 @@ test('Mega Lopunny ex, Gale Thrust: earlier moves do not count (TPCi 2025-12-04,
   assert.equal(g.state.turn, 5);
   choose(g, 'Attack: Gale Thrust');
   assert.equal(dmg(g, 1), 60, 'it moved on turn 3, this is turn 5');
-  // "if your opponent KO'd your Active at the end of their turn, moving Mega Lopunny ex to the Active Spot at that time is during their turn."
+  // A Mega Lopunny ex promoted after the opponent's attack Knocked Out your Active moved up during the opponent's turn, not yours.
   const ko = lopunny({ energy: { active: [P, P], 0: [P] } }, { current: 1, turn: 4 }, { active: DRA, energy: { active: [P] } });
   ko.state.p[0].active!.damage = 60;
   choose(ko, 'Attack: Jet Headbutt'); // the opponent's Dragapult Knocks Out Slowpoke; Mega Lopunny ex is promoted on their turn
@@ -185,7 +185,7 @@ test('Mega Lopunny ex, Gale Thrust: earlier moves do not count (TPCi 2025-12-04,
   assert.equal(dmg(ko, 1), 60 + 0, 'promoted during the opponent\'s turn: not during mine');
 });
 
-test('Mega Lopunny ex, Gale Thrust: "if Buneary moved to the Active Spot during your turn and then evolved into Mega Lopunny ex, that would not count"', () => {
+test('Mega Lopunny ex, Gale Thrust: a Buneary that moved to the Active Spot this turn and then evolved does not get the bonus', () => {
   const dk = deck('Mega Lopunny ex', SLO, DRA, 'Buneary');
   const g = scenario(dk, dk, [{ active: SLO, bench: ['Buneary'], energy: { active: [P, P], 0: [P] }, hand: ['Mega Lopunny ex'] }, { active: DRA }]);
   choose(g, 'Retreat');
@@ -225,8 +225,7 @@ test('Lurantis ex, Lively Cutter: 60, or 200 more if it was healed this turn (no
   assert.equal(healed.state.p[0].active!.damage, 20, 'Jumbo Ice Cream healed 80');
   choose(healed, 'Attack: Lively Cutter');
   assert.equal(dmg(healed, 1), 260);
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2405/): "Moving damage counters is not the same thing as
-  // Healing". A heal that removes nothing is not a heal either: Jumbo Ice Cream can't even be played on an undamaged Pokémon.
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2405/): moving damage counters (Adrena-Brain) is not Healing, so Lively Cutter gets no bonus. A heal that removes nothing is not a heal either: Jumbo Ice Cream can't even be played on an undamaged Pokémon.
   const clean = lurantis('Lurantis ex', [G, G, G], 0, { hand: ['Jumbo Ice Cream'] });
   assert.ok(!has(clean, 'Play Jumbo Ice Cream'));
 });
@@ -313,9 +312,7 @@ test('Jynx, Intense Kiss: at the end of the opponent\'s next turn the Defending 
   assert.equal(def(g.ctx, g.state.p[1].active!.cards[0]!).name, 'Rellor', 'Rellor was promoted');
   assert.deepEqual(names(g, g.state.p[1].discard), ['Psychic Energy', 'Psychic Energy', 'Slowpoke']);
   assert.equal(g.state.p[0].prizes.length, 6, 'a discard is not a Knock Out: no Prize card');
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2404/): "Since the Defending Pokemon that Jynx attacked was
-  // moved to the Bench, the attack effect which Intense Kiss placed on that Pokemon was removed. Neither the old Active nor the new Active
-  // are discarded."
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2404/): the Intense Kiss effect was removed when the attacked Pokémon moved to the Bench, so neither the retreating Pokémon nor its replacement is discarded.
   const r = mk();
   choose(r, 'Attack: Intense Kiss');
   choose(r, 'Retreat');

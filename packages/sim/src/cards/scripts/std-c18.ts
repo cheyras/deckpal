@@ -101,7 +101,7 @@ export const STD_C18: CardScript[] = [
     name: 'Sandygast',
     attacks: {
       // "During your opponent's next turn, if the Defending Pokémon tries to use an attack, your opponent flips a coin. If tails, that attack doesn't happen."
-      // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2317/): "You would flip for Sand Attack's effect first, then flip for Confusion."
+      // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2317/): flip for Sand Attack first, then flip for Confusion.
       'Sand Attack': { post: [{ op: 'effect', static: { k: 'attackCoinFlip' }, on: 'defender', duration: 'oppNextTurn' }] },
     },
   },
@@ -110,7 +110,7 @@ export const STD_C18: CardScript[] = [
     name: 'Palossand',
     attacks: {
       // "During your opponent's next turn, if the Defending Pokémon tries to use an attack, your opponent flips a coin. If tails, that attack doesn't happen."
-      // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2317/): "You would flip for Sand Attack's effect first, then flip for Confusion."
+      // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2317/): flip for Sand Attack first, then flip for Confusion.
       'Sand Attack': { post: [{ op: 'effect', static: { k: 'attackCoinFlip' }, on: 'defender', duration: 'oppNextTurn' }] },
     },
   },
@@ -179,10 +179,10 @@ export const STD_C18: CardScript[] = [
     name: 'Greninja ex',
     attacks: {
       // "You may search your deck for a card and put it into your hand. Then, shuffle your deck."
-      // Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1980/): "You don't have to search, but if you do you must take a card and put it into your hand."
+      // Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1980/): search is optional, but if done you take a card.
       'Shinobi Blade': { post: [{ op: 'may', body: searchToHand({}, 1, { reveal: false, min: 1 }) }] },
       // "Discard 2 Energy from this Pokémon. This attack does 120 damage to 2 of your opponent's Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)"
-      // Ruling (TPCi Rules Team 2024-07-11, https://compendium.pokegym.net/ruling/2002/): "You do 100 damage to the two. You first CHOOSE the energy you're going to discard, then do the damage (which is reduced for Double Turbo), and THEN discard the energy."
+      // Ruling (TPCi Rules Team 2024-07-11, https://compendium.pokegym.net/ruling/2002/): you choose the Energy first, then the damage is done (100, not 120, when a Double Turbo is chosen), and only then the Energy is discarded.
       // The damage is done while the Energy is still attached and the discard follows; which Energy is discarded can't change the damage, so choosing it after the damage is the same.
       'Mirage Barrage': {
         program: [
@@ -198,7 +198,7 @@ export const STD_C18: CardScript[] = [
     name: 'Ting-Lu',
     attacks: {
       // "If a Stadium is in play, this attack also does 30 damage to each of your opponent's Benched Pokémon, and discard that Stadium. (Don't apply Weakness and Resistance for Benched Pokémon.)"
-      // Ruling (TPCi Rules Team 2024-09-05, https://compendium.pokegym.net/ruling/2008/): "The damage is indeed done first and then Jamming Tower is discarded, but lucky for Cleffa the check for KO does not happen until all damage and effects have been resolved. Cleffa would have 80HP and is not KO'd by Ground Crasher."
+      // Ruling (TPCi Rules Team 2024-09-05, https://compendium.pokegym.net/ruling/2008/): damage first, then discard; KO check after all effects resolve.
       // The Knock Out check runs after the whole attack, so it sees the Stadium already discarded.
       'Ground Crasher': {
         post: [
@@ -218,7 +218,7 @@ export const STD_C18: CardScript[] = [
       {
         name: 'Adrena-Power',
         // "If this Pokémon has any {D} Energy attached, it gets +100 HP, and the attacks it uses do 100 more damage to your opponent's Active Pokémon (before applying Weakness and Resistance)."
-        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2170/): "Yes, although Luminous Energy only provides one unit of energy, it is providing all energy types all the time." (Pinned with Legacy Energy, which provides every type too.)
+        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2170/): yes, Luminous Energy provides all types despite one unit. (Pinned with Legacy Energy, which provides every type too.)
         statics: [
           { effect: { k: 'hp', delta: 100 }, scope: 'self', when: HAS_DARK_ENERGY },
           { effect: { k: 'damageOut', amount: 100 }, scope: 'self', when: HAS_DARK_ENERGY },
