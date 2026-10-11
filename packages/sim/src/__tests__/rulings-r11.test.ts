@@ -347,7 +347,7 @@ test('Dipplin, Festival Lead: after it Knocks Out the Flutter Mane that switched
 
 // ----------------------------------------------------------------------------------------------- Walrein
 
-// https://compendium.pokegym.net/ruling/2055/ : Frigid Fangs' lock sits on the opponent's Pokemon, so moving Walrein to the Bench does not end it.
+// https://compendium.pokegym.net/ruling/2055/ : Frigid Fangs' lock belongs to the opponent's Pokemon, so it lasts after Walrein goes to the Bench.
 test('Walrein, Frigid Fangs: the attack lock stays on the opponent\'s Pokémon after Walrein moves to the Bench (https://compendium.pokegym.net/ruling/2055/)', () => {
   const mk = (): Game => {
     const g = scenario(DK, DK, [
