@@ -105,7 +105,11 @@ function slotHash(env: Env, sl: Slot): Hash {
   for (const c of sl.cards) h.seq(cd[c] as number);
   h.seq(-1).bag(sl.energy, cd).seq(-2);
   for (const c of sl.tools) h.seq(cd[c] as number);
-  h.seq(sl.damage).seq(sl.cond).seq(sl.enteredTurn).seq(sl.evolvedTurn);
+  h.seq(sl.id).seq(sl.damage).seq(sl.cond).seq(sl.enteredTurn).seq(sl.evolvedTurn);
+  // Every other public per-Pokémon fact the rules read (history turns, Special Condition counter amounts, Knock Out and damage records).
+  h.seq(sl.paralyzedTurn ?? -1).seq(sl.movedActiveTurn ?? -1).seq(sl.healedTurn ?? -1).seq(sl.attackDmgTurn ?? -1).seq(sl.attackDmg ?? -1);
+  h.seq(sl.poisonCounters ?? -1).seq(sl.burnCounters ?? -1).seq(sl.confusionCounters ?? -1);
+  h.seq(+!!sl.koTriggered + 2 * +!!sl.braced + 4 * (sl.koHandAnswer === undefined ? 0 : 1 + +sl.koHandAnswer));
   // Which Abilities were used, not how often: an "as often as you like" Ability logs every use, and only the first changes what can be played.
   let used = 0;
   for (const u of sl.usedAbilities) {
@@ -173,6 +177,8 @@ export function publicKey(env: Env, s: GameState, me: Player): string {
     h.bag(ps.revealed, cd).bag(ps.prizesUp ?? [], cd).bag(ps.lost, cd).bag(ps.playedThisTurn ?? [], cd);
     h.bag(ps.koCards ?? [], cd).seq(ps.koCardsTurn ?? -1).bag(ps.prevKoCards ?? [], cd).seq(ps.prevKoCardsTurn ?? -1);
     h.seq(ps.prizesAtTurnStart ?? -1).seq(ps.prizesLastTurn ?? -1);
+    h.seq(ps.mulligans).seq(ps.prizesTaken).seq(ps.lastKoTurn).seq(ps.prevKoTurn ?? -1).seq(ps.attackKoTurn ?? -1).bag(ps.attackKoCards ?? [], cd);
+    h.bag(ps.toolUsed ?? [], cd);
     for (const g of ps.oncePerGame ?? []) str(h, g);
     if (ps.attackRec) json(h, ps.attackRec);
     if (ps.prevAttackRec) json(h, ps.prevAttackRec);
@@ -190,16 +196,21 @@ export function publicKey(env: Env, s: GameState, me: Player): string {
     h.seq(ba).seq(bb);
   }
   h.seq(s.attackUses ?? 0).seq(+!!s.attackedViaTool + 2 * +s.attacked + 4 * +!!s.noMoreAttacks).seq(s.stack.length).bag(s.limbo, cd);
+  h.seq(s.first).seq(s.afterKo.length).seq(s.attackBy ?? -1).seq(s.attackByCard === undefined ? -1 : (cd[s.attackByCard] as number)).seq(s.benchOwner ?? -1).seq(s.queued.length);
+  for (const x of s.attackHits ?? []) h.seq(x);
+  str(h, s.afterKo);
   h.seq(s.effects.length);
   for (const e of s.effects) {
     h.seq(e.slot).seq(e.player).seq(e.until).seq(+e.fromAttack).seq(e.since ?? -1).seq(cd[e.src] as number);
+    h.seq(e.by ?? -1).seq(e.from ?? -1).seq(e.atk ? e.atk.by * 1000 + e.atk.use : -1);
+    if (e.scope) json(h, typeof e.scope === 'object' ? e.scope : { scope: e.scope });
     json(h, e.static);
     if (e.filter) json(h, e.filter);
     if (e.code) str(h, e.code);
   }
   h.seq(s.delayed?.length ?? 0);
   for (const d of s.delayed ?? []) {
-    h.seq(d.slot).seq(d.player);
+    h.seq(d.slot).seq(d.player).seq(d.turn).seq(+d.fromAttack).seq(d.from).seq(cd[d.src] as number);
     str(h, d.code);
   }
   return h.value();

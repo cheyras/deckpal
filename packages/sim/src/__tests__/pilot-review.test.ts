@@ -9,7 +9,7 @@ import { createContext } from '../context.js';
 import { Game } from '../game.js';
 import { publicKey } from '../pilot/lookahead.js';
 import { makePilot } from '../pilot/index.js';
-import { searchWorld, SearchPilot, type Memo } from '../pilot/search.js';
+import { raise, searchWorld, SearchPilot, type Memo } from '../pilot/search.js';
 import { replayLog } from '../replay/replay.js';
 import { cloneState } from '../state.js';
 import type { GameState } from '../types.js';
@@ -120,6 +120,7 @@ test('publicKey: known information is in the key, unknown order and the opponent
  * from it: every winning line is "get an attacker ready, then attack", so a budget that stops partway through a
  * position's options leaves the winning option unsearched.
  */
+const SEEDS = (process.env.SEEDS ?? "11,12,16,18,19").split(",").map(Number);
 function lethalPosition(seed: number): { env: { ctx: ReturnType<typeof createContext>; emit: null }; state: GameState } {
   const { g, ctx } = midGame(seed);
   const state = cloneState(g.state);
@@ -133,7 +134,7 @@ function lethalPosition(seed: number): { env: { ctx: ReturnType<typeof createCon
 test('a search cut by its node budget does not mark what it left unsearched as played out; a later search finds the win', () => {
   let cutRuns = 0;
   let wins = 0;
-  for (const seed of [11, 12, 16, 18, 19]) {
+  for (const seed of SEEDS) {
     const { env, state } = lethalPosition(seed);
     const opts = new SearchPilot(3).opts;
     const W = opts.weights.win / 2;
@@ -187,6 +188,14 @@ test('a replay observer that mutates what it is given, or throws, leaves the rep
         o.game.state.p[0].hand.length = 0;
         o.game.state.p[1].deck.length = 0;
         o.game.state.turn = 1000;
+        // Through the cloned game's own pending decision: its action objects and the records the state holds.
+        for (const a of (o.game.decision?.actions ?? []) as { t: string }[]) a.t = 'end';
+        for (const p of o.game.state.p) {
+          p.playedThisTurn?.push(-5);
+          p.revealed.push(-5);
+          for (const sl of [p.active, ...p.bench]) if (sl) sl.cards.length = 0;
+        }
+        o.game.state.effects.length = 0;
       },
       finish: () => 'done',
     }),
@@ -194,6 +203,18 @@ test('a replay observer that mutates what it is given, or throws, leaves the rep
   same(vandal);
   assert.equal(vandal.observed, 'done');
   assert.equal(vandal.observerErrors, undefined);
+  const nullThrower = replayLog(f, {
+    observe: () => ({
+      decision() {
+        throw null;
+      },
+      finish() {
+        throw undefined;
+      },
+    }),
+  });
+  same(nullThrower);
+  assert.ok((nullThrower.observerErrors?.length ?? 0) > 20, 'a thrown null is reported too');
   const thrower = replayLog(f, {
     observe: () => ({
       decision() {
@@ -280,4 +301,91 @@ test('a turn with Rocket Brain (an Ability usable as often as you like) ends: th
     n++;
   }
   assert.ok(g.over, `stalled after ${n} decisions at turn ${g.state.turn}`);
+});
+
+test('publicKey: every rule-relevant public per-Pokémon fact and effect field is in the key', () => {
+  const { g, ctx } = midGame(7);
+  const env = { ctx, emit: null };
+  const a = cloneState(g.state);
+  const base = publicKey(env, a, 0);
+  const slotOf = (s: GameState) => s.p[0].active as NonNullable<GameState['p'][0]['active']>;
+  const changes: [string, (s: GameState) => void][] = [
+    ['movedActiveTurn', (s) => (slotOf(s).movedActiveTurn = 3)],
+    ['healedTurn', (s) => (slotOf(s).healedTurn = 3)],
+    ['poisonCounters', (s) => (slotOf(s).poisonCounters = 5)],
+    ['burnCounters', (s) => (slotOf(s).burnCounters = 4)],
+    ['confusionCounters', (s) => (slotOf(s).confusionCounters = 6)],
+    ['paralyzedTurn', (s) => (slotOf(s).paralyzedTurn = 2)],
+    ['attackDmg', (s) => ((slotOf(s).attackDmgTurn = 3), (slotOf(s).attackDmg = 50))],
+    ['braced', (s) => (slotOf(s).braced = true)],
+    ['mulligans', (s) => s.p[1].mulligans++],
+    ['prizesTaken', (s) => s.p[1].prizesTaken++],
+    ['lastKoTurn', (s) => (s.p[0].lastKoTurn += 1)],
+    ['attackKoTurn', (s) => (s.p[1].attackKoTurn = 3)],
+    ['benchOwner', (s) => (s.benchOwner = 1)],
+    ['attackBy', (s) => (s.attackBy = 7)],
+  ];
+  for (const [name, f] of changes) {
+    const s = cloneState(a);
+    f(s);
+    assert.notEqual(publicKey(env, s, 0), base, name + ' is in the key');
+  }
+  // Effects and delayed effects: scope, attack record, controller and origin all count, and so does which Pokémon they sit on.
+  const withEffect = cloneState(a);
+  withEffect.effects.push({ static: { kind: 'noop' } as never, slot: slotOf(a).id, player: 0, until: 9, fromAttack: false, src: slotOf(a).cards[0] as number });
+  const effKey = publicKey(env, withEffect, 0);
+  assert.notEqual(effKey, base);
+  const variants: [string, (e: GameState['effects'][0]) => void][] = [
+    ['scope', (e) => (e.scope = 'opp' as never)],
+    ['atk', (e) => (e.atk = { by: 1, use: 2 })],
+    ['by', (e) => (e.by = 1)],
+    ['from', (e) => (e.from = 4)],
+    ['slot', (e) => (e.slot = e.slot + 1)],
+  ];
+  for (const [name, f] of variants) {
+    const s = cloneState(withEffect);
+    f(s.effects[0] as GameState['effects'][0]);
+    assert.notEqual(publicKey(env, s, 0), effKey, 'effect ' + name + ' is in the key');
+  }
+  const withDelay = cloneState(a);
+  withDelay.delayed = [{ code: 'x', slot: 1, player: 0, src: slotOf(a).cards[0] as number, from: 1, turn: 5, fromAttack: false }];
+  const delKey = publicKey(env, withDelay, 0);
+  type D = NonNullable<GameState['delayed']>[0];
+  const delayVariants: ((d: D) => void)[] = [(d) => (d.turn = 6), (d) => (d.from = 2), (d) => (d.fromAttack = true), (d) => (d.src = slotOf(a).energy[0] as number)];
+  for (const f of delayVariants) {
+    const s = cloneState(withDelay);
+    f((s.delayed as D[])[0] as D);
+    assert.notEqual(publicKey(env, s, 0), delKey);
+  }
+});
+
+test('the repetition guard does not reject a position that looks the same but has a different moved / healed history', () => {
+  const { g, ctx } = midGame(11);
+  const env = { ctx, emit: null };
+  const opts = { ...new SearchPilot(3).opts, nodes: 0 };
+  const visited = new Map<string, Memo>();
+  searchWorld(env, cloneState(g.state), 0, opts, visited);
+  assert.ok(visited.size > 0);
+  // The same board, but its Active Pokémon was healed this turn: nothing reached from it equals a visited position.
+  const healed = cloneState(g.state);
+  (healed.p[0].active as NonNullable<GameState['p'][0]['active']>).healedTurn = healed.turn;
+  const memo = new Map<string, Memo>();
+  searchWorld(env, healed, 0, opts, memo, new Set(visited.keys()));
+  const unguarded = new Map<string, Memo>();
+  searchWorld(env, cloneState(healed), 0, opts, unguarded);
+  assert.equal(memo.size, unguarded.size, 'no position of the healed line was taken for a repeat');
+  assert.ok(memo.size > 0);
+});
+
+test('a value found under a position reaches every position that leads to it (diamond), so none is saved as played out with less', () => {
+  type N = { val: number; parents: N[] };
+  const root: N = { val: 0, parents: [] };
+  const a: N = { val: 0, parents: [root] };
+  const b: N = { val: 0, parents: [root] };
+  const c: N = { val: 0, parents: [a] };
+  c.parents.push(b); // the second line to reach the position
+  raise(c, 1_000_000);
+  assert.deepEqual([a.val, b.val, c.val, root.val], [1_000_000, 1_000_000, 1_000_000, 1_000_000]);
+  raise(c, 5);
+  assert.equal(b.val, 1_000_000, 'a lower value changes nothing');
 });

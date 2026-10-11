@@ -61,11 +61,27 @@ export const DEFAULT_SEARCH: Required<Omit<SearchOptions, 'weights' | 'profile'>
   verify: 3,
 };
 
+/**
+ * Record that `v` was found at or below `n`: it raises `n` and every position that leads to it, not only the one that first
+ * reached it. In a diamond A->C, B->C a win found under C is also B's, so B cannot later be saved as played out with less.
+ */
+export function raise(n: { val: number; parents: { val: number; parents: unknown[] }[] } | null, v: number): void {
+  type P = { val: number; parents: P[] };
+  const todo: P[] = n ? [n as P] : [];
+  for (let x = todo.pop(); x; x = todo.pop()) {
+    if (v <= x.val) continue;
+    x.val = v;
+    for (const p of x.parents) todo.push(p);
+  }
+}
+
 interface Node {
   s: GameState;
   first: number;
   est: number;
   parent: Node | null;
+  /** Every position that leads here (`parent` first): a value found below this node belongs to all of them. */
+  parents: Node[];
   /** What the player can see of the position (publicKey), for reuse by a later search of the same turn. */
   key: string;
   /** The best score found anywhere at or below this node. */
@@ -168,9 +184,7 @@ export function searchWorld(
   const seen = new Map<string, Node>();
   const made: Node[] = [];
   let nodes = 0;
-  const bump = (n: Node | null, v: number) => {
-    for (; n && v > n.val; n = n.parent) n.val = v;
-  };
+  const bump = (n: Node | null, v: number) => raise(n, v);
 
   const score = (s: GameState): number => {
     if (s.phase === 'over' || s.turn !== rootTurn) return evaluate(env, s, me, o.weights, s.current);
@@ -232,10 +246,14 @@ export function searchWorld(
         }
         const twin = seen.get(h);
         if (twin) {
-          pn?.kids.push(twin);
+          if (pn) {
+            pn.kids.push(twin);
+            twin.parents.push(pn);
+            bump(pn, twin.val);
+          }
           continue;
         }
-        const nd: Node = { s: c, first: f, est: v, line: l, parent: pn, key: h, val: v, done: false, expanded: false, kids: [] };
+        const nd: Node = { s: c, first: f, est: v, line: l, parent: pn, parents: pn ? [pn] : [], key: h, val: v, done: false, expanded: false, kids: [] };
         seen.set(h, nd);
         pn?.kids.push(nd);
         made.push(nd);

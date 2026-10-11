@@ -32,7 +32,7 @@ function hashGame(i: number): string {
 }
 
 const GOLDEN: string[] = [
-  '8d1fd2d133cab4b3',
+  '907b8ced3376dc7c',
   '463875b18814e9fa',
   '99322547f6eea095',
   'aa539e53fdf96adf',
@@ -42,12 +42,12 @@ const GOLDEN: string[] = [
   '37b8f9b61a77393b',
   '203141ad9255dfd0',
   '48b4e069223edaae',
-  'aab6bc5d36bb948c',
+  'fe96d463526eafb2',
   '34e358e2e1763e8b',
   '8fcac70e06760e69',
   'e992aab78bd33ef7',
   'fa29011fcdd24b85',
-  'e1bb7edbd9cb4517',
+  'e95eacadea7d5c4e',
   '92fe7b61b7cd8acd',
   'c1d04423693886d9',
   'c5057f3d9226b725',
@@ -57,7 +57,7 @@ const GOLDEN: string[] = [
   '782aa5bb538e36b5',
   '0a5f8228cb758a67',
   'da630e08aa403d4b',
-  'f910c321a34d7879',
+  'a827ece1aca40b02',
   '44719b407cab5f99',
   '36953fd9be87043b',
   '5e263ab4459a32e7',

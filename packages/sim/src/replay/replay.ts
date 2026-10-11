@@ -125,6 +125,15 @@ export interface ReplayResult {
   observerErrors?: string[];
 }
 
+/** Whatever was thrown, as text (a thrown null or string has no message). */
+function thrownText(err: unknown): string {
+  try {
+    return err instanceof Error ? err.message : String(err);
+  } catch {
+    return 'unprintable error';
+  }
+}
+
 const ACTIONS = new Set(['play_bench', 'play_stadium', 'play_card', 'evolve', 'attach', 'use', 'attack', 'retreat', 'end_turn']);
 
 const norm = (n: string) => canonicalName(n).toLowerCase();
@@ -1515,9 +1524,12 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
         // The observer gets copies (a cloned game, a copied decision and answer): whatever it does to them, or throws,
         // cannot reach the replay. Its errors are reported in `observerErrors`, not counted as the engine diverging.
         try {
+          // A game over a deep copy of the state (`clone` shares the action objects and optional records), and its own decision.
+          const seen = g.clone();
+          seen.state = structuredClone(g.state);
           observer.decision({
-            game: g.clone(),
-            decision: structuredClone(d),
+            game: seen,
+            decision: seen.decision as Decision,
             choice: [...choice],
             known: !usedFallback && !implicitEnd,
             event: d.kind === 'main' && nextAct ? { line: nextAct.line, turn: nextAct.turn, text: describe(nextAct) } : null,
@@ -1525,7 +1537,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
             fillersInHand: s.p[d.player].hand.filter((c) => name(c) === HIDDEN).length,
           });
         } catch (err) {
-          (result.observerErrors ??= []).push(`T${s.turn} ${d.kind}: ${(err as Error).message}`);
+          (result.observerErrors ??= []).push(`T${s.turn} ${d.kind}: ${thrownText(err)}`);
         }
       }
       g.submit(choice);
@@ -1544,7 +1556,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
     try {
       result.observed = observer.finish();
     } catch (err) {
-      (result.observerErrors ??= []).push(`finish: ${(err as Error).message}`);
+      (result.observerErrors ??= []).push(`finish: ${thrownText(err)}`);
     }
   }
   if (o.transcript) result.transcript = transcript(ctx, g.events);
