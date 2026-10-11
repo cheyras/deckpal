@@ -109,7 +109,7 @@ registerCustom('c11.multiplyCounters', (env, s, f, args) => {
 
 /**
  * Mega Chandelure ex, Phantom Maze: "This attack does 50 more damage for each {C} in your opponent's Active Pokémon's Retreat Cost."
- * Ruling (TPCi Rules Team 2026-04-02, https://compendium.pokegym.net/ruling/2386/): Antique Fossils have "no Retreat cost," not zero; it can't be modified.
+ * Ruling (TPCi Rules Team 2026-04-02, https://compendium.pokegym.net/ruling/2386/): Antique Fossils have no Retreat Cost at all (not a cost of zero); that is fixed, so Binding Flame cannot give them one.
  * args: { as } -- sets variable `as` (default `n`) to the Retreat Cost the Defending Pokémon has right now, after every
  * effect that changes it, or 0 when that "Pokémon" is a Trainer card played as one (an Antique fossil has no Retreat
  * Cost for an effect to add to).

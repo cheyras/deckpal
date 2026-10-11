@@ -99,7 +99,7 @@ export const STD_30C: CardScript[] = [
     name: 'Umbreon',
     attacks: {
       // "If any of your Pokémon were Knocked Out by damage from an attack during your opponent's last turn, this attack does 100 more damage."
-      // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2200/): a Pokémon with Legacy Energy counts as KO'd for triggering purposes, even though it doesn't yield a prize. (same wording as Retaliate)
+      // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2200/): a Knocked Out Pokémon counts even when no Prize card is taken for it (Legacy Energy). (same wording as Retaliate)
       Retaliate: { damage: { add: [30, moreIf({ custom: 'std.attackKoLastTurn' }, 100)] } },
     },
   },

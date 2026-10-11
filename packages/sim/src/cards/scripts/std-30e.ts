@@ -40,7 +40,7 @@ export const STD_30E: CardScript[] = [
         statics: [
           // "This Pokémon can use the attacks of any of your Benched Pokémon. (You still need the necessary Energy to use each attack.)"
           // Ruling (TPCi Rules Team 2012-08-23, https://compendium.pokegym.net/ruling/292/): the copied attack needs the full Energy cost in both type and quantity.
-          // Ruling (TPCi Rules Team 2015-02-05, https://compendium.pokegym.net/ruling/295/): a turn-end restriction on the attack stays with the Pokémon that used it.
+          // Ruling (TPCi Rules Team 2015-02-05, https://compendium.pokegym.net/ruling/295/): Mew EX copying X Blast uses that attack name, so it cannot repeat X Blast next turn; borrowing alone adds no restriction.
           // Ruling (TPCi Rules Team 2012-08-23, https://compendium.pokegym.net/ruling/293/): restrictions on using an attack only bind the Pokémon that used it.
           { effect: { k: 'borrowAttacks' }, scope: 'self' },
         ],

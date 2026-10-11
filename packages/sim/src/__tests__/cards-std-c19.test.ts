@@ -582,7 +582,7 @@ test('Handheld Fan, ruling 2091: an attack that puts the attacker into the deck 
 });
 
 test('Handheld Fan, ruling 2125: a Boomerang Energy discarded by the attack is attached again before the Fan moves an Energy', () => {
-  // Ruling (TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2125/): Triggered effects process after attacks, so reattachments happen before moves.
+  // Ruling (TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2125/): The Handheld Fan step runs after attack effects, so Boomerang Energy is already reattached to Darmanitan when it checks.
   const dk = deck('me02.5-033', URSA, FAN, CHANSEY, BOOMERANG);
   const g = scenario(dk, dk, [
     { active: "N's Darmanitan", bench: ['Chansey'], energy: { active: [F, F, 'Boomerang Energy'] } },

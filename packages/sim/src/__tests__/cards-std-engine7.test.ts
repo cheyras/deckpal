@@ -228,7 +228,7 @@ test('Fezandipiti, Adrena-Pheromone: with any {D} Energy attached, a coin is fli
   assert.equal(none.state.forcedCoins.length, 1);
   const bare = mk([]);
   assert.equal(bare.state.forcedCoins.length, 1);
-  // Ruling (TPCi Rules Team 2024-05-23, 1969): Legacy Energy satisfies all types.
+  // Ruling (TPCi Rules Team 2024-05-23, 1969): Legacy Energy provides every type, so it counts as {D} Energy.
   const legacy = mk(['Legacy Energy']);
   assert.equal(legacy.state.p[1].active!.damage, 0);
   assert.equal(legacy.state.forcedCoins.length, 0, 'it flipped');
@@ -257,7 +257,7 @@ test('Kecleon, Expert Hider: a coin flip when it is damaged by an attack; not fo
   tackle(g);
   assert.equal(g.state.p[1].active!.damage, 0);
   // Tatsugiri ex's Surprise Pump: "This attack's damage isn't affected by any effects on your opponent's Active Pokémon."
-  // Ruling (TPCi Rules Team 2024-11-07, 2040): Expert Hider's reduction doesn't apply because Surprise Pump bypasses Defending Pokémon effects.
+  // Ruling (TPCi Rules Team 2024-11-07, 2040): Surprise Pump does the full 100; Expert Hider's damage reduction is an effect, which the attack ignores.
   const t = scenario(dk, dk, [{ active: 'Tatsugiri ex', energy: { active: [FIR, WTR] } }, { active: 'Kecleon', bench: ['Dreepy'] }]);
   t.state.forcedCoins = [true];
   choose(t, 'Attack: Surprise Pump');
@@ -842,7 +842,7 @@ test('Relicanth, Memory Dive: each evolved Pokémon of yours can use the attacks
   const g = mk(true);
   choose(g, 'Attack: Leafage');
   assert.equal(g.state.p[1].active!.damage, 20);
-  // Ruling (TPCi Rules Team 2026-03-26, 2311): Sniper's Eye applies to all attacks available through Memory Dive, including inherited ones.
+  // Ruling (TPCi Rules Team 2026-03-26, 2311): Sniper's Eye removes the {C} part of the cost of every attack Decidueye ex can use, including inherited ones.
   // Sniper's Eye: "If your opponent has exactly 4 cards in their hand, ignore all {C} Energy in the costs of attacks used by this Pokémon."
   const four = scenario(dk, dk, [{ active: 'Rowlet', evolve: { active: ['Dartrix', 'Decidueye ex'] }, bench: ['Relicanth'] }, { active: 'Dreepy', hand: rep(GRS, 4) }]);
   assert.ok(has(four, 'Attack: Feather Shot'), "Dartrix's Feather Shot {C}{C}{C} costs nothing with exactly 4 cards in the opponent's hand");

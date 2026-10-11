@@ -163,7 +163,7 @@ test("Team Rocket's Moltres ex, Evil Incineration: discards a Team Rocket's Ener
   assert.equal(g.state.p[1].discard.length, oppDiscard + 4, 'the Pokémon, 2 Energy and the Tool');
   assert.equal(discard.filter((n) => n === DRA).length, 1);
   assert.equal(discard.filter((n) => n === 'Air Balloon').length, 1);
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2156/): you discard the Pokémon without earning a Prize.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2156/): discarding the Pokémon is not a Knock Out, so no Prize card is taken.
   assert.equal(g.state.p[0].prizesTaken, 0, 'no Prize card');
   assert.equal(g.state.p[1].active === null || nameOf(g, g.state.p[1].active.cards[0]!) === SLO, true);
   assert.equal(g.decision?.player, 1, 'the opponent promotes a new Active Pokémon');

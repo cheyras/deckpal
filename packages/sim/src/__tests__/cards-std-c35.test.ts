@@ -109,7 +109,7 @@ test('Serperior ex, Regal Cheer: attacks used by your Pokémon do 20 more damage
   };
   assert.equal(hit([]), 10, 'no Serperior ex: the printed 10');
   assert.equal(hit(['Serperior ex']), 30, '+20 from a Benched Serperior ex, for another Pokémon');
-  // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2186/): Multiple copies of the bonus stack for cumulative effects.
+  // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2186/): Serperior ex's Regal Cheer Ability stacks across several copies.
   assert.equal(hit(['Serperior ex', 'Serperior ex']), 50, 'two Serperior ex: +40');
   // "to your opponent's Active Pokémon": the Bench is not touched, and the opponent's own attacks are not boosted.
   const spread = scenario(dk, dk, [{ active: 'Munna', energy: { active: [P] }, bench: ['Serperior ex'] }, { active: DRA, bench: ['Rellor'] }]);
@@ -184,7 +184,7 @@ test('Maractus, Lively Needles: 20, or 100 more if it was healed this turn (not 
   assert.equal(healed.state.p[0].active!.damage, 0, 'healed 80, of which 50 were there');
   choose(healed, 'Attack: Lively Needles');
   assert.equal(dmg(healed, 1), 120);
-  // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2198/): Healing that removes zero damage does not count as having healed.
+  // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2198/): Fennel that removes no damage counters does not count as healing, so Lively Needles deals only its base 20.
   const clean = mk(0, ['Jumbo Ice Cream']);
   assert.ok(!has(clean, 'Play Jumbo Ice Cream'));
   choose(clean, 'Attack: Lively Needles');
@@ -385,7 +385,7 @@ test('Eelektrik, Dynamotor: attach a Basic {L} Energy card from your discard pil
   assert.deepEqual(namesOf(g, g.state.p[0].bench[0]!.energy), []);
   assert.deepEqual(namesOf(g, g.state.p[0].discard), [W]);
   assert.ok(!has(g, 'Use Dynamotor'), 'once during your turn');
-  // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2182/): the card specifies Basic Energy, so Special Energy that provides the type does not qualify.
+  // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2182/): the Black Bolt Eelektrik names Basic Energy, so a Special Energy that merely provides the type does not qualify.
   assert.ok(!has(mk({ discard: ['Legacy Energy', W] }), 'Use Dynamotor'));
   // Needs a Benched Pokémon.
   assert.ok(!has(mk({ bench: [] }), 'Use Dynamotor'));
@@ -583,7 +583,7 @@ test("Meloetta ex, Echoed Voice: 30; during your next turn it does 80 more, and 
     before = dmg(g, 1);
     if (i < 2) passRound(g);
   }
-  // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2191/): damage dealt is 30, then 110 on subsequent turns when bonused.
+  // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2191/): Echoed Voice deals 30, then 110, then 110 again; the bonus applies only for the next turn and does not keep stacking.
   assert.deepEqual(dealt, [30, 110, 110]);
   // Only the next turn: skip a turn (no attack) and the bonus is gone.
   const skip = scenario(dk, dk, [{ active: 'Meloetta ex', energy: { active: [P] } }, FOE]);

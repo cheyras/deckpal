@@ -71,7 +71,7 @@ export const STD_S02: CardScript[] = [
     name: 'Zamazenta',
     attacks: {
       // "During your opponent's next turn, if this Pokémon is damaged by an attack (even if this Pokémon is Knocked Out), put damage counters on the Attacking Pokémon equal to the damage done to this Pokémon."
-      // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2165/), on a Zamazenta with no damage hit for 200 (13 or 20 counters?): damage done counts before being capped at HP.
+      // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2165/), on a Zamazenta with no damage hit for 200 (13 or 20 counters?): 20 counters are placed for 200 damage; damage can exceed the Pokémon's remaining HP.
       // -- the damage done is counted before it is capped at the Pokémon's HP (s02.damageDoneAsCounters).
       'Strong Bash': {
         post: [
@@ -151,7 +151,7 @@ export const STD_S02: CardScript[] = [
       // (bookkeeping, not printed) remember that an attack's damage hit this Pokémon in the Active Spot; see s01.markHitWhileActive.
       { on: 'damagedByAttackActive', program: [{ op: 'custom', fn: 's01.markHitWhileActive' }] },
       // "If the Pokémon this card is attached to has a Retreat Cost of exactly 4, is in the Active Spot, and is Knocked Out by damage from an attack from your opponent's Pokémon, move up to 3 Basic Energy cards from that Pokémon to your Benched Pokémon in any way you like."
-      // Ruling (TPCi Rules Team 2024-06-20, https://compendium.pokegym.net/ruling/1992/), on Iron Hands ex pushed to the Bench by Exciting Dance: the Ability works even if KOs are checked after the attack completes, since it was damaged and KO'd while in the Active Spot.
+      // Ruling (TPCi Rules Team 2024-06-20, https://compendium.pokegym.net/ruling/1992/), on Iron Hands ex pushed to the Bench by Exciting Dance: Heavy Baton works: Iron Hands ex was damaged while Active and Knocked Out by that same attack, even though it sits on the Bench when KOs are checked.
       {
         on: 'knockedOutByAttack',
         when: { and: [{ custom: 's02.retreatCostIs', args: { n: 4 } }, { or: [{ inActive: 'self' }, { custom: 's01.hitWhileActive' }] }] },

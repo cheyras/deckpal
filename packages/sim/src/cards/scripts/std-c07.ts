@@ -53,7 +53,7 @@ export const STD_C07: CardScript[] = [
     id: 'me02.5-204',
     name: "Team Rocket's Giovanni",
     // "Switch your Active Team Rocket's Pokémon with 1 of your Benched Team Rocket's Pokémon. If you do, switch in 1 of your opponent's Benched Pokémon to the Active Spot."
-    // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2168/): you make all of the switch choices.
+    // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2168/): you make every choice for both players' switches.
     playable: { and: [{ slotIs: { ref: 'myActive', filter: TR } }, { gte: [{ pokemon: { zone: 'myBench', filter: TR } }, 1] }] },
     play: [
       { op: 'chooseSlots', from: 'myBench', filter: TR, min: 1, max: 1, as: 't', prompt: "Switch with which Benched Team Rocket's Pokémon?" },
@@ -139,7 +139,7 @@ export const STD_C07: CardScript[] = [
     fix: { specialEnergy: true },
     // "As long as this card is attached to a Pokémon, it provides {C} Energy.
     //  If this card is attached to a Basic Pokémon, this card provides every type of Energy but provides only 1 Energy at a time."
-    // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2194/): on Basic Pokémon, Prism provides any type; on others, only colorless.
+    // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2194/): Prism Energy can be discarded by Firefighting as {R} only when attached to a Basic Pokémon; on a non-Basic it does not count as {R}.
     // Rulings 2291 / 2249: counts for "for each {R} / {W} Energy" and "at least N {W} Energy" effects that don't say Basic Energy.
     provides: ['Colorless'],
     providesAny: { n: 1, when: { stage: 'basic' } },
@@ -202,7 +202,7 @@ export const STD_C07: CardScript[] = [
     name: 'Shaymin',
     attacks: {
       // "Search your deck for an Energy card and attach it to 1 of your Benched {G} Pokémon. Then, shuffle your deck."
-      // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2318/): any Energy type works, including Special Energies. (Special Energy too)
+      // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2318/): yes, Special Energy can be found too, since the attack puts no limit on the Energy card's kind.
       'Send Flowers': {
         program: [
           { op: 'chooseSlots', from: 'myBench', filter: { type: 'Grass' }, min: 1, max: 1, as: 't', prompt: 'Attach it to which Benched {G} Pokémon?' },
@@ -227,7 +227,7 @@ export const STD_C07: CardScript[] = [
       // "This attack does 20 damage for each of your Pokémon in play."
       'Regal Command': { damage: { mul: [20, { pokemon: { zone: 'myPokemon' } }] } },
       // "If Rosa's Encouragement is in your discard pile, this attack does 150 more damage."
-      // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2319/): bonus applies once if any Rosa's Encouragement is discarded.
+      // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2319/): no, it only checks whether a Rosa's Encouragement sits in the discard pile, so two copies still add just 150.
       'Solar Coiling': { damage: { add: [100, moreIf({ gte: [{ count: { zone: 'discard', filter: { name: "Rosa's Encouragement" } } }, 1] }, 150)] } },
     },
   },
@@ -242,7 +242,7 @@ export const STD_C07: CardScript[] = [
       {
         name: 'Grand Wing',
         // "Once during your turn, you may use this Ability. Your opponent shuffles their hand and puts it on the bottom of their deck. If they put any cards on the bottom of their deck in this way, they draw 4 cards."
-        // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2306/): needs at least one card in opponent's hand.
+        // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2306/): no, Grand Wing cannot be used when the opponent has zero cards in hand.
         activated: {
           when: { gte: [{ handSize: 'opp' }, 1] },
           program: [
@@ -264,7 +264,7 @@ export const STD_C07: CardScript[] = [
       {
         name: "Sniper's Eye",
         // "If your opponent has exactly 4 cards in their hand, ignore all {C} Energy in the costs of attacks used by this Pokémon."
-        // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2311/): all colorless energy costs are removed from Decidueye's attacks.
+        // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2311/): yes, it drops every {C} from the cost of any attack Decidueye ex can use, including the underlying Dartrix's Feather Shot.
         // (so the underlying Dartrix's attacks lose their {C} too: the static covers every attack)
         statics: [{ effect: { k: 'attackCostC', delta: -9 }, scope: 'self', when: { eq: [{ handSize: 'opp' }, 4] } }],
       },
@@ -286,7 +286,7 @@ export const STD_C07: CardScript[] = [
     name: 'Salazzle ex',
     attacks: {
       // "Search your deck for up to 2 cards and put them into your hand. Then, shuffle your deck."
-      // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2315/): if deck has cards, you must take at least one.
+      // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2315/): no, you cannot take zero cards while your deck still has any.
       'Nasty Plot': {
         program: [
           { op: 'chooseCards', from: 'deck', min: 1, max: 2, as: 'x' },
@@ -330,7 +330,7 @@ export const STD_C07: CardScript[] = [
       {
         name: 'Wash Out',
         // "As often as you like during your turn, you may use this Ability. Move a {W} Energy from 1 of your Benched Pokémon to your Active Pokémon."
-        // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2312/): any Energy providing Water works, including Special Energies. (Special Energy too)
+        // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2312/): yes, a Special Energy can be moved if it is providing {W}; the Ability does not require a Basic Energy.
         activated: {
           oncePerTurn: false,
           when: { custom: 'c07.benchHasEnergyOfType', args: { type: 'Water' } },

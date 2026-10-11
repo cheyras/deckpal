@@ -350,7 +350,7 @@ export const STD_C06: CardScript[] = [
     id: 'me02.5-186',
     name: 'Counter Gain',
     // "If you have more Prize cards remaining than your opponent, attacks used by the Pokémon this card is attached to cost {C} less."
-    // Ruling (TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2290/): Attack usable even with fewer Energy discarded than stated.
+    // Ruling (TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2290/): Explosion Y may be used while discarding only two Energy.
     statics: [{ effect: { k: 'attackCostC', delta: -1 }, scope: 'self', when: { gt: [{ prizesLeft: 'self' }, { prizesLeft: 'opp' }] } }],
   },
   {

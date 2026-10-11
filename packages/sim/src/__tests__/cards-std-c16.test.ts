@@ -313,7 +313,7 @@ test("Pinsir, Slow Crunch: discard all Energy from this Pokémon; at the end of 
   choose(r, 'End turn');
   assert.equal(r.state.p[0].prizes.length, 6, 'the old Defending Pokémon retreated: nothing is Knocked Out');
   assert.equal(r.state.p[1].bench.length, 1);
-  // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1982/): the damage-reducing effect follows the Pokémon that was hit.
+  // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1982/): the delayed Knock Out stays on the attacked Pokémon even if Pinsir retreats or is Knocked Out.
   const k = scenario(dk, dk, [
     { active: 'Pinsir', bench: ['Slowpoke'], energy: { active: [G, F] }, damage: { active: 100 } },
     { active: 'Slowpoke', bench: ['Slowpoke'], energy: { active: [P, P] } },
@@ -410,7 +410,7 @@ test("Illumise, Slowing Perfume: only if you go second, only during your first t
   choose(g, 'Slowpoke');
   assert.equal(g.state.p[0].bench.length, 1);
   assert.equal(g.state.p[0].deck.length, deckBefore + 2 - 1, 'the Pokémon and its Energy went into the deck (and the turn-start draw took one)');
-  // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1983/): this attack can be used only once.
+  // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1983/): going second, Slowing Perfume is usable on that first turn only.
   assert.equal(has(second({ turn: 4, current: 1, first: 0 }), 'Attack: Slowing Perfume'), false, 'the second player\'s second turn');
   assert.equal(has(second({ turn: 1, current: 0, first: 0 }), 'Attack: Slowing Perfume'), false, 'the first player\'s first turn (if it was theirs)');
   assert.equal(has(second({ turn: 3, current: 0, first: 0 }), 'Attack: Slowing Perfume'), false);

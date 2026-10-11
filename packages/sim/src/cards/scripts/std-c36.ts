@@ -84,8 +84,8 @@ export const STD_C36: CardScript[] = [
     },
     notes:
       'Ability: the HP is +40 per {F} Energy provided (units of {F}), so an Energy card that provides every type counts once, and Prism Energy counts only on a Basic Pokémon. ' +
-      'Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2180/): On evolved Pokémon, Prism provides only colorless. ' +
-      'Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2179/): Multi-type Energies grant all their types to the bonus calculation. ' +
+      'Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2180/): Prism Energy attached to Conkeldurr gives no HP, since Conkeldurr is not a Basic Pokemon. ' +
+      'Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2179/): Luminous Energy alone among Special Energy gives +40 HP (it provides every type; pinned with Legacy Energy, which provides every type too). ' +
       'The HP is written for up to 10 {F} Energy.',
   },
   {
@@ -93,7 +93,8 @@ export const STD_C36: CardScript[] = [
     name: 'Throh',
     attacks: {
       // "This attack does 30 less damage for each {C} in your opponent's Active Pokémon's Retreat Cost."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2203/): Current Retreat Cost including all active effects is used for calculation.
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2203/): with Air Balloon the Retreat Cost is {C} (printed {C}{C}{C}), so Shoulder Throw does only 30 less.
+      // -- the Retreat Cost the Defending Pokémon has right now.
       'Shoulder Throw': {
         pre: [{ op: 'custom', fn: 'c11.retreatCostOf', args: { as: 'n' } }],
         damage: { sub: [120, { mul: [30, { v: 'n' }] }] },

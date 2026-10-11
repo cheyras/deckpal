@@ -100,7 +100,7 @@ export const STD_C16: CardScript[] = [
       // "The Retreat Cost of the Pokémon this card is attached to is {C} less."
       { effect: { k: 'retreatCost', delta: -1 }, scope: 'self' },
       // "If that Pokémon's remaining HP is 30 or less, it has no Retreat Cost."
-      // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1971/): effects that set Retreat Cost to zero cannot be increased.
+      // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1971/): Rescue Board removes the Retreat Cost, and Big Net cannot raise it back.
       { effect: { k: 'retreatCost', set: 0 }, scope: 'self', when: { custom: 'c16.remainingHpAtMost', args: { n: 30 } } },
     ],
   },
@@ -126,7 +126,7 @@ export const STD_C16: CardScript[] = [
     name: 'Pinsir',
     attacks: {
       // "Discard all Energy from this Pokémon. At the end of your opponent's next turn, the Defending Pokémon will be Knocked Out."
-      // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1982/): the effect stays on the target even if Pinsir moves. (Pinsir retreating or being Knocked Out does not stop it.)
+      // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1982/): the effect is on the attacked Pokémon, so it still applies even if Pinsir retreats or is Knocked Out. (Pinsir retreating or being Knocked Out does not stop it.)
       // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1981/): delayed effects drop when the target leaves Active or evolves. (the delayed effect is dropped when the Defending Pokémon leaves the Active Spot or evolves)
       'Slow Crunch': {
         post: [
@@ -172,7 +172,7 @@ export const STD_C16: CardScript[] = [
     id: 'sv06-010',
     name: 'Illumise',
     // "You can use this attack only if you go second, and only during your first turn."
-    // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1983/): the attack can be used only once, on the second player's first turn. (turn 2: the second player's first turn)
+    // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1983/): going second, Slowing Perfume is usable on that first turn only. (turn 2: the second player's first turn)
     statics: [
       {
         effect: { k: 'cantUseAttack', attack: 'Slowing Perfume' },

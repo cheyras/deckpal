@@ -119,8 +119,8 @@ test('Phantump, Spiteful Evolution: not during your first turn (each player\'s o
   assert.ok(has(later, 'Use Spiteful Evolution'), 'second player, turn 4');
 });
 
-test('Phantump, Spiteful Evolution: ruling 2349 -- deferred until turn 2', () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2349/): unusable turn 1.
+test('Phantump, Spiteful Evolution: ruling 2349 -- not on your first turn of the game, but afterwards it works the turn Phantump came into play', () => {
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2349/): not usable on your first turn of the game; after that it works on the turn Phantump enters play.
   const g = game([{ active: DRA, hand: ['Phantump', 'Trevenant'] }, { active: DRA }]);
   choose(g, 'Bench Phantump');
   assert.ok(!has(g, 'Evolve Phantump into Trevenant'), 'the ordinary evolve waits a turn');
@@ -333,7 +333,7 @@ test('Gloomy Garbage: an opponent\'s Active Pokémon with a Tool does 20 less da
 });
 
 test('Gloomy Garbage: it works from the Bench, and the effect of two Garbodor stacks (ruling 2344)', () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2344/): multiple Garbodor each apply their reduction independently.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2344/): two Garbodor reduce the damage by twice as much; their effects add up.
   const g = game([{ active: 'Phantump', bench: ['Garbodor'] }, { active: DRA, energy: { active: [W] }, tools: { active: ['Air Balloon'] } }], { turn: 4, current: 1 });
   choose(g, 'Attack: Jet Headbutt');
   assert.equal(dmg(g, 0), 50, 'one Garbodor on the Bench');
@@ -350,7 +350,7 @@ test('Gloomy Garbage: the 20 comes off before Weakness (the Pokémon ex\'s Weakn
 });
 
 test('Gloomy Garbage: ruling 2346 -- damage that ignores effects on the Defending Pokémon is still reduced', () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2346/): Garbodor's reduction applies to damage from any attacker, even Shred which ignores defender effects.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2346/): the reduction is an effect on the attacker, not on the Defending Pokémon, so Shred (which ignores effects on the Defending Pokémon) does not skip it.
   const g = game(
     [{ active: DRA, bench: ['Garbodor'] }, { active: 'Mega Lopunny ex', energy: { active: [W, W] }, tools: { active: ['Air Balloon'] } }],
     { turn: 4, current: 1 },
@@ -410,7 +410,7 @@ test('Watchog, Snap Inspection: flip 3 coins; for each heads, a card from the re
 });
 
 test('Watchog, Snap Inspection: ruling 2356 -- with fewer cards than heads, all of them are shuffled into the deck', () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2356/): shuffle in every card possible; if fewer cards exist than heads, use all of them.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2356/): do as much as possible: if the opponent holds only three cards, all three go back into the deck.
   const g = game([{ active: 'Watchog', energy: { active: [W] } }, { active: DRA, hand: ['Xerneas', 'Golbat'] }]);
   g.state.forcedCoins = [true, true, true];
   const deckBefore = g.state.p[1].deck.length;
@@ -439,7 +439,7 @@ test('Adversity Policy: no cards when the attacker is not of the Pokémon\'s Wea
 });
 
 test('Adversity Policy: ruling 2360 -- it draws as much as it can', () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2360/): draw all remaining cards from the deck; if it empties, the player loses.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2360/): draw as many cards as the deck holds; unless cards return to the deck, the player loses at the start of their next turn, when no card can be drawn.
   const g = game(
     [{ active: 'Phantump', bench: ['Phantump'], tools: { active: ['Adversity Policy'] }, emptyDeck: true }, { active: 'Qwilfish', energy: { active: [D] } }],
     { turn: 4, current: 1 },
@@ -573,7 +573,7 @@ test('Roxie\'s Performance: during the opponent\'s next turn their Poisoned Pok�
 });
 
 test('Roxie\'s Performance: ruling 2364 -- a Pokémon Poisoned after the Supporter was played is also stopped', () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2364/): the retreat lock applies to Pokémon Poisoned after Roxie's is played as well.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2364/): Roxie's Performance covers "new" Pokémon too, so a Pokémon Poisoned afterwards still cannot retreat.
   const g = game([{ active: DRA, hand: ["Roxie's Performance"] }, { active: 'Phantump', bench: ['Phantump'], energy: { active: [P, P] } }]);
   choose(g, "Play Roxie's Performance");
   g.state.p[1].active!.cond |= POISONED; // Poisoned later in the same turn, e.g. by an attack or Ability

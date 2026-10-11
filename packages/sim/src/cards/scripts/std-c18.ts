@@ -182,7 +182,7 @@ export const STD_C18: CardScript[] = [
       // Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1980/): search is optional, but if done you take a card.
       'Shinobi Blade': { post: [{ op: 'may', body: searchToHand({}, 1, { reveal: false, min: 1 }) }] },
       // "Discard 2 Energy from this Pokémon. This attack does 120 damage to 2 of your opponent's Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)"
-      // Ruling (TPCi Rules Team 2024-07-11, https://compendium.pokegym.net/ruling/2002/): choose energy first, do damage, then discard.
+      // Ruling (TPCi Rules Team 2024-07-11, https://compendium.pokegym.net/ruling/2002/): you choose the Energy first, then the damage is done (100, not 120, when a Double Turbo is chosen), and only then the Energy is discarded.
       // The damage is done while the Energy is still attached and the discard follows; which Energy is discarded can't change the damage, so choosing it after the damage is the same.
       'Mirage Barrage': {
         program: [

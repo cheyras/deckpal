@@ -33,7 +33,7 @@ export const STD_C10: CardScript[] = [
         name: 'Spiteful Evolution',
         // "Once during your turn, you may use this Ability. Choose a card in your hand that evolves from this Pokémon and put it onto this Pokémon
         //  to evolve it. If you do, place 2 damage counters on the Pokémon you evolved in this way. You can't use this Ability during your first turn."
-        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2349/): Not usable on your first turn, but usable the turn Phantump comes into play after.
+        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2349/): no on your first turn of the game; after that it can be used the first turn Phantump is in play.
         // "First turn" is each player's own (the second player's is turn 2). Usable only with such a card in hand.
         activated: {
           when: { and: [{ not: { custom: 'c03.ownFirstTurn' } }, { custom: 'c10.handEvolvesSelf' }] },
@@ -173,8 +173,8 @@ export const STD_C10: CardScript[] = [
       },
     ],
     notes:
-      'Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2344/): Effects stack. ' +
-      'Ruling (2345): Reduces damage to Benched Pokémon too. ' +
+      'Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2344/): yes, the effect stacks (two Gloomy Garbage reduce by 40). ' +
+      'Ruling (2345): Gloomy Garbage takes 20 off damage done to Benched Pokémon as well. ' +
       'Ruling (2346): the reduction is on the attacking Pokémon, so Shred (ignores effects on the Defending Pokémon) does not ignore it. ' +
       'The reduction is a damageOut, which reaches Benched Pokémon too.',
   },
@@ -183,7 +183,7 @@ export const STD_C10: CardScript[] = [
     name: 'Watchog',
     attacks: {
       // "Flip 3 coins. If any of them are heads, your opponent reveals their hand. For each heads, choose a card you find there and shuffle it into your opponent's deck."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2356/): Put back as many cards as possible.
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2356/): you must put back as many as you can; with three cards in their hand, all three go back, not fewer.
       'Snap Inspection': {
         program: [
           { op: 'flip', n: 3, as: 'h' },
@@ -215,7 +215,7 @@ export const STD_C10: CardScript[] = [
     name: 'Adversity Policy',
     // "If the Pokémon this card is attached to has Weakness to your opponent's Active Pokémon's type, is in the Active Spot, and is damaged by an
     //  attack from your opponent's Pokémon (even if this Pokémon is Knocked Out), draw 3 cards."
-    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2360/): Draw as much as possible (fewer than 3 cards: draw what remains).
+    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2360/): yes, draw as many as you can (fewer than 3 cards left: draw what remains); unless the deck is refilled, you lose at the draw starting your turn.
     // The condition is checked as the damage lands, when the Attacking Pokémon is the opponent's Active Pokémon; each damaging attack draws 3.
     triggers: [
       {
@@ -291,7 +291,7 @@ export const STD_C10: CardScript[] = [
     id: 'me04-081',
     name: "Roxie's Performance",
     // "During your opponent's next turn, their Poisoned Pokémon can't retreat. (This includes newly Poisoned Pokémon.)"
-    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2364/): Newly Poisoned Pokémon are also affected by the retreat block.
+    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2364/): no, it cannot retreat: a Pokémon that is newly put into the Active Spot and Poisoned after Roxie's Performance was played is also affected.
     // The effect matches Poisoned Pokémon live, so a Pokémon Poisoned or moved up later in that turn is covered.
     play: [
       {

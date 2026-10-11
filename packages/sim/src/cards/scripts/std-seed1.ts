@@ -120,7 +120,7 @@ export const STD_SEED1: CardScript[] = [
     name: 'Krookodile',
     attacks: {
       // "If any of your Pokémon were Knocked Out by damage from an attack during your opponent's last turn, this attack does 160 more damage."
-      // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2245/): A Pokémon removed from play counts as knocked out regardless of Prize cards awarded.
+      // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2245/): yes, a Pokémon that was Knocked Out still counts when Shadowy Concealment stopped the opponent taking a Prize card for it.
       // The condition tests the Knock Out itself, never the Prize cards.
       'Vengeful Fang': { damage: { add: [60, { cond: { custom: 'std.attackKoLastTurn' }, then: 160, else: 0 }] } },
     },

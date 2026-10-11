@@ -276,7 +276,7 @@ test("Glaceon, Permeating Chill: 30, and at the end of the opponent's next turn 
 });
 
 test('Glaceon, Permeating Chill: a Defending Pokémon that retreated is no longer affected (ruling 2404)', () => {
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2404/): delayed effects drop if target leaves Active.
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2404/): Intense Kiss's effect is removed once the attacked Pokémon is moved to the Bench; neither the old nor the new Active is discarded.
   const g = game([{ active: GLAC, energy: { active: [W] } }, { active: DRA, bench: [WOOPER], energy: { active: [R, R] } }]);
   choose(g, 'Attack: Permeating Chill');
   choose(g, 'Retreat');
@@ -413,7 +413,7 @@ test("Iono's Kilowattrel, Flashing Draw: discard a Basic {L} Energy from it, the
 });
 
 test("Iono's Kilowattrel, Flashing Draw: needs a Basic {L} Energy to discard, a card in the deck and fewer than 6 cards in hand (ruling 2108)", () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2108/): the Ability requires an empty deck space and fewer than 6 cards in hand.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2108/): Flashing Draw is an Ability whose effect is drawing, so it cannot be used with an empty deck or with 6 or more cards in hand.
   const noEnergy = game([{ active: KILO, energy: { active: [R, R] }, hand: [P] }, FOE()]);
   assert.ok(!has(noEnergy, 'Use Flashing Draw'), 'no Basic {L} Energy attached');
   const emptyDeck = game([{ active: KILO, energy: { active: [L] }, hand: [P], emptyDeck: true }, FOE()]);
@@ -465,7 +465,7 @@ test("Lillie's Ribombee, Inviting Wink: can't be used when the opponent's Bench 
 });
 
 test("Lillie's Ribombee, Inviting Wink: the Pokémon put there may evolve on the opponent's next turn (ruling 2110)", () => {
-  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2110/): Pokémon placed may evolve next turn unless it's opponent's first turn.
+  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2110/): they may evolve the Pokémon placed there on their next turn, unless that is their first turn of the game.
   const g = game([{ active: CUTIE, hand: [RIBO] }, FOE({ hand: [WOOPER, QUAG] })]);
   choose(g, `Evolve ${CUTIE}`);
   yes(g);

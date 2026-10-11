@@ -231,8 +231,8 @@ export const STD_C27: CardScript[] = [
     id: 'sv08-182',
     name: 'Megaton Blower',
     // "Discard all Pokémon Tools and Special Energy from all of your opponent's Pokémon, and discard a Stadium in play."
-    // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2065/): the Stadium discard works independently of other discards.
-    // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2064/): do as much as you can if at least one applicable card is in play.
+    // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2065/): yes, playable with only a Stadium in play: discarding it does not depend on discarding Tools or Special Energy.
+    // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2064/): it cannot be played for no effect; if at least one Stadium, Tool or Special Energy is in play, do as much as you can.
     playable: {
       or: [
         { stadium: true },
@@ -260,7 +260,7 @@ export const STD_C27: CardScript[] = [
     id: 'sv08-186',
     name: 'Scramble Switch',
     // "Switch your Active Pokémon with 1 of your Benched Pokémon. If you do, you may move any amount of Energy from the Pokémon you moved to your Bench to the new Active Pokémon."
-    // Ruling (TPCi Rules Team 2013-02-07, https://compendium.pokegym.net/ruling/34/): this Trainer switch bypasses Block, which only prevents Retreating. (This is a Trainer's switch, not a retreat.)
+    // Ruling (TPCi Rules Team 2013-02-07, https://compendium.pokegym.net/ruling/34/): Block only stops Retreating, so Scramble Switch can still switch your Active Pokémon. (This is a Trainer's switch, not a retreat.)
     playable: { gte: [{ pokemon: { zone: 'myBench' } }, 1] },
     play: [
       { op: 'chooseSlots', from: 'myActive', min: 1, max: 1, as: 'old' },

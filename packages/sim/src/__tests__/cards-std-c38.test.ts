@@ -244,7 +244,7 @@ test("Terrakion, Retaliate: 50 when none of your Pokémon was Knocked Out last t
 });
 
 test('Terrakion, Retaliate (ruling 2200): a Knock Out that gives up no Prize card (Legacy Energy) still counts', () => {
-  // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2200/): A Pokémon removed from play counts as knocked out for effects even when no Prize card is awarded.
+  // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2200/): A Pokémon that gives up no Prize card (Legacy Energy) is still Knocked Out, so Retaliate gets its bonus.
   const g = game(
     [
       { active: 'Purrloin', damage: { active: 50 }, energy: { active: ['Legacy Energy'] }, bench: ['Terrakion'] },
@@ -396,7 +396,7 @@ test("Ferrothorn, Power Whip: 20 damage to 1 of your opponent's Pokémon for eac
 // ------------------------------------------------------------------ Durant
 
 test('Durant, Bite Together: 20, and 20 more if Durant is on your Bench (ruling 2188: once, however many)', () => {
-  // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2188/): The damage bonus applies once maximum, not per copy of the Benched Pokémon.
+  // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2188/): Bite Together gives +20 at most, however many Durant are on the Bench.
   const none = game([{ active: 'Durant', energy: { active: [M] }, bench: ['Purrloin'] }, { active: DRA, bench: ['Durant'] }]);
   choose(none, 'Attack: Bite Together');
   assert.equal(dmg(none, 1), 20, "the opponent's Durant doesn't count");
@@ -520,7 +520,7 @@ test('Stoutland, Odor Sleuth: flip 3 coins; put a number of cards up to the numb
 });
 
 test('Stoutland, Odor Sleuth (ruling 2199): with at least one heads you must take at least one card, if able', () => {
-  // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2199/): When at least one coin is heads, minimum one card must be selected if cards exist in the discard.
+  // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2199/): Odor Sleuth with at least one heads must take at least one card from the discard pile, if it has any.
   const g = game([{ active: 'Stoutland', energy: { active: [F, F] }, discard: ['Purrloin', 'Sawk'] }, { active: DRA }]);
   g.state.forcedCoins = [true, true, false];
   choose(g, 'Attack: Odor Sleuth');

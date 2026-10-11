@@ -64,7 +64,7 @@ export const STD_SEED4: CardScript[] = [
     notes:
       'The count is the Retreat Cost as modified by effects: a Tool or Energy that lowers it lowers the damage. ' +
       'Compendium #1620 (TPCi Rules Team 2021-10-07, about Leafeon VMAX, Grass Knot) settles the same question for an identical damage clause: ' +
-      'damage multiplies the modified Retreat Cost, which becomes zero when a Tool or Energy reduces it.',
+      'Hiding Energy and Snow Leaf Badge change the Retreat Cost stat rather than blocking damage, so the multiplier uses the reduced (here zero) cost.',
   },
   {
     id: 'me05-067',
@@ -152,7 +152,7 @@ export const STD_SEED4: CardScript[] = [
         ],
       },
       // "You may discard any amount of Basic Energy from your Pokémon. This attack does 70 damage for each card you discarded in this way."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2423/): damage happens before energy discard, so damage prevention effects can't stop it.
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2423/): Bellowing Thunder damages first and discards Energy afterwards, so Ancient Bulwark has nothing to prevent.
       // -- the cards are chosen first (that sets the damage), the damage is done, and only then are they discarded.
       'Bellowing Thunder': {
         pre: [{ op: 'custom', fn: 'seed4.pickBasicEnergyAmong', args: { as: 'd' } }],

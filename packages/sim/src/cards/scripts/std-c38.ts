@@ -46,7 +46,7 @@ export const STD_C38: CardScript[] = [
     abilities: [
       {
         // "Once during your turn, if this Pokémon is in the Active Spot, you may devolve 1 of your opponent's evolved Pokémon by putting the highest Stage Evolution card on it into your opponent's hand."
-        // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2178/): A Pokémon brought into play with an Evolution card on it already cannot devolve, as there is no base underneath.
+        // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2178/): an Evolution Pokémon put directly into play has no lower Stage underneath, so it cannot be devolved.
         name: 'Ancient Wing',
         activated: {
           activeOnly: true,
@@ -72,7 +72,7 @@ export const STD_C38: CardScript[] = [
     name: 'Terrakion',
     attacks: {
       // "If any of your Pokémon were Knocked Out by damage from an attack during your opponent's last turn, this attack does 80 more damage."
-      // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2200/): A Pokémon removed from play counts as knocked out for effects even when no Prize card is awarded.
+      // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2200/): a Knocked Out Pokémon counts for this condition even when no Prize card is taken for it (Legacy Energy).
       Retaliate: { damage: { add: [50, { cond: { custom: 'std.attackKoLastTurn' }, then: 80, else: 0 }] } },
     },
     notes: 'Ruling 2200 (and 1153 for Robo Substitute): the Knock Out counts even when no Prize card is taken for it; the engine records the Knock Out, not the Prize.',
@@ -353,7 +353,7 @@ export const STD_C38: CardScript[] = [
     abilities: [
       {
         // "As long as this Pokémon is in the Active Spot, put 5 more damage counters on your opponent's Poisoned Pokémon during Pokémon Checkup."
-        // Ruling (TPCi Rules Team 2024-12-19, https://compendium.pokegym.net/ruling/2090/): Checkup counters are placed and knockouts resolved before a replacement Active, so late-promoted Pecharunt never adds that turn.
+        // Ruling (TPCi Rules Team 2024-12-19, https://compendium.pokegym.net/ruling/2090/): Checkup counters are placed and Knock Outs checked before a replacement Active is promoted, so a Pecharunt promoted afterwards misses that Checkup.
         name: 'Toxic Subjugation',
         triggers: [
           {

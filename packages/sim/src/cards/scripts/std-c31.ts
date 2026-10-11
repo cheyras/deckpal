@@ -331,8 +331,8 @@ export const STD_C31: CardScript[] = [
     // "As long as this card is attached to a Pokémon, it provides {C} Energy."
     provides: ['Colorless'],
     // "If the Pokémon this card is attached to is in the Active Spot and is damaged by an attack from your opponent's Pokémon (even if this Pokémon is Knocked Out), put 2 damage counters on the Attacking Pokémon."
-    // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2371/): Spiky Energy counters go to attacker even if it moved afterward.
-    // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2121/): Spiky Energy's effect stacks with multiple copies.
+    // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2371/): Quaquaval ex, as the Attacking Pokémon, still takes the counters although both Pokémon ended on the Bench; the 60 damage went to the Active Defending Pokémon.
+    // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2121/): Spiky Energy stacks, so 2 copies on the damaged Pokémon put 4 damage counters on the attacker.
     triggers: [{ on: 'damagedByAttackActive', program: [{ op: 'custom', fn: 'c31.countersOnAttacker', args: { n: 2 } }] }],
   },
 ];

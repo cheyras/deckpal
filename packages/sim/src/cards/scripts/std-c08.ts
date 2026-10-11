@@ -69,7 +69,7 @@ export const STD_C08: CardScript[] = [
     abilities: [
       {
         // "Prevent all effects of your opponent's Pokémon's Abilities done to this Pokémon."
-        // Rulings (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2309/): Wins effect-order conflicts independent of when it came into play; (2026-06-04, https://compendium.pokegym.net/ruling/2369/): Other Pokémon's protective effects are separate and continue blocking.
+        // Rulings (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2309/): Luminous Wing beats Initialization whichever entered play first; (2026-06-04, https://compendium.pokegym.net/ruling/2369/): Safeguard protects Mimikyu itself, so Luminous Wing cannot bypass it and the damage is still blocked.
         name: 'Luminous Wing',
         statics: [{ effect: { k: 'preventEffects', from: ['ability'] }, scope: 'self' }],
       },
@@ -90,7 +90,7 @@ export const STD_C08: CardScript[] = [
     name: 'Mawile',
     attacks: {
       // "Discard up to 2 Energy cards from your hand, and this attack does 60 damage for each card you discarded in this way."
-      // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2313/): The attack succeeds with zero cards discarded, resulting in zero damage.
+      // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2313/): Double Eater may discard zero Energy: it then deals zero damage but still counts as an attack.
       'Double Eater': {
         pre: [
           { op: 'chooseCards', from: 'hand', filter: { cat: 'energy' }, min: 0, max: 2, as: 'x', prompt: 'Discard up to 2 Energy cards from your hand (or none)' },
@@ -124,7 +124,7 @@ export const STD_C08: CardScript[] = [
     name: 'Hippopotas',
     attacks: {
       // "During your opponent's next turn, if the Defending Pokémon tries to use an attack, your opponent flips a coin. If tails, that attack doesn't happen."
-      // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2317/): Coins flip in effect order; the Ability's flip happens before confusion's flip.
+      // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2317/): Sand Attack's coin flip comes before the Confusion flip.
       'Sand Attack': { post: [{ op: 'effect', static: { k: 'attackCoinFlip' }, on: 'defender', duration: 'oppNextTurn' }] },
     },
   },
@@ -181,7 +181,7 @@ export const STD_C08: CardScript[] = [
       // "During your opponent's next turn, this Pokémon takes 30 less damage from attacks (after applying Weakness and Resistance)."
       'Gaia Wave': { post: [{ op: 'effect', static: { k: 'damageIn', amount: -30, fromOpp: true }, on: 'self', duration: 'oppNextTurn' }] },
       // "For each of your opponent's Pokémon, flip a coin. If heads, this attack does 150 damage to that Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)"
-      // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2316/): Coins flip for all opposing Pokémon including those protected; protected Pokémon simply take no damage.
+      // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2316/): one coin per opposing Pokémon in play; Tera Pokémon on the Bench cannot be damaged but are still flipped for.
       'Nullifying Zero': {
         program: [
           { op: 'custom', fn: 'c08.flipEach', args: { zone: 'oppPokemon', as: 'hit' } },

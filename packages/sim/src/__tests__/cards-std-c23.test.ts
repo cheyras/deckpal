@@ -430,7 +430,7 @@ test("Gravity Gemstone: while its holder is Active, the Retreat Cost of both Act
 
 test('Gravity Gemstone: it does not add to a Retreat Cost that an effect set to none (Compendium #2082)', () => {
   const dk = deck(GEM, WOOLOO, LATIAS);
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2082/): a Retreat Cost set to none can't be increased by effects.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2082/): no: once Skyliner or Metal Bridge sets a Retreat Cost to none, it cannot be raised, so Gravity Gemstone adds nothing.
   const g = game(dk, [
     { active: 'Wooloo', bench: ['Wooloo', 'Latias ex'], tools: { active: ['Gravity Gemstone'] } },
     { active: 'Wooloo' },
@@ -744,7 +744,7 @@ test('Wo-Chien, Entangling Whip: 130 damage, then discard the top 3 cards of you
 
 test('Wo-Chien, Entangling Whip: discarding the last cards of your deck while taking your last Prize card is a win (Compendium #2053)', () => {
   const dk = deck(WOCHIEN, WOOLOO);
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2053/): taking the last Prize card ends the game before a draw check occurs.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2053/): you win: taking your last Prize ends the game before the start-of-turn draw that an empty deck would lose on.
   const g = game(dk, [{ active: 'Wo-Chien', energy: { active: [G, G, F] }, prizes: 1 }, { active: 'Wooloo', bench: ['Wooloo'] }]);
   deckOf(g, 0, 3);
   choose(g, 'Attack: Entangling Whip');

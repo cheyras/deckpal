@@ -205,7 +205,7 @@ export const STD_C37: CardScript[] = [
     name: 'Keldeo ex',
     attacks: {
       // "If this Pokémon moved from your Bench to the Active Spot this turn, this attack does 90 more damage."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2195/): doesn't count as moving to Active this turn if replacing knocked out. (replacing a Knocked Out Active Pokémon)
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2195/): it was moved up during the opponent's turn, not "this turn", so no bonus. (replacing a Knocked Out Active Pokémon)
       'Gale Thrust': { damage: { add: [30, { cond: { movedToActiveThisTurn: 'self' }, then: 90, else: 0 }] } },
       // "This attack's damage isn't affected by any effects on your opponent's Active Pokémon."
       'Sonic Edge': { ignore: { defenderEffects: true } },
@@ -271,7 +271,7 @@ export const STD_C37: CardScript[] = [
     name: 'Cofagrigus',
     attacks: {
       // "Move all damage counters from 1 of your Benched Pokémon to 1 of your opponent's Pokémon."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2192/): blocked effects prevent damage moves in both directions.
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2192/): the source Pokémon loses its counters, but the protected Antique Cover Fossil neither receives them nor loses any; counters aimed at a blocker vanish, counters on a blocker stay.
       'Extended Damagriiigus': {
         program: [
           { op: 'chooseSlots', from: 'myBench', min: 1, max: 1, as: 'from', prompt: 'Move all damage counters from which of your Benched Pokémon?' },

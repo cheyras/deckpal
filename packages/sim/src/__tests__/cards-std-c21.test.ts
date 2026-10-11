@@ -210,7 +210,7 @@ test("Cradily, Selective Slime: flip a coin; on heads choose Burned, Confused or
 test('Cradily, Selective Slime: not usable while the Defending Pokémon is already Burned, Confused and Poisoned (ruling 2014)', () => {
   const dk = deck('sv07-006', URSA);
   const usable = (cond: number): boolean => has(game(dk, [{ active: 'Cradily' }, { active: 'Bloodmoon Ursaluna ex', cond }]), 'Selective Slime');
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2014/): Cannot use if opponent's Active is already Burned, Confused, and Poisoned.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2014/): no when the Defending Pokémon is already Burned, Confused and Poisoned, except when a condition is a strengthened version (e.g. Poisoned placing 2 damage counters at Checkup instead of 1).
   assert.equal(usable(BURNED | CONFUSED | POISONED), false, 'all three already: no');
   assert.equal(usable(BURNED | POISONED), true, 'Confused is still missing');
   assert.equal(usable(CONFUSED | POISONED), true, 'Burned is still missing');

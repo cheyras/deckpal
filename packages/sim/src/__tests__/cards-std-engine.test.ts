@@ -225,7 +225,7 @@ test('Lurantis ex, Lively Cutter: 60, or 200 more if it was healed this turn (no
   assert.equal(healed.state.p[0].active!.damage, 20, 'Jumbo Ice Cream healed 80');
   choose(healed, 'Attack: Lively Cutter');
   assert.equal(dmg(healed, 1), 260);
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2405/): healing requires actual damage removal; a Pokémon with no damage can't be healed.
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2405/): moving damage counters (Adrena-Brain) is not Healing, so Lively Cutter gets no bonus. A heal that removes nothing is not a heal either: Jumbo Ice Cream can't even be played on an undamaged Pokémon.
   const clean = lurantis('Lurantis ex', [G, G, G], 0, { hand: ['Jumbo Ice Cream'] });
   assert.ok(!has(clean, 'Play Jumbo Ice Cream'));
 });
@@ -312,7 +312,7 @@ test('Jynx, Intense Kiss: at the end of the opponent\'s next turn the Defending 
   assert.equal(def(g.ctx, g.state.p[1].active!.cards[0]!).name, 'Rellor', 'Rellor was promoted');
   assert.deepEqual(names(g, g.state.p[1].discard), ['Psychic Energy', 'Psychic Energy', 'Slowpoke']);
   assert.equal(g.state.p[0].prizes.length, 6, 'a discard is not a Knock Out: no Prize card');
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2404/): retreating cancels any lingering attack effects and prevents both Pokémon from being discarded.
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2404/): the Intense Kiss effect was removed when the attacked Pokémon moved to the Bench, so neither the retreating Pokémon nor its replacement is discarded.
   const r = mk();
   choose(r, 'Attack: Intense Kiss');
   choose(r, 'Retreat');

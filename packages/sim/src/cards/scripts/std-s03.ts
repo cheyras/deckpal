@@ -34,7 +34,7 @@ export const STD_S03: CardScript[] = [
     abilities: [
       {
         // "Whenever your opponent plays an Item or Supporter card from their hand, prevent all effects of that card done to this Pokémon."
-        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2154/): Switches to Benched Pokémon still happen even if incoming Pokémon is blocked.
+        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2154/): if the chosen Benched Pokémon is a Cetitan ex, Giovanni's effect is blocked; a Benched Pokémon without Snow Camouflage does switch with the Active Cetitan ex. Your own switch happens either way.
         name: 'Snow Camouflage',
         statics: [{ effect: { k: 'preventTrainerEffects', from: ['item', 'supporter'] }, scope: 'self' }],
       },

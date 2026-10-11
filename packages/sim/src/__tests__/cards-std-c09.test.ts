@@ -523,8 +523,8 @@ test('Mega Greninja ex, Ninja Spinner: 120, or 200 if you put a {W} Energy attac
 
 test('Mega Greninja ex, Ninja Spinner: the Energy only returns to the hand after the damage (Compendium #2385)', () => {
   const dk = deck('me04-022', LATIAS, 'me05-062', 'sv05-162');
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2385/): with one Water Energy and one Neo Upper Energy on Stage 2 Greninja,
-  // the Special Energy goes to hand after damage is calculated; it stays attached for damage, so Ancient Bulwark doesn't block.
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2385/): with a basic Water and a Neo Upper Energy attached (3 Energy as Mega Greninja ex is a Stage 2),
+  // the Neo Upper Energy goes back to the hand only after damage is done, so 3 Energy are attached at damage time and Ancient Bulwark does not prevent it.
   const g = scenario(dk, dk, [{ active: 'Mega Greninja ex', energy: { active: [W, 'Neo Upper Energy'] } }, { active: 'Mega Latias ex', bench: ['Bastiodon'] }]);
   choose(g, 'Attack: Ninja Spinner');
   yes(g);

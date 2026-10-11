@@ -122,7 +122,7 @@ test('Flygon, Sandy Flapping: when evolved from the hand you may discard the top
   g.submit([0]);
   assert.equal(g.state.p[1].deck.length, deck1 - 2, 'the top 2 cards of the opponent\'s deck');
   assert.equal(g.state.p[1].discard.length, 2, '... are in the opponent\'s discard pile');
-  // Ruling (Phantasmal Flames FAQ, TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2243/): both uses work as written on the card.
+  // Ruling (Phantasmal Flames FAQ, TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2243/): Flygon's Sandy Flapping can be used on being played and again on being Knocked Out, since the card specifies both.
   g.state.p[0].active!.damage = 100;
   choose(g, 'End turn'); // the opponent's turn: Jet Headbutt Knocks Out the Active Flygon
   const deck2 = g.state.p[1].deck.length; // after the attacker's draw for the turn
@@ -196,7 +196,7 @@ test('Mismagius ex, Swirling Prose: rulings 2339 (Team Rocket\'s Giovanni) and 2
     choose(g, `Play ${TR_GIO}`);
     return g;
   };
-  // Ruling (TPCi Rules Team 2026-04-16, https://compendium.pokegym.net/ruling/2339/): incoming Pokémon confused by active Mismagius ex.
+  // Ruling (TPCi Rules Team 2026-04-16, https://compendium.pokegym.net/ruling/2339/): with their Mismagius ex Active, Swirling Prose confuses the new Active Pokémon that Giovanni switches in.
   const a = giovanni({ active: 'Mismagius ex', bench: [SLO] });
   assert.equal(nameOf(a, a.state.p[0].active!.cards[0]!), "Team Rocket's Diglett");
   assert.ok(a.state.p[0].active!.cond & CONFUSED, 'their Mismagius ex was Active when my new Active Pokémon was switched in');
@@ -205,7 +205,7 @@ test('Mismagius ex, Swirling Prose: rulings 2339 (Team Rocket\'s Giovanni) and 2
   const b = giovanni({ active: SLO, bench: ['Mismagius ex'] });
   assert.equal(nameOf(b, b.state.p[1].active!.cards[0]!), 'Mismagius ex', 'it was brought into the Active Spot');
   assert.equal(b.state.p[0].active!.cond & CONFUSED, 0, 'but it was not Active when my Pokémon moved');
-  // Ruling (Phantasmal Flames FAQ, TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2247/): no, the bench swap happened during your turn, not theirs.
+  // Ruling (Phantasmal Flames FAQ, TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2247/): no, the new Active Pokémon comes up during your own turn, not theirs, so Swirling Prose does not confuse it.
   const ko = scenario(dk, dk, [{ active: 'Mismagius ex', energy: { active: [P, P] } }, { active: SLO, bench: [REL], damage: { active: 60 } }]);
   choose(ko, 'Attack: Hexa-Magic');
   g_ko_check(ko);
@@ -250,9 +250,9 @@ test('Team Rocket\'s Dugtrio, Holes: 2 damage counters on the opponent\'s Active
   const one = retreat([TR_DUG]);
   assert.equal(one.state.p[1].bench[0]!.damage, 20, '2 damage counters on the Pokémon that moved to the Bench');
   assert.equal(one.state.p[1].active!.damage, 0, 'not on its replacement');
-  // Ruling (Ascending Heroes FAQ, TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2285/): four damage counters apply and the ability stacks.
+  // Ruling (Ascending Heroes FAQ, TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2285/): two Dugtrio place 4 damage counters in total (2 each), because the Ability stacks.
   assert.equal(retreat([TR_DUG, TR_DUG]).state.p[1].bench[0]!.damage, 40);
-  // Ruling (Ascending Heroes FAQ, TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2286/): on the bench when applied, Battle Cage blocks the damage counters.
+  // Ruling (Ascending Heroes FAQ, TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2286/): the Pokémon is already on the Bench when the Ability applies, so Battle Cage stops the damage counters.
   assert.equal(retreat([TR_DUG], true).state.p[1].bench[0]!.damage, 0);
   // Their own switch Item counts the same as a retreat (it is "their turn").
   const sw = scenario(dk, dk, [{ active: DRA, bench: [TR_DUG] }, { active: SLO, bench: [REL], hand: ['Switch'] }], { current: 1 });
@@ -307,7 +307,7 @@ test('Heliolisk, Frilled Generator: only if you played Canari from your hand thi
   assert.ok(heliolisk.energy.every((c) => nameOf(g, c) === 'Lightning Energy'));
   assert.ok(!has(g, 'Use Frilled Generator'), 'once during your turn');
 
-  // Ruling (Ascending Heroes FAQ, TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2284/): each Heliolisk can use it; the limit applies once per ability.
+  // Ruling (Ascending Heroes FAQ, TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2284/): each Heliolisk can use its own Frilled Generator; the once-per-turn limit is counted per Ability, not shared.
   const two = mk(['Heliolisk'], ['Canari', REL]);
   choose(two, 'Play Canari');
   two.submit([]);
@@ -429,11 +429,11 @@ test('Mega Gengar ex, Shadowy Concealment: a Knocked Out {D} Pokémon gives 1 fe
   assert.equal(taken(ko(withGengar('Pecharunt', { damage: { active: 70 } }), SLO)), 1, 'not when the attacker is not a Pokémon ex');
   assert.equal(taken(ko(withGengar(SLO, { damage: { active: 60 } }), DRA)), 1, 'not for a Pokémon that is not {D}');
   assert.equal(taken(ko({ active: 'Pecharunt', bench: [REL], damage: { active: 70 } }, DRA)), 1, 'control: without a Mega Gengar ex in play');
-  // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2262/): the ability triggers from the KO, reducing prizes even if in discard.
+  // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2262/): Shadowy Concealment is set off by the KO, so it still lowers the Prizes taken even though that Mega Gengar ex is already in the discard pile.
   const self = ko({ active: 'Mega Gengar ex', bench: [REL], damage: { active: 300 } }, DRA);
   assert.equal(taken(self), 2, 'a Mega Evolution ex is worth 3: 3 - 1, although it is the Mega Gengar ex that was Knocked Out');
   assert.equal(taken(ko({ active: 'Mega Gengar ex', bench: ['Mega Gengar ex', REL], damage: { active: 300 } }, DRA)), 2, 'two Mega Gengar ex: the effect doesn\'t stack');
-  // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2244/): mega ex gives 1 prize, regular ex gives 0, non-ex gives 0; Legacy Energy is used once.
+  // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2244/): with Legacy Energy on the KO'd {D} Pokémon: Mega Evolution ex gives 1 Prize, regular ex 0, non-ex 0; in every case Legacy Energy counts as used and cannot cut Prizes again later.
   const legacy = (active: string, damage: number): Game => ko(withGengar(active, { energy: { active: ['Legacy Energy'] }, damage: { active: damage } }), DRA);
   const mega = legacy('Mega Gengar ex', 300);
   assert.equal(taken(mega), 1, 'Mega Evolution ex: 3 - 1 (Legacy Energy) - 1 (Shadowy Concealment)');
@@ -444,7 +444,7 @@ test('Mega Gengar ex, Shadowy Concealment: a Knocked Out {D} Pokémon gives 1 fe
   const plain = legacy('Pecharunt', 70);
   assert.equal(taken(plain), 0, 'a non-ex: never below 0');
   assert.ok(plain.state.p[1].oncePerGame?.includes('Legacy Energy'), 'still counts as used');
-  // Ruling (Phantasmal Flames FAQ, TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2245/): yes, it counts as knocked out regardless of prizes taken.
+  // Ruling (Phantasmal Flames FAQ, TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2245/): yes, a Pokémon KO'd by damage still counts as Knocked Out for Vengeful Fang even though Shadowy Concealment meant no Prize was taken.
   const kod = ko(withGengar('Pecharunt', { damage: { active: 70 } }), DRA);
   assert.equal(taken(kod), 0);
   assert.equal(evalCond(kod.env, kod.state, { player: 1, slot: 0, vars: {} }, { koLastTurn: 'self' }), true, 'it was Knocked Out, whatever the Prize cards');
@@ -534,14 +534,14 @@ test('Mega Heracross ex, Juggernaut Horn: if damaged by an attack during the opp
   const fresh = scenario(dk, dk, [{ active: 'Mega Heracross ex', energy: { active: [G, G] } }, { active: DRA }]);
   choose(fresh, 'Attack: Juggernaut Horn');
   assert.equal(dmg(fresh, 1), 100);
-  // Ruling (Phantasmal Flames FAQ, TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2253/): no, placing counters differs from doing damage.
+  // Ruling (Phantasmal Flames FAQ, TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2253/): no, counters placed by an attack are not damage done, so Juggernaut Horn gets no bonus from them.
   const counters: CardScript = { id: 'sv06-130', name: 'Dragapult ex', attacks: { 'Jet Headbutt': { program: [{ op: 'counters', n: 7, to: 'defender' }] } } };
   const c = scenario(dk, dk, [{ active: 'Mega Heracross ex', energy: { active: [G, G, G] } }, { active: DRA, energy: { active: [P] } }], { ...OPP_TURN, scripts: [counters] });
   choose(c, 'Attack: Jet Headbutt');
   assert.equal(dmg(c, 0), 70, 'seven damage counters were placed on it');
   choose(c, 'Attack: Juggernaut Horn');
   assert.equal(dmg(c, 1), 100);
-  // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2372/): yes, it counts as the same pokémon when swapped. (swapped in with Transformation Tome)
+  // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2372/): yes, the swapped-in Mega Heracross ex is treated as the same Pokémon, so the damage taken still counts. (swapped in with Transformation Tome)
   const t = scenario(dk, dk, [{ active: SLO, energy: { active: [G, G] }, hand: ['Transformation Tome', 'Transformation Tome'], discard: ['Mega Heracross ex'] }, { active: 'Delibird', bench: [DRA], energy: { active: [P, P] } }], OPP_TURN);
   inject(t, t.state.p[1].active!.id, { k: 'hp', delta: 200 });
   t.state.effects[0]!.until = 99;
@@ -625,7 +625,7 @@ test('Sacred Charm: 30 less damage from attacks of the opponent\'s Pokémon that
   assert.equal(hit(TR_DUG, 'Mud Shot', [FI, FI]), 20, '50 - 30 from a Pokémon with an Ability (Holes)');
   assert.equal(hit(SLO, 'Headbutt', [P, P]), 20, 'a Pokémon with no Ability: no reduction');
   assert.equal(hit('Linoone', 'Slash', [G]), 40, '70 - 30 from Linoone, which has Excited Dash');
-  // Ruling (Phantasmal Flames FAQ, TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2260/): no, Watchtower removes abilities for colorless pokémon.
+  // Ruling (Phantasmal Flames FAQ, TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2260/): no, Team Rocket's Watchtower gives Colorless Pokémon no Abilities, so while it is in play Sacred Charm's 30 reduction does not apply against them.
   assert.equal(hit('Linoone', 'Slash', [G], "Team Rocket's Watchtower"), 70, 'Linoone is {C}: under Watchtower it has no Abilities');
   assert.equal(hit(TR_DUG, 'Mud Shot', [FI, FI], "Team Rocket's Watchtower"), 20, 'Dugtrio is {F}: its Ability stays on');
 });
@@ -634,7 +634,7 @@ test('Sacred Charm: 30 less damage from attacks of the opponent\'s Pokémon that
 
 test('Mega Hawlucha ex, Tenacious Body: flip a coin when it would be Knocked Out by damage from an attack; heads leaves 10 HP after the full damage (ruling 2287)', () => {
   const dk = deck('Mega Hawlucha ex', DRA, REL);
-  // Ruling (Ascending Heroes FAQ, TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2287/): heads restores 10 HP after full damage, preventing knock out.
+  // Ruling (Ascending Heroes FAQ, TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2287/): Shred does its full damage, then heads on Tenacious Body restores 10 HP after all of it, so Mega Hawlucha ex is not Knocked Out.
   // Shred is "not affected by any effects on the Defending Pokémon": a stand-in with that clause.
   const shred: CardScript = { id: 'sv06-130', name: 'Dragapult ex', attacks: { 'Jet Headbutt': { ignore: { defenderEffects: true } } } };
   const mk = (coins: boolean[], scripts: CardScript[] = [shred]): Game => {

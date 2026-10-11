@@ -163,8 +163,8 @@ export const STD_ENGINE6: CardScript[] = [
     abilities: [
       {
         // "Whenever your opponent plays a Pokémon from their hand to evolve 1 of their Pokémon, put 4 damage counters on that Pokémon. The effect of Darkest Impulse doesn't stack."
-        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2145/): you can use each ability; doesn't stack prevents doubling on a single target.
-        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2146/): yes, simultaneous abilities let the player choose order.
+        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2145/): it puts 4 counters on each of two Pokémon evolving the same turn; "doesn't stack" only means two Ampharos would not give 8 to each.
+        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2146/): yes, Golbat's Sneaky Bite can be used before it is Knocked Out; both Abilities happen together, so Golbat's owner picks the order.
         // Each Pokémon that evolves gets its own 4 counters; the evolved Pokémon's own Abilities are queued first, and Knock Outs are
         // checked only once they are all done.
         name: 'Darkest Impulse',
@@ -229,7 +229,7 @@ export const STD_ENGINE6: CardScript[] = [
     id: 'sv10-172',
     name: "Team Rocket's Bother-Bot",
     // "Turn 1 of your opponent's face-down Prize cards face up and choose a random card from your opponent's hand. Your opponent reveals that card. You may have your opponent switch those cards. (That Prize card remains face up for the rest of the game.)"
-    // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2167/): play unless opponent lacks face-down prizes and hand cards; unmet condition lets you look at a card.
+    // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2167/): playable unless the opponent has neither a face-down Prize nor a card in hand; if only one is missing, no switch is possible but you still look at a card.
     playable: { or: [{ gte: [{ prizeCards: { who: 'opp', face: 'down' } }, 1] }, { gte: [{ handSize: 'opp' }, 1] }] },
     play: [
       { op: 'turnPrizeUp', who: 'opp', as: 'up' },
@@ -249,7 +249,7 @@ export const STD_ENGINE6: CardScript[] = [
       // "If 1 of your other Ancient Pokémon used an attack during your last turn, this attack does 150 more damage."
       // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2060/): yes, it checks if a different ancient pokémon attacked. (a different Koraidon counts)
       // Ruling (TPCi Rules Team 2024-11-14, https://compendium.pokegym.net/ruling/2087/): no, failed attacks while confused don't count.
-      // Ruling (TPCi Rules Team 2024-12-19, https://compendium.pokegym.net/ruling/2092/): no, Thorton carries effects over; it's the same pokémon for all purposes.
+      // Ruling (TPCi Rules Team 2024-12-19, https://compendium.pokegym.net/ruling/2092/): no, Thorton carries all effects over, so the swapped-in Koraidon is the same Pokémon as the Ancient one that attacked, including having attacked last turn.
       // The record belongs to the Pokémon in play (its slot), so a card swapped into the place of the Pokémon that attacked is that same Pokémon, not an "other" one.
       'Unrelenting Onslaught': { damage: { add: [30, { cond: ANCIENT_ATTACKED_LAST_TURN, then: 150, else: 0 }] } },
     },

@@ -272,7 +272,7 @@ test('Amulet of Hope: Knocked Out by damage from an opponent\'s attack, search y
   choose(g, 'Attack: Jet Headbutt'); // 70 on Slowpoke's 70 HP
   assert.equal(g.decision?.player, 1);
   assert.equal(g.decision?.kind, 'cards');
-  // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2061/): you must take at least one card when this applies.
+  // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2061/): even with just 1 card left in the deck, Amulet of Hope makes you take at least one card.
   assert.equal(g.decision?.min, 1);
   assert.equal(g.decision?.max, 3);
   pick(g, ['Drasna', 'Dusk Ball', 'Call Bell']);

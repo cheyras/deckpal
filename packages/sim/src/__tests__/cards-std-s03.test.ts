@@ -146,7 +146,7 @@ test('Cetitan ex, Snow Camouflage: only cards the opponent plays are prevented -
 });
 
 test("Cetitan ex, Snow Camouflage: Team Rocket's Giovanni is blocked when Cetitan ex is the chosen Benched Pokémon, but your own switch still happens (ruling 2154)", () => {
-  // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2154/): Giovanni is blocked when Cetitan ex is chosen, but switching still happens if a different Benched Pokemon is chosen.
+  // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2154/): Giovanni is blocked if the chosen Benched Pokemon is Cetitan ex; a Benched Pokemon without Snow Camouflage still swaps with the Active Cetitan ex, and your own switch happens either way.
   const TR = "Team Rocket's Tarountula";
   const EX = "Team Rocket's Exeggcute";
   const GIO = "Team Rocket's Giovanni";

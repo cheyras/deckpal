@@ -153,7 +153,7 @@ export const STD_C32: CardScript[] = [
     abilities: [
       {
         // "Prevent all effects of attacks used by your opponent's Pokémon done to your Basic Team Rocket's Pokémon. (Existing effects are not removed. Damage is not an effect.)"
-        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2150/): blocked effects prevent damage moves in both directions.
+        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2150/): damage moved onto an effect-blocking Pokémon vanishes; damage moved off one stays where it was.
         name: 'Repelling Veil',
         statics: [{ effect: { k: 'preventEffects', from: ['attack'] }, scope: 'myPokemon', filter: { stage: 'basic', nameIncludes: "Team Rocket's" } }],
       },

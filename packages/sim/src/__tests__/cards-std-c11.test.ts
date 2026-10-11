@@ -403,7 +403,7 @@ test('Manectric, Flashing Barrier: 50, and during the opponent\'s next turn atta
     choose(g, `Attack: ${attack}`);
     return g;
   };
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2397/): cards classified as Evolutions trigger Flashing Barrier regardless of whether they were naturally evolved.
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2397/): Cinderace placed straight into play from the hand is still an Evolution Pokémon card, so Flashing Barrier blocks its damage.
   // (a Braixen put into play directly, without evolving, is still an Evolution Pokémon card)
   const evo = run('Braixen', [F, F], 'Flamethrower');
   assert.equal(dmg(evo, 1), 50);
@@ -513,7 +513,7 @@ test("Spiritomb, Spiritual End: with 13 or more Pokémon with Hide 'n' Sneak in 
   pick(g, ['Bloodmoon', 'Slowpoke']);
   assert.equal(dmg(g, 1), 120, '3 counters become 12');
   assert.equal(g.state.p[1].bench[0]!.damage, 40, '1 counter becomes 4');
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2411/): multiplying damage counters on a Pokémon with zero leaves it unchanged.
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2411/): a Pokémon with zero damage counters stays at zero (0 x 4 = 0), so none are placed.
   assert.equal(g.state.p[1].bench[1]!.damage, 0, 'a Pokémon with no damage counters, and the one not chosen, stay as they are');
   const none = mk(12);
   choose(none, 'Attack: Spiritual End');
@@ -572,7 +572,7 @@ test("Mega Chandelure ex, Phantom Maze: 130, and 50 more for each {C} in the opp
   };
   assert.equal(hit('Mega Zeraora ex'), 130 + 50 * 2, 'Retreat 1, plus Binding Flame');
   assert.equal(hit('Mega Delphox ex'), 130 + 50 * 3, 'Retreat 2, plus Binding Flame');
-  // Ruling (TPCi Rules Team 2026-04-02, https://compendium.pokegym.net/ruling/2386/): Fossil cards have an unchangeable Retreat Cost of zero.
+  // Ruling (TPCi Rules Team 2026-04-02, https://compendium.pokegym.net/ruling/2386/): Antique Fossils have no Retreat Cost at all (not a cost of zero); this is fixed, so effects such as Binding Flame cannot give them one.
   const f = scenario(dk, dk, [{ active: 'Mega Chandelure ex' }, { active: 'Antique Armor Fossil' }]);
   const fossil = f.state.p[1].active!;
   assert.equal(retreatCost(f.envForInternals, f.state, fossil), 1, 'Binding Flame alone would give the fossil a Retreat Cost');
@@ -608,7 +608,7 @@ test('Rampardos ex, Rowdy Hammer: 150, and during your next turn its attacks do 
   assert.equal(dmg(g, 1), 300, '150 + 150');
   choose(g, 'End turn');
   g.state.p[1].active!.damage = 0;
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2407/): the bonus damage has a maximum of 300 total and resets each turn.
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2407/): Rowdy Hammer adds +150 for the next turn only and does not accumulate, so it stops at 300.
   choose(g, 'Attack: Rowdy Hammer');
   assert.equal(dmg(g, 1), 300, 'not 450');
 });
@@ -620,7 +620,7 @@ test("Rampardos ex, Rowdy Hammer: the extra 150 is not an effect, so Hide 'n' Sn
   choose(g, 'End turn');
   g.state.p[1].active!.damage = 0;
   inject(g, g.state.p[1].active!.id, { k: 'preventEffects', from: ['attack', 'ability'] });
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2398/): the bonus damage bypasses preventEffects since it's not an effect itself.
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2398/): Hide 'n' Sneak cannot stop Rowdy Hammer's extra damage; it comes from a game-state check and damage calculation, not an effect.
   choose(g, 'Attack: Rowdy Hammer');
   assert.equal(dmg(g, 1), 300);
 });

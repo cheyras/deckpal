@@ -43,7 +43,7 @@ export const STD_C13: CardScript[] = [
     attacks: {
       // "Choose 3 of your opponent's Benched Pokémon. If you do, shuffle all of your opponent's Benched Pokémon that you didn't choose, and all cards attached to those Pokémon, into their deck."
       // With 3 or fewer Benched Pokémon all of them are chosen and none is left to shuffle.
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/1954/): effects preventing damage also prevent the Benched Pokémon from being shuffled.
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/1954/): Spherical Shield stops attack effects, not just damage, so the Benched Pokémon that were not chosen are not shuffled.
       'Expelling Tornado': {
         program: [
           { op: 'chooseSlots', from: 'oppBench', min: 3, max: 3, as: 'k', prompt: "Choose 3 of your opponent's Benched Pokémon" },
@@ -171,7 +171,7 @@ export const STD_C13: CardScript[] = [
     abilities: [
       {
         // "When you play this Pokémon from your hand onto your Bench during your turn, you may switch it with your Active Pokémon. If you do, you may move any amount of Energy from your other Pokémon to this Pokémon."
-        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1952/): the Ability completes all its actions before Abilities stop working.
+        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1952/): Rapid Vernier resolves fully, because it starts on the Bench, before Midnight Fluttering turns Abilities off.
         // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1991/): an effect blocking Bench Abilities also prevents the trigger from queuing.
         name: 'Rapid Vernier',
         triggers: [

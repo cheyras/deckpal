@@ -165,7 +165,7 @@ test('Alcremie, Colorful Confection: up to 5 Pokémon of a type of a Basic Energ
   assert.deepEqual(offered(g), ['Alcremie', 'Comfey', 'Turtonator']);
   assert.equal(g.decision?.min, 0, '"up to": it can be none');
   assert.equal(g.decision?.max, 5);
-  // Ruling (Stellar Crown FAQ, TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2019/): search multiple types if they match attached energy types.
+  // Ruling (Stellar Crown FAQ, TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2019/): Colorful Confection can search several Pokémon types, each matching a Basic Energy type attached to Alcremie; the same type may repeat.
   pick(g, ['Comfey', 'Comfey', 'Turtonator', 'Alcremie']);
   assert.deepEqual(names(g, g.state.p[0].hand.slice(before)), ['Alcremie', 'Comfey', 'Comfey', 'Turtonator']);
   assert.deepEqual(names(g, g.state.p[0].revealed ?? []), ['Alcremie', 'Comfey', 'Comfey', 'Turtonator'], 'the cards are revealed');
@@ -226,7 +226,7 @@ test('Dachsbun ex, Time to Chow Down: heal all damage from each Evolution Pokém
 });
 
 test('Dachsbun ex, Time to Chow Down: the Energy of an Evolution Pokémon that had no damage stays (ruling 2015: all or nothing)', () => {
-  // Ruling (Stellar Crown FAQ, TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2015/): you choose; if yes, heal all evolutions and discard their energy.
+  // Ruling (Stellar Crown FAQ, TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2015/): using Time to Chow Down is optional, but once used it heals every Evolution Pokémon and discards Energy from each one healed.
   const g = dachsbunGame({ fidoughDamage: 0, evoDamage: 10 });
   choose(g, 'Evolve Fidough (Active) into Dachsbun ex');
   yes(g);
@@ -541,7 +541,7 @@ test("Grimmsnarl, Goad 'n' Grab: switch out the opponent's Active Pokémon (they
 
 test("Grimmsnarl, Goad 'n' Grab: with no new Active Pokémon (no Bench, or the switch is stopped) there is no damage (ruling 2025)", () => {
   const dk = deck('sv07-096', ...COMMON);
-  // Ruling (Stellar Crown FAQ, TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2025/): no damage if no new active pokémon is switched in.
+  // Ruling (Stellar Crown FAQ, TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2025/): Goad 'n' Grab does no damage when Mist Energy stops the switch, because no NEW Active Pokémon arrives.
   const mist = game(dk, [
     { active: 'Grimmsnarl', energy: { active: [F, F] } },
     { active: 'Tyranitar ex', bench: ['Turtonator'], energy: { active: ['Mist Energy'] } },

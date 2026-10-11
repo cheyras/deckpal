@@ -51,7 +51,7 @@ export const STD_SEED2: CardScript[] = [
     name: 'Koraidon',
     attacks: {
       // "If your opponent's Active Pokémon is an Evolution Pokémon, this attack does 30 more damage."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2394/): Stage 1 Pokémon put into play count as Evolution Pokémon.
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2394/): a Cinderace put into play at setup by Explosiveness is not "Evolved" but is still an Evolution Pokémon card, so Battle Claw's extra 30 applies.
       // -- the test is on the card's Stage, not on whether it evolved in play.
       'Battle Claw': { damage: { add: [30, { cond: { slotIs: { ref: 'defender', filter: { stage: 'evolution' } } }, then: 30, else: 0 }] } },
       // "Discard all Energy from this Pokémon."

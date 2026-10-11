@@ -229,7 +229,7 @@ export const STD_C11: CardScript[] = [
     ],
     attacks: {
       // "This attack does 50 more damage for each {C} in your opponent's Active Pokémon's Retreat Cost."
-      // Ruling (TPCi Rules Team 2026-04-02, https://compendium.pokegym.net/ruling/2386/): Antique Fossils have "no Retreat cost," not zero; it can't be modified.
+      // Ruling (TPCi Rules Team 2026-04-02, https://compendium.pokegym.net/ruling/2386/): Antique Fossils have no Retreat Cost at all (not a cost of zero); that is fixed, so Binding Flame cannot give them one.
       // The count includes Binding Flame's own {C} (an Ability in play), and is 0 for an Antique fossil.
       'Phantom Maze': {
         pre: [{ op: 'custom', fn: 'c11.retreatCostOf', args: { as: 'n' } }],
@@ -265,7 +265,7 @@ export const STD_C11: CardScript[] = [
     ],
     attacks: {
       // "During your next turn, attacks used by this Pokémon do 150 more damage to your opponent's Active Pokémon (before applying Weakness and Resistance)."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2407/): Rowdy Hammer caps at 300 and doesn't stack; other attacks also gain +150 next turn.
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2407/): Rowdy Hammer tops out at 300 (+150 applies for the next turn only, no stacking); a different attack used next turn also gets +150 provided it does damage first.
       // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2398/): Rowdy Hammer's bonus damage isn't blocked by Hide 'n' Sneak.
       'Rowdy Hammer': { post: [{ op: 'effect', static: { k: 'damageOut', amount: 150 }, on: 'self', duration: 'myNextTurn' }] },
     },

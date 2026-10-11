@@ -74,8 +74,8 @@ test("Special Red Card requires opponent's hand to be non-empty (TPCi 2026-05-21
   assert.ok(!has(bare, 'Special Red Card'), 'Special Red Card was offered against an empty hand');
 });
 
-test("Dark Bell is unplayable when both Active Pokémon lack valid targets (TPCi 2026-07-16)", () => {
-  // Card cannot be used without a Pokémon to affect.
+test("Dark Bell can't be played when both Active Pokémon are {D} and/or Confused (TPCi 2026-07-16)", () => {
+  // A card can't be played when it has no valid targets.
   const ok = at([{ active: 'Dhelmise', hand: ['Dark Bell'] }, { active: 'Dhelmise' }]);
   assert.ok(has(ok, 'Dark Bell'));
   const blocked = at([{ active: 'Dhelmise', hand: ['Dark Bell'], cond: CONFUSED }, { active: 'Dhelmise', cond: CONFUSED }]);
@@ -140,8 +140,8 @@ test('Risky Ruins damages Antique Fossils when they enter the Bench (TPCi 2026-0
   assert.equal(g.state.p[0].bench[0]?.damage, 20);
 });
 
-test("Team Rocket's Watchtower removes Abilities from benched Pokémon (TPCi 2026-04-16)", () => {
-  // Pokémon brought to Bench while Watchtower is Active have their abilities blocked.
+test("Team Rocket's Watchtower: a Meowth ex benched under it has no Last-Ditch Catch (TPCi 2026-04-16)", () => {
+  // Meowth ex has no Ability from the moment it comes into play under Watchtower.
   const g = atS([{ active: 'Dhelmise', hand: ["Team Rocket's Watchtower", 'Meowth ex'] }, { active: 'Dhelmise' }]);
   choose(g, "Play Team Rocket's Watchtower");
   choose(g, 'Bench Meowth ex');

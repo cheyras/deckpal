@@ -140,7 +140,7 @@ test('Shiftry, Expelling Tornado: with 3 or fewer Benched Pokémon all of them a
 });
 
 test('Shiftry, Expelling Tornado vs Rabsca\'s Spherical Shield: the Benched Pokémon not chosen are still protected (Ruling #1954)', () => {
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/1954/): Expelled Pokémon protected by Spherical Shield won't be shuffled.
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/1954/): the two unchosen Benched Pokémon still have Expelling Tornado's effect done to them, so Spherical Shield protects them from being shuffled into the deck.
   const g = G([
     { active: 'Seedot', evolve: { active: ['Nuzleaf', 'Shiftry'] }, energy: { active: [GR] } },
     FOE({ bench: ['Rellor', 'Turtwig', 'Grotle', 'Deerling', 'Litten'], evolve: { 0: ['Rabsca'] } }),
@@ -416,7 +416,7 @@ test('Iron Leaves ex, Rapid Vernier with no Energy on the other Pokémon: switch
 });
 
 test('Iron Leaves ex, Rapid Vernier: an effect that turns off Abilities on the Bench blocks it (Ruling #1991)', () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1991/): Rapid Vernier is blocked by Mischievous Lock once Iron Leaves is on the Bench.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1991/): no: Rapid Vernier only activates once Iron Leaves ex is on the Bench, where Mischievous Lock blocks it.
   const g = G([{ active: 'Roselia', hand: ['Iron Leaves ex'], energy: { active: [GR] } }, FOE()]);
   g.state.effects.push({ static: { k: 'noAbilities' }, slot: -1, player: 1, until: g.state.turn, fromAttack: false, src: g.state.p[1].active!.cards[0] as number, scope: 'allPokemon' });
   choose(g, 'Bench Iron Leaves ex');
@@ -425,7 +425,7 @@ test('Iron Leaves ex, Rapid Vernier: an effect that turns off Abilities on the B
 });
 
 test('Iron Leaves ex, Rapid Vernier: once started on the Bench, all of its actions complete (Ruling #1952)', () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1952/): Rapid Vernier's effects complete before Midnight Fluttering disables the Ability.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1952/): because Rapid Vernier started on the Bench, it finishes all its actions before Midnight Fluttering turns it off.
   const g = G([{ active: 'Roselia', bench: ['Turtwig'], hand: ['Iron Leaves ex'], energy: { 0: [FI, FI] } }, FOE()]);
   choose(g, 'Bench Iron Leaves ex');
   yes(g); // the switch puts it in the Active Spot...
@@ -595,7 +595,7 @@ test('Feraligatr, Torrential Heart: the extra damage is this turn only', () => {
 });
 
 test('Feraligatr, Torrential Heart: if the Ability is turned off after it was used, the effect already applied still holds (Ruling #1953)', () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1953/): Torrential Heart's effect persists even if the Ability is disabled later.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1953/): yes, the boost still holds: Torrential Heart's effect was already applied until end of turn when Flutter Mane disabled the Ability.
   const g = G([{ active: 'Totodile', evolve: { active: ['Croconaw', 'Feraligatr'] }, energy: { active: [W, W] } }, FOE()]);
   choose(g, 'Torrential Heart');
   g.state.effects.push({ static: { k: 'noAbilities' }, slot: -1, player: 1, until: g.state.turn, fromAttack: false, src: g.state.p[1].active!.cards[0] as number, scope: 'allPokemon' });

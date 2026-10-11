@@ -17,7 +17,7 @@ function slotIdOf(v: Val | undefined): number | undefined {
  * Cofagrigus, Extended Damagriiigus: "Move all damage counters from 1 of your Benched Pokémon to 1 of your opponent's Pokémon."
  * args: { from, to } -- the variables holding the two chosen Pokémon. Nothing moves under a Watchful Eye-style lock. Otherwise
  * every damage counter leaves the first Pokémon; they land on the second unless it is protected from the effects of attacks or
- * from damage counters, in which case they just disappear (Compendium #2192: moving counters to a protected target results in vanishing).
+ * from damage counters, in which case they just disappear (Compendium #2192: counters aimed at a Pokémon that blocks effects are lost).
  */
 registerCustom('c37.moveAllCounters', (env, s, f, args) => {
   const fromId = slotIdOf(f.vars[String(args.from ?? 'from')]);

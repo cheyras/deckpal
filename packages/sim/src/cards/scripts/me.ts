@@ -272,7 +272,7 @@ export const ME: CardScript[] = [
     fix: { specialEnergy: true },
     provides: ['Psychic'],
     // "When you attach this card from your hand to a {P} Pokémon, search your deck for up to 2 Basic {P} Pokémon and put them onto your Bench. Then, shuffle your deck."
-    // Ruling (Perfect Order FAQ, 2026-03-26): a full Bench blocks this effect.
+    // Ruling (Perfect Order FAQ, 2026-03-26): with a full Bench there is no search and no shuffle.
     triggers: [
       {
         on: 'attachFromHand',

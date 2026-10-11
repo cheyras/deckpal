@@ -182,7 +182,7 @@ export const STD_C28: CardScript[] = [
     abilities: [
       {
         // "Prevent all damage done to this Pokémon by attacks from your opponent's Pokémon ex."
-        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2095/): Safeguard is an effect on the defending Pokémon, ignored by this.
+        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2095/): Safeguard does not stop Demolish; it counts as an effect sitting on Sylveon, which Demolish ignores.
         // -- an attack that isn't affected by effects on the Defending Pokémon (`ignore.defenderEffects`) gets through Safeguard.
         name: 'Safeguard',
         statics: [{ effect: { k: 'preventDamage', attacker: { ex: true } }, scope: 'self' }],

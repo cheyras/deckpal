@@ -210,7 +210,7 @@ export const STD_C17: CardScript[] = [
       // "During your opponent's next turn, the Defending Pokémon can't retreat."
       Sob: { post: [{ op: 'effect', static: { k: 'cantRetreat' }, on: 'defender', duration: 'oppNextTurn' }] },
       // "You may shuffle 3 Energy attached to this Pokémon into your deck. If you do, this attack also does 120 damage to 1 of your opponent's Benched Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)"
-      // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2031/): do as much as you can; bench damage happens if any Energy is shuffled in, and damage is reduced for Weakness since shuffling happens after damage.
+      // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2031/): do as much as you can: the Bench damage still happens if some Energy is shuffled in, and the Double Turbo Energy reduction applies since the shuffle comes after damage.
       // So: with fewer than 3 Energy all of it is shuffled in (at least 1 for the bonus), and the Energy leaves AFTER the damage.
       'Torrential Pump': {
         post: [

@@ -41,7 +41,7 @@ export const STD_ENGINE2: CardScript[] = [
         // "Once during your turn, when you play this Pokémon from your hand to evolve 1 of your Pokémon, you may use this Ability.
         //  You may also use this Ability if this Pokémon is in the Active Spot and is Knocked Out by damage from an attack from
         //  your opponent's Pokémon. Discard the top 2 cards of your opponent's deck."
-        // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2243/): both the play trigger and KO trigger are allowed (an evolved Flygon that is later Knocked Out may use it again)
+        // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2243/): Flygon may use it on evolving from hand and again when later Knocked Out (an evolved Flygon that is later Knocked Out may use it again)
         name: 'Sandy Flapping',
         triggers: [
           { on: 'evolveFromHand', optional: true, program: DISCARD_TOP_2_OF_OPP },
@@ -83,8 +83,8 @@ export const STD_ENGINE2: CardScript[] = [
     abilities: [
       {
         // "As long as this Pokémon is in the Active Spot, whenever your opponent's Active Pokémon moves to the Bench during their turn, their new Active Pokémon is now Confused."
-        // Ruling (TPCi Rules Team 2026-04-16, https://compendium.pokegym.net/ruling/2339/): Swirling Prose confuses the opponent's new Active when switched, but doesn't apply if Giovanni brings Mismagius itself in.
-        // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2247/): a Knock Out and promotion after it don't count as a bench move (a Knock Out and the promotion after it is not a move to the Bench)
+        // Ruling (TPCi Rules Team 2026-04-16, https://compendium.pokegym.net/ruling/2339/): with Mismagius ex already Active, a Giovanni switch leaves the opponent's new Active Confused; if Giovanni brings a Benched Mismagius ex up, Swirling Prose is not yet in effect for that switch.
+        // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2247/): no, the replacement after a Knock Out happens on the knocking player's turn (a Knock Out and the promotion after it is not a move to the Bench)
         name: 'Swirling Prose',
         triggers: [{ on: 'oppActiveMovedToBench', when: { inActive: 'self' }, program: [{ op: 'condition', cond: 'confused', to: 'oppActive' }] }],
       },
@@ -100,8 +100,8 @@ export const STD_ENGINE2: CardScript[] = [
     abilities: [
       {
         // "Whenever your opponent's Active Pokémon moves to the Bench during their turn, place 2 damage counters on that Pokémon."
-        // Ruling (Ascending Heroes FAQ, TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2285/): multiple Dugtrio place counters together; the ability stacks (two Dugtrio)
-        // Ruling (Ascending Heroes FAQ, TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2286/): if Battle Cage is in play, the bench Pokemon takes no counters.
+        // Ruling (Ascending Heroes FAQ, TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2285/): the Ability stacks, so two Dugtrio place 2 counters each, 4 in total (two Dugtrio)
+        // Ruling (Ascending Heroes FAQ, TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2286/): under Battle Cage the Pokemon is already on the Bench when the Ability applies, so it takes no counters.
         name: 'Holes',
         triggers: [{ on: 'oppActiveMovedToBench', program: [{ op: 'counters', n: 2, to: { v: '__target' } }] }],
       },
@@ -219,7 +219,7 @@ export const STD_ENGINE2: CardScript[] = [
         // "If 1 of your {D} Pokémon is Knocked Out by damage from an attack from your opponent's Pokémon ex, that player takes 1 fewer Prize card. The effect of Shadowy Concealment doesn't stack."
         // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2262/): Shadowy Concealment triggers on KO and reduces prizes even if Mega Gengar ex is discarded.
         // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2244/): Mega ex = 1 prize; regular ex = 0 prizes; non-ex = 0 prizes; Legacy Energy is consumed.
-        // Ruling (Phantasmal Flames FAQ, TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2245/): a KO'd Pokemon still triggers related effects even if no prize is taken.
+        // Ruling (Phantasmal Flames FAQ, TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2245/): a Pokemon KO'd with its Prize prevented was still Knocked Out, so Krookodile's Vengeful Fang gets its bonus.
         name: 'Shadowy Concealment',
         statics: [
           {
@@ -279,7 +279,7 @@ export const STD_ENGINE2: CardScript[] = [
     name: 'Mega Heracross ex',
     attacks: {
       // "If this Pokémon was damaged by an attack during your opponent's last turn, this attack does that much more damage."
-      // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2372/): if swapped with Transformation Tome, previous turn's damage still counts (swapped in with Transformation Tome)
+      // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2372/): yes, the Pokémon swapped in with Transformation Tome is treated as the same Pokémon, so the damage it took last turn counts (swapped in with Transformation Tome)
       // Ruling (Phantasmal Flames FAQ, TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2253/): placing damage counters doesn't count as damage from attacks.
       'Juggernaut Horn': { damage: { add: [100, { damageTakenLastTurn: 'self' }] } },
       // "Discard the top 2 cards of your opponent's deck."
@@ -321,7 +321,7 @@ export const STD_ENGINE2: CardScript[] = [
     id: 'me02-093',
     name: 'Sacred Charm',
     // "The Pokémon this card is attached to takes 30 less damage from attacks from your opponent's Pokémon that have an Ability (after applying Weakness and Resistance)."
-    // Ruling (Phantasmal Flames FAQ, TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2260/): Sacred Charm doesn't prevent damage from colorless Pokemon under Team Rocket's Watchtower.
+    // Ruling (Phantasmal Flames FAQ, TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2260/): with Team Rocket's Watchtower out, Colorless Pokemon have no Abilities, so Sacred Charm does not take 30 off their attacks.
     statics: [{ effect: { k: 'damageIn', amount: -30, fromOpp: true, attacker: { anyAbility: true } }, scope: 'self' }],
   },
 
@@ -332,7 +332,7 @@ export const STD_ENGINE2: CardScript[] = [
     abilities: [
       {
         // "If this Pokémon would be Knocked Out by damage from an attack, flip a coin. If heads, this Pokémon is not Knocked Out, and its remaining HP becomes 10."
-        // Ruling (Ascending Heroes FAQ, TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2287/): all damage applies first, then heads restores 10 HP and prevents KO.
+        // Ruling (Ascending Heroes FAQ, TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2287/): Shred does its full damage first; only then, on heads, 10 HP is restored and Mega Hawlucha ex is not Knocked Out.
         name: 'Tenacious Body',
         statics: [{ effect: { k: 'surviveKoCoinFlip' }, scope: 'self' }],
       },

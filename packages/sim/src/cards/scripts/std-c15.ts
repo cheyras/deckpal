@@ -210,7 +210,7 @@ export const STD_C15: CardScript[] = [
       {
         // "Once during your turn, if this Pokémon's remaining HP is 30 or less, you may search your deck for an Unfezant or Unfezant ex
         //  and put it onto this Pidove to evolve it. Then, shuffle your deck."
-        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1949/): you can use it as long as remaining HP is 30 or less.
+        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1949/): usable on your first turn or the turn it enters play, provided its remaining HP is at most 30.
         name: 'Emergency Evolution',
         activated: {
           program: [{ op: 'custom', fn: 'c15.evolveSelfFromDeck', args: { names: ['Unfezant', 'Unfezant ex'] } }, { op: 'shuffle' }],

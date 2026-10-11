@@ -329,7 +329,7 @@ test('Maractus, Exploding Needles: the Pokémon that used the attack gets the co
   const accelgor = sw.state.p[1].bench.find((b) => name(sw, b.cards[0]!) === 'Accelgor') ?? sw.state.p[1].active!;
   assert.equal(name(sw, accelgor.cards[0]!), 'Accelgor');
   assert.equal(accelgor.damage, 60, 'the Attacking Pokémon, now on the Bench');
-  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2106/): Pokémon goes to hand before triggering effects on leaving play. The same shape: Meowth ex's Tuck Tail does damage, then goes to the hand.
+  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2106/): Comfey goes to the hand first, then Exploding Needles triggers and finds no valid target. The same shape: Meowth ex's Tuck Tail does damage, then goes to the hand.
   const tuck = game(
     [{ active: 'Maractus', bench: [REL], damage: { active: 60 } }, { active: 'Meowth ex', bench: [SLO], damage: { active: 120 }, energy: { active: [G, G, G] } }],
     OPP_TURN,
@@ -551,7 +551,7 @@ test("Iono's Voltorb, Voltaic Chain: 20, and 20 more for each {L} Energy attache
 });
 
 test("Iono's Voltorb, Voltaic Chain: an Energy that provides every type counts, the opponent's Iono's Pokémon do not (Compendium #2119)", () => {
-  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2119/): Multi-type Energy cards count toward type requirements. Legacy Energy is the same kind of Energy in this catalog.
+  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2119/): yes, the attack does not require Basic {L} Energy, so a Luminous Energy on one of Iono's Pokémon counts. Legacy Energy is the same kind of Energy in this catalog.
   const g = game([
     { active: "Iono's Voltorb", bench: ["Iono's Electrode"], energy: { active: [L, F], 0: [LEGACY] } },
     { active: DRA, bench: ["Iono's Voltorb"], energy: { 0: [L, L] } },

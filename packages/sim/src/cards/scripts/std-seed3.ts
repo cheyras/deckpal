@@ -192,7 +192,8 @@ export const STD_SEED3: CardScript[] = [
     name: "N's Vanilluxe",
     attacks: {
       // "Double the number of damage counters on each of your opponent's Pokémon."
-      // Ruling (TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2293/): The effect adds matching counters on top; #2294 (https://compendium.pokegym.net/ruling/2294/): Benched Pokémon placement is blocked by protecting effects like Battle Cage.
+      // Ruling (TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2293/): Snow Coating adds as many counters as are already there (2 becomes 4, not 6).
+      // Ruling (TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2294/): under Battle Cage a Benched Pokémon gets no added counters, since doubling means placing counters.
       'Snow Coating': { program: [{ op: 'custom', fn: 'seed3.doubleCounters', args: { zone: 'oppPokemon' } }] },
       // "This attack also does 10 damage to each of your opponent's Benched Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)"
       // Ruling (TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2289/): Attack damage bypasses counter-placement blocks; Battle Cage protects counters only, not damage.

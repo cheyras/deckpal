@@ -516,7 +516,7 @@ test('Doublade, Weaponized Swords: reveal any number of Honedge, Doublade and Ae
     scenario(dk, dk, [{ active: 'Doublade', energy: { active: [M, M] }, hand: ['Doublade', 'Aegislash', 'Aegislash', 'Tyranitar ex', 'Mega Absol ex'] }, { active: 'Tyranitar ex' }]);
   const g = mk();
   choose(g, 'Attack: Weaponized Swords');
-  // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2320/): only cards with exact name matches can be revealed.
+  // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2320/): Weaponized Swords counts only cards whose names exactly match; only Honedge, Doublade or Aegislash qualify, not Aegislash ex.
   assert.deepEqual(names(g, g.decision!.values as number[]), ['Aegislash', 'Aegislash', 'Doublade']);
   assert.equal(g.decision?.min, 0, 'any number, including none');
   g.submit([0, 1, 2]);

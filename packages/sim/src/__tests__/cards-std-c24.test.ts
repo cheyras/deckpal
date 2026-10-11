@@ -137,7 +137,7 @@ test('Victini, Victory Cheer: your Evolution {R} Pokémon do 10 more damage; a S
     const g = game([mine, { active: DRA, ...extra }]);
     return g;
   };
-  // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2044/): A Stage 2 put into play counts as an Evolution Pokémon for Victory Cheer.
+  // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2044/): a Skeledirge (Stage 2) put directly into play by Cinnabar Lure is still an Evolution Pokémon, so Victory Cheer's bonus applies.
   // Skeledirge is put straight into play here (not evolved): Torcherto 60 + 20 for the Benched Victini = 80, +10.
   const cheer = run({ active: 'Skeledirge', bench: ['Victini'], energy: { active: [F, W] } });
   choose(cheer, 'Attack: Torcherto');
@@ -218,7 +218,7 @@ test('Skeledirge, Unaware: prevents all effects of the opponent\'s attacks (not 
 test('Skeledirge, Unaware: Delibird\'s Pleasing Present Energy is discarded after the choice (ruling 2354)', () => {
   const g = game([{ active: 'Delibird', energy: { active: [W] } }, { active: 'Skeledirge', hand: [W, G] }]);
   choose(g, 'Attack: Pleasing Present');
-  // Ruling (Chaos Rising FAQ, TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2354/): Energy cards discard after the opponent chooses which cards to add.
+  // Ruling (Chaos Rising FAQ, TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2354/): Unaware blocks the attach, but the Energy the opponent picked is discarded once that choice is made.
   assert.equal(g.decision?.player, 1, 'the opponent chooses first');
   pick(g, [W]);
   assert.deepEqual(names(g, g.state.p[1].active!.energy), [], 'nothing stays on Skeledirge');
@@ -458,7 +458,7 @@ test('Quaquaval, Up-Tempo: put a card from your hand on the bottom of your deck,
 });
 
 test('Quaquaval, Up-Tempo: not usable with 6 or more cards in hand, because you have to be able to draw (ruling 2042)', () => {
-  // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2042/): Up-Tempo needs 6 or fewer cards in hand so you can draw.
+  // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2042/): with 6 or more cards in hand Up-Tempo cannot be used, because a card must be drawable.
   assert.ok(!has(game([{ active: 'Quaquaval', hand: [F, F, F, F, F, F] }, { active: DRA }]), 'Up-Tempo'), '6 cards');
   const five = game([{ active: 'Quaquaval', hand: [F, W, G, L, P] }, { active: DRA }]);
   choose(five, 'Use Up-Tempo');

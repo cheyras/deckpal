@@ -74,7 +74,7 @@ export const GHOST: CardScript[] = [
           program: [
             { op: 'chooseSlots', from: 'myPokemon', filter: { damaged: true }, min: 1, max: 1, as: 'from', prompt: 'Move damage counters from which of your Pokémon?' },
             { op: 'chooseSlots', from: 'oppPokemon', min: 1, max: 1, as: 'to', prompt: "Move them to which of your opponent's Pokémon?" },
-            // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2257/): under Battle Cage, removed counters fail to reach Benched Pokémon and vanish.
+            // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2257/): under Battle Cage the counters are taken off the source Pokémon, but they cannot be placed on a Benched Pokémon, so they vanish.
             { op: 'custom', fn: 'rul12.moveCountersLossy', args: { from: 'from', to: 'to', max: 3 } },
           ],
         },
@@ -84,7 +84,7 @@ export const GHOST: CardScript[] = [
       // "Your opponent's Active Pokémon is now Confused."
       'Mind Bend': { post: [{ op: 'condition', cond: 'confused', to: 'oppActive' }] },
     },
-    notes: "Adrena-Brain is not offered while a Watchful Eye-style countersFixed static is live, or when none of your Pokémon has damage counters. Compendium #2257 (2025-11-13): under Battle Cage, removed counters fail to reach Benched Pokémon and vanish (rul12.moveCountersLossy). Compendium #2254, #1995: moving counters is not healing.",
+    notes: "Adrena-Brain is not offered while a Watchful Eye-style countersFixed static is live, or when none of your Pokémon has damage counters. Compendium #2257 (2025-11-13): under Battle Cage the counters are still removed from the source and vanish when aimed at a Benched Pokémon (rul12.moveCountersLossy). Compendium #2254, #1995: moving counters is not healing.",
   },
   {
     id: 'me02.5-016',
@@ -239,7 +239,7 @@ export const GHOST: CardScript[] = [
         ],
       },
     },
-    notes: 'Gnawing Curse triggers for each Gengar ex in play (including Benched) whenever an Energy is attached from hand, whether by a move or by an effect.',
+    notes: 'Gnawing Curse fires for each Gengar ex in play, from the Bench too, on Energy attached from hand by an action or by an effect.',
   },
   {
     id: 'me05-061',
@@ -259,7 +259,7 @@ export const GHOST: CardScript[] = [
         statics: [{ effect: { k: 'preventDamage', attackerMaxEnergy: 2 }, scope: 'myPokemon', when: { onBench: 'self' } }],
       },
     ],
-    notes: 'When checking "Energy attached", each Energy counts by its unit value; a Special Energy worth {C}{C} counts as 2.',
+    notes: 'The attacker\'s Energy is counted in units provided (a Special Energy providing 2 counts as 2), as "Energy attached" counts elsewhere.',
   },
   {
     id: 'me05-072',
@@ -271,16 +271,18 @@ export const GHOST: CardScript[] = [
       {
         // "As long as this Pokémon is in the Active Spot, all of your Pokémon take 10 less damage from attacks from your opponent's Pokémon (after applying Weakness and Resistance)."
         name: 'Protective Armor',
-        // Phrase specifies opponent's attacks; rules interaction shows reduction applies only to opponent's damage.
+        // "from your opponent's Pokémon": fromOpp, or the reduction also applies to damage from your own attacks (found by the round trip).
         statics: [{ effect: { k: 'damageIn', amount: -10, fromOpp: true }, scope: 'myPokemon', when: { inActive: 'self' } }],
       },
     ],
     status: 'implemented',
     notes:
-      'Played from hand as an Item (Item locks stop it); never in setup or mulligan count. KO = 1 Prize; discard = 0 Prizes. ' +
-      'Rulings: in hand it counts as an Item not a Basic (TPCi 2026-04-02); Item locked (Enveloping Shadow, 2024-09-26); ' +
-      'played becomes Pokémon (Risky Ruins adds counters, 2026-07-16); Retreat Cost is 0 and unchangeable ' +
-      '(Binding Flame, Pitch Black FAQ 2026-07-16) -- cantRetreat.',
+      'Played from hand as an Item (Item locks stop it) and never placed during setup or counted for mulligans. ' +
+      'Knocked Out it gives up 1 Prize; discarded from play it gives none. Rulings (https://compendium.pokegym.net/?s=Antique, ' +
+      'https://compendium.pokegym.net/?s=Fossil+setup): Fossils in General -- in hand it is an Item card, so it is not a Basic Pokemon ' +
+      'during setup (TPCi 2026-04-02); an Antique fossil in hand is still an Item under an Item lock (Enveloping Shadow, TPCi 2024-09-26); ' +
+      'it counts as a Pokémon once put into play, so Risky Ruins places counters on it (TPCi 2026-07-16); it has no Retreat Cost at all, ' +
+      'and effects cannot give it one or change it (Binding Flame, Pitch Black FAQ 2026-07-16) -- cantRetreat.',
   },
   {
     id: 'me05-076',

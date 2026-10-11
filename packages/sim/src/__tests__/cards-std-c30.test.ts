@@ -269,7 +269,7 @@ test("Lillie's Ribombee, Inviting Wink: can't be used when the opponent's Bench 
 });
 
 test("Lillie's Ribombee, Inviting Wink: the Pokémon put there may evolve on the opponent's next turn (ruling 2110)", () => {
-  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2110/): Pokémon put there may evolve after the first turn if conditions are met.
+  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2110/): they may evolve on the opponent's next turn, except when that turn is their very first of the game.
   const g = game([{ active: "Lillie's Cutiefly", hand: ["Lillie's Ribombee"] }, { active: DRA, hand: ['Rockruff', 'Lycanroc'] }]);
   choose(g, "Evolve Lillie's Cutiefly");
   yes(g);
@@ -303,7 +303,7 @@ test("Lillie's Comfey, Inviting Flowers: declining searches for nothing", () => 
 });
 
 test("Lillie's Comfey, Fade Out: 30 damage, then this Pokémon and all attached cards go into your hand (ruling 2106)", () => {
-  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2106/): Lillie's Comfey goes to your hand before promotion happens.
+  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2106/): Lillie's Comfey goes to the hand first, so a later trigger such as Exploding Needles finds nothing to Knock Out.
   const g = game([{ active: "Lillie's Comfey", bench: ['Rockruff'], energy: { active: [P] }, damage: { active: 40 } }, { active: DRA }]);
   choose(g, 'Attack: Fade Out');
   assert.equal(dmg(g, 1), 30);

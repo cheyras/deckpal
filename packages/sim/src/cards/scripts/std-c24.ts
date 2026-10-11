@@ -37,7 +37,7 @@ export const STD_C24: CardScript[] = [
     abilities: [
       {
         // "Attacks used by your Evolution {R} Pokémon do 10 more damage to your opponent's Active Pokémon (before applying Weakness and Resistance)."
-        // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2044/): setup-placed Skeledirge counts as an Evolution Pokémon for Victory Cheer. (put directly into play, not evolved)
+        // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2044/): a Skeledirge put directly into play by Cinnabar Lure is not "Evolved" but is still an Evolution Pokémon (Stage 2), so Victory Cheer applies. (put directly into play, not evolved)
         name: 'Victory Cheer',
         statics: [{ effect: { k: 'damageOut', amount: 10 }, scope: 'myPokemon', filter: { stage: 'evolution', type: 'Fire' } }],
       },
@@ -63,7 +63,7 @@ export const STD_C24: CardScript[] = [
     abilities: [
       {
         // "Prevent all effects of attacks used by your opponent's Pokémon done to this Pokémon. (Damage is not an effect.)"
-        // Ruling (Chaos Rising FAQ, TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2354/): attack effects are prevented; outcomes of effects chosen before prevention still happen. (Delibird, Pleasing Present: pinned in the test)
+        // Ruling (Chaos Rising FAQ, TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2354/): when the opponent picks Skeledirge for Pleasing Present's attach, Unaware prevents the effect, so the Energy is discarded after the choice is made. (Delibird, Pleasing Present: pinned in the test)
         name: 'Unaware',
         statics: [{ effect: { k: 'preventEffects', from: ['attack'] }, scope: 'self' }],
       },
@@ -80,7 +80,7 @@ export const STD_C24: CardScript[] = [
     name: 'Armarouge',
     attacks: {
       // "Discard all {R} Energy from this Pokémon, and this attack does 180 damage to 1 of your opponent's Benched Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)"
-      // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2050/): Energy is discarded even if no valid target exists. (no Benched Pokémon: the {R} Energy is still discarded)
+      // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2050/): yes, the {R} Energy is discarded even with no Benched target, though nothing hits the Active Pokémon. (no Benched Pokémon: the {R} Energy is still discarded)
       'Crimson Blaster': {
         program: [
           { op: 'discardEnergy', from: 'self', count: 'all', filter: { providesType: 'Fire' } },
@@ -192,7 +192,7 @@ export const STD_C24: CardScript[] = [
     abilities: [
       {
         // "You must put a card from your hand on the bottom of your deck in order to use this Ability. Once during your turn, you may draw cards until you have 5 cards in your hand."
-        // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2042/): you must be able to draw when using this Ability. (6 or more cards in hand)
+        // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2042/): no, drawing a card must be possible when you use this Ability. (6 or more cards in hand)
         // So the Ability needs a card to put back (1 or more in hand), 5 or fewer cards in hand (putting one back leaves room to draw) and a card in the deck to draw.
         name: 'Up-Tempo',
         activated: {
@@ -273,7 +273,7 @@ export const STD_C24: CardScript[] = [
     name: 'Stunfisk',
     attacks: {
       // "Flip a coin. If heads, your opponent's Active Pokémon is now Paralyzed, and discard an Energy from that Pokémon."
-      // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2058/): one flip applies to all effects; tails prevents everything. (tails: neither)
+      // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2058/): the one coin flip covers both Paralysis and the Energy discard. (tails: neither)
       'Paralyzing Crackle': {
         post: [
           { op: 'flip', n: 1, as: 'h' },

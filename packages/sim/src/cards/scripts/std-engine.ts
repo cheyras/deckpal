@@ -62,10 +62,10 @@ export const STD_ENGINE: CardScript[] = [
     name: 'Mega Lopunny ex',
     attacks: {
       // "If this Pokémon moved from your Bench to the Active Spot this turn, this attack does 170 more damage."
-      // Ruling (TPCi Rules Team 2025-12-04, https://compendium.pokegym.net/ruling/2265/): your turn begins when you draw; moves before that and between-turn KOs don't count; evolution doesn't reset the condition.
+      // Ruling (TPCi Rules Team 2025-12-04, https://compendium.pokegym.net/ruling/2265/): your turn begins at the draw; a move before that (e.g. after a between-turn Knock Out) does not count, nor does moving as Buneary and then evolving.
       'Gale Thrust': { damage: { add: [60, { cond: { movedToActiveThisTurn: 'self' }, then: 170, else: 0 }] } },
       // "This attack's damage isn't affected by any effects on your opponent's Active Pokémon."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2424/): damage is unaffected by all effects on the opponent's Active.
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2424/): Spiky Hopper ignores effects on the opponent's Active, including Ancient Bulwark's protection, which resides on all of that player's Pokémon.
       'Spiky Hopper': { ignore: { defenderEffects: true } },
     },
   },
@@ -74,7 +74,7 @@ export const STD_ENGINE: CardScript[] = [
     name: 'Lurantis ex',
     attacks: {
       // "If this Pokémon was healed during this turn, this attack does 200 more damage."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2405/): relocating damage differs from actual healing.
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2405/): Moving damage counters is not Healing (stated for Lively Cutter; the same reasoning applies to Lively Flower).
       'Lively Cutter': { damage: { add: [60, { cond: { healedThisTurn: 'self' }, then: 200, else: 0 }] } },
       // "During your opponent's next turn, this Pokémon takes 50 less damage from attacks (after applying Weakness and Resistance)."
       'Leaf Guard': { post: [{ op: 'effect', static: { k: 'damageIn', amount: -50 }, on: 'self', duration: 'oppNextTurn' }] },
@@ -92,7 +92,7 @@ export const STD_ENGINE: CardScript[] = [
         ],
       },
       // "If this Pokémon was healed during this turn, this attack does 120 more damage."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2405/): relocating damage differs from actual healing.
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2405/): Moving damage counters is not Healing (stated for Lively Cutter; the same reasoning applies to Lively Flower).
       'Lively Flower': { damage: { add: [60, { cond: { healedThisTurn: 'self' }, then: 120, else: 0 }] } },
     },
   },
@@ -128,7 +128,7 @@ export const STD_ENGINE: CardScript[] = [
     name: 'Jynx',
     attacks: {
       // "At the end of your opponent's next turn, discard the Defending Pokémon and all attached cards."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2404/): delayed effects drop if the target leaves the Active Spot; the new Active is unaffected.
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2404/): Intense Kiss's effect is removed once the Defending Pokémon is moved to the Bench; neither the old nor the new Active is discarded.
       'Intense Kiss': {
         post: [{ op: 'delay', duration: 'oppNextTurn', program: [{ op: 'custom', fn: 'stdEngine.discardDefender' }] }],
       },
@@ -146,7 +146,7 @@ export const STD_ENGINE: CardScript[] = [
     name: 'Glaceon',
     attacks: {
       // "At the end of your opponent's next turn, put 9 damage counters on the Defending Pokémon."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2404/): delayed effects drop if the target leaves Active; the new Active is unaffected. (same rule for any such delayed attack effect)
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2404/): the attack effect is removed when the Defending Pokémon leaves the Active Spot, and neither Active is affected. (same rule for any such delayed attack effect)
       'Permeating Chill': {
         post: [{ op: 'delay', duration: 'oppNextTurn', program: [{ op: 'counters', n: 9, to: 'defender' }] }],
       },

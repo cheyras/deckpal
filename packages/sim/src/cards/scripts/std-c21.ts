@@ -96,7 +96,7 @@ export const STD_C21: CardScript[] = [
     abilities: [
       {
         // "Once during your turn, you may flip a coin. If heads, choose Burned, Confused, or Poisoned. Your opponent's Active Pokémon is now affected by that Special Condition."
-        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2014/): Cannot use if opponent's Active is already Burned, Confused, and Poisoned.
+        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2014/): no when the Defending Pokémon is already Burned, Confused and Poisoned, except when a condition is a strengthened version (e.g. Poisoned placing 2 damage counters at Checkup instead of 1).
         // -- not usable while the Defending Pokémon is already Burned, Confused and Poisoned.
         name: 'Selective Slime',
         activated: {

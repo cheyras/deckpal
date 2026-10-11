@@ -331,7 +331,7 @@ test('Prism Energy: on a Basic Pokémon it provides every type, but only 1 Energ
 });
 
 test('Prism Energy: on an Evolution Pokémon it provides only {C}, so it cannot pay for a colored cost', () => {
-  // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2194/): On evolved Pokémon it provides only colorless, not other types.
+  // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2194/): Prism Energy on a non-Basic Pokémon is not treated as {R} for the discard (the ruling's example).
   const g = G([{ active: SPIDOPS, energy: { active: [PRISM, PRISM] } }, { active: LATIAS }]);
   assert.ok(!has(g, 'Attack: Rocket Rush'), 'Rocket Rush costs {G}{C}');
   const ok = G([{ active: SPIDOPS, energy: { active: [PRISM, GR] } }, { active: LATIAS }]);
@@ -339,7 +339,7 @@ test('Prism Energy: on an Evolution Pokémon it provides only {C}, so it cannot 
 });
 
 test('Prism Energy: counts as {W} Energy on a Basic Pokémon for "for each {W} Energy" (Lapras ex, Hydro Turn)', () => {
-  // Ruling (Ascending Heroes FAQ, TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2291/): It provides matching types for checks when attached to Basic Pokémon.
+  // Ruling (Ascending Heroes FAQ, TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2291/): Prism Energy on a Basic Pokémon counts for a "for each" Energy-type check (the ruling's example is Fire), since the attack does not demand Basic Energy.
   const g = G([{ active: 'Lapras ex', energy: { active: [W, PRISM, F] } }, { active: LATIAS }]);
   choose(g, 'Attack: Hydro Turn');
   assert.equal(g.state.p[1].active!.damage, 60, '2 × 30: the Water Energy and the Prism Energy');
@@ -423,7 +423,7 @@ test('Serperior, Regal Command: 20 damage for each of your Pokémon in play', ()
 });
 
 test("Serperior, Solar Coiling: 100, and 150 more if Rosa's Encouragement is in your discard pile (once, however many)", () => {
-  // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2319/): Any copy in the discard pile grants the bonus; multiple copies don't stack.
+  // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2319/): any Rosa's Encouragement in the discard pile triggers the bonus once; extra copies add nothing, so 150 more at most.
   const none = G([{ active: 'Serperior', energy: { active: [GR, GR, GR] } }, { active: LATIAS }]);
   choose(none, 'Attack: Solar Coiling');
   assert.equal(none.state.p[1].active!.damage, 100);
@@ -459,7 +459,7 @@ test('Vivillon, Grand Wing: the opponent shuffles their hand to the bottom of th
 });
 
 test('Vivillon, Grand Wing: not usable when the opponent has no cards in hand', () => {
-  // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2306/): The Ability cannot be activated without an opponent hand to shuffle.
+  // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2306/): The Ability cannot be used when the opponent has no cards in hand, even though it would do nothing.
   const g = G([{ active: 'Vivillon' }, { active: LATIAS }]);
   assert.ok(!has(g, 'Use Grand Wing'));
 });
@@ -475,7 +475,7 @@ test('Decidueye ex, Crushing Arrow: 240, and an Energy is discarded from the opp
 });
 
 test("Decidueye ex, Sniper's Eye: with exactly 4 cards in the opponent's hand, the {C} Energy in its attack costs is ignored", () => {
-  // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2311/): All colorless symbols disappear from the attack cost requirement.
+  // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2311/): with 4 cards in the opponent's hand, Sniper's Eye strips every {C} from the cost of any attack the Pokémon can use, even an underlying Dartrix's.
   const four = G([{ active: 'Decidueye ex', energy: { active: [GR] } }, { active: LATIAS, hand: ['Cheren', 'Cheren', 'Urbain', 'Urbain'] }]);
   choose(four, 'Attack: Crushing Arrow');
   assert.equal(four.state.p[1].active!.damage, 240);
@@ -508,7 +508,7 @@ test("Talonflame, Sky Hunt: heads discards a random card from the opponent's han
 // ------------------------------------------------------------------ Salazzle ex
 
 test('Salazzle ex, Nasty Plot: 1 or 2 cards of your choice from the deck into your hand (at least 1)', () => {
-  // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2315/): at least one card must be taken if cards exist in the deck.
+  // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2315/): if the deck has any cards, at least one must be taken; zero is not allowed.
   const g = G([{ active: 'Salazzle ex', energy: { active: [F] } }, { active: LATIAS }]);
   choose(g, 'Attack: Nasty Plot');
   assert.equal(g.decision?.min, 1);
@@ -586,7 +586,7 @@ test('Dewgong, Wash Out: move a {W} Energy from a Benched Pokémon to the Active
 });
 
 test('Dewgong, Wash Out: a Special Energy card providing {W} moves too (Prism Energy on a Basic Pokémon)', () => {
-  // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2312/): Special Energy cards move if they provide Water Energy.
+  // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2312/): a Special Energy card can be moved when it provides {W} Energy; it need not be a Basic Energy.
   const g = G([{ active: 'Dewgong', bench: ['Volcanion'], energy: { 0: [PRISM] } }, { active: LATIAS }]);
   choose(g, 'Use Wash Out');
   assert.deepEqual(names(g, g.state.p[0].active!.energy), [PRISM]);

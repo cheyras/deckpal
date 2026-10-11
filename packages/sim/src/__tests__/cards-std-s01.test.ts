@@ -320,7 +320,7 @@ for (const [label, d, thunder] of [
       return g;
     };
     const both = ko();
-    // Ruling (Pitch Black FAQ, TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2399/): at least one Basic Lightning Energy must be moved (only attacks can choose zero).
+    // Ruling (Pitch Black FAQ, TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2399/): at least one Basic {L} Energy must be moved (only attacks may choose zero for "up to").
     assert.equal(cardsMin(both), 1, 'at least one is moved');
     both.submit([0, 1]);
     // Rellor was the only Benched Pokémon; with Miraidon Knocked Out it is the Active Pokémon now.

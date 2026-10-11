@@ -395,7 +395,7 @@ test("Super Potion: a Pokémon that can't be healed loses no damage, so no Energ
 });
 
 test('Super Potion: a Pokémon with no Energy still heals (ruling 1178); less than 60 damage heals what is there; only a damaged Pokémon can be chosen', () => {
-  // Ruling (XY FAQ, TPCi Rules Team 2014-02-06, https://compendium.pokegym.net/ruling/1178/): healing works even for less than the full amount.
+  // Ruling (XY FAQ, TPCi Rules Team 2014-02-06, https://compendium.pokegym.net/ruling/1178/): Super Potion works even on a Pokémon with no Energy attached: heal 60 (or as much as there is), nothing more.
   const g = G([{ active: SUDO, bench: [SLO, REL], energy: { active: [W] }, damage: { active: 0, 0: 30 }, hand: ['Super Potion'] }, FOE()]);
   choose(g, 'Play Super Potion');
   assert.ok(!has(g, REL) || g.state.current === 0);
@@ -421,7 +421,7 @@ test("Spiky Energy: provides {C}; if the Pokémon it is attached to is in the Ac
 });
 
 test('Spiky Energy: even if the Pokémon is Knocked Out; the effect can stack (rulings 2121)', () => {
-  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2121/): Spiky Energy effects stack, dealing 2 counters per copy attached.
+  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2121/): two Spiky Energy on the Defending Pokémon put 4 counters on the attacker (2 each); the effects stack.
   const ko = G([{ active: SLO, bench: [SUDO], energy: { active: ['Spiky Energy'] } }, { active: DRA, energy: { active: [P] } }], OPP_TURN);
   choose(ko, 'Attack: Jet Headbutt');
   assert.equal(ko.state.p[1].prizesTaken, 1, 'the Slowpoke was Knocked Out');
@@ -441,7 +441,7 @@ test('Spiky Energy: only while in the Active Spot (a Benched Pokémon damaged by
 });
 
 test('Spiky Energy: the Attacking Pokémon takes the counters even when both Active Pokémon went to the Bench (ruling 2371)', () => {
-  // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2371/): Spiky Energy damage applies as long as both Pokémon stay in play.
+  // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2371/): the attacker still takes the Spiky Energy counters when both Actives went to the Bench, as long as it remains in play.
   const dance: CardScript = {
     id: 'sv06-130',
     name: 'Dragapult ex',

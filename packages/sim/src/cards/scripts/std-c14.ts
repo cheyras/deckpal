@@ -135,7 +135,7 @@ export const STD_C14: CardScript[] = [
     name: 'Mr. Mime',
     attacks: {
       // "Your opponent reveals their hand. You may use the effect of a Supporter card you find there as the effect of this attack."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2226/): Using the effect is not playing the card; Ruling 2225 (https://compendium.pokegym.net/ruling/2225/): Multiple Supporters can be used in one turn this way.
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2226/): you only use the Supporter's effect, not play it. Ruling 2225 (https://compendium.pokegym.net/ruling/2225/): this works even after you already played a Supporter this turn.
       // The Supporter stays in the opponent's hand and the effect is yours (c01.useSupporterEffect).
       'Look-Alike Show': {
         program: [

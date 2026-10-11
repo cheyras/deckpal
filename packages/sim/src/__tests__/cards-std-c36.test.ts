@@ -156,7 +156,7 @@ test('Conkeldurr, Craftsmanship: +40 HP for each {F} Energy attached to it (othe
 });
 
 test('Conkeldurr, Craftsmanship: an Energy card that provides every type counts once (Compendium #2179, Luminous Energy)', () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2179/): Legacy Energy counts for Conkeldurr's HP boost.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2179/): Luminous Energy alone among Special Energy gives +40 HP; Legacy Energy provides every type like Luminous Energy.
   assert.equal(hpOf(mk([{ active: 'Conkeldurr', energy: { active: ['Legacy Energy'] } }, { active: DRA }])), 180);
 });
 
@@ -191,7 +191,7 @@ test('Throh, Shoulder Throw: 30 less damage for each {C} in the Defending Pokém
 });
 
 test('Throh, Shoulder Throw: the Retreat Cost the Defending Pokémon has now counts (Compendium #2203, Air Balloon)', () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2203/): Air Balloon reduces the retreat cost, making Shoulder Throw's damage reduction smaller.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2203/): with Air Balloon the Retreat Cost is {C} (printed {C}{C}{C}), so Shoulder Throw does only 30 less.
   const g = mk([{ active: 'Throh', energy: { active: [F, W] } }, { active: EXC, tools: { active: ['Air Balloon'] } }]);
   choose(g, 'Attack: Shoulder Throw');
   assert.equal(dmg(g, 1), 90);
@@ -525,7 +525,7 @@ test("N's Plan: move up to 2 Energy from your Benched Pokémon to your Active Po
 });
 
 test("N's Plan: Energy cards that provide more than one Energy can be moved, 2 of them (Compendium #2205)", () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2205/): you can move multi-Energy cards as individual units up to the limit.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2205/): choose one or more Energy from each multi-Energy card until the requirement is met, e.g. 1 or 2 Double Turbo Energy cards.
   // Ignition Energy provides {C}{C}{C} on an Evolution Pokémon.
   const g = mk([{ active: DRA, bench: ['Gurdurr'], energy: { 0: ['Ignition Energy', 'Ignition Energy', 'Ignition Energy'] }, hand: ["N's Plan"] }, { active: DRA }]);
   choose(g, "Play N's Plan");

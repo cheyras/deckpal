@@ -377,7 +377,8 @@ test('Walking Wake, Undulating Slice: put up to 9 damage counters on this Pokém
 });
 
 test('Walking Wake, Undulating Slice: the counters can exceed its remaining HP and it is Knocked Out at the end of the attack (Compendium #1984)', () => {
-  // Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1984/): up to 9 counters are placed even if they exceed HP; damage is calculated per counter and can KO Walking Wake.
+  // Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1984/): up to 9 counters may be placed even beyond its remaining HP;
+  // the attack does 20 per counter placed, and Walking Wake is Knocked Out at the end of the attack.
   const g = G([{ active: 'Walking Wake', bench: ['Shinx'], energy: { active: [W, W, W] }, damage: { active: 50 } }, { active: TYR }]);
   choose(g, 'Attack: Undulating Slice');
   choose(g, '9');

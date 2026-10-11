@@ -273,7 +273,7 @@ export const STD_ENGINE3: CardScript[] = [
     name: 'Iron Boulder ex',
     attacks: {
       // "During your opponent's next turn, if this Pokémon is damaged by an attack (even if it is Knocked Out), put 8 damage counters on the Attacking Pokémon."
-      // Ruling (Temporal Forces FAQ, TPCi Rules Team 2024-03-21, https://compendium.pokegym.net/ruling/1958/): the defender doesn't receive counters since Mist Energy blocks all attack effects including Repulsor Axe's.
+      // Ruling (Temporal Forces FAQ, TPCi Rules Team 2024-03-21, https://compendium.pokegym.net/ruling/1958/): the attacking Pokémon holding Mist Energy gets none of the 8 counters, since Repulsor Axe's counters are an attack effect that Mist Energy blocks.
       'Repulsor Axe': {
         post: [
           {

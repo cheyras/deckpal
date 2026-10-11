@@ -66,7 +66,7 @@ export const STD_C22: CardScript[] = [
     attacks: {
       // "Search your deck for up to 5 Pokémon that are the same type as any Basic Energy attached to this Pokémon, reveal them, and put them into your hand. Then, shuffle your deck."
       // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2020/): no, Luminous Energy isn't basic despite providing all types.
-      // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2019/): search multiple types if they match attached energy types.
+      // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2019/): search several Pokémon types, each matching a Basic Energy type attached to Alcremie; the same type may repeat.
       'Colorful Confection': {
         program: [
           { op: 'custom', fn: 'c22.searchAttachedTypes', args: { max: 5, as: 'found' } },
@@ -83,7 +83,7 @@ export const STD_C22: CardScript[] = [
       {
         // "When you play this Pokémon from your hand to evolve 1 of your Pokémon during your turn, you may heal all damage from each of your Evolution Pokémon. If you healed any damage in this way, discard all Energy from those Pokémon."
         // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2016/): yes. (the Dachsbun ex that just evolved is healed too)
-        // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2015/): you choose; if yes, heal all evolutions and discard their energy.
+        // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2015/): using the Ability is optional, but once used it heals every Evolution Pokémon and discards Energy from each one healed.
         // Offered only while one of your Evolution Pokémon has damage on it (a use that heals nothing does nothing).
         name: 'Time to Chow Down',
         triggers: [
@@ -205,7 +205,7 @@ export const STD_C22: CardScript[] = [
     name: 'Grimmsnarl',
     attacks: {
       // "Switch out your opponent's Active Pokémon to the Bench. (Your opponent chooses the new Active Pokémon.) If you do, this attack does 160 damage to the new Active Pokémon."
-      // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2025/): no damage if no new active pokémon is switched in. (Mist Energy stops the switch: no damage.)
+      // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2025/): no damage when Mist Energy keeps the target from switching, since no NEW Active Pokémon arrives. (Mist Energy stops the switch: no damage.)
       // "If you do" = the Defending Pokémon is no longer Active after the switch (no Bench, or the switch was prevented, leaves it there).
       "Goad 'n' Grab": {
         program: [

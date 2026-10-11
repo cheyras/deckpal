@@ -454,7 +454,7 @@ test('Eternatus, World Ender: 230, and discard a Stadium in play; with no Stadiu
 
 test("Tatsugiri ex, Surprise Pump: 100, and the damage isn't affected by any effects on the opponent's Active Pokémon", () => {
   // "This attack's damage isn't affected by any effects on your opponent's Active Pokémon."
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2040/): Surprise Pump does 100 damage, ignoring damage reductions since they are effects.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2040/): Surprise Pump does 100 despite Expert Hider; that damage reduction is an effect, which the attack ignores.
   const reduced = game([{ active: 'Tatsugiri ex', energy: { active: [F, W] } }, { active: EXE }]);
   inject(reduced, reduced.state.p[1].active!.id, { k: 'damageIn', amount: -30 });
   choose(reduced, 'Attack: Surprise Pump');
@@ -478,7 +478,7 @@ test('Tatsugiri ex, Cinnabar Lure: look at the top 10 cards, put any number of P
   const bench = g.state.p[0].bench;
   assert.deepEqual(names(g, bench.map((b) => b.cards[0]!)), ['Gholdengo', 'Slakoth', 'Snorlax']);
   assert.equal(g.state.p[0].deck.length, size - 2, 'the others stayed in the deck');
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2045/): Evolution Pokemon can be placed on the Bench if there is room.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2045/): Stage 1 or Stage 2 cards may be put onto the Bench, as long as there is room.
   const gh = bench.find((b) => name(g, b.cards[0]!) === 'Gholdengo')!;
   assert.equal(def(g.ctx, gh.cards[0]!).stage, 1, 'a Stage 1 goes onto the Bench as it is');
   // Rulings 2044 / 2046: such a Pokémon is not "evolved" but is still an Evolution Pokémon.

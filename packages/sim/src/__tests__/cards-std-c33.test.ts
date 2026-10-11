@@ -278,7 +278,7 @@ test("Team Rocket's Orbeetle, Rocket Brain: move 1 damage counter from a Team Ro
 });
 
 test("Team Rocket's Orbeetle, Rocket Brain: it may put a Pokémon over its HP, one counter at a time (ruling 2152)", () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2152/): you can move damage to your own Pokémon, one counter at a time.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2152/): Rocket Brain may move damage onto one of your own Pokémon even if it is then Knocked Out, but only one counter at a time, never more than needed.
   const dk = deck(ORBEETLE, DRA, LARV, ZUB);
   const g = scenario(dk, dk, [{ active: ORBEETLE, bench: [LARV, ZUB], damage: { 0: 30, 1: 40 } }, { active: DRA }]);
   choose(g, 'Use Rocket Brain');
@@ -667,7 +667,7 @@ test("Team Rocket's Grimer, Corrosive Sludge: at the end of the opponent's next 
 });
 
 test("Team Rocket's Grimer, Corrosive Sludge: a Defending Pokémon that retreats is not discarded (ruling 2404)", () => {
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2404/): attack effects are removed if the Defending Pokémon moves to the Bench.
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2404/): the Defending Pokémon moving to the Bench ends the Intense Kiss effect; neither the old nor the new Active is discarded.
   const dk = deck(GRIMER, DRA, ZUB);
   const g = scenario(dk, dk, [{ active: GRIMER, energy: { active: [D, P] } }, { active: DRA, energy: { active: [R] }, bench: [ZUB] }]);
   choose(g, 'Attack: Corrosive Sludge');

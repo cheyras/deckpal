@@ -33,7 +33,7 @@ export const STD_C05: CardScript[] = [
     name: 'Stunfisk',
     attacks: {
       // "During your opponent's next turn, the Defending Pokémon can't retreat. During your next turn, the Defending Pokémon takes 100 more damage from attacks (after applying Weakness and Resistance)."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2341/): Mist Energy blocks the damage effect from Pouncing Trap if attached after the effect; existing effects aren't removed.
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2341/): the extra-damage effect is not applied to a Pokémon already protected by Mist Energy; attaching Mist Energy afterwards does not remove an effect already applied.
       // Both are effects the attack puts on the Defending Pokémon, so a Pokémon that prevents the attack's effects takes neither.
       'Pouncing Trap': {
         post: [
@@ -112,7 +112,7 @@ export const STD_C05: CardScript[] = [
     abilities: [
       {
         // "You must discard a Basic {L} Energy from this Pokémon in order to use this Ability. Once during your turn, you may draw cards until you have 6 cards in your hand."
-        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2108/): you cannot use this if your deck is empty or you already have 6+ cards in hand.
+        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2108/): the Ability draws cards, so it cannot be used with an empty deck or with 6 or more cards already in hand.
         // -- so it needs a Basic {L} Energy to pay, a card in the deck, and fewer than 6 cards in hand.
         name: 'Flashing Draw',
         activated: {

@@ -112,7 +112,10 @@ export const STD_C30: CardScript[] = [
       {
         // "When you play this Pokémon from your hand to evolve 1 of your Pokémon during your turn, you may have your opponent
         //  reveal their hand and you put any number of Basic Pokémon you find there onto their Bench."
-        // Ruling (TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2109/): Unusable when the opposing Bench is full; Ruling 2111 (https://compendium.pokegym.net/ruling/2111/): Zero Pokémon is a valid selection.
+        // Ruling (TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2109/): no, it cannot be used when the opponent's Bench is full, since it is public that no more Basic Pokémon can be put there.
+        // -- not offered while the opponent's Bench is full.
+        // Ruling (TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2111/): no, you may choose to put zero Pokémon onto their Bench.
+        // -- the choice is 0 to as many as fit on their Bench.
         name: 'Inviting Wink',
         triggers: [
           {
@@ -181,7 +184,8 @@ export const STD_C30: CardScript[] = [
     name: 'Grimmsnarl',
     attacks: {
       // "This attack does 50 damage for each {C} in your opponent's Active Pokémon's Retreat Cost."
-      // Ruling (TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2113/): The current Retreat Cost is checked after all active reductions apply.
+      // Ruling (TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2113/): Secret Forest Path first takes {C}{C} off the Retreat Cost, then the damage is worked out from what remains, if anything.
+      // -- the Retreat Cost it has right now, after every effect (Toedscruel's Secret Forest Path).
       'Shadowy Knot': {
         pre: [{ op: 'custom', fn: 'seed4.retreatCostOf', args: { as: 'n' } }],
         damage: { mul: [50, { v: 'n' }] },

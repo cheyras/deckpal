@@ -224,7 +224,7 @@ test("Iono's Kilowattrel, Flashing Draw: discard a Basic {L} Energy from it, the
 });
 
 test("Iono's Kilowattrel, Flashing Draw: needs a Basic {L} Energy to discard, a card in the deck and fewer than 6 cards in hand (Ruling #2108)", () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2108/): The attack cannot be used if the deck is empty or hand has 6+ cards.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2108/): no, the Ability cannot be used with an empty deck or 6 or more cards already in hand, since it draws cards.
   const noEnergy = G([{ active: IONO_KILO, energy: { active: [F, F] }, hand: [P] }, FOE()]);
   assert.ok(!has(noEnergy, 'Use Flashing Draw'), 'no Basic {L} Energy attached');
   const emptyDeck = G([{ active: IONO_KILO, energy: { active: [L] }, hand: [P], emptyDeck: true }, FOE()]);

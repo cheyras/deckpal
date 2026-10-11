@@ -439,7 +439,7 @@ test('Heavy Baton: not when the Pokémon is Knocked Out on the Bench, or by Pois
 });
 
 test('Heavy Baton: still works when the attack that Knocks the Pokémon Out moves it to the Bench (ruling 1992), but the Energy cannot stay on it', () => {
-  // Ruling (TPCi Rules Team 2024-06-20, https://compendium.pokegym.net/ruling/1992/): Heavy Baton works if Pokémon damaged and Knocked Out in same attack.
+  // Ruling (TPCi Rules Team 2024-06-20, https://compendium.pokegym.net/ruling/1992/): yes; the Pokémon was Active when the attack damaged it and that same attack Knocked it Out, so Heavy Baton qualifies although KOs are checked only after the attack, with it on the Bench.
   // Cranidos's Push Down does 70 ({F} Weakness would double it, Onix has {G}) and then switches Onix out.
   const dk = deck('Heavy Baton', 'Onix', REL, 'Slowpoke', 'Cranidos');
   const g = S(dk, [{ active: 'Onix', tools: { active: ['Heavy Baton'] }, energy: { active: [FI, W] }, bench: [REL, 'Slowpoke'], damage: { active: 60 } }, { active: 'Cranidos', energy: { active: [FI, FI] } }], OPP_TURN);
