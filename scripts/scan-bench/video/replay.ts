@@ -31,6 +31,7 @@
  * onnxruntime instead of onnxruntime-web, and the clock is video time.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -75,7 +76,9 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(HERE, '..', '..', '..')
 const DATA = process.env.DECKPAL_DATA ?? path.join(os.homedir(), 'deckpal-data')
 const RAW_DIR = path.join(DATA, 'cc-videos', 'raw')
-const MODEL = path.join(REPO, 'apps/web/public/scan-assets/lc050.onnx')
+// LC050_MODEL: replay another checkpoint (a retrained head, held out per video)
+// without touching the shipped file.
+const MODEL = process.env.LC050_MODEL || path.join(REPO, 'apps/web/public/scan-assets/lc050.onnx')
 const PY = process.env.PY ?? path.join(DATA, 'venvs', 'scanid', 'Scripts', 'python.exe')
 const SIDECAR = path.join(HERE, 'lc050_stream.py')
 
@@ -577,6 +580,9 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
     source: { width: probe.width, height: probe.height, durationS: r3(probe.durationS), fps: probe.fps },
     phone: { viewport: geo.viewport, stream: { width: 960, height: 1280 }, square: geo.square, nativeSquarePx: geo.nativeSquarePx },
     replay: { fps, busyMs, startS: startS ?? 0, endS: endS ?? null, wallS: r1((Date.now() - t0) / 1000) },
+    // Which checkpoint made this run: a held-out evaluation is only checkable
+    // if the replay says what it ran (Astra, review of #317).
+    model: { path: MODEL, sha256: crypto.createHash('sha256').update(fs.readFileSync(MODEL)).digest('hex') },
     knobs,
     ...stats,
     blockers,
