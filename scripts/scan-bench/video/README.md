@@ -42,6 +42,9 @@ node --import tsx scripts/scan-bench/video/replay.ts clip.mp4 --start 10 --end 4
 | `--batch` | 16 | LC050 frames per sidecar call |
 | `--timeline-every` | fps | ticks between timeline tiles (1 per second by default) |
 | `--out` | `~/deckpal-data/video-bench` | output root |
+| `--aim x,y,side` | off | point the phone: the engine square's SOURCE rect, fixed for the whole run (see "Aiming the phone") |
+| `--second-look` | off | `EngineOptions.secondLook` (`engine/second-look.ts`): re-infer on a crop around the quad when has_obj is below acquire |
+| `--second-look-scale` / `-gate` / `-agree` / `-quad` | the engine's: 1.3 / `reticle` / 0.5 / `first` | the second look's crop scale, when it runs (`reticle`, or `any` tick below acquire), the IoU the two looks must agree at (0 = off), and whose quad is kept (`first`, or `second` for the crop's) |
 
 Environment: `PY` (default `~/deckpal-data/venvs/scanid/Scripts/python.exe`,
 which needs numpy + onnxruntime), `FFMPEG` (default: the path in
@@ -154,16 +157,42 @@ are smooth downscales, as `drawModelInput` and `grabWork` make them.
    identity race (detached from capture).
 9. **Nobody aims the phone.** The virtual phone is fixed to the video's centre.
    A card the creator holds off-centre, or so close that it overfills the
-   square, is a card a real user would have re-aimed or backed away from. Most
+   square, is a card a real user would have re-aimed or backed away from
+   (`--aim` points it somewhere else for a whole run; see below). Most
    shorts are 608x1080, so the 960 square carries only 608 px of real detail.
    Captures are softer than a phone's, and blur comes from the source's own
    30 fps exposure.
 
+## Aiming the phone (`--aim`)
+
+Deviation 9 has a knob. `--aim x,y,side` places the engine square at a chosen
+square of the SOURCE frame (clamped inside it) instead of the centre, as a user
+pointing the phone at that spot would, and keeps it there for the whole run:
+nobody re-aims per card, and a per-card aim would be ground truth leaking into
+the replay. It applies to every video on the command line, so aim one video per
+run. The engine reads only the square, so nothing else changes.
+
+WuheDPVq_Bo needs it. The creator holds every card low and right in a 1920x1080
+frame: the centred square spans source y 135-945, and the card's bottom edge
+sits below 945 in 18 of the 23 appearances where it could be measured, with its
+right edge ~10 px inside the square's. LC050 reads a card with an edge out of
+view as nothing, so 45 of 49 capturable appearances never cleared the gate.
+`--aim 770,270,810` (same scale, moved onto the card column, bottom-aligned)
+is what a user would see, and takes auto-ID from 3 to 13 of 49 with no other
+change. Score it with the same GT; the times do not move.
+
+JP-MdK4Kr00 cannot be fixed this way: its cards overfill the 608 px square and
+their right edge is outside the SOURCE frame (edge-clipped in the GT notes), so
+there is nothing to aim at. A user would back away; the footage cannot.
+
 ## Reading a run
 
 - **No locks at all for stretches**: check the `timeline.png` hasObj values. A
-  card that fills the whole square has no outer boundary in view, and LC050's
-  presence head reads it as nothing (hasObj ≈ 0).
+  card that fills the whole square, or has an edge outside it, has no complete
+  outer boundary in view, and LC050's presence head reads it as nothing
+  (hasObj ≈ 0). If the card IS fully in view and hasObj is still low, look at
+  what surrounds it: the presence head is a global average over the whole
+  input, so a busy far background out-votes the card (`engine/second-look.ts`).
 - **A new card that never fired**: look in `contact-suppressed.png` for a
   `region` row. Then trace `frames.jsonl` around it. If the previous track died
   and the new one was born less than 1.5 s later on the same spot, that is the
