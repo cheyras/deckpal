@@ -259,6 +259,12 @@ export interface Frame {
   /** The Pokémon slot the effect comes from (attacker / Ability user / Tool or Energy holder). */
   slot: number;
   kind: 'attack' | 'ability' | 'trainer' | 'energy' | 'tool' | 'stadium' | 'trigger' | 'rule';
+  /**
+   * Queued effects that happen at the same time (damage to a Pokémon, Knock Out step 2, an Energy attach, an Evolution, Pokémon Checkup, the end
+   * of the turn): `g` names the moment, `by` is the player the rulebook lets choose their order (Advanced Player's Rulebook v3.4, E-03/E-04/E-05,
+   * the Energy attach entry, the Checkup steps and the end-of-turn entry). Set when queued; removed once the frame has been picked.
+   */
+  order?: { g: string; by: Player };
 }
 
 export type Val = number | boolean | number[] | null;
@@ -407,8 +413,8 @@ export interface Pending {
     | { k: 'koHand'; slot: number }
     /** The owner of a Pokémon with more Tools than it may now have chooses which to discard. */
     | { k: 'toolDiscard'; slot: number }
-    /** Several effects wait for the end of the turn and the turn's player chooses which goes first; the answer picks one in the queue. */
-    | { k: 'endOrder' };
+    /** Several effects happen at the same time and the right player chooses which goes first; `idx` are the queue positions offered, in label order. */
+    | { k: 'triggerOrder'; idx: number[] };
 }
 
 // ---------------------------------------------------------------------------

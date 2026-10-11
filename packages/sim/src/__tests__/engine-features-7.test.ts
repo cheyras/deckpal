@@ -543,6 +543,8 @@ test('minDamage and attacker on damagedByAttack(Active): the amount done in one 
     );
     const before = g.state.p[1].hand.length;
     choose(g, o.attacker === "N's Darumaka" ? 'Attack: Rolling Tackle' : 'Attack: Rapid-Fire Combo');
+    // Two effects when the Pokémon is damaged: its player orders them (both resolve whichever goes first).
+    if (g.decision?.prompt === 'Which effect happens first?') g.submit([0]);
     return g.state.p[1].hand.length - before - 1; // (the 1 is the card it draws for its turn)
   };
   // Meganium is Fire-weak (x2 only for the Active Pokémon).
@@ -608,13 +610,10 @@ test('two end-of-turn effects waiting, one not tied to a Pokémon: the turn\'s p
   const k = scenario(dk, dk, [{ active: 'Dreepy', hand: ['Potion', 'Potion'] }, { active: 'Dreepy' }], { scripts: [{ id: 'me03-083', name: 'Potion', play: draw1 }] });
   choose(k, 'Play Potion');
   choose(k, 'Play Potion');
-  choose(k, 'End turn');
-  assert.equal(k.decision!.kind, 'option');
-  assert.match(k.decision!.prompt, /which end-of-turn effect first/);
-  assert.equal(k.decision!.player, 0);
-  assert.deepEqual(labels(k), ['Potion', 'Potion']);
   const hand = k.state.p[0].hand.length;
-  k.submit([1]);
+  choose(k, 'End turn');
+  // Two copies of one effect: every order gives the same result, so nothing is asked (the Amarys case, where it is, is in rulings-r01.test.ts).
+  assert.equal(k.decision!.kind, 'main');
   assert.equal(k.state.p[0].hand.length, hand + 2, 'both ran');
   assert.equal(k.state.current, 1, 'and the turn moved on');
   // One effect on its own: no question.

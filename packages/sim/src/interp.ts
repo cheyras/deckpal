@@ -364,6 +364,36 @@ function dealDamage(
   return 'next';
 }
 
+/**
+ * Which "at the same time" moment a trigger belongs to and who orders it (Advanced Player's Rulebook v3.4): effects that activate when a
+ * Pokémon is damaged: the damaged Pokémon's player (E-03); Knock Out step 2, an Energy attach, an Evolution from the hand (a Pokémon
+ * Evolving happens on its player's turn) and the end of the turn: the player whose turn it is (E-04, the Energy attach entry, the
+ * end-of-turn entry); Pokémon Checkup: the player whose turn is next.
+ */
+export function orderOf(s: GameState, on: TriggerOn, owner: Player): Frame['order'] {
+  switch (on) {
+    case 'damagedByAttack':
+    case 'damagedByAttackActive':
+    case 'allyActiveDamagedByAttack':
+      return { g: 'damage', by: owner };
+    case 'knockedOutByAttack':
+      return { g: 'ko', by: s.current };
+    case 'attachFromHand':
+    case 'oppAttachFromHand':
+    case 'allyAttachFromHand':
+      return { g: 'attach', by: s.current };
+    case 'evolveFromHand':
+    case 'oppEvolveFromHand':
+      return { g: 'evolve', by: s.current };
+    case 'checkup':
+      return { g: 'checkup', by: opp(s.current) };
+    case 'endOfTurn':
+      return { g: 'end', by: s.current };
+    default:
+      return undefined;
+  }
+}
+
 /** Queue triggers on a Pokémon (its Abilities) and on its attached Tools. */
 export function queueTriggers(
   env: Env,
@@ -420,6 +450,8 @@ export function queueTriggers(
         seen.add(frame.code);
       }
       if (t.t.optional) frame.vars.__optional = true;
+      const order = orderOf(s, on, owner);
+      if (order) frame.order = order;
       s.queued.push(frame);
     }
   }
