@@ -184,6 +184,9 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c01.leastHpRemaining': (a) => `Choose the Pokémon in play (yours or your opponent's), other than this Pokémon, that has the least HP remaining (into "${String(a.as ?? 't')}")`,
   // std-c12-customs.ts
   'c12.endTurn': () => 'Your turn ends (as after an attack, without an attack happening)',
+  // std-c10-customs.ts
+  'c10.evolveSelfFromHand': () =>
+    "Choose a card in your hand that evolves from this Pokémon and put it onto this Pokémon to evolve it (it recovers from all Special Conditions, the effects of attacks on it end, and \"when you play this from your hand to evolve\" Abilities run); nothing happens if this Pokémon already evolved this turn, and it can't be used to evolve twice in a turn; the variable \"evolved\" is 1 if it evolved, else 0",
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -200,6 +203,8 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'c06.ownFirstTurn': () => "it is the first turn you take in the game (turn 1 if you went first, turn 2 if you went second)",
   'c06.usedLastTurn': (a) => `this Pokémon has the mark left by using ${String(a.attack)} during its controller's previous turn`,
   'c12.remainingHpAtMost': (a) => `this Pokémon's HP (with any HP changes) minus its damage is ${Number(a.n ?? 50)} or less`,
+  'c10.handEvolvesSelf': () => 'you have a card in your hand that evolves from this Pokémon, and this Pokémon has not evolved this turn',
+  'c10.weakToOppActive': () => "the Pokémon this card is attached to has a Weakness (as changed by effects) of a type that your opponent's Active Pokémon is",
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
@@ -1776,6 +1781,15 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me01-034|attack:Riptide': {
     problems: ['"any number of" is rendered but not printed'],
     why: '"for each Basic {W} Energy card in your discard pile ... shuffle those cards" is a chooseCards whose min and max both equal the count of Basic {W} Energy cards in the discard pile: all of them are chosen (forced, no decision), which the renderer words "any number of"; the card test pins that every one is counted and shuffled in.',
+  },
+  // std-c10
+  'me04-071|attack:Snap Inspection': {
+    problems: ['"each" is printed but not rendered', '"any number of" is rendered but not printed'],
+    why: '"For each heads, choose a card you find there and shuffle it into your opponent\'s deck" is a choice of exactly as many cards as the heads count (min and max both the smaller of the heads and the hand size, ruling 2356: "do as much as you can"), moved to their deck and shuffled; the renderer words a variable count as "any number of" and has no "for each heads".',
+  },
+  'me04-077|text': {
+    problems: ['"each" is printed but not rendered'],
+    why: '"you draw a card for each Pokémon you find there" is a draw whose count is the number of Pokémon cards in the opponent\'s hand, rendered "Draw the number of Pokémon in your opponent\'s hand cards".',
   },
   'me01-066|attack:Horrifying Bite': {
     problems: ['"each" is printed but not rendered', '"reveal" is printed but not rendered'],
