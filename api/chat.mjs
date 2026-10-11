@@ -58,22 +58,57 @@ const MAX_STEPS = 24
 const ANTHROPIC_CACHE = { anthropic: { cacheControl: { type: 'ephemeral' } } }
 const isAnthropic = (choice) => choice.id.startsWith('anthropic/')
 
-/**
- * ONE cache breakpoint, on the system prompt. Anthropic caches the prefix in
- * the order tools → system → messages, so this single breakpoint also covers
- * every tool definition. Anthropic allows at most four breakpoints per request;
- * marking each tool as well (≈30 of them) got all but four ignored, with a
- * Gateway warning — measured by scripts/decke-leg-smoke.mjs, 2026-09-28.
- */
-function cachedInstructions(choice, content) {
-  return isAnthropic(choice)
-    ? { role: 'system', content, providerOptions: ANTHROPIC_CACHE }
-    : content
+/** Build one system message, optionally ending a cacheable prefix region. */
+function systemMessage(choice, content, cached = false) {
+  return {
+    role: 'system',
+    content,
+    ...(cached && isAnthropic(choice) ? { providerOptions: ANTHROPIC_CACHE } : {}),
+  }
 }
 
-/** Gateway-native cross-model failover; no second application-level charge or retry loop. */
-function chatProviderOptions(choice) {
-  return { gateway: { models: [choice.fallback] } }
+/**
+ * Gateway-native failover plus Anthropic's adaptive-thinking controls.
+ *
+ * Provider options are namespaced by provider. The Gateway forwards the
+ * `anthropic` object only to Anthropic; a Standard-tier failover to Gemini sees
+ * the `gateway.models` route but never receives Claude's `thinking` object.
+ */
+function chatProviderOptions(choice, effort) {
+  return {
+    gateway: { models: [choice.fallback] },
+    ...(isAnthropic(choice)
+      ? { anthropic: { effort, thinking: { type: 'adaptive' } } }
+      : {}),
+  }
+}
+
+/**
+ * Move ONE prompt-cache breakpoint to the newest conversation message.
+ *
+ * Gateway 4.0.91 exposes no automatic conversation-caching switch. Anthropic
+ * accepts a cacheControl marker on a message, and `prepareStep` can replace the
+ * step's messages, so each step removes the previous marker and marks only its
+ * newest message. With cached core + optional pathway this is at most three of
+ * Anthropic's four allowed breakpoints while making all earlier tool results a
+ * reusable prefix on the next step.
+ */
+function cacheConversation(choice, messages) {
+  if (!isAnthropic(choice) || messages.length === 0) return messages
+  return messages.map((message, index) => {
+    const providerOptions = { ...(message.providerOptions ?? {}) }
+    const anthropic = { ...(providerOptions.anthropic ?? {}) }
+    delete anthropic.cacheControl
+    if (Object.keys(anthropic).length === 0) delete providerOptions.anthropic
+    else providerOptions.anthropic = anthropic
+    if (index === messages.length - 1) {
+      providerOptions.anthropic = { ...(providerOptions.anthropic ?? {}), ...ANTHROPIC_CACHE.anthropic }
+    }
+    return {
+      ...message,
+      ...(Object.keys(providerOptions).length > 0 ? { providerOptions } : { providerOptions: undefined }),
+    }
+  })
 }
 
 /**
@@ -99,10 +134,12 @@ const SERVER_SET = new Set(SERVER_TOOLS)
  * own result reports what was trimmed (`repairs.take(toolCallId)`). Both halves
  * are required: trimming a stored value is editing the reader's own words, and
  * trimming without reporting is the silent correction `decke/tools.ts` refuses
- * to make. `showScreen` draws a panel and says what it shortened; nothing else
- * qualifies today.
+ * to make. `showScreen` draws a panel and says what it shortened. `ask_user`
+ * draws a question card from the model's own captions (never the reader's
+ * words) and reports every trim in its `trimmed` result field, so a 13-character
+ * header lands as a 12-character one instead of failing the card.
  */
-const REPAIRABLE = new Set(['showScreen'])
+const REPAIRABLE = new Set(['showScreen', 'ask_user'])
 
 import { createGateway } from '@ai-sdk/gateway'
 
@@ -113,12 +150,16 @@ import { createGateway } from '@ai-sdk/gateway'
 // `apps/api/src/decke/` for that reason, and because a system prompt and a tool
 // allowlist are server concerns in the first place.
 import { verifySupabaseJwt, createSupabaseJwksProvider } from '../apps/api/dist/auth.js'
-import { buildSystemPrompt } from '../apps/api/dist/decke/prompt.js'
+import { buildCorePrompt, buildVolatileContext } from '../apps/api/dist/decke/prompt.js'
+import { pathwayBlock } from '../apps/api/dist/decke/pathways/index.js'
 import { buildTools, CLIENT_TOOLS, SERVER_TOOLS } from '../apps/api/dist/decke/tools.js'
-import { MODELS, budgetFor } from '../apps/api/dist/decke/models.js'
+import { TIERS, TRIAGE, budgetFor } from '../apps/api/dist/decke/models.js'
+import { runTriage } from '../apps/api/dist/decke/triage.js'
+import { answeringAsk, carriedFromHistory, continuationFloor, decideTier, quickRefusalRetry, raisedToStandard, resumesApproval } from '../apps/api/dist/decke/tiers.js'
+import { ROUTE_ECHO_PART, decisionFromEcho, readRouteEcho, routeEchoFor } from '../apps/api/dist/decke/routeEcho.js'
 import { creditWork } from '../apps/api/dist/credits/work.js'
 import { ensureAdminBootstrap } from '../apps/api/dist/admin/access.js'
-import { beginAiRequest, runAiUsage, observeUsageModel, finishAiRequest, meteredCapReached, safeUsageCode } from '../apps/api/dist/decke/usage.js'
+import { beginAiRequest, runAiUsage, runAdvisoryUsage, observeUsageModel, finishAiRequest, meteredCapReached, safeUsageCode } from '../apps/api/dist/decke/usage.js'
 import { assertDeckeAccess, beginMeteredCredits, readPolicy, reserveCredits, refundUnstarted, chatChargeReference, payloadHash } from '../apps/api/dist/credits/runtime.js'
 import { isMetered } from '../apps/api/dist/credits/policy.js'
 import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/decke/meter.js'
@@ -129,6 +170,7 @@ import {
   pasteBackstopNeeded,
   PASTE_BACKSTOP_LINE,
   pasteBackstopInstruction,
+  pastedBeforeAnsweredAsk,
 } from '../apps/api/dist/decke/pasteBackstop.js'
 import { meteredCapText, outOfCreditsText } from '../apps/api/dist/decke/credits.js'
 import { buildDataTools, correctiveApplyTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
@@ -139,7 +181,8 @@ import { seedMeteredRefusals } from '../apps/api/dist/decke/meteredRefusals.js'
 import { createNarrationFilter, stripToolSyntax as stripToolSyntaxImpl } from '../apps/api/dist/decke/narration.js'
 import { autoShareAndRecordLeg } from '../apps/api/dist/decke/improvement.js'
 import { focusedTools } from '../apps/api/dist/decke/focus.js'
-import { spokeAndSettled } from '../apps/api/dist/decke/stopRule.js'
+import { askedThisStep, askedThisTurn, askPendingInstruction, spokeAndSettled } from '../apps/api/dist/decke/stopRule.js'
+import { followUpMessages } from '../apps/api/dist/decke/legMessages.js'
 import { createGrounding } from '../apps/api/dist/decke/grounding.js'
 import { RepairLog, clampStrings } from '../apps/api/dist/decke/repair.js'
 import {
@@ -474,6 +517,22 @@ async function serve(request) {
   // conversation-wide ledgers below — failures and lookup records only, and
   // never shown to the model. See `boundedEvidence`.
   const evidence = boundedEvidence(body?.evidence)
+  // The first leg's model choice, echoed back by the browser on a continuation
+  // leg as `tierRoute` — never `route`, which is the page pathname above.
+  // Validated strictly (Quick or Standard only, never Deep) and null otherwise.
+  // Unsigned on purpose: it only picks which model the caller pays for. See
+  // `decke/routeEcho.ts`.
+  //
+  // READ ONLY ON A CONTINUATION. A FIRST leg has no tool part after the
+  // reader's latest message; it triages and ignores whatever the body says, so
+  // its charge identity must not depend on an echo it never used either.
+  const firstLeg = turnToolNames(messages).length === 0
+  const echoed = firstLeg ? null : readRouteEcho(body?.tierRoute)
+  // An ask card already shown in THIS turn (replayed by the browser on a
+  // continuation leg, beside a held write it approved or a browser tool it
+  // ran). The leg after it finishes that work and ends: the reader has not
+  // answered, so nothing may proceed as if they had. See `askPendingInstruction`.
+  const askedEarlierThisTurn = turnToolNames(messages).includes('ask_user')
 
   // ── AND WHAT THE METER ALREADY REFUSED IN THIS TURN ───────────────────────
   //
@@ -549,7 +608,7 @@ async function serve(request) {
   }
   try {
     quote = await readPolicy(chatPool(), user.id)
-    reference = chatChargeReference(conversationId, messages, route, landmarks, { exchangeId, seq })
+    reference = chatChargeReference(conversationId, messages, route, landmarks, { exchangeId, seq }, echoed)
     usage = await beginAiRequest(chatPool(), { userId: user.id, conversationId, exchangeId, seq, requestKey: reference.key, payloadHash: reference.hash, quote, messages, signal: request.signal })
     meter = await meterTurn(user.id, { tier: 'chat_turns', reason: 'chat_turn' })
   } catch (error) {
@@ -591,7 +650,71 @@ async function serve(request) {
   // LLM turn in front of every message. This is a typed evaluation — no
   // output tokens, ~$0.00004 and ~0.3 s measured — whose answers only ever act
   // above a threshold chosen on a labelled set. See `decke/jev.ts`.
-  const reflex = await runAiUsage(usage, () => readReflex(messages, route, { key, signal: request.signal }))
+  const gateway = createGateway({ apiKey: key })
+  const latestUserMessageForTriage = messages.filter((message) => message?.role === 'user').at(-1)
+  const pastedNow = extractPastedLog(latestUserMessageForTriage ? [latestUserMessageForTriage] : []) !== null
+  // A paste the reader is still being asked about: their PREVIOUS message held
+  // it, Deck-E answered with an ask card instead of logging it, and this message
+  // is the answer. The paste backstop deferred to that card; it runs now.
+  const pasteAwaitingAnswer = !pastedNow && pastedBeforeAnsweredAsk(messages)
+  // ── ONE ROUTE PER TURN, NOT PER HTTP LEG ──────────────────────────────────
+  //
+  // Every approval and every browser tool ends this request and the browser
+  // resumes the turn with a fresh POST. Triage on each of them re-read the same
+  // reader message beside a different previous reply, so a turn could start on
+  // Sonnet and finish on Haiku under another pathway. A FIRST leg (`firstLeg`,
+  // above) triages and writes its decision as a transient `data-decke-route`
+  // part. A CONTINUATION reuses the echo the browser sends back (`echoed`) and
+  // skips triage. With no valid echo it re-triages, floored at Standard
+  // (`continuationFloor` says why).
+  const triageStarted = performance.now()
+  let triageMs = 0
+  // Both small front-door reads are paid work, so they run only after admission
+  // and each travels through the request's usage observer. They are independent
+  // and share no state, which makes serial latency pure waste.
+  //
+  // Triage is ADVISORY: recorded under its own `triage` operation key, and a
+  // provider error never marks the request failed — it falls back to the
+  // deterministic heuristic by design, and the reply it routes may succeed.
+  const [reflex, triage] = await Promise.all([
+    runAiUsage(usage, () => readReflex(messages, route, { key, signal: request.signal })),
+    echoed ? null : runAdvisoryUsage(usage, 'triage', () => runTriage({
+      message: latestUserText(messages),
+      previousReply: previousAssistantText(messages).slice(-800),
+      page: route,
+      pasted: pastedNow,
+      answering: answeringAsk(messages),
+      model: observeUsageModel(gateway(TRIAGE.id), meter),
+      signal: request.signal,
+    })).then((value) => {
+      triageMs = Math.round(performance.now() - triageStarted)
+      return value
+    }),
+  ])
+  // Deep Think approval will plug in here in its own phase, behind a signed
+  // reader choice; the echo can never carry it. Until then, even a
+  // requested/beneficial deep analysis is Standard.
+  let decision
+  if (echoed) {
+    decision = decisionFromEcho(echoed)
+  } else {
+    // `pastedLog`: a paste in the reader's latest message — or one they are
+    // answering questions about — always brings the battle_log guidance, where
+    // the `@pasted` rule now lives.
+    decision = decideTier({ triage, carried: carriedFromHistory(messages), deepApproved: false, pastedLog: pastedNow || pasteAwaitingAnswer })
+    if (!firstLeg) decision = continuationFloor(decision)
+  }
+  const routeEcho = firstLeg ? routeEchoFor(decision) : null
+  const choice = TIERS[decision.tier]
+  console.log('[deck-e] route', JSON.stringify({
+    tier: decision.tier,
+    pathways: decision.pathways,
+    effort: decision.effort,
+    reasons: decision.reasons,
+    triage: echoed ? 'echo' : triage.source,
+    leg: firstLeg ? 'first' : 'continuation',
+    triageMs,
+  }))
   let capReached = await meteredCapReached(usage)
   let capLineWritten = false
 
@@ -729,7 +852,6 @@ async function serve(request) {
     }
   }
 
-  const choice = MODELS.chat
   const stream = createUIMessageStream({
     execute: async ({ writer }) => runAiUsage(usage, async () => {
       let result
@@ -743,8 +865,21 @@ async function serve(request) {
       // whatever key happens to be in the environment. That is not a cosmetic
       // bug — this deployment has two keys with different billing, and the
       // failure mode is spending the wrong one while believing otherwise.
-      const gateway = createGateway({ apiKey: key })
-
+      //
+      // ── THE ROUTE, FOR THE BROWSER TO ECHO ───────────────────────────────
+      //
+      // First leg only, first thing on the stream. TRANSIENT, like the chips:
+      // it is a fact about this turn, not conversation history the model
+      // should read back. The browser holds it and returns it as `tierRoute`
+      // on every continuation leg of the same turn. See `decke/routeEcho.ts`.
+      if (routeEcho) {
+        try {
+          writer.write({ type: ROUTE_ECHO_PART, data: routeEcho, transient: true })
+        } catch {
+          // A closed stream is the ordinary end of an aborted turn; the next
+          // leg simply re-triages at a Standard floor.
+        }
+      }
       if (capReached) {
         writer.write({ type: 'text-delta', id: 'metered-cap', delta: meteredCapText() })
         capLineWritten = true
@@ -893,30 +1028,37 @@ async function serve(request) {
       // to re-read and nothing about how he behaves. The reader's current turn,
       // approvals included, is never cut. See `decke/wireBounds.ts`.
       const preparedMessages = await convertToModelMessages(stripPriorCommands(windowForModel(messages).messages))
-      // Named rather than inlined because a corrective leg (the after-turn
-      // audit, below) reuses it byte for byte: same prefix, same cache.
-      const systemPrompt = buildSystemPrompt({
-        route,
+      const promptTools = dataToolSummary({ include: () => true, conversationalLogging: true })
+      // Three separately owned cache regions: the byte-stable core; the one or
+      // two pathway templates selected for this job; and, in `prepareStep`, the
+      // conversation prefix through its newest message. Volatile page context
+      // is deliberately last and uncached, so a route/date change cannot poison
+      // the large stable prefix.
+      const corePrompt = buildCorePrompt({
         signedIn: true,
-        // MIRRORS `LANDMARK_CAP` in `apps/web/src/character/host/useDeckeChat.ts`,
-        // which explains why the cap exists (prompt size, re-billed per leg)
-        // and what it costs. Bounded again here — count AND each string —
-        // because the browser chooses what to send and this is the side that
-        // pays for it. Change one, change both (`LANDMARKS_MAX`).
-        landmarks,
         // GENERATED FROM THE TOOLS HE IS ACTUALLY HOLDING (`allDeckeTools`).
         // Hand-writing this list is how the previous prompt came to spend
         // every turn offering to look things up with no tool that could look.
-        dataTools: dataToolSummary({ include: () => true, conversationalLogging: true }),
+        dataTools: promptTools,
       })
-      result = streamText({
+      const requestPathway = pathwayBlock(decision.pathways)
+      const volatileContext = buildVolatileContext({ route, signedIn: true, landmarks })
+      const instructionsFor = (choice, extra) => [
+        systemMessage(choice, corePrompt, true),
+        ...(requestPathway ? [systemMessage(choice, requestPathway, true)] : []),
+        systemMessage(choice, volatileContext),
+        ...(extra ? [systemMessage(choice, extra)] : []),
+      ]
+
+      const startConversation = (choice, effort) => streamText({
         model: observeUsageModel(gateway(choice.id), meter),
-        providerOptions: chatProviderOptions(choice),
+        providerOptions: chatProviderOptions(choice, effort),
         // `instructions`, not `system` — `system` is deprecated in ai@7 and
         // `instructions` is the field that accepts a SystemModelMessage, which
         // is where a prompt-cache breakpoint can attach. Our prompt carries the
         // whole animation vocabulary on every turn, so caching is load-bearing.
-        instructions: cachedInstructions(choice, systemPrompt),
+        // The open-ask note rides as the fourth, uncached system message.
+        instructions: instructionsFor(choice, askedEarlierThisTurn ? askPendingInstruction() : undefined),
         // AWAITED: `convertToModelMessages` is async in ai@7 and returns a
         // Promise<ModelMessage[]>. Passing it unawaited fails deep inside
         // `standardizePrompt` as "messages.some is not a function" — which
@@ -959,6 +1101,14 @@ async function serve(request) {
         // number does nothing at all for a journey.
         stopWhen: [
           stepCountIs(MAX_STEPS),
+          // A VALID ask card ends the turn: the reader's answer is the next
+          // message. Not `hasToolCall('ask_user')`, which in ai@7 also counts
+          // a call that FAILED its schema (`invalid: true`) and so ended the
+          // turn on an error row with no card and no words. See `stopRule.ts`.
+          ({ steps }) => askedThisStep(steps),
+          // The ask is still open from an earlier leg of this turn: one step,
+          // then the reader. `prepareStep` already withholds new tool calls.
+          () => askedEarlierThisTurn,
           ({ steps }) => spokeAndSettled(steps),
           // ── THE CIRCUIT BREAKER (c) ──────────────────────────────────────────
           //
@@ -998,11 +1148,21 @@ async function serve(request) {
         // change their collection, step one MUST call `log_cards` — the call
         // that raises the signed consent card, and cannot write without it.
         // Forcing it forces the question, never the answer.
-        prepareStep: ({ stepNumber }) => ({
+        //
+        // AND NOTHING NEW WHILE A QUESTION IS OPEN. A leg after an ask card in
+        // the same turn (the reader approved a write beside it, or a browser
+        // tool ran) gets `toolChoice: 'none'`: the approved write still runs —
+        // the SDK executes it before step 0, and that approval is the reader's
+        // consent — but the model can only say what happened and stop. The
+        // tools stay in view so the cached tools prefix does not change.
+        prepareStep: ({ stepNumber, messages }) => ({
+          messages: cacheConversation(choice, messages),
           activeTools: focusedTools(allDeckeTools, stepNumber, (n) => deepRefusals.unavailable(n) || reflex.hide.includes(n)),
-          ...(stepNumber === 0 && reflex.force
-            ? { toolChoice: isAnthropic(choice) ? 'auto' : { type: 'tool', toolName: reflex.force } }
-            : {}),
+          ...(askedEarlierThisTurn
+            ? { toolChoice: 'none' }
+            : stepNumber === 0 && reflex.force
+              ? { toolChoice: isAnthropic(choice) ? 'auto' : { type: 'tool', toolName: reflex.force } }
+              : {}),
         }),
         // ── A CAPTION THAT IS TOO LONG IS NOT A LOST TURN ─────────────────
         //
@@ -1130,6 +1290,7 @@ async function serve(request) {
           console.error('[deck-e] stream error', safeUsageCode(error))
         },
       })
+      result = startConversation(choice, decision.effort)
 
       // Shared by the turn's stream and a corrective leg's; see the comment at
       // the first use below.
@@ -1172,6 +1333,58 @@ async function serve(request) {
           }),
         ),
       )
+
+      // Claude Haiku 5.5 has no server-side refusal fallback. A refusal is the
+      // SDK's unified `content-filter` finish reason; when Quick refused before
+      // invoking any data tool, make one application-level Standard attempt and
+      // merge it into the same reader turn just like the corrective leg below.
+      // "No text anywhere" used to be the condition, and almost never held once
+      // the core prompt asked for a progress line first. The data-tool condition
+      // is there because the retry restarts from the reader's message: a retry
+      // after reads REPEATS them, and would re-raise a held write's card.
+      //
+      // NEVER ON A LEG RESUMING AN APPROVAL. ai@7 executes every approved call
+      // in the incoming messages before step 0 — outside `steps`, so the check
+      // above cannot see it — and a second `streamText` over the same
+      // `preparedMessages` would execute the approved write AGAIN.
+      const quickSteps = decision.tier === 'quick' ? await result.steps.catch(() => []) : []
+      const quickFinish = decision.tier === 'quick'
+        ? await result.finishReason.catch(() => undefined)
+        : undefined
+      if (quickRefusalRetry({
+        tier: decision.tier,
+        finishReason: quickFinish,
+        steps: quickSteps,
+        isDataTool: (name) => !SERVER_SET.has(name) && !CLIENT_SET.has(name),
+        resumingApproval: resumesApproval(preparedMessages),
+      })) {
+        // THE TURN IS NOW STANDARD, AND THE BROWSER MUST HEAR IT. Its echo
+        // still says Quick; if the retry raises an approval card, the resumed
+        // leg would run on Haiku again. A second route part replaces the
+        // browser's echo, so every later leg of this turn stays on Standard.
+        const escalated = raisedToStandard(decision, 'retry:refusal')
+        const escalatedEcho = routeEchoFor(escalated)
+        if (escalatedEcho) {
+          try {
+            writer.write({ type: ROUTE_ECHO_PART, data: escalatedEcho, transient: true })
+          } catch {
+            // A closed stream is an aborted turn; there is no later leg to route.
+          }
+        }
+        // Its own label: `[deck-e] route` stays one line per request.
+        console.log('[deck-e] route escalated', JSON.stringify({
+          tier: escalated.tier,
+          effort: escalated.effort,
+          reasons: escalated.reasons,
+        }))
+        const retry = startConversation(TIERS.standard, escalated.effort)
+        writer.merge(stripToolSyntax(toUIMessageStream({
+          stream: retry.fullStream,
+          sendReasoning: false,
+          onError: surfaceError,
+        })))
+        result = retry
+      }
 
       // ── A TURN THAT SPENT EVERYTHING AND SAID NOTHING ────────────────────
       //
@@ -1345,6 +1558,15 @@ async function serve(request) {
           // the paste backstop hide the card the first leg already raised.
           const anyApprovalPending = steps.some((step) => (step.content ?? [])
             .some((content) => content.type === 'tool-approval-request'))
+          // A VALID ask card is the turn choosing what happens next: the
+          // reader's answer. Neither the audit's corrective leg nor the paste
+          // backstop may dock a card above the question — an approval for a
+          // guessed log above "which deck was this?" asks the reader to confirm
+          // the very thing they are being asked. The audit is skipped outright:
+          // a turn that ends on a question is not claiming anything was done.
+          // An ask from an EARLIER leg of this turn counts too: it is still
+          // open, and this leg only finished the work beside it.
+          const askedReader = askedThisTurn(steps) || askedEarlierThisTurn
 
           // THE NOTE IS READER-FACING. A text-delta renders in the transcript
           // as Deck-E's own words (exactly like the circles guard's line above)
@@ -1402,7 +1624,7 @@ async function serve(request) {
             // this TURN touched — an approved write runs at the start of this
             // request, before any step. Null (off, slow, unsure) is exactly the
             // chain below. See `decke/audit.ts`.
-            const audit = calledToolNames.some((n) => CLIENT_SET.has(n))
+            const audit = calledToolNames.some((n) => CLIENT_SET.has(n)) || askedReader
               ? null
               : await auditTurn({
                   message: latestUserText(messages),
@@ -1416,9 +1638,9 @@ async function serve(request) {
             // as the backstop: one step may only rank an unknown deck. It stays
             // an audit correction reader-side, but gets the three-step logging
             // instruction model-side (measured 2026-10-10).
-            const auditPasteRecovery = fixable === 'add_battle_log' && pastedInLatestUserMessage
+            const auditPasteRecovery = fixable === 'add_battle_log' && (pastedInLatestUserMessage || pasteAwaitingAnswer)
             const correctionSteps = auditPasteRecovery ? 3 : 1
-            if (fixable && !anyApprovalPending && steps.length + correctionSteps <= MAX_STEPS) {
+            if (fixable && !anyApprovalPending && !askedReader && steps.length + correctionSteps <= MAX_STEPS) {
               corrective = fixable
               pasteRecovery = auditPasteRecovery
             } else if (phantoms.length > 0 || audit?.phantom) {
@@ -1441,19 +1663,24 @@ async function serve(request) {
           // Production had two first legs where a real Live log was pasted and
           // `add_battle_log` was never called. This is deliberately below the
           // ordinary audit: it is a backstop only when no other corrective leg
-          // won, only on the first HTTP leg, and never while another approval
-          // is pending. Approval and browser-tool continuations replay a tool
+          // won, only on the first HTTP leg, never while another approval is
+          // pending, and never above an ask card (`askedReader` above). An ask
+          // DEFERS it: the leg answering an ask raised over a paste may run it
+          // (`pasteAwaitingAnswer`), or a paste turn that asked could never log.
+          // Approval and browser-tool continuations replay a tool
           // part after the latest user message, so `turnToolNames` remains the
           // leg boundary while `anyApprovalPending` protects this first leg.
           if (
             pasteBackstopNeeded({
               pastedInLatestUserMessage,
+              pastedBeforeAnsweredAsk: pasteAwaitingAnswer,
               firstLegOfTurn: earlierTurnToolNames.length === 0,
               calledToolNames,
               anyApprovalPending,
               clientToolRan: [...calledToolNames, ...earlierTurnToolNames].some((name) => CLIENT_SET.has(name)),
               correctiveChosen: corrective !== null,
               turnTroubled,
+              askedReader,
             }) &&
             !capReached &&
             steps.length + 3 <= MAX_STEPS
@@ -1487,23 +1714,33 @@ async function serve(request) {
               delta: pasteBackstop ? PASTE_BACKSTOP_LINE : CORRECTION_LINE,
             })
             const leg = streamText({
-              model: observeUsageModel(gateway(choice.id), meter),
-              providerOptions: chatProviderOptions(choice),
-              instructions: cachedInstructions(
-                choice,
-                `${systemPrompt}\n\n${pasteRecovery ? pasteBackstopInstruction() : correctiveInstruction(corrective)}`,
+              model: observeUsageModel(gateway(TIERS.standard.id), meter),
+              providerOptions: chatProviderOptions(TIERS.standard, 'medium'),
+              // The corrective sentence is a fourth, uncached system message.
+              // It must not be concatenated onto the stable cached core: doing
+              // that makes every correction a fresh cache prefix.
+              instructions: instructionsFor(
+                TIERS.standard,
+                pasteRecovery ? pasteBackstopInstruction({ afterAsk: pasteAwaitingAnswer }) : correctiveInstruction(corrective),
               ),
               // EVERY step's messages, not `result.response.messages`: in ai@7 that is the
               // FINAL step only, so the correction ran without the turn's earlier tool
               // calls and results (measured 2026-09-28, scripts/decke-replay-probe.mjs).
-              messages: [...preparedMessages, ...(await result.steps).flatMap((step) => step.response.messages)],
+              // AND what came before step 0: on a leg resuming an approval, the
+              // approved write's result lives only in the SDK's initial response
+              // messages, and without it the provider got a tool_use with no
+              // tool_result. `result.responseMessages` is both. See `legMessages.ts`.
+              messages: await followUpMessages(preparedMessages, result),
               tools: correctiveApplyTools(allDeckeTools, corrective),
-              toolChoice: isAnthropic(choice) ? 'auto' : { type: 'tool', toolName: corrective },
+              toolChoice: isAnthropic(TIERS.standard) ? 'auto' : { type: 'tool', toolName: corrective },
               stopWhen: pasteRecovery ? stepCountIs(3) : stepCountIs(1),
+              prepareStep: ({ messages }) => ({
+                messages: cacheConversation(TIERS.standard, messages),
+              }),
               ...(process.env.DECKE_APPROVAL_SECRET
                 ? { experimental_toolApprovalSecret: process.env.DECKE_APPROVAL_SECRET }
                 : {}),
-              maxOutputTokens: budgetFor(choice),
+              maxOutputTokens: budgetFor(TIERS.standard),
               abortSignal,
               onError: ({ error }) => {
                 console.error('[deck-e] corrective leg error', safeUsageCode(error))
@@ -1666,6 +1903,27 @@ function latestUserText(messages) {
     return parts
       .filter((p) => p?.type === 'text' && typeof p.text === 'string')
       .map((p) => p.text)
+      .join(' ')
+  }
+  return ''
+}
+
+/** The assistant text immediately before the latest reader message, for triage only. */
+function previousAssistantText(messages) {
+  if (!Array.isArray(messages)) return ''
+  let latestUser = -1
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === 'user') {
+      latestUser = i
+      break
+    }
+  }
+  for (let i = latestUser - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (message?.role !== 'assistant') continue
+    return (Array.isArray(message.parts) ? message.parts : [])
+      .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+      .map((part) => part.text)
       .join(' ')
   }
   return ''

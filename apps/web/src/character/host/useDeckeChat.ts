@@ -91,6 +91,8 @@ import {
   type MeterRefusal,
 } from './chat/meterRefusal'
 import { fitCurrentTurn, windowPrior } from './chat/wireWindow'
+import { askFromStream, askWireParts, hasAsk, type AskPart } from './chat/askState'
+import { readTierRoute, type TierRoute } from './chat/tierRoute'
 import {
   CLIENT_TOOLS,
   isClientTool,
@@ -1282,6 +1284,14 @@ export function useDeckeChat(
        */
       let finishReason: string | undefined
 
+      /**
+       * The tier the server routed THIS turn to, from its first leg's
+       * `data-decke-route` part. Sent back on this turn's continuation legs
+       * only; declared per send, so a new reader message starts without one
+       * and is routed fresh. See `chat/tierRoute.ts`.
+       */
+      let tierRoute: TierRoute | null = null
+
       try {
         // `approvalReplays` is read on EVERY iteration, so committing to a
         // replay below extends this bound by exactly the one leg needed to POST
@@ -1299,11 +1309,20 @@ export function useDeckeChat(
           applyActivity(animatorRef.current!.legStarted())
           let legTextStarted = false
           const legStartedAt = Date.now()
+          /**
+           * The asks THIS leg docked, synchronously, like `turnChips`. An ask
+           * emits no chip, so `freshCalls` below never replays it — and an ask
+           * that shared its step with a held write or a browser tool reached
+           * the next leg missing, which then ran as if the questions had been
+           * answered. Per leg because `wire` already carries earlier legs'.
+           */
+          const legAsks: AskPart[] = []
           const requestWire = fitCurrentTurn(wire, {
             isServerTool: (name) => !isClientTool(name),
             summaryFor: (toolCallId) => currentTurnSummaries.get(toolCallId),
           })
-          const outcome = await streamLeg(requestWire, evidence, exchangeConversation, exchangeId, exchangeSeq, ac.signal, {
+          const outcome = await streamLeg(requestWire, evidence, exchangeConversation, exchangeId, exchangeSeq, leg === 0 ? null : tierRoute, ac.signal, {
+            onRoute: (route) => { tierRoute = route },
             onText: (chunk) => {
               if (!legTextStarted) {
                 legTextStarted = true
@@ -1361,6 +1380,15 @@ export function useDeckeChat(
               setMessages((all) => all.map((message) =>
                 message.id === replyId && !message.parts.some((part) => part.kind === 'consent')
                   ? { ...message, parts: [...message.parts, { kind: 'consent' as const, id: nextId() }] }
+                  : message,
+              ))
+            },
+            onAskUser: (ask) => {
+              const part: AskPart = { kind: 'ask', id: nextId(), ...ask }
+              legAsks.push(part)
+              setMessages((all) => all.map((message) =>
+                message.id === replyId
+                  ? { ...message, parts: [...message.parts, part] }
                   : message,
               ))
             },
@@ -1595,6 +1623,13 @@ export function useDeckeChat(
           if (record) {
             parts.push(record)
           }
+          // ── AND WHAT HE ASKED ON THIS LEG ─────────────────────────────────
+          //
+          // In the PREFIX, before the approval answers `replayLegParts` puts
+          // last. The server reads a replayed ask as a question still open in
+          // this turn: the leg after it finishes the approved write or the
+          // walk, says so, and stops, instead of proceeding as if answered.
+          for (const ask of askWireParts(legAsks)) parts.push(ask)
           const recordedIds = new Set([
             ...mark,
             ...answeredHere,
@@ -2087,6 +2122,11 @@ type LegHandlers = {
   onCommands: (commands: WireCommand[]) => Promise<void>
   onScreen: (screen: ScreenSpec) => void
   onConsent: () => void
+  /** A completed ask is retained as a message part so the dock can distinguish
+   *  an unanswered card from one followed by an ordinary user message. */
+  onAskUser: (ask: Omit<AskPart, 'kind' | 'id'>) => void
+  /** The route the server picked for this turn (`data-decke-route`), validated. */
+  onRoute: (route: TierRoute) => void
   onToolChip: (chip: ToolChip) => void
   /** Complete result for a server tool, retained for bounded replay. */
   onToolOutput: (toolCallId: string, output: unknown) => void
@@ -2270,6 +2310,8 @@ async function streamLeg(
   conversationId: string,
   exchangeId: string,
   seq: number,
+  /** This turn's route, echoed on a continuation leg; null on a first leg. */
+  tierRoute: TierRoute | null,
   signal: AbortSignal,
   handlers: LegHandlers,
 ): Promise<LegOutcome> {
@@ -2323,6 +2365,7 @@ async function streamLeg(
       route: window.location.pathname,
       landmarks: collectLandmarks(),
       conversationId, exchangeId, seq,
+      ...(tierRoute ? { tierRoute } : {}),
     }),
   })
 
@@ -2407,6 +2450,11 @@ async function streamLeg(
         handlers.onScreen(part.data.screen)
       } else if (part.type === 'data-decke-consent') {
         handlers.onConsent()
+      } else if (part.type === 'data-decke-route') {
+        // Transient, first leg only. Validated before it is kept, because it
+        // goes back out in the next request's body.
+        const route = readTierRoute(part.data)
+        if (route) handlers.onRoute(route)
       } else if (part.type === 'tool-input-error' && typeof part.toolCallId === 'string') {
         // ── A CALL THAT WAS NEVER ALLOWED TO RUN ────────────────────────────
         //
@@ -2486,6 +2534,12 @@ async function streamLeg(
         approvalInputs.set(part.toolCallId, (part.input ?? {}) as Record<string, unknown>)
       } else if (part.type === 'tool-output-available' && typeof part.toolCallId === 'string') {
         const outputName = approvalNames.get(part.toolCallId)
+        if (outputName === 'ask_user') {
+          // THE WHOLE INPUT, not just its questions: `about` is how the server
+          // routes the reader's answer back to the job that asked.
+          const ask = askFromStream(part.toolCallId, approvalInputs.get(part.toolCallId), part.output)
+          if (ask) handlers.onAskUser(ask)
+        }
         if (outputName && !isClientTool(outputName)) handlers.onToolOutput(part.toolCallId, part.output)
         // ── A DEEP CALL THE METER REFUSED, WHICH USED TO DIE HERE ───────────
         //
@@ -2550,7 +2604,10 @@ async function streamLeg(
  * function and for the leg loop in `send`.
  */
 function messagesToWire(msgs: ChatMessage[]): WireMessage[] {
-  const visible = msgs.filter((m) => messageText(m).trim().length > 0 || messageTools(m).length > 0)
+  // AN ASK IS A TURN. `ask_user` emits no chip, so a reply that was only a
+  // question has no text and no tools — and without `hasAsk` it was dropped,
+  // leaving the reader's answers to arrive with no question before them.
+  const visible = msgs.filter((m) => messageText(m).trim().length > 0 || messageTools(m).length > 0 || hasAsk(m.parts))
   let assistantsRemaining = visible.filter((m) => m.role === 'assistant').length
   return visible
     .map((m) => {
@@ -2569,6 +2626,10 @@ function messagesToWire(msgs: ChatMessage[]): WireMessage[] {
         for (const failure of failureParts(chips)) parts.push(failure)
         for (const decline of declineParts(chips, { isServerTool: (name) => !isClientTool(name) })) parts.push(decline)
       }
+      // On EVERY turn, recent or compacted. An ask is small and bounded, and an
+      // ask-only reply has nothing else to stand on: compacted without it, it
+      // became an empty text part.
+      for (const ask of askWireParts(m.parts)) parts.push(ask)
       // A turn that produced only tool records and no speech still has to be a
       // valid message; the filter above lets it through, so guard the shape.
       return { role: m.role, parts: parts.length ? parts : [{ type: 'text', text }] }

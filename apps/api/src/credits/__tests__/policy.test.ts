@@ -69,3 +69,17 @@ test('chat replay references bind all model-visible request input and each conve
  assert.equal(ex('11111111-1111-4111-8111-111111111111',3).key,ex('11111111-1111-4111-8111-111111111111',3).key);
  assert.match(payloadHash({a:1}),/^[a-f0-9]{64}$/);
 });
+test('the continuation route echo is part of the request identity, and its absence changes nothing',()=>{
+ const messages=[{id:'message_1',role:'user',parts:[{type:'text',text:'hello'}]}];
+ const exchange={exchangeId:'11111111-1111-4111-8111-111111111111',seq:3};
+ const without=chatChargeReference('conversation_1',messages,'/',[],exchange);
+ // Absent (null/undefined) hashes exactly as before the echo existed.
+ assert.deepEqual(chatChargeReference('conversation_1',messages,'/',[],exchange,null),without);
+ assert.deepEqual(chatChargeReference('conversation_1',messages,'/',[],exchange,undefined),without);
+ const quick={tier:'quick',pathways:['price_value'],effort:'medium'};
+ const standard={tier:'standard',pathways:['price_value'],effort:'medium'};
+ const q=chatChargeReference('conversation_1',messages,'/',[],exchange,quick);
+ assert.notEqual(q.key,without.key);
+ assert.notEqual(chatChargeReference('conversation_1',messages,'/',[],exchange,standard).key,q.key,'a different model choice is a different request');
+ assert.deepEqual(chatChargeReference('conversation_1',messages,'/',[],exchange,{...quick}),q,'a retried leg with the same echo still collides');
+});

@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { ALLOWED_STATES, ROUTE_SHAPE_LINES, buildSystemPrompt } from '../prompt.js'
+import { dataToolSummary } from '../adapters/aisdk.js'
+import {
+  ALLOWED_STATES,
+  buildCorePrompt,
+  buildSystemPrompt,
+  buildVolatileContext,
+} from '../prompt.js'
 
 const flat = (s: string) => s.replace(/\s+/g, ' ')
 const TOOLS = [
@@ -23,14 +29,15 @@ test('the no-tools branch remains honest about unavailable reads', () => {
   assert.doesNotMatch(p, /offer to look/i)
 })
 
-test('the new conversation, memory, deck, and failure contracts are present', () => {
+test('the conversation, memory, progress, asking, and failure contracts are present', () => {
   const p = buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS })
   for (const phrase of [
     'Read the moment before you reach for a tool',
     'Full tool results from your recent turns are',
     'Never ask them for something you can look up',
-    'Check it with `check_deck`',
-    'Show it with `showDeck`',
+    'Progress while you work',
+    'one `ask_user` card that turn',
+    'Keep working until everything they asked for is done',
     'Odds come from `deck_odds`, never from your head.',
     'Never say you were blocked, refused or declined unless the reader actually',
   ]) {
@@ -78,19 +85,56 @@ test('retained body state list and automatic lifecycle states are still named', 
   assert.match(p, /These are driven automatically and are not yours to set: boot, listening, thinking, talk, loading, sleep, alert_error/)
 })
 
-test('retained route shapes and landmarks stay interpolated', () => {
+test('volatile landmarks stay interpolated while the core keeps a compact navigation fallback', () => {
   const p = buildSystemPrompt({
     route: '/series',
     signedIn: true,
     dataTools: TOOLS,
     landmarks: [{ selector: '[data-decke-nav="/decks"]', label: 'the Decks link', clickable: true }],
   })
-  for (const route of ROUTE_SHAPE_LINES) {
-    const [shape, what] = route.split(' — ')
-    assert.ok(p.includes(`\`${shape}\` — ${what}`), `missing route: ${route}`)
-  }
   assert.match(p, /the Decks link \(pressable\)/)
   assert.match(buildSystemPrompt({ route: '/series', signedIn: true }), /nothing on this page is registered as a landmark/)
+  const core = buildCorePrompt({ signedIn: true, dataTools: TOOLS })
+  for (const tool of ['goTo', 'escort', 'journey', 'flyTo', 'highlight', 'click', 'scrollToMe']) {
+    assert.ok(core.includes(`\`${tool}\``), `missing navigation fallback: ${tool}`)
+  }
+})
+
+test('core is stable, request-local context is volatile, and compatibility is exact', () => {
+  const core = buildCorePrompt({
+    signedIn: false,
+    today: '1999-12-31',
+    dataTools: TOOLS,
+  })
+  assert.equal(core.includes('1999-12-31'), false)
+  assert.equal(core.includes('/decks'), false)
+  assert.equal(core.includes('NOT signed in'), false)
+
+  const volatile = buildVolatileContext({
+    route: '/decks',
+    signedIn: false,
+    now: new Date('2026-10-10T12:00:00.000Z'),
+  })
+  assert.match(volatile, /2026-10-10/)
+  assert.match(volatile, /\/decks/)
+  assert.match(volatile, /NOT signed in/)
+
+  const opts = {
+    route: '/decks',
+    signedIn: true,
+    today: '2026-10-10',
+    dataTools: TOOLS,
+  } as const
+  assert.equal(
+    buildSystemPrompt(opts),
+    `${buildCorePrompt(opts)}\n\n${buildVolatileContext(opts)}`,
+  )
+})
+
+test('the stable core stays below the cacheable-prefix budget', () => {
+  const currentTools = dataToolSummary({ include: () => true, conversationalLogging: true })
+  const core = buildCorePrompt({ signedIn: true, dataTools: currentTools })
+  assert.ok(core.length <= 16_000, `core is ${core.length} characters`)
 })
 
 test('signed-out readers are not promised collection access', () => {
