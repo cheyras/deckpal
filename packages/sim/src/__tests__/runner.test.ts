@@ -258,4 +258,17 @@ test('a Knock Out by Poison at Checkup is credited to no one, not to an Ability 
   assert.ok(ko, 'the Poisoned Pup was not Knocked Out at Checkup');
   const sum = summarize(g.ctx, g, { pair: 0, seed: 1, aFirst: true, sideOf: (p) => p, seatOfA: 0 });
   assert.equal(sum.kos[0]?.attacker, null, `the Checkup Knock Out was credited to ${sum.kos[0]?.attacker}`);
+
+  // Also when that Ability had put a (nonlethal) counter on the victim earlier in the turn.
+  const prod = scenario(A, A, [{ active: 'Pup', hand: ['Seer'] }, { active: 'Pup', bench: ['Pup'], damage: { active: 50 }, cond: POISONED }], {
+    events: true,
+    scripts: [{ id: 't-310', name: 'Seer', abilities: [{ name: 'Peek', activated: { program: [{ op: 'counters', n: 1, to: 'oppActive' }] } }] }],
+  });
+  const pick2 = (text: string) => prod.submit([describeOptions(prod.ctx, prod.state, prod.decision!).findIndex((l) => l.includes(text))]);
+  pick2('Bench Seer');
+  pick2('Use Peek');
+  pick2('End turn');
+  assert.ok(prod.events.some((e) => e.type === 'knockout'), 'the Poisoned Pup was not Knocked Out at Checkup');
+  const sum2 = summarize(prod.ctx, prod, { pair: 0, seed: 1, aFirst: true, sideOf: (p) => p, seatOfA: 0 });
+  assert.equal(sum2.kos[0]?.attacker, null, `a Checkup Knock Out after a nonlethal hit was credited to ${sum2.kos[0]?.attacker}`);
 });
