@@ -105,8 +105,14 @@ test('the renderer knows every field a block can arrive with', () => {
       ...keysIn(screens, 'const blockSchema = leafBlockSchema.extend({'),
     ]),
   ].sort()
+  // SERVER-ONLY deck fields: on `DeckBlock`, set by `showDeck` after its own
+  // ownership check, and deliberately NOT in the schema, so no model-authored
+  // screen can carry them (the deck a Save button writes over). Named here so
+  // a new one is a decision someone makes, not a field that drifted in.
+  const serverOnly = keysIn(screens, 'export interface DeckBlock {').filter((key) => !schemaFields.includes(key)).sort()
+  assert.deepEqual(serverOnly, ['base', 'versionNote'])
   const rendererFields = keysIn(renderer, 'type Block = {').sort()
-  assert.deepEqual(rendererFields, schemaFields)
+  assert.deepEqual(rendererFields, [...schemaFields, ...serverOnly].sort())
 })
 
 test('a group is one level deep on both sides of the wire', () => {

@@ -110,18 +110,34 @@ export function toolReplayParts(
   return { parts, unrecorded }
 }
 
+/**
+ * What Deck-E is told, on his next turn, about a save the reader made with
+ * the deck widget's own button — he did not call anything, so without this he
+ * would not know. A version save names the version it landed on, or that the
+ * deck already matched and nothing changed.
+ */
 export function savedDeckRecord({
   name,
   total,
   id,
+  version,
 }: {
   name: string
   total: number
   id: string
+  version?: { number: number; changed: boolean }
 }): { type: 'text'; text: string } {
+  if (!version) {
+    return {
+      type: 'text',
+      text: `[the reader saved the deck "${name}" from the deck widget — ${total} cards, deck id ${id}]`,
+    }
+  }
   return {
     type: 'text',
-    text: `[the reader saved the deck "${name}" from the deck widget — ${total} cards, deck id ${id}]`,
+    text: version.changed
+      ? `[the reader saved this list from the deck widget as v${version.number} of their deck "${name}" — ${total} cards, deck id ${id}]`
+      : `[the reader saved this list from the deck widget as a new version of their deck "${name}", but it already matched v${version.number}, so nothing changed — deck id ${id}]`,
   }
 }
 

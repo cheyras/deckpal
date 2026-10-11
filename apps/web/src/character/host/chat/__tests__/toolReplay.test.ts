@@ -112,3 +112,12 @@ test('a saved deck becomes a reader fact on the next wire', () => {
     text: '[the reader saved the deck "Dragapult Toolbox" from the deck widget — 60 cards, deck id deck-9]',
   })
 })
+
+test('a version saved from the widget tells him which version it landed on, or that nothing changed', () => {
+  assert.deepEqual(savedDeckRecord({ name: 'Dragapult ex', total: 60, id: 'deck-9', version: { number: 3, changed: true } }), {
+    type: 'text',
+    text: '[the reader saved this list from the deck widget as v3 of their deck "Dragapult ex" — 60 cards, deck id deck-9]',
+  })
+  assert.match(savedDeckRecord({ name: 'Dragapult ex', total: 60, id: 'deck-9', version: { number: 2, changed: false } }).text,
+    /already matched v2, so nothing changed — deck id deck-9/)
+})

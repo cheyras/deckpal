@@ -190,7 +190,7 @@ import { meteredCapText, outOfCreditsText } from '../apps/api/dist/decke/credits
 import { buildDataTools, correctiveApplyTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
 import { apiBaseFor, selfHopHeadersFor, withToolCtx } from '../apps/api/dist/decke/ctx.js'
 import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
-import { checkDeck } from '../apps/api/dist/decke/deckCheck.js'
+import { checkDeck, ownedDeck } from '../apps/api/dist/decke/deckCheck.js'
 import { seedMeteredRefusals } from '../apps/api/dist/decke/meteredRefusals.js'
 import { createNarrationFilter, stripToolSyntax as stripToolSyntaxImpl } from '../apps/api/dist/decke/narration.js'
 import { autoShareAndRecordLeg } from '../apps/api/dist/decke/improvement.js'
@@ -984,6 +984,7 @@ async function serve(request) {
             model: observeUsageModel(gateway(TIERS.standard.id), meter),
             signal: abortSignal,
           }),
+          ownedDeck: (ref) => withToolCtx(toolCtx, (ctx) => ownedDeck(ctx, ref)),
           db: chatPool(),
           userId: user.id,
           conversationId,

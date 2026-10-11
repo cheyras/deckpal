@@ -23,6 +23,7 @@ import type { PendingApproval } from '../../apps/web/src/character/host/approval
 import type { ApprovalPreview } from '../../apps/web/src/character/host/chat/approvalCardState'
 import type { DeepQuote } from '../../apps/web/src/character/host/chat/deepRequest'
 import { BattlesTab } from '../../apps/web/src/routes/deck/BattlesTab'
+import type { DeckSaved } from '../../apps/web/src/character/host/chat/deckSave'
 
 // Test-only entry: actual components, no host/WebGL/model or production route.
 const events = {
@@ -33,7 +34,8 @@ const events = {
   approves: 0,
   denies: 0,
   composerActivity: [] as boolean[],
-  savedDecks: [] as { id: string; name: string; total: number }[],
+  savedDecks: [] as DeckSaved[],
+  openedDecks: [] as string[],
   feedback: [] as { seq: number; vote: number | null; comment: string; share: boolean }[],
 }
 type FixtureState = { open: boolean; busy: boolean; messages: ChatMessage[]; credits: { remaining: number; allowance: number }
@@ -81,6 +83,7 @@ function Fixture() {
     onRetryTool={id => events.retries.push(id)} desktop={innerWidth >= 1068} characterPx={fixtureCharacterPx()}
     onComposerActivity={typing => events.composerActivity.push(typing)}
     onDeckSaved={deck => events.savedDecks.push(deck)}
+    onOpenDeck={id => events.openedDecks.push(id)}
     onFeedback={async (seq, value) => { events.feedback.push({ seq, ...value }) }}
     onTopUp={() => { events.topUps++ }} />
 }
