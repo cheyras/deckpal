@@ -4,7 +4,10 @@
  * identification path, scored against ground truth.
  *
  *   node --import tsx scripts/scan-bench/bench.ts [--ocr off] [--fusion off]
- *        [--guard off] [--vectors <embed tag>] [--datasets a,b] [--out <dir>] [--label <name>]
+ *        [--guard off] [--model-id <id>] [--vectors <embed tag>] [--datasets a,b] [--out <dir>] [--label <name>]
+ *
+ * --model-id picks whose gate applies (default: the shipped EMBED_MODEL_ID) and
+ * --vectors defaults to that model's precomputed vectors; a mismatched pair is refused.
  *
  * For each crop: dHash priors (`phash.ts`, the server's own hashing) → OCR
  * (`ocr.ts`, the device's own pipeline) → vector top-5 (precomputed by
@@ -52,7 +55,30 @@ const OCR_ON = arg('ocr', 'on') !== 'off'
 const FUSION_ON = arg('fusion', 'on') !== 'off'
 /** The printing guard (artFamilies.ts) — the shipping behaviour; `--guard off` replays without it. */
 const GUARD_ON = arg('guard', 'on') !== 'off'
-const VECTORS = arg('vectors', 'vit_base_patch32_clip_224.openai')!
+// Which checkpoint's thresholds the ladder applies to these vectors (fuse.ts
+// keys the gate by model id). Defaults to the shipped one.
+const MODEL_ID = arg('model-id', EMBED_MODEL_ID)!
+// The precomputed vectors (`embed.py`) each model id is scored on by default:
+// the production pairing, fp32 gallery x int8 query, one capture at a time.
+// A vector tag and a model id from different spaces would apply one model's
+// thresholds to another's similarities, so a known mismatch is refused
+// (Astra, review of #288).
+const VECTORS_OF: Readonly<Record<string, string>> = {
+  'clip-vit-b32-openai': 'vit_base_patch32_clip_224.openai',
+  'deckpal-card-b32-v1': 'deckpal-card-b32-v1.fp32-q_deckpal-card-b32-v1.int8',
+  'deckpal-card-b32-v2': 'deckpal-card-b32-v2.fp32-q_deckpal-card-b32-v2.int8',
+}
+const VECTORS: string =
+  arg('vectors', VECTORS_OF[MODEL_ID]) ??
+  ((): never => {
+    throw new Error(`no default vectors for --model-id ${MODEL_ID}: pass --vectors <embed tag>`)
+  })()
+{
+  const owner = Object.entries(VECTORS_OF).find(([, tag]) => VECTORS.startsWith(tag))?.[0]
+  if (owner && owner !== MODEL_ID) {
+    throw new Error(`--vectors ${VECTORS} are ${owner}'s, but --model-id is ${MODEL_ID}: the gate would be the wrong model's`)
+  }
+}
 const LABEL = arg(
   'label',
   `ocr-${OCR_ON ? 'on' : 'off'}_fusion-${FUSION_ON ? 'on' : 'off'}_guard-${GUARD_ON ? 'on' : 'off'}_${VECTORS}`,
@@ -60,6 +86,9 @@ const LABEL = arg(
 const OUT = arg('out', path.join(BENCH_DIR, 'runs'))!
 const DATASETS = arg('datasets')?.split(',') ?? listDatasets()
 const VECTOR_K = 5 // api.ts embedCard asks k=5
+// The dHash distance at or under which the priors may VETO a printed key
+// (`priorsContradict`). Production passes router.ts CONFIDENT_MAX.
+const PHASH_VETO = Number(arg('phash-veto', String(CONFIDENT_MAX)))
 
 assertMirror()
 const cat = loadCatalog()
@@ -194,9 +223,9 @@ async function runRow(r: BenchRow): Promise<RowResult> {
   let resolved: ScanResolveResponse | null = null
   if (body) {
     const outcome = await resolveCard(body.fields, body.priorMatches, port, {
-      phashConfidentMax: CONFIDENT_MAX,
+      phashConfidentMax: PHASH_VETO,
       ...(GUARD_ON ? { artSiblings, printedTwins: printedTwinsOf } : {}),
-      ...(FUSION_ON ? { fusion: { vectorMatches: body.vectorMatches ?? [], modelId: EMBED_MODEL_ID } } : {}),
+      ...(FUSION_ON ? { fusion: { vectorMatches: body.vectorMatches ?? [], modelId: MODEL_ID } } : {}),
     })
     resolved = toWire(outcome)
   }
