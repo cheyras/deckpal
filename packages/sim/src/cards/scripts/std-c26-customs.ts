@@ -8,7 +8,7 @@ import { def } from '../../context.js';
 import { registerCustom } from '../../customs.js';
 import type { Filter } from '../../dsl.js';
 import { cardMatches } from '../../eval.js';
-import { effectsPrevented } from '../../query.js';
+import { benchLimit, effectsPrevented } from '../../query.js';
 import { allSlots, emit, opp, removeFrom } from '../../state.js';
 import type { Decision, GameState, Val } from '../../types.js';
 
@@ -71,7 +71,7 @@ registerCustom('c26.lookTopChoose', (env, s, f, args, answer) => {
   const as = String(args.as ?? 'found');
   const n = Number(args.n ?? 10);
   const filter = args.filter as Filter | undefined;
-  const room = Math.max(0, 5 - ps.bench.length);
+  const room = Math.max(0, benchLimit(env, s, f.player) - ps.bench.length);
   const opts = ps.deck.slice(Math.max(0, ps.deck.length - n)).reverse().filter((c) => cardMatches(env, c, filter)); // top first
   if (answer !== undefined) {
     f.vars[as] = (answer as number[]).filter((c) => opts.includes(c)).slice(0, room);

@@ -80,7 +80,7 @@ export const STD_H01: CardScript[] = [
             max: {
               min: [
                 2,
-                { sub: [5, { pokemon: { zone: 'myBench' } }] },
+                { benchRoom: 'self' },
               ],
             },
             as: 'found',
@@ -119,7 +119,7 @@ export const STD_H01: CardScript[] = [
             max: {
               min: [
                 2,
-                { sub: [5, { pokemon: { zone: 'myBench' } }] },
+                { benchRoom: 'self' },
               ],
             },
             as: 'found',

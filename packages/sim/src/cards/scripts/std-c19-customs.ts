@@ -7,6 +7,7 @@
 import { def } from '../../context.js';
 import { registerCustom, registerCustomCond } from '../../customs.js';
 import { cardMatches } from '../../eval.js';
+import { benchLimit } from '../../query.js';
 import { allSlots, draw, emit, findSlot, flipCoin, opp, removeFrom, shuffleDeck, slotCards, topCard } from '../../state.js';
 import type { Decision, GameState, Player, Val } from '../../types.js';
 
@@ -54,7 +55,7 @@ registerCustom('c19.revealTopPick', (env, s, f, args, answer) => {
   const as = String(args.as ?? 'x');
   const n = Number(args.n ?? 5);
   const top = ps.deck.slice(Math.max(0, ps.deck.length - n)).reverse(); // top first
-  const space = Math.max(0, 5 - ps.bench.length);
+  const space = Math.max(0, benchLimit(env, s, o) - ps.bench.length);
   const opts = top.filter((c) => cardMatches(env, c, { cat: 'pokemon', stage: 'basic' }));
   if (answer !== undefined) {
     f.vars[as] = (answer as number[]).filter((c) => opts.includes(c)).slice(0, space);

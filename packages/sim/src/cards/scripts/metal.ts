@@ -4,7 +4,7 @@
  * src/__tests__/cards-metal.test.ts.
  */
 import type { CardScript, Step } from '../../dsl.js';
-import { damageOneOf, searchToBench, searchToHand } from './helpers.js';
+import { BENCH_SPACE, damageOneOf, searchToBench, searchToHand } from './helpers.js';
 import './metal-customs.js';
 
 /** "During your opponent's next turn, this Pokémon takes 30 less damage from attacks (after applying Weakness and Resistance)." */
@@ -164,7 +164,11 @@ export const METAL: CardScript[] = [
     fix: { aceSpec: true },
     // "Search your deck for any number of Basic Pokémon and put them onto your Bench. Then, shuffle your deck."
     playable: { not: { benchFull: 'self' } },
-    play: searchToBench({}, 5),
+    play: [
+      { op: 'chooseCards', from: 'deck', filter: { stage: 'basic' }, min: 0, max: BENCH_SPACE, as: 'found' },
+      { op: 'move', cards: 'found', to: 'bench' },
+      { op: 'shuffle' },
+    ],
   },
   {
     id: 'me02.5-209',

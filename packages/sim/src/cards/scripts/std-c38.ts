@@ -141,7 +141,7 @@ export const STD_C38: CardScript[] = [
               chooser: 'self',
               filter: { cat: 'pokemon', stage: 'basic', hpMax: 70 },
               min: 1,
-              max: { min: [1, { sub: [5, { pokemon: { zone: 'oppBench' } }] }] },
+              max: { min: [1, { benchRoom: 'opp' }] },
               as: 'x',
               reveal: true,
               prompt: "Choose a Basic Pokémon with 70 HP or less in your opponent's hand",

@@ -7,6 +7,7 @@
 import { def } from '../../context.js';
 import { registerCustom, registerCustomCond } from '../../customs.js';
 import { queueStadiumBench } from '../../interp.js';
+import { benchLimit } from '../../query.js';
 import { emit, newSlot, rand } from '../../state.js';
 import type { Decision, GameState } from '../../types.js';
 
@@ -42,7 +43,7 @@ registerCustom('c03.grimsleysMove', (env, s, f, args, answer) => {
     return d.kind === 'pokemon' && d.types.includes('Darkness');
   });
   let pick: number | undefined;
-  if (ps.bench.length < 5 && dark.length) {
+  if (ps.bench.length < benchLimit(env, s, f.player) && dark.length) {
     if (answer !== undefined) pick = (answer as number[])[0];
     else if (new Set(dark.map((c) => def(env.ctx, c).idx)).size === 1) pick = dark[0];
     else {

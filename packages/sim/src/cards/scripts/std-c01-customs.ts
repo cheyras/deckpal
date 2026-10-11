@@ -7,7 +7,7 @@ import { registerCustom, registerCustomCond } from '../../customs.js';
 import type { Filter } from '../../dsl.js';
 import { cardMatches, evalCond, slotsIn } from '../../eval.js';
 import { queueStadiumBench } from '../../interp.js';
-import { maxHp, statics } from '../../query.js';
+import { benchLimit, maxHp, statics } from '../../query.js';
 import { emit, findSlot, newSlot, removeFrom, takeFromZones } from '../../state.js';
 import type { Decision, GameState } from '../../types.js';
 
@@ -30,7 +30,7 @@ function idsOf(v: unknown): number[] {
 registerCustom('c01.benchCards', (env, s, f, args) => {
   const ops = s.p[f.player];
   for (const c of idsOf(f.vars[String(args.cards ?? 'found')])) {
-    if (def(env.ctx, c).kind !== 'pokemon' || ops.bench.length >= 5) continue;
+    if (def(env.ctx, c).kind !== 'pokemon' || ops.bench.length >= benchLimit(env, s, f.player)) continue;
     if (!takeFromZones(ops, c)) continue;
     const sl = newSlot(s, c);
     ops.bench.push(sl);

@@ -131,7 +131,7 @@ export const STD_C30: CardScript[] = [
                 chooser: 'self',
                 filter: { cat: 'pokemon', stage: 'basic' },
                 min: 0,
-                max: { sub: [5, { pokemon: { zone: 'oppBench' } }] },
+                max: { benchRoom: 'opp' },
                 as: 'x',
                 reveal: true,
                 prompt: "Choose any number of Basic Pokémon in your opponent's hand",
