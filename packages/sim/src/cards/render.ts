@@ -299,6 +299,8 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c31.countersOnAttacker': (a) => `Put ${Number(a.n ?? 1)} damage counters on the Attacking Pokémon (the Pokémon that used the attack), wherever it is now`,
   'c31.lookAtOppPrize': () => "Look at 1 of your opponent's face-down Prize cards (it stays where it is, and your opponent does not see it)",
   'c31.tallyChoices': (a) => `Total the ${Number(a.n ?? 6)} choices made as "${String(a.from ?? 'a')}1" onwards per Pokémon: each distinct Pokémon chosen gets ${Number(a.per ?? 20)} damage for each time it was chosen (into "${String(a.into ?? 't')}" and "${String(a.amounts ?? 'k')}")`,
+  // std-c32-customs.ts
+  'c32.flusteredLeap': () => 'If this Pokémon is on your Bench and your deck has a card: discard the bottom card of your deck, discard every Energy and Tool attached to this Pokémon, and put this Pokémon (the card itself) on top of your deck, without shuffling (not a Knock Out); nothing happens with an empty deck',
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -2297,5 +2299,22 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv10-023|attack:Oil Salvo': {
     problems: ['similarity'],
     why: 'The six choices are six separate choose steps, totalled per Pokémon by one custom and then damaged once each (up to six distinct Pokémon, each with its total, so that damage modifiers apply to the total, ruling 2161); the rendering repeats the choice and the damage clause six times, which the printed text says once.',
+  },
+  // std-c32
+  'sv10-031|attack:Evil Incineration': {
+    problems: ['"Active" is printed but not rendered', "\"opponent's active\" is printed but not rendered"],
+    why: "The Defending Pokémon is the opponent's Active Pokémon, so the shared custom (as Jynx, Intense Kiss) renders it as the Defending Pokémon; the card test pins that the opponent's Active Pokémon and everything attached to it are discarded with no Prize card (ruling 2156).",
+  },
+  'sv10-056|attack:Crescendo Wave': {
+    problems: ['"may" is printed but not rendered'],
+    why: '"You may attach any number" is a choice of 0 to all of the Basic {W} Energy cards in the hand, which already is the option to attach none (as Slowpoke, All-You-Can-Yeet).',
+  },
+  'sv10-069|attack:High-Voltage Press': {
+    problems: ['number 2 is printed 1× but rendered 0×'],
+    why: "\"At least 2 extra Energy (in addition to this attack's cost)\": the cost is {L}{L}{C}, so the script tests 5 or more Energy attached.",
+  },
+  'sv10-077|attack:Astonish': {
+    problems: ['"reveal" is printed but not rendered'],
+    why: 'The random card is revealed and then immediately shuffled into the deck, so the reveal has no later effect and nothing in the script keeps it (as Team Rocket Meowth, Paw-cket Pilfer).',
   },
 };
