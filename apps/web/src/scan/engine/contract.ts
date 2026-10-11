@@ -184,8 +184,9 @@ export interface CaptureResult {
   /** Track id, so the UI can refractory-dedupe re-presentations of the card. */
   trackId: number
   /** The look of the captured pixels (look.ts captureLook): what a later lock
-   *  on this track or this spot is compared with by the look re-arm. Null only
-   *  when the capture cannot be read as a card. */
+   *  on this track or this spot is compared with by the look re-arm. It
+   *  carries the capture's four quarter turns, since a capture can come out
+   *  sideways. Null only when the capture cannot be read as a card. */
   look: CardLook | null
 }
 

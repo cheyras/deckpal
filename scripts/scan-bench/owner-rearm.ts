@@ -72,7 +72,7 @@
 //   The look separates the owner's cards far worse than the videos' (one
 //   card's ticks median 0.35, different cards 1.35 there). Here, event vs an
 //   earlier capture: same card med 0.38-0.46, max 0.84; different cards med
-//   1.21-1.41 but 13-27 % of pairs at or under 1.0. A card held still for up
+//   1.16-1.35 but 15-27 % of pairs at or under 1.0. A card held still for up
 //   to 39 s stays within 0.71 of itself.
 //
 //   On the refusals: 39 new cards refused; the re-arm (upper bound) fires on
@@ -81,11 +81,22 @@
 //   lock whose quad held part of the card). It holds 16:
 //   trainer after trainer, one type after the same type, washed-out colorless
 //   cards (Skwovet after Cinccino at 0.35-0.55, refused for 20 s). Same-card
-//   fires: 2 cards, both session 1 — a lock behind a capture that came out
-//   sideways (the look is not rotation-invariant) and a lock whose quad held
-//   part of the card. 3 motion frames would fire if steadiness let them.
+//   fires: 1 card, a lock whose quad held part of the card (Karrablast,
+//   session 1). 3 motion frames would fire if steadiness let them.
 //
-//   REARM_NEW_MIN 0.9 takes 28/39 for the same 2 duplicates on this data; the
+//   THE TURNED CAPTURE. A second duplicate, Marill (session 1, 1.45 and 1.51),
+//   was a lock behind its own capture that came out sideways: 3 of session
+//   1's 42 captures did (Marill and Rabsca a quarter turn, Lillie's Pearl a
+//   half). So a capture's look now carries its four quarter turns (look.ts
+//   captureLook), and Marill's turn matches at 0.20; the same card turned
+//   matched at 0.14-0.57. Free, the extra turns cost 3 rescued cards (20/39:
+//   Cinccino against a Skwovet at its half turn, 0.77; Metang 0.90;
+//   Squawkabilly 0.95) and pushed different-card pairs at or under 1.0 from
+//   13-27 % to 23-36 %. At LOOK_TURN_COST 0.3 the rescues and motion frames
+//   are what they were before the turns at every threshold up to 1.1, the
+//   pairs sit at 15-27 %, and the nearest rescue is now Cinccino at 1.07.
+//
+//   REARM_NEW_MIN 0.9 takes 28/39 for the same 1 duplicate on this data; the
 //   nearest same-card refusals sit at 0.83 and 0.87, so anything lower starts
 //   adding them. No threshold reaches the other 11: the look itself cannot
 //   tell those pairs apart.
