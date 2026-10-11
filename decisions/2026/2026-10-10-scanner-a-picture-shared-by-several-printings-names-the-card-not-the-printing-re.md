@@ -81,3 +81,10 @@ The rule is figure ≥ 0.24, frame colour ≥ 0.6 and figure colour ≥ 0.3, and
 On the owner photos, the Fossil Dragonite that was confidently named as its holo now goes to the reader, with the right printing second in the list.
 
 **Found along the way, not changed here:** the colour-blind ORB rule already joins roughly 30 rainbow, gold and shiny recolours of a full art. Examples are sv08-219/247 (gold) and sm9-163/185 (rainbow). The test file treats a rainbow recolour (sm11-222/242) as a different picture. Whether those recolours belong in a family is the owner's call. The foil pass's colour gates could be applied to the ORB rule too.
+- **Addendum, dHash veto and the vintage hash rule (2026-10-10):**
+  - **The dHash veto:** the dHash rule no longer joins a pair that the image comparison measured as different pictures (fewer than 10 art-band inliers and no shared figure; Energy cards exempt).
+    - The re-review found 26 such joins, for example Lapras swsh1-48/swshp-SWSH051 and Emboar bw1-20/bw4-100. Through the closure they had pulled different pictures into one family.
+    - The table goes from 1,020 families / 2,377 cards to 1,000 / 2,332, and every true reprint family is unchanged.
+  - **The vintage hash rule:** `/api/scan` also no longer lets the hash name a WotC-era card on its own (`hashMayNameAlone`). Those sets share one yellow frame, which dominates a whole-card 9x8 hash. A study of the owner's verified photos (96 vintage crops) found that, within today's bar, 22 of the hash's 64 confident vintage answers were a different card. Under the client's solo gate, 8 of 11 vintage claims were wrong.
+  - **Effect on the owner photos:** confident-wrong goes from 7/81 to 6/80, with auto-ID unchanged at 74/218. The scan benchmark is unchanged (167/244, 1 wrong).
+  - **The sharper fix:** a 256-bit hash with the 5% margin cropped and full-cell averaging reached zero wrong-card answers at today's coverage. It needs a re-index, so it is a separate change, and no hash can tell vintage printings apart.

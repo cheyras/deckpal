@@ -29,7 +29,7 @@ import { fileURLToPath } from 'node:url'
 
 import sharp from 'sharp'
 
-import { artSiblings, printingOpenFor } from '../../apps/api/src/scan/artFamilies.js'
+import { artSiblings, hashMayNameAlone, printingOpenFor } from '../../apps/api/src/scan/artFamilies.js'
 import { resolveCard, type ResolveOutcome } from '../../apps/api/src/scan/resolve.js'
 import type { ScanResolveResponse, ScanResponse } from '../../apps/web/src/lib/api.js'
 import type { OcrRead } from '../../apps/web/src/scan/ocr/pipeline.js'
@@ -187,7 +187,8 @@ async function runRow(r: BenchRow): Promise<RowResult> {
   let s: IdentityState = initialIdentity()
   // router.ts /scan: within the bar AND no same-art reprint (artFamilies.ts) — unless `--guard off`.
   const phOpen = GUARD_ON && ph.matched && printingOpenFor(ph.matches[0]?.cardId)
-  s = reduceIdentity(s, { type: 'phash', res: scanResponse(ph.matches, ph.matched && !phOpen, phOpen) })
+  const phMay = !GUARD_ON || hashMayNameAlone(ph.matches[0]?.cardId)
+  s = reduceIdentity(s, { type: 'phash', res: scanResponse(ph.matches, ph.matched && phMay, phOpen) })
   s = reduceIdentity(s, { type: 'read', read })
   const body = toResolveBody(read, ph.matches, vec)
   let resolved: ScanResolveResponse | null = null

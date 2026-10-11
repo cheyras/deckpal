@@ -67,3 +67,31 @@ export function artSiblings(cardId: string): readonly string[] {
 export function printingOpenFor(topCardId: string | undefined): boolean {
   return topCardId != null && artSiblings(topCardId).length > 0;
 }
+
+/**
+ * The WotC era (1999-2003): Base Set to the e-Card sets. Every card shares one
+ * yellow frame and one layout, which is most of what a 9x8 hash of the whole
+ * card sees.
+ */
+const WOTC_SETS: ReadonlySet<string> = new Set([
+  'base1', 'base2', 'base3', 'base4', 'base5', 'basep',
+  'gym1', 'gym2', 'neo1', 'neo2', 'neo3', 'neo4', 'si1', 'lc',
+  'ecard1', 'ecard2', 'ecard3', 'bog',
+]);
+
+/**
+ * May the HASH name this top-1 on its own? Not when its printing is open (a
+ * same-art family), and not for a WotC-era card at all.
+ *
+ * Measured on the owner's verified photos (2026-10-10, 96 vintage crops): within
+ * today's bar the hash's confident vintage answers were 21 exact, 21 the wrong
+ * printing and 22 A DIFFERENT CARD of 64 (a Hitmonchan named lc-79 Machop at
+ * distance 4), and under the client's solo gate 8 of 11 vintage claims were
+ * wrong — the shared frame dominates the hash. A vintage card still reaches a
+ * confident answer through the resolve leg (the printed number, the vector, the
+ * name); only the hash's shortcut is closed.
+ */
+export function hashMayNameAlone(topCardId: string | undefined): boolean {
+  if (topCardId == null || printingOpenFor(topCardId)) return false;
+  return !WOTC_SETS.has(topCardId.slice(0, topCardId.lastIndexOf('-')));
+}

@@ -285,3 +285,14 @@ test('a frame and rules text in common is not a picture in common', () => {
   ];
   for (const [a, b] of different) assert.ok(!artSiblings(a).includes(b), `${a} and ${b} are different pictures`);
 });
+
+test('the hash may not name a WotC-era card on its own, nor a card whose printing is open', async () => {
+  const { hashMayNameAlone } = await import('../artFamilies.js');
+  assert.equal(hashMayNameAlone('lc-79'), false, 'the Machop a Hitmonchan photo hashed to at distance 4');
+  assert.equal(hashMayNameAlone('neo1-17'), false);
+  assert.equal(hashMayNameAlone('ecard2-12'), false);
+  assert.equal(hashMayNameAlone('base1-93'), false, 'vintage AND a same-art family');
+  assert.equal(hashMayNameAlone('sv02-050'), true, 'a modern card with no reprint keeps the shortcut');
+  assert.equal(hashMayNameAlone('swsh7-87'), true);
+  assert.equal(hashMayNameAlone(undefined), false);
+});

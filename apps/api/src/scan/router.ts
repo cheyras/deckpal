@@ -3,7 +3,7 @@ import { cardImages, q } from '../db.js';
 import { ApiError, asyncHandler, badRequest, clampInt, notFound, oneOf, toBuffer } from '../http.js';
 import { ALGO, hashQueryCandidates, hashToHex } from './phash.js';
 import { pgCatalogPort } from './catalogPort.js';
-import { artSiblings, printingOpenFor } from './artFamilies.js';
+import { artSiblings, hashMayNameAlone, printingOpenFor } from './artFamilies.js';
 import { resolveCard, type FusionInput, type OcrFields, type PriorMatch, type RankedCard } from './resolve.js';
 import { scanEmbedGate } from './embedGate.js';
 import { CURRENT_STAMP, assertQueryVector, buildResponse, pgNeighbours } from './embedMatch.js';
@@ -274,11 +274,14 @@ scanRouter.post(
     // Within the hash's own bar AND not a card whose picture other printings
     // share: a 9x8 hash cannot see a set symbol, so it names a family, not a
     // printing (artFamilies.ts). The ranked list is untouched — it is the picker.
+    // And not a WotC-era card at all: one yellow frame and layout dominate the
+    // whole-card hash, which named a different card for a third of the owner's
+    // vintage photos (artFamilies.ts hashMayNameAlone).
     const withinBar = (matches[0]?.distance ?? 64) <= CONFIDENT_MAX;
     const printingOpen = withinBar && printingOpenFor(matches[0]?.cardId);
     res.json({
       query: { algo: ALGO, hash: hashToHex(queryHash) },
-      matched: withinBar && !printingOpen,
+      matched: withinBar && hashMayNameAlone(matches[0]?.cardId),
       // Present only when the guard is what said no — absent, never false, so a
       // response it did not touch is byte-identical to one from before it.
       ...(printingOpen ? { printingOpen: true } : {}),
