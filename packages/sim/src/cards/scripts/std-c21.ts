@@ -96,7 +96,7 @@ export const STD_C21: CardScript[] = [
     abilities: [
       {
         // "Once during your turn, you may flip a coin. If heads, choose Burned, Confused, or Poisoned. Your opponent's Active Pokémon is now affected by that Special Condition."
-        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2014/): "No, you cannot. The only exception is if one of those is an "enhanced" Special Condition, such as Poisoned that places 2 damage counters instead of 1 during Pokemon Checkup."
+        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2014/): Cannot use if opponent's Active is already Burned, Confused, and Poisoned.
         // -- not usable while the Defending Pokémon is already Burned, Confused and Poisoned.
         name: 'Selective Slime',
         activated: {
@@ -156,7 +156,7 @@ export const STD_C21: CardScript[] = [
     name: 'Eldegoss',
     attacks: {
       // "Put this Pokémon and all attached cards into your deck. If you do, search your deck for up to 3 cards and put them into your hand. Then, shuffle your deck."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2018/): "Sure.  You may not have any cards in your deck when you play it, but you will once you shuffle the Eldegoss and all attached cards into it."
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2018/): Can search even if deck was empty before putting Eldegoss into it.
       // -- the Pokémon goes into the deck first, so an empty deck can still be searched (it holds Eldegoss and its cards).
       'Breezy Gift': {
         program: [

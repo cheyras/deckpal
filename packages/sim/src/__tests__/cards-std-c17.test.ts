@@ -377,9 +377,7 @@ test('Walking Wake, Undulating Slice: put up to 9 damage counters on this Pokém
 });
 
 test('Walking Wake, Undulating Slice: the counters can exceed its remaining HP and it is Knocked Out at the end of the attack (Compendium #1984)', () => {
-  // Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1984/): "Yes, you can put up to 9 damage counters on Walking Wake
-  // even if it doesn't have that much HP remaining. Undulating Slice will do 20x each damage counter that was placed, and at the end of the
-  // attack Walking Wake will be knocked out."
+  // Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1984/): up to 9 counters are placed even if they exceed HP; damage is calculated per counter and can KO Walking Wake.
   const g = G([{ active: 'Walking Wake', bench: ['Shinx'], energy: { active: [W, W, W] }, damage: { active: 50 } }, { active: TYR }]);
   choose(g, 'Attack: Undulating Slice');
   choose(g, '9');
@@ -427,8 +425,7 @@ test('Wellspring Mask Ogerpon ex, Torrential Pump: 100; you may shuffle 3 Energy
 });
 
 test('Wellspring Mask Ogerpon ex, Torrential Pump: with fewer than 3 Energy attached, shuffle what it has and still do the Bench damage (Compendium #2031)', () => {
-  // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2031/): "Yes, this is a case of doing as much as you can. You would get to do the
-  // bench damage even though you can't detach 3 energy, but you must shuffle in SOME energy in order to get the bonus."
+  // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2031/): do as much as you can; bench damage happens if any Energy is shuffled in, even if not three.
   // Counter Gain (more Prize cards remaining than the opponent) makes the attack cost {C} less: 2 Energy suffice.
   const g = G(
     [{ active: 'Wellspring Mask Ogerpon ex', energy: { active: [W, W] }, tools: { active: ['Counter Gain'] } }, { active: TYR, bench: ['Luxray ex'], prizes: 5 }],

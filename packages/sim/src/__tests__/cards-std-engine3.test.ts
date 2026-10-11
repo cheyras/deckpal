@@ -783,7 +783,7 @@ test('Pachirisu, Electrified Incisors: 10 damage; whenever they attach an Energy
   const bench = mk();
   choose(bench, 'Attach Fire Energy to Rellor');
   assert.equal(bench.state.p[1].bench[0]!.damage, 0);
-  // Ruling (Mega Evolution FAQ, TPCi Rules Team 2025-09-25, https://compendium.pokegym.net/ruling/2223/): "Retreating clears the effect."
+  // Ruling (Mega Evolution FAQ, TPCi Rules Team 2025-09-25, https://compendium.pokegym.net/ruling/2223/): retreating removes the applied effect from the defending Pokémon.
   const retreat = mk();
   choose(retreat, 'Retreat');
   choose(retreat, 'Attach Fire Energy to Rellor (Active)');

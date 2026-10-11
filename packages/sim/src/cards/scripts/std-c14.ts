@@ -135,8 +135,7 @@ export const STD_C14: CardScript[] = [
     name: 'Mr. Mime',
     attacks: {
       // "Your opponent reveals their hand. You may use the effect of a Supporter card you find there as the effect of this attack."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2226/): "Sure. You are not playing the Supporter, just using its effect." (Ninetales, Supernatural Shapeshifter)
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2225/): "Yes, you can. You are not playing a second supporter, but using its effect via an attack." (Ninetales, Supernatural Shapeshifter)
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2226/): Using the effect is not playing the card; Ruling 2225 (https://compendium.pokegym.net/ruling/2225/): Multiple Supporters can be used in one turn this way.
       // The Supporter stays in the opponent's hand and the effect is yours (c01.useSupporterEffect).
       'Look-Alike Show': {
         program: [
@@ -189,7 +188,7 @@ export const STD_C14: CardScript[] = [
       {
         name: 'Midnight Fluttering',
         // "As long as this Pokémon is in the Active Spot, your opponent's Active Pokémon has no Abilities, except for Midnight Fluttering."
-        // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2426/): "Hide 'n' Sneak takes precedence over Midnight Fluttering. It doesn't matter which one comes into play first. Hide 'n' Sneak keeps working."
+        // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2426/): Hide 'n' Sneak blocks this effect regardless of play order.
         // The filter leaves out a Pokémon that has Midnight Fluttering itself (it keeps its Ability) and one with Hide 'n' Sneak.
         statics: [
           {

@@ -69,8 +69,7 @@ export const STD_C08: CardScript[] = [
     abilities: [
       {
         // "Prevent all effects of your opponent's Pokémon's Abilities done to this Pokémon."
-        // Rulings (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2309/): "Luminous Wing takes precedence over Initialization. It doesn't matter which one comes into play first."
-        // (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2369/): "No, the protective effect of Safeguard is on Mimikyu, not Mega Clefable ex; so Luminous Wing does not interact with it and the damage is blocked."
+        // Rulings (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2309/): Wins effect-order conflicts independent of when it came into play; (2026-06-04, https://compendium.pokegym.net/ruling/2369/): Other Pokémon's protective effects are separate and continue blocking.
         name: 'Luminous Wing',
         statics: [{ effect: { k: 'preventEffects', from: ['ability'] }, scope: 'self' }],
       },
@@ -91,7 +90,7 @@ export const STD_C08: CardScript[] = [
     name: 'Mawile',
     attacks: {
       // "Discard up to 2 Energy cards from your hand, and this attack does 60 damage for each card you discarded in this way."
-      // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2313/): "Yes you can, and then it would do zero damage. But it would still count as doing an attack."
+      // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2313/): The attack succeeds with zero cards discarded, resulting in zero damage.
       'Double Eater': {
         pre: [
           { op: 'chooseCards', from: 'hand', filter: { cat: 'energy' }, min: 0, max: 2, as: 'x', prompt: 'Discard up to 2 Energy cards from your hand (or none)' },
@@ -125,7 +124,7 @@ export const STD_C08: CardScript[] = [
     name: 'Hippopotas',
     attacks: {
       // "During your opponent's next turn, if the Defending Pokémon tries to use an attack, your opponent flips a coin. If tails, that attack doesn't happen."
-      // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2317/): "You would flip for Sand Attack's effect first, then flip for Confusion."
+      // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2317/): Coins flip in effect order; the Ability's flip happens before confusion's flip.
       'Sand Attack': { post: [{ op: 'effect', static: { k: 'attackCoinFlip' }, on: 'defender', duration: 'oppNextTurn' }] },
     },
   },
@@ -182,7 +181,7 @@ export const STD_C08: CardScript[] = [
       // "During your opponent's next turn, this Pokémon takes 30 less damage from attacks (after applying Weakness and Resistance)."
       'Gaia Wave': { post: [{ op: 'effect', static: { k: 'damageIn', amount: -30, fromOpp: true }, on: 'self', duration: 'oppNextTurn' }] },
       // "For each of your opponent's Pokémon, flip a coin. If heads, this attack does 150 damage to that Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)"
-      // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2316/): "You would flip a coin for each and every Pokemon they have in play. ... Note that Tera Pokemon can't be damaged on the Bench, but you would still flip for them."
+      // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2316/): Coins flip for all opposing Pokémon including those protected; protected Pokémon simply take no damage.
       'Nullifying Zero': {
         program: [
           { op: 'custom', fn: 'c08.flipEach', args: { zone: 'oppPokemon', as: 'hit' } },
@@ -246,7 +245,7 @@ export const STD_C08: CardScript[] = [
     name: 'Doublade',
     attacks: {
       // "Reveal any number of Honedge, Doublade, and Aegislash from your hand, and this attack does 60 damage for each card you revealed in this way."
-      // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2320/): "No, the names of the cards revealed must be an exact match of those listed; "Aegislash ex" is not the same as "Aegislash"."
+      // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2320/): Only exact name matches count; variants like "Aegislash ex" are excluded.
       'Weaponized Swords': {
         pre: [
           {

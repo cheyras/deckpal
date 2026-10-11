@@ -2279,7 +2279,7 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   },
   'me03-016|attack:Nasty Plot': {
     problems: ['"up to" is printed', '"up to 2" is printed'],
-    why: 'Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2315/): "you have to take at least one card if there are any cards in your deck", so "up to 2" is min 1, max 2 and renders "1 to 2".',
+    why: 'Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2315/): at least one card must be taken while the deck has any, so "up to 2" is min 1, max 2 and renders "1 to 2".',
   },
   // std-c06
   'me02.5-127|attack:Rocket Feathers': {

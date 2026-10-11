@@ -380,7 +380,7 @@ test('Ultra Ball: discard 2 other cards, then search for a Pokémon; not playabl
   assert.deepEqual(namesOf(g, g.state.p[0].hand), [DRA]);
   assert.deepEqual(namesOf(g, g.state.p[0].discard), [G, R, 'Ultra Ball'].sort());
   assert.ok(!has(game([{ active: 'Dhelmise', hand: ['Ultra Ball', G] }, { active: DRA }]), 'Play Ultra Ball'), 'only 1 other card');
-  // Ruling (TPCi Rules Team 2017-04-27, https://compendium.pokegym.net/ruling/1188/): "No, you cannot. Discarding the two cards is a cost not the effect, and you cannot play Trainer cards for no effect."
+  // Ruling (TPCi Rules Team 2017-04-27, https://compendium.pokegym.net/ruling/1188/): Cannot play when unable to search (deck empty).
   const empty = game([{ active: 'Dhelmise', hand: ['Ultra Ball', G, R], emptyDeck: true }, { active: DRA }]);
   assert.ok(!has(empty, 'Play Ultra Ball'), 'no cards in the deck');
 });

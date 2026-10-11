@@ -84,8 +84,8 @@ export const STD_C36: CardScript[] = [
     },
     notes:
       'Ability: the HP is +40 per {F} Energy provided (units of {F}), so an Energy card that provides every type counts once, and Prism Energy counts only on a Basic Pokémon. ' +
-      'Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2180/): "No it does not, because Conkeldurr is not a Basic Pokemon." (Prism Energy attached to Conkeldurr.) ' +
-      'Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2179/): "Yes, it does." (Luminous Energy as the only Special Energy provides every type; pinned with Legacy Energy, which provides every type too.) ' +
+      'Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2180/): On evolved Pokémon, Prism provides only colorless. ' +
+      'Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2179/): Multi-type Energies grant all their types to the bonus calculation. ' +
       'The HP is written for up to 10 {F} Energy.',
   },
   {
@@ -93,8 +93,7 @@ export const STD_C36: CardScript[] = [
     name: 'Throh',
     attacks: {
       // "This attack does 30 less damage for each {C} in your opponent's Active Pokémon's Retreat Cost."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2203/): "The opponent's Retreat Cost is {C} thanks to Air Balloon, so Shoulder Throw only does 30 less damage."
-      // -- the Retreat Cost the Defending Pokémon has right now.
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2203/): Current Retreat Cost including all active effects is used for calculation.
       'Shoulder Throw': {
         pre: [{ op: 'custom', fn: 'c11.retreatCostOf', args: { as: 'n' } }],
         damage: { sub: [120, { mul: [30, { v: 'n' }] }] },
@@ -125,8 +124,7 @@ export const STD_C36: CardScript[] = [
         ],
       },
       // "This attack also does 10 damage to each of your Benched Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)"
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2190/): "No, the Tera Trait protects them from damage by your own attacks as well."
-      // -- a Tera Pokémon on your Bench takes no damage from an attack, whoever used it.
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2190/): Tera Pokémon on the Bench are protected from all attack damage regardless of who uses the attack.
       Earthquake: { post: [{ op: 'damage', amount: 10, to: { each: 'myBench' } }] },
     },
   },

@@ -234,7 +234,7 @@ export const STD_30D: CardScript[] = [
     id: '30th-128',
     name: 'Ultra Ball',
     // "You can use this card only if you discard 2 other cards from your hand."
-    // Ruling (TPCi Rules Team 2017-04-27, https://compendium.pokegym.net/ruling/1188/): "No, you cannot. Discarding the two cards is a cost not the effect, and you cannot play Trainer cards for no effect." (an empty deck)
+    // Ruling (TPCi Rules Team 2017-04-27, https://compendium.pokegym.net/ruling/1188/): Cannot play when unable to search (deck empty).
     playable: { and: [{ gte: [{ handSize: 'self' }, 3] }, { gte: [{ deckSize: 'self' }, 1] }] },
     // "Search your deck for a Pokémon, reveal it, and put it into your hand. Then, shuffle your deck."
     play: [...discardOthers(2), ...searchToHand({ cat: 'pokemon' })],

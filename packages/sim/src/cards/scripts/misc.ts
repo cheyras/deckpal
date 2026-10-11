@@ -161,11 +161,9 @@ export const MISC: CardScript[] = [
     ],
     status: 'implemented',
     notes:
-      'Any Knock Out of the opposing Active (attack, Checkup, Ability), on either player\'s turn, while Togekiss is in play with its Ability; ' +
-      'one flip however many Togekiss; a Togekiss Knocked Out at the same time still applies (checked before the KO). Rulings ' +
-      '(https://compendium.pokegym.net/?s=Wonder+Kiss): "The KO can be during either player\'s turn or during Pokemon Checkup, and it ' +
-      'doesn\'t have to be from an attack" (Surging Sparks FAQ 2024-11-07); 4 Togekiss flip once (TPCi 2024-11-14); an Active Dusknoir ' +
-      'whose Cursed Blast KOs Togekiss still gives the Wonder Kiss flip -- "All effects have to be resolved before resolving KO\'s" ' +
+      'Triggers on any Knock Out of opponent\'s Active (attack, Checkup, Ability), either turn; flip once per Togekiss even if Knocked Out this turn (checked before KO). Rulings ' +
+      '(https://compendium.pokegym.net/?s=Wonder+Kiss): activation is not limited to attack KOs (Checkup or Ability work too, Surging Sparks FAQ 2024-11-07); ' +
+      'multiple Togekiss flip independently (TPCi 2024-11-14); Dusknoir Cursed Blast still triggers Wonder Kiss -- effects resolve before KOs ' +
       '(TPCi 2024-11-14, 2024-12-12).',
   },
 
@@ -252,14 +250,14 @@ export const MISC: CardScript[] = [
     id: 'me01-122',
     name: 'Mystery Garden',
     // "Once during each player's turn, that player may discard an Energy card from their hand in order to draw cards until they have as many cards in their hand as they have {P} Pokémon in play."
-    // Rulings (TPCi Rules Team 2025-09-25, https://compendium.pokegym.net/ruling/2232/ and /2231/): the Energy can't be discarded for no draw, so the
-    //  Stadium can't be used unless at least 1 card can be drawn (not with an empty deck, not when the hand is already big enough).
+    // Rulings (TPCi Rules Team 2025-09-25, https://compendium.pokegym.net/ruling/2232/ and /2231/): you must have an Energy available;
+    //  you can't activate this if your hand size already reaches the Psychic Pokémon count.
     stadiumAbility: {
       when: {
         and: [
           { gte: [{ count: { zone: 'hand', filter: { cat: 'energy' } } }, 1] },
           { gte: [{ deckSize: 'self' }, 1] },
-          // The discard shrinks the hand by 1, so a card is drawn only when the {P} Pokémon count is at least the hand size now.
+          // Hand must be smaller than Psychic count after discarding to draw cards.
           { gte: [{ pokemon: { zone: 'myPokemon', filter: { type: 'Psychic' } } }, { handSize: 'self' }] },
         ],
       },
@@ -269,7 +267,7 @@ export const MISC: CardScript[] = [
         { op: 'draw', n: { max: [0, { sub: [{ pokemon: { zone: 'myPokemon', filter: { type: 'Psychic' } } }, { handSize: 'self' }] }] } },
       ],
     },
-    notes: 'Rulings 2231/2232: usable only when it would draw at least 1 card.',
+    notes: 'Rulings 2231/2232: cannot be used without Energy in hand; also fails if hand size matches Psychic Pokémon count.',
   },
   {
     id: 'sv06.5-063',

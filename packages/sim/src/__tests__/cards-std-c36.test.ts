@@ -156,12 +156,12 @@ test('Conkeldurr, Craftsmanship: +40 HP for each {F} Energy attached to it (othe
 });
 
 test('Conkeldurr, Craftsmanship: an Energy card that provides every type counts once (Compendium #2179, Luminous Energy)', () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2179/): "Yes, it does." Legacy Energy provides every type, like Luminous Energy.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2179/): Legacy Energy counts for Conkeldurr's HP boost.
   assert.equal(hpOf(mk([{ active: 'Conkeldurr', energy: { active: ['Legacy Energy'] } }, { active: DRA }])), 180);
 });
 
 test('Conkeldurr, Craftsmanship: Prism Energy gives no HP, as Conkeldurr is not a Basic Pokémon (Compendium #2180)', () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2180/): "No it does not, because Conkeldurr is not a Basic Pokemon."
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2180/): Prism Energy doesn't boost Conkeldurr's HP since it's not a Basic Pokémon.
   assert.equal(hpOf(mk([{ active: 'Conkeldurr', energy: { active: ['Prism Energy'] } }, { active: DRA }])), 140);
 });
 
@@ -191,7 +191,7 @@ test('Throh, Shoulder Throw: 30 less damage for each {C} in the Defending Pokém
 });
 
 test('Throh, Shoulder Throw: the Retreat Cost the Defending Pokémon has now counts (Compendium #2203, Air Balloon)', () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2203/): "The opponent's Retreat Cost is {C} thanks to Air Balloon, so Shoulder Throw only does 30 less damage."
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2203/): Air Balloon reduces the retreat cost, making Shoulder Throw's damage reduction smaller.
   const g = mk([{ active: 'Throh', energy: { active: [F, W] } }, { active: EXC, tools: { active: ['Air Balloon'] } }]);
   choose(g, 'Attack: Shoulder Throw');
   assert.equal(dmg(g, 1), 90);
@@ -240,7 +240,7 @@ test('Landorus, Earthquake: 110 damage, and 10 to each of your Benched Pokémon'
 });
 
 test('Landorus, Earthquake: a Tera Pokémon on your Bench takes no damage from it (Compendium #2190)', () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2190/): "No, the Tera Trait protects them from damage by your own attacks as well."
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2190/): Tera Pokémon are protected from all attacks, including your own.
   const g = mk([{ active: 'Landorus', energy: { active: [F, W, W] }, bench: ['Teal Mask Ogerpon ex', 'Pidove'] }, { active: DRA }]);
   choose(g, 'Attack: Earthquake');
   assert.deepEqual(g.state.p[0].bench.map((b) => b.damage), [0, 10]);
@@ -525,7 +525,7 @@ test("N's Plan: move up to 2 Energy from your Benched Pokémon to your Active Po
 });
 
 test("N's Plan: Energy cards that provide more than one Energy can be moved, 2 of them (Compendium #2205)", () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2205/): "Yes, you can. ... you could move either 1 or 2 Double Turbo Energy cards."
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2205/): you can move multi-Energy cards as individual units up to the limit.
   // Ignition Energy provides {C}{C}{C} on an Evolution Pokémon.
   const g = mk([{ active: DRA, bench: ['Gurdurr'], energy: { 0: ['Ignition Energy', 'Ignition Energy', 'Ignition Energy'] }, hand: ["N's Plan"] }, { active: DRA }]);
   choose(g, "Play N's Plan");

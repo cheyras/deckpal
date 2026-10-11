@@ -101,7 +101,7 @@ export const STD_C09: CardScript[] = [
     id: 'me03-083',
     name: 'Potion',
     // "Heal 30 damage from 1 of your Pokémon."
-    // Ruling (TPCi Rules Team 2017-05-18, https://compendium.pokegym.net/ruling/1120/): "If the Pokemon has 30 or more damage on it you must heal 30 damage, but if it has less than 30 damage you do as much as you can and heal all of it."
+    // Ruling (TPCi Rules Team 2017-05-18, https://compendium.pokegym.net/ruling/1120/): The card removes up to 30 damage, always healing the full amount present if below the cap.
     // Only a damaged Pokémon can be chosen, so the card can't be played with none (no effect, no play).
     playable: SOME_DAMAGED,
     play: [
@@ -137,7 +137,7 @@ export const STD_C09: CardScript[] = [
     name: 'Beedrill ex',
     attacks: {
       // "This attack does 110 damage for each of your Beedrill and Beedrill ex in play."
-      // Ruling (TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2355/): "No, Rumbling Bees only counts Beedrill and Beedrill ex, so it wouldn't count things like Beedrill V."
+      // Ruling (TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2355/): The attack counts only Pokémon with exact names; similar names like Beedrill V are excluded.
       // Counted by exact name over all of your Pokémon in play (Active and Benched).
       'Rumbling Bees': { damage: { mul: [110, { pokemon: { zone: 'myPokemon', filter: { name: ['Beedrill', 'Beedrill ex'] } } }] } },
     },
@@ -176,8 +176,7 @@ export const STD_C09: CardScript[] = [
         // "If this Pokémon is in the Active Spot and is damaged by an attack from your opponent's Pokémon (even if this Pokémon is Knocked Out),
         //  place 3 damage counters on the Attacking Pokémon for each {G} Energy attached to this Pokémon."
         // The Attacking Pokémon is the opponent's Active Pokémon.
-        // Ruling (TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2347/): "Needly Armor counts the total amount of Chesnaught's {G} energy, ...
-        //  (the Energy provided, e.g. [2 {G} + 1 Legacy] times 3 counters each = 9 counters placed)." Energy is counted in units provided.
+        // Ruling (TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2347/): The ability counts energy units provided, so each card grants its full amount regardless of type.
         name: 'Needly Armor',
         triggers: [{ on: 'damagedByAttackActive', program: [{ op: 'counters', n: { mul: [3, { energyOn: 'self', type: 'Grass' }] }, to: 'oppActive' }] }],
       },
@@ -192,7 +191,7 @@ export const STD_C09: CardScript[] = [
     name: 'Ho-Oh',
     attacks: {
       // "Put up to 3 Basic Pokémon from your discard pile onto your Bench."
-      // Ruling (TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2351/): "Yes. You are not required to put a Basic Pokemon on your bench to use the attack." (0 to 3, as many as the Bench has room for)
+      // Ruling (TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2351/): The attack is usable when no Pokémon are put into play, so zero is a valid choice.
       'Flames of Revival': {
         program: [
           { op: 'chooseCards', from: 'discard', filter: { cat: 'pokemon', stage: 'basic' }, min: 0, max: { min: [3, BENCH_SPACE] }, as: 'x', prompt: 'Put up to 3 Basic Pokémon onto your Bench' },
@@ -209,7 +208,7 @@ export const STD_C09: CardScript[] = [
     abilities: [
       {
         // "Once during your turn, you may discard a Basic {R} Energy card from your hand in order to use this Ability. Draw cards until you have 7 cards in your hand."
-        // Ruling (TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2343/): "No. ... since you already have 7 cards you can't draw any more cards, so you can't even choose to use the ability and you don't get to put the {R} in the discard pile."
+        // Ruling (TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2343/): If the hand already has seven or more cards, the ability cannot be activated.
         // The discard is the cost, so with 8 or more cards in hand (or nothing to draw) the Ability can't be used.
         name: 'Flaring Magic',
         activated: {
@@ -241,9 +240,7 @@ export const STD_C09: CardScript[] = [
     name: 'Delibird',
     attacks: {
       // "Each player may attach up to 3 Basic Energy cards from their hand to their Pokémon in any way they like. Your opponent does this first."
-      // Rulings (TPCi Rules Team 2026-05-21): #2353 (https://compendium.pokegym.net/ruling/2353/) "Make sure your opponent has executed this choice, then execute your choice. ...
-      //  these Basic Energy cards are all placed at the same time from the game's perspective. You don't resolve the effects of your opponent placing energy cards before you place yours.";
-      //  #2354 (https://compendium.pokegym.net/ruling/2354/) Energy put on a Pokémon that is protected from the attack's effects "are discarded, after they execute their choice."
+      // Rulings (TPCi Rules Team 2026-05-21): #2353 (https://compendium.pokegym.net/ruling/2353/) Both players complete their attachments before any effects resolve; #2354 (https://compendium.pokegym.net/ruling/2354/) Energy placed on protected Pokémon are removed after all choices finish.
       'Pleasing Present': { program: [{ op: 'custom', fn: 'c09.pleasingPresent', args: { max: 3 } }] },
     },
   },
@@ -269,8 +266,7 @@ export const STD_C09: CardScript[] = [
     ],
     attacks: {
       // "You may put a {W} Energy attached to this Pokémon into your hand and have this attack do 80 more damage."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2385/): "The choice to return the Energy to the hand is made first,
-      //  but it is not returned to the hand until after damage is done." So the 80 more is decided before the damage and the Energy moves after it.
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2385/): the choice to return Energy is made first, but it returns after damage. So the 80 more is decided before the damage and the Energy moves after it.
       // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2370/): the bonus damage is gotten even if an effect keeps the Energy attached.
       'Ninja Spinner': {
         pre: [

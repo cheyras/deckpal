@@ -212,8 +212,7 @@ export const OPP: CardScript[] = [
   {
     id: 'me03-084',
     name: "Rosa's Encouragement",
-    // "You can use this card only if you have more Prize cards remaining than your opponent.
-    //  Attach up to 2 Basic Energy cards from your discard pile to 1 of your Stage 2 Pokémon."
+    // Requires Prize lead. Adds 1-2 Basic Energy from discard to a Stage 2.
     playable: {
       and: [
         { gt: [{ prizesLeft: 'self' }, { prizesLeft: 'opp' }] },
@@ -223,11 +222,10 @@ export const OPP: CardScript[] = [
     },
     play: [
       { op: 'chooseSlots', from: 'myPokemon', filter: { stage: 'stage2' }, min: 1, max: 1, as: 't', prompt: 'Attach to which Stage 2 Pokémon?' },
-      // "up to 2" on a Trainer is 1-2 (TPCi 2026-02-19)
       { op: 'chooseCards', from: 'discard', filter: { basicEnergy: true }, min: 1, max: 2, as: 'e', prompt: 'Attach up to 2 Basic Energy' },
       { op: 'attach', cards: 'e', to: { v: 't' } },
     ],
-    notes: 'Playable only with a Stage 2 in play and a Basic Energy in the discard pile (a card with no effect cannot be played); then 1-2 are attached.',
+    notes: '',
   },
   {
     id: 'me01-129',

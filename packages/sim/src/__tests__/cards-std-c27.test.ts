@@ -140,7 +140,7 @@ test("Oranguru, Now You're in My Power: until the end of your next turn the Defe
   choose(g, 'Attack: Smack');
   assert.equal(dmg(g, 1), 160, 'the Weakness is now {C}: x2');
 
-  // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2057/): "Yes. If a Pokemon has no Weakness printed on the card, Oranguru's attack will give that Pokemon a x2 Weakness of Colorless."
+  // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2057/): a Pokémon without printed Weakness gains x2 Colorless Weakness.
   const none = mk([{ active: 'Oranguru', energy: { active: [W, W, W] } }, { active: DRA }]);
   choose(none, "Attack: Now You're in My Power");
   choose(none, 'End turn');
@@ -153,7 +153,7 @@ test("Oranguru, Now You're in My Power: until the end of your next turn the Defe
 });
 
 test("Oranguru, Now You're in My Power: ruling 2056 — only {C} attackers are hit harder, not every type", () => {
-  // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2056/): "No, not all types.  It only makes it weak to Colorless Type Pokemon."
+  // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2056/): only Colorless-type Pokémon trigger the Weakness increase.
   const g = mk([{ active: 'Oranguru', bench: ['Tapu Koko'], hand: ['Switch'], energy: { active: [W, W, W], 0: [L, L, W] } }, { active: DRA }]);
   choose(g, "Attack: Now You're in My Power");
   choose(g, 'End turn');
@@ -272,7 +272,7 @@ test('Amulet of Hope: Knocked Out by damage from an opponent\'s attack, search y
   choose(g, 'Attack: Jet Headbutt'); // 70 on Slowpoke's 70 HP
   assert.equal(g.decision?.player, 1);
   assert.equal(g.decision?.kind, 'cards');
-  // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2061/): "Yes. You must take at least 1 card with Amulet of Hope when it applies."
+  // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2061/): you must take at least one card when this applies.
   assert.equal(g.decision?.min, 1);
   assert.equal(g.decision?.max, 3);
   pick(g, ['Drasna', 'Dusk Ball', 'Call Bell']);
@@ -303,7 +303,7 @@ test('Brilliant Blender: search your deck for 1 to 5 cards (ruling 2062), discar
   const g = mk([{ active: SLO, hand: ['Brilliant Blender'] }, { active: DRA }], { events: true });
   const deck0 = g.state.p[0].deck.length;
   choose(g, 'Play Brilliant Blender');
-  // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2062/): "No, you must discard at least one card from your deck if you play Brilliant Blender."
+  // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2062/): you must discard at least one card to play this.
   assert.equal(g.decision?.min, 1);
   assert.equal(g.decision?.max, 5);
   pick(g, ['Drasna', 'Dusk Ball', 'Call Bell', 'Switch', 'Pikachu']);
@@ -522,7 +522,7 @@ test('Energy Search Pro: any number of Basic Energy of different types into your
   const g = mk([{ active: SLO, hand: ['Energy Search Pro'] }, { active: DRA }]);
   const deck0 = g.state.p[0].deck.length;
   choose(g, 'Play Energy Search Pro');
-  // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2063/): "No, you can only put ONE card of each energy type into your hand."
+  // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2063/): search for at most one card per Energy type.
   const want = new Set([G, W, M]);
   let asked = 0;
   while (g.decision?.kind === 'cards') {
@@ -628,12 +628,12 @@ test('Megaton Blower: discard all Pokémon Tools and Special Energy from all of 
 });
 
 test('Megaton Blower: rulings 2064/2065 — with only a Stadium in play it can be played; with none of the three it can\'t', () => {
-  // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2065/): "Yes, you can.  Discarding the Stadium is not reliant upon discarding any other cards in this case."
+  // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2065/): you can play this with only a Stadium to discard.
   const stadiumOnly = mk([{ active: SLO, hand: ['Megaton Blower'] }, { active: DRA }]);
   setStadium(stadiumOnly, 1, 'Battle Cage');
   choose(stadiumOnly, 'Play Megaton Blower');
   assert.equal(stadiumOnly.state.stadium, null);
-  // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2064/): "You can't play the card for no effect, but if there is at least one of those types of cards in play you do as much as you can."
+  // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2064/): play this if at least one discardable card exists, doing what you can.
   const nothing = mk([{ active: SLO, hand: ['Megaton Blower'] }, { active: DRA, energy: { active: [P] } }]);
   assert.ok(!has(nothing, 'Play Megaton Blower'));
   const toolOnly = mk([{ active: SLO, hand: ['Megaton Blower'] }, { active: DRA, tools: { active: ['Air Balloon'] } }]);

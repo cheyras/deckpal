@@ -39,9 +39,9 @@ export const STD_30E: CardScript[] = [
         name: 'Memory Helix',
         statics: [
           // "This Pokémon can use the attacks of any of your Benched Pokémon. (You still need the necessary Energy to use each attack.)"
-          // Ruling (TPCi Rules Team 2012-08-23, https://compendium.pokegym.net/ruling/292/): "You must meet the energy requirements as to both type and number for the attack Mew EX is copying. So if the attack requires two Water energy, you will need to have at least two Water energy attached to Mew EX." (Mew EX, Versatile; the same wording as the Ability's own reminder text)
-          // Ruling (TPCi Rules Team 2015-02-05, https://compendium.pokegym.net/ruling/295/): "When Mew EX attacks, Versatile uses the attack name specified. So when it attacks with X Blast, Mew EX cannot use that attack twice in a row." (Mew EX, Versatile: a "can't use this attack next turn" effect is kept by attack name on Mew itself)
-          // Ruling (TPCi Rules Team 2012-08-23, https://compendium.pokegym.net/ruling/293/): "Yes. The effect of "this Pokemon can't use Giant Wave next turn" applies only to the Pokemon that attacked with it." (Mew EX, Versatile: the restriction stays on the Pokémon that used the attack, so the Benched Pokémon the attack is printed on is not blocked)
+          // Ruling (TPCi Rules Team 2012-08-23, https://compendium.pokegym.net/ruling/292/): the copied attack needs the full Energy cost in both type and quantity.
+          // Ruling (TPCi Rules Team 2015-02-05, https://compendium.pokegym.net/ruling/295/): a turn-end restriction on the attack stays with the Pokémon that used it.
+          // Ruling (TPCi Rules Team 2012-08-23, https://compendium.pokegym.net/ruling/293/): restrictions on using an attack only bind the Pokémon that used it.
           { effect: { k: 'borrowAttacks' }, scope: 'self' },
         ],
       },

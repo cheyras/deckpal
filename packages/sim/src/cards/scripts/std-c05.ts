@@ -33,7 +33,7 @@ export const STD_C05: CardScript[] = [
     name: 'Stunfisk',
     attacks: {
       // "During your opponent's next turn, the Defending Pokémon can't retreat. During your next turn, the Defending Pokémon takes 100 more damage from attacks (after applying Weakness and Resistance)."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2341/): "This is a case where the extra damage would NOT be done! Pouncing Trap puts an effect on the Defending Pokemon that would do extra damage in the future. That effect would be blocked by Mist Energy since it is not Damage at that point. And as Mist Energy notes, if you attach it after the effect of Pouncing Trap was applied, it won't remove the existing effect."
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2341/): Mist Energy blocks the damage effect from Pouncing Trap if attached after the effect; existing effects aren't removed.
       // Both are effects the attack puts on the Defending Pokémon, so a Pokémon that prevents the attack's effects takes neither.
       'Pouncing Trap': {
         post: [
@@ -112,7 +112,7 @@ export const STD_C05: CardScript[] = [
     abilities: [
       {
         // "You must discard a Basic {L} Energy from this Pokémon in order to use this Ability. Once during your turn, you may draw cards until you have 6 cards in your hand."
-        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2108/): "No.  The effect of Flashing Draw is to draw cards, so if you have no cards in your deck or if you already have 6 or more cards in hand you can't use it."
+        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2108/): you cannot use this if your deck is empty or you already have 6+ cards in hand.
         // -- so it needs a Basic {L} Energy to pay, a card in the deck, and fewer than 6 cards in hand.
         name: 'Flashing Draw',
         activated: {
@@ -181,7 +181,7 @@ export const STD_C05: CardScript[] = [
     ],
     attacks: {
       // "You may discard up to 2 Energy from your Benched Pokémon. This attack does 60 more damage for each card you discarded in this way."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2340/): "Discarding the Team Rocket's Energy card would do +60 because the attack does +60 for each "card" discarded. If you wanted to, you could choose one energy from TR Energy and one energy from another card (even another Team Rocket's Energy card) and discard both of those cards to do +120 damage."
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2340/): Team Rocket's Energy counts as one card; combine with other cards for more damage.
       // -- the choice is of up to 2 Energy CARDS, and each card discarded adds 60.
       'Erasure Ball': {
         pre: [{ op: 'custom', fn: 'c05.discardBenchEnergy', args: { max: 2, as: 'n' } }],
@@ -265,7 +265,7 @@ export const STD_C05: CardScript[] = [
     name: 'Rotom',
     attacks: {
       // "You may search your deck for any number of Pokémon that have "Rotom" in their name and put them onto your Bench. Then, shuffle your deck."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2292/): "If you have room on your bench, yes. Any Pokemon that has "Rotom" in their name can be chosen."
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2292/): any Pokémon with Rotom in its name can be chosen.
       // -- any Rotom Pokémon of any kind, as many as fit on the Bench (only Basic Pokémon can be put onto the Bench).
       'Roto Call': { program: searchToBench({ nameIncludes: 'Rotom' }, 5) },
       // "This attack does 30 damage for each Pokémon Tool attached to all of your Pokémon."

@@ -30,7 +30,7 @@ export const STD_C11: CardScript[] = [
     name: 'Tropius',
     attacks: {
       // "Look at the top 6 cards of your deck, and you may reveal any number of Pokémon you find there and put them into your hand. Shuffle the other cards back into your deck."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2403/): "No, since you are not putting any cards back into the deck, you do not shuffle your deck."
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2403/): you don't shuffle if no cards go back into the deck.
       'Fruity Aroma': { program: [{ op: 'custom', fn: 'c11.lookTakeAny', args: { n: 6, filter: { cat: 'pokemon' } } }] },
     },
   },
@@ -69,7 +69,7 @@ export const STD_C11: CardScript[] = [
       // "Discard the top card of your opponent's deck."
       'Controlled Burn': { post: [{ op: 'move', cards: { top: 1, who: 'opp' }, to: 'discard', who: 'opp' }] },
       // "Reveal the bottom 7 cards of your deck, and this attack does 50 damage for each Pokémon you find there that has the Bug Out attack. Then, shuffle any revealed Pokémon back into your deck. Discard the other cards."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2401/): "No, all Pokemon get shuffled back into the deck whether they have the Bug Out attack or not.  Other non-Pokemon cards like Trainer or Energy cards would get discarded."
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2401/): all revealed Pokémon get shuffled back; non-Pokémon are discarded.
       'Bug Out': {
         pre: [{ op: 'custom', fn: 'c11.revealBottom', args: { n: 7, attack: 'Bug Out', as: 'n' } }],
         damage: { mul: [50, { v: 'n' }] },
@@ -152,8 +152,8 @@ export const STD_C11: CardScript[] = [
     name: 'Manectric',
     attacks: {
       // "During your opponent's next turn, prevent all damage done to this Pokémon by attacks from Evolution Pokémon."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2397/): "Yes. Even though Cinderace is not an "Evolved Pokemon" it is still an "Evolution Pokemon" card, and therefore meets the condition of Flashing Barrier to have its damage blocked."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2402/): "Thievul is the Pokemon using the attack, which is an Evolution Pokemon.  Therefore the damage is prevented."
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2397/): Cinderace counts as an Evolution Pokemon even though it's not evolved, so Flashing Barrier blocks it.
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2402/): Thievul is an Evolution Pokemon, so its damage is prevented.
       'Flashing Barrier': {
         post: [{ op: 'effect', static: { k: 'preventDamage', attacker: { stage: 'evolution' } }, on: 'self', duration: 'oppNextTurn' }],
       },
@@ -178,7 +178,7 @@ export const STD_C11: CardScript[] = [
       // "This attack does 60 damage for each {L} Energy attached to this Pokémon."
       'Thunderous Fist': { damage: { mul: [60, { energyOn: 'self', type: 'Lightning' }] } },
       // "Switch this Pokémon with 1 of your Benched Pokémon."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2414/): "Attack effects are completed before KO's are taken, so you switch Mega Zerora ex to the Bench first and promote a new Active, then your opponent would process the KO and bring up a new Active."
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2414/): attack effects finish before KOs are processed; switch happens first.
       'Zepto Turn': { post: [{ op: 'switch', who: 'self' }] },
     },
   },
@@ -187,7 +187,7 @@ export const STD_C11: CardScript[] = [
     name: 'Spiritomb',
     attacks: {
       // "If you have 13 or more Pokémon that have the Hide 'n' Sneak Ability in your discard pile, choose 2 of your opponent's Pokémon and quadruple the number of damage counters on each of them."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2411/): "No damage counters are placed on that Pokemon. For example, 0 times 4 is 0; if it has 1 damage counter 1 times 4 is 4, you would add 3 to make 4 total, etc."
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2411/): multiply existing counters by 4; if none, no counters appear.
       'Spiritual End': {
         program: [
           {
@@ -229,7 +229,7 @@ export const STD_C11: CardScript[] = [
     ],
     attacks: {
       // "This attack does 50 more damage for each {C} in your opponent's Active Pokémon's Retreat Cost."
-      // Ruling (TPCi Rules Team 2026-04-02, https://compendium.pokegym.net/ruling/2386/): "No. The text on all Antique Fossil cards say they have no Retreat cost. Not zero, "no" retreat cost. It is a fixed attribute and it cannot be changed."
+      // Ruling (TPCi Rules Team 2026-04-02, https://compendium.pokegym.net/ruling/2386/): Antique Fossils have "no Retreat cost," not zero; it can't be modified.
       // The count includes Binding Flame's own {C} (an Ability in play), and is 0 for an Antique fossil.
       'Phantom Maze': {
         pre: [{ op: 'custom', fn: 'c11.retreatCostOf', args: { as: 'n' } }],
@@ -251,7 +251,7 @@ export const STD_C11: CardScript[] = [
     abilities: [
       {
         // "Once during your turn, if this Pokémon is in the Active Spot, you may use this Ability. Flip a coin. If heads, discard an Energy from your opponent's Active Pokémon."
-        // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2393/): "... you would not be able to use Destructive Headbutting if the opponent's Active Pokemon has no Energy attached."
+        // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2393/): Destructive Headbutting requires opponent's Active to have Energy.
         name: 'Destructive Headbutting',
         activated: {
           activeOnly: true,
@@ -265,8 +265,8 @@ export const STD_C11: CardScript[] = [
     ],
     attacks: {
       // "During your next turn, attacks used by this Pokémon do 150 more damage to your opponent's Active Pokémon (before applying Weakness and Resistance)."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2407/): "No, Rowdy Hammer tops out at 300. It only adds +150 to the base 150 damage for the next turn only; it does not accumulate on successive turns. Also, if Rampardos ex has access to and uses a different attack on the following turn, that attack would do +150 as long as it initially does some damage."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2398/): "The extra damage done by Rowdy Hammer is due a game state check and damage calculations; it is not an effect that can be blocked by Hide 'n' Sneak. The extra damage for Rowdy Hammer takes place."
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2407/): Rowdy Hammer caps at 300 and doesn't stack; other attacks also gain +150 next turn.
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2398/): Rowdy Hammer's bonus damage isn't blocked by Hide 'n' Sneak.
       'Rowdy Hammer': { post: [{ op: 'effect', static: { k: 'damageOut', amount: 150 }, on: 'self', duration: 'myNextTurn' }] },
     },
   },

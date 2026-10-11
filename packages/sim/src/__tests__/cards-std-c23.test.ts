@@ -303,7 +303,7 @@ test('Deluxe Bomb: Knocked Out holder still deals the counters, and everything r
     { active: 'Bloodmoon Ursaluna ex', tools: { active: ['Deluxe Bomb'] }, damage: { active: 190 }, prizes: 1 },
   ]);
   choose(g, 'Attack: Jet Headbutt');
-  // "Everything, including all effects, have to be resolved before the game is considered as finished."
+  // All effects resolve before checking if the game is over.
   assert.equal(g.state.p[0].prizes.length, 0, 'the attacker took its last Prize card for the Knock Out');
   assert.equal(g.state.p[1].prizes.length, 0, 'and the Bomb holder\'s side took its last Prize card for the Knock Out the 12 counters caused');
   assert.ok(g.over);
@@ -337,7 +337,7 @@ test('Grand Tree: once during each player\'s turn, evolve a Basic into a Stage 1
 
 test('Grand Tree: you may pick no card, and a Stage 1 with no Stage 2 evolution is fine (Compendium #2029)', () => {
   const dk = deck(TREE, TRAPINCH, VIBRAVA, WOOLOO);
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2029/): "Yes, you can search for a Stage 1 Pokemon that has no subsequent Stage 2."
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2029/): a Stage 1 with no Stage 2 evolution is a valid target.
   const g = game(dk, [{ active: 'Trapinch', hand: ['Grand Tree'] }, { active: 'Wooloo' }]);
   choose(g, 'Play Grand Tree');
   choose(g, 'Use the Stadium');
@@ -374,7 +374,7 @@ test('Grand Tree: needs a valid evolution path, not on your first turn, and not 
     return has(g, 'Use the Stadium');
   };
   assert.ok(check([{ active: 'Trapinch' }, { active: 'Wooloo' }]), 'Trapinch in play, Vibrava in the deck');
-  // "There must be a known valid evolution path in order to use Grand Tree." (TPCi Rules Team, https://compendium.pokegym.net/ruling/2030/)
+  // Grand Tree needs a known valid evolution path to be used. (TPCi Rules Team, https://compendium.pokegym.net/ruling/2030/)
   assert.ok(!check([{ active: 'Wooloo' }, { active: 'Wooloo' }]), 'no Basic Pokémon in play that a Stage 1 in the deck evolves from');
   assert.ok(!check([{ active: 'Trapinch' }, { active: 'Wooloo' }], undefined, deck(TREE, TRAPINCH, FLYGON, WOOLOO)), 'no Stage 1 in the deck');
   assert.ok(!check([{ active: 'Vibrava' }, { active: 'Wooloo' }]), 'a Stage 1 Pokémon is not a Basic Pokémon');
@@ -430,7 +430,7 @@ test("Gravity Gemstone: while its holder is Active, the Retreat Cost of both Act
 
 test('Gravity Gemstone: it does not add to a Retreat Cost that an effect set to none (Compendium #2082)', () => {
   const dk = deck(GEM, WOOLOO, LATIAS);
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2082/): "Nope, if a Pokemon is set to have no Retreat Cost by an effect such as Skyliner or Metal Bridge, it cannot be increased."
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2082/): a Retreat Cost set to none can't be increased by effects.
   const g = game(dk, [
     { active: 'Wooloo', bench: ['Wooloo', 'Latias ex'], tools: { active: ['Gravity Gemstone'] } },
     { active: 'Wooloo' },
@@ -744,7 +744,7 @@ test('Wo-Chien, Entangling Whip: 130 damage, then discard the top 3 cards of you
 
 test('Wo-Chien, Entangling Whip: discarding the last cards of your deck while taking your last Prize card is a win (Compendium #2053)', () => {
   const dk = deck(WOCHIEN, WOOLOO);
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2053/): "You win. You lose if you can't draw a card at the start of your turn, but since you took your last prize the game ends before that happens."
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2053/): taking the last Prize card ends the game before a draw check occurs.
   const g = game(dk, [{ active: 'Wo-Chien', energy: { active: [G, G, F] }, prizes: 1 }, { active: 'Wooloo', bench: ['Wooloo'] }]);
   deckOf(g, 0, 3);
   choose(g, 'Attack: Entangling Whip');

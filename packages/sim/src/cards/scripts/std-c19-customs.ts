@@ -45,7 +45,7 @@ registerCustom('c19.attachToolFromDeck', (env, s, f, _args, answer) => {
 /**
  * Accompanying Flute: "Reveal the top 5 cards of your opponent's deck. You may choose any number of Basic Pokémon you find
  * there and put those Pokémon onto their Bench."
- * Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1986/): "No, since Accompanying Flute says "you may choose any number", you don't have to choose any Basic Pokemon if you don't want to."
+ * Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1986/): Accompanying Flute allows choosing zero Basic Pokemon since "you may choose any number" permits that.
  * args: { n, as } -- the controller picks any number (0 to the free Bench spaces) of the Basic Pokémon among the top n cards of
  * the opponent's deck into variable `as`; the program then puts them onto the opponent's Bench and shuffles that deck.
  */

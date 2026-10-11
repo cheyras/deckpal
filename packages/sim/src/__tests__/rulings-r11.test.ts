@@ -163,7 +163,7 @@ test('Backtrack Badge flips all of the attack\'s coins again, never only the tai
     { active: 'Bewear', energy: { active: [FIR, FIR, FIR] }, tools: { active: ['Backtrack Badge'] } },
     { active: 'Mega Greninja ex' },
   ]);
-  // Hyper Lariat: "Flip 2 coins. If both of them are heads, this attack does 100 more damage." First try: heads, tails.
+  // Hyper Lariat: this attack flips 2 coins; if both are heads it does 100 additional damage. First try: heads, tails.
   g.state.forcedCoins = [true, false, true, true];
   choose(g, 'Attack: Hyper Lariat');
   yes(g);
@@ -295,7 +295,7 @@ test('Mega Venusaur ex, Solar Transfer: a Special Energy providing {G} cannot be
 
 // ----------------------------------------------------------------------------------------------- Team Rocket's Ampharos
 
-// https://compendium.pokegym.net/ruling/2145/ : Darkest Impulse puts 4 counters on each of two Pokemon evolved in one turn; "doesn't stack" only stops a second Ampharos.
+// https://compendium.pokegym.net/ruling/2145/ : Darkest Impulse puts 4 counters on each of two Pokemon evolved in one turn; the restriction blocks only a second Ampharos.
 test("Team Rocket's Ampharos, Darkest Impulse: both Pokémon the opponent evolves in a turn get 4 counters; two Ampharos don't double it (https://compendium.pokegym.net/ruling/2145/)", () => {
   const mk = (ampharos: number): Game => {
     const g = scenario(
@@ -449,7 +449,7 @@ const RETURN_USERS: [string, string[], number][] = [
   ['Blissey ex', [PSY, PSY, PSY], 180],
 ];
 
-// https://compendium.pokegym.net/ruling/573/ : on a "Return" attack you may draw nothing, but if you draw you finish at exactly the stated hand size.
+// https://compendium.pokegym.net/ruling/573/ : on Return attacks you may draw nothing, but if you draw you finish at exactly the stated hand size.
 // (Written for the five-card printings; Lumineon, Audino and Blissey ex say six, so six is the number here.)
 test('Return (Lumineon, Audino, Blissey ex): drawing is optional, and if you draw you end at exactly six cards (https://compendium.pokegym.net/ruling/573/)', () => {
   for (const [who, energy, base] of RETURN_USERS) {
@@ -509,7 +509,7 @@ test('Lycanroc, Counter: still adds the damage taken last turn after Lycanroc we
   assert.equal(dmg(g, 1), 10 + taken, 'the damage it took last turn is added although it left and returned');
 });
 
-// https://compendium.pokegym.net/ruling/588/ : an attack that puts its user into the hand (Sky Return) does so before a delayed "damage counters on the Attacking Pokémon" effect (Repulsor Axe, standing in for the older Shell Trap) is applied, so no counters are placed.
+// https://compendium.pokegym.net/ruling/588/ : an attack that puts its user into the hand (Sky Return) does so before delayed damage-counter effects on the attacking Pokémon (Repulsor Axe, standing in for the older Shell Trap) are applied, so no counters are placed.
 test('Sky Return: Emolga goes to the hand with its Energy before Repulsor Axe puts counters on it, and nothing else gets them (https://compendium.pokegym.net/ruling/588/)', () => {
   // Emolga (Weak to Fighting) cannot survive Iron Boulder ex's own hit, so Dreepy takes it and then retreats for Emolga.
   const g = scenario(DK, DK, [

@@ -277,7 +277,7 @@ test('Umbreon, Retaliate: 30 when none of your Pokémon was Knocked Out last tur
 });
 
 test('Umbreon, Retaliate (ruling 2200): a Knock Out that gives up no Prize card (Legacy Energy) still counts', () => {
-  // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2200/): "Yes, you would. Even though the Pokemon with Legacy Energy attached does not give up a prize card, it still counts as a KO'd Pokemon."
+  // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2200/): a Knock Out giving up no Prize card still counts as a KO'd Pokemon for Retaliate.
   const g = game(
     [
       { active: 'Purrloin', damage: { active: 50 }, energy: { active: ['Legacy Energy'] }, bench: ['Umbreon'] },

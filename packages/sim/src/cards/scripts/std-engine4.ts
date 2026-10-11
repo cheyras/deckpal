@@ -57,21 +57,21 @@ export const STD_ENGINE4: CardScript[] = [
     //  play, both players discard Pokémon from their Bench until they have 5, and the player who played this card discards first."
     // The second paragraph is the engine's Bench rule (flow.ts `enforceBenchLimit`): whenever a Bench holds more Pokémon than the limit
     // allows, its player discards down to it, the Stadium's owner first.
-    // Ruling (TPCi Rules Team 2026-03-12, https://compendium.pokegym.net/ruling/2305/): "You complete the effects of the stadium change first, so you have to discard Pokemon, if needed. Therefore, you may discard Charizard ex first and then check for KO's afterward."
-    // Ruling (TPCi Rules Team 2025-04-03, https://compendium.pokegym.net/ruling/2132/): "You discard down to 5 Benched Pokemon first, before promoting a new Active Pokemon in this scenario."
-    // Ruling (TPCi Rules Team 2025-04-03, https://compendium.pokegym.net/ruling/2131/): "You discard down to 5 Benched Pokemon first, before promoting a new Active Pokemon in this scenario."
-    // Ruling (TPCi Rules Team 2024-09-26, https://compendium.pokegym.net/ruling/2039/): "As long as you meet the required criteria of the new stadium you would not have to discard any Benched Pokemon since one stadium's effect is replacing the other simultaneously."
-    // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2026/): "You have to KO them first and your opponent gets to take Prize cards for them. After they have been KO'd, you would then discard one final Pokemon from the bench due to Area Zero Underdepths and then choose a new Active Pokemon."
-    // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2024/): "Only one. Since there were no Tera Pokemon in play when the attack was used, there is only one space available to fill on the Bench."
+    // Ruling (TPCi Rules Team 2026-03-12, https://compendium.pokegym.net/ruling/2305/): stadium change effects resolve first; bench discards, then KO checks.
+    // Ruling (TPCi Rules Team 2025-04-03, https://compendium.pokegym.net/ruling/2132/): bench discards to 5 happen before a new Active is promoted.
+    // Ruling (TPCi Rules Team 2025-04-03, https://compendium.pokegym.net/ruling/2131/): bench discards to 5 happen before a new Active is promoted.
+    // Ruling (TPCi Rules Team 2024-09-26, https://compendium.pokegym.net/ruling/2039/): if the new stadium's criteria are met, no bench discards occur since stadiums replace simultaneously.
+    // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2026/): KOs happen first with Prize cards, then bench discards, then a new Active.
+    // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2024/): only one bench space opens when no Tera Pokemon were in play during the attack.
     statics: [{ effect: { k: 'benchSize', size: 8, withPokemon: { tera: true } }, scope: 'both' }],
   },
   {
     id: 'sv06-149',
     name: 'Festival Grounds',
     // "Each Pokémon that has any Energy attached (both yours and your opponent's) recovers from all Special Conditions and can't be affected by any Special Conditions."
-    // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2428/): "It would do +30 damage each time you attack a Pokemon ex during the turn." (each attack is its own attack: see Dipplin)
-    // Ruling (TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2359/): "Festival Lead allows Dipplin to attack twice, so you would draw 3 cards for each attack or 6 in total."
-    // Ruling (TPCi Rules Team 2025-01-09, https://compendium.pokegym.net/ruling/2093/): "Yes you can, because Festival Lead is no longer disabled after Flutter Mane is KO'd."
+    // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2428/): this deals +30 damage for each Pokemon ex attack during the turn. (each attack is its own attack: see Dipplin)
+    // Ruling (TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2359/): Festival Lead enables two attacks; draw effects trigger for each attack.
+    // Ruling (TPCi Rules Team 2025-01-09, https://compendium.pokegym.net/ruling/2093/): Festival Lead remains active when Flutter Mane is KO'd since the Ability is re-checked.
     statics: [{ effect: { k: 'conditionImmunity' }, scope: 'allPokemon', filter: { energized: true } }],
   },
 
@@ -104,9 +104,9 @@ export const STD_ENGINE4: CardScript[] = [
     id: 'sv06-018',
     name: 'Dipplin',
     // "If Festival Grounds is in play, this Pokémon may use an attack it has twice. If the first attack Knocks Out your opponent's Active Pokémon, you may attack again after your opponent chooses a new Active Pokémon."
-    // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2428/): "It would do +30 damage each time you attack a Pokemon ex during the turn. ..." (Kieran's effect lasts the turn, so it applies to both attacks)
-    // Ruling (TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2359/): "Festival Lead allows Dipplin to attack twice, so you would draw 3 cards for each attack or 6 in total."
-    // Ruling (TPCi Rules Team 2025-01-09, https://compendium.pokegym.net/ruling/2093/): "Yes you can, because Festival Lead is no longer disabled after Flutter Mane is KO'd." (the Ability is checked when the second attack is chosen)
+    // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2428/): this deals +30 damage for each Pokemon ex attack during the turn. (Kieran's effect lasts the turn, so it applies to both attacks)
+    // Ruling (TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2359/): Festival Lead enables two attacks; draw effects trigger for each attack.
+    // Ruling (TPCi Rules Team 2025-01-09, https://compendium.pokegym.net/ruling/2093/): Festival Lead remains active when Flutter Mane is KO'd. (the Ability is checked when the second attack is chosen)
     abilities: [FESTIVAL_LEAD],
     attacks: {
       // "This attack does 20 damage for each of your Benched Pokémon."
@@ -132,7 +132,7 @@ export const STD_ENGINE4: CardScript[] = [
     id: 'sv06-044',
     name: 'Goldeen',
     // "If Festival Grounds is in play, this Pokémon may use an attack it has twice. If the first attack Knocks Out your opponent's Active Pokémon, you may attack again after your opponent chooses a new Active Pokémon."
-    // Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1974/): "No, Festival Lead does not work with TM's; it has to be an attack that the Pokemon has printed on the card."
+    // Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1974/): Festival Lead only works with printed attacks, not Technical Machine attacks.
     abilities: [FESTIVAL_LEAD],
     attacks: {
       // "Flip a coin. If heads, discard an Energy from your opponent's Active Pokémon."
@@ -250,7 +250,7 @@ export const STD_ENGINE4: CardScript[] = [
     ],
     attacks: {
       // "Discard an Energy from your opponent's Active Pokémon."
-      // Ruling (TPCi Rules Team 2020-08-13, https://compendium.pokegym.net/ruling/77/): "If an attack discards energy from the Defending Pokemon, the damage reduction happens first and then apply any attack effects." (the damage is done before the discard)
+      // Ruling (TPCi Rules Team 2020-08-13, https://compendium.pokegym.net/ruling/77/): damage reduction resolves before the attack's discard effects apply. (the damage is done before the discard)
       'Drill Run': { post: [{ op: 'discardEnergy', from: 'oppActive', count: 1 }] },
     },
   },
@@ -260,7 +260,7 @@ export const STD_ENGINE4: CardScript[] = [
     abilities: [
       {
         // "If this Pokémon is damaged by an attack from your opponent's Pokémon (even if this Pokémon is Knocked Out), put 2 damage counters on the Attacking Pokémon for each {M} Energy attached to this Pokémon."
-        // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2012/): "Since there are no {M} Energy attached when the effect of Pummeling Payback is triggered, no damage counters are placed on Tauros."
+        // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2012/): no counters are placed if no Metal Energy are attached when the Ability triggers.
         // The Energy is counted when the Ability resolves, after the attack's own effects (an Energy discard after the damage).
         name: 'Pummeling Payback',
         triggers: [{ on: 'damagedByAttack', program: [{ op: 'counters', n: { mul: [2, { energyOn: 'self', type: 'Metal' }] }, to: { v: '__attacker' } }] }],

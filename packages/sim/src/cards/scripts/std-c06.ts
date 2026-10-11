@@ -328,7 +328,7 @@ export const STD_C06: CardScript[] = [
     name: 'Terapagos',
     attacks: {
       // "Search your deck for up to 3 Basic Energy cards of different types and attach them to your Tera Pokémon in any way you like. Then, shuffle your deck."
-      // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2059/): "No, although Terapagos' *category* is literally "Tera Pokemon" that doesn't count for the purposes of this attack which only counts for Pokemon with the "Tera Pokemon" attribute."
+      // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2059/): Terapagos itself is not a Tera Pokémon for its own Prism Charge.
       // (Terapagos itself carries no `fix.tera`, so it is not one of its own targets. With no Tera Pokémon in play there is nothing to attach to, so the attack does nothing.)
       'Prism Charge': {
         program: [
@@ -350,7 +350,7 @@ export const STD_C06: CardScript[] = [
     id: 'me02.5-186',
     name: 'Counter Gain',
     // "If you have more Prize cards remaining than your opponent, attacks used by the Pokémon this card is attached to cost {C} less."
-    // Ruling (TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2290/): "Yes, even though you are only discarding two Energy you can use the attack."
+    // Ruling (TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2290/): Attack usable even with fewer Energy discarded than stated.
     statics: [{ effect: { k: 'attackCostC', delta: -1 }, scope: 'self', when: { gt: [{ prizesLeft: 'self' }, { prizesLeft: 'opp' }] } }],
   },
   {
@@ -391,7 +391,7 @@ export const STD_C06: CardScript[] = [
     id: 'me02.5-197',
     name: 'Nighttime Mine',
     // "Attacks used by each Tera Pokémon in play (both yours and your opponent's) cost {C} more."
-    // Ruling (TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2288/): "Yes, you can. Wild Growth counts the 2 Basic Grass energy cards as 4 energy, so you satisfy the new attack cost of 4 Energy due to the Nighttime Mine."
+    // Ruling (TPCi Rules Team 2026-01-22, https://compendium.pokegym.net/ruling/2288/): Energy multipliers count toward increased attack costs.
     statics: [{ effect: { k: 'attackCostC', delta: 1 }, scope: 'allPokemon', filter: { tera: true } }],
   },
 ];

@@ -167,7 +167,7 @@ export const STD_ENGINE3: CardScript[] = [
     abilities: [
       {
         // "As long as this Pokémon is in the Active Spot, Pokémon with a Rule Box in play (both yours and your opponent's) have no Abilities, except for Future Pokémon."
-        // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2309/): "Luminous Wing takes precedence over Initialization. It doesn't matter which one comes into play first."
+        // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2309/): Luminous Wing supersedes Initialization regardless of play order.
         // (A Pokémon with an Ability that prevents the effects of Abilities done to it keeps its Abilities: see `lockBites` in query.ts.)
         name: 'Initialization',
         statics: [{ effect: { k: 'noAbilities' }, scope: 'allPokemon', filter: { ruleBox: true, not: FUTURE }, when: { inActive: 'self' } }],
@@ -191,7 +191,7 @@ export const STD_ENGINE3: CardScript[] = [
     name: 'Bubbly Water Energy',
     // "As long as this card is attached to a Pokémon, it provides {W} Energy.
     //  The {W} Pokémon this card is attached to recovers from all Special Conditions and can't be affected by any Special Conditions."
-    // Ruling (TPCi Rules Team 2013-08-15, https://compendium.pokegym.net/ruling/290/), on a Pokémon that "can't be affected by special conditions": "The opponent can play Hypnotoxic Laser, but its effect would be blocked."
+    // Ruling (TPCi Rules Team 2013-08-15, https://compendium.pokegym.net/ruling/290/), on a Pokémon that "can't be affected by special conditions": playing it is allowed but the effect gets blocked.
     provides: ['Water'],
     statics: [{ effect: { k: 'conditionImmunity' }, scope: 'self', filter: { type: 'Water' } }],
   },
@@ -215,8 +215,8 @@ export const STD_ENGINE3: CardScript[] = [
       // "Discard all Pokémon Tools and Special Energy from all of your opponent's Pokémon."
       'Corrosive Liquid': { program: [{ op: 'custom', fn: 'engine3.discardOppToolsAndSpecial' }] },
       // "Your opponent's Active Pokémon is now Poisoned. During Pokémon Checkup, place 16 damage counters on that Pokémon instead of 1."
-      // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2373/): "It puts 16 damage counters on every Pokemon Checkup, as long as it survives and has that Poisoned Condition."
-      // Ruling (TPCi Rules Team 2013-02-21, https://compendium.pokegym.net/ruling/1044/), on a later single-counter Poison: "Yes, the new single-counter Poison condition replaces the multi-counter Poison condition."
+      // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2373/): each Pokémon Checkup places 16 counters if this Pokémon survives with Poison.
+      // Ruling (TPCi Rules Team 2013-02-21, https://compendium.pokegym.net/ruling/1044/), on a later single-counter Poison: single-counter Poison supersedes the multi-counter version.
       'Pernicious Poison': { post: [{ op: 'condition', cond: 'poisoned', to: 'oppActive', counters: 16 }] },
     },
   },
@@ -255,7 +255,7 @@ export const STD_ENGINE3: CardScript[] = [
     name: 'Mega Slowbro ex',
     attacks: {
       // "During your opponent's next turn, if this Pokémon is damaged by an attack (even if this Pokémon is Knocked Out), place 12 damage counters on the Attacking Pokémon."
-      // Ruling (Pitch Black FAQ, TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2408/): "Mist Energy prevents effects of attacks, and even though it is a delayed effect Shellnado Spin is still an attack so placing the 12 damage counters would be blocked."
+      // Ruling (Pitch Black FAQ, TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2408/): Mist Energy blocks the delayed counter effect since this is still an attack.
       'Shellnado Spin': {
         post: [
           {
@@ -273,7 +273,7 @@ export const STD_ENGINE3: CardScript[] = [
     name: 'Iron Boulder ex',
     attacks: {
       // "During your opponent's next turn, if this Pokémon is damaged by an attack (even if it is Knocked Out), put 8 damage counters on the Attacking Pokémon."
-      // Ruling (Temporal Forces FAQ, TPCi Rules Team 2024-03-21, https://compendium.pokegym.net/ruling/1958/): "No, it will not receive the 8 damage counters. Mist Energy prevents all effects of your opponent's attacks done to the Pokemon where it is attached, and Repulsor Axe's damage counters are an effect of your opponent's attack."
+      // Ruling (Temporal Forces FAQ, TPCi Rules Team 2024-03-21, https://compendium.pokegym.net/ruling/1958/): the defender doesn't receive counters since Mist Energy blocks all attack effects including Repulsor Axe's.
       'Repulsor Axe': {
         post: [
           {
@@ -303,7 +303,7 @@ export const STD_ENGINE3: CardScript[] = [
     name: 'Pachirisu',
     attacks: {
       // "During your opponent's next turn, whenever they attach an Energy card from their hand to the Defending Pokémon, place 8 damage counters on that Pokémon."
-      // Ruling (Mega Evolution FAQ, TPCi Rules Team 2025-09-25, https://compendium.pokegym.net/ruling/2223/): "No, it is not. Even though Electrified Incisors says "during your opponent's next turn" the effect of the attack is on the Defending Pokemon, not on your opponent. Retreating clears the effect."
+      // Ruling (Mega Evolution FAQ, TPCi Rules Team 2025-09-25, https://compendium.pokegym.net/ruling/2223/): the effect targets the defender, not the opponent, so retreating removes it.
       'Electrified Incisors': {
         post: [
           {
@@ -323,7 +323,7 @@ export const STD_ENGINE3: CardScript[] = [
     name: 'Octillery',
     attacks: {
       // "During your opponent's next turn, if the Defending Pokémon tries to use an attack, your opponent flips 2 coins. If either of them is tails, that attack doesn't happen."
-      // Ruling (TPCi Rules Team 2026-04-02, https://compendium.pokegym.net/ruling/2326/), on Smokescreen: "Since Horsea's Smokescreen says "if tails that attack doesn't happen", you would flip for Smokescreen's effect first to see if the attack happens, then flip for Confusion if the Smokescreen flip was heads."
+      // Ruling (TPCi Rules Team 2026-04-02, https://compendium.pokegym.net/ruling/2326/), on Smokescreen: resolve this blocking flip before any Confusion flip.
       'Jet of Ink': { post: [{ op: 'effect', static: { k: 'attackCoinFlip', coins: 2 }, on: 'defender', duration: 'oppNextTurn' }] },
       // "This Pokémon is now Confused."
       Tantrum: { post: [{ op: 'condition', cond: 'confused', to: 'self' }] },

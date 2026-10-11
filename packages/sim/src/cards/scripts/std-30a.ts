@@ -66,7 +66,7 @@ export const STD_30A: CardScript[] = [
     abilities: [
       {
         // "Once during your turn, you may use this Ability. Flip a coin. If heads, search your deck for a Pokémon, reveal it, and put it into your hand. Then, shuffle your deck."
-        // With an empty deck nothing can change, so the Ability can't be used. By analogy, not a ruling on this card: Ruling (TPCi Rules Team 2016-06-09, https://compendium.pokegym.net/ruling/219/): "If you know the Ability will not affect the game state, you cannot use it." (Ho-Oh EX, Rebirth)
+        // With an empty deck nothing can change, so the Ability can't be used. By analogy, not a ruling on this card: Ruling (TPCi Rules Team 2016-06-09, https://compendium.pokegym.net/ruling/219/): you cannot use an Ability if you know it won't affect the game state. (Ho-Oh EX, Rebirth)
         name: 'Guiding Dance',
         activated: {
           when: { gte: [{ deckSize: 'self' }, 1] },

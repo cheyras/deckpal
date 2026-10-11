@@ -160,7 +160,7 @@ test('Tropius, Fruity Aroma: with no Pokémon among the top 6 the deck is still 
   choose(dud, 'Attack: Fruity Aroma');
   assert.equal(dud.state.p[0].hand.length, handBefore, 'nothing to take');
   assert.equal(dud.state.p[0].knownTop, 0, 'six cards went back: shuffled');
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2403/): "No, since you are not putting any cards back into the deck, you do not shuffle your deck."
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2403/): shuffle only if cards are returned.
   const all = mk(['Slowpoke', 'Slowpoke', 'Slowpoke', 'Slowpoke', 'Slowpoke', 'Slowpoke']);
   const before = all.state.p[0].deck.slice();
   choose(all, 'Attack: Fruity Aroma');
@@ -259,7 +259,7 @@ test('Sizzlipede, Bug Out: 50 for each Pokémon with Bug Out among the bottom 7;
   const slowpokes = g.state.p[0].deck.filter((c) => name(g, c) === 'Slowpoke').length;
   choose(g, 'Attack: Bug Out');
   assert.equal(dmg(g, 1), 150, '3 Pokémon with Bug Out');
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2401/): "No, all Pokemon get shuffled back into the deck whether they have the Bug Out attack or not.  Other non-Pokemon cards like Trainer or Energy cards would get discarded."
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2401/): Pokémon cards return to the deck; all other revealed cards including Energy go to the discard pile.
   assert.deepEqual(names(g, g.state.p[0].discard), [F, F, P].sort(), 'only the Energy cards are discarded');
   assert.equal(g.state.p[0].deck.length, deckSize - 3);
   assert.equal(g.state.p[0].deck.filter((c) => name(g, c) === 'Slowpoke').length, slowpokes, 'the Slowpoke is back in the deck');
@@ -403,7 +403,7 @@ test('Manectric, Flashing Barrier: 50, and during the opponent\'s next turn atta
     choose(g, `Attack: ${attack}`);
     return g;
   };
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2397/): "Yes. Even though Cinderace is not an "Evolved Pokemon" it is still an "Evolution Pokemon" card, and therefore meets the condition of Flashing Barrier to have its damage blocked."
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2397/): cards classified as Evolutions trigger Flashing Barrier regardless of whether they were naturally evolved.
   // (a Braixen put into play directly, without evolving, is still an Evolution Pokémon card)
   const evo = run('Braixen', [F, F], 'Flamethrower');
   assert.equal(dmg(evo, 1), 50);
@@ -486,7 +486,7 @@ test('Mega Zeraora ex, Zepto Turn: 150, then switch it with 1 of your Benched Po
   choose(g, 'Slowpoke'); // which Benched Pokémon comes up
   assert.equal(activeName(g, 0), 'Slowpoke', 'switched out');
   assert.deepEqual(benchNames(g, 0).sort(), ['Mega Zeraora ex', 'Slowpoke']);
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2414/): "Attack effects are completed before KO's are taken, so you switch Mega Zerora ex to the Bench first and promote a new Active, then your opponent would process the KO and bring up a new Active."
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2414/): the switch happens before Knock Outs are processed; the opponent brings up a replacement after you switch.
   const ko = scenario(dk, dk, [{ active: 'Mega Zeraora ex', bench: ['Slowpoke', 'Slowpoke'], energy: { active: [L, L, L] } }, { active: 'Tyranitar ex', bench: ['Slowpoke'], damage: { active: 200 } }]);
   choose(ko, 'Attack: Zepto Turn');
   assert.equal(ko.decision?.player, 0, 'you switch first');
@@ -513,7 +513,7 @@ test("Spiritomb, Spiritual End: with 13 or more Pokémon with Hide 'n' Sneak in 
   pick(g, ['Bloodmoon', 'Slowpoke']);
   assert.equal(dmg(g, 1), 120, '3 counters become 12');
   assert.equal(g.state.p[1].bench[0]!.damage, 40, '1 counter becomes 4');
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2411/): "No damage counters are placed on that Pokemon. For example, 0 times 4 is 0; ..."
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2411/): multiplying damage counters on a Pokémon with zero leaves it unchanged.
   assert.equal(g.state.p[1].bench[1]!.damage, 0, 'a Pokémon with no damage counters, and the one not chosen, stay as they are');
   const none = mk(12);
   choose(none, 'Attack: Spiritual End');
@@ -572,7 +572,7 @@ test("Mega Chandelure ex, Phantom Maze: 130, and 50 more for each {C} in the opp
   };
   assert.equal(hit('Mega Zeraora ex'), 130 + 50 * 2, 'Retreat 1, plus Binding Flame');
   assert.equal(hit('Mega Delphox ex'), 130 + 50 * 3, 'Retreat 2, plus Binding Flame');
-  // Ruling (TPCi Rules Team 2026-04-02, https://compendium.pokegym.net/ruling/2386/): "... The text on all Antique Fossil cards say they have no Retreat cost. Not zero, "no" retreat cost. It is a fixed attribute and it cannot be changed."
+  // Ruling (TPCi Rules Team 2026-04-02, https://compendium.pokegym.net/ruling/2386/): Fossil cards have an unchangeable Retreat Cost of zero.
   const f = scenario(dk, dk, [{ active: 'Mega Chandelure ex' }, { active: 'Antique Armor Fossil' }]);
   const fossil = f.state.p[1].active!;
   assert.equal(retreatCost(f.envForInternals, f.state, fossil), 1, 'Binding Flame alone would give the fossil a Retreat Cost');
@@ -608,7 +608,7 @@ test('Rampardos ex, Rowdy Hammer: 150, and during your next turn its attacks do 
   assert.equal(dmg(g, 1), 300, '150 + 150');
   choose(g, 'End turn');
   g.state.p[1].active!.damage = 0;
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2407/): "No, Rowdy Hammer tops out at 300. ... it does not accumulate on successive turns."
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2407/): the bonus damage has a maximum of 300 total and resets each turn.
   choose(g, 'Attack: Rowdy Hammer');
   assert.equal(dmg(g, 1), 300, 'not 450');
 });
@@ -620,7 +620,7 @@ test("Rampardos ex, Rowdy Hammer: the extra 150 is not an effect, so Hide 'n' Sn
   choose(g, 'End turn');
   g.state.p[1].active!.damage = 0;
   inject(g, g.state.p[1].active!.id, { k: 'preventEffects', from: ['attack', 'ability'] });
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2398/): "The extra damage done by Rowdy Hammer is due a game state check and damage calculations; it is not an effect that can be blocked by Hide 'n' Sneak. The extra damage for Rowdy Hammer takes place."
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2398/): the bonus damage bypasses preventEffects since it's not an effect itself.
   choose(g, 'Attack: Rowdy Hammer');
   assert.equal(dmg(g, 1), 300);
 });
@@ -639,10 +639,10 @@ test("Rampardos ex, Destructive Headbutting: Active Spot only, and only if the o
   tails.state.forcedCoins = [false];
   choose(tails, ability);
   assert.equal(tails.state.p[1].active!.energy.length, 2, 'tails: nothing');
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2393/): "... you would not be able to use Destructive Headbutting if the opponent's Active Pokemon has no Energy attached."
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2393/): the opponent's Active must have at least one Energy to use this ability.
   assert.ok(!has(mk([{ active: 'Rampardos ex' }, { active: 'Tyranitar ex', bench: ['Slowpoke'], energy: { 0: [D] } }]), ability), 'no Energy on the Active Pokémon');
   assert.ok(!has(mk([{ active: 'Slowpoke', bench: ['Rampardos ex'] }, { active: 'Tyranitar ex', energy: { active: [D] } }]), ability), 'Benched');
-  // ... "You can use the Destructive Headbutting Ability but Hide 'n' Sneak will prevent Energy from getting discarded."
+  // ... the Ability can still be used, but Hide 'n' Sneak keeps the Energy from being discarded.
   const hns = mk([{ active: 'Rampardos ex' }, { active: 'Tyranitar ex', energy: { active: [D, D] } }]);
   inject(hns, hns.state.p[1].active!.id, { k: 'preventEffects', from: ['attack', 'ability'] });
   hns.state.forcedCoins = [true];

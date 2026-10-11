@@ -47,7 +47,7 @@ export const STD_C32: CardScript[] = [
     abilities: [
       {
         // "Once during your turn, you may draw a card."
-        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2148/): "Yes, you can." (each Rapidash uses its own Hurried Gait)
+        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2148/): each Rapidash can use its own Hurried Gait (each Rapidash uses its own Hurried Gait)
         name: 'Hurried Gait',
         activated: { program: [{ op: 'draw', n: 1 }] },
       },
@@ -60,7 +60,7 @@ export const STD_C32: CardScript[] = [
       // "During your opponent's next turn, this Pokémon takes 50 less damage from attacks (after applying Weakness and Resistance)."
       'Flame Screen': { post: [{ op: 'effect', static: { k: 'damageIn', amount: -50, fromOpp: true }, on: 'self', duration: 'oppNextTurn' }] },
       // "Discard a Team Rocket's Energy from this Pokémon. If you do, discard your opponent's Active Pokémon and all attached cards."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2156/): "No, you are discarding it, not knocking it out." (no Prize cards)
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2156/): discarding isn't knocking out, so no prize cards. (no Prize cards)
       'Evil Incineration': {
         program: [
           { op: 'discardEnergy', from: 'self', count: 1, filter: { name: "Team Rocket's Energy" }, as: 'tr' },
@@ -94,7 +94,7 @@ export const STD_C32: CardScript[] = [
     name: 'Blaziken',
     attacks: {
       // "Discard 2 Energy from this Pokémon. This attack also does 120 damage to 1 of your opponent's Benched Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)"
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2159/): "Yes, you do. The discard of the Energy is a separate effect and is not optional." (even with no Benched Pokémon to hit)
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2159/): Energy discard is mandatory, separate from damage. (even with no Benched Pokémon to hit)
       'Inferno Kick Flurry': {
         pre: [{ op: 'discardEnergy', from: 'self', count: 2 }],
         post: [{ op: 'if', cond: { gte: [{ pokemon: { zone: 'oppBench' } }, 1] }, then: damageOneOf('oppBench', 120) }],
@@ -132,7 +132,7 @@ export const STD_C32: CardScript[] = [
     name: "Misty's Gyarados",
     attacks: {
       // "Discard the top 7 cards of your deck, and this attack does 70 damage for each Misty's Pokémon that you discarded in this way."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2164/): "Yes, you would do as much as you can." (fewer than 7 cards in the deck)
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2164/): discard as many as possible if fewer than 7. (fewer than 7 cards in the deck)
       'Splashing Panic': {
         pre: [{ op: 'custom', fn: 'c09.discardTopCount', args: { n: 7, filter: MISTYS_POKEMON, as: 'n' } }],
         damage: { mul: [70, { v: 'n' }] },
@@ -153,7 +153,7 @@ export const STD_C32: CardScript[] = [
     abilities: [
       {
         // "Prevent all effects of attacks used by your opponent's Pokémon done to your Basic Team Rocket's Pokémon. (Existing effects are not removed. Damage is not an effect.)"
-        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2150/): "...If you try to move damage *to* something that blocks effects, the damage disappears. If you try to move damage *from* something that blocks effects, the damage stays there."
+        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2150/): blocked effects prevent damage moves in both directions.
         name: 'Repelling Veil',
         statics: [{ effect: { k: 'preventEffects', from: ['attack'] }, scope: 'myPokemon', filter: { stage: 'basic', nameIncludes: "Team Rocket's" } }],
       },
@@ -309,7 +309,7 @@ export const STD_C32: CardScript[] = [
         ],
       },
       // "This attack does 30 damage for each Pokémon Tool attached to all of your Pokémon."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1077/): "If an effect depends simply on the presence of a Tool card in a certain location, the effect still works. It is the Tool card's effects that are cancelled, not effects based on the presence of a Tool."
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1077/): effects depending on Tool presence work; only the Tool's own effects are cancelled.
       // (a Pokémon holds one Tool, so counting the Pokémon with a Tool counts the Tools)
       'Gadget Show': { damage: { mul: [30, { pokemon: { zone: 'myPokemon', filter: { tool: true } } }] } },
     },

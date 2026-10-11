@@ -109,7 +109,7 @@ test('Serperior ex, Regal Cheer: attacks used by your Pokémon do 20 more damage
   };
   assert.equal(hit([]), 10, 'no Serperior ex: the printed 10');
   assert.equal(hit(['Serperior ex']), 30, '+20 from a Benched Serperior ex, for another Pokémon');
-  // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2186/): "Yes, it does." (stacks)
+  // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2186/): Multiple copies of the bonus stack for cumulative effects.
   assert.equal(hit(['Serperior ex', 'Serperior ex']), 50, 'two Serperior ex: +40');
   // "to your opponent's Active Pokémon": the Bench is not touched, and the opponent's own attacks are not boosted.
   const spread = scenario(dk, dk, [{ active: 'Munna', energy: { active: [P] }, bench: ['Serperior ex'] }, { active: DRA, bench: ['Rellor'] }]);
@@ -184,8 +184,7 @@ test('Maractus, Lively Needles: 20, or 100 more if it was healed this turn (not 
   assert.equal(healed.state.p[0].active!.damage, 0, 'healed 80, of which 50 were there');
   choose(healed, 'Attack: Lively Needles');
   assert.equal(dmg(healed, 1), 120);
-  // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2198/): "If you did not remove any damage counters the Pokemon
-  // is not "healed" by Fennel, so Lively Needles would only do the base 20 damage." A heal that removes nothing can not even be played here.
+  // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2198/): Healing that removes zero damage does not count as having healed.
   const clean = mk(0, ['Jumbo Ice Cream']);
   assert.ok(!has(clean, 'Play Jumbo Ice Cream'));
   choose(clean, 'Attack: Lively Needles');
@@ -386,8 +385,7 @@ test('Eelektrik, Dynamotor: attach a Basic {L} Energy card from your discard pil
   assert.deepEqual(namesOf(g, g.state.p[0].bench[0]!.energy), []);
   assert.deepEqual(namesOf(g, g.state.p[0].discard), [W]);
   assert.ok(!has(g, 'Use Dynamotor'), 'once during your turn');
-  // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2182/): the card "specifies Basic Energy", so a Special Energy
-  // that provides {L} (Legacy Energy provides every type) does not qualify.
+  // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2182/): the card specifies Basic Energy, so Special Energy that provides the type does not qualify.
   assert.ok(!has(mk({ discard: ['Legacy Energy', W] }), 'Use Dynamotor'));
   // Needs a Benched Pokémon.
   assert.ok(!has(mk({ bench: [] }), 'Use Dynamotor'));
@@ -537,8 +535,7 @@ test("Elgyem, Slight Shift: move an Energy from 1 of the opponent's Pokémon to 
   const solo = mk({ active: DRA, energy: { active: [P] } });
   choose(solo, 'Attack: Slight Shift');
   assert.deepEqual(namesOf(solo, solo.state.p[1].active!.energy), [P]);
-  // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2375/): "No, you cannot." -- a Mist Energy on the Defending
-  // Pokémon can not be moved onto a different Pokémon.
+  // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2375/): Mist Energy on the Defending Pokémon cannot be moved elsewhere.
   const mist = mk({ active: DRA, energy: { active: ['Mist Energy'] }, bench: ['Munna', 'Rellor'] });
   mist.state.p[1].bench[0]!.energy.push(mist.state.p[1].deck.find((c) => nameOf(mist, c) === W)!);
   mist.state.p[1].deck = mist.state.p[1].deck.filter((c) => !mist.state.p[1].bench[0]!.energy.includes(c));
@@ -586,7 +583,7 @@ test("Meloetta ex, Echoed Voice: 30; during your next turn it does 80 more, and 
     before = dmg(g, 1);
     if (i < 2) passRound(g);
   }
-  // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2191/): "...you would do 30, 110, 110, etc."
+  // Ruling (TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2191/): damage dealt is 30, then 110 on subsequent turns when bonused.
   assert.deepEqual(dealt, [30, 110, 110]);
   // Only the next turn: skip a turn (no attack) and the bonus is gone.
   const skip = scenario(dk, dk, [{ active: 'Meloetta ex', energy: { active: [P] } }, FOE]);

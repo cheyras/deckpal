@@ -228,7 +228,7 @@ test('Fezandipiti, Adrena-Pheromone: with any {D} Energy attached, a coin is fli
   assert.equal(none.state.forcedCoins.length, 1);
   const bare = mk([]);
   assert.equal(bare.state.forcedCoins.length, 1);
-  // Ruling (TPCi Rules Team 2024-05-23, 1969): Legacy Energy provides all types all the time, so it counts as {D} Energy.
+  // Ruling (TPCi Rules Team 2024-05-23, 1969): Legacy Energy satisfies all types.
   const legacy = mk(['Legacy Energy']);
   assert.equal(legacy.state.p[1].active!.damage, 0);
   assert.equal(legacy.state.forcedCoins.length, 0, 'it flipped');
@@ -239,7 +239,7 @@ test('Fezandipiti, Energy Feather: 30 damage for each Energy attached; with only
   const g = scenario(dk, dk, [{ active: 'Fezandipiti', energy: { active: [PSY, DRK, FIR] } }, { active: 'Mega Kangaskhan ex' }]);
   choose(g, 'Attack: Energy Feather');
   assert.equal(g.state.p[1].active!.damage, 90);
-  // "Yes, although Legacy Energy only provides one unit of energy, it is providing all energy types all the time."
+  // Legacy Energy is a single unit of Energy, but that unit counts as every type at once.
   const l = scenario(dk, dk, [{ active: 'Fezandipiti', energy: { active: ['Legacy Energy'] } }, { active: "N's Darumaka", energy: { active: [FIR, FIR] } }], { scripts: [DARUMAKA_20()] });
   choose(l, 'Attack: Energy Feather');
   assert.equal(l.state.p[1].active!.damage, 30, 'one Energy: 30');
@@ -257,7 +257,7 @@ test('Kecleon, Expert Hider: a coin flip when it is damaged by an attack; not fo
   tackle(g);
   assert.equal(g.state.p[1].active!.damage, 0);
   // Tatsugiri ex's Surprise Pump: "This attack's damage isn't affected by any effects on your opponent's Active Pokémon."
-  // Ruling (TPCi Rules Team 2024-11-07, 2040): "Surprise Pump will do 100 damage. The attack ignores the damage reduction because Expert Hider is an effect."
+  // Ruling (TPCi Rules Team 2024-11-07, 2040): Expert Hider's reduction doesn't apply because Surprise Pump bypasses Defending Pokémon effects.
   const t = scenario(dk, dk, [{ active: 'Tatsugiri ex', energy: { active: [FIR, WTR] } }, { active: 'Kecleon', bench: ['Dreepy'] }]);
   t.state.forcedCoins = [true];
   choose(t, 'Attack: Surprise Pump');
@@ -439,7 +439,7 @@ test('Meganium, Wild Growth: only Basic {G} Energy, only your Pokémon (Active a
   assert.equal(units(0, 0), 2, 'on the Bench: the Meganium itself');
   assert.equal(units(0, 1), 2);
   assert.equal(units(1, 'active'), 2, "your opponent's Energy is as it was");
-  // Ruling (TPCi Rules Team 2025-10-23, 2236): "Each Ability is a replacement effect, not an additive effect... you would still wind up with each Basic Grass energy providing 2 Grass energy."
+  // Ruling (TPCi Rules Team 2025-10-23, 2236): Wild Growth is a replacement effect that doesn't stack; multiple Meganium still provide 2 units per {G}.
   const two = scenario(dk, dk, [
     { active: 'Chikorita', bench: ['Chikorita', 'Chikorita'], energy: { active: [GRS, GRS] }, evolve: { 0: ['Bayleef', 'Meganium'], 1: ['Bayleef', 'Meganium'] } },
     { active: 'Dreepy' },
@@ -478,7 +478,7 @@ test('Cinderace, Explosiveness: if it is in your hand when you set up, you may p
   assert.ok(tested > 0);
 });
 
-test('Cinderace is an Evolution Pokémon even when put into play this way, so effects about Evolution Pokémon apply (rulings 2394, 2397)', () => {
+test('Cinderace counts as an Evolution Pokémon card regardless of how it entered play; Evolution-blocking effects apply (rulings 2394, 2397)', () => {
   const dk = deck('Cinderace', 'Dreepy', 'Manectric');
   // Manectric's Flashing Barrier: "During your opponent's next turn, prevent all damage done to this Pokémon by attacks from Evolution Pokémon."
   const mk = (attacker: string): Game => {
@@ -486,7 +486,7 @@ test('Cinderace is an Evolution Pokémon even when put into play this way, so ef
     choose(g, 'Attack: Flashing Barrier');
     return g;
   };
-  // Ruling (TPCi Rules Team 2026-07-16, 2397): "Yes. Even though Cinderace is not an "Evolved Pokemon" it is still an "Evolution Pokemon" card, and therefore meets the condition of Flashing Barrier to have its damage blocked."
+  // Ruling (TPCi Rules Team 2026-07-16, 2397): Cinderace is an Evolution Pokémon card type even without being evolved from another card; Flashing Barrier stops it.
   const c = mk('Cinderace');
   assert.equal(c.state.p[0].active!.cards.length, 1, 'a lone Stage 2 card, as after Explosiveness');
   choose(c, 'Attack: Turbo Flare');
@@ -751,8 +751,9 @@ test('Milotic, Mentally Calm: an Energy that an attack would put into the hand s
   choose(g, 'Attack: Ninja Spinner');
   assert.equal(g.decision!.kind, 'yesno');
   g.submit([0]);
-  assert.equal(g.state.p[1].active!.damage, 200, 'Ruling (TPCi Rules Team 2026-06-04, 2370): "You may CHOOSE to try to do so and will get the bonus damage"');
-  assert.equal(g.state.p[0].active!.energy.length, 2, '"the Water Energy would stay attached to Mega Greninja ex due to Milotic\'s Mentally Calm ability"');
+  // Ruling (TPCi Rules Team 2026-06-04, 2370): bonus awarded despite Mentally Calm block.
+  assert.equal(g.state.p[1].active!.damage, 200, 'Ruling (TPCi Rules Team 2026-06-04, 2370): choosing to return the Energy still earns the extra damage');
+  assert.equal(g.state.p[0].active!.energy.length, 2, 'Mentally Calm keeps the Water Energy on Mega Greninja ex');
   const free = mk(false);
   choose(free, 'Attack: Ninja Spinner');
   free.submit([0]);
@@ -841,7 +842,7 @@ test('Relicanth, Memory Dive: each evolved Pokémon of yours can use the attacks
   const g = mk(true);
   choose(g, 'Attack: Leafage');
   assert.equal(g.state.p[1].active!.damage, 20);
-  // Ruling (TPCi Rules Team 2026-03-26, 2311): "Yes. Sniper's Eye removes all colorless energy costs from any attack that Decidueye ex can use."
+  // Ruling (TPCi Rules Team 2026-03-26, 2311): Sniper's Eye applies to all attacks available through Memory Dive, including inherited ones.
   // Sniper's Eye: "If your opponent has exactly 4 cards in their hand, ignore all {C} Energy in the costs of attacks used by this Pokémon."
   const four = scenario(dk, dk, [{ active: 'Rowlet', evolve: { active: ['Dartrix', 'Decidueye ex'] }, bench: ['Relicanth'] }, { active: 'Dreepy', hand: rep(GRS, 4) }]);
   assert.ok(has(four, 'Attack: Feather Shot'), "Dartrix's Feather Shot {C}{C}{C} costs nothing with exactly 4 cards in the opponent's hand");
@@ -971,7 +972,7 @@ test('Walrein, Frigid Fangs: during your opponent\'s next turn their Pokémon wi
   assert.ok(!acts(two, 1).some((a) => a.t === 'attack'), '2 Energy: it can\'t attack');
   const three = mk([FIR, PSY, PSY]);
   assert.ok(acts(three, 1).some((a) => a.t === 'attack'), '3 Energy: it can');
-  // Ruling (TPCi Rules Team 2024-11-07, 2055): "Yes. The effect resides on all of the opponent's Pokemon, not on Walrein, so moving Walrein to the Bench does not get rid of the effect."
+  // Ruling (TPCi Rules Team 2024-11-07, 2055): the restriction is tied to opponent's Pokémon, not Walrein itself; retreating Walrein doesn't remove it.
   const moved = mk([FIR, PSY]);
   choose(moved, "Play Boss's Orders");
   if (moved.decision!.kind === 'slots') pickSlot(moved, moved.state.p[0].bench[0]!.id);

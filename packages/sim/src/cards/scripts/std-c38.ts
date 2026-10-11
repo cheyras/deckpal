@@ -46,7 +46,7 @@ export const STD_C38: CardScript[] = [
     abilities: [
       {
         // "Once during your turn, if this Pokémon is in the Active Spot, you may devolve 1 of your opponent's evolved Pokémon by putting the highest Stage Evolution card on it into your opponent's hand."
-        // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2178/): "No, if an Evolution Pokemon that has been put directly into play cannot devolve since there is no Pokemon to devolve it into."
+        // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2178/): A Pokémon brought into play with an Evolution card on it already cannot devolve, as there is no base underneath.
         name: 'Ancient Wing',
         activated: {
           activeOnly: true,
@@ -72,7 +72,7 @@ export const STD_C38: CardScript[] = [
     name: 'Terrakion',
     attacks: {
       // "If any of your Pokémon were Knocked Out by damage from an attack during your opponent's last turn, this attack does 80 more damage."
-      // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2200/): "Yes, you would. Even though the Pokemon with Legacy Energy attached does not give up a prize card, it still counts as a KO'd Pokemon."
+      // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2200/): A Pokémon removed from play counts as knocked out for effects even when no Prize card is awarded.
       Retaliate: { damage: { add: [50, { cond: { custom: 'std.attackKoLastTurn' }, then: 80, else: 0 }] } },
     },
     notes: 'Ruling 2200 (and 1153 for Robo Substitute): the Knock Out counts even when no Prize card is taken for it; the engine records the Knock Out, not the Prize.',
@@ -111,7 +111,7 @@ export const STD_C38: CardScript[] = [
       // "This attack does 30 damage for each of your opponent's Benched Pokémon."
       'Mind Jack': { damage: { mul: [30, { pokemon: { zone: 'oppBench' } }] } },
       // "Choose 1 of your opponent's Active Pokémon's attacks and use it as this attack."
-      // Ruling (TPCi Rules Team 2011-04-28, https://compendium.pokegym.net/ruling/455/): "No, you do not have to meet the energy requirements for the attack. However, if the attack says you must do something or the attack does nothing, that part still has to be done."
+      // Ruling (TPCi Rules Team 2011-04-28, https://compendium.pokegym.net/ruling/455/): copied attacks don't require their Energy cost, but mandatory parts still happen.
       // Ruling (TPCi Rules Team 2015-10-29, https://compendium.pokegym.net/ruling/453/): a copied attack that names another Pokémon (Haxorus' Dragon Dance) basically has no effect on a Pokémon not so named.
       'Foul Play': {
         program: [
@@ -166,7 +166,7 @@ export const STD_C38: CardScript[] = [
     name: 'Durant',
     attacks: {
       // "If Durant is on your Bench, this attack does 20 more damage."
-      // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2188/): "No, you only get a maximum of +20 no matter how many Durant are on your bench."
+      // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2188/): The damage bonus applies once maximum, not per copy of the Benched Pokémon.
       'Bite Together': {
         damage: { add: [20, { cond: { gte: [{ pokemon: { zone: 'myBench', filter: { name: 'Durant' } } }, 1] }, then: 20, else: 0 }] },
       },
@@ -215,7 +215,7 @@ export const STD_C38: CardScript[] = [
     name: 'Stoutland',
     attacks: {
       // "Flip 3 coins. Put a number of cards up to the number of heads from your discard pile into your hand."
-      // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2199/): "No, you must take at least one if you are able to."
+      // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2199/): When at least one coin is heads, minimum one card must be selected if cards exist in the discard.
       'Odor Sleuth': {
         program: [
           { op: 'flip', n: 3, as: 'h' },
@@ -263,8 +263,8 @@ export const STD_C38: CardScript[] = [
         ],
       },
       // "Move a Basic Energy from this Pokémon to 1 of your Benched Pokémon."
-      // Ruling (PUI Rules Team 2011-11-03, https://compendium.pokegym.net/ruling/488/): with no Basic Energy attached, "you simply ignore that part of the Hurricane attack."
-      // Ruling (Emerging Powers FAQ 2011-09-01, https://compendium.pokegym.net/ruling/487/): with no Benched Pokémon "there is no place to move an energy card, so you would not do that part of the attack."
+      // Ruling (PUI Rules Team 2011-11-03, https://compendium.pokegym.net/ruling/488/): without Basic Energy attached, that part is not performed.
+      // Ruling (Emerging Powers FAQ 2011-09-01, https://compendium.pokegym.net/ruling/487/): without a Benched Pokémon, that part is not performed.
       Hurricane: {
         post: [
           { op: 'chooseSlots', from: 'myActive', min: 1, max: 1, as: 'src' },
@@ -353,7 +353,7 @@ export const STD_C38: CardScript[] = [
     abilities: [
       {
         // "As long as this Pokémon is in the Active Spot, put 5 more damage counters on your opponent's Poisoned Pokémon during Pokémon Checkup."
-        // Ruling (TPCi Rules Team 2024-12-19, https://compendium.pokegym.net/ruling/2090/): "...A new Active Pokemon is promoted after the check for Special Conditions. So when Pecharunt is promoted Pokemon Checkup is already over and Toxic Subjugation would not apply."
+        // Ruling (TPCi Rules Team 2024-12-19, https://compendium.pokegym.net/ruling/2090/): Checkup counters are placed and knockouts resolved before a replacement Active, so late-promoted Pecharunt never adds that turn.
         name: 'Toxic Subjugation',
         triggers: [
           {

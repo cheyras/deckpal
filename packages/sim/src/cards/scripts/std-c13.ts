@@ -43,7 +43,7 @@ export const STD_C13: CardScript[] = [
     attacks: {
       // "Choose 3 of your opponent's Benched Pokémon. If you do, shuffle all of your opponent's Benched Pokémon that you didn't choose, and all cards attached to those Pokémon, into their deck."
       // With 3 or fewer Benched Pokémon all of them are chosen and none is left to shuffle.
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/1954/): "Even though the other Pokemon are getting chosen, the effect of Expelling Tornado is still being done to the remaining two Pokemon; so they would be protected by Spherical Shield and would NOT get shuffled into the deck."
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/1954/): effects preventing damage also prevent the Benched Pokémon from being shuffled.
       'Expelling Tornado': {
         program: [
           { op: 'chooseSlots', from: 'oppBench', min: 3, max: 3, as: 'k', prompt: "Choose 3 of your opponent's Benched Pokémon" },
@@ -171,8 +171,8 @@ export const STD_C13: CardScript[] = [
     abilities: [
       {
         // "When you play this Pokémon from your hand onto your Bench during your turn, you may switch it with your Active Pokémon. If you do, you may move any amount of Energy from your other Pokémon to this Pokémon."
-        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1952/): "...because its Ability is initiated on the Bench you get to complete all of its actions before Midnight Fluttering deactivates it."
-        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1991/): Rapid Vernier is blocked by an effect that stops Abilities of Pokémon on the Bench ("at which time it is considered in play"): the trigger is not queued for a Pokémon with no Abilities.
+        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1952/): the Ability completes all its actions before Abilities stop working.
+        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1991/): an effect blocking Bench Abilities also prevents the trigger from queuing.
         name: 'Rapid Vernier',
         triggers: [
           {
@@ -268,7 +268,7 @@ export const STD_C13: CardScript[] = [
     abilities: [
       {
         // "Once during your turn, you may put 5 damage counters on this Pokémon. If you do, during this turn, attacks used by this Pokémon do 120 more damage to your opponent's Active Pokémon (before applying Weakness and Resistance)."
-        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1953/): "...even though Flutter Mane is disabling Feraligatr's Ability the Torrential Heart effect was already applied until the end of the turn."
+        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1953/): an effect applied before an Ability is disabled stays until the end of turn.
         name: 'Torrential Heart',
         activated: {
           program: [

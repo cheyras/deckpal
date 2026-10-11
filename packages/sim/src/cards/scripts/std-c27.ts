@@ -29,8 +29,8 @@ export const STD_C27: CardScript[] = [
     name: 'Oranguru',
     attacks: {
       // "Until the end of your next turn, the Defending Pokémon's Weakness is now {C}. (The amount of Weakness doesn't change.)"
-      // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2057/): "Yes. If a Pokemon has no Weakness printed on the card, Oranguru's attack will give that Pokemon a x2 Weakness of Colorless."
-      // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2056/): "No, not all types.  It only makes it weak to Colorless Type Pokemon."
+      // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2057/): Pokémon with no printed Weakness gain x2 Colorless Weakness from this attack.
+      // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2056/): Weakness is only to Colorless-type Pokémon, not all types.
       "Now You're in My Power": {
         post: [{ op: 'effect', static: { k: 'weaknessType', type: 'Colorless' }, on: 'defender', duration: 'myNextTurn' }],
       },
@@ -75,7 +75,7 @@ export const STD_C27: CardScript[] = [
     id: 'sv08-162',
     name: 'Amulet of Hope',
     // "If the Pokémon this card is attached to is Knocked Out by damage from an attack from your opponent's Pokémon, search your deck for up to 3 cards and put them into your hand. Then, shuffle your deck."
-    // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2061/): "Yes. You must take at least 1 card with Amulet of Hope when it applies." So "up to 3" is 1 to 3.
+    // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2061/): Amulet of Hope requires taking at least one card; "up to 3" means 1 to 3.
     triggers: [
       {
         on: 'knockedOutByAttack',
@@ -91,7 +91,7 @@ export const STD_C27: CardScript[] = [
     id: 'sv08-164',
     name: 'Brilliant Blender',
     // "Search your deck for up to 5 cards and discard them. Then, shuffle your deck."
-    // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2062/): "No, you must discard at least one card from your deck if you play Brilliant Blender."
+    // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2062/): Brilliant Blender requires discarding at least one card from your deck.
     playable: { gte: [{ deckSize: 'self' }, 1] },
     play: [
       { op: 'chooseCards', from: 'deck', min: 1, max: 5, as: 'found' },
@@ -181,7 +181,7 @@ export const STD_C27: CardScript[] = [
     id: 'sv08-176',
     name: 'Energy Search Pro',
     // "Search your deck for any number of Basic Energy cards of different types, reveal them, and put them into your hand. Then, shuffle your deck."
-    // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2063/): "No, you can only put ONE card of each energy type into your hand."
+    // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2063/): only one card of each Energy type goes into your hand.
     playable: { gte: [{ deckSize: 'self' }, 1] },
     play: [
       {
@@ -231,8 +231,8 @@ export const STD_C27: CardScript[] = [
     id: 'sv08-182',
     name: 'Megaton Blower',
     // "Discard all Pokémon Tools and Special Energy from all of your opponent's Pokémon, and discard a Stadium in play."
-    // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2065/): "Yes, you can.  Discarding the Stadium is not reliant upon discarding any other cards in this case."
-    // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2064/): "You can't play the card for no effect, but if there is at least one of those types of cards in play you do as much as you can."
+    // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2065/): the Stadium discard works independently of other discards.
+    // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2064/): do as much as you can if at least one applicable card is in play.
     playable: {
       or: [
         { stadium: true },
@@ -260,7 +260,7 @@ export const STD_C27: CardScript[] = [
     id: 'sv08-186',
     name: 'Scramble Switch',
     // "Switch your Active Pokémon with 1 of your Benched Pokémon. If you do, you may move any amount of Energy from the Pokémon you moved to your Bench to the new Active Pokémon."
-    // Ruling (TPCi Rules Team 2013-02-07, https://compendium.pokegym.net/ruling/34/): "Scramble Switch causes your Pokemon to switch, but Block only prevents Retreating." (This is a Trainer's switch, not a retreat.)
+    // Ruling (TPCi Rules Team 2013-02-07, https://compendium.pokegym.net/ruling/34/): this Trainer switch bypasses Block, which only prevents Retreating. (This is a Trainer's switch, not a retreat.)
     playable: { gte: [{ pokemon: { zone: 'myBench' } }, 1] },
     play: [
       { op: 'chooseSlots', from: 'myActive', min: 1, max: 1, as: 'old' },

@@ -414,7 +414,7 @@ test('Telepathic Psychic Energy: attached from hand to a Psychic Pokémon, bench
 });
 
 test('Telepathic Psychic Energy: with a full Bench there is no search and no shuffle', () => {
-  // Compendium (Perfect Order FAQ, 2026-03-26): "if your Bench is full you cannot search or shuffle your deck."
+  // Compendium (Perfect Order FAQ, 2026-03-26): with a full Bench there is no search and no shuffle.
   const g = H([{ active: 'Shuppet', bench: ['Shuppet', 'Shuppet', 'Poltchageist', 'Poltchageist', 'Dhelmise'], hand: ['Telepathic Psychic Energy'] }, { active: 'Kyurem' }]);
   const before = g.state.p[0].deck.slice();
   choose(g, 'Attach Telepathic Psychic Energy to Shuppet');

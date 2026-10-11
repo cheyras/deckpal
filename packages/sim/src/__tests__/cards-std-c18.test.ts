@@ -223,7 +223,7 @@ for (const [id, nm, energy, base] of [
     const tails = mk([false]);
     choose(tails, 'Attack: Jet Headbutt');
     assert.equal(dmg(tails, 0), 0, "tails: that attack doesn't happen");
-    // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2317/): "You would flip for Sand Attack's effect first, then flip for Confusion."
+    // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2317/): flip for Sand Attack before checking Confusion.
     const sandTails = mk([false, false], CONFUSED);
     choose(sandTails, 'Attack: Jet Headbutt');
     assert.equal(sandTails.state.forcedCoins.length, 1, "tails on Sand Attack's flip: the attack never happens, so Confusion is never flipped");
@@ -370,7 +370,7 @@ test('Greninja ex, Shinobi Blade: 170, and you may search your deck for a card a
   choose(g, 'Attack: Shinobi Blade');
   assert.equal(dmg(g, 1), 170);
   yes(g);
-  // Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1980/): "You don't have to search, but if you do you must take a card and put it into your hand."
+  // Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1980/): searching is optional but finding a card requires taking one.
   assert.equal((g.decision as { min?: number }).min, 1, 'once you search you must take a card');
   choose(g, 'Slowpoke');
   assert.equal(g.state.p[0].hand.length, hand + 1);
@@ -421,8 +421,7 @@ test("Ting-Lu, Ground Crasher: 30; if a Stadium is in play, also 30 to each of t
 });
 
 test('Ting-Lu, Ground Crasher: the damage is done before the Stadium is discarded, but the Knock Out check comes after both (Compendium #2008)', () => {
-  // Ruling (TPCi Rules Team 2024-09-05, https://compendium.pokegym.net/ruling/2008/): "The damage is indeed done first and then Jamming Tower is
-  // discarded, but lucky for Cleffa the check for KO does not happen until all damage and effects have been resolved."
+  // Ruling (TPCi Rules Team 2024-09-05, https://compendium.pokegym.net/ruling/2008/): damage resolves before the Stadium is discarded; KO checks happen after all effects.
   // Hero's Cape (+100 HP) stands in for Bravery Charm: Jamming Tower switches it off while the Tower is in play.
   const dk = deck([TING_LU, DRA, TOWER, SLO, CAPE]);
   const g = scenario(dk, dk, [
@@ -459,8 +458,8 @@ test('Okidogi, Adrena-Power: with any {D} Energy attached it gets +100 HP and it
 });
 
 test('Okidogi, Adrena-Power: an Energy that provides every type counts as {D} Energy (Compendium #2170, which rules on Luminous Energy)', () => {
-  // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2170/): "Yes, although Luminous Energy only provides one unit of energy,
-  // it is providing all energy types all the time." Legacy Energy is the same kind of Energy in this catalog.
+  // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2170/): despite providing one unit, it counts as all types simultaneously.
+  // Legacy Energy is the same kind of Energy in this catalog.
   const dk = deck([OKIDOGI, DRA, LEGACY]);
   const g = scenario(dk, dk, [{ active: 'Okidogi', energy: { active: [FI, 'Legacy Energy'] } }, { active: 'Dragapult ex' }]);
   assert.equal(maxHp(g.envForInternals, g.state, g.state.p[0].active!), 230);

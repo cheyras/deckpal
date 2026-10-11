@@ -37,7 +37,7 @@ export const STD_C28: CardScript[] = [
     name: 'Tyme',
     // "Tell your opponent the name of a Pokémon in your hand and put that Pokémon face down in front of you. Your opponent guesses that Pokémon's HP, and then you reveal it.
     //  If your opponent guessed right, they draw 4 cards. If they guessed wrong, you draw 4 cards. Then, return the Pokémon to your hand."
-    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2068/): "No, you have to state the full card name. In this case, "Ceruledge ex"."
+    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2068/): you must state the full card name when choosing.
     // -- the Pokémon is chosen as a card, so its whole name is what the guess prompt names. It never leaves the hand in the model (it is returned at the end).
     playable: { gte: [{ count: { zone: 'hand', filter: { cat: 'pokemon' } } }, 1] },
     play: [
@@ -85,7 +85,7 @@ export const STD_C28: CardScript[] = [
     name: 'Flareon ex',
     attacks: {
       // "Search your deck for up to 2 Basic Energy cards and attach them to 1 of your Pokémon. Then, shuffle your deck."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2303/): "Yes. Even though you are going to fail the search, you still have to shuffle your deck."
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2303/): shuffle the deck even if the search finds nothing.
       // -- the shuffle is not conditional on finding (or attaching) anything.
       'Burning Charge': {
         post: [
@@ -182,7 +182,7 @@ export const STD_C28: CardScript[] = [
     abilities: [
       {
         // "Prevent all damage done to this Pokémon by attacks from your opponent's Pokémon ex."
-        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2095/): "No. Safeguard is an effect on Sylveon, and Demolish ignores effects on your opponent's Active Pokemon."
+        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2095/): Safeguard is an effect on the defending Pokémon, ignored by this.
         // -- an attack that isn't affected by effects on the Defending Pokémon (`ignore.defenderEffects`) gets through Safeguard.
         name: 'Safeguard',
         statics: [{ effect: { k: 'preventDamage', attacker: { ex: true } }, scope: 'self' }],

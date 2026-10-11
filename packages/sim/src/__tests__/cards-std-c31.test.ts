@@ -395,7 +395,7 @@ test("Super Potion: a Pokémon that can't be healed loses no damage, so no Energ
 });
 
 test('Super Potion: a Pokémon with no Energy still heals (ruling 1178); less than 60 damage heals what is there; only a damaged Pokémon can be chosen', () => {
-  // Ruling (XY FAQ, TPCi Rules Team 2014-02-06, https://compendium.pokegym.net/ruling/1178/): "You still remove 60 damage (or as much as you can), but that's all."
+  // Ruling (XY FAQ, TPCi Rules Team 2014-02-06, https://compendium.pokegym.net/ruling/1178/): healing works even for less than the full amount.
   const g = G([{ active: SUDO, bench: [SLO, REL], energy: { active: [W] }, damage: { active: 0, 0: 30 }, hand: ['Super Potion'] }, FOE()]);
   choose(g, 'Play Super Potion');
   assert.ok(!has(g, REL) || g.state.current === 0);
@@ -421,7 +421,7 @@ test("Spiky Energy: provides {C}; if the Pokémon it is attached to is in the Ac
 });
 
 test('Spiky Energy: even if the Pokémon is Knocked Out; the effect can stack (rulings 2121)', () => {
-  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2121/): "4 damage counters would be placed on the attacking Pokemon. The effect of Spiky Energy can stack."
+  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2121/): Spiky Energy effects stack, dealing 2 counters per copy attached.
   const ko = G([{ active: SLO, bench: [SUDO], energy: { active: ['Spiky Energy'] } }, { active: DRA, energy: { active: [P] } }], OPP_TURN);
   choose(ko, 'Attack: Jet Headbutt');
   assert.equal(ko.state.p[1].prizesTaken, 1, 'the Slowpoke was Knocked Out');
@@ -441,7 +441,7 @@ test('Spiky Energy: only while in the Active Spot (a Benched Pokémon damaged by
 });
 
 test('Spiky Energy: the Attacking Pokémon takes the counters even when both Active Pokémon went to the Bench (ruling 2371)', () => {
-  // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2371/): "... It doesn't matter where they end up as long as they are still in play."
+  // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2371/): Spiky Energy damage applies as long as both Pokémon stay in play.
   const dance: CardScript = {
     id: 'sv06-130',
     name: 'Dragapult ex',
@@ -544,7 +544,7 @@ test("Lurantis, Petal Blade Dance: discard 2 Basic {G} Energy cards from my hand
 });
 
 test("Hydrapple, Hydra Breath: discard 6 Basic {G} Energy cards from my hand and Knock Out the opponent's Active Pokémon; if I can't discard 6, nothing happens and nothing is discarded (ruling 2158)", () => {
-  // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2158/): "No, if you can't discard the six required Energy you cannot discard any Energy cards."
+  // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2158/): if the full cost cannot be paid, nothing is discarded.
   const six = Array<string>(6).fill(GR);
   const g = G([{ active: 'Hydrapple', energy: { active: [GR] }, hand: [...six, W] }, FOE()]);
   choose(g, 'Attack: Hydra Breath');
@@ -566,7 +566,7 @@ test("Hydrapple, Hydra Breath: discard 6 Basic {G} Energy cards from my hand and
 // ------------------------------------------------------------------ Team Rocket's Blipbug
 
 test("Team Rocket's Blipbug, Searching Eyes: look at 1 of the opponent's face-down Prize cards; it stays where it is (ruling 2163)", () => {
-  // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2163/): "Your opponent does not get to see the Prize card, and you must replace it in the same position in the Prize area that you took it from."
+  // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2163/): the opponent doesn't see the Prize; it returns to its original position.
   const g = G([{ active: "Team Rocket's Blipbug", energy: { active: [P] } }, FOE()]);
   const prizes = [...g.state.p[1].prizes];
   choose(g, 'Attack: Searching Eyes');
@@ -589,7 +589,7 @@ test("Arboliva ex, Oil Salvo: choose 1 of the opponent's Pokémon 6 times; 20 da
 });
 
 test('Arboliva ex, Oil Salvo: the damage to each Pokémon is totalled, then every modifier applies to the total (ruling 2161)', () => {
-  // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2161/): "... each of the chosen Pokemon receive 40 damage (20 times two) which is then reduced by 30 ... so each will ultimately take 10 damage."
+  // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2161/): damage totals first, then reductions apply to the total.
   const g = G([{ active: 'Arboliva ex', energy: { active: [GR] } }, FOE()]);
   inject(g, slotOf(g, 1, SLO).id, { k: 'damageIn', amount: -30 });
   inject(g, slotOf(g, 1, SUDO).id, { k: 'damageIn', amount: -30 });
@@ -607,7 +607,7 @@ test('Arboliva ex, Oil Salvo: the damage to each Pokémon is totalled, then ever
 });
 
 test('Arboliva ex, Oil Salvo: all the damage is done before Knock Outs, so Benched Pokémon are still damaged (ruling 2160)', () => {
-  // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2160/): "All damage is done before KO's happen ..."
+  // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2160/): all damage applies before KO resolution.
   const g = G([{ active: 'Arboliva ex', energy: { active: [GR] } }, { active: SLO, bench: [SUDO, REL], damage: { active: 60 } }]);
   choose(g, 'Attack: Oil Salvo');
   for (const n of [SLO, SUDO, SUDO, SUDO, SUDO, SUDO]) choose(g, n); // the Active Slowpoke is chosen first and Knocked Out; the Bench is still chosen and damaged

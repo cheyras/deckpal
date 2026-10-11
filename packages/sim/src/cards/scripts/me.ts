@@ -211,8 +211,8 @@ export const ME: CardScript[] = [
     id: 'me04-080',
     name: 'Prism Tower',
     // "Once during each player's turn, that player may discard 2 cards from their hand in order to draw a card."
-    // Rulings (TPCi 2026-05-21): "You must be able to discard 2 cards in order to use Prism Tower's effect";
-    // with no cards in the deck "you cannot simply discard 2 cards for no effect."
+    // Rulings (TPCi 2026-05-21): you need at least 2 cards in hand to use this effect;
+    // with no deck cards, you can't play it just to discard.
     stadiumAbility: {
       when: { and: [{ gte: [{ handSize: 'self' }, 2] }, { gte: [{ deckSize: 'self' }, 1] }] },
       program: [
@@ -227,7 +227,7 @@ export const ME: CardScript[] = [
     name: 'Special Red Card',
     // "You can use this card only if your opponent has 3 or fewer Prize cards remaining.
     //  Your opponent shuffles their hand and puts it on the bottom of their deck. If they put any cards on the bottom of their deck in this way, they draw 3 cards."
-    // Ruling (TPCi 2026-05-21): "If your opponent has no cards in their hand, you can't play Special Red Card."
+    // Ruling (TPCi 2026-05-21): requires opponent to have at least one hand card to play.
     playable: { and: [{ lte: [{ prizesLeft: 'opp' }, 3] }, { gte: [{ handSize: 'opp' }, 1] }] },
     play: [
       { op: 'custom', fn: 'shuffleHandToBottom', args: { who: 'opp' } },
@@ -272,7 +272,7 @@ export const ME: CardScript[] = [
     fix: { specialEnergy: true },
     provides: ['Psychic'],
     // "When you attach this card from your hand to a {P} Pokémon, search your deck for up to 2 Basic {P} Pokémon and put them onto your Bench. Then, shuffle your deck."
-    // Ruling (Perfect Order FAQ, 2026-03-26): "if your Bench is full you cannot search or shuffle your deck."
+    // Ruling (Perfect Order FAQ, 2026-03-26): a full Bench blocks this effect.
     triggers: [
       {
         on: 'attachFromHand',
