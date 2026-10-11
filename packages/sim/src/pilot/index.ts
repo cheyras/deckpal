@@ -5,12 +5,15 @@ import { DEFAULT_PROFILE, PolicyPilot, type PolicyProfile } from './policy.js';
 import { RandomPilot } from './random.js';
 import { SearchPilot, type SearchOptions } from './search.js';
 import type { Pilot } from './types.js';
+import type { Tuning } from './tuning.js';
 
 export type PilotName = 'random' | 'policy' | 'greedy' | 'search';
 
 export interface PilotOptions extends SearchOptions {
   weights?: EvalWeights;
   profile?: PolicyProfile;
+  /** Behaviour switches over the default (see tuning.ts). */
+  tuning?: Tuning;
 }
 
 /**
@@ -18,14 +21,16 @@ export interface PilotOptions extends SearchOptions {
  * determinisation samples), never the game's. Pilots keep no game state between
  * calls except their RNG, so one pilot per seat per game is the simplest use.
  */
-export function makePilot(name: PilotName, seed = 1, opts: PilotOptions = {}): Pilot {
+export function makePilot(name: PilotName, seed = 1, o: PilotOptions = {}): Pilot {
+  const profile: PolicyProfile = { ...DEFAULT_PROFILE, ...o.profile, ...(o.tuning ? { tuning: o.tuning } : {}) };
+  const opts: PilotOptions = { ...o, profile };
   switch (name) {
     case 'random':
       return new RandomPilot(seed);
     case 'policy':
-      return new PolicyPilot(opts.profile ?? DEFAULT_PROFILE);
+      return new PolicyPilot(profile);
     case 'greedy':
-      return new GreedyPilot(seed, { weights: opts.weights, profile: opts.profile });
+      return new GreedyPilot(seed, { weights: opts.weights, profile });
     case 'search':
       return new SearchPilot(seed, opts);
     default:

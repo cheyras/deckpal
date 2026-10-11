@@ -17,6 +17,7 @@ export { GreedyPilot, type GreedyOptions } from './pilot/greedy.js';
 export { SearchPilot, DEFAULT_SEARCH, type SearchOptions } from './pilot/search.js';
 export { PolicyPilot, policyChoose, publicPolicyChoose, DEFAULT_PROFILE, type PolicyProfile } from './pilot/policy.js';
 export { evaluate, DEFAULT_WEIGHTS, type EvalWeights } from './pilot/eval.js';
+export { DEFAULT_TUNING, type Tuning } from './pilot/tuning.js';
 export {
   defaultPilotFactory, isTimeout, ownTurn, runSimulation, simulate, simulateAsync,
   type FirstTurns, type GameSummary, type KoRecord, type PilotFactory, type Side, type SimulateOptions,

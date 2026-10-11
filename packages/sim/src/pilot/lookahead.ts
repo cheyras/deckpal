@@ -61,6 +61,87 @@ function defs(env: Env, cards: number[], sort: boolean): string {
   return out.join('.');
 }
 
+/** Scramble a 32-bit integer (a finalizer in the style of MurmurHash3). */
+function mix(x: number): number {
+  x = Math.imul(x ^ (x >>> 16), 0x85ebca6b);
+  x = Math.imul(x ^ (x >>> 13), 0xc2b2ae35);
+  return (x ^ (x >>> 16)) | 0;
+}
+
+/**
+ * A running 64-bit hash (two independent 32-bit lanes). `seq` adds a value in order, `bag` adds one whose order must not
+ * matter (a hand, a Bench): the sum of the scrambled members, so no sorting and no string building.
+ */
+class Hash {
+  a = 0x243f6a88;
+  b = 0x13198a2e;
+  seq(x: number): this {
+    this.a = mix(Math.imul(this.a, 0x2545f491) + x + 1);
+    this.b = mix(Math.imul(this.b, 0x27d4eb2f) + (x ^ 0x5bd1e995) + 7);
+    return this;
+  }
+  bag(xs: readonly number[], cd?: ArrayLike<number>): this {
+    let sa = xs.length;
+    let sb = 0;
+    for (const c of xs) {
+      const x = cd ? (cd[c] as number) : c;
+      sa = (sa + mix(x + 0x7f4a7c15)) | 0;
+      sb = (sb + mix(Math.imul(x, 0x9e3779b1) + 0x1b873593)) | 0;
+    }
+    return this.seq(sa).seq(sb);
+  }
+  /** Another hash, as one value (a Pokémon in the middle of a Bench, say). */
+  child(h: Hash): this {
+    return this.seq(h.a).seq(h.b);
+  }
+  value(): string {
+    return `${(this.a >>> 0).toString(36)}.${(this.b >>> 0).toString(36)}`;
+  }
+}
+
+function slotHash(env: Env, sl: Slot): Hash {
+  const cd = env.ctx.cardDef;
+  const h = new Hash();
+  for (const c of sl.cards) h.seq(cd[c] as number);
+  h.seq(-1).bag(sl.energy, cd).seq(-2);
+  for (const c of sl.tools) h.seq(cd[c] as number);
+  h.seq(sl.damage).seq(sl.cond).seq(sl.enteredTurn).seq(sl.evolvedTurn);
+  for (const u of sl.usedAbilities) h.seq(u);
+  return h;
+}
+
+/**
+ * A key of what `me` can see of a position: both boards, the Stadium, my hand and both discard piles by card, deck /
+ * hand / Prize SIZES (the opponent's hand and either deck's order are not in it), and the turn flags. Two positions with
+ * the same key look the same to `me`, which is how a search recognises one an earlier search of the turn has already
+ * played out, whatever world each was run in. A 64-bit hash of that, as a string.
+ */
+export function publicKey(env: Env, s: GameState, me: Player): string {
+  const cd = env.ctx.cardDef;
+  const h = new Hash().seq(s.turn).seq(s.current);
+  for (let i = 0; i < s.step.length; i++) h.seq(s.step.charCodeAt(i));
+  h.seq(s.stadium ? (cd[s.stadium.card] as number) * 2 + s.stadium.owner : -1);
+  for (let who = 0; who < 2; who++) {
+    const ps = s.p[who] as GameState['p'][0];
+    if (who === me) h.bag(ps.hand, cd);
+    else h.seq(ps.hand.length);
+    h.seq(ps.deck.length).bag(ps.discard, cd).seq(ps.prizes.length);
+    h.seq(+ps.supporterPlayed + 2 * +ps.stadiumPlayed + 4 * +ps.energyAttached + 8 * +ps.retreated + 16 * +ps.stadiumAbilityUsed + 32 * (ps.toolUsed?.length ?? 0));
+    for (const g of ps.globalAbilitiesUsed) for (let i = 0; i < g.length; i++) h.seq(g.charCodeAt(i));
+    h.seq(ps.active ? 1 : 0);
+    if (ps.active) h.child(slotHash(env, ps.active));
+    let ba = ps.bench.length;
+    let bb = 0;
+    for (const sl of ps.bench) {
+      const sh = slotHash(env, sl);
+      ba = (ba + mix(sh.a)) | 0;
+      bb = (bb + mix(sh.b ^ 0x3c6ef372)) | 0;
+    }
+    h.seq(ba).seq(bb).seq(ps.lost.length);
+  }
+  return h.seq(s.effects.length).seq(s.delayed?.length ?? 0).value();
+}
+
 /** Canonical key of a position: card instances by definition, Bench as a multiset (collisions only merge near-identical lines). */
 export function hashState(env: Env, s: GameState): string {
   const parts: string[] = [String(s.turn), String(s.current), s.step, s.stadium ? `${env.ctx.cardDef[s.stadium.card]}@${s.stadium.owner}` : '-'];

@@ -13,7 +13,7 @@
 import { def, type Env } from '../context.js';
 import { energyUnits, statics, type LiveStatic } from '../query.js';
 import { ASLEEP, BURNED, CONFUSED, PARALYZED, POISONED, type GameState, type Player, type Slot } from '../types.js';
-import { allSlots, bestAttack, facts, hpLeft, opp, prizeValue, topCard } from './knowledge.js';
+import { allSlots, bestAttack, facts, handHasEnergy, hpLeft, opp, prizeValue, topCard } from './knowledge.js';
 
 export interface EvalWeights {
   win: number;
@@ -25,6 +25,17 @@ export interface EvalWeights {
   threatLater: number;
   /** Extra when that KO would take the last Prize cards. */
   lethalThreat: number;
+  /**
+   * A Knock Out next turn on a lone Active (no Bench to promote) ends the game: that side loses, whatever the Prizes
+   * say. Scored for the side that would make it.
+   */
+  wipeout: number;
+  /**
+   * How much a Knock Out that needs one more Energy attached counts, against one the attacker can already make: for
+   * my own attackers when my hand holds no Energy to attach (I can only hope to draw one). Every other case — an
+   * Energy in my hand, or the opponent's attackers, whose hand is hidden — counts in full.
+   */
+  koNoEnergy: number;
   /** Threats from the Bench (needs a retreat/switch first) count this fraction. */
   benchThreat: number;
   /** Per point of the best attacker's damage, discounted by Energy still missing. */
@@ -63,6 +74,8 @@ export const DEFAULT_WEIGHTS: EvalWeights = {
   threatNow: 420,
   threatLater: 220,
   lethalThreat: 2500,
+  wipeout: 20_000,
+  koNoEnergy: 0.5,
   benchThreat: 0.55,
   power: 0.9,
   energyShort: 35,
@@ -72,7 +85,7 @@ export const DEFAULT_WEIGHTS: EvalWeights = {
   hand: 14,
   handCap: 10,
   deckOut: 250,
-  deckSafe: 4,
+  deckSafe: 12,
   liability: 110,
   stuck: 60,
   poison: 25,
@@ -108,12 +121,15 @@ function offence(
   let bestPower = 0;
   let bestMissing = 99;
   const fx = facts(env.ctx);
+  // The Knock Out that needs the next attachment counts in full unless it is my own and my hand has no Energy for it.
+  const pAttach = p === viewer && !handHasEnergy(env, s, p) ? w.koNoEnergy : 1;
   const consider = (sl: Slot, bench: boolean) => {
     const di = env.ctx.cardDef[topCard(sl)] as number;
     if (bench && !(fx.power[di] as number) && !fx.copier.has(di)) return; // no damage to estimate
     const t = bestAttack(env, s, sl, p, target, extra, all, viewer);
     const f = bench ? w.benchThreat : 1;
-    if (t.dmg >= tLeft) ko = Math.max(ko, f);
+    if (t.dmg0 >= tLeft) ko = Math.max(ko, f);
+    else if (t.dmg >= tLeft) ko = Math.max(ko, f * pAttach);
     const disc = MISSING_DISCOUNT[Math.min(t.missing, 4)] as number;
     const pw = Math.min(t.dmg >= tLeft ? tLeft : t.dmg, 400) * disc * f;
     if (pw > bestPower) bestPower = pw;
@@ -127,6 +143,7 @@ function offence(
     const tw = movesNext ? w.threatNow : w.threatLater;
     score += ko * tw * tPrize;
     if (them.prizes.length > 0 && me.prizes.length <= tPrize) score += ko * w.lethalThreat * (movesNext ? 1 : 0.5);
+    if (them.bench.length === 0) score += ko * w.wipeout * (movesNext ? 1 : 0.5);
   }
   return score;
 }

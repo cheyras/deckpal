@@ -317,6 +317,8 @@ export function attackDamage(env: Env, s: GameState, attacker: Slot, owner: Play
 export interface Threat {
   /** Best damage this Pokémon can do to the target with `extra` more Energy (any type). */
   dmg: number;
+  /** The same with the Energy it has now (no more attached): the damage it is sure to be able to do. */
+  dmg0: number;
   /** Energy units still missing for that attack (beyond `extra`). */
   missing: number;
 }
@@ -330,6 +332,7 @@ export function bestAttack(env: Env, s: GameState, attacker: Slot, owner: Player
   const d = def(env.ctx, topCard(attacker));
   const units = energyUnits(env, attacker, s, all);
   let dmg = 0;
+  let dmg0 = 0;
   let bestMissing = 99;
   let bestAny = 0;
   // Attacks printed on an attached Tool count too (a Technical Machine).
@@ -338,12 +341,13 @@ export function bestAttack(env: Env, s: GameState, attacker: Slot, owner: Player
     const miss = missingUnits(cost, units);
     const dd = o.card === undefined ? attackDamage(env, s, attacker, owner, o.idx, target, all, viewer) : attackDamageWithDef(env, s, o.d, o.idx, attacker, owner, target, all, viewer);
     if (miss <= extra && dd > dmg) dmg = dd;
+    if (miss <= 0 && dd > dmg0) dmg0 = dd;
     if (dd > bestAny || (dd === bestAny && miss < bestMissing)) {
       bestAny = dd;
       bestMissing = Math.max(0, miss - extra);
     }
   }
-  return { dmg, missing: bestAny > 0 ? bestMissing : 99 };
+  return { dmg, dmg0, missing: bestAny > 0 ? bestMissing : 99 };
 }
 
 export function hpLeft(env: Env, s: GameState, sl: Slot, all: LiveStatic[]): number {
