@@ -58,9 +58,11 @@ function deck(...ids: string[]): DeckInput {
   return fromIds('c29', [...[...new Set(ids)].map((id): [string, number] => [id, 4]), ...ENERGY]);
 }
 const ALL = [
-  'sv08.5-115', 'sv08.5-116', 'sv08.5-127', 'sv08.5-131', 'sv09-003', 'sv09-004', 'sv09-005', 'sv09-008', 'sv09-011',
+  'sv08.5-115', 'sv08.5-116', 'sv08.5-127', 'sv08.5-131', 'sv09-003', 'sv09-004', 'sv09-005', 'sv09-007', 'sv09-008', 'sv09-011',
   'sv09-012', 'sv09-013', 'sv09-014', 'sv09-017', 'sv09-018', 'sv09-020', 'sv09-034', 'sv09-042', 'sv09-043', 'sv09-047', 'sv09-048',
 ];
+const PETILIL_ID = 'sv10.5b-006'; // Petilil: Basic Grass
+const SLUGMA_ID = 'sv05-028'; // Slugma: Basic Fire, Roasting Heat {R} 10
 const DRA_ID = 'sv06-130'; // Dragapult ex: Tera, Stage 2, Dragon, 320 HP, no Weakness or Resistance: a neutral target; Jet Headbutt {C} 70
 const DRA = 'Dragapult ex';
 const SLO_ID = 'me05-029'; // Slowpoke: Basic Psychic 70 HP, weak Darkness; Headbutt {C}{C} 20; retreat 2
@@ -71,7 +73,7 @@ const LUNA_ID = 'me01-074'; // Lunatone: Basic, weak Grass
 const LIL = "Lillie's Determination"; // a Supporter
 const BOSS = "Boss's Orders"; // a Supporter
 const MEOWTH_ID = 'me03-062'; // Meowth ex: Tuck Tail {C}{C}{C} 60, then it goes to its owner's hand
-const COMMON = [DRA_ID, SLO_ID, REL_ID, LUNA_ID, MEOWTH_ID, 'me01-119', 'me01-114', 'me01-131', 'sv10.5b-079', 'sv05-151', 'sv06-167'];
+const COMMON = [PETILIL_ID, SLUGMA_ID, DRA_ID, SLO_ID, REL_ID, LUNA_ID, MEOWTH_ID, 'me01-119', 'me01-114', 'me01-131', 'sv10.5b-079', 'sv05-151', 'sv06-167'];
 const DK = deck(...ALL, ...COMMON);
 const G = 'Grass Energy';
 const F = 'Fire Energy';
@@ -245,6 +247,41 @@ test('Parasect, Scissor Swing: 60, flip 2 coins, 30 more for each heads', () => 
   assert.equal(run([true, true]), 120);
   assert.equal(run([true, false]), 90);
   assert.equal(run([false, false]), 60);
+});
+
+// ------------------------------------------------------------------ Lilligant
+
+test("Lilligant, Sunny Day: your {G} and {R} Pokémon's attacks do 20 more damage to the opponent's Active Pokémon, before Weakness", () => {
+  const withLilligant = (active: string, energy: string[], target: string, bench: string[] = []): Game => {
+    const g = game([{ active, bench: ['Petilil', ...bench], energy: { active: energy }, evolve: { 0: ['Lilligant'] } }, { active: target }]);
+    return g;
+  };
+  // {G} attacker: Parasect's Scissor Swing is 60 (no heads) and becomes 80.
+  const grass = game([{ active: 'Parasect', bench: ['Petilil'], energy: { active: [G, G] }, evolve: { 0: ['Lilligant'] } }, { active: DRA }]);
+  grass.state.forcedCoins = [false, false];
+  choose(grass, 'Attack: Scissor Swing');
+  assert.equal(dmg(grass, 1), 80);
+  // {R} attacker: Slugma's Roasting Heat 10 becomes 30.
+  const fire = withLilligant('Slugma', [F], DRA);
+  choose(fire, 'Attack: Roasting Heat');
+  assert.equal(dmg(fire, 1), 30);
+  // Added before Weakness: Lunatone is weak to {G} (x2), so (10 + 20) x 2.
+  const weak = game([{ active: 'Paras', bench: ['Petilil'], energy: { active: [G] }, evolve: { 0: ['Lilligant'] } }, { active: 'Lunatone' }]);
+  choose(weak, 'Attack: Leech Life');
+  assert.equal(dmg(weak, 1), 60);
+  // Another type (Slowpoke is {P}) gets nothing.
+  const psychic = withLilligant('Slowpoke', [P, P], DRA);
+  choose(psychic, 'Attack: Headbutt');
+  assert.equal(dmg(psychic, 1), 20);
+});
+
+test("Lilligant, Sunny Day: not while Lilligant is not in play, and each Lilligant adds 20", () => {
+  const none = game([{ active: 'Slugma', energy: { active: [F] } }, { active: DRA }]);
+  choose(none, 'Attack: Roasting Heat');
+  assert.equal(dmg(none, 1), 10);
+  const two = game([{ active: 'Slugma', bench: ['Petilil', 'Petilil'], energy: { active: [F] }, evolve: { 0: ['Lilligant'], 1: ['Lilligant'] } }, { active: DRA }]);
+  choose(two, 'Attack: Roasting Heat');
+  assert.equal(dmg(two, 1), 50);
 });
 
 // ------------------------------------------------------------------ Maractus

@@ -320,6 +320,8 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   // std-s02-customs.ts
   's02.damageDoneAsCounters': (a) => `Set "${String(a.as ?? 'n')}" to the number of damage counters equal to the damage the opponent's attack did to the Pokémon that was damaged this turn (counted before any cap at its HP; 0 when none is on record)`,
   's02.moveBasicEnergyToBench': (a) => `Move up to ${Number(a.max ?? 3)} Basic Energy cards (at least one) from that Pokémon to your Benched Pokémon other than it, choosing for each card where it goes`,
+  's02.salvatoreEvolve': () =>
+    'Search your deck for up to 1 card that has no Ability and evolves from 1 of your Pokémon (an Evolution) and put it onto that Pokémon to evolve it (a Pokémon put into play this turn counts; one that already evolved this turn does not); when more than 1 of your Pokémon could evolve into it, you choose which',
   's02.rememberCodeProtect': () =>
     "Mark this Pokémon through the end of your opponent's next turn; the mark ends when it is no longer your Active Pokémon. While the mark holds, the static on the card prevents all damage done to each of your Future Pokémon (your Pokémon in play) by attacks from Pokémon ex",
 };
@@ -2281,6 +2283,11 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv07-119|ability:Curly Wall': {
     problems: ['number 1 is printed 1× but rendered 0×'],
     why: 'The printed "at least 1 other Bouffalant" counts the Bouffalant in play other than the source; the source is itself one of the Pokémon counted by `pokemon`, so the condition is written as 2 or more Pokémon named Bouffalant (this one plus at least 1 other), and the 1 appears only as that 2.',
+  },
+  // std-c29
+  'sv09-007|ability:Sunny Day': {
+    problems: ['"your pokemon" is printed but not rendered'],
+    why: 'The printed "your {G} Pokémon and {R} Pokémon" is one filter over two types, which the renderer words as "your {G} or {R} Pokémon"; the type symbols sit between "your" and "Pokémon", so the two-word phrase never appears, but it is the same set of Pokémon.',
   },
   // std-c23
   'sv07-123|attack:Aero Chase': {

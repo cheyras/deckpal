@@ -137,6 +137,10 @@ function eventCards(e: LiveEvent): CardMention[] {
     case 'attach':
       push(e.card);
       break;
+    case 'evolve':
+      // An Evolution an effect put onto a Pokémon (Salvatore, from the deck) is the result of a card choice; a played one is an action.
+      if (e.sub) push(e.to);
+      break;
     case 'hand_add':
       push(e.card);
       break;
@@ -160,6 +164,8 @@ function fromZone(e: LiveEvent, zone: string): boolean {
     case 'attach':
     case 'move_cards':
       return true;
+    case 'evolve':
+      return zone === 'deck' || zone === 'discard';
     default:
       return false;
   }
@@ -182,6 +188,9 @@ function eventTarget(e: LiveEvent): [Side | null, string] | null {
       return [e.p, e.to.name];
     case 'attack':
       return [e.target.player, e.target.card.name];
+    case 'evolve':
+      // The Pokémon an effect evolved (the choice of which one comes after the choice of the Evolution).
+      return e.sub ? [e.p, e.from.name] : null;
     case 'use':
       return e.target ? [e.target.player, e.target.card.name] : null;
     default:
@@ -1225,7 +1234,17 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       const n = left.filter((w) => values.some((v) => isCard(v, w, false)) || names.includes(HIDDEN)).length;
       return n > 0 && n >= Math.min(left.length, d.min);
     });
-    if (at < 0) return null;
+    if (at < 0) {
+      // A search whose result the log hides: Live prints the opponent's deck search as "<player> drew a card." (hidden), with
+      // no card to match. The search answers it: as many cards as the log shows drawn (the hidden cards are not named, so which
+      // ones is the engine's business), taking those draw lines so they are not left over as a draw the engine never made.
+      if (zone !== 'deck') return null;
+      const hidden = drawItems.filter((x) => !x.used && x.name === HIDDEN && x.side === p && x.seq > scopeSeqs[0] && x.seq <= scopeSeqs[1]);
+      const n = Math.min(d.max, hidden.length, values.length);
+      if (n < Math.max(d.min, 1)) return null;
+      for (const it of hidden.slice(0, n)) it.used = true;
+      return Array.from({ length: n }, (_, i) => i);
+    }
     take(lines[at]!);
     // One effect, several lines: Metal Maker attaches each Energy on a line of its own.
     if (lines[at]!.t === 'attach') for (const e of lines.slice(at + 1)) if (e.t === 'attach' && pick.length < d.max) take(e);
@@ -1246,8 +1265,9 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       const t: [Side | null, string] | null = discardFrom ? (e.t === 'discard' && e.from ? [e.from.player, e.from.card.name] : null) : eventTarget(e);
       if (!t) continue;
       // The side the line names, else the other (Live credits a Hammer's discard to the wrong player).
-      const named = values.some((id) => slotMatches(id, t[1]) && (t[0] === null || findSlot(s, id)?.owner === t[0]));
-      const fits = (id: number, k: number) => !picked.includes(k) && slotMatches(id, t[1]) && (!named || t[0] === null || findSlot(s, id)?.owner === t[0]);
+      const where = e.t === 'evolve' ? e.where : undefined; // "on the Bench" / "in the Active Spot"
+      const named = values.some((id) => slotMatches(id, t[1], where) && (t[0] === null || findSlot(s, id)?.owner === t[0]));
+      const fits = (id: number, k: number) => !picked.includes(k) && slotMatches(id, t[1], where) && (!named || t[0] === null || findSlot(s, id)?.owner === t[0]);
       if (e.t === 'counters') {
         const left = countersLeft.get(e.seq) ?? e.count;
         if (left <= 0) continue;

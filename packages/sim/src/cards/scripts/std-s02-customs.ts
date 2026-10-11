@@ -4,12 +4,12 @@
  *
  * A custom that asks a decision sets `s.pending` (the answer comes back as `answer`) and returns 'wait'.
  */
-import { def } from '../../context.js';
+import { def, type Env } from '../../context.js';
 import { registerCustom, registerCustomCond } from '../../customs.js';
 import { cardMatches } from '../../eval.js';
 import { retreatCost } from '../../query.js';
-import { emit, findSlot, removeFrom, topCard } from '../../state.js';
-import type { Decision, GameState, Slot, TimedEffect } from '../../types.js';
+import { allSlots, clearAttackEffects, emit, findSlot, removeFrom, topCard } from '../../state.js';
+import type { Decision, GameState, Player, Slot, TimedEffect } from '../../types.js';
 
 function ask(s: GameState, d: Decision, mode: 'cards' | 'slots'): 'wait' {
   s.pending = { decision: d, resume: { k: 'frame', as: '__a', mode } };
@@ -120,3 +120,53 @@ registerCustom('s02.rememberCodeProtect', (_env, s, f) => {
 registerCustomCond('s02.codeProtectActive', (_env, s, ec) =>
   s.effects.some((e) => e.slot === ec.slot && e.static.k === 'cantUseAttack' && e.static.attack === CODE_PROTECT && e.until === s.turn),
 );
+
+/**
+ * Salvatore: "Search your deck for a card that has no Abilities and evolves from 1 of your Pokémon, and put it onto that Pokémon to
+ * evolve it. ... You can use this card on a Pokémon you put down when you were setting up to play or on a Pokémon that was put into
+ * play this turn."
+ * The controller picks the card (up to 1: a search may find nothing), then, when 2 or more of their Pokémon could take it, which
+ * Pokémon. A Pokémon that already evolved this turn can't evolve again; being new does not matter. The Evolution comes from the deck,
+ * not the hand, so nothing that triggers "when you play this from your hand to evolve" fires. Evolving clears Special Conditions and
+ * attack effects, as every Evolution does. The script shuffles afterwards.
+ */
+function salvatoreTargets(env: Env, s: GameState, p: Player, card: number): Slot[] {
+  const d = def(env.ctx, card);
+  return allSlots(s.p[p]).filter((sl) => sl.evolvedTurn < s.turn && !!d.evolvesFrom && def(env.ctx, topCard(sl)).name === d.evolvesFrom);
+}
+registerCustom('s02.salvatoreEvolve', (env, s, f, _args, answer) => {
+  const p = f.player;
+  let card = f.vars.__salCard as number | undefined;
+  if (card === undefined) {
+    const pool = s.p[p].deck.filter((c) => {
+      const d = def(env.ctx, c);
+      return d.kind === 'pokemon' && d.abilities.length === 0 && salvatoreTargets(env, s, p, c).length > 0;
+    });
+    if (!pool.length) return 'next';
+    if (answer === undefined) {
+      return ask(s, { player: p, kind: 'cards', prompt: 'Search your deck for a card with no Abilities that evolves from 1 of your Pokémon', min: 0, max: 1, values: pool }, 'cards');
+    }
+    card = (answer as number[]).find((c) => pool.includes(c));
+    answer = undefined;
+    if (card === undefined) return 'next';
+    f.vars.__salCard = card;
+  }
+  const targets = salvatoreTargets(env, s, p, card);
+  let sl: Slot | undefined;
+  if (answer !== undefined) sl = targets.find((t) => t.id === (answer as number[])[0]);
+  else if (targets.length === 1) sl = targets[0];
+  else if (targets.length > 1) {
+    return ask(s, { player: p, kind: 'slots', prompt: `Evolve which Pokémon into ${def(env.ctx, card).name}?`, min: 1, max: 1, values: targets.map((t) => t.id) }, 'slots');
+  }
+  delete f.vars.__salCard;
+  if (!sl || !removeFrom(s.p[p].deck, card)) return 'next';
+  const spent = sl.usedAbilities.map((i) => def(env.ctx, topCard(sl!)).abilities[i]?.name);
+  sl.cards.push(card);
+  sl.usedAbilities = def(env.ctx, card).abilities.flatMap((ab, i) => (spent.includes(ab.name) ? [i] : []));
+  sl.evolvedTurn = s.turn;
+  sl.cond = 0;
+  delete sl.movedActiveTurn;
+  clearAttackEffects(s, sl.id);
+  emit(env, { type: 'evolve', player: p, card, slot: sl.id });
+  return 'next';
+});
