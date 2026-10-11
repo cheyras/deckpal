@@ -136,6 +136,15 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'seed2.tormentDefender': () =>
     "Choose 1 of your opponent's Active Pokémon's attacks. During your opponent's next turn, that Pokémon can't use that attack",
   'seed2.energyToHand': () => 'Put an Energy attached to this Pokémon into your hand',
+  // std-seed4-customs.ts
+  'seed4.retreatCostOf': (a) => `Count the {C} in your opponent's Active Pokémon's Retreat Cost, as it is right now (into "${String(a.as ?? 'n')}")`,
+  'seed4.summoningGate': (a) =>
+    `Look at the top ${Number(a.n ?? 8)} cards of your deck. You may put any number of Pokémon (of any Stage) you find there onto your Bench, as many as it has room for. Shuffle the other cards back into your deck. With a full Bench, nothing happens`,
+  'seed4.pickBasicEnergyAmong': (a) =>
+    `You may choose any amount (0 to all) of the Basic Energy attached to your Pokémon, to be discarded after the damage (into "${String(a.as ?? 'd')}")`,
+  'seed4.discardPicked': (a) => `Discard the Energy cards chosen as "${String(a.cards ?? 'd')}" from the Pokémon they are attached to`,
+  'seed4.energyToOppHand': (a) => `Put ${Number(a.n ?? 2)} Energy attached to your opponent's Active Pokémon into their hand (all of them if it has fewer)`,
+  'seed4.shuffleSlotIntoDeck': (a) => `Shuffle the Pokémon chosen as "${String(a.slot ?? 't')}" and all attached cards into their deck`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -1555,5 +1564,10 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me02.5-161|attack:Paw-cket Pilfer': {
     problems: ['"reveal" is printed but not rendered'],
     why: 'The random card is revealed and then immediately shuffled into the deck, so the reveal has no later effect and nothing in the script keeps it; the custom picks the card uniformly at random and the card moves to the deck.',
+  },
+  // std-seed4
+  'me05-067|attack:Fly': {
+    problems: ['"tails" is printed but not rendered'],
+    why: '"If tails, this attack does nothing" is the else branch of the heads test: the flip renders as "If heads, ... Otherwise, this effect ends here", so tails is the unnamed complement; the card test pins tails (no damage, no protection) and heads.',
   },
 };
