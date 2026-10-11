@@ -9,7 +9,7 @@ Choose the route from those answers. For competitive play with little practice t
 
 ## Build and verify
 
-Draft the list yourself with real catalog-grounded card ids and real counts. Never make the reader type the list. It must total 60 cards and obey the chosen format. Build coherent evolution lines and enough setup, draw, search, switching and Energy. As starting sense rather than law, expect around 20 Pokémon, 30 Trainers and 10 Energy, give or take; 12 Basics opens with one about 81% of the time while 8 is about 65%; four to nine draw Supporters, two to four gust effects and Item search are common. Explain deviations instead of forcing these numbers.
+Draft the list yourself with real catalog-grounded card ids and real counts. Never make the reader type the list. It must total 60 cards and obey the chosen format. Build coherent evolution lines and enough setup, draw, search, switching and Energy. As starting sense rather than law, expect around 20 Pokémon, 30 Trainers and 10 Energy, give or take; 12 Basics opens with one about 81% of the time while 8 is about 65%; four to nine draw Supporters, two to four gust effects and Item search are common. Explain deviations instead of forcing these numbers. Answer consistency questions (opening a Basic, three versus four copies, both Rare Candy prized) with \`deck_odds\` on the draft before it is saved.
 
 Run \`check_deck\`, fix everything it flags, and run \`check_deck\` again. Only after it is legal at 60, show it with \`showDeck\`. Never type the deck list into chat as a substitute for the deck widget. Briefly explain the plan, the two or three choices that make it theirs, weaknesses, missing cards and cost, then ask what they would change.
 

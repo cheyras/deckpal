@@ -38,6 +38,7 @@ test('the conversation, memory, progress, asking, and failure contracts are pres
     'Progress while you work',
     'one `ask_user` card that turn',
     'Keep working until everything they asked for is done',
+    'Odds come from `deck_odds`, never from your head.',
     'Never say you were blocked, refused or declined unless the reader actually',
   ]) {
     assert.ok(p.includes(phrase), `missing: ${phrase}`)

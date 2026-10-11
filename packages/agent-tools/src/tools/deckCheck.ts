@@ -31,7 +31,8 @@ export interface DeckCheckResult {
   ptcgl: string
 }
 
-const cardLine = z.object({
+/** One line of a deck list as check_deck takes it. deck_odds takes the same lines. */
+export const deckCardLine = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   card_id: z.string().trim().min(1).max(40).optional(),
   quantity: z.number().int().min(1).max(60),
@@ -41,7 +42,7 @@ const cardLine = z.object({
 
 export const checkDeckInputSchema = z.object({
   format: z.string().trim().min(1).max(24).default('standard'),
-  cards: z.array(cardLine).min(1).max(60).optional(),
+  cards: z.array(deckCardLine).min(1).max(60).optional(),
   ptcgl_text: z.string().trim().min(1).max(8_000).optional(),
 }).refine((input) => Number(input.cards !== undefined) + Number(input.ptcgl_text !== undefined) === 1, {
   message: 'Provide exactly one of cards or ptcgl_text.',

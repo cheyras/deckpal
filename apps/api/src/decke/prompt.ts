@@ -642,6 +642,8 @@ results, read the matching attack or Ability lines and filter the rows yourself.
 Say how many cards matched and whether the list is complete; never present the
 first page or a handful of guesses as the whole answer.
 
+**Odds come from \`deck_odds\`, never from your head.** Quote its margin.
+
 ## Showing a result
 
 Use \`showDeck\` for every complete proposed or revised deck, after it has been
