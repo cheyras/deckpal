@@ -276,7 +276,69 @@ Ability, a Tool, a Stadium or an Energy, and it holds while its source is in pla
   Clefairy ex), `damageOut`, `damageIn`, `hp`, `cantAttack`, `cantRetreat`,
   `noAbilities`, `itemLock`, `countersFixed` (Patrat), `cantUseAttack` (Mega Lucario ex,
   Mega Brave), `extraPrize` (Togekiss, Wonder Kiss), `loseSelfKoAbilities` (Psyduck, Damp),
-  `noToolEffects` (Jamming Tower).
+  `noToolEffects` (Jamming Tower). Added with std-engine4: `benchSize` (Area Zero Underdepths: `size: 8,
+  withPokemon: { tera: true }`, scope `both`; the engine discards a Bench down to the limit when it stops
+  applying, the Stadium's player first), `noWeakness` (Archaludon ex, a timed effect), `attackCostLess`
+  ("costs 1 Energy less", any type: Sparkling Crystal; `canPayAttack` leaves a requirement out),
+  `grantsAttacks` (a Tool whose printed attack the holder can use: Technical Machine, Core Memory; the Tool's
+  `attacks` script is the attack's program, and `filter` limits it to a Pokémon), `attackTwice` (Festival
+  Lead, with the Stadium as the static's `when`; a second attack must be a printed one), `playLock`
+  (`what`: `stadium`, `supporter`, `aceSpec`, `evolve`; player-level like `itemLock`), and
+  `preventTrainerEffects` (Item / Supporter effects the opponent plays done to the Pokémon; Unnerve, Wide Wall).
+  An attack can carry `usable: Cond` ("You can use this attack only if ..."), `heal` takes
+  `{ each: zone, filter }`, the `stadium` condition takes `of` (whose Stadium) and `{ benchRoom: who }` counts open Bench spaces.
+  Added with std-engine5: `evolveTiming` (`firstTurn` / `justPlayed`, `into` a filter; a Pokémon that evolved this turn
+  counts as played this turn: Forest of Vitality, Boosted Evolution, Fighting Roar; the first-turn ban stays unless
+  `firstTurn`), `evolveInto` (Rainbow DNA: cards that evolve from another name), `koToHand` ("put it / the Basic
+  {W} Energy attached into your hand instead of the discard pile" when Knocked Out by damage from an attack: Gengar,
+  Huntail; `optional` asks the owner a yes/no before the Prize cards), and on `preventDamage`: `attacker` now
+  limits the *effects* too with `andEffects` (Milotic ex, Carracosta, Acerola's Mischief), and `ifAtMost` /
+  `ifAtLeast` prevent damage by its amount as it stands after Weakness and Resistance (Harden, Impervious Shell).
+  `BENCH_SPACE` (helpers.ts) is `{ benchRoom: 'self' }`: use it, never `5 − Bench`. A `switch` from an attack or
+  Ability that the attacking player aims at a Benched Pokémon protected from attack / Ability effects does nothing,
+  and the rest of the program has no "new Active Pokémon" (`oppActive` resolves to nothing: ruling 2155).
+  Added with std-engine6: `playLock` also stops `'tool'` cards and `'abilityPokemon'` (Pokémon with a printed Ability, put
+  on the Bench or played to evolve; `except: Filter` spares some: Potent Glare; the Ability on the card in hand counts, so
+  Team Rocket's Watchtower doesn't lift it, ruling 2147); `extraPrize` takes `ko: Filter` (a Knocked Out Pokémon of that kind,
+  Active or Benched, by damage from an attack: 1 more per Pokémon) and `byThis` (the attack must be this Pokémon's: Greedy
+  Eater); `koPrizes` takes `anyKo` (any Knock Out) and `duringTakersTurn` (an attack's "During your next turn, if the
+  Defending Pokémon is Knocked Out, take 2 more Prize cards": Plentiful Pollen, it ends if the Pokémon leaves the Active
+  Spot or evolves, ruling 1957); `condition` with `counters` also works on `burned` (instead of 2; the amount is cleared by a
+  plain application); `checkupCounters` (`cond`, `n`, `noStack`: "During Pokémon Checkup, put N more damage counters on
+  the Poisoned / Burned ...", added before the Burn flip: Magma Surge, Perilous Jungle, ruling 2112); `hp` takes `noStack`.
+  Prize cards can be face up: the `turnPrizeUp` step ({ who, as }; the first face-down one), the `{ prizeCards: { who,
+  face: 'up' | 'down', filter } }` count (the filter is for face-up cards only) and `PlayerState.prizesUp`, which the
+  hidden-information copy keeps in place. The condition `{ attackedLastTurn: { who, filter, other } }` reads which of a
+  player's Pokémon used an attack in their last turn (recorded per Pokémon in play, as the card when it has left; a
+  Confused Pokémon that fails its flip did not attack, ruling 2087): Koraidon.
+  Added with std-engine7: `toolSlots` (`n`: a Pokémon may hold up to n Tools, the most any effect on it allows; when the effect
+  stops its owner discards down, checked after every action: Rotom ex, Multi Adapter), `damageCoinFlip` ("if any damage is done to
+  this Pokémon by attacks, flip a coin. If heads, prevent that damage"; the owner flips, only when damage would really be done and
+  not for an attack that ignores effects on the Defending Pokémon, ruling 2040; put "has any {D} Energy" in `when`: Cinccino ex,
+  Fezandipiti, Kecleon), `retreatCoinFlip` (player-level, scope `opp`: Goodra, the retreat is used up on tails, never two flips),
+  `coinReflip` (a Tool's: after the attack's coin flips, once during your turn, the same flip step is flipped again, offered when the
+  attack's program flips in one place only; Confusion's flip is never offered, ruling 2417: Backtrack Badge), `keepConfusion`
+  (Dizzying Valley: evolving keeps Confusion, `confusionKept` in query.ts), `energyProvides` (`cards`, `provides`: Basic {G} Energy
+  provides {G}{G}; a replacement that never adds up, counts everywhere Energy is counted, and needs the game state: pass `s` to
+  `energyUnits` / `cardUnits` / `pushUnits`, ctx flag `energyMods`: Meganium), `noReturnToHand` (player-level: nothing of that
+  player's Pokémon in play or attached goes to their hand. Knock Out to hand is stopped in flow.ts; custom effects of other lanes
+  run as written and `enforceHandGuard` in interp.ts takes the cards back, ctx flag `handLock`: Milotic), `previousAttacks` (an
+  evolved Pokémon uses the attacks of the cards under it; they are attack options with `card` = that card, as a Tool's: Relicanth)
+  and `cantAttack` with `ifEnergyAtMost` (Energy units, as `attackerMaxEnergy` counts: Walrein). `types` takes a `when` that is
+  `slotIs` self (Iron Treads, with the Filter key `toolCard`: an attached Tool matches). The `delay` step takes `global`
+  (Amarys: not tied to a Pokémon; if it and another effect wait for the end of the turn the turn's player is asked which first,
+  ruling 2135). `move` takes `anyStage` (Klinklang puts a Stage 2 onto the Bench); an Ability can be `activated.fromHand` (an `ability`
+  action with `card`, the card in the variable `__this`), have `setupActive` (Cinderace may start face down in the Active Spot, a card
+  that still needs a Basic Pokémon in the hand to avoid a mulligan) and `putIntoPlayOnlyBy` (Palafin ex, Hero's Spirit: stopped from
+  the hand and Rare Candy by `pokemonPlayLocked`; Palafin's Zero to Hero puts it into play with the custom `engine7.swapTopCard`).
+  Triggers `damagedByAttack` / `damagedByAttackActive` take `minDamage` (the damage done in one hit, after every effect) and
+  `attacker` (a Filter on the Attacking Pokémon; its slot is `__attacker`): Tremendous Bomb. Card fields: `extraStadium` (played
+  though a Stadium was played this turn, with `playable` naming the Stadium it goes over: Ange Floette), `handAfterOwnAttack`
+  (Energy discarded by its own Pokémon's attack goes to the hand after it, if the Pokémon matches `holder`: Nitro Fire Energy),
+  `attachOnly` (Energy that only goes on some Pokémon, discarded if it is on another, checked after every action: Team Rocket's
+  Energy), `providesFlex` (`n` Energy each any of `types`, an `EnergyUnit` like "Psychic|Darkness", pays any mix) and
+  `noRecoverFromDiscard` (moves to the hand or deck from the discard pile do nothing, and `chooseCards` does not offer it when the
+  chosen cards are about to go there: Neutralization Zone, Poké Vital A).
 - **Say whose attacks.** `damageIn` applies to damage from *every* attack unless `fromOpp: true`.
   If the card says "from attacks from your opponent's Pokémon", set it (Full Metal Lab, Iron
   Defender, Antique Armor Fossil). The round trip caught Protective Armor without it.
@@ -294,9 +356,21 @@ Ability, a Tool, a Stadium or an Energy, and it holds while its source is in pla
 A **trigger** is `TriggerScript { on, when?, optional?, program }`: `attachFromHand`
 (an Energy's own script; Telepathic gates on `slotIs self {type: Psychic}`),
 `playToBench` (Meowth ex), `evolveFromHand` (Kadabra), `damagedByAttackActive` (Lucky Helmet),
-`knockedOutByAttack`, `checkup` (Froslass), `endOfTurn` (Powerglass, Ignition Energy; only the
+`knockedOutByAttack`, `damagedByAttack` (the damaged Pokémon wherever it is, Knocked Out or not: Orthworm ex; the
+Attacking Pokémon is `{ v: '__attacker' }`), `damageReduced` (a Tool whose `damageIn` reduced the damage, even to 0, even
+on the Bench: the Berries; discards itself with `discardThisCard`), `checkup` (Froslass), `endOfTurn` (Powerglass, Ignition Energy; only the
 current player's Pokémon), `pokemonBenched` (a Stadium: Risky Ruins; `self` is the benched
 Pokémon), `oppAttachFromHand` (Gengar ex, Gnawing Curse; the Pokémon is in `{ v: '__target' }`).
+`movedToBench` / `movedToActive` (this Pokémon moved between the Active Spot and the Bench by a switch, retreat or, for
+`movedToActive`, promotion; `oncePerTurn` is "Once during your turn, when this Pokémon moves ...": Cobalion ex, Yanmega ex)
+and `allyMovedToActive` (one of your Pokémon moved up; the mover is `{ v: '__target' }`, ask about it in `when`: Latios).
+std-engine6 added `allyAttachFromHand` (you attached an Energy card from your hand to one of your Pokémon, by an action
+or an effect; `__target` is that Pokémon: Magearna), `oppEvolveFromHand` (the opponent played a Pokémon from their hand to
+evolve one of theirs, Rare Candy too; `__target` is it; `noStack: true` lets only one copy fire: Ampharos),
+`discardedFromDeck` (the card itself, in its owner's deck, was discarded by the opponent's attack, Ability, Item or
+Supporter during their turn; no slot: Ferrothorn) and `allyActiveDamagedByAttack` (your Active Pokémon was damaged by an
+attack, for each of your Pokémon with it, Benched ones too; `__target` is the damaged one, `__attacker` the attacker:
+Spiritomb).
 `optional: true` is "you may".
 
 A **timed effect** is created by an attack or Ability with the `effect` step:

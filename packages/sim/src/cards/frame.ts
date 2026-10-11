@@ -4,6 +4,8 @@
  */
 import type { CardScript, PType, Step } from '../dsl.js';
 import type { AbilityDef, AttackDef, CardDef, CardFrame, Coverage } from '../types.js';
+import { CARD_TAGS } from './tags.js';
+import { TERA_PRINTINGS } from './tera.js';
 
 const TYPES: Record<string, PType> = {
   Grass: 'Grass',
@@ -84,6 +86,22 @@ export function textKey(f: CardFrame): string {
     ...(f.resistances ?? []).map((r) => `R:${r.type}${normModifier(r.value)}`),
   ];
   return parts.join('\u0001');
+}
+
+/** The tag a printing carries ("Ancient" / "Future"), or null. Per printing, not per text: see CARD_TAGS. */
+export function tagOf(f: CardFrame): 'Ancient' | 'Future' | null {
+  return CARD_TAGS[f.cardId] ?? null;
+}
+
+/**
+ * What makes two copies the same card DEFINITION in a game: the same game text (`textKey`), the same tag and the same Tera
+ * status. A script still serves every printing of a text, but a tagged (or Tera) printing and a plain reprint of it are
+ * different definitions.
+ */
+export function defKey(f: CardFrame): string {
+  const t = tagOf(f);
+  const k = t ? `${textKey(f)}\u0002${t}` : textKey(f);
+  return TERA_PRINTINGS.has(f.cardId) ? `${k}\u0002Tera` : k;
 }
 
 const BASIC_ENERGY = /^Basic (\w+) Energy$|^(\w+) Energy$/;
@@ -207,8 +225,9 @@ export function buildDef(idx: number, f: CardFrame, script: CardScript | null, c
     ruleBox,
     ex,
     mega,
-    tera: !!script?.fix?.tera,
+    tera: !!script?.fix?.tera || TERA_PRINTINGS.has(f.cardId), // a Tera printing (cards/tera.ts), or a script that says so
     prizeValue,
+    tag: tagOf(f),
     attacks,
     abilities,
     ttype,

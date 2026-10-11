@@ -12,9 +12,10 @@
  */
 import { def, type Env, type GameContext } from '../context.js';
 import type { Cond, Expr, Filter, PType, Program, Step } from '../dsl.js';
-import { defMatches, evalCond, evalExpr, type EvalCtx } from '../eval.js';
+import { defMatches, evalCond, evalExpr, slotTypes, unitFits, type EvalCtx } from '../eval.js';
 import {
   attackCost,
+  attackOptions,
   damageIn,
   damageOut,
   damagePrevented,
@@ -43,6 +44,7 @@ export function missingUnits(cost: readonly PType[], units: readonly EnergyUnit[
       continue;
     }
     let i = pool.indexOf(t);
+    if (i < 0) i = pool.findIndex((u) => u !== 'Any' && unitFits(u, t)); // a unit that is either of two types ({P}/{D})
     if (i < 0) i = pool.indexOf('Any'); // "provides every type" units (Legacy/Neo Upper Energy)
     if (i < 0) missing++;
     else pool.splice(i, 1);
@@ -195,14 +197,14 @@ export function throughPipeline(env: Env, s: GameState, attacker: Slot, owner: P
   if (tOwner !== owner && isActive) {
     dmg += damageOut(env, s, attacker, target, all);
     const w = weaknessOf(env, s, target, all);
-    const types = def(env.ctx, topCard(attacker)).types;
+    const types = slotTypes(env, attacker, s); // "it is {G} and {R} type": both count (and stop counting under a no-Abilities lock)
     if (w && types.includes(w)) dmg *= 2;
     const r = def(env.ctx, topCard(target)).resistance;
     if (r && types.includes(r.type)) dmg -= r.amount;
   }
   if (dmg > 0) dmg += damageIn(env, s, target, all);
   if (dmg <= 0) return 0;
-  if (damagePrevented(env, s, target, owner, all)) return 0;
+  if (damagePrevented(env, s, target, owner, all, attacker, dmg)) return 0;
   return dmg;
 }
 
@@ -228,7 +230,7 @@ function programDamage(
       }
       case 'counters': {
         const n = evalExpr(env, s, ec, st.n);
-        if (!effectsPrevented(env, s, target, owner, 'attack', all)) total += n * 10;
+        if (!effectsPrevented(env, s, target, owner, 'attack', all, attacker)) total += n * 10;
         break;
       }
       case 'knockOut':
@@ -325,14 +327,15 @@ export interface Threat {
  */
 export function bestAttack(env: Env, s: GameState, attacker: Slot, owner: Player, target: Slot, extra: number, all: LiveStatic[], viewer: Player): Threat {
   const d = def(env.ctx, topCard(attacker));
-  const units = energyUnits(env, attacker);
+  const units = energyUnits(env, attacker, s, all);
   let dmg = 0;
   let bestMissing = 99;
   let bestAny = 0;
-  for (let i = 0; i < d.attacks.length; i++) {
-    const cost = attackCost(env, s, attacker, i, all);
+  // Attacks printed on an attached Tool count too (a Technical Machine).
+  for (const o of attackOptions(env, s, attacker, all)) {
+    const cost = attackCost(env, s, attacker, o.idx, all, o.card);
     const miss = missingUnits(cost, units);
-    const dd = attackDamage(env, s, attacker, owner, i, target, all, viewer);
+    const dd = o.card === undefined ? attackDamage(env, s, attacker, owner, o.idx, target, all, viewer) : attackDamageWithDef(env, s, o.d, o.idx, attacker, owner, target, all, viewer);
     if (miss <= extra && dd > dmg) dmg = dd;
     if (dd > bestAny || (dd === bestAny && miss < bestMissing)) {
       bestAny = dd;

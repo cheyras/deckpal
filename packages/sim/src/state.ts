@@ -47,6 +47,7 @@ export function newState(ctx: GameContext, seed: number): GameState {
     stack: [],
     pending: null,
     effects: [],
+    delayed: [],
     attacked: false,
     queued: [],
     limbo: [],
@@ -59,7 +60,7 @@ export function newState(ctx: GameContext, seed: number): GameState {
 }
 
 function cloneSlot(s: Slot): Slot {
-  return {
+  const out: Slot = {
     id: s.id,
     cards: s.cards.slice(),
     energy: s.energy.slice(),
@@ -69,13 +70,43 @@ function cloneSlot(s: Slot): Slot {
     enteredTurn: s.enteredTurn,
     evolvedTurn: s.evolvedTurn,
     usedAbilities: s.usedAbilities.slice(),
-    ...(s.paralyzedTurn !== undefined ? { paralyzedTurn: s.paralyzedTurn } : {}),
   };
+  // Optional fields are copied only when set (no temporary objects: this runs for every Pokémon of every search clone).
+  if (s.paralyzedTurn !== undefined) out.paralyzedTurn = s.paralyzedTurn;
+  if (s.movedActiveTurn !== undefined) out.movedActiveTurn = s.movedActiveTurn;
+  if (s.healedTurn !== undefined) out.healedTurn = s.healedTurn;
+  if (s.koTriggered) out.koTriggered = true;
+  if (s.koHandAnswer !== undefined) out.koHandAnswer = s.koHandAnswer;
+  if (s.attackDmgTurn !== undefined) {
+    out.attackDmgTurn = s.attackDmgTurn;
+    out.attackDmg = s.attackDmg;
+  }
+  if (s.poisonCounters !== undefined) out.poisonCounters = s.poisonCounters;
+  if (s.burnCounters !== undefined) out.burnCounters = s.burnCounters;
+  if (s.confusionCounters !== undefined) out.confusionCounters = s.confusionCounters;
+  return out;
 }
 
+const OPTIONAL_PLAYER_FIELDS = [
+  'prevKoTurn',
+  'attackKoTurn',
+  'attackKoCards',
+  'prizesAtTurnStart',
+  'prizesLastTurn',
+  'koCards',
+  'koCardsTurn',
+  'prevKoCards',
+  'prevKoCardsTurn',
+  'prizesUp',
+  'attackRec',
+  'prevAttackRec',
+  'toolUsed',
+  'oncePerGame',
+] as const;
+
+// Written out field by field (a `...p` spread over a shape with this many optional fields is slow, and a clone is made per search node).
 function clonePlayer(p: PlayerState): PlayerState {
-  return {
-    ...p,
+  const out: PlayerState = {
     deck: p.deck.slice(),
     hand: p.hand.slice(),
     discard: p.discard.slice(),
@@ -83,9 +114,23 @@ function clonePlayer(p: PlayerState): PlayerState {
     lost: p.lost.slice(),
     active: p.active ? cloneSlot(p.active) : null,
     bench: p.bench.map(cloneSlot),
+    mulligans: p.mulligans,
+    prizesTaken: p.prizesTaken,
+    supporterPlayed: p.supporterPlayed,
+    stadiumPlayed: p.stadiumPlayed,
+    energyAttached: p.energyAttached,
+    retreated: p.retreated,
+    stadiumAbilityUsed: p.stadiumAbilityUsed,
     globalAbilitiesUsed: p.globalAbilitiesUsed.slice(),
+    lastKoTurn: p.lastKoTurn,
+    prizesKnown: p.prizesKnown,
+    knownTop: p.knownTop,
     revealed: p.revealed.slice(),
   };
+  if (p.playedThisTurn) out.playedThisTurn = p.playedThisTurn.slice();
+  // Replaced, never mutated: shared with the original.
+  for (const k of OPTIONAL_PLAYER_FIELDS) if (k in p) (out as unknown as Record<string, unknown>)[k] = p[k];
+  return out;
 }
 
 function cloneDecision(d: Decision): Decision {
@@ -120,6 +165,7 @@ export function cloneState(s: GameState): GameState {
         }
       : null,
     effects: s.effects.map((e) => ({ ...e })),
+    ...(s.delayed ? { delayed: s.delayed.map((d) => ({ ...d })) } : {}),
     queued: s.queued.map((f) => ({ ...f, vars: { ...f.vars } })),
     limbo: s.limbo.slice(),
   };
@@ -197,6 +243,22 @@ export function newSlot(s: GameState, card: number): Slot {
   };
 }
 
+/** Heal a Pokémon. Records the turn when damage was actually removed ("was healed during this turn"). Returns the damage removed. */
+export function healSlot(s: GameState, slot: Slot, amount: number): number {
+  const removed = Math.max(0, Math.min(slot.damage, amount));
+  if (removed > 0) {
+    slot.damage -= removed;
+    slot.healedTurn = s.turn;
+  }
+  return removed;
+}
+
+/** A Pokémon left the Active Spot, evolved or was Knocked Out: attack effects on it (timed and delayed) end. */
+export function clearAttackEffects(s: GameState, slotId: number): void {
+  s.effects = s.effects.filter((x) => !(x.slot === slotId && x.fromAttack));
+  if (s.delayed?.length) s.delayed = s.delayed.filter((d) => !(d.slot === slotId && d.fromAttack));
+}
+
 /** Remove a card id from an array in place; true when found. */
 export function removeFrom(arr: number[], card: number): boolean {
   const i = arr.indexOf(card);
@@ -216,6 +278,17 @@ export function leaveHand(ps: PlayerState, card: number): boolean {
   return true;
 }
 
+/**
+ * A card leaves the Prize zone: it stops being a face-up Prize (`prizesUp` lists only cards that are face up Prizes NOW, so no
+ * stale entry can pin a card that has since been shuffled or drawn). Returns true when it was face up, i.e. known to both players.
+ * `prizesUp` is replaced, never mutated: clones share the array.
+ */
+export function leavePrizeZone(ps: PlayerState, card: number): boolean {
+  if (!ps.prizesUp?.includes(card)) return false;
+  ps.prizesUp = ps.prizesUp.filter((c) => c !== card);
+  return true;
+}
+
 /** Take a card out of whichever hidden/public zone of its owner holds it (not from play). */
 export function takeFromZones(ps: PlayerState, card: number): boolean {
   if (leaveHand(ps, card)) return true;
@@ -226,7 +299,11 @@ export function takeFromZones(ps: PlayerState, card: number): boolean {
     ps.deck.splice(di, 1);
     return true;
   }
-  return removeFrom(ps.discard, card) || removeFrom(ps.prizes, card) || removeFrom(ps.lost, card);
+  if (removeFrom(ps.prizes, card)) {
+    leavePrizeZone(ps, card);
+    return true;
+  }
+  return removeFrom(ps.discard, card) || removeFrom(ps.lost, card);
 }
 
 /** Every card in a slot (Pokémon stack, Energy, Tools). */
