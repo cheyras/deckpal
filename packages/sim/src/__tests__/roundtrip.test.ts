@@ -224,6 +224,9 @@ test('every static effect, scope and trigger renders', () => {
     attackTwice: { k: 'attackTwice' },
     playLock: { k: 'playLock', what: 'stadium' },
     preventTrainerEffects: { k: 'preventTrainerEffects', from: ['item', 'supporter'] },
+    evolveTiming: { k: 'evolveTiming', firstTurn: true, justPlayed: true, into: { type: 'Grass' } },
+    evolveInto: { k: 'evolveInto', evolvesFrom: 'Eevee', filter: { ex: true } },
+    koToHand: { k: 'koToHand', cards: 'energy', filter: { energyType: 'Water' }, optional: true },
   };
   const SCOPES: Scope[] = ['self', 'myActive', 'myBench', 'myPokemon', 'oppActive', 'oppBench', 'oppPokemon', 'allPokemon', 'me', 'opp', 'both'];
   for (const [k, effect] of Object.entries(EFFECTS)) {
@@ -248,6 +251,8 @@ test('every static effect, scope and trigger renders', () => {
     oppActiveMovedToBench: true,
     damagedByAttack: true,
     damageReduced: true,
+    movedToActive: true,
+    allyMovedToActive: true,
   };
   for (const on of Object.keys(ON) as TriggerOn[]) {
     const t: TriggerScript = { on, optional: on === 'playToBench', when: { firstTurn: true }, program: [{ op: 'draw', n: 1 }] };

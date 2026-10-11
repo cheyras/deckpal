@@ -187,8 +187,20 @@ export type StaticEffect =
   | {
       k: 'preventDamage';
       andEffects?: boolean;
-      /** Only damage from attacks of an attacking Pokémon matching this ("attacks from Basic Pokémon"). Honoured for damage only, not with `andEffects`. */
+      /**
+       * Only damage from attacks of an attacking Pokémon matching this ("attacks from Basic Pokémon"). With `andEffects` it limits
+       * the effects too: "Prevent all damage from and effects of attacks from your opponent's Tera Pokémon" prevents nothing done by
+       * an attack of a Pokémon that is not a Tera Pokémon.
+       */
       attacker?: Filter;
+      /**
+       * "Prevent all damage ... if that damage is N or less" (Metapod, Roggenrola's Harden): only damage of at most this much, as it
+       * stands after Weakness, Resistance and the effects that change damage taken (TPCi Rules Team 2025-07-17, ruling 2197). Not
+       * effects, and not damage of 0.
+       */
+      ifAtMost?: number;
+      /** "... if that damage is N or more" (Drednaw, Impervious Shell): only damage of at least this much, measured the same way. */
+      ifAtLeast?: number;
       /** lane:ghost — only from attacking Pokémon with at most this much Energy attached (Bastiodon, Ancient Bulwark). */
       attackerMaxEnergy?: number;
     }
@@ -287,6 +299,28 @@ export type StaticEffect =
    * too many Benched Pokémon discards down to the limit (see flow.ts `enforceBenchLimit`).
    */
   | { k: 'benchSize'; size: number; withPokemon?: Filter }
+  /**
+   * Evolving earlier than the rules allow, for the affected Pokémon. `firstTurn`: it can evolve during its owner's first turn.
+   * `justPlayed`: it can evolve the turn it was played (put into play, or evolved: a Pokémon that evolved this turn can evolve again,
+   * TPCi Rules Team 2025-09-25, ruling 2229, Forest of Vitality). `into`: only into an Evolution card matching this ("{G} Pokémon can
+   * evolve into {G} Pokémon"). Put the condition in the static's `when`. A player stopped from evolving (`playLock` 'evolve') stays
+   * stopped.
+   */
+  | { k: 'evolveTiming'; firstTurn?: boolean; justPlayed?: boolean; into?: Filter }
+  /**
+   * The affected Pokémon can evolve into any Evolution card matching `filter` that evolves from `evolvesFrom`, as well as the
+   * cards it evolves into normally ("Eevee ex can evolve into any Pokémon ex that evolves from Eevee if you play it from your hand
+   * onto this Pokémon"). The usual timing rules still apply.
+   */
+  | { k: 'evolveInto'; evolvesFrom: string; filter?: Filter }
+  /**
+   * "If the affected Pokémon is Knocked Out by damage from an attack from your opponent's Pokémon, put <it / the Basic Energy
+   * attached to it> into your hand instead of the discard pile." `cards: 'pokemon'`: the Pokémon with every card it evolved from
+   * (the attached cards are discarded: TPCi Rules Team 2026-03-26, ruling 2308); `cards: 'energy'`: the attached Energy cards matching
+   * `filter`. The Pokémon is still Knocked Out: its Prize cards are taken (ruling 2307). `optional`: its controller decides ("you may").
+   * With scope 'self' it is the Pokémon's own Ability; with 'myPokemon' it covers other Pokémon of yours (Huntail's {W} Pokémon).
+   */
+  | { k: 'koToHand'; cards: 'pokemon' | 'energy'; filter?: Filter; optional?: boolean }
   /** Damage counters on Pokémon can't be moved (Watchful Eye). */
   | { k: 'countersFixed' }
   // lane:misc — Togekiss, Wonder Kiss: "When your opponent's Active Pokémon is Knocked Out, (flip a coin. If heads,)
@@ -534,6 +568,18 @@ export type TriggerOn =
    * deck). Fires when the move is done, with the Pokémon on the Bench; `turnOf` in `when` limits it to a turn.
    */
   | 'movedToBench'
+  /**
+   * This Pokémon moved from its owner's Bench to the Active Spot (switch, retreat or promotion; the mirror of `movedToBench`). Fires
+   * when the move is done, with the Pokémon Active; use `oncePerTurn` for "Once during your turn, when this Pokémon moves from your
+   * Bench to the Active Spot, you may use this Ability" (which also limits it to the owner's own turn).
+   */
+  | 'movedToActive'
+  /**
+   * One of the controller's Pokémon moved from the Bench to the Active Spot (as `movedToActive`), for every Pokémon of that side
+   * with the trigger: the program sees the Pokémon that moved in `__target`, and `when` can ask about it
+   * (`slotIs: { ref: { v: '__target' }, filter }` for "when your Mega Latias ex moves from your Bench to the Active Spot").
+   */
+  | 'allyMovedToActive'
   /**
    * The OPPONENT's Active Pokémon moved to their Bench during their own turn (switch or retreat; a Knock Out and its
    * replacement is not one). Fires for every Pokémon of the other side with the trigger; the program sees the Pokémon that

@@ -118,6 +118,10 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   countersUntilHp: (a) => `Count the damage counters that would leave your opponent's Active Pokémon with ${Number(a.hp ?? 50)} HP remaining (into "${String(a.as ?? 'n')}")`,
   discardThisCard: () => 'Discard this card',
   'trevenant.discardToolFrom': () => "Discard the Pokémon Tool attached to that Pokémon (if any) to its owner's discard pile", // lane:trevenant
+  // std-engine5-customs.ts
+  'engine5.moveAnyEnergy': (a) =>
+    `Move any amount (0 to all) of the ${energyNoun(a.filter as Filter | undefined)} attached to ${a.from === 'bench' ? 'your Benched Pokémon' : 'your other Pokémon'} to ${a.to === 'active' ? 'your Active Pokémon' : 'this Pokémon'}`,
+  'engine5.moveEnergyFromSelf': (a) => `Move ${Number(a.n ?? 1)} Energy from this Pokémon to the Pokémon chosen as "${String(a.to)}"`,
   // std-seed1-customs.ts
   'std.discardRandomFromHand': (a) => `Discard a random card from ${a.who === 'self' ? 'your' : "your opponent's"} hand`,
   'std.revealHand': (a) => `${a.who === 'self' ? 'You reveal your' : 'Your opponent reveals their'} hand`,
@@ -1193,9 +1197,32 @@ class Renderer {
             : e.attacker
               ? `from ${pk}`
               : '';
+        // "...if that damage is 60 or less": the amount, as it stands after Weakness and Resistance.
+        const amt = e.ifAtMost !== undefined ? ` if that damage is ${e.ifAtMost} or less` : e.ifAtLeast !== undefined ? ` if that damage is ${e.ifAtLeast} or more` : '';
+        // A timed effect names the attacker after the target ("... done to that Pokémon by your opponent's Pokémon ex").
+        if (e.andEffects && e.attacker && !fromOpp) return `Prevent all damage from and effects of attacks done to ${x} by your opponent's ${pk}`;
         return e.andEffects
           ? `Prevent all damage from and effects of attacks ${from ? `${from} ` : ''}done to ${x}`
-          : `Prevent all damage done to ${x} by attacks${from ? ` ${from}` : ''}`;
+          : `Prevent all damage done to ${x} by attacks${from ? ` ${from}` : ''}${amt}`;
+      }
+      case 'evolveTiming': {
+        const into = e.into ? ` into ${noun(e.into, true).pl}` : '';
+        const it = plural ? 'them' : 'it';
+        if (e.firstTurn && e.justPlayed) return `${X} can evolve${into} during your first turn or the turn you play ${it}`;
+        if (e.firstTurn) return `${X} can evolve${into} during your first turn`;
+        // Without `firstTurn` the rules' own ban on evolving in a player's first turn stays.
+        return `${X} can evolve${into} during the turn ${plural ? 'they are' : 'it is'} played, except during ${plural ? 'their' : "its owner's"} first turn`;
+      }
+      case 'evolveInto': {
+        const what = e.filter ? noun({ ...e.filter, stage: undefined }, true).sg : 'Pokémon';
+        return `${X} can evolve into any ${what} that evolves from ${e.evolvesFrom} if you play it from your hand onto ${plural ? 'that Pokémon' : x}`;
+      }
+      case 'koToHand': {
+        const subj = plural ? `1 of ${x} is` : `${x} is`;
+        const by = "Knocked Out by damage from an attack from your opponent's Pokémon";
+        const may = e.optional ? 'you may put' : 'put';
+        if (e.cards === 'pokemon') return `If ${subj} ${by}, ${may} ${plural ? 'it' : 'it'} into your hand instead of the discard pile. (Discard all attached cards.)`;
+        return `When ${subj} ${by}, ${may} all ${energyNoun(e.filter)} attached to ${plural ? 'that Pokémon' : 'it'} into your hand instead of the discard pile`;
       }
       case 'retreatCost':
         if (e.set === 0) return `${X} ${has} no Retreat Cost`;
@@ -1340,7 +1367,9 @@ class Renderer {
       const who = d.filter ? noun(d.filter, true).sg : 'Pokémon';
       return `The ${who} this card is attached to can use the attack on this card. (You still need the necessary Energy to use this attack.)`;
     }
-    const { x, plural } = this.scope(d.scope, d.filter);
+    // "Each player's {G} Pokémon can evolve into ...": a Stadium that lifts a rule for both players' Pokémon.
+    const both = d.effect.k === 'evolveTiming' && d.scope === 'allPokemon';
+    const { x, plural } = both ? { x: `each player's ${noun(d.filter ?? {}, true).pl}`, plural: true } : this.scope(d.scope, d.filter);
     const s = this.clause(d.effect, x, plural, true);
     return d.when ? `If ${this.cond(d.when)}, ${lc(s)}` : s;
   }
@@ -1394,6 +1423,20 @@ class Renderer {
       case 'movedToBench':
         lead = `${t.oncePerTurn ? 'Once during your turn, w' : 'W'}hen ${this.selfName} moves from the Active Spot to your Bench`;
         break;
+      case 'movedToActive':
+        lead = `${t.oncePerTurn ? 'Once during your turn, w' : 'W'}hen ${this.selfName} moves from your Bench to the Active Spot`;
+        break;
+      case 'allyMovedToActive': {
+        // The program sees the Pokémon that moved as '__target'.
+        let what = 'a Pokémon of yours';
+        if (when && 'slotIs' in when && typeof when.slotIs.ref === 'object' && when.slotIs.ref.v === '__target') {
+          const f = when.slotIs.filter;
+          what = f.name && !Array.isArray(f.name) && Object.keys(f).length === 1 ? `your ${f.name}` : `your ${noun(f, true).sg}`;
+          when = undefined;
+        }
+        lead = `${t.oncePerTurn ? 'Once during your turn, w' : 'W'}hen ${what} moves from your Bench to the Active Spot`;
+        break;
+      }
       case 'damagedByAttack':
         lead = `If ${this.selfName} is damaged by an attack from your opponent's Pokémon (even if this Pokémon is Knocked Out)`;
         break;
@@ -1648,6 +1691,7 @@ export const REMINDERS: RegExp[] = [
   /\(Don't apply Weakness and Resistance for Benched Pokémon\.\)/gi,
   /\(Pokémon ex, Pokémon V, etc\. have Rule Boxes\.\)/gi,
   /\(Damage is not an effect\.\)/gi,
+  /\(This Pokémon can't evolve during your first turn or the turn you play it\.\)/gi,
   /\(Apply Weakness as ×2\.\)/gi,
   /\(You can't use more than 1 VSTAR Power in a game\.\)/gi,
   /\(You can't use more than 1 GX attack in a game\.\)/gi,

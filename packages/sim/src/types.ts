@@ -151,6 +151,8 @@ export interface Slot {
   healedTurn?: number;
   /** The "Knocked Out by damage from an attack" triggers have been queued for this Pokémon's current Knock Out (see resolveKOs). */
   koTriggered?: boolean;
+  /** The owner's answer to "put these cards into your hand instead of the discard pile?" for this Pokémon's current Knock Out (see resolveKOs). */
+  koHandAnswer?: boolean;
   /** Damage from opposing attacks this Pokémon took in turn `attackDmgTurn` (a running total for that turn). */
   attackDmgTurn?: number;
   attackDmg?: number;
@@ -372,7 +374,9 @@ export interface Pending {
     | { k: 'extraBench'; p: Player }
     | { k: 'promote'; p: Player }
     /** A player with more Benched Pokémon than their Bench allows chooses which to discard. */
-    | { k: 'benchDiscard'; p: Player };
+    | { k: 'benchDiscard'; p: Player }
+    /** The owner of a Pokémon being Knocked Out decides whether some of its cards go to their hand instead of the discard pile (`koToHand`). */
+    | { k: 'koHand'; slot: number };
 }
 
 // ---------------------------------------------------------------------------

@@ -40,6 +40,7 @@ import { def, type DeckEntry, type DeckInput, type Env } from '../context.js';
 import { legalActions } from '../flow.js';
 import { Game } from '../game.js';
 import { applyCondition } from '../interp.js';
+import { benchLimit } from '../query.js';
 import { allSlots, findSlot, healSlot, newSlot, opp, removeFrom, topCard } from '../state.js';
 import type { Action, CardFrame, Decision, GameEvent, GameState, Player, Slot } from '../types.js';
 import { scriptFor } from '../cards/registry.js';
@@ -1012,7 +1013,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
           const who = (it.name === HIDDEN ? it.side : own({ name: it.name }, it.side)) as Player;
           const c = findIn(s.p[who].deck, it);
           if (c === undefined || !removeFrom(s.p[who].deck, c)) continue;
-          if (l.toBench && s.p[who].bench.length < 5) {
+          if (l.toBench && s.p[who].bench.length < benchLimit(env, s, who)) {
             const sl = newSlot(s, c);
             s.p[who].bench.push(sl);
             slotName.set(sl.id, name(c));

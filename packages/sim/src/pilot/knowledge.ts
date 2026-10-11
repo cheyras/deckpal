@@ -203,7 +203,7 @@ export function throughPipeline(env: Env, s: GameState, attacker: Slot, owner: P
   }
   if (dmg > 0) dmg += damageIn(env, s, target, all);
   if (dmg <= 0) return 0;
-  if (damagePrevented(env, s, target, owner, all)) return 0;
+  if (damagePrevented(env, s, target, owner, all, attacker, dmg)) return 0;
   return dmg;
 }
 
@@ -229,7 +229,7 @@ function programDamage(
       }
       case 'counters': {
         const n = evalExpr(env, s, ec, st.n);
-        if (!effectsPrevented(env, s, target, owner, 'attack', all)) total += n * 10;
+        if (!effectsPrevented(env, s, target, owner, 'attack', all, attacker)) total += n * 10;
         break;
       }
       case 'knockOut':
