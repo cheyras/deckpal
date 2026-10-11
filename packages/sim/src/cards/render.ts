@@ -233,6 +233,11 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c21.pickOppBenchLowHp': (a) => `Choose 1 Pokémon on your opponent's Bench that has ${Number(a.max ?? 90)} HP or less remaining (HP with any changes, minus damage) as "${String(a.as ?? 't')}"; no question when only one qualifies, none chosen when none does`,
   'c21.selfIntoDeck': () => 'Put this Pokémon and all attached cards (Energy, Tools, previous Evolutions) into your deck, without shuffling it yet; it is not a Knock Out',
   'c21.lookTopAny': (a) => `Look at the top ${Number(a.n ?? 20)} cards of your deck and choose any number of the ${energyNoun(a.filter as Filter | undefined)} cards you find there (into "${String(a.as ?? 'e')}"); nothing leaves the deck yet`,
+  // std-c22-customs.ts
+  'c22.searchAttachedTypes': (a) => `Look through your deck and choose up to ${Number(a.max ?? 5)} Pokémon whose type is the same as that of any Basic Energy card attached to this Pokémon (a Special Energy adds no type), revealed (into "${String(a.as ?? 'found')}"); nothing leaves the deck yet`,
+  'c22.healEvolutions': () => 'Heal all damage from each of your Evolution Pokémon, then discard all Energy from the ones that had damage',
+  'c22.countAttachedIn': (a) => `Count the ${energyNoun(a.filter as Filter | undefined)} cards attached to ${slotZoneNoun(String(a.zone ?? 'oppPokemon') as SlotZone)} (into "${String(a.as ?? 'n')}")`,
+  'c22.discardSelfTools': (a) => `Discard all Pokémon Tools from this Pokémon, counting them (into "${String(a.as ?? 'n')}"); a Pokémon with no Tool can't discard any, so the count is 0`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -2031,5 +2036,10 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv07-006|ability:Selective Slime': {
     problems: ['similarity'],
     why: 'The printed "choose Burned, Confused, or Poisoned" is a three-way option plus one `condition` step per option, and the usability guard from Compendium ruling 2014 (not while the Defending Pokémon is already Burned, Confused and Poisoned) is spelled out; both lengthen the rendering well past the printed sentence.',
+  },
+  // std-c22
+  'sv07-119|ability:Curly Wall': {
+    problems: ['number 1 is printed 1× but rendered 0×'],
+    why: 'The printed "at least 1 other Bouffalant" counts the Bouffalant in play other than the source; the source is itself one of the Pokémon counted by `pokemon`, so the condition is written as 2 or more Pokémon named Bouffalant (this one plus at least 1 other), and the 1 appears only as that 2.',
   },
 };
