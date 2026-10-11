@@ -33,20 +33,22 @@ export { extractFields, cleanNameLine, resolveSetCode, normaliseBadge, eliminate
 export type { OcrFields, RoiRead } from './fields'
 export { PRINTED_SETS, PRINTED_DENOMINATOR, PRINTED_SET_ID } from './codes'
 export type { PrintedSet } from './codes'
-export { ROIS, ROI_SCALE, DET_BASE_SIZE, roiPixels, detInputSize } from './rois'
+export { readCornerPair, sameCornerPair } from './fields'
+export type { Glyph, NumberPair } from './fields'
+export { ROIS, ROI_SCALE, CORNER_SCALES, DET_BASE_SIZE, roiPixels, detInputSize } from './rois'
 export type { Roi, RoiName } from './rois'
 export { ocrEnabled, readOcrOverride, OCR_OVERRIDE_KEY } from './flag'
 export type { OcrFlagInputs } from './flag'
 export { loadOcrSession, resetOcrSession, ocrSessionStarted } from './session'
 export type { OcrSession } from './session'
-export { readFields, readRoi, readLines } from './pipeline'
-export type { OcrRead, OcrPass, OcrLine, RoiInput, FullCropInput, FullCropSource } from './pipeline'
+export { readFields, readRoi, readLines, readGlyphLines, readCorner } from './pipeline'
+export type { OcrRead, OcrPass, OcrLine, RoiInput, FullCropInput, FullCropSource, CornerSource } from './pipeline'
 export { extractFullCropFields, normaliseBodyLines, shouldEscalate, MAX_BODY_LINES, MAX_BODY_LINE_CHARS } from './escalate'
 export type { PlacedLine } from './escalate'
-export { cropRois, cropFullCard } from './capture'
+export { cropRois, cropFullCard, cropCorner } from './capture'
 export type { RoiRaster } from './capture'
 
-import { cropFullCard, cropRois } from './capture'
+import { cropCorner, cropFullCard, cropRois } from './capture'
 import { readFields, type OcrRead } from './pipeline'
 import { loadOcrSession } from './session'
 
@@ -90,5 +92,13 @@ export async function readCard(source: CanvasImageSource, width: number, height:
   // thunk, not a value: `readFields` only calls it when the two bands came back
   // with no name and no number, so a card the shipped recipe can read never
   // prepares this crop and never runs the extra detection. See `escalate.ts`.
-  return readFields(session, cropRois(source, width, height), () => cropFullCard(source, width, height))
+  // The fourth is the CORNER RUNG (2026-10-10), a thunk on the same terms: only
+  // a read whose strip found no number prepares the bottom-right corner, where a
+  // pre-2017 card prints its `93/102`. See `pipeline.readCorner`.
+  return readFields(
+    session,
+    cropRois(source, width, height),
+    () => cropFullCard(source, width, height),
+    (scale) => cropCorner(source, width, height, scale),
+  )
 }

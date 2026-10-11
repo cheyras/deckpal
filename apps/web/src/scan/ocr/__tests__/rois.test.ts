@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { DET_BASE_SIZE, ROIS, ROI_SCALE, detInputSize, roiPixels } from '../rois'
+import { CORNER_SCALES, DET_BASE_SIZE, ROIS, ROI_SCALE, detInputSize, roiPixels } from '../rois'
 import { cropRotated, makeRaster, resample, rgbaToBGRPlanar, type Box } from '../raster'
 import { detectBoxes, groupIntoLines } from '../db'
 import { decodeCtc, parseKeys } from '../ctc'
@@ -45,6 +45,48 @@ describe('the ROI bands — REPORT.md §3.3', () => {
 
   it('is 3×, which is the only preprocessing the recipe has', () => {
     assert.equal(ROI_SCALE, 3)
+  })
+})
+
+describe('the corner ROI — pre-2017 bottom-right numbers (2026-10-10)', () => {
+  // Where the detector actually boxed the number line, on every `quad-verify`
+  // crop of a pre-2017 card that any corner configuration read correctly — 13
+  // crops, Base Set to BREAKthrough, boxes measured off a wide 0.5-1.0 ×
+  // 0.8-1.0 search region (scan-bench, 2026-10-10):
+  //     number line   x0 0.767 .. 0.825   x1 0.860 .. 0.927
+  //                   y0 0.892 .. 0.935   y1 0.912 .. 0.951
+  it('covers every number line the detector measured, with margin', () => {
+    assert.ok(ROIS.corner.x0 <= 0.767 - 0.05, 'left edge clears the leftmost observed x0')
+    assert.ok(ROIS.corner.x1 >= 0.927 + 0.05, 'right edge clears the rightmost observed x1')
+    assert.ok(ROIS.corner.y0 <= 0.892 - 0.04, 'top clears the highest observed y0')
+    // To the crop's own bottom edge, as `strip` does: the vertical spread of a
+    // real quad is ~10 % (`strip`'s measured number lines run to 0.987), and 13
+    // crops of one photo session have not shown all of it.
+    assert.equal(ROIS.corner.y1, ROIS.strip.y1)
+  })
+
+  it('sits right of the strip and below the name band', () => {
+    // It overlaps `strip` by a few points of width, and that is harmless: the
+    // corner is read only when the strip found no number, so no line can supply
+    // a number twice.
+    assert.ok(ROIS.corner.x0 > ROIS.strip.x0 + 0.5)
+    assert.ok(ROIS.corner.y0 > ROIS.name.y1)
+  })
+
+  it('is read at 4× then 6× — two scales, so the two reads can disagree', () => {
+    assert.deepEqual([...CORNER_SCALES], [4, 6])
+    assert.notEqual(CORNER_SCALES[0], CORNER_SCALES[1])
+  })
+
+  it('stays cheaper than the strip at its first scale', () => {
+    // The corner runs on every card whose strip found no number, so its first
+    // pass is the one whose cost is paid often. Detector pixels are the cost.
+    const corner = roiPixels(ROIS.corner, CROP_W, CROP_H)
+    const strip = roiPixels(ROIS.strip, CROP_W, CROP_H)
+    const a = detInputSize(corner.w * CORNER_SCALES[0], corner.h * CORNER_SCALES[0])
+    const s = detInputSize(strip.w * ROI_SCALE, strip.h * ROI_SCALE)
+    assert.deepEqual(a, { w: 640, h: 416 })
+    assert.ok(a.w * a.h < s.w * s.h, `${a.w}×${a.h} vs strip ${s.w}×${s.h}`)
   })
 })
 

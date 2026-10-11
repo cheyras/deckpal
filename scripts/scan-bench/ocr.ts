@@ -1,4 +1,4 @@
-// The device's OCR read (PP-OCRv4, two-band recipe + escalation), run in Node
+// The device's OCR read (PP-OCRv4, two-band recipe + corner + escalation), run in Node
 // with the SHIPPED pure modules (`apps/web/src/scan/ocr/pipeline.ts` and
 // everything under it) and the SHIPPED model files. Only two pieces are
 // replaced, and both are the ones the web code itself marks as DOM-bound:
@@ -16,7 +16,8 @@ import sharp from 'sharp'
 
 import { parseKeys } from '../../apps/web/src/scan/ocr/ctc.js'
 import { readFields, type FullCropInput, type OcrRead, type RoiInput } from '../../apps/web/src/scan/ocr/pipeline.js'
-import { detInputSize, ROI_SCALE, ROIS, roiPixels, type RoiName } from '../../apps/web/src/scan/ocr/rois.js'
+import type { Raster } from '../../apps/web/src/scan/ocr/raster.js'
+import { CORNER_SCALES, detInputSize, ROI_SCALE, ROIS, roiPixels, type RoiName } from '../../apps/web/src/scan/ocr/rois.js'
 import type { OcrGraph, OcrSession } from '../../apps/web/src/scan/ocr/session.js'
 
 const REPO = resolve(fileURLToPath(import.meta.url), '..', '..', '..')
@@ -110,7 +111,7 @@ async function rasterise(img: Buffer, box: Box, scale: number) {
 }
 
 /** The device read of one rectified crop (JPEG/PNG bytes, ideally 480×670). */
-export async function readCard(img: Buffer, opts: { escalate?: boolean } = {}): Promise<OcrRead> {
+export async function readCard(img: Buffer, opts: { escalate?: boolean; corner?: boolean } = {}): Promise<OcrRead> {
   const s = await loadOcr()
   const meta = await sharp(img).metadata()
   const W = meta.width!
@@ -122,5 +123,11 @@ export async function readCard(img: Buffer, opts: { escalate?: boolean } = {}): 
   // eagerly (it is cheap off-device) and handed over through the same thunk.
   let full: FullCropInput | null = null
   if (opts.escalate !== false) full = await rasterise(img, { x: 0, y: 0, w: W, h: H }, 1)
-  return readFields(s, inputs, full ? () => full : undefined)
+  // The corner rung's rasters, likewise made eagerly and handed over through the
+  // device's thunk — `readFields` still decides whether either is ever READ.
+  const corners = new Map<number, Raster>()
+  if (opts.corner !== false) {
+    for (const scale of CORNER_SCALES) corners.set(scale, (await rasterise(img, roiPixels(ROIS.corner, W, H), scale)).raster)
+  }
+  return readFields(s, inputs, full ? () => full : undefined, corners.size ? (scale) => corners.get(scale) ?? null : undefined)
 }
