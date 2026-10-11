@@ -370,6 +370,15 @@ export interface ResolveOptions {
    * printed key can separate them. Kept open even after a printed-key rung.
    */
   printedTwins?: (cardId: string) => readonly string[];
+  /**
+   * For a basic energy, the other printings of its type outside its own
+   * same-picture family (artFamilies.ts `typeMatesOf`). They open the printing
+   * exactly as `artSiblings` do, but only ADD choices: the reader's list is
+   * what it would have been, with these appended in the slots left under
+   * `MAX_MATCHES`, so a card's own same-picture printings are never crowded
+   * out (Astra, review of #325).
+   */
+  typeMates?: (cardId: string) => readonly string[];
 }
 
 /** The rungs whose key is PRINTED on one printing only: the set badge or the
@@ -1200,7 +1209,8 @@ export async function resolveCard(
     const keyed = PRINTED_KEYS.has(prev.resolvedBy);
     if (keyed && !twins.length) return prev;
     const siblings = keyed ? twins : siblingsOf(top.cardId);
-    if (!siblings.length) return prev;
+    const mates = keyed ? [] : (opts.typeMates?.(top.cardId) ?? []);
+    if (!siblings.length && !mates.length) return prev;
     const have = new Set(prev.matches.map((m) => m.cardId));
     // THE KEY ALREADY RULED THE SIBLINGS OUT. A vector that broke a tie inside
     // a printed key's list — `87/114` is bw1-87 or xy11-87, two different
@@ -1214,6 +1224,7 @@ export async function resolveCard(
       prev.keyedBy &&
       PRINTED_KEYS.has(prev.keyedBy) &&
       !siblings.some((id) => have.has(id)) &&
+      !mates.some((id) => have.has(id)) &&
       !twins.length
     )
       return prev;
@@ -1225,6 +1236,12 @@ export async function resolveCard(
     // Listed and hydrated siblings ranked together, so the reader's choice is
     // in evidence order whichever of the two lists a sibling came from.
     const open = rank([...listed, ...hydratedRows], priors.distance, evidence.similarity);
+    // A basic energy's other printings of its type come LAST, and only those
+    // not already listed: the list above is exactly what the reader would see
+    // without them, and these fill whatever slots it leaves.
+    const shown = new Set([top.cardId, ...open.map((m) => m.cardId), ...rest.map((m) => m.cardId)]);
+    const extra = mates.filter((id) => !shown.has(id) && !family.has(id));
+    const mateRows = extra.length ? rank(await port.byIds(extra), priors.distance, evidence.similarity) : [];
     return {
       ...prev,
       confident: false,
@@ -1232,7 +1249,7 @@ export async function resolveCard(
       // The same cut `done` makes, keeping the card it pinned: a number's
       // reading the name questioned, on a list the siblings now lengthen
       // (Astra's review of the #297 merge).
-      matches: capKeeping([top, ...open, ...rest], prev.pinned),
+      matches: capKeeping([top, ...open, ...rest, ...mateRows], prev.pinned),
     };
   }
 

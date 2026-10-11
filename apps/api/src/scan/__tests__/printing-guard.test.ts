@@ -348,6 +348,63 @@ test('the shipped table carries every Celebrations original as a printed twin', 
   assert.deepEqual(printedTwinsOf('sv02-050'), []);
 });
 
+test('a basic energy has every other printing of its type as type mates; special energies with basic names do not', async () => {
+  // v2 named a Mega Evolution Psychic Energy (mee-005) as Sun & Moon's
+  // (sm1-168) at 0.806, and a Base Set Fighting Energy (base1-97) as Ruby &
+  // Sapphire's (ex1-105): different designs, but one picture to the model.
+  const { typeMatesOf, printingOpenFor } = await import('../artFamilies.js');
+  assert.ok(typeMatesOf('mee-005').includes('sm1-168'), 'Psychic: Mega Evolution and Sun & Moon printings');
+  assert.ok(typeMatesOf('base1-97').includes('ex1-105'), 'Fighting: Base Set and Ruby & Sapphire printings');
+  assert.ok(!typeMatesOf('mee-005').includes('base1-97'), 'one list per TYPE, not one for all energy');
+  // Type mates leave out the card's own same-picture family (those are artSiblings).
+  for (const id of artSiblings('base1-97')) assert.ok(!typeMatesOf('base1-97').includes(id), id);
+  // Neo Genesis Metal Energy (neo1-19) and the e-Card Darkness Energy are
+  // SPECIAL cards with their own art: energy_type, not the name, decides.
+  assert.deepEqual(typeMatesOf('neo1-19'), []);
+  assert.deepEqual(typeMatesOf('ecard1-158'), []);
+  assert.ok(typeMatesOf('sm1-170').length > 0, 'basic Darkness printings have type mates');
+  assert.equal(printingOpenFor('sm1-168'), true);
+  assert.equal(printingOpenFor('neo1-19'), false);
+});
+
+test("a basic energy's own same-picture printings survive the cut when its type mates are appended (Astra, #325)", async () => {
+  // Base Set Fighting Energy's same-picture family (Base Set 2, Gym Heroes,
+  // Gym Challenge, Neo Genesis, Evolutions...) must all stay selectable after
+  // ~40 other Fighting printings are added; the type mates only fill what is left.
+  const { typeMatesOf } = await import('../artFamilies.js');
+  const family = artSiblings('base1-97');
+  const mates = typeMatesOf('base1-97');
+  assert.ok(family.includes('xy12-96') && mates.length > 25, 'the case: a small family and a long type list');
+  const fake = (id: string) => card(id, 'Fighting Energy', id.slice(id.lastIndexOf('-') + 1), id.slice(0, id.lastIndexOf('-')));
+  const all = new Map(['base1-97', ...family, ...mates].map((id) => [id, fake(id)]));
+  const p: CatalogPort = {
+    async bySetAndNumber() {
+      return [];
+    },
+    async byNumberAndDenominator() {
+      return [];
+    },
+    async byNumber() {
+      return [];
+    },
+    async byIds(ids) {
+      return ids.flatMap((id) => (all.has(id) ? [all.get(id)!] : []));
+    },
+  };
+  const out = await resolveCard({}, [], p, {
+    phashConfidentMax: 9,
+    fusion: { vectorMatches: [{ cardId: 'base1-97', similarity: 0.9 }, { cardId: 'ex1-105', similarity: 0.6 }], modelId: MODEL },
+    artSiblings,
+    typeMates: typeMatesOf,
+  });
+  assert.equal(out.printingOpen, true);
+  assert.equal(out.confident, false);
+  assert.ok(out.matches.length <= 25);
+  const listed = new Set(out.matches.map((m) => m.cardId));
+  for (const id of family) assert.ok(listed.has(id), `${id}: a same-picture printing is still a choice`);
+  assert.ok(listed.has('ex1-105'), 'the vector runner-up is still a choice');
+});
+
 test('a Celebrations card twins ONE original: later printings at the same number are not twins', async () => {
   // Base Set 2's Charizard prints 4/130, Secret Wonders' Blastoise 2/132: the
   // Classic Collection reprints Base Set's 4/102 and 2/102 only, so a printed

@@ -42,6 +42,8 @@ interface ArtFamiliesFile {
   families: string[][];
   /** original -> reprints printing ITS collector number under another catalogue number. */
   printedTwins?: Record<string, string[]>;
+  /** basic energy type -> every printing of it (energy_type Normal), beside the families. */
+  energyTypes?: Record<string, string[]>;
 }
 
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), 'data');
@@ -62,6 +64,28 @@ export function printedTwinsOf(cardId: string): readonly string[] {
   return FILE.printedTwins?.[cardId] ?? [];
 }
 
+const TYPE_OF = new Map<string, readonly string[]>();
+for (const ids of Object.values(FILE.energyTypes ?? {})) {
+  const frozen = Object.freeze([...ids]);
+  for (const id of ids) TYPE_OF.set(id, frozen);
+}
+
+/**
+ * For a BASIC energy: the other printings of its type that are not already in
+ * its own same-picture family (empty for anything else). The eras' energy
+ * designs differ, but the identity model does not separate them (v2 named a
+ * Mega Evolution Psychic Energy as Sun & Moon's at 0.806), so an image answer
+ * names the type and the printing stays open. Kept apart from `artSiblings` so
+ * the guard can list a card's own family FIRST: merged, a family of 50 crowded
+ * same-picture printings out of the reader's 25 choices (Astra, review of #325).
+ */
+export function typeMatesOf(cardId: string): readonly string[] {
+  const mates = TYPE_OF.get(cardId);
+  if (!mates) return [];
+  const fam = new Set(FAMILY_OF.get(cardId) ?? []);
+  return mates.filter((id) => id !== cardId && !fam.has(id));
+}
+
 /** The other printings that share this card's picture (empty when none). */
 export function artSiblings(cardId: string): readonly string[] {
   const fam = FAMILY_OF.get(cardId);
@@ -70,13 +94,14 @@ export function artSiblings(cardId: string): readonly string[] {
 
 /**
  * POST /scan's half of the guard: is the printing of this hash top-1 still
- * open? True when the card shares its picture with another printing, so a hash
- * within its own bar names the family and not the printing. `router.ts` reports
+ * open? True when the card shares its picture with another printing, or is a
+ * basic energy with other printings of its type, so a hash within its own bar
+ * names the family (or the type) and not the printing. `router.ts` reports
  * it as `printingOpen: true` with `matched: false`; the scan bench replays it.
  * Undefined (no top-1) is never open.
  */
 export function printingOpenFor(topCardId: string | undefined): boolean {
-  return topCardId != null && artSiblings(topCardId).length > 0;
+  return topCardId != null && (artSiblings(topCardId).length > 0 || typeMatesOf(topCardId).length > 0);
 }
 
 /**
