@@ -11,7 +11,7 @@ import { def, type Env } from './context.js';
 import type { Op } from './compile.js';
 import type { Filter, SpecialCondition } from './dsl.js';
 import { evalCond } from './eval.js';
-import { applyCondition, queueOppAttachTriggers, queueStadiumBench, queueTriggers, run, swapActive } from './interp.js';
+import { applyCondition, queueMovedToActive, queueOppAttachTriggers, queueStadiumBench, queueTriggers, run, swapActive } from './interp.js';
 import {
   abilityLost,
   attackIsFrom,
@@ -33,7 +33,10 @@ import {
   energyUnits,
   hasNoAbilities,
   itemLocked,
+  koToHandCards,
   maxHp,
+  mayEvolve,
+  ownFirstTurn,
   retreatCost,
   statics,
 } from './query.js';
@@ -185,6 +188,13 @@ export function submit(env: Env, s: GameState, choice: number[]): void {
       ps.active = sl;
       sl.movedActiveTurn = s.turn;
       emit(env, { type: 'promote', player: r.p, slot: sl.id });
+      queueMovedToActive(env, s, sl, r.p);
+      break;
+    }
+    case 'koHand': {
+      // "you may put ... into your hand instead of the discard pile": the answer waits on the Knocked Out Pokémon until it leaves play.
+      const loc = findSlot(s, r.slot);
+      if (loc) loc.slot.koHandAnswer = choice[0] === 0;
       break;
     }
   }
@@ -471,11 +481,6 @@ function turnStep(env: Env, s: GameState): void {
   }
 }
 
-/** The player's own first turn (the second player's first turn is turn 2). */
-function ownFirstTurn(s: GameState, p: Player): boolean {
-  return s.turn === (p === s.first ? 1 : 2);
-}
-
 // ---------------------------------------------------------------------------
 // Legal actions
 // ---------------------------------------------------------------------------
@@ -530,11 +535,11 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
     if (d.kind === 'pokemon') {
       if (d.stage === 0) {
         if (ps.bench.length < room && once(`b${d.idx}`)) out.push({ t: 'bench', card: c });
-      } else if (!ownFirstTurn(s, p) && !noEvolve) {
+      } else if (!noEvolve) {
+        // The name it evolves from, and the timing (not on the first turn, not the turn it was played or evolved), as the effects on
+        // each Pokémon bend them (Boosted Evolution, Forest of Vitality, Rainbow DNA).
         for (const sl of slots) {
-          const top = def(env.ctx, topCard(sl));
-          if (top.name !== d.evolvesFrom) continue;
-          if (sl.enteredTurn >= s.turn || sl.evolvedTurn >= s.turn) continue;
+          if (!mayEvolve(env, s, p, sl, d, all)) continue;
           if (once(`e${d.idx}:${sl.id}`)) out.push({ t: 'evolve', card: c, slot: sl.id });
         }
       }
@@ -816,11 +821,17 @@ function koByAttack(s: GameState, owner: Player, sl: Slot): boolean {
   return s.attacked && s.afterKo !== 'nextTurn' && owner !== s.current && (s.attackHits ?? []).includes(sl.id);
 }
 
-function knockOut(env: Env, s: GameState, owner: Player, sl: Slot): void {
+function knockOut(env: Env, s: GameState, owner: Player, sl: Slot, toHand: readonly number[] = []): void {
   const ps = s.p[owner];
   const card = topCard(sl);
   emit(env, { type: 'knockout', player: owner, slot: sl.id, card });
-  ps.discard.push(...slotCards(sl));
+  ps.discard.push(...slotCards(sl).filter((c) => !toHand.includes(c)));
+  // "put it into your hand instead of the discard pile": a Knock Out all the same (the opponent takes its Prize cards), but those
+  // cards are face up, and known to be in the hand.
+  for (const c of toHand) {
+    ps.hand.push(c);
+    ps.revealed.push(c);
+  }
   if (ps.active === sl) ps.active = null;
   else ps.bench = ps.bench.filter((b) => b !== sl);
   s.effects = s.effects.filter((x) => x.slot !== sl.id);
@@ -953,13 +964,38 @@ function resolveKOs(env: Env, s: GameState): void {
           queueTriggers(env, s, sl, p, 'knockedOutByAttack');
         }
         ko.push({ owner: p, slot: sl, prizes: 0 });
-      } else if (sl.koTriggered) delete sl.koTriggered; // a trigger saved it from the Knock Out
+      } else {
+        if (sl.koTriggered) delete sl.koTriggered; // a trigger saved it from the Knock Out
+        if (sl.koHandAnswer !== undefined) delete sl.koHandAnswer;
+      }
     }
   }
   // Those Abilities resolve first; then Knock Outs are checked again (the flagged Pokémon are not asked twice).
   if (s.queued.length > queuedBefore) return;
   if (ko.length) {
     all = statics(env, s);
+    // "you may put it into your hand instead of the discard pile": ask first, before anything below flips a coin or is used up.
+    const toHand = new Map<Slot, number[]>();
+    for (const k of ko) {
+      if (!koByAttack(s, k.owner, k.slot)) continue;
+      const { always, may } = koToHandCards(env, s, k.slot, all);
+      if (may.length && k.slot.koHandAnswer === undefined) {
+        s.pending = {
+          decision: {
+            player: k.owner,
+            kind: 'yesno',
+            prompt: `Put ${[...new Set(may.map((c) => def(env.ctx, c).name))].join(', ')} into your hand instead of the discard pile?`,
+            min: 1,
+            max: 1,
+            labels: ['Yes', 'No'],
+          },
+          resume: { k: 'koHand', slot: k.slot.id },
+        };
+        return;
+      }
+      const cards = k.slot.koHandAnswer ? [...always, ...may] : always;
+      if (cards.length) toHand.set(k.slot, cards);
+    }
     // Prize cards for each Knocked Out Pokémon: its value, changed by Energy (Legacy Energy) and by Abilities of Pokémon in play
     // (Shadowy Concealment, Fragile Husk), checked while everything is still in play.
     for (const k of ko) {
@@ -987,7 +1023,7 @@ function resolveKOs(env: Env, s: GameState): void {
         extra[taker] += e.amount ?? 1;
       }
     }
-    for (const k of ko) knockOut(env, s, k.owner, k.slot);
+    for (const k of ko) knockOut(env, s, k.owner, k.slot, toHand.get(k.slot));
     // 2. Prize cards: the player whose turn is next takes first (Compendium, 2018).
     const order: Player[] = [opp(s.current), s.current];
     for (const taker of order) {
@@ -1020,6 +1056,7 @@ function resolveKOs(env: Env, s: GameState): void {
       ps.active = ps.bench.shift() as Slot;
       ps.active.movedActiveTurn = s.turn;
       emit(env, { type: 'promote', player: p, slot: ps.active.id });
+      queueMovedToActive(env, s, ps.active, p);
       continue;
     }
     s.pending = {

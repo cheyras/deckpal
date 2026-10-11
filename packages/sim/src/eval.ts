@@ -176,7 +176,8 @@ export function resolveSlot(s: GameState, ec: EvalCtx, ref: SlotRef): Slot | nul
     return s.p[opp(ec.player)].active;
   }
   if (ref === 'myActive') return s.p[ec.player].active;
-  if (ref === 'oppActive') return s.p[opp(ec.player)].active;
+  // After a switch that did not happen because the Benched Pokémon was protected from its effects, there is no "new Active Pokémon".
+  if (ref === 'oppActive') return ec.vars.__switchFailed ? null : s.p[opp(ec.player)].active;
   const v = ec.vars[ref.v];
   const id = Array.isArray(v) ? v[0] : typeof v === 'number' ? v : undefined;
   if (id === undefined) return null;

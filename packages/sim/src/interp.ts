@@ -269,7 +269,7 @@ function dealDamage(
     if (dmg > 0 && !noDefEffects) dmg += damageIn(env, s, target, all, f.player, attacker ?? undefined, reducers); // lane:metal (fromOpp) + lane:fighting (ignore)
     if (dmg < 0) dmg = 0;
     // lane:ghost (attacker). A reduction that left nothing is still checked: prevented damage is not "damaged by an attack" for the Berries.
-    const prevented = (dmg > 0 || reducers.length > 0) && !noDefEffects && damagePrevented(env, s, target, f.player, all, attacker ?? undefined);
+    const prevented = (dmg > 0 || reducers.length > 0) && !noDefEffects && damagePrevented(env, s, target, f.player, all, attacker ?? undefined, dmg);
     if (prevented) dmg = 0;
     // "If the Pokémon this card is attached to is damaged by an attack ..., it takes N less damage, and discard this card": the Tool
     // whose effect reduced the damage reacts, even when the reduction took it to 0 and wherever the Pokémon is.
@@ -907,6 +907,15 @@ function switchStep(env: Env, s: GameState, f: Frame, st: Extract<Step, { op: 's
   }
   if (!target || !ps.bench.includes(target)) return 'next';
   if (trainerBlocked(env, s, f, target)) return 'next'; // ...or the Pokémon that would come up is
+  // ...and so is the Benched Pokémon that would be switched in: an attack or Ability can't bring a Pokémon that is protected from its
+  // effects into the Active Spot (TPCi Rules Team 2025-05-29, ruling 2155: Drag Off and Misty's Magikarp's So Submerged -- the switch
+  // does not happen, so there is no new Active Pokémon to damage either). That is when the attacking player picks the Pokémon: when the
+  // Pokémon's own player chooses ("Your opponent chooses the new Active Pokémon"), the attack is not doing anything to the one they pick.
+  const picked = !!st.with || st.chooser !== 'opp';
+  if ((f.kind === 'attack' || f.kind === 'ability') && who !== f.player && picked && effectsPrevented(env, s, target, f.player, f.kind)) {
+    f.vars.__switchFailed = true;
+    return 'next';
+  }
   swapActive(env, s, who, target, f.code === '__retreat');
   return 'next';
 }
@@ -932,6 +941,17 @@ export function swapActive(env: Env, s: GameState, who: Player, target: Slot, re
       for (const w of allSlots(s.p[opp(who)])) queueTriggers(env, s, w, opp(who), 'oppActiveMovedToBench', { __target: old.id });
     }
   }
+  queueMovedToActive(env, s, target, who);
+}
+
+/**
+ * A Pokémon of `owner` moved from the Bench to the Active Spot (a switch, a retreat or a promotion): its own "when this Pokémon moves
+ * from your Bench to the Active Spot" Abilities, and those of the owner's Pokémon that watch for another of them to (`__target`).
+ */
+export function queueMovedToActive(env: Env, s: GameState, moved: Slot, owner: Player): void {
+  if (s.phase !== 'main') return;
+  queueTriggers(env, s, moved, owner, 'movedToActive');
+  for (const w of allSlots(s.p[owner])) queueTriggers(env, s, w, owner, 'allyMovedToActive', { __target: moved.id });
 }
 
 function useAttackOf(env: Env, s: GameState, f: Frame, cardVar: string): R {

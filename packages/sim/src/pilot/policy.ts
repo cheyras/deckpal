@@ -17,7 +17,7 @@ import { codeOf, def, type Env } from '../context.js';
 import type { Op } from '../compile.js';
 import type { Step } from '../dsl.js';
 import { evalExpr } from '../eval.js';
-import { attackCost, energyUnits, retreatCost, statics, type LiveStatic } from '../query.js';
+import { attackCost, benchLimit, energyUnits, retreatCost, statics, type LiveStatic } from '../query.js';
 import type { Game } from '../game.js';
 import { opp } from '../state.js';
 import type { Pilot } from './types.js';
@@ -177,7 +177,7 @@ function cardValue(b: Board, c: number): number {
       return 22;
     }
     let v = b.pokemonCount < 3 ? 62 : b.pokemonCount < 5 ? 40 : 18;
-    if (ps.bench.length >= 5) v = 12;
+    if (ps.bench.length >= benchLimit(b.env, b.s, b.p, b.all)) v = 12; // a full Bench (5, or more under Area Zero Underdepths)
     // A Basic whose evolution is in the list is worth developing.
     const evolves = b.env.ctx.defs.some((x) => x.evolvesFrom === d.name && x.kind === 'pokemon');
     if (evolves) v += 8;

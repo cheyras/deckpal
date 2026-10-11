@@ -287,6 +287,16 @@ Ability, a Tool, a Stadium or an Energy, and it holds while its source is in pla
   `preventTrainerEffects` (Item / Supporter effects the opponent plays done to the Pokémon; Unnerve, Wide Wall).
   An attack can carry `usable: Cond` ("You can use this attack only if ..."), `heal` takes
   `{ each: zone, filter }`, the `stadium` condition takes `of` (whose Stadium) and `{ benchRoom: who }` counts open Bench spaces.
+  Added with std-engine5: `evolveTiming` (`firstTurn` / `justPlayed`, `into` a filter; a Pokémon that evolved this turn
+  counts as played this turn: Forest of Vitality, Boosted Evolution, Fighting Roar; the first-turn ban stays unless
+  `firstTurn`), `evolveInto` (Rainbow DNA: cards that evolve from another name), `koToHand` ("put it / the Basic
+  {W} Energy attached into your hand instead of the discard pile" when Knocked Out by damage from an attack: Gengar,
+  Huntail; `optional` asks the owner a yes/no before the Prize cards), and on `preventDamage`: `attacker` now
+  limits the *effects* too with `andEffects` (Milotic ex, Carracosta, Acerola's Mischief), and `ifAtMost` /
+  `ifAtLeast` prevent damage by its amount as it stands after Weakness and Resistance (Harden, Impervious Shell).
+  `BENCH_SPACE` (helpers.ts) is `{ benchRoom: 'self' }`: use it, never `5 − Bench`. A `switch` from an attack or
+  Ability that the attacking player aims at a Benched Pokémon protected from attack / Ability effects does nothing,
+  and the rest of the program has no "new Active Pokémon" (`oppActive` resolves to nothing: ruling 2155).
 - **Say whose attacks.** `damageIn` applies to damage from *every* attack unless `fromOpp: true`.
   If the card says "from attacks from your opponent's Pokémon", set it (Full Metal Lab, Iron
   Defender, Antique Armor Fossil). The round trip caught Protective Armor without it.
@@ -309,6 +319,9 @@ Attacking Pokémon is `{ v: '__attacker' }`), `damageReduced` (a Tool whose `dam
 on the Bench: the Berries; discards itself with `discardThisCard`), `checkup` (Froslass), `endOfTurn` (Powerglass, Ignition Energy; only the
 current player's Pokémon), `pokemonBenched` (a Stadium: Risky Ruins; `self` is the benched
 Pokémon), `oppAttachFromHand` (Gengar ex, Gnawing Curse; the Pokémon is in `{ v: '__target' }`).
+`movedToBench` / `movedToActive` (this Pokémon moved between the Active Spot and the Bench by a switch, retreat or, for
+`movedToActive`, promotion; `oncePerTurn` is "Once during your turn, when this Pokémon moves ...": Cobalion ex, Yanmega ex)
+and `allyMovedToActive` (one of your Pokémon moved up; the mover is `{ v: '__target' }`, ask about it in `when`: Latios).
 `optional: true` is "you may".
 
 A **timed effect** is created by an attack or Ability with the `effect` step:

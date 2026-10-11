@@ -325,6 +325,8 @@ export function effectsPrevented(
   fromPlayer: Player,
   kind: 'attack' | 'ability',
   all = statics(env, s),
+  /** The attacking Pokémon, for prevention that depends on it; default: the one whose attack is being resolved (`attackBy`). */
+  attacker?: Slot,
 ): boolean {
   if (ownerOf(s, slot) === fromPlayer) return false;
   for (const x of onSlot(env, s, all, slot, 'preventEffects')) {
@@ -332,8 +334,10 @@ export function effectsPrevented(
   }
   if (kind === 'attack') {
     for (const x of onSlot(env, s, all, slot, 'preventDamage')) {
-      const e = x.effect as { andEffects?: boolean; attacker?: Filter };
-      if (e.andEffects && !e.attacker) return true; // an attacker-filtered prevention is honoured for damage only
+      const e = x.effect as { andEffects?: boolean; attacker?: Filter; ifAtMost?: number; ifAtLeast?: number };
+      if (!e.andEffects || e.ifAtMost !== undefined || e.ifAtLeast !== undefined) continue; // effects are not damage: no amount to compare
+      // "...effects of attacks from your opponent's Tera Pokémon": only an attack by a Pokémon that matches.
+      if (!e.attacker || (attacker ? attackerMatches(env, s, attacker, e.attacker, all) : attackIsFrom(env, s, e.attacker, all))) return true;
     }
   }
   return false;
@@ -370,6 +374,8 @@ export function damagePrevented(
   all = statics(env, s),
   /** lane:ghost — the attacking Pokémon, for prevention that depends on it (Ancient Bulwark). */
   attacker?: Slot,
+  /** The damage about to be done, after Weakness, Resistance and the effects on damage taken: for "if that damage is N or less / more". */
+  amount?: number,
 ): boolean {
   const owner = ownerOf(s, slot);
   // Tera rule: while on the Bench, prevent all damage done to it by attacks (both players').
@@ -377,9 +383,12 @@ export function damagePrevented(
   if (owner === fromPlayer) return false;
   return onSlot(env, s, all, slot, 'preventDamage').some((x) => {
     // lane:ghost — "attacks from your opponent's Pokémon that have 2 or less Energy attached" (Energy units, as energyOn counts).
-    const e = x.effect as { attackerMaxEnergy?: number; attacker?: Filter };
+    const e = x.effect as { attackerMaxEnergy?: number; attacker?: Filter; ifAtMost?: number; ifAtLeast?: number };
     // "attacks from Basic Pokémon": only an attacking Pokémon that matches the filter.
     if (e.attacker && !(attacker && attackerMatches(env, s, attacker, e.attacker, all))) return false;
+    // "if that damage is 60 or less" / "200 or more": the damage as it stands (ruling 2197: after Weakness and Resistance).
+    if (e.ifAtMost !== undefined && !(amount !== undefined && amount > 0 && amount <= e.ifAtMost)) return false;
+    if (e.ifAtLeast !== undefined && !(amount !== undefined && amount >= e.ifAtLeast)) return false;
     const max = e.attackerMaxEnergy;
     if (max === undefined) return true;
     return !!attacker && energyUnits(env, attacker).length <= max;
@@ -552,6 +561,64 @@ export function trainerEffectsPrevented(env: Env, s: GameState, slot: Slot, from
 /** May this Pokémon attack twice each turn right now (an `attackTwice` static that is in force)? */
 export function canAttackTwice(env: Env, s: GameState, slot: Slot, all = statics(env, s)): boolean {
   return onSlot(env, s, all, slot, 'attackTwice').length > 0;
+}
+
+/**
+ * The cards of a Pokémon that is being Knocked Out by damage from an attack and go to its owner's hand instead of the discard pile
+ * (`koToHand` effects on it): those that always do, and those its owner may choose to ("you may put ... into your hand").
+ */
+export function koToHandCards(env: Env, s: GameState, slot: Slot, all = statics(env, s)): { always: number[]; may: number[] } {
+  const always = new Set<number>();
+  const may = new Set<number>();
+  for (const x of onSlot(env, s, all, slot, 'koToHand')) {
+    const e = x.effect as { cards: 'pokemon' | 'energy'; filter?: Filter; optional?: boolean };
+    const cards = e.cards === 'pokemon' ? slot.cards : slot.energy.filter((c) => cardMatches(env, c, e.filter));
+    for (const c of cards) (e.optional ? may : always).add(c);
+  }
+  for (const c of always) may.delete(c);
+  return { always: [...always], may: [...may] };
+}
+
+/** The player's own first turn (the second player's first turn is turn 2). */
+export function ownFirstTurn(s: GameState, p: Player): boolean {
+  return s.turn === (p === s.first ? 1 : 2);
+}
+
+/**
+ * May the card `d` (an Evolution Pokémon in `slot`'s owner's hand) be played onto this Pokémon to evolve it right now, by the
+ * evolution rules and the effects that bend them? Not whether the player is locked out of evolving (`playLock`: the caller asks).
+ *  - the name: the card evolves from this Pokémon's name, or an `evolveInto` effect on it names the card;
+ *  - the timing: not on its owner's first turn, and not the turn it was played or evolved, unless an `evolveTiming` effect on it
+ *    (that covers the card) lifts that.
+ */
+export function mayEvolve(env: Env, s: GameState, p: Player, slot: Slot, d: CardDef, all = statics(env, s)): boolean {
+  if (d.kind !== 'pokemon' || d.stage === 0) return false;
+  let named = def(env.ctx, topCard(slot)).name === d.evolvesFrom;
+  if (!named) {
+    for (const x of onSlot(env, s, all, slot, 'evolveInto')) {
+      const e = x.effect as { evolvesFrom: string; filter?: Filter };
+      if (e.evolvesFrom === d.evolvesFrom && defMatches(d, e.filter)) {
+        named = true;
+        break;
+      }
+    }
+  }
+  if (!named) return false;
+  let firstTurn = false;
+  let justPlayed = false;
+  const own = ownFirstTurn(s, p);
+  const fresh = slot.enteredTurn >= s.turn || slot.evolvedTurn >= s.turn;
+  if (own || fresh) {
+    for (const x of onSlot(env, s, all, slot, 'evolveTiming')) {
+      const e = x.effect as { firstTurn?: boolean; justPlayed?: boolean; into?: Filter };
+      if (e.into && !defMatches(d, e.into)) continue;
+      firstTurn ||= !!e.firstTurn;
+      justPlayed ||= !!e.justPlayed;
+    }
+  }
+  if (own && !firstTurn) return false;
+  if (fresh && !justPlayed) return false;
+  return true;
 }
 
 /** How many Pokémon this player can have on their Bench: 5, or more under a `benchSize` effect whose condition they meet. */
