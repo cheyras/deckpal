@@ -253,6 +253,11 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
       : 'Move every Energy card attached to this Pokémon to 1 of your Benched Pokémon, chosen by the controller (no question with a single Benched Pokémon); nothing happens with no Bench or no Energy',
   'c24.discardSpecialEnergyAllOpp': () => "Discard all Special Energy from all of your opponent's Pokémon (Active and Benched), whatever its text does right now; a Pokémon protected from the effects of attacks keeps its Energy",
   'c24.oppActiveEnergyToHand': (a) => `Put ${Number(a.n ?? 1)} of the Energy cards attached to your opponent's Active Pokémon (all of them when it has fewer) into their hand`,
+  // std-c22-customs.ts
+  'c22.searchAttachedTypes': (a) => `Look through your deck and choose up to ${Number(a.max ?? 5)} Pokémon whose type is the same as that of any Basic Energy card attached to this Pokémon (a Special Energy adds no type), revealed (into "${String(a.as ?? 'found')}"); nothing leaves the deck yet`,
+  'c22.healEvolutions': () => 'Heal all damage from each of your Evolution Pokémon, then discard all Energy from the ones that had damage',
+  'c22.countAttachedIn': (a) => `Count the ${energyNoun(a.filter as Filter | undefined)} cards attached to ${slotZoneNoun(String(a.zone ?? 'oppPokemon') as SlotZone)} (into "${String(a.as ?? 'n')}")`,
+  'c22.discardSelfTools': (a) => `Discard all Pokémon Tools from this Pokémon, counting them (into "${String(a.as ?? 'n')}"); a Pokémon with no Tool can't discard any, so the count is 0`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -2101,5 +2106,10 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   "sv06.5-005|attack:Power Shot": {
     problems: ["\"can't\" is printed but not rendered"],
     why: "\"If you can't\" is the case of having no Basic {G} Energy card in hand: the choice comes back empty, and the discard and the damage are inside the \"if you chose 1 or more cards\" branch, so nothing happens.",
+  },
+  // std-c22
+  'sv07-119|ability:Curly Wall': {
+    problems: ['number 1 is printed 1× but rendered 0×'],
+    why: 'The printed "at least 1 other Bouffalant" counts the Bouffalant in play other than the source; the source is itself one of the Pokémon counted by `pokemon`, so the condition is written as 2 or more Pokémon named Bouffalant (this one plus at least 1 other), and the 1 appears only as that 2.',
   },
 };
