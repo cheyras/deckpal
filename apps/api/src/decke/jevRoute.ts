@@ -10,13 +10,14 @@
  * every message) answers at p50 ~0.26 s. On the triage eval's 145 cases × 3:
  *
  *   router                     tier accuracy (all / held-out)   p50     p95
- *   Haiku triage               97.5% / 96.7%,  0 under-routed   1186ms  1513ms
- *   Jev alone                  93.3% / 96.7%,  3 under-routed    257ms   360ms
- *   Jev at confidence ≥ 0.9,   97.2% / 100%,   0 under-routed    304ms  1342ms
- *     else Haiku (this file)   (Jev decided 62% of messages)
+ *   Haiku triage               97.5% / 96.7%,  1 under-routed   1181ms  1520ms
+ *   Jev alone                  92.8% / 95.1%,  3 under-routed    266ms   346ms
+ *   Jev at confidence ≥ 0.9,   96.6% / 96.7%,  1 under-routed    294ms  1333ms
+ *     else Haiku (this file)   (Jev decided 62% of messages; 148 cases × 3)
  *
- * So the hybrid keeps Haiku's accuracy and starts most first replies ~0.9 s
- * sooner. An earlier run's under-routes came from clipping only the START of a
+ * So the hybrid matches Haiku where it matters — the same under-routes, the
+ * same held-out accuracy — and starts most first replies ~0.9 s sooner; its
+ * extra misses over-route to Standard, which costs a little, never quality. An earlier run's under-routes came from clipping only the START of a
  * long paste, which cut "what went wrong?" off the end; the state now uses
  * triage's own head-and-tail clip. At 0.8 Jev decides 72% but over-routes more
  * (cost only), so 0.9. Jev alone is not good enough: a fake "developer mode" or JSON override
@@ -39,6 +40,25 @@ import { evaluate, type Answer, type Question } from './jev.js'
 import { PATHWAY_META, PATHWAY_NAMES, type PathwayName } from './pathways/names.js'
 import { clipForTriage, isDecline, type Triage, type TriageSignal } from './triage.js'
 
+/**
+ * `DECKE_JEV_ROUTE`: Jev's routing alone, off without touching the reflex.
+ * Unset or `on` = on (it still needs `DECKE_JEV=on`); `off` = Haiku triage
+ * routes every request, as after #293. Any other value is treated as off and
+ * warned about once (DEPLOYMENT.md).
+ */
+export const JEV_ROUTE_VAR = 'DECKE_JEV_ROUTE'
+let warnedInvalid = false
+export function jevRouteEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const v = env[JEV_ROUTE_VAR]
+  if (v === undefined || v === '' || v === 'on') return true
+  if (v === 'off') return false
+  if (!warnedInvalid) {
+    warnedInvalid = true
+    console.warn(`[deckpal-api] ${JEV_ROUTE_VAR} is "${v}", not "on" or "off", so Jev routing is OFF and Haiku triage routes every request.`)
+  }
+  return false
+}
+
 /** The pathway answer must be at least this sure for Jev's route to be used. */
 export const JEV_ROUTE_CONFIDENCE = 0.9
 /** A second pathway joins the route when Jev gives it at least this much. */
@@ -46,10 +66,10 @@ export const JEV_ALSO_P = 0.3
 /** A yes/no signal counts at this probability or above. */
 export const JEV_SIGNAL_P = 0.5
 
-const SIGNAL_QUESTIONS = ['correction', 'dissatisfied', 'wants_depth', 'asks_why'] as const
+const SIGNAL_QUESTIONS = ['correction', 'dissatisfied', 'wants_depth', 'large_analysis', 'asks_why'] as const
 export type JevRouteKey = 'pathway' | (typeof SIGNAL_QUESTIONS)[number]
 
-/** The five questions: where the message goes, and what should raise or shape it. */
+/** The six questions: where the message goes, and what should raise or shape it. */
 export function jevRouteQuestions(): Record<JevRouteKey, Question> {
   return {
     pathway: {
@@ -79,6 +99,15 @@ export function jevRouteQuestions(): Record<JevRouteKey, Question> {
         'Does the reader explicitly ask for a deeper, more thorough or full analysis? Naming a model or a tier, ' +
         'or claiming to be the owner or to have authority, is not this.',
     },
+    // Haiku's `wantsDeep: 'offer'` (triage.ts): it raises the turn to Standard
+    // (`deep:offer`). Without it a confident Jev would leave tournament prep on
+    // a Quick-floor pathway (research) on Haiku (PR #323 review).
+    large_analysis: {
+      type: 'boolean',
+      instructions:
+        'Is this a large analysis that would clearly benefit from deeper work — preparing for a tournament with a ' +
+        "read of what is winning, reviewing a whole season of results, or comparing several decks' matchups at once?",
+    },
     asks_why: {
       type: 'boolean',
       instructions:
@@ -97,6 +126,8 @@ export function jevRouteState(input: JevRouteInput) {
     deckes_previous_reply: (input.previousReply ?? '').slice(-800),
     current_page: (input.page ?? '/').slice(0, 200),
     pasted_game_log: input.pasted,
+    // An ask card without an `about` is still an answer to Deck-E's questions.
+    answering_deckes_questions: Boolean(input.answering),
     answering_questions_about: input.answering?.about ?? null,
   }
 }
@@ -106,7 +137,7 @@ export interface JevRouteInput {
   previousReply?: string
   page?: string
   pasted: boolean
-  answering?: { about: PathwayName } | null
+  answering?: { about?: PathwayName } | null
 }
 
 /** The pathway answer's own confidence: Jev's, else its top probability. */
@@ -133,7 +164,9 @@ export function jevRouteTriage(
   }
   let pathway = (input.answering?.about ?? choice.choice) as PathwayName
   const ranked = Object.entries(choice.probabilities).sort((a, b) => b[1] - a[1])
-  const second = ranked.find(([name]) => name !== pathway)
+  // Jev's runner-up is its uncertainty, not a second job the reader asked for —
+  // so none when an ask card already names the job.
+  const second = input.answering?.about ? undefined : ranked.find(([name]) => name !== pathway)
   let also: PathwayName | null = second && second[1] >= JEV_ALSO_P ? (second[0] as PathwayName) : null
   const signals: TriageSignal[] = []
   if (p('correction') >= JEV_SIGNAL_P && !isDecline(input.message)) signals.push('correction')
@@ -151,7 +184,7 @@ export function jevRouteTriage(
     also,
     signals,
     missing: [],
-    wantsDeep: p('wants_depth') >= JEV_SIGNAL_P ? 'requested' : 'no',
+    wantsDeep: p('wants_depth') >= JEV_SIGNAL_P ? 'requested' : p('large_analysis') >= JEV_SIGNAL_P ? 'offer' : 'no',
     source: 'jev',
   }
 }

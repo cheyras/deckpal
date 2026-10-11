@@ -3,9 +3,12 @@ import test from 'node:test'
 import { hybridRows, parseArgs, summarizeRouter, USAGE } from '../decke-jev-route-eval.mjs'
 
 
-test('--help is the usage, and a bare run needs no flags to parse', () => {
+test('--help is the usage, and a live run needs an explicit budget', () => {
   assert.match(USAGE, /--no-zdr/)
-  assert.deepEqual(parseArgs([]), { cases: null, repeat: 1, budgetUsd: 0.5, out: null, noZdr: false })
+  assert.match(USAGE, /--budget-usd <x>\s+Required for a live run/)
+  // Parsing alone never sets a budget: main() refuses a live run without one.
+  assert.deepEqual(parseArgs([]), { cases: null, repeat: 1, budgetUsd: null, out: null, noZdr: false })
+  assert.equal(parseArgs(['--budget-usd', '0.2']).budgetUsd, 0.2)
   assert.throws(() => parseArgs(['--budget-usd', '0']), /positive/)
   assert.equal(parseArgs(['--cases', 'a,b']).cases.length, 2)
 })

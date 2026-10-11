@@ -490,16 +490,19 @@ test('the reflex read runs after the meter, from the built module, with the turn
 });
 
 test('Jev routes when it is sure; Haiku triage, started at the same moment, routes otherwise', () => {
-  assert.match(SRC, /import \{ readJevRoute \} from '\.\.\/apps\/api\/dist\/decke\/jevRoute\.js'/);
-  // Metered on this request, with the same inputs triage reads, and the turn's abort.
-  assert.match(CODE, /echoed \? null : runAiUsage\(usage, \(\) => readJevRoute\(triageInput, \{ key, signal: request\.signal \}\)\)/);
+  assert.match(SRC, /import \{ jevRouteEnabled, readJevRoute \} from '\.\.\/apps\/api\/dist\/decke\/jevRoute\.js'/);
+  // Metered on this request, with the same inputs triage reads, and the turn's abort; off by its own switch.
+  assert.match(CODE, /echoed \|\| !jevRouteEnabled\(\) \? null : runAiUsage\(usage, \(\) => readJevRoute\(triageInput, \{ key, signal: request\.signal \}\)\)/);
   // Haiku starts BEFORE the await, so an unsure Jev costs no extra wall time.
   const haiku = CODE.indexOf("const haikuTriage = echoed ? null : runAdvisoryUsage(usage, 'triage'");
   const wait = CODE.indexOf('const [reflex, jevRoute] = await Promise.all([');
   assert.ok(haiku > 0 && haiku < wait, 'Haiku triage no longer starts beside Jev');
-  // Sure: Haiku is stopped, still awaited (its usage closes in the request), and Jev's route stands.
-  assert.match(CODE, /signal: AbortSignal\.any\(\[request\.signal, haikuStop\.signal\]\)/);
-  assert.match(CODE, /if \(jevRoute\?\.route\) haikuStop\.abort\(\)\s*\n\s*const haikuResult = haikuTriage \? await haikuTriage : null\s*\n\s*const triage = jevRoute\?\.route \?\? haikuResult/);
+  // Sure, and Haiku not yet answered: Jev's route stands, and Haiku is NOT aborted —
+  // it finishes in the background, held in usage.pending so settlement records its cost.
+  assert.doesNotMatch(CODE, /haikuStop/);
+  assert.match(CODE, /if \(jevRoute\?\.route && !haikuSettled\) \{\s*\n\s*usage\.pending\.add\(haikuTriage\)\s*\n\s*void haikuTriage\.finally\(\(\) => usage\.pending\.delete\(haikuTriage\)\)\s*\n\s*triage = jevRoute\.route/);
+  // A Haiku answer that already arrived is used: the better one, and already paid for.
+  assert.match(CODE, /\} else \{\s*\n\s*triage = haikuTriage \? await haikuTriage : null\s*\n\s*\}/);
   // Visible in production: Jev's read, used or not.
   assert.match(CODE, /jev: jevRoute\?\.confidence == null \? null : \{ confidence:/);
 });

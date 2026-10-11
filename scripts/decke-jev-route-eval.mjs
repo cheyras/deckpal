@@ -21,9 +21,11 @@
  * when its pathway answer is confident, otherwise Haiku. The hybrid's latency is
  * Jev's when Jev is used and the slower of the two otherwise (both start at once).
  *
- * The key is `AI_GATEWAY_API_KEY` (or `DECKE_VERCEL_AI_GATEWAY_KEY`); its value
- * is never printed. `--budget-usd` caps total reported spend (default 0.5).
- * `--help` only prints help; nothing here runs without being asked.
+ * The key is `DECKE_VERCEL_AI_GATEWAY_KEY`, else `AI_GATEWAY_API_KEY` (chat.mjs's
+ * order); its value is never printed. A live run REQUIRES `--budget-usd` — the
+ * cap on spend, with a Haiku call whose cost the Gateway does not report (a
+ * timeout) counted at an estimate — so no bare invocation spends anything.
+ * `--help` only prints help.
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -38,15 +40,17 @@ const DECKE_SRC = path.join(HERE, '..', 'apps/api/src/decke')
 export const USAGE = `Usage: node scripts/decke-jev-route-eval.mjs [options]
   --cases <tokens>     Case selection, as decke-triage-eval.mjs (default: all).
   --repeat <n>         Passes over the cases (default 1).
-  --budget-usd <x>     Stop before reported spend could cross this (default 0.5).
+  --budget-usd <x>     Required for a live run: stop before spend could cross this.
   --out <file>         Write every row as JSON.
   --no-zdr             Drop Jev's zero-data-retention flag, keeping its provider
-                       pin. Only for these synthetic cases, and only for a key
-                       whose Vercel plan has no ZDR (a Hobby plan answers 403).
+                       pin, for a key whose Vercel plan has no ZDR (a Hobby plan
+                       answers 403). The cases are test fixtures, but some quote
+                       real game logs with player names: run it only on a key
+                       you would trust with those.
   --help               Print this.`
 
 export function parseArgs(argv) {
-  const opts = { cases: null, repeat: 1, budgetUsd: 0.5, out: null, noZdr: false }
+  const opts = { cases: null, repeat: 1, budgetUsd: null, out: null, noZdr: false }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     const val = () => { const v = argv[++i]; if (v === undefined) throw new Error(`${a} needs a value`); return v }
@@ -57,9 +61,13 @@ export function parseArgs(argv) {
     else if (a === '--no-zdr') opts.noZdr = true
     else throw new Error(`unknown option ${a}\n${USAGE}`)
   }
-  if (!Number.isFinite(opts.budgetUsd) || opts.budgetUsd <= 0) throw new Error('--budget-usd must be positive')
+  if (opts.budgetUsd !== null && (!Number.isFinite(opts.budgetUsd) || opts.budgetUsd <= 0)) throw new Error('--budget-usd must be positive')
   return opts
 }
+
+export const HAIKU_ESTIMATE_USD = 0.0004
+export const JEV_ESTIMATE_USD = 0.00006
+const NEXT_CASE_USD = HAIKU_ESTIMATE_USD + JEV_ESTIMATE_USD
 
 const ratio = (n, d) => ({ n, d, pct: d ? (100 * n) / d : null })
 
@@ -90,8 +98,9 @@ export function hybridRows(pairs, t) {
 async function main(argv) {
   if (argv.includes('--help') || argv.includes('-h')) { console.log(USAGE); return }
   const opts = parseArgs(argv)
-  const key = process.env.AI_GATEWAY_API_KEY || process.env.DECKE_VERCEL_AI_GATEWAY_KEY
-  if (!key) throw new Error('Need AI_GATEWAY_API_KEY for a live run.')
+  if (opts.budgetUsd === null) throw new Error('A live run spends money: pass --budget-usd <cap>.\n' + USAGE)
+  const key = process.env.DECKE_VERCEL_AI_GATEWAY_KEY || process.env.AI_GATEWAY_API_KEY
+  if (!key) throw new Error('Need DECKE_VERCEL_AI_GATEWAY_KEY or AI_GATEWAY_API_KEY for a live run.')
 
   const sut = await loadSut()
   const src = (file) => import(pathToFileURL(path.join(DECKE_SRC, file)).href)
@@ -118,16 +127,19 @@ async function main(argv) {
 
   for (let pass = 1; pass <= opts.repeat; pass++) {
     for (const c of cases) {
-      if (spent >= opts.budgetUsd * 0.95) { console.log(`stopping: spent $${spent.toFixed(4)} of $${opts.budgetUsd}`); break }
+      // The next case could cost about one Haiku call and one Jev call.
+      if (spent + NEXT_CASE_USD > opts.budgetUsd) { console.log(`stopping: spent ~$${spent.toFixed(4)}; the next case could cross $${opts.budgetUsd}`); break }
       const inputs = buildInputs(sut, c, materializeMessage(c.message, readLog))
       let haikuCost = 0
+      let haikuReported = false
       const haikuModel = wrapLanguageModel({
         model: gateway(sut.TRIAGE_MODEL.id),
         middleware: {
           specificationVersion: 'v4',
           wrapGenerate: async ({ doGenerate }) => {
             const r = await doGenerate()
-            haikuCost += Number(r.providerMetadata?.gateway?.cost ?? 0) || 0
+            const reported = Number(r.providerMetadata?.gateway?.cost)
+            if (Number.isFinite(reported)) { haikuCost += reported; haikuReported = true }
             return r
           },
         },
@@ -137,8 +149,9 @@ async function main(argv) {
         readJevRoute(inputs, { key, force: true, threshold: 0, ...(fetchImpl ? { fetchImpl } : {}) }).then((j) => ({ j, ms: Math.round(performance.now() - t0) })),
         sut.runTriage({ ...inputs, model: haikuModel }).then((t) => ({ t, ms: Math.round(performance.now() - t0) })),
       ])
-      // readJevRoute does not surface Jev's cost; ~$0.00004 a call (jev.ts), counted at that.
-      spent += haikuCost + (judged.j?.candidate ? 0.00005 : 0)
+      // A Haiku call with no reported cost (a timeout) counts at an estimate;
+      // readJevRoute does not surface Jev's cost, so it counts at list price.
+      spent += (haikuReported ? haikuCost : HAIKU_ESTIMATE_USD) + JEV_ESTIMATE_USD
 
       const haikuDecision = sut.decideTier({ triage: haiku.t, carried: inputs.carried, deepApproved: false, pastedLog: inputs.pasted })
       const pair = {
