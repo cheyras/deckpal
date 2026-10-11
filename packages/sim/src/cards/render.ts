@@ -233,6 +233,8 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c21.pickOppBenchLowHp': (a) => `Choose 1 Pokémon on your opponent's Bench that has ${Number(a.max ?? 90)} HP or less remaining (HP with any changes, minus damage) as "${String(a.as ?? 't')}"; no question when only one qualifies, none chosen when none does`,
   'c21.selfIntoDeck': () => 'Put this Pokémon and all attached cards (Energy, Tools, previous Evolutions) into your deck, without shuffling it yet; it is not a Knock Out',
   'c21.lookTopAny': (a) => `Look at the top ${Number(a.n ?? 20)} cards of your deck and choose any number of the ${energyNoun(a.filter as Filter | undefined)} cards you find there (into "${String(a.as ?? 'e')}"); nothing leaves the deck yet`,
+  's01.markHitWhileActive': () => 'Mark this Pokémon, for this turn only, as damaged in the Active Spot',
+  's01.moveEnergyToBenched': (a) => `Choose 1 of your Benched Pokémon other than this one and move up to ${Number(a.max ?? 1)} (at least one) of the ${energyNoun(a.filter as Filter | undefined)} cards attached to this Pokémon to it`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -255,6 +257,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'c18.sharesTypeWithOpp': () => "one of your Pokémon in play (Active or Benched) has a type that one of your opponent's Pokémon in play (Active or Benched) also has",
   'c15.lowHpDamaged': () => 'one of your Pokémon has damage on it and 30 or less HP remaining (HP counting any HP changes)',
   'c21.oppBenchLowHp': (a) => `your opponent has a Pokémon on their Bench that has ${Number(a.max ?? 90)} HP or less remaining`,
+  's01.hitWhileActive': () => 'it was marked as damaged in the Active Spot this turn',
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
