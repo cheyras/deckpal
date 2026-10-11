@@ -18,14 +18,14 @@ supersedes: []
 
 **Why:** On the owner's own verified photos, the scanner named the wrong printing of vintage cards with confidence: Base Set as Base Set 2 or Legendary Collection, identical art. The printed key that separates them is the collector number with its denominator. The resolve ladder's `number+denominator` rung would settle these, but the OCR returned no number for any of the 89 Base Set-to-e-card cards in the 218-card `quad-verify` set.
 - **A vintage number is tiny.** It is about 5 px tall on a 480×670 crop, half the modern number's height, and on Base Set it is black on dark grey. Nothing tried read more than 4× and 6× did: 3-8× upscales, two ROI shapes, contrast stretch, CLAHE, ImageNet normalisation. Most of the alternatives added wrong reads.
-- **A single read produces wrong pairs, and a wrong pair names a card.** Measured over all 147 pre-2017 card crops in `quad-verify` on this ROI (right / wrong pairs):
+- **A single read produces wrong pairs, and a wrong pair names a card.** Measured over all 147 pre-2017 card crops in `quad-verify` on this ROI (137 once the 10 promos are left out, since a promo prints no denominator) (right / wrong pairs):
   - any `NNN/NNN`: 4× 11/2, 6× 9/2, both agreeing 8/1;
   - with the plausibility gates: 4× 11/1, 6× 9/2, both agreeing 8/1;
   - with the 0.6 digit floor too: 4× 9/0, 6× 9/0, both agreeing 8/0 (shipped).
 - **Why both safeguards.** The one pair the two scales agreed on wrongly, `53/147` for `56/147`, had weakest digits of 0.48 and 0.36, so agreement alone is not enough. Dropped digits (`9/62` for `19/62`) come out at 0.69-0.90 confidence, which no floor sees, so the floor alone is not enough either.
 - **Benchmark, `scripts/scan-bench`, `vit_base_patch32_clip_224.openai` vectors.**
   - `quad-verify` (218 cards): AUTO-ID 82 → 84, WRONG 23/105 → 22/106. The corner read 8 numbers, all right and none wrong. Fossil Dragonite 19/62 went from confidently wrong (Fossil 4) to right. Fossil 27/62 went from needs-you to right.
-  - Default bench (244 cards, almost all Scarlet & Violet): AUTO-ID 168 → 168, WRONG 1/169 → 1/169. Every row is identical to the baseline run. The corner found no pair on any of its crops, including the 250 modern ones.
+  - Default bench, almost all Scarlet & Violet: AUTO-ID 168 → 168, WRONG 1/169 → 1/169. The bench has 256 card crops: 250 modern and 6 pre-2017. It scores 244 of them, after skipping 12 byte-identical duplicates. Every row is identical to the baseline run, and the corner found no pair on any of the 256 crops.
 - **The ceiling is resolution, not the parser.** Most `quad-verify` photos are binder pages whose cards are under 400 px tall in the original photo. A 5 px number there was 3 px before upscaling. All 8 corner reads came from the 45 pre-2017 crops whose card was at least 400 px tall.
 
 **Implications:**
