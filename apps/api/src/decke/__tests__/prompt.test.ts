@@ -73,10 +73,9 @@ test('saving survives widget failure and a finished deck gets a strategy-guide o
   assert.match(p, /Save button.*convenience, not the only way to save/)
   assert.match(p, /If the widget fails, or the reader simply says "save it", call `save_deck`/)
   assert.match(p, /Never tell the reader you have no save tool/)
-  // The widget's Save always creates a NEW deck (apps/web/.../chat/deckSave.ts),
-  // so a revision of an existing deck is not shown there until it can save a version.
+  // A revision goes in the widget with its deck_id, so Save makes the next
+  // version of that deck rather than a separate one (#305).
   assert.match(p, /Use `showDeck` for every complete proposed or revised deck \(a revision passes its `deck_id`\)/)
-  assert.doesNotMatch(p, /proposed or revised deck/)
   assert.match(p, /After a deck is saved.*offer to write its strategy guide/)
   assert.match(p, /call `deck_strategy` with the saved deck id/)
   assert.match(p, /game plan and win condition.*opening\/setup priorities.*key cards and why/)
