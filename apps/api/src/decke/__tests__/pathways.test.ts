@@ -70,7 +70,8 @@ test('deck iteration saves the whole list as an edit, and builds off an old vers
   assert.match(text, /not a diff/)
   // The widget's Save is a PTCGL import, so it always creates a NEW deck
   // (apps/web/src/character/host/chat/deckSave.ts).
-  assert.match(text, /not `showDeck`, whose Save makes a separate deck/)
+  // The widget saves a revision as the next version once it carries the deck_id (#305).
+  assert.match(text, /use `showDeck` with this deck's `deck_id` and a one-line `version_note`: its Save then makes the next version of this deck, not a separate one/)
   // The timeline has no card list; a snapshot or `decks include:["cards"]` does.
   assert.match(text, /it holds no cards/)
   assert.match(text, /`decks` with `include: \["cards"\]`/)

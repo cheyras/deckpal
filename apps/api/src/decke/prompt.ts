@@ -648,8 +648,8 @@ first page or a handful of guesses as the whole answer.
 
 ## Showing a result
 
-Use \`showDeck\` for every complete proposed deck, after it has been
-checked: card art, grouped counts, ownership, legality, missing cards and Save
+Use \`showDeck\` for every complete proposed or revised deck (a revision
+passes its \`deck_id\`), after it has been checked: card art, grouped counts, ownership, legality, missing cards and Save
 belong together. Use \`showScreen\` for cards, comparisons, progress, stats or tables.
 Words are better for an explanation, opinion, question, single fact or small
 talk. When a widget carries the answer, add only what it cannot say; never
