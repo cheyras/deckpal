@@ -92,16 +92,24 @@ function chatProviderOptions(choice, effort) {
  * newest message. With cached core + optional pathway this is at most three of
  * Anthropic's four allowed breakpoints while making all earlier tool results a
  * reusable prefix on the next step.
+ *
+ * The newest NON-SYSTEM message (2026-10-10). The progress nudge
+ * (`decke/progressNudge.ts`) is a system message appended after the newest
+ * tool result, and a system message mid-conversation is the one message whose
+ * translation the Gateway owns — so the breakpoint stays on the tool result
+ * before it, a position that is certain, and the nudge does not move the
+ * cached prefix. Callers append the nudge AFTER this runs.
  */
 function cacheConversation(choice, messages) {
   if (!isAnthropic(choice) || messages.length === 0) return messages
+  const newest = messages.findLastIndex((message) => message.role !== 'system')
   return messages.map((message, index) => {
     const providerOptions = { ...(message.providerOptions ?? {}) }
     const anthropic = { ...(providerOptions.anthropic ?? {}) }
     delete anthropic.cacheControl
     if (Object.keys(anthropic).length === 0) delete providerOptions.anthropic
     else providerOptions.anthropic = anthropic
-    if (index === messages.length - 1) {
+    if (index === newest) {
       providerOptions.anthropic = { ...(providerOptions.anthropic ?? {}), ...ANTHROPIC_CACHE.anthropic }
     }
     return {
@@ -136,8 +144,8 @@ const SERVER_SET = new Set(SERVER_TOOLS)
  * trimming without reporting is the silent correction `decke/tools.ts` refuses
  * to make. `showScreen` draws a panel and says what it shortened. `ask_user`
  * draws a question card from the model's own captions (never the reader's
- * words) and reports every trim in its `trimmed` result field, so a 13-character
- * header lands as a 12-character one instead of failing the card.
+ * words) and reports every trim in its `trimmed` result field, so a 25-character
+ * header lands as a 24-character one instead of failing the card.
  */
 const REPAIRABLE = new Set(['showScreen', 'ask_user'])
 
@@ -198,8 +206,9 @@ import { seedMeteredRefusals } from '../apps/api/dist/decke/meteredRefusals.js'
 import { createNarrationFilter, stripToolSyntax as stripToolSyntaxImpl } from '../apps/api/dist/decke/narration.js'
 import { autoShareAndRecordLeg } from '../apps/api/dist/decke/improvement.js'
 import { focusedTools } from '../apps/api/dist/decke/focus.js'
-import { askedThisStep, askedThisTurn, askPendingInstruction, spokeAndSettled } from '../apps/api/dist/decke/stopRule.js'
+import { askedThisStep, askedThisTurn, askPendingInstruction, spokeAndSettled, textAfterLastLookup } from '../apps/api/dist/decke/stopRule.js'
 import { followUpMessages } from '../apps/api/dist/decke/legMessages.js'
+import { createProgressNudges, progressNudgeMessage } from '../apps/api/dist/decke/progressNudge.js'
 import { createGrounding } from '../apps/api/dist/decke/grounding.js'
 import { RepairLog, clampStrings } from '../apps/api/dist/decke/repair.js'
 import {
@@ -1140,6 +1149,45 @@ async function serve(request) {
         writer.write({ type: 'text-delta', id: 'deep-think-note', delta: deepThinkNote(deepSettled.off, deepSettled.credits) })
       }
 
+      // ── PROGRESS BETWEEN BATCHES ────────────────────────────────────────────
+      //
+      // "A solid minute of tool calls then one response" (the owner,
+      // 2026-10-10). After three silent lookup steps in a row, `prepareStep`
+      // appends one system message asking for a line of progress — at most
+      // two per HTTP REQUEST (not per reader turn: a turn that pauses for an
+      // approval card or a browser tool resumes in a new request with a new
+      // ledger), never after a step that already spoke. The decision is
+      // `decke/progressNudge.ts`; one ledger per request, so the Quick tier's
+      // one Standard retry shares its limit.
+      //
+      // THE LINE IT ASKS FOR IS NOT THE ANSWER. The ledger's `landings` go to
+      // the stop rule below, so the step that answered a nudge cannot settle
+      // the turn — "two losses to Dragapult so far, checking your list next"
+      // plus a face used to be the whole reply. See `stopRule.ts`.
+      //
+      // CALL-SCOPED, AND STICKY WITHIN THE CALL. ai@7 carries a `prepareStep`
+      // messages override forward to every later step of the same call, so
+      // once a call is nudged, every remaining step of it carries the system
+      // message — the nudge stays where it landed and the cached prefix behind
+      // it stays byte-stable. It is never part of a step's response messages,
+      // so the browser's history, the next HTTP leg and the corrective leg
+      // (built from `step.response.messages`) never see it.
+      //
+      // ANTHROPIC ONLY, and `allowSystemInMessages` with it. The remedy is
+      // Anthropic's. But because the message is sticky, a Gateway failover on
+      // ANY later step of a nudged call sends it to the fallback model too —
+      // for Standard, Gemini. Measured live 2026-10-10: the Gateway accepts a
+      // mid-conversation system message for `google/gemini-2.5-flash` (the
+      // nudged Alice/Bob loop ran on to its second lookup, and the nudged
+      // step's input grew by the message), so the failover does not choke and
+      // is not lost for the rest of the request. `scripts/decke-gateway-probe.mjs`
+      // re-checks both: `mid_conversation_system_message` (carried to Claude)
+      // and `mid_conversation_system_message_fallback` (accepted by Standard's
+      // fallback). The flag lifts the SDK's guard against system messages in
+      // `messages`; the reader cannot use it, because `validateWire` admits
+      // only user and assistant roles from the browser.
+      const progressNudges = createProgressNudges()
+
       const startConversation = (choice, effort) => streamText({
         model: observeUsageModel(gateway(choice.id), meter),
         providerOptions: chatProviderOptions(choice, effort),
@@ -1154,6 +1202,8 @@ async function serve(request) {
         // `standardizePrompt` as "messages.some is not a function" — which
         // names neither this call nor the missing await.
         messages: preparedMessages,
+        // Only so `prepareStep` can append the progress nudge; see above.
+        allowSystemInMessages: isAnthropic(choice),
         // THE BODY AND THE DATA, in one set.
         //
         // `buildTools` is the cosmetic ones — express, showScreen, and the
@@ -1199,7 +1249,9 @@ async function serve(request) {
           // The ask is still open from an earlier leg of this turn: one step,
           // then the reader. `prepareStep` already withholds new tool calls.
           () => askedEarlierThisTurn,
-          ({ steps }) => spokeAndSettled(steps),
+          // Never on the step that answered a progress nudge: that line is
+          // progress, not the answer (PROGRESS BETWEEN BATCHES above).
+          ({ steps }) => spokeAndSettled(steps, progressNudges.landings),
           // ── THE CIRCUIT BREAKER (c) ──────────────────────────────────────────
           //
           // The flailing guard used to be a POST-MORTEM only: it summarised the
@@ -1245,15 +1297,25 @@ async function serve(request) {
         // the SDK executes it before step 0, and that approval is the reader's
         // consent — but the model can only say what happened and stop. The
         // tools stay in view so the cached tools prefix does not change.
-        prepareStep: ({ stepNumber, messages }) => ({
-          messages: cacheConversation(choice, messages),
-          activeTools: focusedTools(allDeckeTools, stepNumber, (n) => deepRefusals.unavailable(n) || reflex.hide.includes(n) || requestHidden.has(n)),
-          ...(askedEarlierThisTurn
-            ? { toolChoice: 'none' }
-            : stepNumber === 0 && reflex.force
-              ? { toolChoice: isAnthropic(choice) ? 'auto' : { type: 'tool', toolName: reflex.force } }
-              : {}),
-        }),
+        //
+        // AND, AFTER A LONG SILENCE, ONE LINE ASKING HIM TO SPEAK — appended
+        // after the cache breakpoint is placed, so it lands behind it. See
+        // PROGRESS BETWEEN BATCHES above.
+        prepareStep: ({ stepNumber, steps, messages }) => {
+          const cached = cacheConversation(choice, messages)
+          const nudge = !askedEarlierThisTurn && isAnthropic(choice) && progressNudges.next(steps)
+          // Counts only, so the logs can say how often it fires in production.
+          if (nudge) console.log('[deck-e] progress nudge', JSON.stringify({ step: steps.length, nth: progressNudges.count }))
+          return {
+            messages: nudge ? [...cached, progressNudgeMessage()] : cached,
+            activeTools: focusedTools(allDeckeTools, stepNumber, (n) => deepRefusals.unavailable(n) || reflex.hide.includes(n) || requestHidden.has(n)),
+            ...(askedEarlierThisTurn
+              ? { toolChoice: 'none' }
+              : stepNumber === 0 && reflex.force
+                ? { toolChoice: isAnthropic(choice) ? 'auto' : { type: 'tool', toolName: reflex.force } }
+                : {}),
+          }
+        },
         // ── A CAPTION THAT IS TOO LONG IS NOT A LOST TURN ─────────────────
         //
         // Measured on a real gate run against production: `showScreen` failed
@@ -1572,7 +1634,11 @@ async function serve(request) {
           capLineWritten = true
           guardFired = true
         }
-        const spoke = steps.some((s) => (s.text ?? '').trim().length > 0)
+        // ANSWERED means words AFTER the last lookup — `stopRule.ts`'s rule.
+        // Any text in any step used to count, so one interim line ("found
+        // these, checking prices…") switched this guard off for a turn that
+        // then ran out of room without ever replying.
+        const spoke = textAfterLastLookup(steps).trim().length > 0
         if (!capReached && !spoke && steps.length >= MAX_STEPS) {
           console.warn(
             `[deck-e] turn exhausted its ${MAX_STEPS}-step budget without answering; ` +
@@ -1637,6 +1703,12 @@ async function serve(request) {
         } else {
           const steps = await result.steps
           const answerText = steps.map((s) => (s.text ?? '')).join('\n')
+          // What he said after his last lookup. The empty-answer guard reads
+          // this, not `answerText`: an interim or nudged progress line is text,
+          // and counting it let "found three, now checking the list" stand in
+          // for an answer that never came. The phantom, promise and flailing
+          // checks still read everything he said.
+          const answerAfterLookups = textAfterLastLookup(steps)
           const calledToolNames = []
           for (const s of steps) for (const c of (s.toolCalls ?? [])) calledToolNames.push(c.toolName)
           const phases = guardEvents.map((e) => e.phase)
@@ -1715,7 +1787,7 @@ async function serve(request) {
               `\n\nI kept hitting walls there. ${summarizeFailures(chips)} ` +
               'I need to take a different route from here.'
           } else if (
-            needsAnswerNudge(answerText, calledToolNames, CLIENT_SET, completedToolNames, SERVER_SET)
+            needsAnswerNudge(answerAfterLookups, calledToolNames, CLIENT_SET, completedToolNames, SERVER_SET)
           ) {
             // (a) EMPTY ANSWER — tools ran, no client tool, nothing said.
             // ALL FIVE ARGUMENTS. The held-write and panel carve-outs are the

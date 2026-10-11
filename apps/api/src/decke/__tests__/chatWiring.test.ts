@@ -17,6 +17,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { spokeAndSettled, textAfterLastLookup } from '../stopRule.js';
+import { needsAnswerNudge } from '../turnGuards.js';
 
 const SRC = readFileSync(fileURLToPath(new URL('../../../../../api/chat.mjs', import.meta.url)), 'utf8');
 
@@ -69,7 +71,7 @@ test('the empty-answer guard is called with ALL FIVE arguments', () => {
   // reachable path. Its own unit tests pass all five and stayed green.
   assert.match(
     CODE,
-    /needsAnswerNudge\(\s*answerText,\s*calledToolNames,\s*CLIENT_SET,\s*completedToolNames,\s*SERVER_SET\s*\)/,
+    /needsAnswerNudge\(\s*answerAfterLookups,\s*calledToolNames,\s*CLIENT_SET,\s*completedToolNames,\s*SERVER_SET\s*\)/,
     'the empty-answer guard lost an argument again — it cannot fire without all five',
   );
   // And `completedToolNames` must be DERIVED from the turn's real events, not
@@ -281,10 +283,53 @@ test('the same ledger narrows activeTools, so a spent tier leaves the model\'s v
 test('the model loop uses the post-lookup settling rule from the built module', () => {
   assert.match(
     SRC,
-    /import \{ askedThisStep, askedThisTurn, askPendingInstruction, spokeAndSettled \} from '\.\.\/apps\/api\/dist\/decke\/stopRule\.js'/,
+    /import \{ askedThisStep, askedThisTurn, askPendingInstruction, spokeAndSettled, textAfterLastLookup \} from '\.\.\/apps\/api\/dist\/decke\/stopRule\.js'/,
     'the shared stop rule is no longer imported',
   );
-  assert.match(CODE, /\(\{ steps \}\) => spokeAndSettled\(steps\)/);
+  // WITH the nudge ledger's landings: the step that answered a progress nudge
+  // must never settle the turn (review, 2026-10-10 — a nudged "checking your
+  // list next" plus a face was the whole reply).
+  assert.match(CODE, /\(\{ steps \}\) => spokeAndSettled\(steps, progressNudges\.landings\)/);
+  assert.doesNotMatch(CODE, /spokeAndSettled\(steps\)/, 'the stop rule lost the nudge landings');
+});
+
+// ── AN INTERIM LINE IS NOT AN ANSWER ────────────────────────────────────────
+//
+// The step-budget ("circles") and empty-answer guards used to treat text in
+// ANY step as an answer, so one nudged or interim progress line switched both
+// off. They now read only what was said after the last lookup — the rule the
+// stop rule already used.
+
+test('the circles and empty-answer guards read text after the last lookup, not every step', () => {
+  assert.match(CODE, /const spoke = textAfterLastLookup\(steps\)\.trim\(\)\.length > 0\s*\n\s*if \(!capReached && !spoke && steps\.length >= MAX_STEPS\)/);
+  assert.doesNotMatch(CODE, /const spoke = steps\.some\(/, 'the circles guard went back to counting any text');
+  assert.match(CODE, /const answerAfterLookups = textAfterLastLookup\(steps\)/);
+  assert.doesNotMatch(CODE, /needsAnswerNudge\(\s*answerText\b/, 'the empty-answer guard went back to counting interim lines');
+});
+
+test('composed as chat.mjs composes them: a progress line then silence is an unanswered turn', () => {
+  const calls = (...names: string[]) => names.map((toolName) => ({ toolName }));
+  // Three lookups, the nudged line with a fourth, then nothing.
+  const line = 'Two losses to Dragapult so far — checking your list next.';
+  const steps = [
+    { text: '', toolCalls: calls('battle_logs') },
+    { text: '', toolCalls: calls('deck_history') },
+    { text: '', toolCalls: calls('decks') },
+    { text: line, toolCalls: calls('decks') },
+    { text: '', toolCalls: [] },
+  ];
+  const called = ['battle_logs', 'deck_history', 'decks', 'decks'];
+  const none = new Set<string>();
+  const everyText = steps.map((step) => step.text).join('\n');
+  // The old reading: any text at all, so the guard stayed quiet.
+  assert.equal(needsAnswerNudge(everyText, called, none, called, none), false);
+  // The new one: nothing was said after the last lookup.
+  assert.equal(needsAnswerNudge(textAfterLastLookup(steps), called, none, called, none), true);
+  // And an answer after the last lookup still satisfies it.
+  const answered = [...steps.slice(0, 4), { text: 'Cut one Iono for a Counter Catcher.', toolCalls: [] }];
+  assert.equal(needsAnswerNudge(textAfterLastLookup(answered), called, none, called, none), false);
+  // The stop rule agrees on what an answer is, and exempts the nudged step.
+  assert.equal(spokeAndSettled([...steps.slice(0, 3), { text: line, toolCalls: calls('express') }], [3]), false);
 });
 
 test('prepareStep still delegates visibility and hard impossibilities to focusedTools', () => {
@@ -351,7 +396,7 @@ test('a leg after an ask in the same turn finishes the approved work and ends (S
   // The browser replays the ask beside a held write or a browser tool; the
   // reader's approval is consent for that write only, never an answer.
   assert.match(CODE, /const askedEarlierThisTurn = turnToolNames\(messages\)\.includes\('ask_user'\)/);
-  assert.match(SRC, /import \{ askedThisStep, askedThisTurn, askPendingInstruction, spokeAndSettled \}/);
+  assert.match(SRC, /import \{ askedThisStep, askedThisTurn, askPendingInstruction, spokeAndSettled, textAfterLastLookup \}/);
   // No new tool calls (the approved write itself runs before step 0)...
   assert.match(CODE, /\.\.\.\(askedEarlierThisTurn\s*\? \{ toolChoice: 'none' \}\s*: stepNumber === 0 && reflex\.force/);
   // ...one step, and told why.
@@ -511,7 +556,70 @@ test('the selected pathway prompt is an instructions array with only stable regi
   assert.match(CODE, /systemMessage\(choice, requestPathway, true\)/);
   assert.match(CODE, /systemMessage\(choice, volatileContext\)/);
   assert.match(CODE, /instructions: instructionsFor\(choice, askedEarlierThisTurn \? askPendingInstruction\(\) : undefined\)/);
-  assert.match(CODE, /messages: cacheConversation\(choice, messages\)/);
+  assert.match(CODE, /const cached = cacheConversation\(choice, messages\)/);
+});
+
+// ── PROGRESS BETWEEN BATCHES ────────────────────────────────────────────────
+//
+// `progressNudge.ts` can decide perfectly and change nothing: the nudge is a
+// handful of expressions in this file — build the ledger, ask it, append the
+// message, lift the SDK's system-message guard — and dropping any one of them
+// leaves its unit tests green while Deck-E goes back to a silent minute.
+
+test('the progress nudge is decided by the built module, per request, for Anthropic only', () => {
+  assert.match(
+    SRC,
+    /import \{ createProgressNudges, progressNudgeMessage \} from '\.\.\/apps\/api\/dist\/decke\/progressNudge\.js'/,
+  );
+  // ONE ledger per request, created before the call that may be retried — a
+  // ledger built inside `startConversation` would give the Standard retry its
+  // own two nudges.
+  const ledger = CODE.indexOf('const progressNudges = createProgressNudges()');
+  assert.ok(ledger > 0, 'the per-request nudge ledger is gone');
+  assert.ok(ledger < CODE.indexOf('const startConversation = (choice, effort) => streamText({'));
+  assert.equal(CODE.match(/createProgressNudges\(\)/g)?.length, 1);
+  // Asked with the call's REAL steps, and only for Anthropic.
+  assert.match(CODE, /const nudge = !askedEarlierThisTurn && isAnthropic\(choice\) && progressNudges\.next\(steps\)/);
+  assert.match(CODE, /prepareStep: \(\{ stepNumber, steps, messages \}\) => \{/);
+  // And the SAME ledger tells the stop rule which step answered it, inside the
+  // same streamText call.
+  const start = CODE.slice(
+    CODE.indexOf('const startConversation = (choice, effort) => streamText({'),
+    CODE.indexOf('result = startConversation(choice, decision.effort)'),
+  );
+  assert.match(start, /stopWhen: \[[\s\S]*spokeAndSettled\(steps, progressNudges\.landings\)[\s\S]*prepareStep:/);
+});
+
+test('the nudge is appended AFTER the cache breakpoint, which stays on the newest non-system message', () => {
+  // The order is the property: cache first, then append. Appending first would
+  // either mark the nudge or — before cacheConversation learned to skip system
+  // messages — move the breakpoint onto it.
+  assert.match(CODE, /messages: nudge \? \[\.\.\.cached, progressNudgeMessage\(\)\] : cached/);
+  const fn = CODE.slice(CODE.indexOf('function cacheConversation'), CODE.indexOf('const CLIENT_SET'));
+  assert.match(fn, /const newest = messages\.findLastIndex\(\(message\) => message\.role !== 'system'\)/);
+  assert.match(fn, /if \(index === newest\)/);
+  assert.doesNotMatch(fn, /index === messages\.length - 1/, 'the breakpoint went back to the last message, nudge or not');
+});
+
+test('system messages are allowed in the conversation call only for Anthropic, and never in the corrective leg', () => {
+  const start = CODE.slice(
+    CODE.indexOf('const startConversation = (choice, effort) => streamText({'),
+    CODE.indexOf('result = startConversation(choice, decision.effort)'),
+  );
+  assert.match(start, /allowSystemInMessages: isAnthropic\(choice\)/);
+  assert.doesNotMatch(CODE, /allowSystemInMessages: true/);
+  assert.equal(CODE.match(/allowSystemInMessages/g)?.length, 1);
+  // The leg is built from step RESPONSE messages, which never hold the nudge.
+  const leg = CODE.slice(CODE.indexOf('if (corrective) {'));
+  assert.doesNotMatch(leg, /allowSystemInMessages|progressNudge/);
+});
+
+test('lifting the SDK guard does not hand the system role to the browser', () => {
+  // `allowSystemInMessages` turns off ai@7's refusal of system messages in
+  // `messages`. What stands between a reader and that role is the wire schema.
+  const wire = readFileSync(fileURLToPath(new URL('../wireBounds.ts', import.meta.url)), 'utf8');
+  assert.match(wire, /role: z\.enum\(\['user', 'assistant'\]\)/);
+  assert.match(CODE, /convertToModelMessages\(stripPriorCommands\(windowForModel\(messages\)\.messages\)\)/);
 });
 
 test('only a VALID ask_user stops the loop, and a Quick refusal before any data tool retries once on Standard', () => {

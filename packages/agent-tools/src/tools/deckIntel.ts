@@ -867,7 +867,12 @@ const editBattleLogTool = defineTool({
         return ok(lines.join('\n'));
       }
 
-      const res = (await ctx.api.send('PATCH', `${deckPath(deckId)}/logs/${encodeURIComponent(log_id)}`, body)) as { log: LogFull };
+      // `source` attributes the write when it is recorded in the mutation log
+      // (a keyed write from Deck-E is); the edit itself ignores it.
+      const res = (await ctx.api.send('PATCH', `${deckPath(deckId)}/logs/${encodeURIComponent(log_id)}`, {
+        ...body,
+        source: SOURCE,
+      })) as { log: LogFull };
       const l = res.log;
       const totals = (await ctx.api.get(`${deckPath(deckId)}/logs?version=${encodeURIComponent(l.deckVersion)}&pageSize=1`)) as LogsPayload;
       return ok(
@@ -911,7 +916,7 @@ const deleteBattleLogTool = defineTool({
       if (dry_run) {
         return ok(`DRY RUN — nothing deleted. Would delete ${what}.\nRe-run with dry_run: false to delete.`);
       }
-      await ctx.api.send('DELETE', `${deckPath(deckId)}/logs/${encodeURIComponent(log_id)}`);
+      await ctx.api.send('DELETE', `${deckPath(deckId)}/logs/${encodeURIComponent(log_id)}`, { source: SOURCE });
       return ok(`Deleted ${what}.`);
     } catch (err) {
       return fail(`delete_battle_log failed: ${errText(err)}`);

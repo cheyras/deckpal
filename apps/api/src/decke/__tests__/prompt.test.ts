@@ -45,6 +45,12 @@ test('the conversation, memory, progress, asking, and failure contracts are pres
     assert.ok(p.includes(phrase), `missing: ${phrase}`)
   }
   assert.ok(p.includes('`web_research`'))
+  // One core line instead of one per pathway: the competitive mode keeps to
+  // results sites and dates against rotation (researchSources.ts), research is
+  // metered, and the query leaves the product.
+  assert.match(flat(p), /`topic: "competitive"` when it is about play rather than collecting/)
+  assert.match(flat(p), /none of their data \(name, list, opponents\)/)
+  assert.match(flat(p), /One search usually does it/)
   assert.match(flat(p), /older work may survive only as a one-line record/)
   assert.match(flat(p), /correction to what they want.*is not a request for data/)
   assert.match(flat(p), /If they correct a FACT.*verify it before you repeat/)
@@ -67,6 +73,10 @@ test('saving survives widget failure and a finished deck gets a strategy-guide o
   assert.match(p, /Save button.*convenience, not the only way to save/)
   assert.match(p, /If the widget fails, or the reader simply says "save it", call `save_deck`/)
   assert.match(p, /Never tell the reader you have no save tool/)
+  // The widget's Save always creates a NEW deck (apps/web/.../chat/deckSave.ts),
+  // so a revision of an existing deck is not shown there until it can save a version.
+  assert.match(p, /Use `showDeck` for every complete proposed deck/)
+  assert.doesNotMatch(p, /proposed or revised deck/)
   assert.match(p, /After a deck is saved.*offer to write its strategy guide/)
   assert.match(p, /call `deck_strategy` with the saved deck id/)
   assert.match(p, /game plan and win condition.*opening\/setup priorities.*key cards and why/)
