@@ -153,9 +153,12 @@ the host receiving the approval sat in a muted line below. Now:
   ignores scope and therefore gets a full-access choice alone. A `read`
   connection is served only the `readOnlyHint` tools, inside a `BEGIN READ
   ONLY` transaction, and the REST API refuses its every non-GET request with
-  `403 insufficient_scope` before any route runs (`enforceTokenScope`). The one
-  exception is `POST /massentry`, which only builds cart links and which the
-  read tool `set_cart` uses.
+  `403 insufficient_scope` before any route runs (`enforceTokenScope`). The
+  exceptions are `POST /massentry`, which only builds cart links and which the
+  read tool `set_cart` uses, and `POST /decks/check` and `POST /decks/odds`,
+  which take a whole deck list in the body and only read (`check_deck`,
+  `deck_odds`). `/decks/check` was missing until 2026-10-10, so a read-only
+  connection was offered `check_deck` and then refused it.
 - **Tokens reach what the consent screen says.** `/decke` (Deck-E
   conversations), `/me/showcase` and `/me/settings` now require a session, like
   `/tokens`, `/avatar` and billing.
@@ -239,7 +242,7 @@ REST API and the MCP server (`BEGIN` + `set_config('request.jwt.claims', …)` +
 returns, so a dropped connection can never be handed to the next request still
 carrying a stranger's claims.
 
-**All 25 tools reach the conversational model; the write half is held by the
+**All 27 tools reach the conversational model; the write half is held by the
 SDK, not filtered out.** The adapter Deck-E uses
 (`apps/api/src/decke/adapters/aisdk.ts`) still *defaults* to
 `annotations.readOnlyHint` — never to the verb in a tool's name, because a name
@@ -261,11 +264,42 @@ exception is `POST /api/chat`: its `log_cards` apply intent omits model-facing
 `preview_card_changes` always forces `dry_run: true`; failed or unresolved plans
 return evidence without writing. Existing human approval, replay, identity and
 idempotency protections remain in force.
-For an approved `log_cards` call, Deck-E derives the collection write's
-idempotency key from the SDK tool-call ID and signed input after approval; the
-collection endpoint scopes it to the authenticated user. Unsigned conversation
-metadata is excluded. Replaying that same approval across a 15-minute boundary therefore
-cannot apply the change twice; a new call can still record a new acquisition.
+**Every approved write happens at most once per signed call (2026-10-10).** The
+request key (`chatChargeReference`) rejects only a byte-identical resume of a
+turn. If the browser sends the same approval-resume POST twice with any field
+changed, for example after a network retry or a reload mid-turn, the SDK runs
+the held tool again. For an approved `log_cards` call, Deck-E has long derived
+the collection write's idempotency key from the SDK tool-call ID and signed
+input; the collection endpoint scopes it to the authenticated user. Every other
+held write now gets the same treatment. `approvedWriteKey` hashes the verified
+user ID, the tool name, the SDK tool-call ID and the signed input. `keyedApi`
+(`decke/ctx.ts`) puts one `Idempotency-Key` per write request on the self-hop,
+derived from that hash plus the request's method, path and occurrence. This
+covers `add_battle_log`, `edit_battle_log`, `delete_battle_log`, `save_deck`,
+`edit_list`, `delete_list`, `delete_deck`, `deck_strategy`, `deck_history`
+revert and `revert`. Unsigned conversation metadata is excluded throughout, so a
+resume with a changed conversation ID, route or landmark reaches the same keys.
+Previews carry none.
+
+On the API, `writeOnce` (`apps/api/src/writeOnce.ts`) claims the key on that
+write's own `mutation_batch` row, under the existing `UNIQUE (user_id,
+idempotency_key)`, as the first write of its transaction. The key therefore
+commits exactly when the write does. A replay, concurrent or later, returns the
+first run's result and writes nothing, even when the reader has changed the
+entity since. It cannot rename, re-delete, re-revert or overwrite a later edit.
+A battle log's raw text is never copied into the batch: the batch keeps the
+log's ID, so deleting a log still deletes its text.
+
+Only the server-side adapter, after the SDK has verified the approval's
+signature, sends these keys. A key is scoped to its user, so it cannot reach
+another account. A request without the header, which covers the MCP server, the
+web app and scripts, runs exactly the code it ran before.
+
+Two approved calls are two consents: a new call can still record a new
+acquisition or a second battle log. On `POST /decks/save` and `/decks/import`
+the per-call key replaces the content key for Deck-E. Writes on the
+`approvals: 'upstream'` path (no caller today) are not held here and carry no
+signed ID, so they are not keyed.
 `ARCHITECTURE.md` §15e carries the protocol.
 
 **The consent card can commit a corrected batch from the browser, and that is a
@@ -344,7 +378,7 @@ everything else to `it failed with <code>`. `errText`
 error a handler caught and formatted itself: a driver error becomes its
 SQLSTATE, a statement timeout keeps its "narrow the query" hint, and the
 fallback that carries our own readable messages is scrubbed of DSNs, IP
-addresses, `host:port` pairs and `for user "…"`. Every one of the 24 tools
+addresses, `host:port` pairs and `for user "…"`. Every one of the 27 tools
 formats through it -- not only the ones whose file runs SQL, because whether a
 given catch can reach the database is a call-graph question that was already
 answered wrongly once (issue #94: `log_cards` resolves cards over SQL before its
@@ -391,6 +425,28 @@ address.
 `POST /decks/check` is read-only under the caller's RLS context and accepts only
 bounded deck input. The live chat request's current turn is capped at 240,000
 characters in addition to the SEC-04 history window.
+
+**Triage sends Anthropic a clipped copy of the reader's message.** Before Deck-E answers, Claude Haiku 5.5 classifies each new reader message through the Vercel AI Gateway (`apps/api/src/decke/triage.ts`). That is the same provider that writes the reply. It receives:
+- the reader's latest message, clipped to 2,000 characters (its opening and its end);
+- Deck-E's previous reply (last 800 characters);
+- the page path;
+- two flags (a log was pasted; the message answers an ask card).
+
+No collection or account records are attached. Its spend is recorded under the advisory `triage` operation of the same request. The tier it leads to is chosen by code, not by the classifier. The browser's route echo (`tierRoute`, `routeEcho.ts`) is unsigned, so it is held to these limits:
+- it can select only Quick or Standard for the caller's own turn;
+- its effort is ignored and re-derived on the server;
+- it is read only on continuation legs;
+- it can never select Claude Opus 5.5.
+
+The deck widget's Save is the reader's own click, not a model write, so it has no
+approval card — which makes WHICH deck it writes over the thing to guard. When
+`showDeck` names a `deck_id`, the server resolves it among the reader's own decks
+with their token (RLS) before the widget may offer "Save as new version", and the
+button names the stored deck, never a model-written label. That target (`base`) is
+server-only: `showScreen`'s schema has no field for it and `sanitizeScreen` strips
+it from any deck block. `POST /decks/save` checks ownership again (`404` for any
+deck that is not the caller's), and the version save always lands as a new
+version, so the list it replaced stays in the deck's history and can be reverted.
 
 **Jev is a data processor under Vercel's zero-retention agreement with TypeSafe** (verified 2026-09-27).
 With `DECKE_JEV=on`, each reader message is judged by `typesafe-ai/jev` (TypeSafe

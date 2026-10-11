@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
+import { pathwayText } from '../pathways/index.js'
 import { test } from 'node:test'
-import { ALLOWED_STATES, ROUTE_SHAPE_LINES, buildSystemPrompt } from '../prompt.js'
+import { dataToolSummary } from '../adapters/aisdk.js'
+import {
+  ALLOWED_STATES,
+  buildCorePrompt,
+  buildSystemPrompt,
+  buildVolatileContext,
+} from '../prompt.js'
 
 const flat = (s: string) => s.replace(/\s+/g, ' ')
 const TOOLS = [
@@ -23,19 +30,27 @@ test('the no-tools branch remains honest about unavailable reads', () => {
   assert.doesNotMatch(p, /offer to look/i)
 })
 
-test('the new conversation, memory, deck, and failure contracts are present', () => {
+test('the conversation, memory, progress, asking, and failure contracts are present', () => {
   const p = buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS })
   for (const phrase of [
     'Read the moment before you reach for a tool',
     'Full tool results from your recent turns are',
     'Never ask them for something you can look up',
-    'Check it with `check_deck`',
-    'Show it with `showDeck`',
+    'Progress while you work',
+    'one `ask_user` card that turn',
+    'Keep working until everything they asked for is done',
+    'Odds come from `deck_odds` and matchups from `simulate_battles`',
     'Never say you were blocked, refused or declined unless the reader actually',
   ]) {
     assert.ok(p.includes(phrase), `missing: ${phrase}`)
   }
   assert.ok(p.includes('`web_research`'))
+  // One core line instead of one per pathway: the competitive mode keeps to
+  // results sites and dates against rotation (researchSources.ts), research is
+  // metered, and the query leaves the product.
+  assert.match(flat(p), /`topic: "competitive"` when it is about play rather than collecting/)
+  assert.match(flat(p), /none of their data \(name, list, opponents\)/)
+  assert.match(flat(p), /One search usually does it/)
   assert.match(flat(p), /older work may survive only as a one-line record/)
   assert.match(flat(p), /correction to what they want.*is not a request for data/)
   assert.match(flat(p), /If they correct a FACT.*verify it before you repeat/)
@@ -58,6 +73,9 @@ test('saving survives widget failure and a finished deck gets a strategy-guide o
   assert.match(p, /Save button.*convenience, not the only way to save/)
   assert.match(p, /If the widget fails, or the reader simply says "save it", call `save_deck`/)
   assert.match(p, /Never tell the reader you have no save tool/)
+  // A revision goes in the widget with its deck_id, so Save makes the next
+  // version of that deck rather than a separate one (#305).
+  assert.match(p, /Use `showDeck` for every complete proposed or revised deck \(a revision passes its `deck_id`\)/)
   assert.match(p, /After a deck is saved.*offer to write its strategy guide/)
   assert.match(p, /call `deck_strategy` with the saved deck id/)
   assert.match(p, /game plan and win condition.*opening\/setup priorities.*key cards and why/)
@@ -71,25 +89,76 @@ test('an announced action must happen in the same turn', () => {
   assert.match(p, /ending on an unperformed promise/)
 })
 
+test('Deep Think is a costed approval offer, not a claim the model may invent', () => {
+  const p = flat(buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS }))
+  assert.match(p, /Deep Think is approved Opus/)
+  // Conditional on HOLDING the tool: it is absent where Deep Think is not
+  // available (unsigned, unmetered) and hidden once a turn has answered it.
+  assert.match(p, /If you hold `deep_think`, call it once per chat unless asked; never routine work/)
+  assert.match(p, /battle deep-dive.*season review.*tournament meta prep/)
+  assert.match(p, /One-line why; card shows cost/)
+  assert.match(p, /never fake it/)
+})
+
 test('retained body state list and automatic lifecycle states are still named', () => {
   const p = buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS })
   for (const state of ALLOWED_STATES) assert.match(p, new RegExp(`- ${state} —`))
   assert.match(p, /These are driven automatically and are not yours to set: boot, listening, thinking, talk, loading, sleep, alert_error/)
 })
 
-test('retained route shapes and landmarks stay interpolated', () => {
+test('volatile landmarks stay interpolated while the core keeps a compact navigation fallback', () => {
   const p = buildSystemPrompt({
     route: '/series',
     signedIn: true,
     dataTools: TOOLS,
     landmarks: [{ selector: '[data-decke-nav="/decks"]', label: 'the Decks link', clickable: true }],
   })
-  for (const route of ROUTE_SHAPE_LINES) {
-    const [shape, what] = route.split(' — ')
-    assert.ok(p.includes(`\`${shape}\` — ${what}`), `missing route: ${route}`)
-  }
   assert.match(p, /the Decks link \(pressable\)/)
   assert.match(buildSystemPrompt({ route: '/series', signedIn: true }), /nothing on this page is registered as a landmark/)
+  const core = buildCorePrompt({ signedIn: true, dataTools: TOOLS })
+  for (const tool of ['goTo', 'escort', 'journey', 'flyTo', 'highlight', 'click', 'scrollToMe']) {
+    assert.ok(core.includes(`\`${tool}\``), `missing navigation fallback: ${tool}`)
+  }
+})
+
+test('core is stable, request-local context is volatile, and compatibility is exact', () => {
+  const core = buildCorePrompt({
+    signedIn: false,
+    today: '1999-12-31',
+    dataTools: TOOLS,
+  })
+  assert.equal(core.includes('1999-12-31'), false)
+  assert.equal(core.includes('/decks'), false)
+  assert.equal(core.includes('NOT signed in'), false)
+
+  const volatile = buildVolatileContext({
+    route: '/decks',
+    signedIn: false,
+    now: new Date('2026-10-10T12:00:00.000Z'),
+  })
+  assert.match(volatile, /2026-10-10/)
+  assert.match(volatile, /\/decks/)
+  assert.match(volatile, /NOT signed in/)
+
+  const opts = {
+    route: '/decks',
+    signedIn: true,
+    today: '2026-10-10',
+    dataTools: TOOLS,
+  } as const
+  assert.equal(
+    buildSystemPrompt(opts),
+    `${buildCorePrompt(opts)}\n\n${buildVolatileContext(opts)}`,
+  )
+})
+
+test('the stable core stays below the cacheable-prefix budget', () => {
+  const currentTools = dataToolSummary({ include: () => true, conversationalLogging: true })
+  const core = buildCorePrompt({ signedIn: true, dataTools: currentTools })
+  // 16,000 when the core shipped at 15.8k (was 29.6k); 16,500 once deck_odds
+  // and simulate_battles joined the data-tool list, which grows a line per
+  // tool. Job-specific guidance belongs in a pathway, not here.
+  assert.ok(core.length <= 16_500, `core is ${core.length} characters`)
 })
 
 test('signed-out readers are not promised collection access', () => {
@@ -117,4 +186,22 @@ test('the natural share ask keeps its load-bearing limits', () => {
     'Never ask when things are going fine, never ask twice',
     '"No thanks" is a fine answer',
   ]) assert.ok(p.includes(phrase), `missing: ${phrase}`)
+})
+
+test('simulated matchups are run, paired, and reported as a bot\'s with their uncertainty', () => {
+  // The rule lives in the core; how to run and report a matchup lives in the
+  // deck_iterate pathway, with the rest of "is v4 better than v3".
+  const core = flat(buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS }))
+  assert.match(core, /matchups from `simulate_battles` \(a bot's: give n and the interval\), never from your head/)
+  const p = flat(pathwayText('deck_iterate'))
+  assert.match(p, /Matchups come from `simulate_battles`, and they are a bot's/)
+  assert.match(p, /is v4 better than v3/)
+  assert.match(p, /both versions against the same opponents and seed/)
+  assert.match(p, /saved lists of decks they really face/)
+  assert.match(p, /Every rate is a CPU simulation: give n and the interval/)
+  assert.match(p, /intervals overlap heavily is noise, not an improvement/)
+  assert.match(p, /Name approximated or unplayable cards/)
+  assert.match(p, /"strong" by default, "fast" when they want more games/)
+  assert.match(p, /A `table` of opponent, W–L, win % \[interval\]/)
+  assert.match(flat(pathwayText('deck_build')), /simulate_battles/)
 })

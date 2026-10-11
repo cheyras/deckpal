@@ -5,7 +5,7 @@ import { MockLanguageModelV3 } from 'ai/test';
 import { allTools, type ToolDefinition } from '@deckpal/agent-tools';
 import { callKey } from '../repeat.js';
 import { buildDataTools, correctiveApplyTools, dataToolSummary, requiresApproval } from '../adapters/aisdk.js';
-import { openingTools } from '../focus.js';
+import { focusedTools } from '../focus.js';
 
 const CARD = {
   id: 7,
@@ -181,7 +181,11 @@ test('conversation advertises no dry_run while APPLY runtime accepts only curren
       dataToolSummary({ include: (d) => d.name === 'log_cards', conversationalLogging: true }).map((x) => x.name),
       ['log_cards', 'preview_card_changes'],
     );
-    assert.deepEqual(openingTools(tools), ['log_cards', 'preview_card_changes']);
+    assert.deepEqual(
+      focusedTools(tools, 0),
+      Object.keys(tools),
+      'step zero must advertise every write alongside its preview',
+    );
   } finally { f.restore(); }
 });
 

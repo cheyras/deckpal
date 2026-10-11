@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    // node:test for the suite and the bench's timer. The engine itself is pure
+    // and runtime-agnostic: no I/O, no DOM, no node: imports outside __tests__
+    // and bench.ts, so it can run in a serverless function or a Web Worker alike.
+    "types": ["node"]
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}

@@ -44,6 +44,7 @@ import { Icon } from '../../components/Icon'
 import { api } from '../../lib/api'
 import type { DeckEInstance } from './runtime'
 import { DeckeScreen, type ScreenSpec } from './DeckeScreen'
+import type { DeckSaved } from './chat/deckSave'
 import { ChatMarkdown } from './chat/ChatMarkdown'
 import { ActivityLine } from './chat/ActivityLine'
 import { SourcesList } from './chat/SourcesList'
@@ -54,13 +55,15 @@ import { KbDiag, kbDiagMode } from './KbDiag'
 import { parkFloor } from './parkFloor'
 import { CreditChip, DeckeNotice, type NoticeTone } from './chat/DeckeNotice'
 import type { NoticeAction } from './chat/httpNotice'
-import { deepCost, type DeepQuote } from './chat/deepRequest'
+import type { DeepQuote } from './chat/deepRequest'
 import { HistoryMenu } from './chat/HistoryMenu'
 import { TranscriptExit, TranscriptPane } from './chat/TranscriptView'
 import { ShareChoice } from './chat/ShareChoice'
 import { submitImprovementConsent } from './chat/improvementConsent'
 import { FeedbackCard, ReplyFeedback } from './chat/Feedback'
 import type { FeedbackVote } from './chat/feedbackState'
+import { AskCard } from './chat/AskCard'
+import { askAnnouncement, formatAnswers, pendingAsk, SKIP_TEXT, type AskPart } from './chat/askState'
 import {
   creditHeaderLabel,
   creditState,
@@ -72,6 +75,7 @@ import {
 } from './chat/creditState'
 import { ApprovalCard } from './chat/ApprovalCard'
 import type { ApprovalPreview, Choices, RowChoice } from './chat/approvalCardState'
+import type { DeepThinkOffer } from './chat/deepThinkCard'
 import type { PendingApproval, ToolChip } from './useDeckeChat'
 import {
   openersFor,
@@ -944,6 +948,8 @@ export type ChatPart =
   | { kind: 'tool'; id: string; chip: ToolChip }
   | { kind: 'screen'; id: string; spec: ScreenSpec }
   | { kind: 'consent'; id: string }
+  /** A completed `ask_user` call, input kept whole — see `AskInput`. */
+  | AskPart
   /**
    * A refusal, and it is a PART KIND rather than a string for one reason.
    *
@@ -1068,6 +1074,7 @@ export function DeckeChat({
   onApprove,
   onDeny,
   approvalPreview,
+  deepThinkOffer,
   approvalChoices,
   onApprovalChoice,
   approvalBusy,
@@ -1115,6 +1122,8 @@ export function DeckeChat({
   onDeny: () => void
   /** The dry run's real rows for a held call, or null for the plain dialog. */
   approvalPreview: (toolCallId: string) => ApprovalPreview | null
+  /** The server's Deep Think offer (turn token, price) for a held call, or null. */
+  deepThinkOffer: (toolCallId: string) => DeepThinkOffer | null
   approvalChoices: Choices
   onApprovalChoice: (index: number, choice: RowChoice) => void
   /** True from the tick Accept is pressed until the write has answered. */
@@ -1173,7 +1182,7 @@ export function DeckeChat({
   /** Where "Top up" goes. Absent means no route yet, and the chip is not a button. */
   onTopUp?: () => void
   /** Records a one-tap widget save in the next conversational wire. */
-  onDeckSaved?: (deck: { id: string; name: string; total: number }) => void
+  onDeckSaved?: (deck: DeckSaved) => void
   /** Opens a saved widget deck through the host's router-neutral navigator. */
   onOpenDeck?: (id: string) => void
   /** Lets the character react to typing without coupling the composer to the hook. */
@@ -1260,6 +1269,7 @@ export function DeckeChat({
   // Not while he is working: a vote cast under an approval card would otherwise
   // pop its question up mid-turn, after the approval clears the slot.
   const [feedbackAsk, setFeedbackAsk] = useState<{ seq: number; vote: FeedbackVote } | null>(null)
+  const askQuestions = busy ? null : pendingAsk(messages)
   const feedbackBusyRef = useRef(busy)
   feedbackBusyRef.current = busy
   const openFeedback = useCallback((seq: number, vote: FeedbackVote) => {
@@ -1620,7 +1630,7 @@ export function DeckeChat({
   // exit bar, and the panel observer measured "no composer" (0) meanwhile. The
   // composer that comes back is a new element; without re-measuring it, the
   // park box stayed at the not-measured fallback, 100 px low at 390x844.
-  }, [visible, shownMinimised, empty, spent, desktop, asking, viewing, feedbackAsk])
+  }, [visible, shownMinimised, empty, spent, desktop, asking, askQuestions, viewing, feedbackAsk])
 
 
   // HIS FOOTPRINT, from the one number that decides his size.
@@ -1774,12 +1784,19 @@ export function DeckeChat({
     }
     if (!announceArmedRef.current) return
     announceArmedRef.current = false
-    const text = replyAnnouncement(lastAssistant?.parts ?? [])
+    // AND THE CARD THAT DOCKED, if one did. `replyAnnouncement` counts words
+    // and panels only, so a reply that was nothing but a question ended in
+    // silence while the card waited below. Its first question is read, never
+    // moved to: focus stays where the reader left it (no keyboard springs open
+    // on a phone).
+    const text = [replyAnnouncement(lastAssistant?.parts ?? []), askAnnouncement(askQuestions)]
+      .filter(Boolean)
+      .join(' ')
     if (!text) return
     setAnnouncement('')
     window.clearTimeout(announceTimerRef.current)
     announceTimerRef.current = window.setTimeout(() => setAnnouncement(text), 80)
-  }, [busy, lastAssistant])
+  }, [busy, lastAssistant, askQuestions])
 
   /**
    * ── THE PANEL COVERS WHAT CAN BE SEEN ─────────────────────────────────────
@@ -2028,13 +2045,22 @@ export function DeckeChat({
   // The dropdown's own Escape runs BEFORE this one — it listens in the capture
   // phase and stops propagation — so the three layers unwind in the order they
   // were opened.
+  // ── ON OPEN, NOT ON EVERY RENDER ─────────────────────────────────────────
+  //
+  // Callers pass `onClose` inline (DeckeHost does), so with it in this
+  // effect's deps every parent re-render re-ran the effect — and re-armed the
+  // desktop composer focus below, pulling focus off whatever the reader had
+  // reached by keyboard (the deck widget's Save, an approval card) 260 ms later.
+  // The Escape handler reads the latest `onClose` through a ref instead.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       e.stopPropagation()
       if (viewingRef.current) setViewingId(null)
-      else onClose()
+      else onCloseRef.current()
     }
     window.addEventListener('keydown', onKey)
     // ── DESKTOP ONLY, AND THE PHONE CASE IS NOT AN OVERSIGHT ──────────────────
@@ -2059,7 +2085,7 @@ export function DeckeChat({
       window.removeEventListener('keydown', onKey)
       window.clearTimeout(t)
     }
-  }, [open, onClose, desktop])
+  }, [open, desktop])
 
   // ── Who is standing behind whom ───────────────────────────────────────────
   //
@@ -2361,6 +2387,9 @@ export function DeckeChat({
 
   const lastAskedMsg = [...messages].reverse().find((m) => m.role === 'user')
   const lastAsked = lastAskedMsg ? messageText(lastAskedMsg) : undefined
+  const heldDeepOffer = asking?.[0]
+    ? deepThinkOffer(asking[0].toolCallId)
+    : null
 
   return (
     <>
@@ -3139,6 +3168,10 @@ export function DeckeChat({
                     if (part.kind === 'consent') {
                       return <ShareChoice key={part.id} onChoose={saveConsent} />
                     }
+                    // The ask has one home: the dock below. Keeping its message
+                    // part here is state, not a second rendering of the card in
+                    // the scrolling transcript.
+                    if (part.kind === 'ask') return null
                     // Full width rather than inside a bubble: a panel is a
                     // figure, and an 85%-wide column with a card grid in it is
                     // a column of one card.
@@ -3276,14 +3309,32 @@ export function DeckeChat({
             // finishing after the dry run displaced it, and a consent dialog
             // showing another call's result is worse than one showing nothing.
             preview={approvalPreview(asking[0].toolCallId)}
+            approval={asking[0]}
+            deepOffer={heldDeepOffer}
+            // The wallet balance read AFTER the card went up (see `quote`), or
+            // null while unknown: a priced Deep Think waits for it.
+            balance={quote?.balance ?? null}
             choices={approvalChoices}
             onChoice={onApprovalChoice}
             onAccept={onApprove}
             onDeny={onDeny}
             busy={approvalBusy}
-            cost={deepCost(asking[0].name, quote)}
             onTopUp={onTopUp}
           />
+          </div>
+        ) : askQuestions && !viewing ? (
+          /* A reader question uses the same dock and the same physical floor.
+             It is hidden while streaming, so no choice can race a turn that
+             has not finished producing the card yet. */
+          <div ref={askRef} data-decke-ask-card="" className="mx-auto w-full max-w-[760px]">
+            <AskCard
+              questions={askQuestions}
+              onSubmit={(answers) => {
+                const text = formatAnswers(askQuestions, answers)
+                onSend(text || SKIP_TEXT)
+              }}
+              onSkip={() => onSend(SKIP_TEXT)}
+            />
           </div>
         ) : feedbackAsk && !viewing ? (
           /* The same floor as the approval card: he stands on it, and on a

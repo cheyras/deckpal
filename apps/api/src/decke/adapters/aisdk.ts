@@ -49,7 +49,8 @@ import { z } from 'zod';
 import { allTools, type Ctx, type ToolDefinition, type ToolResult } from '@deckpal/agent-tools';
 import { withToolCtx, type ToolCtxOptions } from '../ctx.js';
 import { CallLedger, callKey } from '../repeat.js';
-import { alreadyDeclinedMessage } from '../declined.js';
+import { alreadyDeclinedMessage, declineCallKey } from '../declined.js';
+import { PASTED_LOG_SENTINEL, pasteReferencedBy } from '../pastedLog.js';
 import {
   circuitChipSummary,
   circuitMessage,
@@ -407,7 +408,8 @@ export interface AiSdkAdapterOptions extends ToolCtxOptions {
    *
    * The paste channel: `add_battle_log` requires re-emitting a pasted 8–15 KB
    * log (~3,000 tokens) as its `log` argument, and the chat model's
-   * `maxOutputTokens` is 1,200 — the arithmetic forbids it. The raw log already
+   * `maxOutputTokens` is 8,000, but an 8–15 KB paste can still consume most or
+   * all of that budget before the model says anything useful. The raw log already
    * sits in the USER message the model is answering; `api/chat.mjs` passes this
    * as `() => extractPastedLog(messages)` (see `pastedLog.ts`), and the adapter
    * substitutes it for a call whose `log` is the sentinel `@pasted` (the model
@@ -415,10 +417,22 @@ export interface AiSdkAdapterOptions extends ToolCtxOptions {
    * and ran out of budget). See `applyPastedLog` below.
    *
    * OPTIONAL and absent by default — MCP and the sub-agent tool sets pay
-   * nothing, and every existing test is unaffected — the substitution is a
-   * no-op when nobody supplies a paste.
+   * nothing for ordinary inputs. A caller that nevertheless sends `@pasted`
+   * without this channel gets the same explicit no-paste refusal; it must not
+   * send the sentinel through to the parser as if it were a battle log.
    */
   pastedLog?: () => string | null;
+  /**
+   * How many games the message behind `pastedLog` held — `api/chat.mjs` passes
+   * `() => pastedLogCount(messages)` from the same `pastedLog.ts`.
+   *
+   * The channel carries only the last game of a multi-game message; above 1,
+   * every `add_battle_log` result that used the paste tells the model so
+   * (`multiplePastedGamesNotice`) and the approval card tells the reader
+   * (`multiplePastedGamesCardLine`). OPTIONAL: absent means one game, so a
+   * caller that does not supply it discloses nothing and changes nothing.
+   */
+  pastedLogCount?: () => number;
 }
 
 /**
@@ -602,8 +616,36 @@ export function forcePreview(def: ToolDefinition, input: unknown): unknown {
 }
 
 /**
+ * The write key for one approved call: the signed SDK call id and its signed
+ * input, scoped to the verified user.
+ *
+ * Nothing unsigned goes in. The conversation id, the route, the landmarks and
+ * the rest of the history are all things the browser can change between two
+ * resumes of the same approval, so a key built from any of them would let a
+ * replay with one field changed write a second time. That is the gap the
+ * request key (`chatChargeReference`) leaves, and this closes it. The user id
+ * is not strictly needed, since `mutation_batch` scopes keys per user, but it
+ * makes the key meaningless outside the account it was made for.
+ *
+ * `ctx.ts`'s `keyedApi` turns it into one `Idempotency-Key` per write request.
+ */
+export function approvedWriteKey(userId: string, name: string, toolCallId: string, input: unknown): string {
+  return createHash('sha256').update(callKey(name, { v: 1, user: userId, call: toolCallId, input })).digest('hex');
+}
+
+/** Appended to a tool's result when the API answered its write from an earlier run. */
+export const REPLAYED_WRITE_NOTE =
+  'REPLAYED — an earlier run of this same approval already applied it, so this run wrote nothing new. ' +
+  'Do not tell the reader it was applied twice.';
+
+/** The same, for a resumed call whose earlier run had applied only some of its writes. */
+export const PARTLY_REPLAYED_WRITE_NOTE =
+  'PARTLY REPLAYED — an earlier run of this same approval had already applied part of it. That part was ' +
+  'not written again; the rest was applied now, once.';
+
+/**
  * The paste channel — what the model is told instead of being asked to re-type
- * a ~3,000-token log into a 1,200-token output budget.
+ * a ~3,000-token log back through the model's 8,000-token output budget.
  *
  * ══════════════════════════════════════════════════════════════════════════════
  * ONE SEAM, NEXT TO THE OTHER COERCIONS
@@ -640,8 +682,12 @@ export function forcePreview(def: ToolDefinition, input: unknown): unknown {
  * handler is never called. A truncated prefix with no paste is left as the
  * model sent it: there is nothing to substitute, the parser gates on quality,
  * and using the model's (truncated) log is the best available answer.
+ *
+ * Both the constant and the rule (`pasteReferencedBy`) live in `pastedLog.ts`
+ * since 2026-10-10: `declined.ts` must name the game a declined call carried
+ * by the same rule, and it cannot import this adapter, which imports it.
  */
-export const PASTED_LOG_SENTINEL = '@pasted';
+export { PASTED_LOG_SENTINEL };
 
 /** What the model is told when it sent `@pasted` but no paste was found. */
 export const NO_PASTE_FOUND_MESSAGE =
@@ -649,9 +695,53 @@ export const NO_PASTE_FOUND_MESSAGE =
   'Ask the reader to paste the full PTCG Live battle log, then call add_battle_log again ' +
   `with log set to ${PASTED_LOG_SENTINEL}.`;
 
+/**
+ * What the MODEL is told when the reader's message held several games.
+ *
+ * 2026-10-10 (review of #291): `extractPastedLog` carries only the LAST complete
+ * game of a message — one paste channel, one game, by design — and nothing said
+ * so. A reader who pasted two games watched one get logged and believed both
+ * were in. Appended to every `add_battle_log` result that used the paste (dry
+ * run, ranking, or write), so whatever the model does next it knows to ask for
+ * the rest. Empty for one game.
+ */
+export function multiplePastedGamesNotice(count: number): string {
+  if (!Number.isInteger(count) || count <= 1) return '';
+  return `This message held ${count} games; only the last was carried — ask the reader to paste the others one at a time.`;
+}
+
+/**
+ * The same fact for the READER, as a line on the approval card.
+ *
+ * Not the model's sentence: the card is the reader's surface, and "ask the
+ * reader to…" printed on it would be an instruction to Deck-E leaking onto
+ * their screen. Appended to the card's summary rather than prefixed to the dry
+ * run, because `previewSummary` keeps only the first line of a result that is
+ * not a `DRY RUN` block — a prefix would have replaced "Would attach to …", the
+ * one line that says which game is being logged.
+ */
+export function multiplePastedGamesCardLine(count: number): string {
+  if (!Number.isInteger(count) || count <= 1) return '';
+  return `Your message held ${count} games; only the last one is logged here. Paste the others one at a time.`;
+}
+
+/** `text` with the model-facing notice on its own last line, when there is one. */
+function withPastedGamesNotice(text: string, count: number): string {
+  const notice = multiplePastedGamesNotice(count);
+  return notice ? `${text}\n${notice}` : text;
+}
+
 /** The result of {@link applyPastedLog}: either a substituted value or a refusal. */
 export type PasteSubstitution =
-  | { kind: 'ok'; value: unknown }
+  | {
+      kind: 'ok';
+      value: unknown;
+      /**
+       * True when `log` was replaced with the reader's paste — the one case in
+       * which the multi-game disclosure applies.
+       */
+      substituted?: boolean;
+    }
   | { kind: 'fail'; message: string };
 
 /**
@@ -661,7 +751,8 @@ export type PasteSubstitution =
  * that records its args (the parser is not the thing under test — the seam is).
  * Called from `execute` and from the forced-preview path in `onInputAvailable`;
  * both thread the `ok` value to the handler and return the `fail` message
- * without calling it.
+ * without calling it. WHEN `log` stands for the paste is `pasteReferencedBy`'s
+ * call, shared with `declined.ts` — see the comment above.
  *
  * @param def   the tool definition — only `add_battle_log` is touched.
  * @param input the (already-`forcePreview`-coerced) call arguments.
@@ -679,24 +770,16 @@ export function applyPastedLog(
   const log = args?.log;
   if (typeof log !== 'string') return { kind: 'ok', value: input };
 
-  // The sentinel: the model declines to re-type and asks the server to
-  // substitute. With no paste found, refuse rather than hand the handler the
+  // The sentinel with no paste: refuse rather than hand the handler the
   // literal string "@pasted" — the handler is never called.
-  if (log === PASTED_LOG_SENTINEL) {
-    if (!paste) return { kind: 'fail', message: NO_PASTE_FOUND_MESSAGE };
-    return { kind: 'ok', value: { ...(args as Record<string, unknown>), log: paste } };
-  }
+  if (log === PASTED_LOG_SENTINEL && !paste) return { kind: 'fail', message: NO_PASTE_FOUND_MESSAGE };
 
-  // A truncated prefix: what the model sent is a >= 200-char prefix of the
-  // paste (after whitespace-normalization). Substitute the full text; the
-  // parser downstream still gates on quality, but the model meant the whole log.
-  if (log.length >= 200 && paste) {
-    const norm = (s: string): string => s.replace(/\s+/g, ' ').trim();
-    if (norm(paste).startsWith(norm(log))) {
-      return { kind: 'ok', value: { ...(args as Record<string, unknown>), log: paste } };
-    }
-  }
-  return { kind: 'ok', value: input };
+  // The sentinel, or a >= 200-char truncated prefix of the paste: the model
+  // meant the whole log. Substitute the full text; the parser downstream still
+  // gates on quality. Anything else is left exactly as the model sent it.
+  const referenced = pasteReferencedBy(log, paste);
+  if (referenced === null) return { kind: 'ok', value: input };
+  return { kind: 'ok', value: { ...(args as Record<string, unknown>), log: referenced }, substituted: true };
 }
 
 /**
@@ -1164,7 +1247,12 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
   const declined = opts.declined ?? new Set<string>();
   const alreadyDeclined = (name: string, input: unknown): boolean => {
     if (declined.size === 0) return false;
-    if (declined.has(callKey(name, input))) return true;
+    // A battle log's key names the GAME the call would carry after paste
+    // substitution, not the `@pasted` sentinel — see `declineCallKey`. Handed
+    // the same paste `applyPastedLog` will substitute, so the game checked here
+    // is the game that would be written.
+    const paste = name === 'add_battle_log' ? opts.pastedLog?.() : null;
+    if (declined.has(declineCallKey(name, input, paste))) return true;
     if (!opts.conversationalLogging || name !== 'log_cards') return false;
     // New chat history carries the signed exposed shape (no dry_run); accept
     // the former normalized shape too so an in-flight pre-deploy decline does
@@ -1286,6 +1374,15 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
           : async (input: unknown, context?: { toolCallId: string }) => {
               if (!requiresApproval(def, input)) return false;
               if (alreadyDeclined(def.name, input)) return false;
+              // A sentinel with no conversation paste cannot reach the write:
+              // execute returns NO_PASTE_FOUND_MESSAGE before the handler. Do
+              // the same substitution check here so the SDK does not raise a
+              // blank consent card for a call that is structurally unable to
+              // run. With a paste, this remains a normal held write.
+              if (def.name === 'add_battle_log') {
+                const substitution = applyPastedLog(def, input, opts.pastedLog?.());
+                if (substitution.kind === 'fail') return false;
+              }
               if (opts.conversationalLogging && def.name === 'log_cards') {
                 const toolCallId = context?.toolCallId ?? `direct:${callKey(def.name, input)}`;
                 return (await preflightLogCards(def, input, toolCallId)).eligible;
@@ -1362,10 +1459,7 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
         // will return the fail result and the card falls back to the plain
         // dialog, exactly as a preview that could not run does.
         const previewInput = forcePreview(def, input);
-        const pastedPreview = opts.pastedLog;
-        const subPreview: PasteSubstitution = pastedPreview
-          ? applyPastedLog(def, previewInput, pastedPreview())
-          : { kind: 'ok', value: previewInput };
+        const subPreview: PasteSubstitution = applyPastedLog(def, previewInput, opts.pastedLog?.());
         if (subPreview.kind === 'fail') return;
         try {
           // `forcePreview` again, not a cached value: the coercion and the
@@ -1374,7 +1468,12 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
           const result = await withToolCtx(opts, (ctx: Ctx) =>
             def.handler(subPreview.value, ctx),
           );
-          emit(buildApprovalPreview(def, toolCallId, result, opts.readerNamedPrinting === true, input));
+          const preview = buildApprovalPreview(def, toolCallId, result, opts.readerNamedPrinting === true, input);
+          // A multi-game paste says so on the card, under what it would log.
+          const gamesLine = subPreview.substituted
+            ? multiplePastedGamesCardLine(opts.pastedLogCount?.() ?? 1)
+            : '';
+          emit(gamesLine ? { ...preview, summary: `${preview.summary}\n${gamesLine}` } : preview);
         } catch {
           // Deliberately silent, and deliberately not an `onEvent`. A chip for
           // a failed dialog-preview would tell the reader a tool failed when
@@ -1489,14 +1588,14 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
           // but no paste was found, refuse WITHOUT calling the handler: return
           // the fail message so the model can ask the reader to paste the log,
           // and never hand the parser the literal string "@pasted".
-          const pasted = opts.pastedLog;
-          const sub: PasteSubstitution = pasted
-            ? applyPastedLog(def, effective, pasted())
-            : { kind: 'ok', value: effective };
+          const sub: PasteSubstitution = applyPastedLog(def, effective, opts.pastedLog?.());
           if (sub.kind === 'fail') {
             opts.onEvent?.({ phase: 'error', ...chip, summary: 'no pasted log found this conversation' });
             return sub.message;
           }
+          // How many games the paste's message held; only a call that carried
+          // the paste can have left any behind.
+          const pastedGames = sub.substituted ? (opts.pastedLogCount?.() ?? 1) : 1;
           // An approved call can be replayed in a later HTTP request. Bind its
           // write key to the signed SDK call, not the tool's 15-minute clock
           // bucket, so an approval at the boundary cannot apply twice.
@@ -1511,6 +1610,22 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
                 })).digest('hex')}`,
               }
             : sub.value;
+          // EVERY OTHER APPROVED WRITE, the same way. The signed call gets one
+          // key, and each write request the handler sends carries a key derived
+          // from it (`keyedApi` in ctx.ts), so a second approval-resume POST
+          // for this call reaches the same keys and the API returns the first
+          // run's result instead of writing again. The request key cannot do
+          // this: any changed body field makes it a new request. Only a call
+          // held HERE is signed, so `upstream` calls keep the old behaviour.
+          // `log_cards` already carries its call key in the body.
+          const keyedWrites = { replayed: 0, fresh: 0 };
+          const runOpts = opts.approvals !== 'upstream' && def.name !== 'log_cards' && requiresApproval(def, args)
+            ? {
+                ...opts,
+                writeKey: approvedWriteKey(opts.userId, def.name, toolCallId, args),
+                onKeyedWrite: (replayed: boolean) => { keyedWrites[replayed ? 'replayed' : 'fresh'] += 1; },
+              }
+            : opts;
 
           // ── ASKED ALREADY? ───────────────────────────────────────────────
           //
@@ -1525,11 +1640,19 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
           // and is a write. `registry.ts` says so and this is why it is
           // required there.
           const runOnce = async (): Promise<{ text: string; failed: boolean }> => {
-            const result = await withToolCtx(opts, (ctx: Ctx) => def.handler(runEffective, ctx));
+            const result = await withToolCtx(runOpts, (ctx: Ctx) => def.handler(runEffective, ctx));
             const visible = result.isError
               ? usefulToolFailure(def.name, result.text)
-              : result.text;
-            const text = clampToolText(visible, maxToolChars(def.name, opts.maxChars));
+              : keyedWrites.replayed > 0
+                ? `${result.text}\n${keyedWrites.fresh > 0 ? PARTLY_REPLAYED_WRITE_NOTE : REPLAYED_WRITE_NOTE}`
+                : result.text;
+            // The multi-game notice goes LAST: the chip below summarises the
+            // first line, which stays the tool's own ("Logged battle #…"), and
+            // `usefulToolFailure` has already read the handler's own text.
+            const text = clampToolText(
+              withPastedGamesNotice(visible, pastedGames),
+              maxToolChars(def.name, opts.maxChars),
+            );
             // BEFORE the clamp would have been wrong: an id cut off by the
             // ceiling is an id the model never saw, and grounding it would let
             // a half-read page license a full grid. Observe exactly what he

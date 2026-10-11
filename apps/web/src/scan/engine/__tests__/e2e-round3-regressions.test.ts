@@ -370,7 +370,7 @@ describe('e2e round 3 — one card, nine captures, and the region was not at fau
     const swapAt = REGION_DEPARTURE_MS / 2
     assert.ok(polyIoU(card(0), swapped) >= REGION_SAME_IOU, 'the swap really is in the same place')
     R.tick(swapAt, [{ id: 2, quad: swapped }])
-    assert.ok(R.suppressed(swapped), 'THE COST: the fast swap does not auto-capture')
+    assert.ok(R.suppressed(swapped), 'THE COST: the fast swap is refused by place (the look re-arm, rearm.ts, may still fire it)')
     // ...and it is bounded. Once nothing overlaps for the window, the spot frees.
     R.tick(swapAt + REGION_DEPARTURE_MS + TICK_MS, [])
     assert.equal(R.count, 0, 'the region must retire once the card departs')

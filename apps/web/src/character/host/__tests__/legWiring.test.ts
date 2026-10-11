@@ -74,6 +74,85 @@ test('recent turns replay complete bounded server results', () => {
   assert.match(HOOK, /const bounded = capOutput\(output\)/, 'captured outputs are not bounded')
 })
 
+test('a completed ask replays as the SDK tool part that keeps its question attached', () => {
+  // The wire SHAPE is unit-tested from a streamed input in
+  // `chat/__tests__/askState.test.ts`, and end to end against the real POST in
+  // tests/browser/askCard.mjs. These pin that the hook calls those helpers.
+  const wire = HOOK.slice(HOOK.indexOf('function messagesToWire'))
+  assert.match(
+    wire,
+    /for \(const ask of askWireParts\(m\.parts\)\) parts\.push\(ask\)/,
+    'a completed ask is not replayed as tool-ask_user',
+  )
+  // On every turn — not only inside the recent-turn branch, where an ask-only
+  // reply compacted to an empty text part.
+  const replayed = wire.indexOf('askWireParts(m.parts)')
+  assert.ok(replayed > wire.indexOf('declineParts(chips,'), 'the ask replays only on recent turns')
+})
+
+test('an ask-only reply is kept on the wire (S3)', () => {
+  const wire = HOOK.slice(HOOK.indexOf('function messagesToWire'))
+  assert.match(
+    wire,
+    /const visible = msgs\.filter\(\(m\) => [^\n]*\|\| hasAsk\(m\.parts\)\)/,
+    'a reply that is only a question is filtered out, so its answers arrive with no question before them',
+  )
+})
+
+test('the ask is stored with its WHOLE input, about included (S2)', () => {
+  assert.match(
+    HOOK,
+    /const ask = askFromStream\(part\.toolCallId, approvalInputs\.get\(part\.toolCallId\), part\.output\)/,
+    'the stored ask is not built from the streamed input as-is',
+  )
+  assert.match(HOOK, /const part: AskPart = \{ kind: 'ask', id: nextId\(\), \.\.\.ask \}/)
+  assert.match(HOOK, /parts: \[\.\.\.message\.parts, part\]/)
+  assert.doesNotMatch(HOOK, /\{ questions: input\.questions/, 'the ask input is rebuilt as { questions } again, dropping about')
+})
+
+test('an ask shown on a leg rides into the next leg of the same turn (S-b)', () => {
+  // `ask_user` emits no chip, so `freshCalls` over `turnChips` never replayed
+  // it: an ask beside a held write or a browser tool reached the next leg
+  // missing, and that leg ran as if the questions had been answered.
+  const send = HOOK.slice(HOOK.indexOf('const send = useCallback'), HOOK.indexOf('async function streamLeg'))
+  const loop = send.slice(send.indexOf('for (let leg = 0;'))
+  // Per LEG (the wire already carries earlier legs' asks), captured synchronously.
+  assert.match(loop, /const legAsks: AskPart\[\] = \[\]/)
+  assert.ok(loop.indexOf('const legAsks') < loop.indexOf('await streamLeg('), 'legAsks must be fresh for each leg')
+  assert.match(loop, /onAskUser: \(ask\) => \{\s*const part: AskPart = [^\n]*\n\s*legAsks\.push\(part\)/)
+  // In the prefix, before the approval answers `replayLegParts` appends last.
+  assert.match(loop, /for \(const ask of askWireParts\(legAsks\)\) parts\.push\(ask\)/)
+  assert.ok(
+    loop.indexOf('askWireParts(legAsks)') < loop.indexOf('replayLegParts({'),
+    'the ask must be in the prefix, never after the signed approval answers',
+  )
+  // And the server reads it as an open question (api/chat.mjs).
+  assert.match(CHAT, /const askedEarlierThisTurn = turnToolNames\(messages\)\.includes\('ask_user'\)/)
+})
+
+test("a continuation leg echoes this turn's route, and a new message never does", () => {
+  const leg = HOOK.slice(HOOK.indexOf('async function streamLeg'))
+  // Read off the stream, validated, handed up.
+  assert.match(
+    leg,
+    /part\.type === 'data-decke-route'\)[\s\S]{0,200}const route = readTierRoute\(part\.data\)\s*\n\s*if \(route\) handlers\.onRoute\(route\)/,
+    'the route part is not read, or not validated before it is kept',
+  )
+  // Sent under its own key: `route` is the page path the prompt reads.
+  assert.match(leg, /\.\.\.\(tierRoute \? \{ tierRoute \} : \{\}\)/, 'the echo is not in the POST body')
+  assert.match(leg, /route: window\.location\.pathname,/, 'the page path lost its key')
+  // Held per SEND, so a new reader message starts with none, and withheld from
+  // the first leg of a turn.
+  const send = HOOK.slice(HOOK.indexOf('const send = useCallback'), HOOK.indexOf('async function streamLeg'))
+  assert.match(send, /let tierRoute: TierRoute \| null = null/, 'the echo is not scoped to one turn')
+  assert.match(
+    send,
+    /streamLeg\(requestWire, evidence, exchangeConversation, exchangeId, exchangeSeq, leg === 0 \? null : tierRoute, ac\.signal, \{\s*\n\s*onRoute: \(route\) => \{ tierRoute = route \},/,
+    "the leg loop does not capture the route, or sends it on a turn's first leg",
+  )
+  assert.doesNotMatch(HOOK, /tierRouteRef|useRef<TierRoute/, 'a ref would outlive the turn it belongs to')
+})
+
 test('old compact turns still replay exact declines', () => {
   const wire = HOOK.slice(HOOK.indexOf('function messagesToWire'))
   assert.match(wire, /else \{[\s\S]{0,400}declineParts\(chips,/, 'old declines fell back to a lossy lookup line')
@@ -100,6 +179,34 @@ test('one activity animator owns host-driven turn events', () => {
 
 test('an approval preview title becomes the actual question', () => {
   assert.match(HOOK, /approvalTitles\.set\(preview\.toolCallId, preview\.title\.trim\(\)\)/)
+})
+
+test('Deep Think offers are read strictly from the server part the chat emits', () => {
+  assert.match(CHAT, /type: 'data-decke-deep-offer'/, 'the server stopped emitting the offer')
+  assert.match(HOOK, /part\.type === 'data-decke-deep-offer'/)
+  assert.match(HOOK, /const offer = parseDeepThinkOffer\(part\.data\)/, 'the part is trusted without the strict reader')
+  assert.match(HOOK, /deepOfferTokens\.set\(offer\.toolCallId, offer\.token\)/)
+  assert.match(HOOK, /handlers\.onDeepOffer\(offer\)/)
+})
+
+test("a Deep Think card's answer carries its offer token, so the yes is bound to this turn", () => {
+  // Without it the server never routes the yes to Opus (`decke/deepThink.ts`).
+  assert.match(
+    HOOK,
+    /out\.approvals = out\.approvals\.map\(\(approval\) => \{[\s\S]{0,200}deepOfferTokens\.get\(approval\.toolCallId\)[\s\S]{0,120}deepOffer: token/,
+  )
+  const replay = code(read('../approvalReplay.ts'))
+  assert.match(replay, /approvalReplayPart\(\s*approval,/, 'the answer is no longer built from the pending approval')
+})
+
+test('an answered Deep Think becomes its result before the next leg, which carries the grant', () => {
+  assert.match(HOOK, /const settled = settleApprovedCalls\(wire, capturedOutputs\)/)
+  assert.match(HOOK, /wire\.splice\(0, wire\.length, \.\.\.settled\)/)
+  // Before the next leg is fitted and posted.
+  const loop = HOOK.slice(HOOK.indexOf('const settled = settleApprovedCalls'))
+  assert.ok(loop.indexOf('wire.push({ role: \'assistant\', parts: replayed })') > 0)
+  // And its result is captured: the call's name is seeded from the outgoing wire.
+  assert.match(HOOK, /if \(outputName && !isClientTool\(outputName\)\) handlers\.onToolOutput\(part\.toolCallId, part\.output\)/)
 })
 
 test('a leg marks only what it actually recorded', () => {
@@ -299,7 +406,12 @@ test('a real decline tells him what a repeat decline is already told', () => {
   const approval = code(read('../approval.ts'))
   assert.match(approval, /export const DECLINED_REASON =\s*\r?\n?\s*'\[\[NO_WORK\]\] The reader said no/)
   assert.match(HOOK, /approvalId: a\.approvalId/, 'the declined chip lost the approval identity')
-  assert.match(HOOK, /declineReason: DECLINED_REASON/, 'the declined chip lost the reader reason')
+  // The reason is the HELD TOOL'S: "Keep it quick" on Deep Think is not "do not
+  // make this change", and the chip, the replay and the answer all say so.
+  assert.match(HOOK, /const reason = declinedReasonFor\(a\?\.name \?\? ''\)/)
+  assert.match(HOOK, /declineReason: reason,/, 'the declined chip lost the reader reason')
+  assert.match(HOOK, /settleAll\(\{ approved: false, reason \}, a\?\.approvalId\)/, 'the decline answer ignores the held tool')
+  assert.doesNotMatch(HOOK, /reason: DECLINED_REASON/, 'a decline is hard-wired to the write reason again')
   assert.match(HOOK, /toolReplayParts\(/, 'declines are not replayed as tool answers')
   // ABANDONED_REASON stays short and distinct: `declined.ts` compares against
   // it exactly, and an unanswered panel is not a refusal.

@@ -24,7 +24,7 @@
  * switch below and the server's `BLOCK_KINDS` from drifting apart, because
  * `deckpal-web` cannot import `deckpal-api` to share the type.
  */
-import { useEffect, useId, useLayoutEffect, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { CardImage } from '../../components/CardImage'
 import { CARD_ASPECT_RATIO_CSS } from '../../lib/cardGeometry'
@@ -33,8 +33,14 @@ import { CARD_ASPECT_RATIO_CSS } from '../../lib/cardGeometry'
 import { useCardArt } from './chat/useCardArt'
 import { COLLAPSE_LABEL, compactPlan, expandLabel, isDeckOnlyScreen, showingLabel } from './screenCompact'
 import { api } from '../../lib/api'
-import { saveDeckFromWidget, type WidgetDeck } from './chat/deckSave'
-import { deckDisclosure, deckHeader, nextSaveState, ownershipMark, visibleIssues, type SaveState } from './chat/deckWidgetState'
+import {
+  VERSION_NOTE_MAX, deckSaveChoice, saveDeckFromWidget, saveDeckVersionFromWidget, savedLine,
+  type DeckSaved, type WidgetDeck,
+} from './chat/deckSave'
+import {
+  deckDisclosure, deckHeader, nextSaveState, ownershipMark, saveActions, visibleIssues,
+  type SaveAction, type SaveState, type SaveTarget,
+} from './chat/deckWidgetState'
 
 export type Block = {
   kind: string
@@ -62,6 +68,13 @@ export type Block = {
     cards: Array<{ id: string; name: string; quantity: number; owned: number }>
   }>
   ptcgl?: string
+  /**
+   * deck only: the reader's own deck this list revises, and Deck-E's note for
+   * the version. Set by the server's `showDeck` after it checked ownership;
+   * no model-authored screen can carry either (see `screens.ts`).
+   */
+  base?: { id: string; name: string }
+  versionNote?: string
 }
 
 export type ScreenSpec = { title: string; blocks: Block[] }
@@ -127,7 +140,7 @@ export function DeckeScreen({
    */
   onResize?: () => void
   /** Lets chat remember a one-tap widget save on its next turn. */
-  onDeckSaved?: (deck: { id: string; name: string; total: number }) => void
+  onDeckSaved?: (deck: DeckSaved) => void
   /** Router-neutral handoff; history views intentionally omit it. */
   onOpenDeck?: (id: string) => void
 }) {
@@ -222,7 +235,7 @@ function Block({
   /** How many cards a grid may draw. `Infinity` once the screen is expanded. */
   cardLimit?: number
   onRemoveCard?: (id: string) => void
-  onDeckSaved?: (deck: { id: string; name: string; total: number }) => void
+  onDeckSaved?: (deck: DeckSaved) => void
   onOpenDeck?: (id: string) => void
   onResize?: () => void
 }) {
@@ -388,7 +401,7 @@ function DeckWidget({
   onResize,
 }: {
   block: Block
-  onDeckSaved?: (deck: { id: string; name: string; total: number }) => void
+  onDeckSaved?: (deck: DeckSaved) => void
   onOpenDeck?: (id: string) => void
   onResize?: () => void
 }) {
@@ -397,7 +410,16 @@ function DeckWidget({
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle')
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [saveError, setSaveError] = useState<string | null>(null)
-  const [saved, setSaved] = useState<{ id: string; name: string; total: number } | null>(null)
+  const [saved, setSaved] = useState<DeckSaved | null>(null)
+  // A revision of a deck the reader owns saves as that deck's next version
+  // first; a brand-new deck keeps its one button. See `deckSaveChoice`.
+  const choice = deckSaveChoice(block)
+  const [note, setNote] = useState(choice.kind === 'version' ? choice.note : '')
+  const [active, setActive] = useState<SaveTarget | null>(null)
+  const noteId = useId()
+  const actionsRef = useRef<HTMLDivElement>(null)
+  const openRef = useRef<HTMLButtonElement>(null)
+  const [focusOpen, setFocusOpen] = useState(false)
   const total = block.total ?? 0
   const header = deckHeader({
     total,
@@ -413,7 +435,13 @@ function DeckWidget({
 
   useLayoutEffect(() => {
     onResize?.()
-  }, [expanded, onResize])
+  }, [expanded, saved, saveError, onResize])
+
+  // The button pressed is replaced by "Open in deck builder"; a keyboard reader
+  // keeps their place on it instead of being dropped back to the page.
+  useEffect(() => {
+    if (saved && focusOpen) openRef.current?.focus()
+  }, [saved, focusOpen])
 
   async function copyList() {
     if (!block.ptcgl || !navigator.clipboard) return
@@ -427,24 +455,45 @@ function DeckWidget({
     }
   }
 
-  async function save() {
+  async function save(target: SaveTarget) {
     if (saveState === 'saving' || saveState === 'saved') return
     if (saveState === 'error') setSaveState(nextSaveState(saveState, 'retry'))
+    const hadFocus = !!actionsRef.current?.contains(document.activeElement)
     setSaveError(null)
+    setActive(target)
     setSaveState('saving')
-    const result = await saveDeckFromWidget(block as WidgetDeck, api)
+    const result = target === 'version'
+      ? await saveDeckVersionFromWidget(block as WidgetDeck, note, api)
+      : await saveDeckFromWidget(block as WidgetDeck, api)
     if (!result.ok) {
       setSaveState('error')
       setSaveError(result.message)
       return
     }
+    const { ok: _ok, ...deck } = result
     setSaveState('saved')
-    setSaved(result)
-    onDeckSaved?.(result)
+    setFocusOpen(hadFocus)
+    setSaved(deck)
+    onDeckSaved?.(deck)
   }
 
+  const actions = saveActions(choice.kind, saveState, active)
+  const actionButton = (action: SaveAction) => (
+    <button
+      key={action.target}
+      type="button"
+      disabled={saveState === 'saving'}
+      onClick={() => void save(action.target)}
+      className={action.primary
+        ? `rounded-lg bg-action-primary px-[10px] py-[7px] text-[12px] font-semibold text-action-primary-foreground disabled:opacity-60 ${FOCUS_RING}`
+        : `rounded-md px-[2px] py-[7px] text-[12px] font-semibold text-text-muted underline-offset-[3px] hover:text-text-primary hover:underline disabled:opacity-60 ${FOCUS_RING}`}
+    >
+      {action.label}
+    </button>
+  )
+
   return (
-    <div className="flex flex-col gap-[10px] rounded-xl border border-border-default bg-surface-primary p-[12px]">
+    <div data-decke-deck className="flex flex-col gap-[10px] rounded-xl border border-border-default bg-surface-primary p-[12px]">
       <div className="flex flex-wrap items-center gap-[6px]">
         <h4 className="mr-auto font-display text-[16px] font-bold text-text-primary">{block.name ?? 'Deck idea'}</h4>
         <DeckChip tone="neutral">{block.format ?? 'standard'}</DeckChip>
@@ -484,28 +533,54 @@ function DeckWidget({
         </button>
       ) : null}
 
-      <div className="flex flex-wrap gap-[8px] border-t border-border-default pt-[10px]">
-        {saved ? (
-          onOpenDeck ? (
-            <button type="button" onClick={() => onOpenDeck(saved.id)} className="rounded-lg bg-action-primary px-[10px] py-[7px] text-[12px] font-semibold text-action-primary-foreground">
-              Open in deck builder
-            </button>
-          ) : (
-            <span className="self-center text-[12px] text-text-muted">Saved to your decks</span>
-          )
-        ) : (
-          <button type="button" disabled={saveState === 'saving'} onClick={() => void save()} className="rounded-lg bg-action-primary px-[10px] py-[7px] text-[12px] font-semibold text-action-primary-foreground disabled:opacity-60">
-            {saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Try saving again' : 'Save to my decks'}
+      <div className="flex flex-col gap-[8px] border-t border-border-default pt-[10px]">
+        {choice.kind === 'version' && !saved ? (
+          <>
+            <p className="text-[12px] leading-[17px] text-text-muted">
+              Saves as the next version of{' '}
+              <span className="font-semibold text-text-primary">{choice.base.name}</span>, keeping its history and battle logs.
+            </p>
+            <label htmlFor={noteId} className="text-[12px] font-semibold text-text-secondary">
+              Version note <span className="font-normal text-text-muted">Optional</span>
+            </label>
+            <input
+              id={noteId}
+              type="text"
+              value={note}
+              maxLength={VERSION_NOTE_MAX}
+              disabled={saveState === 'saving'}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder="What changed, and why"
+              className={`w-full min-w-0 rounded-lg border border-border-default bg-surface-primary px-[10px] py-[7px] text-[13px] text-text-primary placeholder:text-text-muted disabled:opacity-60 ${FOCUS_RING}`}
+            />
+          </>
+        ) : null}
+        {saved?.version ? (
+          <p role="status" className="text-[12px] leading-[17px] text-text-body">{savedLine(saved)}</p>
+        ) : null}
+        <div ref={actionsRef} className="flex flex-wrap items-center gap-[8px]">
+          {saved ? (
+            onOpenDeck ? (
+              <button ref={openRef} type="button" onClick={() => onOpenDeck(saved.id)} className={`rounded-lg bg-action-primary px-[10px] py-[7px] text-[12px] font-semibold text-action-primary-foreground ${FOCUS_RING}`}>
+                Open in deck builder
+              </button>
+            ) : saved.version ? null : (
+              <span className="self-center text-[12px] text-text-muted">Saved to your decks</span>
+            )
+          ) : actions.filter((action) => action.primary).map(actionButton)}
+          <button type="button" disabled={!block.ptcgl} onClick={() => void copyList()} className={`rounded-lg border border-border-default px-[10px] py-[7px] text-[12px] font-semibold text-text-body disabled:opacity-50 ${FOCUS_RING}`}>
+            {copyState === 'copied' ? 'Copied' : 'Copy list'}
           </button>
-        )}
-        <button type="button" disabled={!block.ptcgl} onClick={() => void copyList()} className="rounded-lg border border-border-default px-[10px] py-[7px] text-[12px] font-semibold text-text-body disabled:opacity-50">
-          {copyState === 'copied' ? 'Copied' : 'Copy list'}
-        </button>
+          {saved ? null : actions.filter((action) => !action.primary).map(actionButton)}
+        </div>
       </div>
       {saveError ? <p role="alert" className="text-[12px] text-error">{saveError}</p> : null}
     </div>
   )
 }
+
+/** The keyboard ring every control in the widget shares, as the expand control above draws it. */
+const FOCUS_RING = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus'
 
 function DeckChip({ tone, children }: { tone: 'neutral' | 'good' | 'warn' | 'bad'; children: string }) {
   const colours = {

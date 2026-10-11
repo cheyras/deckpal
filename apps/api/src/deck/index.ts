@@ -30,7 +30,7 @@ export {
   ruleBoxKind, cardIsAceSpec, cardIsRadiant, cardIsPrismStar, cardIsBasicEnergy,
 } from './rules.js';
 export {
-  mulberry32, expandLibrary, drawOpeningHand,
+  mulberry32, expandLibrary, drawOpeningHand, partialShuffle,
   simulateMulliganRate, hypergeometricMulligan,
   type Rng, type HandCard, type MulliganStats, type DrawResult,
 } from './testhand.js';

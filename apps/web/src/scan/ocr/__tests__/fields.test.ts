@@ -26,7 +26,10 @@ import {
   extractFields,
   levenshtein,
   normaliseBadge,
+  readCornerPair,
   resolveSetCode,
+  sameCornerPair,
+  type Glyph,
 } from '../fields'
 import { PRINTED_SETS } from '../codes'
 
@@ -599,6 +602,138 @@ describe('the number pair', () => {
       { roi: 'strip', lines: ['SVP EN 001', 'illus. someone'] },
     ])
     assert.equal(got.number, null)
+  })
+})
+
+// THE VINTAGE CORNER (2026-10-10). Every line array below is verbatim
+// recogniser output for the corner on a crop from the owner's `quad-verify`
+// photos (scan-bench, outside git), at the scale named in the case — 4× is the
+// rung's first read, 6× its confirmation. The truth is in the comment.
+//
+// `readCornerPair` takes GLYPHS — characters with the confidence each was
+// emitted at — because its third gate is the pair's weakest digit. `sure()`
+// gives a line at full confidence, for the cases about everything else; the
+// confidence cases spell their digits out from the recorded logits.
+const sure = (...lines: string[]): Glyph[][] => lines.map((l) => Array.from(l, (ch) => ({ ch, conf: 1 })))
+/** One line from `[char, conf]` pairs, as the recogniser emitted them. */
+const glyphs = (...pairs: [string, number][]): Glyph[] => pairs.map(([ch, conf]) => ({ ch, conf }))
+
+describe('the corner pair — pre-2017 bottom-right numbers', () => {
+  it('reads the pair off the line that carries it, past the flavour text above', () => {
+    // base3-19 (Fossil Dragonite, 19/62), 4×: the copyright tail is glued on.
+    assert.deepEqual(readCornerPair(sure('Its inteifigenceis', '49', 'EAK1999Wmrd19/62')), { number: '19', denominator: '62' })
+    // dp1-100 (100/130), 4×.
+    assert.deepEqual(readCornerPair(sure('retreatcost', '100/130')), { number: '100', denominator: '130' })
+    // base1-16 (Zapdos, 16/102), 6×: the illustrator fragment rides the same line.
+    assert.deepEqual(readCornerPair(sure('nclouds while', '45', 'WW 16/102')), { number: '16', denominator: '102' })
+    // base1-15 (Venusaur, 15/102), 4×: the rarity star read as `*` is not a digit.
+    assert.deepEqual(readCornerPair(sure('energy.l stays', '15/102*')), { number: '15', denominator: '102' })
+  })
+
+  it('reads nothing off the Pokédex line, whose `#147` has no slash', () => {
+    // base1-26, 4×. The line under the flavour text carries `LV.10 #147`.
+    assert.equal(readCornerPair(sure('recanty.when a', 'LV.10147', '269')), null)
+  })
+
+  it('refuses a one-digit or leading-zero denominator', () => {
+    // pl2-59 (59/111), 4×: the `11` dropped, leaving `9/1`.
+    assert.equal(readCornerPair(sure('Rebreat cest', '9/1x')), null)
+    // pl3-56 (56/147), 5×.
+    assert.equal(readCornerPair(sure('5/0')), null)
+    assert.equal(readCornerPair(sure('12/062')), null)
+  })
+
+  it('refuses a denominator no corner-era set prints', () => {
+    // pl2-59 (59/111), 4× on the wider ROI: one glyph read twice.
+    assert.equal(readCornerPair(sure('Rbeatcest', '9/711x')), null)
+    // The largest real one, Expedition Base Set, passes.
+    assert.deepEqual(readCornerPair(sure('165/165')), { number: '165', denominator: '165' })
+  })
+
+  it('refuses a numerator far past its denominator, and a zero', () => {
+    // pl3-56 (56/147), 4× on the wider ROI: `14` read as `1`, leaving `53/17`.
+    assert.equal(readCornerPair(sure('retrah', '53/17')), null)
+    assert.equal(readCornerPair(sure('0/102')), null)
+    // A real secret rare is a little past its denominator, and passes.
+    assert.deepEqual(readCornerPair(sure('66/64')), { number: '66', denominator: '64' })
+  })
+
+  it('repairs nothing — a misread slash or a glued rarity glyph stays a miss', () => {
+    // base3-27 (27/62), 4× and 6× both: the slash read as `7`.
+    assert.equal(readCornerPair(sure('flap of its wings', '#146', '27762')), null)
+    // base1-26 (26/102), 4×: the slash dropped.
+    assert.equal(readCornerPair(sure('recenty.when a', 'LV.10#147', '26102')), null)
+    // xy8-89 (89/162), 4×: the rarity circle read as a fourth digit.
+    assert.equal(readCornerPair(sure('sforringinto', '172.', 'HiAngo 89/1620')), null)
+  })
+
+  it('lets the FIRST pair-shaped line decide, even when it fails a gate', () => {
+    // A rejected pair is evidence the corner was misread, not an invitation to
+    // look further down for one that passes.
+    assert.equal(readCornerPair(sure('5/0', '15/102')), null)
+  })
+  it('refuses a pair whose weakest digit the recogniser was unsure of', () => {
+    // pl3-56 (Supreme Victors, 56/147), 4× — confidences as recorded. The `6`
+    // came out a `3` at 0.68 and the `14` at 0.48 and 0.65. The 6× read made
+    // the SAME mistake (weakest digit 0.36), so agreement alone would have let
+    // `53/147` through.
+    const misread = glyphs(['5', 0.98], ['3', 0.68], ['/', 0.83], ['1', 0.48], ['4', 0.65], ['7', 0.58])
+    assert.equal(readCornerPair([misread]), null)
+  })
+
+  it('keeps a right pair whose weakest digit clears the floor', () => {
+    // base1-16 (Base Set Zapdos, 16/102), 6× — the least sure right read the
+    // shipped scales produced. The slash's 0.91 does not count; only digits do.
+    const right = glyphs(['1', 0.98], ['6', 0.76], ['/', 0.91], ['1', 0.65], ['0', 0.98], ['2', 0.73])
+    assert.deepEqual(readCornerPair([right]), { number: '16', denominator: '102' })
+  })
+
+  it('judges only the digits of the pair, not the rest of the line', () => {
+    // base3-19 (Fossil Dragonite), 4×: the copyright tail glued on ahead of the
+    // pair was read at 0.24 in places. It is not part of the pair.
+    const line = glyphs(['E', 0.6], ['A', 0.83], ['K', 0.87], ['1', 0.66], ['9', 0.98], ['9', 0.91], ['9', 0.9], ['W', 0.81],
+      ['u', 0.24], ['r', 0.86], ['d', 0.91], ['1', 0.81], ['9', 0.98], ['/', 0.71], ['6', 0.99], ['2', 0.92])
+    assert.deepEqual(readCornerPair([line]), { number: '19', denominator: '62' })
+  })
+
+  it('maps the pair back to its glyphs across a joined fragment', () => {
+    // `groupIntoLines` joins two fragments with a space, which `readGlyphLines`
+    // carries as a fully-confident glyph; the match is made on the de-spaced
+    // text, so the confidences have to follow the de-spacing.
+    // The unsure digit is the LAST one, so a span shifted by the dropped space
+    // would stop one glyph short of it and wrongly accept.
+    const line = [
+      ...glyphs(['W', 0.6], ['W', 0.55]),
+      { ch: ' ', conf: 1 },
+      ...glyphs(['1', 0.9], ['6', 0.9], ['/', 0.9], ['1', 0.9], ['0', 0.9], ['2', 0.4]),
+    ]
+    assert.equal(readCornerPair([line]), null, 'the 0.4 belongs to the `2` of `102`')
+    line[line.length - 1] = { ch: '2', conf: 0.9 }
+    assert.deepEqual(readCornerPair([line]), { number: '16', denominator: '102' })
+  })
+})
+
+describe('the corner confirmation — two scales must agree', () => {
+  it('keeps a pair both reads returned, in the first read’s spelling', () => {
+    const a = { number: '07', denominator: '102' }
+    assert.deepEqual(sameCornerPair(a, { number: '7', denominator: '102' }), a)
+    assert.deepEqual(sameCornerPair({ number: '16', denominator: '102' }, { number: '16', denominator: '102' }), {
+      number: '16',
+      denominator: '102',
+    })
+  })
+
+  it('drops a pair the reads disagree on', () => {
+    // base1-76 (Base Set, 76/102) really was read `78/102` at 0.78 confidence by
+    // one configuration — a plausible, gate-passing, WRONG pair. Disagreement is
+    // the only thing that catches it.
+    assert.equal(sameCornerPair({ number: '78', denominator: '102' }, { number: '76', denominator: '102' }), null)
+    assert.equal(sameCornerPair({ number: '16', denominator: '102' }, { number: '16', denominator: '130' }), null)
+  })
+
+  it('drops a pair only one read returned', () => {
+    assert.equal(sameCornerPair({ number: '78', denominator: '102' }, null), null)
+    assert.equal(sameCornerPair(null, { number: '78', denominator: '102' }), null)
   })
 })
 

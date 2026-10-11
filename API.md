@@ -70,7 +70,11 @@ omit the host.
 - **Progress.** Read from `user_set_progress` for the requesting user. **Complete
   is a card fraction; Master and Grandmaster are `(card,variant)` pair fractions** —
   the three totals differ (e.g. sv03.5: 207 / 373 / 384). `pct` is one-decimal,
-  round-half-up. `setLevel` (0–5) is on the Complete goal only.
+  round-half-up. `setLevel` (0–5) is on the Complete goal only. No route here takes
+  a `numbered` goal: "the regular numbered set" (cards 1 to the printed total
+  `card_count_official`, no secret rares; unlike `printedCount` it never falls back
+  to the full card count) is computed live by the `set_progress` agent tool only — see
+  `apps/mcp/SPEC.md` §5 and `research/SCHEMA.md` §9.2.
 - **View state in the URL.** Filter/sort/goal/ownership/pagination are query params
   by design; omit a param to accept its default.
 - **Identifiers.** `:setId` and `:cardId` are TCGdex ids (`sv03.5`, `base1`,
@@ -83,6 +87,12 @@ omit the host.
   accept a free-text `note`/`versionNote` (trimmed, length-capped). The one
   exception is `POST /decks/import`, where `source` was already the decklist syntax,
   so attribution rides as `writeSource`.
+- **Idempotency-Key.** The deck, list, battle-log and revert writes Deck-E makes
+  accept an optional `Idempotency-Key` header (≤200 characters, else `400`). The
+  write runs at most once per key for the requesting user, and a repeat answers
+  with the first run's result plus `"replayed": true`. Without the header, a
+  route behaves and responds exactly as it did before the header existed. Routes
+  and rules: "`Idempotency-Key` — at most once per approved write", below.
 - **Errors.** `{ "error": { "code", "message" } }` with status 400 (bad request),
   404 (not found), 500/503 (server/DB). Success bodies are documented per route.
 - **Rate limiting.** A pre-auth ingress guard applies to all requests on the
@@ -115,7 +125,8 @@ omit the host.
   **read-only** connection (migration 075) is refused every method but `GET`,
   `HEAD` and `OPTIONS` on every route with **`403`**, `{ "error": { "code":
   "insufficient_scope" } }` and `WWW-Authenticate: Bearer error="insufficient_scope"`,
-  except `POST /massentry`, which writes nothing (it builds cart links).
+  except `POST /massentry` (it builds cart links), `POST /decks/check` and
+  `POST /decks/odds`, which write nothing.
 - **Body-size limits.** Per route, most-specific first, immediately after the
   ingress guard and ahead of authentication: `/bugs` 12mb (the screenshot),
   `/client-errors` 32kb (the crash beacon), `/dev/scan-queue` and
@@ -1077,12 +1088,91 @@ resolved lines with owned copies and USD unit prices, cost to acquire missing
 copies, and a normalized PTCG Live export. Unresolved names remain in `lines`
 with `resolved:false`; no deck or collection data is written.
 
+### POST /deckpal/api/decks/odds
+Read-only opening-hand, Prize and draw odds by seeded Monte Carlo (`deck_odds`;
+model in `apps/api/src/deck/odds.ts`). Body has exactly one of `deck_id` (a deck
+UUID; another user's or a deleted deck is `404`), `cards` or `ptcgl_text` (the
+same shapes and resolution as `/decks/check`, so an unsaved list can be tested),
+plus optional `queries` (≤12), `trials` (1000..200000, default 50000), `seed`
+(uint32, default a fixed 60 so a repeat call agrees) and `format` (which format's
+printings an unsaved list's bare names resolve to, as in `/decks/check`; default
+`standard`). The list may hold at most 120 cards. A list that mulligans a lot has
+its games cut so the call deals an expected 2,000,000 opening hands at most (`trials` is then
+below `trials_requested`, and a note says why). A query is
+`{ "label"?, "all_of": [Group, …1..6], "by_turn"? 0..10 = 0, "prized"? = false }`
+and a Group is `{ "cards"?: [card name in the deck], "kinds"?: ["basic" |
+"pokemon" | "supporter" | "item" | "tool" | "stadium" | "energy"], "count"? = 1 }`;
+a group is met when at least `count` seen (or, with `prized`, prized) cards match
+any listed name (case and accents ignored) or kind, and a query when every group
+is. The game: shuffle, draw 7, redraw while no Basic Pokémon, set aside 6 Prizes,
+then one draw per turn, turn 1 included, so `by_turn` N sees 7 + N cards and hand
+odds are for the kept hand. Returns:
+```json
+{ "deck": { "name": "Hide 'n' Sneak", "size": 60, "basics": 16, "distinct_names": 24 },
+  "method": "Monte Carlo, draw-only", "trials": 50000, "trials_requested": 50000, "seed": 60,
+  "mulligan": { "simulated": 0.1009, "exact": 0.0992, "avg_per_game": 0.113 },
+  "avg_basics_in_hand": 2.07,
+  "queries": [ { "label": "Shuppet", "zone": "hand", "by_turn": 0, "successes": 22048,
+                 "p": 0.441, "margin95": 0.0044, "exact": 0.4435 } ],
+  "per_card": null, "per_card_turn": 2, "max_margin95": 0.0044, "warnings": [] }
+```
+`zone` is `hand`, `seen` or `prized`; `margin95` is the 95% Wilson score half-width;
+`exact` is the closed form for a single-group query (else `null`). With no
+queries, `queries` is `[]` and `per_card` lists each card name with `opening`,
+`by_turn` (seen by turn `per_card_turn`), `prized_any` and `prized_all` (the closed
+form, null for one copy). `warnings` holds at most 8 lines. `400` for an unknown card name in a query (the message lists the
+deck's names), a list name the catalog cannot resolve, a list with no Basic
+Pokémon, fewer than 7 or more than 120 cards, or a malformed body. A list that is not 60 cards,
+or has more than 4 of a non-basic-Energy card, is still computed and listed in
+`warnings`. Nothing is written.
+
+### POST /deckpal/api/decks/simulate
+Read-only battle simulation (`@deckpal/sim`; the `simulate_battles` agent tool). Body has exactly one
+of `deck_id` (one of the caller's decks, by id or name; a name fragment must match exactly one deck),
+`cards` or `ptcgl_text` (an unsaved list in `POST /decks/check`'s shape, with optional `format` and
+`name`; every line must resolve, else `400` naming the ones that did not), plus optional `opponents`
+(1..8 of the caller's deck ids or names; default up to 6 of their other decks, favourites and most
+recently updated first), `games` (per opponent, default 24, 2..200, rounded up to whole pairs),
+`speed` (`strong` default, or `fast`) and `seed` (default 1; the same seed, decks and pilot replay the same games). Every deck played is 40–70
+cards: the subject or a named opponent outside that is a `400` naming the deck and its count; a
+default opponent outside it is skipped with a note. Each opponent is played in paired games — one
+seed, seats swapped, so each deck goes first half the time — by a CPU pilot on both sides, inside one
+25 s budget counted from the request's arrival and shared across the opponents. The budget is also a
+hard deadline: a game still running when it arrives ends as a time-out draw, and no game starts after
+it; a game is likewise abandoned as a time-out after 3,000 decisions. The report says when the budget,
+not `games`, decided how many were played. The decks are read first and the request's database
+connection is released before any game is played. Returns `{ text, report }`: `text` is at most 5,000
+characters (Deck-E clamps tool results at 6,000) and always ends with the caveat, notes clamped to
+fit; `report` is the structured form (`kind: "deckpal.simulation"`, `simulated: true`, per-matchup
+stats with Wilson 95% intervals and n, card impact, per-deck coverage naming every approximated or
+unplayable card, the standing caveat, and every note — decks that are not 60 cards, cards with no
+catalogue data, skipped opponents). Results are simulations, never real-game statistics, and nothing
+is written. Concurrency: one run per account and two per server instance at a time — beyond that,
+`429` `simulator_busy` with `Retry-After` (seconds until the run in the way should finish) and a
+message saying which.
+- **Paired comparison.** At most one of `compare_with` (another of the caller's decks, by id or name; `400`
+  if it is the subject itself), `compare_cards` or `compare_ptcgl_text` (an unsaved whole list in the same
+  shape as `cards` / `ptcgl_text`, resolved with the same `format`; every line must resolve), with optional
+  `compare_name` (label for an unsaved list, default "Version B"; `400` without a compare list). The subject
+  is version A, the compare list version B; neither is a default opponent. Each opponent is played by both
+  versions on the same seeds and seats, inside the same 25 s budget (so each version gets about half the
+  games), stopping both after the same seed pair. `report` is then `kind: "deckpal.simulation.comparison"`:
+  `overall` and per-`matchups` paired differences (`diff` = mean B − A game score per game, win 1,
+  draw/time-out ½, loss 0; `lo`/`hi` = 95% t-interval with each seed's two seat-swapped games as one
+  cluster; `verdict` `"b"`/`"a"` only when the interval excludes 0 with ≥6 seeds, else `"none"`),
+  `changes` (card counts that differ), `changedImpact`, `method`, both versions' full reports
+  (`reportA`, `reportB`) and `coverage`. The text leads with a `VERDICT:` line and keeps the caveat; the same bounds, deadline and run gate apply.
+Rate limit: 6 calls a minute per account (`429` `rate_limited` with
+`Retry-After` beyond that).
+
 ### POST /deckpal/api/decks/save
 Create a deck, or set an existing deck's card list, in ONE transaction. This is what
-`save_deck` (Deck-E and MCP) writes through. Body `{ "deckId"? (edit when present),
+`save_deck` (Deck-E and MCP) writes through, and what Deck-E's deck widget uses to save
+a revision as a new version. Body `{ "deckId"? (edit when present),
 "name"? (required to create), "formatCode"|"format"?, "glcType"?, "cards"?:
 [{ "cardId", "quantity" 1..60 }] (≤60 distinct; the whole intended list when present),
-"versionNote"?, "source"?, "idempotencyKey"? (≤200) }`. Every `cardId` (a TCGdex id or a
+"versionNote"?, "newVersion"? (boolean, edits only), "source"?, "idempotencyKey"? (≤200) }`.
+`deckId` must be one of the caller's own live decks (`404` otherwise). Every `cardId` (a TCGdex id or a
 catalogue id; two refs to one card are summed) is resolved before anything is written;
 one that does not resolve fails the whole request with `400` naming every bad id, and
 nothing is saved.
@@ -1098,8 +1188,20 @@ nothing is saved.
   `"replayed": true`) only while the deck it made is alive and unchanged since; once it
   was deleted or edited the key moves to its next generation, so a later identical save
   writes normally and a retry of THAT save replays it.
+- **Versions.** An ordinary edit follows the auto-bump rule: a new version only when the
+  current one has battle logs, otherwise the current snapshot is amended. `"newVersion":
+  true` (2026-10-10, the deck widget's "Save as new version") always lands a CHANGED list
+  as the next version, so the list it replaces stays in the history; a list the deck
+  already matches writes nothing (no version, `updated_at` untouched). Without `deckId` it
+  is a `400` — a new deck starts at v1. `newVersion` joins the derived retry key only when
+  it is `true`, so keys derived without it are unchanged.
+- **An `Idempotency-Key` header wins over both** and is exact: it replays its own
+  result whatever happened to the deck since, and never moves to a new generation.
+  That is the key Deck-E sends for an approved `save_deck`.
 
-`201` (create) or `200` returns the detail payload plus `replayed`.
+`201` (create) or `200` returns the detail payload plus `replayed` and `bumped` (whether
+this write created a new version; a replay repeats the stored answer, `false` for results
+stored before 2026-10-10).
 
 ### POST /deckpal/api/decks/import
 Paste a decklist and create a new deck from it. Body `{ "text" (required, ≤20000),
@@ -1112,7 +1214,8 @@ writes nothing and returns `400` naming those lines (2026-09-29: they used to be
 dropped silently); the dry run below still reports them for the dialog to fix or
 remove; the web dialog removes the lines the reader chose to skip before it
 imports. The write is one transaction. With an `idempotencyKey` a retry returns the deck
-it already made (`"replayed": true`, same rule as `/decks/save`); without one — the web
+it already made (`"replayed": true`, same rule as `/decks/save`, including the exact
+`Idempotency-Key` header winning over the body key); without one — the web
 dialog — importing the same list twice on purpose still makes two decks.
 `201` returns the detail payload plus an `import` summary:
 ```json
@@ -1245,26 +1348,62 @@ Summaries only — never `rawLog`. `totals` covers the same filter scope.
 { "version": null,
   "logs": [ { "id": 7, "deckVersion": 1, "result": "win", "opponent": "Robni16",
               "opponentDeck": "Dragapult ex / Dusknoir", "turns": 14,
+              "opponentArchetype": "dragapult-ex", "origin": "ptcgl",
               "prizes": { "me": 6, "opponent": 5 }, "notes": null,
+              "reviewMd": "## Turning point\n…",
               "playedAt": "2026-07-30T…", "source": "web" } ],
   "totals": { "total": 4, "wins": 3, "losses": 1, "ties": 0 },
+  "archetypes": [ { "opponentArchetype": "dragapult-ex", "games": 3,
+                     "wins": 2, "losses": 1, "ties": 0, "lastPlayedAt": "…" } ],
   "pagination": { "page": 1, "pageSize": 50, "total": 4, "pageCount": 1 } }
 ```
+`archetypes` is the all-versions record for the deck (not only the current page
+or optional version filter), newest encounter first. Logs without a classified
+`opponentArchetype` are omitted from that summary.
 
 ### POST /deckpal/api/decks/:id/logs
-Body `{ "rawLog" (required, ≤50000), "result"?, "opponent"?, "opponentDeck"?,
-"notes"? (≤2000), "playedAt"? (ISO), "playerName"?, "source"? }`. Runs the PTCG
-Live parser; parser-derived `result` / `opponent` / `opponentDeck` (deck guess)
+Body `{ "rawLog"?, "origin"?: "ptcgl"|"in_person"|"other",
+"result"?, "opponent"?, "opponentDeck"?, "opponentArchetype"?,
+"notes"? (≤2000), "reviewMd"? (≤12000), "playedAt"? (ISO),
+"playerName"?, "source"?, "dryRun"? }`.
+`origin` defaults to `ptcgl`. PTCG Live requires a non-empty `rawLog` (≤50000)
+and runs the parser; `in_person` and `other` may omit `rawLog` but require an
+explicit `result` because there is no game log from which to infer it.
+Parser-derived `result` / `opponent` /
+`opponentDeck` (deck guess)
 fill any fields the caller omitted — **explicit caller values always win over
 the parser** (2026-08-29, `mergeLogFields`). Attaches to the deck's **current**
 version.
+`opponentArchetype` is normalized server-side to a lowercase ASCII word key
+(apostrophes removed, other separators collapsed to hyphens, ≤64 characters),
+for example `N's Zoroark ex` → `ns-zoroark-ex`. `notes` are the reader's own
+words; `reviewMd` is the assistant's markdown analysis (Deck-E's, or a connector client's).
 `400` when the parser cannot tell which player owns the deck **and** neither
 `playerName` nor an explicit `result` was given (the message says which to pass).
+`"dryRun": true` performs that same validation, current-version resolution,
+deck-specific parse, owner identification, and explicit-field merge without an
+insert. It returns the values the write would store, except `playedAt`: when
+omitted, the preview reports its own clock and a later write uses its own `now()`:
+```json
+200 { "dryRun": true, "attachedToVersion": 2,
+      "preview": { "deckName": "Toolbox Slowking", "version": 2,
+                   "result": "win", "opponent": "Robni16",
+                   "opponentDeck": "Dragapult ex / Dusknoir",
+                   "opponentDeckGuess": "Dragapult ex / Dusknoir",
+                   "opponentArchetype": "dragapult-ex", "origin": "ptcgl",
+                   "prizes": { "me": 6, "opponent": 5 }, "turns": 14,
+                   "notes": null, "reviewMd": "## Turning point\n…",
+                   "playedAt": "…", "confidence": "high" },
+      "parsed": { "players": { "me": "cheyras", "opponent": "Robni16" }, "…": "…" } }
+```
+The non-dry-run response remains:
 ```json
 201 { "attachedToVersion": 2,
       "log": { "id": 7, "deckVersion": 2, "result": "win", "opponent": "Robni16",
                "opponentDeck": "Dragapult ex / Dusknoir", "turns": 14,
+               "opponentArchetype": "dragapult-ex", "origin": "ptcgl",
                "prizes": { "me": 6, "opponent": 5 }, "notes": null,
+               "reviewMd": null,
                "playedAt": "…", "source": "web", "createdAt": "…", "rawLog": "Setup…",
                "parsed": { "players": { "me": "cheyras", "opponent": "Robni16" },
                            "confidence": "high", "result": "win", "wentFirst": "opponent",
@@ -1301,13 +1440,64 @@ re-pasting the log. Consumed by the agent tool `add_battle_log` when `deck_id`
 is omitted.
 
 ### GET /deckpal/api/decks/:id/logs/:logId
-The full row — same `log` shape as the 201 above (summary fields + `rawLog` +
+The full row — same `log` shape as the 201 above (summary fields + nullable `rawLog` +
 `parsed` + `createdAt`).
 
+### GET /deckpal/api/decks/:id/logs/:logId/digest
+Added 2026-10-10. `?playerName=` (optional). Reads the log's **stored raw PTCG
+Live log** into a compact, model-sized digest (`digestBattleLog` in
+`apps/api/src/deck/battlelog.ts`) — read-only, same ownership rules as the
+detail route above. The side is the owner the row was stored with
+(`parsed.players.me`) unless `playerName` names another; the deck's current
+card list is only used when the row has no stored owner.
+```json
+200 { "logId": 7, "deckVersion": 2, "origin": "ptcgl", "result": "win",
+      "digest": {
+        "players": { "me": "PlayerA", "opponent": "PlayerB" },
+        "playerNames": ["PlayerB", "PlayerA"], "confidence": "high",
+        "result": "win", "wentFirst": "opponent", "totalTurns": 14,
+        "turns": { "me": 7, "opponent": 7 },
+        "mulligans": { "me": 0, "opponent": 1 },
+        "firstAttackTurn": { "me": 4, "opponent": 3 },
+        "finalPrizes": { "me": 6, "opponent": 5 },
+        "prizeTimeline": [ { "turn": 3, "side": "opponent", "prizes": 1,
+                             "knockedOut": "Poltchageist", "score": { "me": 0, "opponent": 1 } }, "…" ],
+        "opponentCards": [ { "name": "Dragapult ex", "count": 16 }, { "name": "Judge", "count": 2 }, "…" ],
+        "myPokemonUsed": ["Poltchageist", "Shuppet", "…"],
+        "opponentArchetypeGuess": "Dragapult ex / Dusknoir",
+        "endReason": "prizes", "leadChanged": true, "closeGame": true,
+        "unknowns": ["the opponent's hand, and any card of theirs that was never shown",
+                     "which cards were prized, on either side"] } }
+```
+`turn` is the game's turn number counting both players (1 = the first
+player's first turn, 0 = setup). `firstAttackTurn` is the first turn that side
+dealt attack damage. `opponentCards` is every card the opponent showed —
+played, attached, evolved into, attacked or used an Ability with, Knocked Out,
+promoted, drawn or added to hand face-up, discarded face-up, or listed in a
+revealed group (mulligans, searches, discards) — deduped, most-seen first;
+using the Stadium already in play does not count as running it. `endReason` is
+`prizes` | `concede` | `deck-out` | `other` (timeouts and anything unrecognised).
+`closeGame` is true when the lead in prizes changed hands, or when the final
+prize gap is two or less once someone has taken at least three (so an early
+concession at 0–0 is not "close"). When the owner cannot be identified,
+`players` is null/null and the per-side fields (`turns`, `mulligans`,
+`firstAttackTurn`, `finalPrizes`) are `null`, never a guessed split;
+`unknowns` then names the players to choose between. `result` at the top level
+is the STORED result (explicit corrections win); `digest.result` is what the log
+text alone says.
+```json
+404 { "error": { "code": "not_found",
+                 "message": "no game log to digest — this game was reported in person" } }
+```
+Logs stored without raw text (`origin: in_person` or `other`) have nothing to
+digest. Consumed by the agent tool `battle_digest`.
+
 ### PATCH /deckpal/api/decks/:id/logs/:logId
-Body: any of `{ "result", "opponent", "opponentDeck", "notes", "playedAt" }`.
+Body: any of `{ "result", "opponent", "opponentDeck", "opponentArchetype",
+"notes", "reviewMd", "playedAt" }`.
 Metadata only — the raw log and its version attachment are immutable. Explicit
-`null` clears everything except `playedAt`. Returns `{ "log": … }` (full shape).
+`null` clears everything except `playedAt`; archetypes are normalized when set.
+Returns `{ "log": … }` (full shape).
 
 ### DELETE /deckpal/api/decks/:id/logs/:logId
 `{ "deleted": 7 }`.
@@ -1473,7 +1663,17 @@ so an indexer run takes effect immediately and the endpoint works identically on
 a long-lived server and a serverless function. Measured: 22.6k rows × 34 probes
 in ~69 ms of server time. `matched` is `true` only when the best distance is
 within the confidence threshold (9 — re-measured over 389 degraded scans, so
-96.9% of correct scans fire and every tested junk frame is rejected). Read-only.
+96.9% of correct scans fire and every tested junk frame is rejected) **and**
+the best card has no same-art printing (`apps/api/src/scan/artFamilies.ts` —
+e.g. Base Set and its Base Set 2 reprint, which a whole-card hash cannot tell
+apart). When the distance is within the threshold and only that same-art guard
+said no, the response is `matched: false` **with `printingOpen: true`**: the
+card is likely right, its printing is for the reader to choose from `matches`.
+`printingOpen` is absent in every other response. Separately, the hash never
+names a **WotC-era card** (Base Set through the e-Card sets) on its own —
+`matched: false` without `printingOpen` — because their shared yellow frame
+dominates a whole-card hash (`hashMayNameAlone`); the resolve leg still can.
+Read-only.
 ```json
 { "query": { "algo": "dhash8v3", "hash": "f0e1…08" },
   "matched": true, "threshold": 9, "indexSize": 23104,
@@ -1586,7 +1786,7 @@ same ordering.
 
 Response: `{ "matched", "confident", "resolvedBy":
 "badge+number"|"number+denominator"|"name+number"|"family-text"|"vector"|"corroborated"|"prior-only",
-"matches": [...same card shape as /scan...] }`. Contract deviations from
+"printingOpen"?: true, "matches": [...same card shape as /scan...] }`. Contract deviations from
 /scan: `distance`/`confidence` are `number|null` (a card resolved by its
 printed key was never nominated by phash — null means "no phash opinion",
 where 0 would claim an identical hash); a `similarity` field (`number|null`)
@@ -1610,9 +1810,41 @@ rung that read something printed. `"corroborated"` means two independent
 signals named one card while neither was sufficient alone — the `014/198`
 Steenee-or-Floragato case, where the printed key genuinely cannot choose and the
 vector's own top-1 is one of the two. A confident OCR rung is never reviewed by
-the vector: where they disagree, the printed key wins and the response is
-identical to the flag being off. A phash distance <= 2 can CONFIRM the vector
-and can never substitute for it.
+the vector alone: where they disagree, the printed key wins and the response is
+identical to the flag being off. The one exception (2026-10-10) is a key
+resolved on the printed NUMBER (`badge+number`, `number+denominator`) whose
+card the printed NAME does not agree with. If the name agrees with the
+vector's decisive top-1 and that card carries the number read, is in the
+badge's set, or (for `number+denominator` only) is in a set of the denominator
+read, the answer is `"corroborated"` on that card. If it fits none of them, the
+answer becomes unconfident and lists both cards. If the name together with the
+denominator names other cards (for `badge+number`: other cards in the badge's
+own set), the answer becomes unconfident and lists the keyed card with them, and
+a vector top-1 inside that list still corroborates it, exactly as on any other
+key-narrowed list. That is how a dropped digit (`23/197` read off `223/197`)
+that lands on a real card stops being a confident wrong answer. The key stands
+unchanged when no name was read, when the name agrees with the keyed card, when
+the read is a whole-word piece of the keyed card's own name (`Charizard EX` off
+`M Charizard EX`), when the vector's own top-1 (showable or better) or a
+near-exact phash is the keyed card, and when a garbled name agrees with nothing.
+A phash distance <= 2 can CONFIRM the vector and can never substitute for it.
+
+**The printing guard (`printingOpen`).** When the top card shares its picture
+with another printing (`apps/api/src/scan/artFamilies.ts`), a confident answer
+that no printed key decided — `vector`, `corroborated`, `name-family`,
+`family-text` — comes back `matched: true`, `confident: false`, with the
+same-art printings listed right after the top match and `"printingOpen": true`.
+So `confident: false` on a `vector` or `corroborated` answer can now mean
+"right card, printing open", not only "unsure". The printed-key rungs
+(`badge+number`, `number+denominator`, `name+number`, `name+denominator`) are
+never reopened, nor is a `corroborated` tie-break inside such a key's
+candidates when the key already excluded every same-art printing (`87/114`
+names bw1-87 or xy11-87; a same-art 2011bw-12 prints another number) —
+except for a **printed twin**: a Celebrations Classic Collection reprint prints
+its original's number (CC002 Charizard reads `4/102`) under a `CCnnn` catalogue
+number, so a number key cannot tell them apart and the printing stays open.
+`printingOpen` is absent whenever the guard did not fire, so those responses
+are byte-identical to before it.
 
 Note: `setCode` here is the code PRINTED on 2023+ cards (SVI, DRI, ...) — a
 different namespace from PTCGL codes (`PR-SV` vs `SVP`), see
@@ -1730,7 +1962,9 @@ accumulate, an absolute `quantity` discards everything before it for that
 variant, and a delta after an absolute adjusts that value — identical to applying
 the items one at a time. `folded` reports which input indices merged.
 
-**Idempotency.** A caller-supplied `idempotencyKey` is honoured indefinitely.
+**Idempotency.** A caller-supplied `idempotencyKey` is honoured indefinitely, and
+an `Idempotency-Key` header means the same when the body has none (the body key
+wins when both are sent).
 Otherwise the server derives one from the batch's resolved contents plus a
 15-minute time bucket. Either way a duplicate returns the ORIGINAL response with
 `replayed: true` and writes nothing. An identical batch outside the window is
@@ -1780,6 +2014,45 @@ for quantities, a `conflicts` array, and `exact`. Items with conflicts are
 skipped unless `force`. Conflicts are raised when the original change clamped,
 when the inverse would clamp, or when a later event asserted an absolute quantity
 on the same entity. The revert is itself a logged batch.
+
+## `Idempotency-Key` — at most once per approved write (added 2026-10-10)
+
+Deck-E sends this header on every write of a tool call the reader approved. It
+derives the value from the SDK-signed tool call, the requesting user and the
+signed input. A tool call that makes several writes sends one key per write
+request. Any client may send its own. A key names one write, scoped to the
+requesting user, and is honoured indefinitely. It is never bucketed and never
+reinterpreted.
+
+| Route | Notes |
+|---|---|
+| `POST /decks/save`, `POST /decks/import` | Wins over the body `idempotencyKey` and never moves to a new generation. |
+| `PUT /decks/:id/strategy` | A replay leaves a guide written since then alone. |
+| `POST /decks/:id/revert` | A replay makes no further version. Keyed requests record a `deck.revert` batch. |
+| `POST /decks/:id/logs` | Ignored on `dryRun`. A replay re-reads the stored log; `410 gone` if it has been deleted since. |
+| `PATCH /decks/:id/logs/:logId`, `DELETE /decks/:id/logs/:logId` | Keyed requests record a `battle_log.*` batch. Its events never hold the raw log. |
+| `DELETE /decks/:id`, `POST /decks/:id/restore` | |
+| `POST /lists`, `PATCH /lists/:id`, `DELETE /lists/:id`, `POST /lists/:id/restore` | `POST /lists` answers `410 gone` on a replay whose list has been deleted since. |
+| `POST /lists/:id/items/bulk`, `DELETE /lists/:id/items/:itemId` | Ignored on `dryRun`. A static list is a bag, so this is what stops a replay doubling it. |
+| `POST /mutations/revert` | Ignored on `dryRun`. |
+| `POST /collection/batch` | Used only when the body has no `idempotencyKey`. |
+
+- **First run.** The key is claimed in the write's own transaction, on its
+  `mutation_batch` row, before anything changes. It commits only if the write
+  commits. A keyed request that changes nothing ("already deleted", "nothing to
+  restore") still records its key. A replay of an approved restore must not undo
+  a delete the reader made afterwards.
+- **Replay.** A repeat answers with the first run's result plus
+  `"replayed": true` (status `200` where the first run returned `201`) and writes
+  nothing. The new body does not matter. Where the original response is a live
+  view (a deck or list payload), it is rebuilt from the current state.
+- **Concurrent duplicates.** The second request waits on the unique index, then
+  replays the first's committed result. If the first rolls back, the second
+  runs. `409 batch_in_flight` is the answer only when the result cannot be read
+  yet.
+- **Without the header,** nothing changes: the same transaction, the same
+  unkeyed batches (or none), and no `replayed` field. The keyed batch is visible
+  in `GET /mutations?idempotency_key=…` like any other.
 
 ## Cart routes
 

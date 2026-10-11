@@ -1,0 +1,55 @@
+/**
+ * Script lookup by printed text. A script is written against one canonical
+ * printing (its `id`); its key is computed from that printing's frame in the
+ * committed snapshot (frames.ts, generated), and any other printing with identical game
+ * text resolves to the same script.
+ */
+import { FRAMES } from './frames-all.js';
+import { SCRIPTS } from './scripts/index.js';
+import type { CardScript } from '../dsl.js';
+import type { CardFrame } from '../types.js';
+import { textKey } from './frame.js';
+import { withPrintedWR } from './printed-wr.js';
+
+export { FRAMES };
+
+let byKey: Map<string, CardScript> | null = null;
+let byId: Map<string, CardScript> | null = null;
+
+/**
+ * Test tooling only (scripts/mutation-check.ts): ids in SIM_DISABLE_SCRIPTS (comma-separated) are left
+ * out, so a card's tests can be run without its script to prove they would catch it missing.
+ */
+const DISABLED = new Set(
+  (typeof process !== 'undefined' ? (process.env?.SIM_DISABLE_SCRIPTS ?? '') : '').split(',').map((x) => x.trim()).filter(Boolean),
+);
+
+function build(): void {
+  byKey = new Map();
+  byId = new Map();
+  for (const s of SCRIPTS) {
+    if (DISABLED.has(s.id)) continue;
+    const f = FRAMES[s.id];
+    if (!f) throw new Error(`script ${s.id} (${s.name}) has no frame in frames.json -- run the frames script`);
+    if (f.name.trim() !== s.name) throw new Error(`script ${s.id} names "${s.name}" but the card is "${f.name}"`);
+    const k = textKey(f);
+    if (byKey.has(k)) throw new Error(`two scripts for the same card text: ${s.id} and ${byKey.get(k)!.id}`);
+    byKey.set(k, s);
+    byId.set(s.id, s);
+  }
+}
+
+/** The script for this printing, or null when none exists. */
+export function scriptFor(f: CardFrame): CardScript | null {
+  if (!byKey) build();
+  return byKey!.get(textKey(withPrintedWR(f))) ?? null;
+}
+
+export function scriptById(id: string): CardScript | null {
+  if (!byId) build();
+  return byId!.get(id) ?? null;
+}
+
+export function allScripts(): readonly CardScript[] {
+  return SCRIPTS;
+}

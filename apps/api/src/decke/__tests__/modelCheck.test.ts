@@ -14,7 +14,7 @@ import {
   modelCheckStatus,
   modelCheckWarning,
 } from '../modelCheck.js';
-import { MODELS } from '../models.js';
+import { MODELS, TIERS, TRIAGE, budgetFor } from '../models.js';
 
 /** A Gateway that has exactly these ids. */
 const gatewayWith = (ids: string[]): typeof fetch =>
@@ -28,12 +28,37 @@ test('every configured id is checked — primary, fallback AND escalate', () => 
   const ids = configuredModelIds();
   // A fallback nobody verified is a fallback that fails exactly when needed,
   // which is the failure mode of the row this file was written for.
-  assert.ok(ids.includes('perplexity/sonar-pro'), 'the research primary');
-  assert.ok(ids.includes('perplexity/sonar'), 'the research fallback');
+  assert.ok(ids.includes('perplexity/sonar'), 'the research primary');
+  // sonar-pro left the Gateway catalogue (2026-10-10); research has no fallback.
+  assert.ok(!ids.includes('perplexity/sonar-pro'), 'a model the Gateway no longer lists');
   assert.ok(ids.includes('anthropic/claude-opus-5'), 'an escalate target');
   assert.ok(ids.includes('typesafe-ai/jev'), 'the judgment model, which fails open and so fails silently');
   assert.ok(ids.includes('anthropic/claude-sonnet-5.5'), 'the chat primary');
+  assert.ok(ids.includes('anthropic/claude-haiku-5.5'), 'the triage and Quick primary');
+  assert.ok(ids.includes('anthropic/claude-opus-5.5'), 'the Deep primary');
   assert.equal(new Set(ids).size, ids.length, 'ids are deduplicated');
+});
+
+test('conversation tiers pin model, fallback and all-in adaptive-thinking cap', () => {
+  assert.deepEqual(TIERS.quick, {
+    id: 'anthropic/claude-haiku-5.5',
+    fallback: 'anthropic/claude-sonnet-5.5',
+    maxOutputTokens: 16_000,
+  });
+  assert.deepEqual(TIERS.standard, {
+    id: 'anthropic/claude-sonnet-5.5',
+    fallback: 'google/gemini-2.5-flash',
+    maxOutputTokens: 16_000,
+  });
+  assert.deepEqual(TIERS.deep, {
+    id: 'anthropic/claude-opus-5.5',
+    fallback: 'anthropic/claude-sonnet-5.5',
+    maxOutputTokens: 32_000,
+  });
+  assert.deepEqual(TRIAGE, { id: 'anthropic/claude-haiku-5.5', maxOutputTokens: 400 });
+  assert.equal(budgetFor(TIERS.quick), 16_000, 'adaptive thinking is already inside the tier cap');
+  assert.equal(budgetFor(TIERS.standard), 16_000);
+  assert.equal(budgetFor(TIERS.deep), 32_000);
 });
 
 test('chat has room to plan and emit a complete deck', () => {
@@ -43,14 +68,14 @@ test('chat has room to plan and emit a complete deck', () => {
 });
 
 test('the phantom id is caught', async () => {
-  const real = configuredModelIds().filter((i) => i !== 'perplexity/sonar-pro');
+  const real = configuredModelIds().filter((i) => i !== 'perplexity/sonar');
   const c = await checkModels('k', gatewayWith(real));
-  assert.deepEqual(c.missing, ['perplexity/sonar-pro']);
+  assert.deepEqual(c.missing, ['perplexity/sonar']);
   assert.equal(modelCheckStatus(c).status, 'missing');
   const w = modelCheckWarning(c);
   assert.ok(w);
   // NAMES IT. "One model is wrong" without saying which is a puzzle.
-  assert.match(w, /perplexity\/sonar-pro/);
+  assert.match(w, /perplexity\/sonar/);
   assert.match(w, /DO NOT EXIST/);
 });
 

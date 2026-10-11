@@ -47,11 +47,11 @@ test('the meta fits a results page', () => {
   assert.ok(COPY.meta.description.length <= 160, `description is ${COPY.meta.description.length} chars`)
 })
 
-test('llms.txt quotes the 25 tools the connector exposes', () => {
-  assert.match(COPY.seo.llmsTxt, /25 tools \(14 read, 11 write\)/)
+test('llms.txt quotes the 26 tools the connector exposes', () => {
+  assert.match(COPY.seo.llmsTxt, /26 tools \(15 read, 11 write\)/)
   const tools = COPY.seo.llmsTxt.match(/^- [A-Z][^:]+: ([a-z_, ]+)$/gm)?.flatMap((l) => l.split(': ')[1].split(', ')) ?? []
-  assert.equal(tools.length, 25)
-  assert.equal(new Set(tools).size, 25)
+  assert.equal(tools.length, 26)
+  assert.equal(new Set(tools).size, 26)
   assert.doesNotMatch(everything, /\b21 tools\b/)
 })
 

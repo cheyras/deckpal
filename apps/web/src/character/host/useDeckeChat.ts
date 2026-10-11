@@ -47,10 +47,10 @@ import { useAccess } from '../../lib/access'
 import { parseCreditHeader } from '../../lib/creditMath'
 import {
   ABANDONED_REASON,
-  DECLINED_REASON,
   MAX_LEGS,
   type PendingApproval,
   type Verdict,
+  declinedReasonFor,
   legBudget,
   mayAskApproval,
   pendingApprovalFromChunk,
@@ -65,8 +65,10 @@ import {
   declineParts,
   replayPlan,
   savedDeckRecord,
+  settleApprovedCalls,
   toolReplayParts,
 } from './chat/toolReplay'
+import { savedLine, type DeckSaved } from './chat/deckSave'
 import { kindOf } from './chat/toolKinds'
 import {
   createActivityAnimator,
@@ -91,6 +93,8 @@ import {
   type MeterRefusal,
 } from './chat/meterRefusal'
 import { fitCurrentTurn, windowPrior } from './chat/wireWindow'
+import { askFromStream, askWireParts, hasAsk, type AskPart } from './chat/askState'
+import { readTierRoute, type TierRoute } from './chat/tierRoute'
 import {
   CLIENT_TOOLS,
   isClientTool,
@@ -121,6 +125,7 @@ import {
   type HeldItem,
   type RowChoice,
 } from './chat/approvalCardState'
+import { parseDeepThinkOffer, type DeepThinkOffer } from './chat/deepThinkCard'
 
 /** A command as the server's `express` tool emits it. Mirrors `decke/tools.ts`. */
 type WireCommand = {
@@ -627,8 +632,8 @@ export function useDeckeChat(
     }
   }, [applyActivity, decke])
 
-  const recordDeckSaved = useCallback(({ id, name, total }: { id: string; name: string; total: number }) => {
-    savedDeckWireRef.current = savedDeckRecord({ id, name, total })
+  const recordDeckSaved = useCallback((deck: DeckSaved) => {
+    savedDeckWireRef.current = savedDeckRecord(deck)
     setMessages((all) => {
       let at = all.length - 1
       while (at >= 0 && all[at]?.role !== 'assistant') at--
@@ -643,7 +648,7 @@ export function useDeckeChat(
           // DeckeNotice deliberately has no success tone or arbitrary link
           // action; neutral is its truthful completed-action presentation.
           tone: 'neutral' as const,
-          title: `Saved “${name}” to your decks · ${total} cards`,
+          title: savedLine(deck),
         }],
       }
       return next
@@ -673,6 +678,8 @@ export function useDeckeChat(
    * the stream and the question is asked after the stream closes.
    */
   const previewsRef = useRef(new Map<string, ApprovalPreview>())
+  /** The server's Deep Think offers (turn token, price), keyed to the exact held call. */
+  const deepOffersRef = useRef(new Map<string, DeepThinkOffer>())
   /** What the reader has decided, per row index. Owned here rather than in the
    *  panel, because a half-answered approval is not a thing to leave riding on
    *  whether a component happens to stay mounted. */
@@ -720,6 +727,10 @@ export function useDeckeChat(
     askingRef.current = null
     setAsking(null)
     setApprovalChoices(new Map())
+    for (const approval of list) {
+      previewsRef.current.delete(approval.toolCallId)
+      deepOffersRef.current.delete(approval.toolCallId)
+    }
     // ── ONE VERDICT PER CALL, NOT ONE VERDICT FOR ALL OF THEM ─────────────
     //
     // This used to map every pending approval to the same verdict, and the card
@@ -941,6 +952,12 @@ export function useDeckeChat(
     // that is the reader's own action, which is the most reliable fact on the
     // page. `ok`, not `error`: nothing broke. Quiet, because nothing went wrong.
     // Present, because the absence is what misled.
+    //
+    // THE REASON IS THE HELD TOOL'S. "Keep it quick" on a Deep Think card is
+    // not "do not make this change": it tells him to answer now on the
+    // ordinary tier (`declinedReasonFor`), and the row says so.
+    const reason = declinedReasonFor(a?.name ?? '')
+    const keptQuick = a?.name === 'deep_think'
     if (a) {
       telemetryRef.current?.record(Math.max(0, seqRef.current - 1), 'approval_ui', {
         decision: 'declined', tool: a.name, ms: Math.max(0, Date.now() - approvalShownAtRef.current),
@@ -956,14 +973,14 @@ export function useDeckeChat(
         // red x — nothing was written, you cancelled it."
         //
         phase: 'declined',
-        title: 'Nothing was written',
-        summary: 'You left it, so nothing changed.',
+        title: keptQuick ? 'Kept it quick' : 'Nothing was written',
+        summary: keptQuick ? 'You chose a normal answer.' : 'You left it, so nothing changed.',
         args: a.input,
         approvalId: a.approvalId,
-        declineReason: DECLINED_REASON,
+        declineReason: reason,
       })
     }
-    settleAll({ approved: false, reason: DECLINED_REASON }, a?.approvalId)
+    settleAll({ approved: false, reason }, a?.approvalId)
   }, [settleAll])
 
   /** One row's answer, from the card. */
@@ -1282,6 +1299,14 @@ export function useDeckeChat(
        */
       let finishReason: string | undefined
 
+      /**
+       * The tier the server routed THIS turn to, from its first leg's
+       * `data-decke-route` part. Sent back on this turn's continuation legs
+       * only; declared per send, so a new reader message starts without one
+       * and is routed fresh. See `chat/tierRoute.ts`.
+       */
+      let tierRoute: TierRoute | null = null
+
       try {
         // `approvalReplays` is read on EVERY iteration, so committing to a
         // replay below extends this bound by exactly the one leg needed to POST
@@ -1299,11 +1324,20 @@ export function useDeckeChat(
           applyActivity(animatorRef.current!.legStarted())
           let legTextStarted = false
           const legStartedAt = Date.now()
+          /**
+           * The asks THIS leg docked, synchronously, like `turnChips`. An ask
+           * emits no chip, so `freshCalls` below never replays it — and an ask
+           * that shared its step with a held write or a browser tool reached
+           * the next leg missing, which then ran as if the questions had been
+           * answered. Per leg because `wire` already carries earlier legs'.
+           */
+          const legAsks: AskPart[] = []
           const requestWire = fitCurrentTurn(wire, {
             isServerTool: (name) => !isClientTool(name),
             summaryFor: (toolCallId) => currentTurnSummaries.get(toolCallId),
           })
-          const outcome = await streamLeg(requestWire, evidence, exchangeConversation, exchangeId, exchangeSeq, ac.signal, {
+          const outcome = await streamLeg(requestWire, evidence, exchangeConversation, exchangeId, exchangeSeq, leg === 0 ? null : tierRoute, ac.signal, {
+            onRoute: (route) => { tierRoute = route },
             onText: (chunk) => {
               if (!legTextStarted) {
                 legTextStarted = true
@@ -1364,6 +1398,15 @@ export function useDeckeChat(
                   : message,
               ))
             },
+            onAskUser: (ask) => {
+              const part: AskPart = { kind: 'ask', id: nextId(), ...ask }
+              legAsks.push(part)
+              setMessages((all) => all.map((message) =>
+                message.id === replyId
+                  ? { ...message, parts: [...message.parts, part] }
+                  : message,
+              ))
+            },
             onToolChip: (chip) => {
               // Held on the MESSAGE, like the screen, so the record of what he
               // did stays attached to the turn that did it. Keyed by tool call
@@ -1419,6 +1462,9 @@ export function useDeckeChat(
               // identity.
               previewsRef.current.set(preview.toolCallId, preview)
             },
+            onDeepOffer: (offer) => {
+              deepOffersRef.current.set(offer.toolCallId, offer)
+            },
             onCredits: (balance, lowAt) =>
               // `allowance` is only the FALLBACK rule's input and the server's
               // threshold outranks it — see `lowAt` in `creditState.ts`. It is
@@ -1468,6 +1514,17 @@ export function useDeckeChat(
             console.error('[decke] stream error:', outcome.error)
             return
           }
+
+          // ── AN ANSWERED APPROVAL BECOMES THE RESULT IT PRODUCED ───────────
+          //
+          // The yes this leg carried has now run and its output arrived. On
+          // every later leg the call goes back as that finished tool part, not
+          // as the one-leg approval answer: an answer left behind is a call
+          // with no result (a provider rejects it), and `deep_think`'s output
+          // is the grant that keeps the rest of this turn on Deep Think. See
+          // `settleApprovedCalls`.
+          const settled = settleApprovedCalls(wire, capturedOutputs)
+          wire.splice(0, wire.length, ...settled)
 
           // ── He is asking permission ───────────────────────────────────────
           //
@@ -1595,6 +1652,13 @@ export function useDeckeChat(
           if (record) {
             parts.push(record)
           }
+          // ── AND WHAT HE ASKED ON THIS LEG ─────────────────────────────────
+          //
+          // In the PREFIX, before the approval answers `replayLegParts` puts
+          // last. The server reads a replayed ask as a question still open in
+          // this turn: the leg after it finishes the approved write or the
+          // walk, says so, and stops, instead of proceeding as if answered.
+          for (const ask of askWireParts(legAsks)) parts.push(ask)
           const recordedIds = new Set([
             ...mark,
             ...answeredHere,
@@ -2011,6 +2075,8 @@ export function useDeckeChat(
     }
     seqRef.current = 0
     setConversationEpoch((n) => n + 1)
+    previewsRef.current.clear()
+    deepOffersRef.current.clear()
     setMessages([])
   }, [])
 
@@ -2057,6 +2123,7 @@ export function useDeckeChat(
     approve,
     deny,
     approvalPreview: (id: string) => previewsRef.current.get(id) ?? null,
+    deepThinkOffer: (id: string) => deepOffersRef.current.get(id) ?? null,
     approvalChoices,
     onApprovalChoice,
     approvalBusy,
@@ -2081,12 +2148,18 @@ export function useDeckeChat(
 type LegHandlers = {
   onText: (chunk: string) => void
   onApprovalPreview: (preview: ApprovalPreview) => void
+  onDeepOffer: (offer: DeepThinkOffer) => void
   /** Returns a promise, and `streamLeg` awaits it — see the call site below
    *  and `apply`'s own header for why command application had to become
    *  ordered against the rest of the stream rather than fire-and-forget. */
   onCommands: (commands: WireCommand[]) => Promise<void>
   onScreen: (screen: ScreenSpec) => void
   onConsent: () => void
+  /** A completed ask is retained as a message part so the dock can distinguish
+   *  an unanswered card from one followed by an ordinary user message. */
+  onAskUser: (ask: Omit<AskPart, 'kind' | 'id'>) => void
+  /** The route the server picked for this turn (`data-decke-route`), validated. */
+  onRoute: (route: TierRoute) => void
   onToolChip: (chip: ToolChip) => void
   /** Complete result for a server tool, retained for bounded replay. */
   onToolOutput: (toolCallId: string, output: unknown) => void
@@ -2270,6 +2343,8 @@ async function streamLeg(
   conversationId: string,
   exchangeId: string,
   seq: number,
+  /** This turn's route, echoed on a continuation leg; null on a first leg. */
+  tierRoute: TierRoute | null,
   signal: AbortSignal,
   handlers: LegHandlers,
 ): Promise<LegOutcome> {
@@ -2291,6 +2366,10 @@ async function streamLeg(
   // The ARGUMENTS too. Answering an approval replays the whole tool call, so
   // without these the replayed part is not a valid call and cannot be resumed.
   const approvalInputs = new Map<string, Record<string, unknown>>()
+  // A Deep Think card's offer token, which may arrive before or after its
+  // approval request (the server writes it beside the SDK's stream), so it is
+  // attached to the pending approval once the leg has finished.
+  const deepOfferTokens = new Map<string, string>()
 
   // ── SEEDED FROM THE OUTGOING WIRE, BEFORE A BYTE COMES BACK ───────────────
   //
@@ -2323,6 +2402,7 @@ async function streamLeg(
       route: window.location.pathname,
       landmarks: collectLandmarks(),
       conversationId, exchangeId, seq,
+      ...(tierRoute ? { tierRoute } : {}),
     }),
   })
 
@@ -2407,6 +2487,11 @@ async function streamLeg(
         handlers.onScreen(part.data.screen)
       } else if (part.type === 'data-decke-consent') {
         handlers.onConsent()
+      } else if (part.type === 'data-decke-route') {
+        // Transient, first leg only. Validated before it is kept, because it
+        // goes back out in the next request's body.
+        const route = readTierRoute(part.data)
+        if (route) handlers.onRoute(route)
       } else if (part.type === 'tool-input-error' && typeof part.toolCallId === 'string') {
         // ── A CALL THAT WAS NEVER ALLOWED TO RUN ────────────────────────────
         //
@@ -2445,6 +2530,16 @@ async function streamLeg(
         const preview = part.data as unknown as ApprovalPreview
         handlers.onApprovalPreview(preview)
         if (preview.title?.trim()) approvalTitles.set(preview.toolCallId, preview.title.trim())
+      } else if (part.type === 'data-decke-deep-offer' && part.data) {
+        // THE SERVER'S DEEP THINK OFFER for one held call: the token that binds
+        // the card to this turn, and the price (null on an uncharged account).
+        // Read strictly; a malformed part is dropped and the card stays
+        // unapprovable rather than guessing.
+        const offer = parseDeepThinkOffer(part.data)
+        if (offer) {
+          deepOfferTokens.set(offer.toolCallId, offer.token)
+          handlers.onDeepOffer(offer)
+        }
       } else if (part.type === 'data-decke-finish' && part.data) {
         // WHY THIS LEG STOPPED. Kept on the outcome and filed with the turn, so
         // "the answer ends mid-word" can be answered with 'length' instead of a
@@ -2486,6 +2581,12 @@ async function streamLeg(
         approvalInputs.set(part.toolCallId, (part.input ?? {}) as Record<string, unknown>)
       } else if (part.type === 'tool-output-available' && typeof part.toolCallId === 'string') {
         const outputName = approvalNames.get(part.toolCallId)
+        if (outputName === 'ask_user') {
+          // THE WHOLE INPUT, not just its questions: `about` is how the server
+          // routes the reader's answer back to the job that asked.
+          const ask = askFromStream(part.toolCallId, approvalInputs.get(part.toolCallId), part.output)
+          if (ask) handlers.onAskUser(ask)
+        }
         if (outputName && !isClientTool(outputName)) handlers.onToolOutput(part.toolCallId, part.output)
         // ── A DEEP CALL THE METER REFUSED, WHICH USED TO DIE HERE ───────────
         //
@@ -2537,6 +2638,12 @@ async function streamLeg(
     // failed.
     if (out.error) break
   }
+  // Each Deep Think card carries its own offer token into the answer, so the
+  // yes it replays is bound to this turn (`approvalReplayPart`).
+  out.approvals = out.approvals.map((approval) => {
+    const token = approval.name === 'deep_think' ? deepOfferTokens.get(approval.toolCallId) : undefined
+    return token ? { ...approval, deepOffer: token } : approval
+  })
   return out
 }
 
@@ -2550,7 +2657,10 @@ async function streamLeg(
  * function and for the leg loop in `send`.
  */
 function messagesToWire(msgs: ChatMessage[]): WireMessage[] {
-  const visible = msgs.filter((m) => messageText(m).trim().length > 0 || messageTools(m).length > 0)
+  // AN ASK IS A TURN. `ask_user` emits no chip, so a reply that was only a
+  // question has no text and no tools — and without `hasAsk` it was dropped,
+  // leaving the reader's answers to arrive with no question before them.
+  const visible = msgs.filter((m) => messageText(m).trim().length > 0 || messageTools(m).length > 0 || hasAsk(m.parts))
   let assistantsRemaining = visible.filter((m) => m.role === 'assistant').length
   return visible
     .map((m) => {
@@ -2569,6 +2679,10 @@ function messagesToWire(msgs: ChatMessage[]): WireMessage[] {
         for (const failure of failureParts(chips)) parts.push(failure)
         for (const decline of declineParts(chips, { isServerTool: (name) => !isClientTool(name) })) parts.push(decline)
       }
+      // On EVERY turn, recent or compacted. An ask is small and bounded, and an
+      // ask-only reply has nothing else to stand on: compacted without it, it
+      // became an empty text part.
+      for (const ask of askWireParts(m.parts)) parts.push(ask)
       // A turn that produced only tool records and no speech still has to be a
       // valid message; the filter above lets it through, so guard the shape.
       return { role: m.role, parts: parts.length ? parts : [{ type: 'text', text }] }

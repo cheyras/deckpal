@@ -117,6 +117,18 @@ export interface DeckBlock {
     cards: Array<{ id: string; name: string; quantity: number; owned: number }>
   }>
   ptcgl: string
+  /**
+   * The reader's own deck this list revises, and Deck-E's note for the version.
+   *
+   * SERVER-ONLY. `showDeck` adds them after this module has sanitised the
+   * screen, and only once it has found the deck among the reader's own. They
+   * are deliberately absent from `blockSchema`, so a model-authored screen
+   * (`showScreen`) cannot carry them, and `sanitizeScreen` strips them from
+   * any deck block it is handed: a model that could name the deck a Save
+   * button writes over could label one deck and point it at another.
+   */
+  base?: { id: string; name: string }
+  versionNote?: string
 }
 
 /**
@@ -478,6 +490,10 @@ export function sanitizeScreen(
         return { ...section, count: cards.reduce((sum, card) => sum + card.quantity, 0), cards }
       }).filter((section) => section.cards.length > 0)
       if (removed.length) dropped.push(`blocks[${i}]: removed ${removed.length} card id(s) no tool returned in this conversation (${removed.slice(0, 5).join(', ')}) — look them up before showing them`)
+      // Server-only fields (see `DeckBlock.base`): whatever arrives here did
+      // not come from `showDeck`'s ownership check, so it does not survive.
+      delete (b as Partial<DeckBlock>).base
+      delete (b as Partial<DeckBlock>).versionNote
       b.name = b.name?.trim()
       b.format = b.format?.trim()
       b.issues = b.issues?.slice(0, 6).map((issue) => issue.trim())

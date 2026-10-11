@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { DECK_COMPACT_CARDS, deckDisclosure, deckHeader, nextSaveState, ownershipMark, visibleIssues } from '../deckWidgetState'
+import { DECK_COMPACT_CARDS, deckDisclosure, deckHeader, nextSaveState, ownershipMark, saveActions, visibleIssues } from '../deckWidgetState'
 
 test('deck disclosure uses the real total and expands every section', () => {
   const sections = [
@@ -51,4 +51,20 @@ test('save state ignores a double-tap and returns to idle after an error', () =>
   assert.equal(nextSaveState('error', 'retry'), 'idle')
   assert.equal(nextSaveState('saving', 'success'), 'saved')
   assert.equal(nextSaveState('saved', 'start'), 'saved')
+})
+
+test('a new deck keeps its one save button; a revision offers the version first and a separate deck second', () => {
+  assert.deepEqual(saveActions('new', 'idle', null), [{ target: 'new', label: 'Save to my decks', primary: true }])
+  assert.deepEqual(saveActions('new', 'saving', 'new').map((a) => a.label), ['Saving…'])
+  assert.deepEqual(saveActions('new', 'error', 'new').map((a) => a.label), ['Try saving again'])
+  assert.deepEqual(saveActions('version', 'idle', null), [
+    { target: 'version', label: 'Save as new version', primary: true },
+    { target: 'new', label: 'Save as a separate deck', primary: false },
+  ])
+})
+
+test('only the save that was pressed says it is saving or failed', () => {
+  assert.deepEqual(saveActions('version', 'saving', 'version').map((a) => a.label), ['Saving…', 'Save as a separate deck'])
+  assert.deepEqual(saveActions('version', 'error', 'version').map((a) => a.label), ['Try saving again', 'Save as a separate deck'])
+  assert.deepEqual(saveActions('version', 'saving', 'new').map((a) => a.label), ['Save as new version', 'Saving…'])
 })

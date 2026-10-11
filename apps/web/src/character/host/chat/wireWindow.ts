@@ -147,7 +147,10 @@ function outputSummary(part: Record<string, unknown>): string {
  * Full results are degraded oldest-first because later legs are more likely to
  * depend on the newest result. Approval parts are never candidates: the SDK
  * reads signed answers from the final message and losing one can turn consent
- * into a silently skipped write.
+ * into a silently skipped write. Nor is `deep_think`'s result: it is a few
+ * hundred characters, and it carries the grant that keeps an approved turn on
+ * Deep Think (`decke/deepThink.ts`), so summarising it would drop the turn to
+ * Standard in the middle of the work the reader paid for.
  */
 export function fitCurrentTurn<T extends WireLike>(
   all: readonly T[],
@@ -175,6 +178,11 @@ export function fitCurrentTurn<T extends WireLike>(
       const type = typeof part.type === 'string' ? part.type : ''
       const name = type.startsWith('tool-') ? type.slice('tool-'.length) : ''
       if (part.state !== 'output-available' || !name || !opts.isServerTool(name)) continue
+      // An ask is small, and it is the server's only sign that a question is
+      // still open in this turn (`askedEarlierThisTurn` in `api/chat.mjs`).
+      // Compacted into a text record, the next leg would act as if answered.
+      if (name === 'ask_user') continue
+      if (name === 'deep_think') continue
 
       const id = typeof part.toolCallId === 'string' ? part.toolCallId : ''
       const summary = opts.summaryFor?.(id) ?? outputSummary(part)

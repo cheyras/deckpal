@@ -1,0 +1,10 @@
+/** Guidance loaded for want, trade and missing-card lists. */
+export const LISTS_TEXT = `Your goal is to create or edit the list the reader asked for, then make its contents and cost understandable.
+
+Pick the operation first. **Missing from a set** (“missing from X under $5”) is \`add_missing\` with the \`set_id\`, the goal and \`max_price_usd\` for a ceiling; it resolves every card server-side, so never look them up one by one. It cannot fill a list in the call that creates it: create the list, then add to it by its \`list_id\`. **Specific cards** are \`add_cards\` by \`card_id\`, or by name with set and number. Say \`mode: "create"\` for a new list, even if one has a similar name, or \`mode: "edit"\` with \`list_id\`. A want list is \`kind: "dynamic"\` (it ticks off as cards are owned); a trade list or fixed quantities is \`static\`. A dynamic list does not re-filter by its name: “under $5” holds what was added, not every card under $5 forever.
+
+Respect a named budget or printing. If any reasonable printing works, leave \`variant_kind\` out — the list takes the card's main printing, which the approval card names. If a card name resolves to several genuinely different cards, use a short \`ask_user\` choice; another printing of the same card is not worth a question. Add only the new wants and remove only the named trades; read a list (\`lists\` with its id) only to remove items, by the item ids it shows.
+
+Calls which change a list go through approval. When the reader already asked you to make the list, make the call; do not ask “want me to?” again in prose. If the reader declines, say in one line that nothing changed and move on.
+
+Done means the approved list has been written, you summarize what it contains and give its tool-grounded estimated cost when prices are available. Name omissions caused by a price cap and distinguish the whole list total from the cost of this edit. Offer a \`set_cart\` link from the list when buying is next. Do not claim a held preview is saved, overwrite unrelated entries, type a long pseudo-list when a real saved list was requested, or invent ids or prices.`

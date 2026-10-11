@@ -112,6 +112,8 @@ import { dryRunCardIds, dryRunItems } from './dryRun'
 import { DryRunList } from './DryRunList'
 import { CardChangePreview, StrategyGuidePreview } from './CardChangePreview'
 import { TOP_UP_LABEL } from './creditState'
+import { deepThinkCard, type DeepThinkOffer } from './deepThinkCard'
+import type { PendingApproval } from '../approval'
 import {
   acceptButtonLabel,
   acceptCount,
@@ -184,6 +186,15 @@ export type ApprovalCardProps = {
    * is not a choice worth offering (UXD-07).
    */
   onTopUp?: () => void
+  /** The held call itself. Required only for the dedicated Deep Think offer. */
+  approval?: Pick<PendingApproval, 'name' | 'toolCallId' | 'input'> | null
+  /** The server's offer for this call; model prose is never a price source. */
+  deepOffer?: DeepThinkOffer | null
+  /**
+   * The wallet balance read after the card went up, or null while it is
+   * unknown. A priced Deep Think cannot be approved against null.
+   */
+  balance?: number | null
 }
 
 /**
@@ -872,7 +883,13 @@ export function ApprovalCard({
   busy = false,
   cost = null,
   onTopUp,
+  approval = null,
+  deepOffer = null,
+  balance = null,
 }: ApprovalCardProps): JSX.Element {
+  const deep = approval
+    ? deepThinkCard(approval, deepOffer, { balance, canTopUp: Boolean(onTopUp) })
+    : null
   const editable = preview?.editable === true
   const { known, asking } = editable && preview ? sections(preview) : { known: [], asking: [] }
   const willWrite = editable && preview ? acceptCount(preview, choices) : 1
@@ -898,6 +915,72 @@ export function ApprovalCard({
     nothing. The read-only rows ask for the ids their dry run named.
   */
   const art = useCardArt(editable && preview ? preview.rows.map((r) => r.cardId) : dryRunCardIds(dryRun))
+
+  if (deep) {
+    // `deep.action` decides the primary button (`deepThinkCard.ts`): approve,
+    // top up when the balance is below the estimate's high end, or stay
+    // disabled — while a paid balance is still unknown, or when no server offer
+    // arrived for this call — with the reason said under the price.
+    return (
+      <div
+        className="decke-composer-card pointer-events-auto mx-[16px] mb-[10px] shrink-0 p-[14px]"
+        role="alertdialog"
+        aria-label="Deck-E is asking permission"
+        data-decke-deep-think=""
+      >
+        {/*
+          THE SERVER'S FACTS LEAD, THE MODEL'S PROSE FOLLOWS. The price and the
+          reason the button is disabled sit directly under the title and
+          outweigh `why`/`plan`, which are model-written: an injection can steer
+          the prose, never the price, so the price is what the eye lands on.
+        */}
+        <p className="text-[14.5px] font-semibold leading-[21px] text-text-primary">
+          {deep.title}
+        </p>
+        {deep.cost ? (
+          <p className="mt-[3px] text-[14px] font-semibold leading-[20px] text-text-primary" data-decke-deep-think-cost="">
+            {deep.cost}
+          </p>
+        ) : null}
+        {deep.hint ? (
+          <p className="mt-[3px] text-[12px] leading-[17px] text-text-muted" data-decke-deep-think-hint="">
+            {deep.hint}
+          </p>
+        ) : null}
+        {deep.why ? (
+          <p className="mt-[8px] whitespace-pre-wrap text-[12.5px] leading-[18px] text-text-secondary">
+            {deep.why}
+          </p>
+        ) : null}
+        {deep.plan ? (
+          <p className="mt-[6px] whitespace-pre-wrap text-[12px] leading-[17px] text-text-muted">
+            <span className="font-medium text-text-secondary">Plan: </span>
+            {deep.plan}
+          </p>
+        ) : null}
+        <div className="mt-[12px] flex flex-wrap items-center gap-[8px]">
+          <Button variant="ghost" size="sm" onClick={onDeny} disabled={busy}>
+            {deep.declineLabel}
+          </Button>
+          {deep.action === 'top-up' ? (
+            <Button variant="primary" size="sm" onClick={onTopUp} disabled={busy}>
+              {TOP_UP_LABEL}
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={onAccept}
+              disabled={busy || deep.action !== 'approve'}
+              loading={busy}
+            >
+              {deep.approveLabel}
+            </Button>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   /**
    * Other calls the model held in the same step, which this card does not show.

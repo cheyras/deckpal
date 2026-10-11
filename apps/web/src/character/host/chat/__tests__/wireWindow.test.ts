@@ -107,6 +107,41 @@ test('an oversized current turn degrades oldest server outputs and preserves the
   assert.ok(chars <= CURRENT_TURN_MAX_CHARS)
 })
 
+test('an open ask survives compaction of a long turn, so the server still sees the question', () => {
+  const calls = Array.from({ length: 22 }, (_, index) => ({
+    type: 'tool-web_research', toolCallId: `research-${index}`, state: 'output-available',
+    input: { query: `${index}` }, output: `${index}:${'x'.repeat(12_000)}`,
+  }))
+  const ask = {
+    type: 'tool-ask_user', toolCallId: 'ask-1', state: 'output-available',
+    input: { questions: [{ header: 'Deck', question: 'Which deck?', options: [{ label: 'A' }, { label: 'B' }] }] },
+    output: { status: 'shown' },
+  }
+  const fitted = fitCurrentTurn([user('log it'), { role: 'assistant', parts: [ask, ...calls] }], { isServerTool: () => true })
+  const parts = fitted[1]!.parts
+  assert.ok(parts.some((part) => part.type === 'text'), 'premise: the turn was compacted')
+  assert.equal(parts[0], ask, 'the ask was compacted into a text record')
+})
+
+test("an oversized Deep Think turn never summarises away deep_think's result, which carries the grant", () => {
+  const deep = {
+    type: 'tool-deep_think', toolCallId: 'deep-1', state: 'output-available',
+    input: { why: 'w', plan: 'p' }, output: '{"status":"on","grant":"dt1.1760000000000.grant","note":"…"}',
+  }
+  const calls = Array.from({ length: 22 }, (_, index) => ({
+    type: 'tool-web_research',
+    toolCallId: `research-${index}`,
+    state: 'output-available',
+    input: { query: `${index}` },
+    output: `${index}:${'x'.repeat(12_000)}`,
+  }))
+  // The oldest server result in the turn — the first one compaction reaches.
+  const wire = [user('review my season'), { role: 'assistant', parts: [deep] }, { role: 'assistant', parts: calls }]
+  const fitted = fitCurrentTurn(wire, { isServerTool: () => true })
+  assert.equal(fitted[1]!.parts[0], deep, 'the grant-bearing result was compacted')
+  assert.ok(fitted[2]!.parts.some((part) => part.type === 'text'), 'the budget was not actually exceeded')
+})
+
 const failed = (tool: string, id: string) =>
   ({ type: `tool-${tool}`, toolCallId: id, state: 'output-error', input: {}, errorText: 'Internal server error' })
 const recorded = (...lines: string[]) =>

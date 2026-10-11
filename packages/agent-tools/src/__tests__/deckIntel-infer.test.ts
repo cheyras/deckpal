@@ -53,11 +53,18 @@ function makeCtx(api: StubApi): Ctx {
   return { db: { query: async () => ({ rows: [] }) }, userId: 'u1', api } as unknown as Ctx;
 }
 
-/** True when a write endpoint (attach a log / patch a log) was hit. */
+/**
+ * True when a write endpoint (attach a log / patch a log) was hit. A POST to
+ * `/decks/:id/logs` carrying `dryRun: true` is the route's own dry run
+ * (2026-10-10: the preview now runs the write's preparation, owner check
+ * included, without inserting), so it is not a write.
+ */
 const wroteLog = (api: StubApi): boolean =>
   api.sends.some(
     (s) =>
-      (s.method === 'POST' && /\/decks\/[^/]+\/logs$/.test(s.path)) ||
+      (s.method === 'POST' &&
+        /\/decks\/[^/]+\/logs$/.test(s.path) &&
+        (s.body as { dryRun?: unknown } | undefined)?.dryRun !== true) ||
       (s.method === 'PATCH' && /\/decks\/[^/]+\/logs\/\d+$/.test(s.path)),
   );
 
@@ -162,8 +169,18 @@ test('add_battle_log dry_run with deck_id renders the substance on line 1 and "N
       if (path === '/decks') return { decks: [{ id: 'deck-1', name: 'Charizard ex', formatCode: 'standard', version: 3 }] };
       throw new Error(`unexpected get ${path}`);
     },
-    send: (method, path) => {
-      if (method === 'POST' && path === '/decks/log-preview') return logPreviewResponse();
+    // The preview asks the deck's own write route to prepare without inserting
+    // (dryRun: true), so it raises the same owner-identification refusal the
+    // write would — never the deck-agnostic /decks/log-preview any more.
+    send: (method, path, body) => {
+      if (method === 'POST' && path === '/decks/deck-1/logs' && (body as { dryRun?: unknown }).dryRun === true) {
+        const { parsed } = logPreviewResponse();
+        return {
+          dryRun: true,
+          attachedToVersion: 3,
+          preview: { ...parsed, deckName: 'Charizard ex', version: 3, notes: 'misplayed t3', playedAt: '2026-10-09T12:00:00.000Z' },
+        };
+      }
       throw new Error(`unexpected send ${method} ${path}`);
     },
   });
@@ -174,7 +191,7 @@ test('add_battle_log dry_run with deck_id renders the substance on line 1 and "N
     ctx,
   );
 
-  assert.equal(res.isError, undefined);
+  assert.equal(res.isError, undefined, res.text);
   // Line 1 carries the substance — deck name + parsed result — so the approval
   // card (which takes line 1 via summarise) names the deck, not just "Nothing was logged."
   assert.ok(res.text.startsWith("Would attach to 'Charizard ex'"), `first line was: ${res.text.split('\n')[0]}`);
@@ -203,9 +220,12 @@ test('edit_battle_log dry_run renders the substance on line 1 and "Nothing was c
             result: 'win',
             opponent: 'OldFoe',
             opponentDeck: 'Old Archetype',
+            opponentArchetype: 'old-archetype',
+            origin: 'ptcgl',
             turns: 10,
             prizes: { me: 6, opponent: 3 },
             notes: 'old notes',
+            reviewMd: 'old review',
             playedAt: '2026-08-01T12:00:00.000Z',
             source: 'web',
             rawLog: 'RAW',
@@ -223,7 +243,10 @@ test('edit_battle_log dry_run renders the substance on line 1 and "Nothing was c
   const ctx = makeCtx(api);
 
   const res = await byName('edit_battle_log').handler(
-    { deck_id: 'Charizard ex', log_id: 7, result: 'loss', notes: 'new notes', dry_run: true },
+    {
+      deck_id: 'Charizard ex', log_id: 7, result: 'loss',
+      opponent_archetype: 'Dragapult ex', notes: 'new notes', review: 'new review', dry_run: true,
+    },
     ctx,
   );
 
@@ -235,8 +258,25 @@ test('edit_battle_log dry_run renders the substance on line 1 and "Nothing was c
   // Field-by-field: current → new for each changed field.
   assert.match(res.text, /result: WIN → LOSS/);
   assert.match(res.text, /notes: old notes → new notes/);
+  assert.match(res.text, /opponent_archetype: old-archetype → Dragapult ex/);
+  assert.match(res.text, /review: old review → new review/);
   // An unchanged field is not mentioned.
   assert.equal(res.text.includes('opponent_deck'), false, 'opponent_deck was not changed and must not appear');
   assert.match(res.text, /Re-run with dry_run: false to apply/);
   assert.equal(api.sends.length, 0, 'dry_run must not PATCH');
+});
+
+test('add_battle_log without a log requires an explicit origin before any API call', async () => {
+  const api = stubApi({
+    get: () => { throw new Error('must not read'); },
+    send: () => { throw new Error('must not send'); },
+  });
+  const res = await byName('add_battle_log').handler(
+    { deck_id: 'Charizard ex', result: 'win', dry_run: true },
+    makeCtx(api),
+  );
+  assert.equal(res.isError, true);
+  assert.match(res.text, /origin is required when log is omitted/);
+  assert.equal(api.gets.length, 0);
+  assert.equal(api.sends.length, 0);
 });

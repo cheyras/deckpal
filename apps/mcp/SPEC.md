@@ -168,9 +168,11 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   only because Claude requests a refresh token when it sees it; DeckPal checks no OAuth scope
   string). The consent screen offers a scope choice only when `GET /oauth/client`
   includes `trust`, which the older scope-ignoring API omits. Its **read-only** connection resolves with
-  `scope: 'read'`, is built a server with only the 13 `readOnlyHint` tools, runs in `BEGIN READ
+  `scope: 'read'`, is built a server with only the 15 `readOnlyHint` tools, runs in `BEGIN READ
   ONLY`, and is refused every non-GET REST call (`403 insufficient_scope`) except `POST /massentry`,
-  which only builds `set_cart`'s cart links. Tokens that existed
+  `POST /decks/check` and `POST /decks/odds` (2026-10-10: `/decks/check` had been missing, so `check_deck` was
+  served and then refused),
+  which only build `set_cart`'s cart links and the two deck reads. Tokens that existed
   before 075, including hand-made ones and live claude.ai connectors, resolve exactly as before:
   full scope, no expiry. The consent screen names the redirect's host and marks only Claude's exact
   documented callback as Verified; see SECURITY.md. Session routes that changed shape:
@@ -245,7 +247,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
 
 ## 4. Tool conventions
 
-- **The 24 tool definitions live in `packages/agent-tools/src/tools/*.ts`** (`@deckpal/agent-tools`),
+- **The 26 tool definitions live in `packages/agent-tools/src/tools/*.ts`** (`@deckpal/agent-tools`),
   each a `ToolDefinition` — `{ name, title, description, inputSchema, annotations, handler }` — written
   against `Ctx` alone, with no MCP SDK import anywhere in that package. `apps/mcp/src/adapters/mcp.ts`
   is the only file that turns one into an MCP registration: it walks `allTools()` and calls
@@ -353,7 +355,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   "call set_progress with NO set_id" and got seven calls with `set_id: 'none'`. Ids in a failure
   message come from the caller's own data or are absent.
 
-## 5. Tool surface (25 ordinary tools + 3 capability-gated tools + 1 resource)
+## 5. Tool surface (28 ordinary tools + 3 capability-gated tools + 1 resource)
 
 ### Reads — direct SQL (`readOnlyHint: true`)
 
@@ -425,7 +427,7 @@ sees them in `tools/list`:
    display name, tier (from `variant_tier_resolved` — never re-derive), owned qty, market price,
    TCGplayer link when present. Ambiguous → candidate list. Same trailing `series <slug>` addition
    as `search_cards`.
-5. **`set_progress`** — `{ set_id?, goal? ∈ complete|master|grandmaster, rarity?, rarity_exclude?,
+5. **`set_progress`** — `{ set_id?, goal? ∈ complete|master|grandmaster|numbered, rarity?, rarity_exclude?,
    page?, page_size? }`. Every missing row carries its **rarity**, and `rarity`/`rarity_exclude`
    filter on it (case-insensitive; an unknown name is an error listing the vocabulary, never a
    silently empty result). Rarity is NOT `variant_tier_resolved.tier`: an Illustration Rare and a
@@ -439,6 +441,18 @@ sees them in `tools/list`:
    `set_id`: all three goals' numbers + the missing cards for the
    requested goal (via `master_required_variant` for master; paged) + **cost-to-complete** (Σ
    cheapest market price of missing required variants; unpriced listed separately, never $0).
+   **`goal: 'numbered'`** (2026-10-10) is the regular numbered set: one of any variant of each
+   card whose collector number is a plain integer from 1 to the set's printed total
+   (`card_set.card_count_official`, the 165 in "006/165"), so secret rares numbered above it and
+   unnumbered subset cards (TG01, GG01) are out. It is this tool's alone and computed live — not a
+   `user_set_progress` goal, not `default_goal`, not accepted by `set_cart` or `edit_list`. With
+   `set_id` it prints the three stored goals for context, a `numbered owned/total` line that says
+   how many cards fell outside the range (and when the catalog holds fewer cards than the printed
+   total), then `complete`'s card-level missing list over the numbered cards only (`rarity`
+   filters still apply). A set with no printed total (NULL or 0) answers "numbered: not
+   available" with no missing list — never a guess. The overview ranks the same sets by numbered
+   completion and marks a set with no printed total `numbered n/a`. Before this, the only way to
+   ask was `rarity_exclude` with that set's exact secret-rare rarity names.
 6. **`collection_log`** — `{ since?: ISO, source?, limit? = 50 }`. The agentic-logging read
    face: `collection_event` joined to card/variant — `occurred_at | card | variant | Δdelta →
    qty_after | source | note`. Needs migration 018 (below).
@@ -492,7 +506,7 @@ sees them in `tools/list`:
 Exact request/response shapes: **read `apps/api/src/routes/decks.ts` / `lists.ts` first**; the
 routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST /decks/:id/cards`,
 `PATCH/DELETE /decks/:id/cards/:cardId`, `GET /decks/:id/{validate,export,testhand,pricing}`,
-`POST /decks/check`, `POST /decks/import`, `PUT /decks/:id/strategy`, `GET /decks/:id/versions[/:v]`,
+`POST /decks/check`, `POST /decks/odds`, `POST /decks/import`, `PUT /decks/:id/strategy`, `GET /decks/:id/versions[/:v]`,
 `POST /decks/:id/revert`, `GET/POST /decks/:id/logs`, `GET/PATCH/DELETE /decks/:id/logs/:logId`;
 `GET/POST /lists`, `GET/PATCH/DELETE /lists/:id`, `POST /lists/:id/items`,
 `DELETE /lists/:id/items/:itemId`).
@@ -513,6 +527,48 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
    one list form. Resolves names or card ids, checks the 60-card and format rules plus evolution
    gaps, and reports ownership, missing-copy cost and normalized PTCG Live text. Run it before
    showing or saving any proposed deck, fix its findings, and check again.
+8b. **`deck_odds`** — read-only (2026-10-10) `{ deck_id? | cards? | ptcgl_text?, queries?,
+   trials? = 50000 (1000–200000), seed?, format? }`, with exactly one deck form: a saved deck (UUID or
+   name, resolved by `needDeck`) or an unsaved list in check_deck's shapes, so a hypothetical
+   change can be tested before it is saved. `POST /decks/odds` shuffles it `trials` times with
+   a seeded mulberry32 (default seed fixed, so a repeat call agrees) under the Standard setup:
+   draw 7, mulligan until a Basic, 6 Prizes, one draw per turn with turn 1 included — so hand
+   odds are for the KEPT hand. Each of ≤ 12 `queries` is `{ label?, all_of: Group[1..6],
+   by_turn? 0–10 = 0, prized? = false }`, a `Group` being `{ cards?: names in the deck,
+   kinds?: basic|pokemon|supporter|item|tool|stadium|energy, count? = 1 }` met when at least
+   `count` seen (or prized) cards match any listed name or kind; a query succeeds when every
+   group is met. Without queries: one line per card name — ≥1 copy in the opening hand, seen by
+   turn 2, prized, and every copy prized. Every answer states method, trials, seed, the
+   simulated AND closed-form mulligan rate, a 95% margin per value, the exact hypergeometric
+   value for any single-group query, and the standing caveat that it is draw-only (search and
+   draw cards are never played; name them in a group to count them as outs). An unknown card
+   name fails with the deck's real names; a short, long or over-copied list is still computed
+   and says so; a list with no Basic fails. CPU is bounded twice: a list over 120 cards is
+   refused, and the games are cut to fit an expected 2,000,000 dealt hands (a game deals 1/(1 − p) of them on average,
+   p the exact mulligan probability), the answer saying so (`trials_requested`). Margins are
+   Wilson; "every copy prized" is the closed form; notes are capped at 8 lines; `format?`
+   picks which printings an unsaved list's bare names resolve to. First of the simulation tools —
+   the battle simulator that plays cards will report the same way.
+8c. **`simulate_battles`** — read-only `{ deck_id? | cards? | ptcgl_text?, name?, format?, opponents?: [deck id or
+   name] (≤8; default up to 6 of the caller's other decks), games? = 24 (2..200, per opponent, rounded up to
+   pairs), seed? = 1, speed? = strong|fast, compare_with? | compare_cards? | compare_ptcgl_text?, compare_name? }` → `POST /decks/simulate`. Plays the deck against each opponent in `@deckpal/sim` with
+   a CPU pilot on both sides: paired games (seats swapped per seed, so each deck goes first half the time)
+   inside a 25 s budget that is also a hard deadline (a game still running at it is a time-out), on decks
+   of 40–70 cards (else `400`), one run per account at a time (else `429`, whose message the tool passes
+   through), then returns per-opponent W/L/draws/time-outs, win rate with Wilson 95% interval
+   and n, going-first/second splits, game length, win/loss reasons, setup speed, Prize-takers and
+   liabilities, loss patterns, early-card impact (an association), and a coverage block naming every
+   card the engine only approximates or cannot play. The text says on its first and last line that
+   these are simulated games by a bot, never real results; nothing is stored. Deck refs resolve loosely
+   through `needDeck` (a read). **Paired comparison** (2026-10-10): with at most one of `compare_with`
+   (a saved deck id or name), `compare_cards` or `compare_ptcgl_text` (an unsaved whole list, labelled by
+   `compare_name?`), the subject is version A and the second list version B; both play every opponent
+   on the SAME seeds and seats (common random numbers), and the text leads with a `VERDICT:` line and the
+   paired difference Δ = B − A in game score (win 1, draw/time-out ½, loss 0) with a 95% t-interval on
+   per-seed clusters, overall and per opponent. It says "B is better" / "A is better" only when the
+   interval excludes 0 with at least 6 seeds, else "no clear difference at this n"; it lists the card
+   counts that differ and their early-play splits in each version. The 25 s budget is shared by the two
+   versions; the text stays within 5,000 characters and keeps the caveat.
 9. **`save_deck`** — `{ deck_id?, name?, format?, cards?: [{card_id, quantity}], ptcgl_text?,
    version_note?, dry_run? = true }`. Create or replace the list with ONE request to
    `POST /decks/save` (2026-09-29), which resolves every card first and writes the deck,
@@ -590,15 +646,26 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
 
 ### Deck intelligence — via deckpal-api (migration 019; semantics in §6b)
 
-Numbered 15–20 so the earlier `§5 #N` references in code comments stay stable. All six live in
-`packages/agent-tools/src/tools/deckIntel.ts`; writes carry `source: 'deckpal-mcp'`.
+Numbered 15–20 (plus 17a) so the earlier `§5 #N` references in code comments stay stable. The
+six numbered tools live in `packages/agent-tools/src/tools/deckIntel.ts`, 17a in
+`tools/battleDigest.ts`; writes carry `source: 'deckpal-mcp'`.
+
+**Battle logs v2 (migration 084, 2026-10-10).** A game has an `origin` — `ptcgl` (a PTCG Live
+log, `raw_log` required), `in_person` or `other` (no log; an explicit `result` is required). Two
+voices are stored apart: `notes` are the player's own words, `review` (column `review_md`, ≤ 12,000
+chars) is the assistant's markdown analysis. `opponent_archetype` is a countable matchup key
+(lowercase ASCII words joined by hyphens, ≤ 64 chars); the API normalizes any label passed to it
+(`N's Zoroark ex` → `ns-zoroark-ex`), and `battle_logs` opens with the deck's record per
+archetype, so "new matchup" and "met three times" are counts rather than guesses.
 
 15. **`deck_strategy`** — `{ deck_id, markdown? }`. Omit `markdown` → the full guide. Provide it →
     `PUT /decks/:id/strategy` replaces the whole guide (empty string clears); the response names
     the previous guide's first heading + length so an accidental overwrite is visible. Strategy
     edits NEVER bump the deck version (§6b) and the descriptions say so.
-16. **`add_battle_log`** — `{ deck_id?, log, result?, player_name?, opponent_deck?, notes?,
-    played_at?, dry_run? = true }`. `POST /decks/:id/logs`: the API parses the raw PTCG Live log
+16. **`add_battle_log`** — `{ deck_id?, log?, origin?, result?, player_name?, opponent_deck?,
+    opponent_archetype?, notes?, review?, played_at?, dry_run? = true }`. `log` is required for
+    `origin: "ptcgl"` (the default when a log is present); `in_person` / `other` omit it and pass
+    an explicit `result`. `POST /decks/:id/logs`: the API parses the raw PTCG Live log
     (result, opponent, turns, prizes, KOs, deck guess) and attaches it to the deck's CURRENT
     version. Explicit `result`/`opponent_deck` arguments are authoritative over parser output
     (2026-08-29 — a passed opponent once lost to the parser's inversion). The
@@ -616,10 +683,25 @@ Numbered 15–20 so the earlier `§5 #N` references in code comments stay stable
     Zero candidates lists NONE (never an invented id). "Nothing was logged." leads the dry-run
     render, with or without `deck_id`.
 17. **`battle_logs`** — `{ deck_id, log_id?, version?, include_raw? = false, page?, page_size? }`.
-    List mode: one compact row per game, newest first, W/L footer (`3W–1L–0T`) over the filter
-    scope plus a per-version breakdown when unfiltered. `log_id`: full detail incl parsed fields.
-    `include_raw` appends raw log text — the synthesis read path; raw logs are huge, so list-mode
-    `page_size` then defaults to 10 (result-size budgets, §7). `readOnlyHint: true`.
+    List mode: the per-archetype record first (`archetype record: dragapult-ex 2W–1L–0T (3, last
+    …)`, or `none classified`), then one compact row per game, newest first, W/L footer
+    (`3W–1L–0T`) over the filter scope plus a per-version breakdown when unfiltered. `log_id`:
+    full detail incl parsed fields, notes and the saved review. `include_raw` appends raw log
+    text; raw logs are huge, so list-mode `page_size` then defaults to 10 (result-size budgets,
+    §7) — to judge one game, `battle_digest` is the smaller read. `readOnlyHint: true`.
+17a. **`battle_digest`** — `{ deck_id, log_id, player_name? }` (added 2026-10-10).
+    `GET /decks/:id/logs/:logId/digest?playerName=`: the API re-reads the stored, immutable raw
+    log (`digestBattleLog` in `apps/api/src/deck/battlelog.ts`) into who went first, mulligans,
+    turns per side, each side's first attack, the prize timeline turn by turn with the Knock Out
+    each prize paid for, every card the opponent showed, the end reason (prizes, concession,
+    deck-out, other), whether the game was close and what the log cannot tell (their hand, the
+    prized cards). Close means the lead changed hands, or a final prize gap of two or less once
+    someone has taken three prizes — so a turn-two 0–0 concession is not "close". Rendered under
+    3,000 characters (the long lists shrink first). The side is the owner stored with the row
+    unless `player_name` overrides it; an unidentified owner is said, with the names to choose
+    from, never guessed. An in-person game has no log: the tool answers so (not a failure) and
+    points at `battle_logs` `log_id`. Recomputed on every call, so every past game improves when
+    the digest does, with no backfill. `readOnlyHint: true`, so read-only connections get it.
 18. **`deck_history`** — `{ deck_id, version?, revert_to?, include_strategy? = true, note?,
     dry_run? = true }`. No extra args: version timeline with per-version W/L, note, source, card
     count, current marker. `version`: full snapshot + card diff vs the previous version.
@@ -629,7 +711,8 @@ Numbered 15–20 so the earlier `§5 #N` references in code comments stay stable
     design — a revert always creates a new version and history is never deleted — hence
     `destructiveHint: false`.
 19. **`edit_battle_log`** — `{ deck_id, log_id, result?|null, opponent?|null, opponent_deck?|null,
-    notes?|null, played_at?, dry_run? = true }`. Defaults to a dry run (2026-08-29) — a
+    opponent_archetype?|null, notes?|null, review?|null, played_at?, dry_run? = true }`. A new
+    analysis of an old game goes in `review`, never over `notes`. Defaults to a dry run (2026-08-29) — a
     field-by-field would-change plan ("Nothing was changed." first line) without writing;
     re-run with `dry_run: false` to apply.
     `PATCH /decks/:id/logs/:logId` — classification-only corrections
@@ -684,6 +767,87 @@ Numbered 15–20 so the earlier `§5 #N` references in code comments stay stable
 - **`collection://summary`** — same payload as `collection_summary` (text), so clients can pull
   context without a tool round-trip.
 
+### Server instructions and prompts (added 2026-10-10)
+
+**Why.** The owner, 2026-10-10: "even with just Claude, he will log the battle but do the bare
+minimum — he won't analyse the battle much, and won't write a great summary of the match." Until
+then the server sent no `instructions` and registered no prompts, so a connector client saw only
+tool descriptions, which say what a call does but not how to run the job. Deck-E gets that
+judgment from its routed pathway texts (`apps/api/src/decke/pathways/texts/*.ts`); the connector
+now has its own copy in `src/guidance.ts`.
+
+**Instructions.** `SERVER_INSTRUCTIONS` is passed as `ServerOptions.instructions` —
+`new McpServer(serverInfo, { instructions })`, the `@modelcontextprotocol/server` 2.1 shape — and
+the SDK returns it from `initialize` (and from 2026-era `server/discover`). Clients such as
+claude.ai put it in the model's system prompt on every turn, so it is capped at **4,000
+characters** (tested) and every connection, read-only included, gets the same text. It says:
+
+- DeckPal is the source of truth for card text, printings, legality, ownership, decks, battle logs
+  and prices; only changing metagame facts come from outside, with an as-of date.
+- Writes preview first (`dry_run` defaults true) and run with `dry_run: false` only after the
+  user agrees; `deck_strategy`, which has no preview, is shown and asked about first. If
+  `add_battle_log` / `save_deck` are absent, the connection is read-only — say so and hand the
+  user the text instead.
+- **Logging a battle.** A PTCG Live paste goes verbatim into `add_battle_log`'s `log` (omit
+  `deck_id` to rank the user's decks without writing). An in-person game, or any game told as a
+  story, is debriefed in chat **before** the first `add_battle_log` call: 3–5 questions, skipping
+  what was already said — the opponent's main attacker and notable cards, who went first, how
+  the prizes went, the most frustrating play, the turn they'd replay. A bare "log a win vs X" is
+  logged straight away. Then `origin: "in_person"`, an explicit `result` and `opponent_deck`.
+  The user's words go in `notes`, the assistant's markdown analysis in `review`.
+  `opponent_archetype` is always set (nothing derives it) and keyed by the main attacker, reusing
+  a key already in the deck's record so games count together. Depth is stated in one line and
+  chosen from `battle_logs`' per-archetype record: **light** (lopsided, dead draw, early
+  concession: 2–3 lines), **standard** (close game or "what went wrong?": turning point, one
+  cause — variance, misplay, list or matchup — and one lesson), **deep** (archetype new to the
+  deck or met ≥ 3 times, a losing streak, or a requested breakdown: fuller analysis with dated
+  research). A standard or deep review of a PTCG Live game reads `battle_digest` once it is
+  logged, rather than the raw log. Hidden information is never invented.
+- **Reviewing results.** Per-archetype record with the number of games, versions kept apart,
+  `battle_digest` for the few losses that matter most (not every game), losses classified only
+  where notes, reviews or digests support it, new analysis of an old game into
+  `edit_battle_log`'s `review` (never over `notes`), at most two next steps.
+- **Building or iterating a deck.** Cards grounded with `search_cards` / `get_card` (cheapest
+  printing of the same card), at most two evidence-cited swaps when iterating, `check_deck`
+  repeated until legal at 60, the final list shown in chat (there is no deck widget over MCP),
+  then a `save_deck` preview and a save with an evidence-citing `version_note`.
+- **Planning a collection.** `set_progress` with the goal (complete / master / grandmaster)
+  named beside every count; never invented pull rates.
+
+**Prompts.** Registered with `McpServer.registerPrompt(name, { title, description, argsSchema },
+cb)`; registering any prompt makes the SDK advertise the `prompts` capability and answer
+`prompts/list` / `prompts/get`. `argsSchema` is a zod object of trimmed non-empty strings built
+from the same argument list the tests inspect, so `prompts/list`'s `required` flags come from one
+source and a blank required argument is refused by the SDK rather than rendered as "undefined".
+Each prompt returns one `user` message written in the reader's voice that carries the longer
+playbook; the instructions still apply on top. The tool catalogue is unchanged.
+
+| Prompt | Arguments | The message it produces |
+|---|---|---|
+| `log-battle` | `how` (required): the whole PTCG Live paste, an in-person description, or just `paste` / `in person` | The paste or story, then the logging playbook: verbatim paste, debrief before logging, `origin` / `result` / `opponent_archetype`, stated depth, `battle_digest` for a standard or deep review of a Live game, `notes` vs `review`, dry-run then yes. |
+| `review-results` | `deck` (required) | Per-archetype and per-version record with game counts and sample-size honesty; `battle_digest` on the few games that matter most; losses classified from evidence; at most two next steps. |
+| `build-deck` | `format` (required), `budget_goal` (optional; when absent the prompt says "ask me") | Read decks and collection, ≤ 4 intake questions or two directions, catalog-grounded ids, `check_deck` until legal at 60, list in chat, `save_deck` preview with a `version_note`. |
+| `plan-collection` | `set` (required) | `set_progress` by goal, purchase order (singles first), `card_price_history` for chase cards, no invented pull rates; offer `edit_list` / `set_cart`. |
+
+**What it must never name.** Deck-E's pathway texts are not imported: they call `ask_user`
+cards, `showDeck`, `web_research`, `@pasted` log handles and Deep Think, none of which an MCP
+client has, and an instruction the client cannot follow either stalls it or tells the reader
+something is broken. The shared tool descriptions in `@deckpal/agent-tools` obey the same rule
+(2026-10-10: `check_deck` no longer says "before showDeck", and the battle-log `review` fields
+no longer say "Deck-E's analysis"); `packages/agent-tools/src/__tests__/descriptions.test.ts`
+walks every tool's description and argument descriptions for those names.
+
+**Verification.** `src/__tests__/guidance.test.ts` (run by `test:cloud`): the size bound; the
+playbook's load-bearing sentences (debrief before logging, `in_person` with an explicit result,
+`notes` vs `review`, `opponent_archetype`, the three depths); no Deck-E-only names; every
+backticked tool is in `allTools()`; every snake_case identifier in the instructions and rendered
+prompts is a real tool, or a property / enum value in a schema `tools/list` actually advertises;
+and an in-memory-transport round trip through the real SDK — `initialize` returns the
+instructions verbatim (read-only connections too), `prompts/list` matches the definitions,
+`prompts/get` renders each prompt's arguments and refuses a missing one. The test reads
+`@deckpal/agent-tools` through its package export (`dist/`), so that package must be built first,
+as CI's "Build @deckpal/agent-tools" step does.
+
 ## 6. Migration 018 + API attribution (prerequisite for 6/14)
 
 New file `packages/db/src/migrations/018_collection_event_attribution.sql` (shipped migrations
@@ -730,7 +894,7 @@ The versioning semantics the tool descriptions must keep teaching (LOCKED in the
   the one exception to the auto-bump rule, so the list it replaces is kept even when it was
   never played. History is never deleted.
 - **The synthesis loop** these tools exist for: `battle_logs` (read a version's results, raw
-  logs via `include_raw`) → `save_deck` with `version_note` / `deck_strategy` (push the
+  logs via `include_raw`, one game judged via `battle_digest`) → `save_deck` with `version_note` / `deck_strategy` (push the
   improved list + guide) → new games log against the new version. Compounding, battle-tested
   deck intelligence.
 

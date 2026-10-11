@@ -169,6 +169,48 @@ test('deck_strategy on a deck with no previous guide says so, not "Replaced \'no
 
 // ── add_battle_log: the APPLY path (dry_run:false) ──────────────────────────
 
+test('add_battle_log dry_run:true uses the deck-specific write route preparation', async () => {
+  const api = stubApi({
+    get: (path) => {
+      if (path === '/decks') return DECKS;
+      throw new Error(`unexpected get ${path}`);
+    },
+    send: (method, path, body) => {
+      assert.equal(method, 'POST');
+      assert.equal(path, '/decks/deck-1/logs');
+      assert.deepEqual(body, {
+        rawLog: 'RAW', origin: 'ptcgl', result: 'loss', playerName: 'Me', opponentDeck: 'Dragapult ex',
+        notes: 'misplayed t3', playedAt: '2026-10-09T12:00:00.000Z',
+        source: 'deckpal-mcp', dryRun: true,
+      });
+      return {
+        dryRun: true,
+        attachedToVersion: 2,
+        preview: {
+          deckName: 'Toolbox Slowking', version: 2, result: 'loss', opponent: 'Rival',
+          opponentDeck: 'Dragapult ex', opponentDeckGuess: 'Dragapult ex', turns: 9,
+          prizes: { me: 3, opponent: 6 }, confidence: 'high', myPokemon: ['Slowking'],
+          notes: 'misplayed t3', playedAt: '2026-10-09T12:00:00.000Z',
+        },
+      };
+    },
+  });
+
+  const res = await byName('add_battle_log').handler(
+    {
+      deck_id: 'Toolbox Slowking', log: 'RAW', result: 'loss', player_name: 'Me',
+      opponent_deck: 'Dragapult ex', notes: 'misplayed t3',
+      played_at: '2026-10-09T12:00:00.000Z', dry_run: true,
+    },
+    makeCtx(api),
+  );
+
+  assert.equal(res.isError, undefined);
+  assert.match(res.text, /^Would attach to 'Toolbox Slowking' \(v2\): LOSS vs Rival \(Dragapult ex\)/);
+  assert.match(res.text, /Nothing was logged\./);
+  assert.equal(api.sends.length, 1, 'preview must make one deck-specific dry-run call');
+});
+
 test('add_battle_log dry_run:false attaches the log and sends only the fields that were set', async () => {
   const api = stubApi({
     get: (path) => {
@@ -179,7 +221,7 @@ test('add_battle_log dry_run:false attaches the log and sends only the fields th
     send: (method, path, body) => {
       assert.equal(method, 'POST');
       assert.equal(path, '/decks/deck-1/logs');
-      assert.deepEqual(body, { rawLog: 'RAW', source: 'deckpal-mcp' });
+      assert.deepEqual(body, { rawLog: 'RAW', origin: 'ptcgl', source: 'deckpal-mcp' });
       return {
         attachedToVersion: 2,
         log: {
@@ -218,10 +260,13 @@ test('add_battle_log dry_run:false forwards optional overrides only when given',
     send: (method, path, body) => {
       assert.deepEqual(body, {
         rawLog: 'RAW',
+        origin: 'ptcgl',
         result: 'loss',
         playerName: 'Me',
         opponentDeck: 'Dragapult ex',
+        opponentArchetype: "N's Zoroark ex",
         notes: 'misplayed t3',
+        reviewMd: '## Review\nSequence the gust first.',
         source: 'deckpal-mcp',
       });
       return {
@@ -246,12 +291,54 @@ test('add_battle_log dry_run:false forwards optional overrides only when given',
   });
 
   const res = await byName('add_battle_log').handler(
-    { deck_id: 'Toolbox Slowking', log: 'RAW', result: 'loss', player_name: 'Me', opponent_deck: 'Dragapult ex', notes: 'misplayed t3', dry_run: false },
+    {
+      deck_id: 'Toolbox Slowking', log: 'RAW', result: 'loss', player_name: 'Me',
+      opponent_deck: 'Dragapult ex', opponent_archetype: "N's Zoroark ex",
+      notes: 'misplayed t3', review: '## Review\nSequence the gust first.', dry_run: false,
+    },
     makeCtx(api),
   );
 
   assert.equal(res.isError, undefined);
   assert.match(res.text, /Logged battle #8/);
+});
+
+test('add_battle_log records an in-person game without log and attributes Deck-E', async () => {
+  const api = stubApi({
+    get: (path) => {
+      if (path === '/decks') return DECKS;
+      if (path === '/decks/deck-1/logs?version=2&pageSize=1') return { totals: { total: 1, wins: 1, losses: 0, ties: 0 } };
+      throw new Error(`unexpected get ${path}`);
+    },
+    send: (_method, path, body) => {
+      assert.equal(path, '/decks/deck-1/logs');
+      assert.deepEqual(body, {
+        origin: 'in_person', result: 'win', opponentDeck: 'Gardevoir ex',
+        opponentArchetype: 'Gardevoir ex', notes: 'I topdecked the gust.',
+        reviewMd: '## Read\nThe prize map held.', source: 'deck-e',
+      });
+      return {
+        attachedToVersion: 2,
+        log: {
+          id: 9, deckVersion: 2, result: 'win', opponent: null,
+          opponentDeck: 'Gardevoir ex', opponentArchetype: 'gardevoir-ex', origin: 'in_person',
+          turns: null, prizes: null, notes: 'I topdecked the gust.', reviewMd: '## Read\nThe prize map held.',
+          playedAt: '2026-10-10T00:00:00.000Z', source: 'deck-e', rawLog: null,
+          parsed: null, createdAt: '2026-10-10T00:00:00.000Z',
+        },
+      };
+    },
+  });
+  const ctx = { ...makeCtx(api), source: 'deck-e' };
+
+  const res = await byName('add_battle_log').handler({
+    deck_id: 'Toolbox Slowking', origin: 'in_person', result: 'win',
+    opponent_deck: 'Gardevoir ex', opponent_archetype: 'Gardevoir ex',
+    notes: 'I topdecked the gust.', review: '## Read\nThe prize map held.', dry_run: false,
+  }, ctx);
+
+  assert.equal(res.isError, undefined, res.text);
+  assert.match(res.text, /Logged battle #9/);
 });
 
 // ── edit_battle_log: the APPLY path ─────────────────────────────────────────
@@ -266,7 +353,9 @@ test('edit_battle_log dry_run:false applies and recomputes the version record', 
     send: (method, path, body) => {
       assert.equal(method, 'PATCH');
       assert.equal(path, '/decks/deck-1/logs/7');
-      assert.deepEqual(body, { result: 'loss', notes: 'new notes' });
+      assert.deepEqual(body, {
+        result: 'loss', opponentArchetype: 'Dragapult ex', notes: 'new notes', reviewMd: 'new review', source: 'deckpal-mcp',
+      });
       return {
         log: {
           id: 7,
@@ -288,7 +377,10 @@ test('edit_battle_log dry_run:false applies and recomputes the version record', 
   });
 
   const res = await byName('edit_battle_log').handler(
-    { deck_id: 'Toolbox Slowking', log_id: 7, result: 'loss', notes: 'new notes', dry_run: false },
+    {
+      deck_id: 'Toolbox Slowking', log_id: 7, result: 'loss',
+      opponent_archetype: 'Dragapult ex', notes: 'new notes', review: 'new review', dry_run: false,
+    },
     makeCtx(api),
   );
 
@@ -320,7 +412,7 @@ test('edit_battle_log null CLEARS a field explicitly — omitted and null are di
       throw new Error(`unexpected get ${path}`);
     },
     send: (method, path, body) => {
-      assert.deepEqual(body, { opponent: null });
+      assert.deepEqual(body, { opponent: null, source: 'deckpal-mcp' });
       return {
         log: {
           id: 7,

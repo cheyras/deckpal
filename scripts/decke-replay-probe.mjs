@@ -9,7 +9,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { performance } from 'node:perf_hooks'
 import { createGateway } from '@ai-sdk/gateway'
-import { stepCountIs, streamText, tool } from 'ai'
+import { hasToolCall, stepCountIs, streamText, tool } from 'ai'
 import { MockLanguageModelV3 } from 'ai/test'
 import { z } from 'zod'
 
@@ -25,11 +25,41 @@ const WRITE_NAMES = new Set([
   'deck_history', 'revert',
 ])
 const DATA_TOOLS = new Set()
+// Mirrors apps/api/src/decke/stopRule.ts COSMETIC_TOOLS: every other tool call
+// makes a step a DATA step for the progress metrics below. Pinned against the
+// built module by the probe's tests.
+export const COSMETIC_TOOLS = new Set(['express', 'showScreen'])
+// The 'progress-between-batches' line, aligned with production (review,
+// 2026-10-10). SILENT_RUN_LIMIT is the longest silent run that passes, and it
+// IS apps/api/src/decke/progressNudge.ts SILENT_DATA_STEPS: production nudges
+// as a run reaches the limit, before the step that would cross it. A turn is
+// LONG once it has enough data steps for a run to cross it — one more than the
+// limit — so every turn this grader can fail is one production had the chance
+// to nudge. (The first cut graded long at three and nudged at four: three
+// silent lookups failed here while production never asked him to speak.) The
+// tests pin both numbers to the built module.
+export const SILENT_RUN_LIMIT = 3
+export const LONG_TURN_DATA_STEPS = SILENT_RUN_LIMIT + 1
+// Mirrors api/chat.mjs MAX_STEPS (a local there, not exported).
+const MAX_STEPS = 24
 const STOPWORDS = new Set('a an and are as at be by current do doing for from how i in is it its look meta my of on or pokemon tcg the this to up was what with you your'.split(' '))
 
+/**
+ * `--name value` or `--name=value`. The equals form used to be ignored
+ * silently, so `--progress-nudge=off` ran the arm with the nudge ON and
+ * `--n=3` ran one sample (review, 2026-10-10). A flag given with no value is an
+ * error for the same reason: falling back to the default is a different run
+ * from the one that was asked for.
+ */
 function argvValue(argv, name, fallback) {
+  const prefix = `--${name}=`
+  const joined = argv.filter((arg) => arg.startsWith(prefix))
   const i = argv.indexOf(`--${name}`)
-  return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : fallback
+  if (joined.length + (i >= 0 ? 1 : 0) > 1) throw new Error(`--${name} was given more than once`)
+  if (joined.length) return joined[0].slice(prefix.length)
+  if (i < 0) return fallback
+  if (!argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`--${name} needs a value`)
+  return argv[i + 1]
 }
 
 export function parseArgs(argv = process.argv.slice(2)) {
@@ -40,15 +70,44 @@ export function parseArgs(argv = process.argv.slice(2)) {
   const n = Number(argvValue(argv, 'n', '1'))
   if (!Number.isFinite(budgetUsd) || budgetUsd < 0) throw new Error('--budget-usd must be a non-negative number')
   if (!Number.isInteger(n) || n < 1) throw new Error('--n must be a positive integer')
+  const models = argvValue(argv, 'models', mock ? 'mock' : 'anthropic/claude-sonnet-5.5').split(',').filter(Boolean)
+  const armsArg = argvValue(argv, 'arms', '')
+  const arms = armsArg ? parseArms(armsArg) : models.map((model) => ({ model, effort: null, id: model }))
+  // On by default because production nudges (api/chat.mjs); `off` is the A/B
+  // control for measuring what the nudge itself buys.
+  const progressNudge = argvValue(argv, 'progress-nudge', 'on')
+  if (!['on', 'off'].includes(progressNudge)) throw new Error(`--progress-nudge must be on or off, not '${progressNudge}'`)
   return {
     mock,
     replay,
     budgetUsd,
     n,
-    models: argvValue(argv, 'models', mock ? 'mock' : 'anthropic/claude-sonnet-5.5').split(',').filter(Boolean),
+    models,
+    arms,
+    progressNudge: progressNudge === 'on',
     scenarios: argvValue(argv, 'scenarios', '').split(',').filter(Boolean),
     out: resolve(argvValue(argv, 'out', resolve(REPO, 'tmp/decke-replay-probe'))),
   }
+}
+
+/**
+ * An arm is deliberately a tiny string rather than a second config file: model
+ * ids already contain slashes but not `@`, so the final suffix is unambiguous.
+ * 2026-10-10: effort is only sent to Anthropic. Keeping it on other arms in the
+ * report is useful for spotting a bad invocation, but silently forwarding an
+ * Anthropic-only option to another provider is not.
+ */
+export function parseArms(value) {
+  const efforts = new Set(['low', 'medium', 'high'])
+  return String(value ?? '').split(',').filter(Boolean).map((raw) => {
+    if (raw === 'routed') return { model: 'routed', effort: null, id: 'routed', routed: true }
+    const at = raw.lastIndexOf('@')
+    const model = at < 0 ? raw : raw.slice(0, at)
+    const effort = at < 0 ? null : raw.slice(at + 1)
+    if (!model) throw new Error(`Invalid arm: ${raw}`)
+    if (effort != null && !efforts.has(effort)) throw new Error(`Invalid effort in arm '${raw}'; use low, medium, or high`)
+    return { model, effort, id: effort ? `${model}@${effort}` : model }
+  })
 }
 
 const norm = (value) => JSON.stringify(value ?? {}, Object.keys(value ?? {}).sort())
@@ -84,12 +143,73 @@ function isDataRead(call) {
   return DATA_TOOLS.has(call.name) && !WRITE_NAMES.has(call.name) && call.name !== 'check_deck'
 }
 
+/**
+ * Does Deck-E speak between groups of lookups, or is it "a solid minute of tool
+ * calls then one response" (the owner, 2026-10-10)?
+ *
+ * Read from a turn's STEP timeline — `{ text, tools, nudged?, approval? }` per
+ * model step, in order — because a turn's joined text cannot say whether a
+ * sentence came before the fifth lookup or after the last one.
+ * - dataSteps: steps that call any tool beyond express/showScreen.
+ * - longestSilentRun: the longest run of data steps with no visible text in
+ *   any of them. Text ends a run; a silent cosmetic-only step neither ends nor
+ *   extends one — the same rule apps/api/src/decke/progressNudge.ts fires on.
+ *   An approval card ends a run too: the reader saw it and answered it.
+ * - interimLines: steps with visible text that are followed by a data step —
+ *   their own (text streams before a step's tool calls) or a later one. The
+ *   gateway probe's `visibleTextBeforeOrBetweenTools` draws the same line.
+ * - nudges: steps the progress nudge preceded.
+ * - earlyStop: the turn looked things up and ended WITHOUT an answer to them —
+ *   nothing said after the last lookup, or only the line that answered a
+ *   nudge, in a step that also called a tool (so the loop was cut right after
+ *   the progress line rather than ending on it). That second shape is the
+ *   review's blocker: "Two losses to Dragapult so far — checking your list
+ *   next." plus a face, as the whole reply. A turn handed to the reader or the
+ *   browser (`handoff`: ask_user, a client tool) is not an early stop.
+ * - endedOnNudge: the turn's LAST step answered a nudge with words and no
+ *   tool. Not graded — that line may be the whole answer, or it may be "now
+ *   looking up Bob." and nothing after, which no transcript check can tell
+ *   apart — but counted, so a report can say how often the reply was the
+ *   nudged line and someone can read those turns.
+ */
+export function progressMetrics(timeline) {
+  const steps = Array.isArray(timeline) ? timeline : []
+  const spoke = (step) => String(step?.text ?? '').trim().length > 0
+  const isData = (step) => (step?.tools ?? []).some((name) => !COSMETIC_TOOLS.has(name))
+  let lastData = -1
+  let dataSteps = 0
+  let run = 0
+  let longestSilentRun = 0
+  let nudges = 0
+  steps.forEach((step, index) => {
+    if (isData(step)) {
+      dataSteps++
+      lastData = index
+    }
+    if (step?.nudged) nudges++
+    if (spoke(step)) run = 0
+    else if (isData(step)) longestSilentRun = Math.max(longestSilentRun, ++run)
+    if (step?.approval) run = 0
+  })
+  const interimLines = steps.filter((step, index) => spoke(step) && index <= lastData).length
+  const answeredAfter = steps.some((step, index) => index > lastData && spoke(step)
+    && !(step?.nudged && (step?.tools ?? []).length > 0))
+  const earlyStop = dataSteps > 0 && !steps.at(-1)?.handoff && !answeredAfter
+  const last = steps.at(-1)
+  const endedOnNudge = Boolean(last?.nudged && spoke(last) && !(last?.tools ?? []).length)
+  return { dataSteps, longestSilentRun, interimLines, nudges, earlyStop, endedOnNudge }
+}
+
+/** The 'progress-between-batches' line; short turns pass trivially. */
+const progressHolds = (p) => p.dataSteps < LONG_TURN_DATA_STEPS || (p.interimLines >= 1 && p.longestSilentRun <= SILENT_RUN_LIMIT)
+
 export const METRIC_COLUMNS = [
   'tool_calls', 'feedback_tool_calls', 'web_research_calls', 'repeat_research_calls',
   'repeated_reads', 'expects_deck_turns', 'check_before_show', 'full_lists_proposed',
   'show_deck_for_full_list', 'show_deck_60', 'text_decklists', 'asks_for_tool_data',
-  'false_refusals', 'expects_write_turns', 'write_calls', 'ttft_ms', 'total_ms',
-  'output_tokens', 'cost_usd', 'cache_read_tokens', 'cache_write_tokens',
+  'false_refusals', 'expects_write_turns', 'write_calls',
+  'data_steps', 'interim_lines', 'longest_silent_run', 'progress_nudges', 'early_stops', 'ttft_ms', 'total_ms',
+  'input_tokens', 'output_tokens', 'cost_usd', 'cache_read_tokens', 'cache_write_tokens',
 ]
 
 export function scoreTranscript(turns) {
@@ -133,8 +253,16 @@ export function scoreTranscript(turns) {
       m.expects_write_turns++
       m.write_calls += calls.filter((call) => WRITE_NAMES.has(call.name)).length
     }
+    const progress = progressMetrics(turn.timeline)
+    m.data_steps += progress.dataSteps
+    m.interim_lines += progress.interimLines
+    // A maximum, not a sum: two short silences are not one long one.
+    m.longest_silent_run = Math.max(m.longest_silent_run, progress.longestSilentRun)
+    m.progress_nudges += progress.nudges
+    m.early_stops += progress.earlyStop ? 1 : 0
     m.ttft_ms += Number(turn.ttft_ms) || 0
     m.total_ms += Number(turn.total_ms) || 0
+    m.input_tokens += Number(turn.input_tokens) || 0
     m.output_tokens += Number(turn.output_tokens) || 0
     m.cost_usd += Number(turn.cost_usd) || 0
     m.cache_read_tokens += Number(turn.cache_read_tokens) || 0
@@ -143,6 +271,324 @@ export function scoreTranscript(turns) {
   for (const key of ['ttft_ms', 'total_ms']) m[key] = turns.length ? Math.round(m[key] / turns.length) : 0
   m.cost_usd = Number(m.cost_usd.toFixed(8))
   return m
+}
+
+const callNamed = (turn, name) => (turn.calls ?? []).filter((call) => call.name === name)
+const callIndex = (turn, name) => (turn.calls ?? []).findIndex((call) => call.name === name)
+const approvalRaised = (turn, name) => callNamed(turn, name).some((call) => call.approved === true || call.approval_requested === true)
+const approvedCall = (turn, name) => callNamed(turn, name).some((call) => call.approved === true)
+const allWritesApproved = (turn) => (turn.calls ?? []).filter((call) => WRITE_NAMES.has(call.name))
+  .every((call) => call.approved === true)
+
+function replyAndNotes(turn, name) {
+  return [turn.text ?? '', ...callNamed(turn, name).map((call) => call.input?.notes ?? '')].join('\n')
+}
+
+function answerOverlap(turn) {
+  const answerWords = tokens(turn.user)
+  const noteWords = tokens(replyAndNotes(turn, 'add_battle_log'))
+  let overlap = 0
+  for (const word of answerWords) if (noteWords.has(word)) overlap++
+  return overlap
+}
+
+/**
+ * Markdown emphasis is presentation, not content: `1. **+1 Counter Catcher.**`
+ * is the same edit as `1. +1 Counter Catcher.`, and scored 0 while the plain
+ * line scored 1 (2026-10-10). Strip it before any pattern looks at the line.
+ */
+const stripEmphasis = (line) => line.replace(/[*_~]+/g, '')
+
+export function proposedChangeCount(text) {
+  const edits = String(text ?? '').split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:(?:[-*•])\s+|\d+[.)]\s+)/, ''))
+    .map((line) => stripEmphasis(line).replace(/^\s*(?:(?:[-•])\s+|\d+[.)]\s+)/, '').trim())
+    .filter(Boolean)
+
+  const labelDirection = (line) => line.match(/^(?:[*_~]+)?(in|out)(?:[*_~]+)?\s*:(?:[*_~]+)?\s*\S/i)?.[1]?.toLowerCase()
+  // A sign embedded in an identifier (for example `Sv04-160`) is not an edit.
+  const quantityIn = (line) => /(?:^|[\s,;(])\+\s*\d+\s+(?:x\s+)?\S/i.test(line)
+  const quantityOut = (line) => /(?:^|[\s,;(])[−–-]\s*\d+\s+(?:x\s+)?\S/i.test(line)
+
+  let count = 0
+  for (let i = 0; i < edits.length; i++) {
+    const edit = edits[i]
+
+    // A compact "+N this, -N that" swap is one proposed change, even when a
+    // heading precedes it or the subtraction uses a typographic minus sign.
+    if (quantityIn(edit) && quantityOut(edit)) {
+      count++
+      continue
+    }
+
+    // An explicit in/out pair describes one replacement, whether it is kept
+    // on one line or formatted as two adjacent list lines.
+    if (/^(?:[*_~]+)?(?:in|out)(?:[*_~]+)?\s*:(?:[*_~]+)?\s*\S.+?\s*(?:\/|\||;)\s*(?:[*_~]+)?(?:in|out)(?:[*_~]+)?\s*:(?:[*_~]+)?\s*\S/i.test(edit)) {
+      count++
+      continue
+    }
+    const direction = labelDirection(edit)
+    if (direction) {
+      const nextDirection = labelDirection(edits[i + 1] ?? '')
+      count++
+      if (nextDirection && nextDirection !== direction) i++
+      continue
+    }
+
+    // These are deliberately line-shaped list edits. Do not count prose that
+    // merely discusses a card being "in" hand, "out" of play, or a change.
+    if (quantityIn(edit) || quantityOut(edit)
+      || /^(?:add|cut)\b\s+(?:(?:\d+|one|two|three|four)\s+)?\S/i.test(edit)
+      || /^(?:swap|replace)\b\s+.+\s+\b(?:for|with)\b\s+.+$/i.test(edit)
+      || /^.{1,60}\s+(?:→|->)\s+.{1,60}$/.test(edit)
+      || /^(?:go\s+up|drop)\s+to\s+\d+\s+\S/i.test(edit)) count++
+  }
+  return count
+}
+
+/**
+ * Expectations are intentionally deterministic transcript checks, not another
+ * model grading the first model. A failure says what was absent so a replay is
+ * useful in CI and in a raw results file without opening the conversation.
+ */
+export function gradeExpectation(tag, turn, turnIndex = 0, turns = [turn]) {
+  const calls = turn.calls ?? []
+  const priorCalls = turns.slice(0, turnIndex).flatMap((item) => item.calls ?? [])
+  const combined = replyAndNotes(turn, 'add_battle_log')
+  let pass = false
+  let detail = ''
+  switch (tag) {
+    case 'battle-log-pasted':
+      pass = callNamed(turn, 'add_battle_log').some((call) => call.input?.log === '@pasted')
+      detail = 'expected add_battle_log with log "@pasted"'
+      break
+    case 'approved-battle-log':
+      pass = approvalRaised(turn, 'add_battle_log')
+      detail = 'expected an approval request for add_battle_log'
+      break
+    case 'short-battle-note':
+      pass = String(turn.text ?? '').length <= 800 && callNamed(turn, 'add_battle_log').some((call) => String(call.input?.notes ?? '').trim().length > 0 && String(call.input.notes).length <= 500)
+      detail = 'expected a reply under 800 characters and a battle note under 500 characters'
+      break
+    case 'turning-point-from-log': {
+      const event = /\b(?:turn|knock(?:ed)? out|prize|conced|attached|attack)\b/i.test(combined)
+      const facts = tokens(turn.user)
+      const used = tokens(combined)
+      let overlap = 0
+      for (const word of facts) if (used.has(word)) overlap++
+      pass = event && overlap >= 2
+      detail = 'expected a turning-point event tied to at least two words from the pasted log'
+      break
+    }
+    case 'ask-before-battle-log':
+      pass = callNamed(turn, 'ask_user').some((call) => {
+        const count = call.input?.questions?.length ?? 0
+        return count >= 2 && count <= 4
+      }) && (callIndex(turn, 'add_battle_log') < 0 || callIndex(turn, 'ask_user') < callIndex(turn, 'add_battle_log'))
+      detail = 'expected ask_user with 2–4 questions before any add_battle_log call'
+      break
+    case 'battle-note-from-answers':
+      pass = callNamed(turn, 'add_battle_log').some((call) => String(call.input?.notes ?? '').trim()) && answerOverlap(turn) >= 2
+      detail = 'expected add_battle_log notes to reflect at least two terms from the reader answers'
+      break
+    case 'deck-intake-first': {
+      const proposedDirections = /\b(?:two (?:ways|directions)|either\b[^.?!]{0,100}\bor\b)/i.test(turn.text ?? '')
+      pass = (callIndex(turn, 'ask_user') >= 0 || proposedDirections) && !calls.some((call) => ['check_deck', 'showDeck'].includes(call.name)) && !hasTextDeckList(turn.text)
+      detail = 'expected ask_user or a concrete either/or proposal before any full deck'
+      break
+    }
+    case 'checked-deck-widget': {
+      const check = callIndex(turn, 'check_deck')
+      const show = callIndex(turn, 'showDeck')
+      pass = check >= 0 && show > check && deckTotal(calls[show]) === 60 && !hasTextDeckList(turn.text)
+      detail = 'expected check_deck before a 60-card showDeck and no typed deck list'
+      break
+    }
+    case 'iteration-evidence':
+      pass = calls.some((call) => ['battle_logs', 'deck_history'].includes(call.name))
+      detail = 'expected battle_logs or deck_history'
+      break
+    case 'at-most-two-changes': {
+      // At MOST two. Zero is a legitimate review when the evidence supports no
+      // change, and a grader that demands one teaches the model to invent it.
+      // The scenario's other checks (the evidence it read, no unapproved save)
+      // still have to pass.
+      const count = proposedChangeCount(turn.text)
+      pass = count <= 2
+      detail = `expected at most two proposed changes; found ${count}`
+      break
+    }
+    case 'no-unapproved-save':
+      pass = callNamed(turn, 'save_deck').length === 0 || approvedCall(turn, 'save_deck')
+      detail = 'expected no save_deck call without approval'
+      break
+    case 'set-progress':
+      pass = callIndex(turn, 'set_progress') >= 0
+      detail = 'expected set_progress'
+      break
+    case 'missing-list-under-five':
+      pass = callNamed(turn, 'edit_list').some((call) => call.input?.add_missing && Number(call.input.add_missing.max_price_usd) === 5) && approvalRaised(turn, 'edit_list')
+      detail = 'expected an approved edit_list with add_missing and max_price_usd 5'
+      break
+    case 'catalog-card-lookup':
+      pass = calls.some((call) => ['get_card', 'search_cards'].includes(call.name))
+      detail = 'expected get_card or search_cards'
+      break
+    case 'exactly-one-research':
+      pass = callNamed(turn, 'web_research').length >= 1 && callNamed(turn, 'web_research').length <= 2
+      detail = `expected one or two web_research calls; found ${callNamed(turn, 'web_research').length}`
+      break
+    case 'dated-answer':
+      pass = /\b(?:20\d{2}|Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b/i.test(turn.text ?? '')
+      detail = 'expected a calendar date or year in the answer'
+      break
+    case 'navigation-only':
+      pass = calls.some((call) => ['goTo', 'escort'].includes(call.name)) && !calls.some((call) => WRITE_NAMES.has(call.name))
+      detail = 'expected goTo or escort and no data write'
+      break
+    case 'small-talk-only':
+      pass = calls.every((call) => call.name === 'express')
+      detail = 'expected no tools beyond express'
+      break
+    case 'no-web-research':
+      pass = callNamed(turn, 'web_research').length === 0
+      detail = 'expected no web_research call'
+      break
+    case 'write-guard-checks': {
+      const show = callIndex(turn, 'showDeck')
+      const check = callIndex(turn, 'check_deck')
+      pass = allWritesApproved(turn) && (show < 0 || (check >= 0 && check < show))
+      detail = 'expected every write approved and check_deck before any showDeck'
+      break
+    }
+    case 'battle-review-evidence':
+      pass = calls.some((call) => call.name === 'battle_logs') && calls.some((call) => call.name === 'deck_history')
+      detail = 'expected both battle_logs and deck_history'
+      break
+    case 'no-data-writes':
+      pass = !calls.some((call) => WRITE_NAMES.has(call.name))
+      detail = 'expected no data writes'
+      break
+    case 'general-helpful':
+      pass = String(turn.text ?? '').trim().length > 0 && !calls.some((call) => WRITE_NAMES.has(call.name))
+      detail = 'expected a non-empty answer with no data writes'
+      break
+    case 'progress-between-batches': {
+      // No timeline is no evidence, and no evidence must not read as a pass.
+      if (!Array.isArray(turn.timeline)) {
+        detail = 'expected a recorded step timeline'
+        break
+      }
+      const p = progressMetrics(turn.timeline)
+      pass = progressHolds(p)
+      detail = `expected an interim line and at most ${SILENT_RUN_LIMIT} silent data steps in a row on a turn of ${LONG_TURN_DATA_STEPS}+ data steps; found ${p.interimLines} interim line(s) and a silent run of ${p.longestSilentRun} across ${p.dataSteps} data steps`
+      break
+    }
+    default:
+      detail = `unknown expectation tag: ${tag}`
+  }
+  return { tag, pass, detail: pass ? '' : detail, prior_call_count: priorCalls.length }
+}
+
+export function gradeScenario(turns) {
+  const checks = turns.flatMap((turn, turnIndex) => (turn.expectations ?? []).map((tag) => ({
+    turn: turnIndex + 1,
+    ...gradeExpectation(tag, turn, turnIndex, turns),
+  })))
+  return { pass: checks.every((check) => check.pass), checks }
+}
+
+export function summarizeScenarioResults(runs) {
+  const groups = new Map()
+  for (const run of runs) {
+    const key = `${run.arm ?? run.model}\u0000${run.replay}\u0000${run.scenario}`
+    const group = groups.get(key) ?? { arm: run.arm ?? run.model, model: run.model, effort: run.effort ?? null, replay: run.replay, scenario: run.scenario, samples: 0, passed: 0, cost: 0 }
+    group.samples++
+    group.passed += run.grade?.pass ? 1 : 0
+    group.cost += scoreTranscript(run.turns).cost_usd
+    groups.set(key, group)
+  }
+  return [...groups.values()].map((group) => ({
+    arm: group.arm,
+    model: group.model,
+    effort: group.effort,
+    replay: group.replay,
+    scenario: group.scenario,
+    samples: group.samples,
+    passed: group.passed,
+    pass_rate: group.samples ? group.passed / group.samples : 0,
+    pass_k: group.samples > 0 && group.passed === group.samples,
+    mean_cost_usd: group.samples ? Number((group.cost / group.samples).toFixed(8)) : 0,
+    cost_per_passed_run_usd: group.passed ? Number((group.cost / group.passed).toFixed(8)) : null,
+  }))
+}
+
+export function summarizeArmResults(runs) {
+  const groups = new Map()
+  for (const run of runs) {
+    const arm = run.arm ?? run.model
+    const group = groups.get(arm) ?? { arm, samples: 0, passed: 0, cost: 0, turns: 0, tiers: {} }
+    group.samples++
+    group.passed += run.grade?.pass ? 1 : 0
+    group.cost += scoreTranscript(run.turns).cost_usd
+    for (const turn of run.turns) {
+      group.turns++
+      if (turn.tier) group.tiers[turn.tier] = (group.tiers[turn.tier] ?? 0) + 1
+    }
+    groups.set(arm, group)
+  }
+  return [...groups.values()].map((group) => ({
+    arm: group.arm,
+    samples: group.samples,
+    passed: group.passed,
+    pass_rate: group.samples ? group.passed / group.samples : 0,
+    pass_k: group.samples > 0 && group.passed === group.samples,
+    cost_per_scenario_usd: group.samples ? Number((group.cost / group.samples).toFixed(8)) : 0,
+    cost_per_passed_run_usd: group.passed ? Number((group.cost / group.passed).toFixed(8)) : null,
+    tier_mix: Object.fromEntries(['quick', 'standard', 'deep'].map((tier) => [
+      tier,
+      group.turns ? Number((((group.tiers[tier] ?? 0) / group.turns) * 100).toFixed(4)) : 0,
+    ])),
+  }))
+}
+
+/**
+ * Progress between batches per arm, over EVERY turn rather than only the
+ * tagged ones: a long silent turn in a scenario nobody tagged is still the
+ * owner's complaint. Only turns with LONG_TURN_DATA_STEPS or more data steps
+ * have batches to speak between, so the rate and the mean are over those.
+ */
+export function summarizeProgress(runs) {
+  const groups = new Map()
+  for (const run of runs) {
+    const arm = run.arm ?? run.model
+    const group = groups.get(arm) ?? { arm, turns: 0, long_turns: 0, long_turns_with_progress: 0, interim_lines: 0, longest_silent_run: 0, progress_nudges: 0, early_stops: 0, ended_on_nudge: 0 }
+    for (const turn of run.turns ?? []) {
+      const p = progressMetrics(turn.timeline)
+      group.turns++
+      group.progress_nudges += p.nudges
+      group.early_stops += p.earlyStop ? 1 : 0
+      group.ended_on_nudge += p.endedOnNudge ? 1 : 0
+      group.longest_silent_run = Math.max(group.longest_silent_run, p.longestSilentRun)
+      if (p.dataSteps < LONG_TURN_DATA_STEPS) continue
+      group.long_turns++
+      group.interim_lines += p.interimLines
+      if (progressHolds(p)) group.long_turns_with_progress++
+    }
+    groups.set(arm, group)
+  }
+  return [...groups.values()].map((group) => ({
+    arm: group.arm,
+    turns: group.turns,
+    long_turns: group.long_turns,
+    long_turns_with_progress: group.long_turns_with_progress,
+    progress_rate: group.long_turns ? Number((group.long_turns_with_progress / group.long_turns).toFixed(4)) : null,
+    interim_lines_per_long_turn: group.long_turns ? Number((group.interim_lines / group.long_turns).toFixed(4)) : null,
+    longest_silent_run: group.longest_silent_run,
+    progress_nudges: group.progress_nudges,
+    early_stops: group.early_stops,
+    ended_on_nudge: group.ended_on_nudge,
+  }))
 }
 
 function fixtureDeckCheck(world, input) {
@@ -207,8 +653,271 @@ function cardRows(world, ownedOnly = false) {
   return cards.map((card) => `${card.id} — ${card.name} · owned ${card.owned} · $${card.price.toFixed(2)}`).join('\n')
 }
 
-function fixtureOutput(name, input, world, writes) {
+// ── Battle logs v2 in the fixture world (2026-10-10) ────────────────────────
+//
+// The battle_log pathway now runs log → battle number → `battle_digest` →
+// `consult` → `edit_battle_log`, and picks its depth from the per-archetype
+// record. A fixture that answered every write with "recorded" and every digest
+// with "no matching rows" would leave that whole path unexercised, so the
+// fixture keeps the games logged in THIS conversation (`helpers.state.logged`,
+// reset per conversation) and answers from them with the real code: the paste
+// is the one `extractPastedLog` finds in the conversation (what the adapter
+// substitutes for `@pasted` in production), the owner and result come from the
+// real `parseBattleLog`, and the digest is the real `digestBattleLog` rendered
+// by the real `renderBattleDigest`. The world's older games carry no raw log,
+// so digesting one says so, as the real tool does for a log stored without one.
+function fixtureDeck(world, ref) {
+  const q = String(ref ?? '').trim().toLowerCase()
+  if (!q) return null
+  return world.decks.find((deck) => deck.id.toLowerCase() === q || deck.name.toLowerCase() === q)
+    ?? world.decks.find((deck) => deck.name.toLowerCase().includes(q) || q.includes(deck.name.toLowerCase()))
+    ?? null
+}
+
+function fixtureDeckCardNames(world, deck) {
+  const byId = new Map(world.collection.cards.map((card) => [card.id.toLowerCase(), card.name]))
+  return (deck?.cards ?? []).map((row) => byId.get(String(row.card_id).toLowerCase())).filter(Boolean)
+}
+
+const fixtureVersion = (deck) => deck?.versions?.at(-1)?.version ?? deck?.version ?? 1
+const trunc = (text, n) => (text.length <= n ? text : `${text.slice(0, n - 1)}…`)
+
+/** Every game on a deck: the world's (ids 1..n, no raw log) and this conversation's. */
+function fixtureLogs(world, deck, helpers) {
+  const archetypeOf = (label) => (label ? helpers.battlelog.normalizeOpponentArchetype(label) : null)
+  const older = world.battle_logs.map((log, index) => ({
+    id: index + 1, deck_id: log.deck_id, version: log.version ?? 1, result: String(log.result).toLowerCase(),
+    opponent: null, opponent_deck: log.opponent, opponent_archetype: archetypeOf(log.opponent),
+    origin: 'ptcgl', notes: log.note, review: null, raw: null,
+  }))
+  return [...older, ...helpers.state.logged].filter((log) => !deck || log.deck_id === deck.id)
+}
+
+function fixtureBattleOutput(name, input, world, writes, helpers) {
+  const { battlelog, state } = helpers
+  if (name === 'add_battle_log') {
+    const origin = input.origin ?? (input.log !== undefined ? 'ptcgl' : undefined)
+    if (!input.deck_id) {
+      if (origin !== 'ptcgl') return 'add_battle_log failed: deck_id is required for an in-person or other game because there is no pasted log to rank against your decks.'
+      return [
+        'Parsed fixture log. Ranked candidate decks; nothing was written.',
+        ...world.decks.slice(0, 3).map((deck, index) => `${index + 1}. ${deck.id} — ${deck.name}`),
+        'Call add_battle_log again with the chosen deck_id and dry_run:false.',
+      ].join('\n')
+    }
+    if (input.dry_run !== false) return null
+    const deck = fixtureDeck(world, input.deck_id)
+    if (!deck) return `add_battle_log failed: No deck '${input.deck_id}'`
+    let raw = null
+    if (origin === 'ptcgl') {
+      raw = input.log === '@pasted' ? helpers.extractPastedLog(state.messages) : (input.log ?? null)
+      if (!raw) return 'add_battle_log: no pasted log found in this conversation — ask the reader to paste the full PTCG Live battle log.'
+    }
+    const parsed = raw ? battlelog.parseBattleLog(raw, fixtureDeckCardNames(world, deck), input.player_name) : null
+    const result = input.result ?? parsed?.result ?? null
+    const opponentDeck = input.opponent_deck ?? parsed?.opponentDeckGuess ?? null
+    const log = {
+      id: 100 + state.logged.length + 1, deck_id: deck.id, version: fixtureVersion(deck), result,
+      opponent: parsed?.players?.opponent ?? null, opponent_deck: opponentDeck,
+      opponent_archetype: battlelog.normalizeOpponentArchetype(input.opponent_archetype ?? opponentDeck ?? '') || null,
+      origin, notes: input.notes ?? null, review: input.review ?? null, raw, me: parsed?.players?.me ?? null,
+    }
+    state.logged.push(log)
+    writes.push({ name, input })
+    const record = fixtureLogs(world, deck, helpers).filter((row) => row.version === log.version)
+    const count = (r) => record.filter((row) => row.result === r).length
+    return [
+      `Logged battle #${log.id} → attached to v${log.version} (the deck's current version).`,
+      [`${result ? result.toUpperCase() : 'NO RESULT'} vs ${log.opponent ?? 'unknown'}${opponentDeck ? ` (${opponentDeck})` : ''}`,
+        parsed ? `${parsed.totalTurns} turns` : null,
+        parsed ? `prizes ${parsed.prizesTaken.me}-${parsed.prizesTaken.opponent}` : null,
+        parsed ? `parser confidence ${parsed.confidence}` : null].filter(Boolean).join(' | '),
+      `v${log.version} record: ${count('win')}W–${count('loss')}L–${count('tie')}T (${record.length} log(s))`,
+      '(Fixture: approved by the fixture reader; no live data was changed.)',
+    ].join('\n')
+  }
+  if (name === 'edit_battle_log' && input.dry_run === false) {
+    const log = state.logged.find((row) => row.id === input.log_id)
+    if (log) for (const key of ['result', 'opponent_deck', 'notes', 'review']) if (input[key] !== undefined) log[key] = input[key]
+    if (log && input.opponent_archetype !== undefined) log.opponent_archetype = input.opponent_archetype ? battlelog.normalizeOpponentArchetype(input.opponent_archetype) : null
+    return null
+  }
+  if (name === 'battle_logs') {
+    const deck = fixtureDeck(world, input.deck_id)
+    const logs = fixtureLogs(world, deck, helpers)
+    if (input.log_id) {
+      const log = logs.find((row) => row.id === input.log_id)
+      if (!log) return `battle_logs failed: No battle log '${input.log_id}'`
+      return [`battle #${log.id} | v${log.version} | ${String(log.result ?? 'no result').toUpperCase()} vs ${log.opponent ?? 'unknown'}${log.opponent_deck ? ` (${log.opponent_deck})` : ''}`,
+        `archetype ${log.opponent_archetype ?? 'unclassified'} | origin ${log.origin}`,
+        `notes: ${log.notes ?? '(none)'}`, `review: ${log.review ?? '(none)'}`].join('\n')
+    }
+    const byArchetype = new Map()
+    for (const log of logs) {
+      if (!log.opponent_archetype) continue
+      const row = byArchetype.get(log.opponent_archetype) ?? { w: 0, l: 0, t: 0, n: 0 }
+      row.n++
+      if (log.result === 'win') row.w++
+      else if (log.result === 'loss') row.l++
+      else if (log.result === 'tie') row.t++
+      byArchetype.set(log.opponent_archetype, row)
+    }
+    const record = [...byArchetype].map(([key, row]) => `${key} ${row.w}W–${row.l}L–${row.t}T (${row.n})`).join(' · ')
+    return [
+      `${deck ? `'${deck.name}'` : 'all decks'} — ${logs.length} game(s)`,
+      `archetype record: ${record || 'none classified'}`,
+      ...[...logs].reverse().map((log) => [`#${log.id}`, `v${log.version}`,
+        `${String(log.result ?? 'no result').toUpperCase()} vs ${log.opponent ?? 'unknown'}${log.opponent_deck ? ` (${log.opponent_deck})` : ''}`,
+        `archetype ${log.opponent_archetype ?? 'unclassified'}`, `origin ${log.origin}`,
+        log.notes ? `note: ${trunc(log.notes, 40)}` : null].filter(Boolean).join(' | ')),
+    ].join('\n')
+  }
+  if (name === 'battle_digest') {
+    const deck = fixtureDeck(world, input.deck_id)
+    if (!deck) return `battle_digest failed: No deck '${input.deck_id}'`
+    const log = fixtureLogs(world, deck, helpers).find((row) => row.id === input.log_id)
+    if (!log) return `battle_digest failed: No battle log '${input.log_id}'`
+    if (!log.raw) {
+      const why = log.origin === 'in_person' ? 'this game was reported in person' : 'this game was logged without one'
+      return `Battle #${log.id}: no game log to digest — ${why}. Read its notes and saved review with battle_logs (log_id ${log.id}) instead.`
+    }
+    const digest = battlelog.digestBattleLog(log.raw, fixtureDeckCardNames(world, deck), { playerName: input.player_name ?? log.me ?? undefined })
+    return helpers.renderBattleDigest({ logId: log.id, deckVersion: log.version, origin: log.origin, result: log.result, digest }, deck.name)
+  }
+  return null
+}
+
+/**
+ * The fixture's mutable side, per conversation. Lists only: a list created in
+ * a run used to vanish — `edit_list` returned no id and `lists` never showed
+ * it — so a model that did the right thing (create, then add) could not
+ * finish. `meansCreate` is the real tool's own reading of `list_id`.
+ */
+export function createFixtureState(world, { meansCreate = (raw) => !String(raw ?? '').trim() } = {}) {
+  const state = {
+    lists: [],
+    created: 0,
+    meansCreate,
+    reset() {
+      state.lists = (world.lists ?? []).map((list) => ({ ...list, items: [...list.items] }))
+      state.created = 0
+    },
+  }
+  state.reset()
+  return state
+}
+
+function findList(state, ref) {
+  const want = String(ref ?? '').trim().toLowerCase()
+  return state.lists.find((list) => list.id.toLowerCase() === want || list.name.trim().toLowerCase() === want)
+}
+
+function listSummary(list) {
+  return `${list.name} | ${list.id} | ${list.kind} | ${list.items.length} item(s)`
+}
+
+function fixtureLists(input, world, state) {
+  if (!String(input.list_id ?? '').trim()) {
+    if (!state.lists.length) return 'No lists yet. Create one with edit_list.'
+    return [...state.lists.map(listSummary), `${state.lists.length} list(s)`].join('\n')
+  }
+  const list = findList(state, input.list_id)
+  if (!list) return `No list matches '${input.list_id}'. Call lists with no list_id to see them with their ids.`
+  const byId = new Map(world.collection.cards.map((card) => [card.id, card]))
+  const rows = list.items.map((id) => {
+    const card = byId.get(id)
+    return `  ${card?.name ?? id} | ${id} | own x${card?.owned ?? 0} | ${card ? `$${card.price.toFixed(2)}` : 'unpriced'} | item ${id}`
+  })
+  return [listSummary(list), ...(rows.length ? rows : ['(list is empty)'])].join('\n')
+}
+
+/** Mirrors packages/agent-tools edit_list's order of refusals and its output lines. */
+function fixtureEditList(input, world, writes, state) {
+  const { mode, list_id: listId, name, add_cards: addCards, add_missing: addMissing, remove_item_ids: removeIds } = input
+  const kind = input.kind ?? 'dynamic'
+  if (input.restore) return 'edit_list failed: the fixture has no deleted lists to restore.'
+  const wantsCreate = mode === 'create' || (mode !== 'edit' && state.meansCreate(listId))
+  if (mode === 'edit' && !String(listId ?? '').trim()) {
+    return "edit_list failed: mode 'edit' needs list_id — which list? Call `lists` to see them with their ids, or use mode 'create' with a name to make a new one."
+  }
+  const current = wantsCreate ? null : findList(state, listId)
+  if (!wantsCreate && !current) {
+    return `edit_list failed: No list '${listId}'.${name ? ` To CREATE a new list called '${name}' instead, call edit_list again with NO list_id at all.` : ' To CREATE a new list, call edit_list with no list_id and a name.'}`
+  }
+  if (!current && !name) return 'edit_list failed: name is required to create a list.'
+  // The real tool refuses this before any dry run: add_missing needs a list
+  // that already exists.
+  if (addMissing && !current) return 'edit_list failed: add_missing needs an existing list_id — create the list first, then add to it.'
+  const byId = new Map(world.collection.cards.map((card) => [card.id.toLowerCase(), card]))
+  const byName = new Map(world.collection.cards.map((card) => [card.name.toLowerCase(), card]))
+  const adds = (addCards ?? []).map((entry) => {
+    const card = entry.card_id ? byId.get(String(entry.card_id).toLowerCase()) : byName.get(String(entry.name ?? '').toLowerCase())
+    return card ? { ok: true, id: card.id, label: card.name } : { ok: false, label: entry.card_id ?? entry.name ?? '?' }
+  })
+  const held = new Set(current?.items ?? [])
+  let missing = []
+  if (addMissing) {
+    const set = world.sets.find((item) => item.id === addMissing.set_id || item.name.toLowerCase() === String(addMissing.set_id ?? '').toLowerCase())
+    const cap = addMissing.max_price_usd == null ? Infinity : Number(addMissing.max_price_usd)
+    missing = (set?.missing ?? []).filter((card) => card.price <= cap && !held.has(card.card_id))
+  }
+  const plan = [current
+    ? `ADD TO your existing list '${current.name}' (${current.items.length} item(s) already in it)`
+    : `CREATE a new ${kind} list called '${name}'`]
+  for (const add of adds) plan.push(add.ok ? `add ${add.label} — card: add x1 ${add.id}` : `add ${add.label} — UNRESOLVABLE: no such card in the fixture`)
+  if (addMissing) {
+    plan.push(`add ${missing.length} missing card(s) from ${addMissing.set_id} (goal ${addMissing.goal ?? 'complete'})`)
+    for (const card of missing) plan.push(`     ${card.name} (${card.card_id}) · $${card.price.toFixed(2)}`)
+  }
+  for (const id of removeIds ?? []) plan.push(`remove item ${id}${current && !held.has(id) ? ' — NOT IN THIS LIST (will fail)' : ''}`)
+  if (input.dry_run !== false) return ['DRY RUN — nothing executed. Would:', ...plan.map((line) => `  ${line}`), 'Re-run with dry_run: false to execute.'].join('\n')
+
+  writes.push({ name: 'edit_list', input })
+  const lines = []
+  let target = current
+  if (!target) {
+    state.created += 1
+    target = { id: `00000000-0000-4000-8000-${String(state.created).padStart(12, '0')}`, name, kind, items: [] }
+    state.lists.push(target)
+    lines.push(`Created ${kind} list '${name}' — id ${target.id}`)
+  } else if (name !== undefined && name !== target.name) {
+    lines.push(`  done: rename → '${name}'`)
+    target.name = name
+  }
+  const before = target.items.length
+  for (const id of [...adds.filter((add) => add.ok).map((add) => add.id), ...missing.map((card) => card.card_id)]) {
+    if (!target.items.includes(id)) target.items.push(id)
+  }
+  const added = target.items.length - before
+  if (adds.length || addMissing) lines.push(`  done: added ${added}`)
+  for (const add of adds.filter((item) => !item.ok)) lines.push(`  FAILED: add ${add.label} — no such card in the fixture`)
+  for (const id of removeIds ?? []) {
+    const at = target.items.indexOf(id)
+    if (at < 0) lines.push(`  FAILED: remove item ${id} — not in this list`)
+    else {
+      target.items.splice(at, 1)
+      lines.push(`  done: remove item ${id}`)
+    }
+  }
+  lines.push(`List '${target.name}' now has ${target.items.length} item(s).`)
+  return lines.join('\n')
+}
+
+export function fixtureOutput(name, input, world, writes, definition, state = createFixtureState(world), helpers = null) {
+  const battle = helpers ? fixtureBattleOutput(name, input, world, writes, helpers) : null
+  if (battle != null) return battle
+  if (name === 'edit_list') return fixtureEditList(input, world, writes, state)
+  if (name === 'lists') return fixtureLists(input, world, state)
+  if (name === 'add_battle_log' && !input.deck_id) {
+    return [
+      'Parsed fixture log. Ranked candidate decks; nothing was written.',
+      ...world.decks.slice(0, 3).map((deck, index) => `${index + 1}. ${deck.id} — ${deck.name}`),
+      'Call add_battle_log again with the chosen deck_id and dry_run:false.',
+    ].join('\n')
+  }
   if (WRITE_NAMES.has(name)) {
+    const hasDryRun = Boolean(definition?.inputSchema?.shape && 'dry_run' in definition.inputSchema.shape)
+    if (hasDryRun && input.dry_run !== false) return `${name} fixture preview; nothing was written. Re-call with dry_run:false to apply.`
     writes.push({ name, input })
     return `${name} was approved by the fixture reader and recorded in the fixture. No live data was changed.`
   }
@@ -217,7 +926,7 @@ function fixtureOutput(name, input, world, writes) {
   if (name === 'get_card') {
     const q = String(input.card_id ?? input.name ?? '').toLowerCase()
     const found = world.collection.cards.find((card) => card.id.toLowerCase() === q || card.name.toLowerCase().includes(q))
-    return found ? `${found.id} — ${found.name}\nOwned: ${found.owned}\nMarket: $${found.price.toFixed(2)}` : 'No matching card in the fixture.'
+    return found ? `${found.id} — ${found.name}\nOwned: ${found.owned}\nMarket: $${found.price.toFixed(2)}${found.text ? `\nCard text: ${found.text}` : ''}` : 'No matching card in the fixture.'
   }
   if (name === 'decks') {
     const q = String(input.deck ?? input.deck_id ?? '').toLowerCase()
@@ -225,12 +934,19 @@ function fixtureOutput(name, input, world, writes) {
     const deck = world.decks.find((x) => x.id.toLowerCase() === q || x.name.toLowerCase().includes(q)) ?? world.decks[0]
     return `${deck.name} (${deck.id}) · ${deck.format}\nRecord: ${deck.record ? `${deck.record.wins}W-${deck.record.losses}L` : 'not recorded'}\n${deck.cards.map((c) => `${c.quantity} ${c.card_id}`).join('\n')}`
   }
-  if (name === 'battle_logs') return world.battle_logs.map((log, i) => `${i + 1}. ${log.result} vs ${log.opponent} — ${log.note}`).join('\n')
+  if (name === 'battle_logs') return world.battle_logs.map((log, i) => `${i + 1}. ${log.result} vs ${log.opponent} · ${log.deck_id} v${log.version ?? 1} — ${log.note}`).join('\n')
+  if (name === 'deck_history') {
+    const q = String(input.deck_id ?? '').toLowerCase()
+    const deck = world.decks.find((item) => item.id.toLowerCase() === q || item.name.toLowerCase().includes(q)) ?? world.decks[0]
+    return [`${deck.name} version history`, ...(deck.versions ?? [{ version: 1, note: 'Initial fixture list.' }]).map((version) => `v${version.version}: ${version.note}`)].join('\n')
+  }
   if (name === 'deck_performance' || name === 'deck_stats') return 'Toolbox Slowking v3: 19 wins, 13 losses (59.4%). Recent 10: 6-4. Losses skew toward fast basic attackers.'
   if (name === 'check_deck') return renderDeckCheck(fixtureDeckCheck(world, input))
-  if (name === 'set_progress') return 'Pitch Black (me05): 45/181 owned (24.9%). Litwick 9, Lampent 9, Chandelure 4.'
+  if (name === 'set_progress') {
+    const set = world.sets.find((item) => item.id === input.set_id || item.name.toLowerCase() === String(input.set_id ?? '').toLowerCase()) ?? world.sets[0]
+    return `${set.name} (${set.id}, ${set.series_slug}): ${set.owned}/${set.total} owned; ${set.missing.length} missing; $${set.cost_to_finish_usd.toFixed(2)} to finish.\n${set.missing.map((card) => `${card.card_id} — ${card.name} · $${card.price.toFixed(2)}`).join('\n')}`
+  }
   if (name === 'collection_log' || name === 'mutation_history') return 'Recent collection changes: +3 Litwick, +2 Lampent, +1 Dragapult ex.'
-  if (name === 'lists') return 'Favorites (12 cards)\nTrade targets (8 cards)'
   if (name === 'health') return 'DeckPal fixture is healthy.'
   return `Fixture ${name} result: no matching rows. The tool ran successfully with ${JSON.stringify(input)}.`
 }
@@ -257,6 +973,18 @@ function mockModel() {
   })
 }
 
+function mockTriageModel(pathway = 'general') {
+  return new MockLanguageModelV3({
+    modelId: 'decke-triage-mock',
+    doGenerate: async () => ({
+      content: [{ type: 'tool-call', toolCallId: 'triage-mock', toolName: 'triage', input: JSON.stringify({ pathway, also: null, signals: [], missing: [], wantsDeep: 'no' }) }],
+      finishReason: { unified: 'tool-calls', raw: 'tool_use' },
+      usage: { inputTokens: { total: 5, noCache: 5, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 3, text: 0, reasoning: 0 } },
+      providerMetadata: { gateway: { cost: 0 } }, warnings: [],
+    }),
+  })
+}
+
 function readUsage(usage, metadata) {
   const input = usage?.inputTokens ?? usage?.promptTokens ?? {}
   const output = usage?.outputTokens ?? usage?.completionTokens ?? {}
@@ -269,6 +997,7 @@ function readUsage(usage, metadata) {
   }
   const gateway = metadata?.gateway ?? {}
   return {
+    input_tokens: number(input.total ?? input),
     output_tokens: number(output.total ?? output),
     cache_read_tokens: number(input.cacheRead ?? usage?.inputTokenDetails?.cacheReadTokens ?? usage?.cachedInputTokens ?? gateway.cacheReadTokens),
     cache_write_tokens: number(input.cacheWrite ?? usage?.inputTokenDetails?.cacheWriteTokens ?? usage?.cacheCreationInputTokens ?? gateway.cacheWriteTokens),
@@ -330,23 +1059,56 @@ function fullHistory(turns) {
   ]
 }
 
-async function loadRuntime(world, writes) {
+export async function loadRuntime(world, writes) {
   // The root workspace does not depend on this package by name. Import its
   // compiled entry directly, just as the existing probes import API dist.
   const agent = await import(pathToFileURL(resolve(REPO, 'packages/agent-tools/dist/index.js')).href)
-  const { buildSystemPrompt } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/prompt.js')).href)
-  const { buildTools } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/tools.js')).href)
+  const prompt = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/prompt.js')).href)
+  const routing = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/tiers.js')).href)
+  const triage = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/triage.js')).href)
+  const models = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/models.js')).href)
+  const pastedLog = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/pastedLog.js')).href)
+  const { createProgressNudges, progressNudgeMessage } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/progressNudge.js')).href)
+  // Production's stop rule, imported rather than copied (review, 2026-10-10:
+  // the first A/B ran with only a step cap, so it never met the rule that let
+  // a nudged line end the turn).
+  const { spokeAndSettled } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/stopRule.js')).href)
+  const { meansCreate } = await import(pathToFileURL(resolve(REPO, 'packages/agent-tools/dist/entities.js')).href)
+  const { requiresApproval } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/adapters/aisdk.js')).href)
+  let pathways = null
+  try {
+    pathways = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/pathways/index.js')).href)
+  } catch (error) {
+    if (error?.code !== 'ERR_MODULE_NOT_FOUND') throw error
+  }
+  const { buildTools, toolsForTier, CLIENT_TOOLS } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/tools.js')).href)
   const { createGrounding } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/grounding.js')).href)
+  const { runConsult } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/consult.js')).href)
+  const battlelog = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/deck/battlelog.js')).href)
+  const { renderBattleDigest } = await import(pathToFileURL(resolve(REPO, 'packages/agent-tools/dist/tools/battleDigest.js')).href)
+  // `messages`: the current turn's conversation, for the `@pasted` substitution.
+  // `logged`: games written in this conversation (reset per conversation).
+  const battleState = { messages: [], logged: [] }
+  const helpers = { state: battleState, battlelog, renderBattleDigest, extractPastedLog: pastedLog.extractPastedLog }
   const definitions = agent.allTools()
   for (const def of definitions) DATA_TOOLS.add(def.name)
+  // What one conversation has written to the fixture: lists today. Reset per
+  // conversation, so one sample's new list never appears in the next.
+  const fixtureState = createFixtureState(world, { meansCreate })
   const dataTools = Object.fromEntries(definitions.map((def) => [def.name, tool({
     description: def.description,
     inputSchema: def.inputSchema ?? z.object({}),
-    needsApproval: def.annotations.readOnlyHint ? false : true,
-    execute: async (input) => fixtureOutput(def.name, input, world, writes),
+    needsApproval: (input) => requiresApproval(def, input),
+    execute: async (input) => fixtureOutput(def.name, input, world, writes, def, fixtureState, helpers),
   })]))
   const checked = async (input) => fixtureDeckCheck(world, input)
-  const cosmetic = buildTools({ write() {} }, createGrounding(), undefined, undefined, { checkDeck: checked })
+  // Mirrors api/chat.mjs: the character's tools are built once per request and
+  // `toolsForTier` keeps `consult` on the Quick tier only. `consult` is the
+  // request's injected implementation (a real Sonnet call, or a labelled stub).
+  const cosmeticFor = (tier, consult) => toolsForTier(
+    buildTools({ write() {} }, createGrounding(), undefined, undefined, { checkDeck: checked, ...(consult ? { consult } : {}) }),
+    tier,
+  )
   const web_research = tool({
     description: 'Quickly research the current state of the Pokémon TCG world: the current meta and tournament results, community opinion, news, recent releases, and price trends. Use it when DeckPal does not store the answer. Do not use it when findings already in the conversation answer the question. Write `purpose` as the short status the reader should see, such as "Dragapult ex tournament results".',
     inputSchema: z.object({
@@ -356,9 +1118,52 @@ async function loadRuntime(world, writes) {
     }),
     execute: async (input) => /dragapult/i.test(`${input.query} ${input.purpose}`) ? world.research.dragapult : world.research.meta,
   })
-  const tools = { ...cosmetic, ...dataTools, web_research }
+  const toolsFor = (tier, consult) => ({ ...cosmeticFor(tier, consult), ...dataTools, web_research })
   const dataToolList = [...definitions.map((def) => ({ name: def.name, title: def.title })), { name: 'web_research', title: 'Research the web' }]
-  return { buildSystemPrompt, tools, dataToolList }
+  const buildInstructions = (choice, selectedPathways, route) => {
+    const cache = choice.id.startsWith('anthropic/') ? { anthropic: { cacheControl: { type: 'ephemeral' } } } : null
+    const system = (content, cached = false) => ({ role: 'system', content, ...(cached && cache ? { providerOptions: cache } : {}) })
+    const requestPathway = pathways.pathwayBlock(selectedPathways)
+    return [
+      system(prompt.buildCorePrompt({ signedIn: true, dataTools: dataToolList }), true),
+      ...(requestPathway ? [system(requestPathway, true)] : []),
+      system(prompt.buildVolatileContext({ route, signedIn: true })),
+    ]
+  }
+  return {
+    buildInstructions, toolsFor, tools: toolsFor('standard'), state: battleState, runConsult, dataToolList, createProgressNudges, progressNudgeMessage, spokeAndSettled,
+    handoffTools: new Set([...CLIENT_TOOLS, 'ask_user']),
+    // Both kinds of fixture writes are per conversation: lists, and logged games.
+    resetFixture: () => { fixtureState.reset(); battleState.logged = [] },
+    ...routing, ...triage, ...models, ...pastedLog,
+  }
+}
+
+/**
+ * The request's consult, as api/chat.mjs injects it: Sonnet (TIERS.standard)
+ * through the Gateway, its usage added to this turn and to the run's budget.
+ * Under --mock there is no Gateway, so it is a stub that says so in its answer
+ * rather than an invented analysis.
+ */
+function probeConsult({ runtime, gateway, budget, usage }) {
+  return async ({ question, brief }) => {
+    usage.calls++
+    if (!gateway) return '[PROBE STUB — --mock run, no model was called. A real consult answers this question from the brief.]'
+    const raw = gateway(runtime.TIERS.standard.id)
+    const model = new Proxy(raw, {
+      get(target, property, receiver) {
+        if (property !== 'doGenerate') return Reflect.get(target, property, receiver)
+        return async (options) => {
+          const result = await target.doGenerate(options)
+          const measured = readUsage(result.usage, result.providerMetadata)
+          for (const key of Object.keys(measured)) usage[key] = (usage[key] ?? 0) + (measured[key] ?? 0)
+          budget.spent += measured.cost_usd
+          return result
+        }
+      },
+    })
+    return runtime.runConsult({ question, brief, model })
+  }
 }
 
 // Mirrors api/chat.mjs: one breakpoint on the system prompt covers the tools too.
@@ -366,23 +1171,97 @@ function cacheTools(modelId, tools) {
   return tools
 }
 
-async function runTurn({ model, modelId, gateway, runtime, priorTurns, replay, scenarioTurn, budget }) {
+// Mirrors api/chat.mjs cacheConversation, including the 2026-10-10 rule that
+// the breakpoint sits on the newest NON-system message, never on the nudge.
+function cacheConversation(modelId, messages) {
+  if (!modelId.startsWith('anthropic/') || messages.length === 0) return messages
+  const newest = messages.findLastIndex((message) => message.role !== 'system')
+  return messages.map((message, index) => {
+    const providerOptions = { ...(message.providerOptions ?? {}) }
+    const anthropic = { ...(providerOptions.anthropic ?? {}) }
+    delete anthropic.cacheControl
+    if (Object.keys(anthropic).length) providerOptions.anthropic = anthropic
+    else delete providerOptions.anthropic
+    if (index === newest) providerOptions.anthropic = { ...(providerOptions.anthropic ?? {}), cacheControl: { type: 'ephemeral' } }
+    return { ...message, providerOptions: Object.keys(providerOptions).length ? providerOptions : undefined }
+  })
+}
+
+// Mirrors api/chat.mjs's latest/previous text extraction while retaining tool
+// parts for carriedFromHistory and answeringAsk.
+function routingMessages(priorTurns, scenarioTurn) {
+  return [
+    ...priorTurns.flatMap((turn) => [
+      { role: 'user', parts: [{ type: 'text', text: turn.user }] },
+      { role: 'assistant', parts: [
+        ...(turn.text ? [{ type: 'text', text: turn.text }] : []),
+        ...(turn.calls ?? []).map((call) => ({ type: `tool-${call.name}`, toolName: call.name, input: call.input, state: call.output_error ? 'output-error' : 'output-available' })),
+      ] },
+    ]),
+    { role: 'user', parts: [{ type: 'text', text: scenarioTurn.user }] },
+  ]
+}
+
+async function routedChoice({ runtime, gateway, mock, priorTurns, scenario, scenarioTurn, budget }) {
+  const route = scenarioTurn.route ?? scenarioTurn.page ?? scenario.route ?? scenario.page ?? '/'
+  const uiMessages = routingMessages(priorTurns, scenarioTurn)
+  const rawModel = mock ? mockTriageModel(scenario.expected_pathway ?? scenario.pathway ?? 'general') : gateway(runtime.TRIAGE.id)
+  let triageUsage = { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0 }
+  const model = new Proxy(rawModel, {
+    get(target, property, receiver) {
+      if (property !== 'doGenerate') return Reflect.get(target, property, receiver)
+      return async (options) => {
+        const result = await target.doGenerate(options)
+        const measured = readUsage(result.usage, result.providerMetadata)
+        for (const key of Object.keys(triageUsage)) triageUsage[key] += measured[key] ?? 0
+        return result
+      }
+    },
+  })
+  const started = performance.now()
+  const pasted = runtime.extractPastedLog([uiMessages.at(-1)]) !== null
+  const triage = await runtime.runTriage({
+    message: scenarioTurn.user,
+    previousReply: String(priorTurns.at(-1)?.text ?? '').slice(-800),
+    page: route,
+    pasted,
+    answering: runtime.answeringAsk(uiMessages),
+    model,
+  })
+  const triageMs = Math.round(performance.now() - started)
+  budget.spent += triageUsage.cost_usd
+  if (budget.spent > budget.limit + 1e-9) throw new Error(`Budget exceeded after a model call: $${budget.spent.toFixed(6)} > $${budget.limit.toFixed(6)}`)
+  // Mirrors api/chat.mjs: a paste in the latest message always brings battle_log.
+  const decision = runtime.decideTier({ triage, carried: runtime.carriedFromHistory(uiMessages), deepApproved: false, pastedLog: pasted })
+  return { route, triage, triageMs, triageUsage, decision, choice: runtime.TIERS[decision.tier] }
+}
+
+export async function runTurn({ model, modelId, fallback, maxOutputTokens = 8000, effort, gateway, runtime, priorTurns, replay, pathways, route = '/', scenarioTurn, budget, routing, progressNudge = true }) {
   const messages = [...(replay === 'full' ? fullHistory(priorTurns) : compactHistory(priorTurns)), { role: 'user', content: [{ type: 'text', text: scenarioTurn.user }] }]
   const calls = []
+  // One entry per model step, across approval legs: what he said and which
+  // tools he called, in order. `progressMetrics` reads it.
+  const timeline = []
+  let nudgePending = false
+  const anthropic = modelId.startsWith('anthropic/')
   const started = performance.now()
   let first = null
   let text = ''
+  let inputTokens = 0
   let outputTokens = 0
   let cacheReadTokens = 0
   let cacheWriteTokens = 0
   let turnCost = 0
   let stepCount = 0
   const modelMessages = []
-  const instructionsText = runtime.buildSystemPrompt({ route: '/decks', signedIn: true, dataTools: runtime.dataToolList })
-  const instructions = modelId.startsWith('anthropic/')
-    ? { role: 'system', content: instructionsText, providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } } }
-    : instructionsText
-  const allTools = cacheTools(modelId, runtime.tools)
+  const instructions = runtime.buildInstructions({ id: modelId }, pathways, route)
+  // The paste the fixture substitutes for `@pasted`, read from this turn's
+  // conversation exactly as api/chat.mjs reads it from the replayed messages.
+  if (runtime.state) runtime.state.messages = routingMessages(priorTurns, scenarioTurn)
+  // One tool set per request, by tier (a fixed-model arm: Haiku is Quick).
+  const tier = routing?.decision.tier ?? (/haiku/i.test(modelId) ? 'quick' : 'standard')
+  const consultUsage = { calls: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0 }
+  const allTools = cacheTools(modelId, runtime.toolsFor ? runtime.toolsFor(tier, probeConsult({ runtime, gateway, budget, usage: consultUsage })) : runtime.tools)
   let legMessages = messages
   let pendingApprovedCalls = new Set()
   for (let approvalRound = 0; approvalRound < 8; approvalRound++) {
@@ -390,14 +1269,43 @@ async function runTurn({ model, modelId, gateway, runtime, priorTurns, replay, s
     let observedStepCost = 0
     const generationIds = new Set()
     const resumedResults = []
+    // Mirrors api/chat.mjs PROGRESS BETWEEN BATCHES. Each approval leg here is
+    // a fresh HTTP request there, so each leg gets a fresh ledger.
+    const progressNudges = progressNudge && anthropic ? runtime.createProgressNudges() : null
     const result = streamText({
       model,
       instructions,
       messages: legMessages,
+      allowSystemInMessages: Boolean(progressNudges),
       tools: allTools,
-      stopWhen: stepCountIs(24),
-      maxOutputTokens: 8000,
+      ...((fallback || (anthropic && effort)) ? { providerOptions: {
+        ...(fallback ? { gateway: { models: [fallback] } } : {}),
+        ...(anthropic && effort ? { anthropic: { effort, thinking: { type: 'adaptive' } } } : {}),
+      } } : {}),
+      prepareStep: ({ steps, messages: stepMessages }) => {
+        const cached = cacheConversation(modelId, stepMessages)
+        nudgePending = Boolean(progressNudges?.next(steps))
+        return { messages: nudgePending ? [...cached, runtime.progressNudgeMessage()] : cached }
+      },
+      // Production's stopWhen (api/chat.mjs), from the built modules: the step
+      // cap, ask_user, and the settling rule — which never settles on the step
+      // that answered a nudge. Production's error-budget and metered-cap stops
+      // depend on live accounting this fixture does not have.
+      stopWhen: [
+        stepCountIs(MAX_STEPS),
+        hasToolCall('ask_user'),
+        ({ steps }) => runtime.spokeAndSettled(steps, progressNudges?.landings ?? []),
+      ],
+      maxOutputTokens,
       onStepFinish(step) {
+        const tools = (step.toolCalls ?? []).map((call) => call.toolName)
+        timeline.push({
+          text: step.text ?? '',
+          tools,
+          ...(nudgePending ? { nudged: true } : {}),
+          ...(tools.some((name) => runtime.handoffTools?.has(name)) ? { handoff: true } : {}),
+        })
+        nudgePending = false
         const stepMeasured = readUsage(step.usage, step.providerMetadata)
         observedStepCost += stepMeasured.cost_usd
         budget.spent += stepMeasured.cost_usd
@@ -441,6 +1349,7 @@ async function runTurn({ model, modelId, gateway, runtime, priorTurns, replay, s
     stepCount += steps.length
     legMetadata = { ...legMetadata, ...finalMetadata }
     const measured = readUsage(usage, legMetadata)
+    inputTokens += measured.input_tokens
     outputTokens += measured.output_tokens
     cacheReadTokens += measured.cache_read_tokens
     cacheWriteTokens += measured.cache_write_tokens
@@ -475,22 +1384,41 @@ async function runTurn({ model, modelId, gateway, runtime, priorTurns, replay, s
     const approvals = legResponseMessages.flatMap((message) => Array.isArray(message.content) ? message.content : [])
       .filter((part) => part.type === 'tool-approval-request')
     if (!approvals.length) break
+    // The reader saw a card and answered it: that ends a silent run.
+    if (timeline.length) timeline[timeline.length - 1].approval = true
+    for (const approval of approvals) {
+      const found = calls.find((call) => call.id === approval.toolCallId)
+      if (found) found.approval_requested = true
+    }
     const answer = { role: 'tool', content: approvals.map((part) => ({ type: 'tool-approval-response', approvalId: part.approvalId, approved: true, reason: 'approved by the fixture reader' })) }
+    for (const approval of approvals) {
+      const found = calls.find((call) => call.id === approval.toolCallId)
+      if (found) found.approved = true
+    }
     modelMessages.push(answer)
     legMessages = [...legMessages, ...(resumedMessage ? [resumedMessage] : []), ...legResponseMessages, answer]
     pendingApprovedCalls = new Set(approvals.map((part) => part.toolCallId))
     if (approvalRound === 7) throw new Error('Write approval loop exceeded 8 rounds')
   }
   return {
-    user: scenarioTurn.user, tags: scenarioTurn.tags, text: text.trim(), calls,
+    user: scenarioTurn.user, tags: scenarioTurn.tags, expectations: scenarioTurn.expectations ?? [], text: text.trim(), calls, timeline,
     ttft_ms: Math.round((first ?? performance.now()) - started), total_ms: Math.round(performance.now() - started),
-    output_tokens: outputTokens, cost_usd: turnCost, cache_read_tokens: cacheReadTokens,
-    cache_write_tokens: cacheWriteTokens, steps: stepCount, modelMessages, declined: false,
+    input_tokens: inputTokens + consultUsage.input_tokens + (routing?.triageUsage.input_tokens ?? 0),
+    output_tokens: outputTokens + consultUsage.output_tokens + (routing?.triageUsage.output_tokens ?? 0),
+    cost_usd: turnCost + consultUsage.cost_usd + (routing?.triageUsage.cost_usd ?? 0),
+    cache_read_tokens: cacheReadTokens + consultUsage.cache_read_tokens + (routing?.triageUsage.cache_read_tokens ?? 0),
+    cache_write_tokens: cacheWriteTokens + consultUsage.cache_write_tokens + (routing?.triageUsage.cache_write_tokens ?? 0),
+    consult_calls: consultUsage.calls, consult_cost_usd: Number(consultUsage.cost_usd.toFixed(8)), tool_tier: tier,
+    steps: stepCount, modelMessages, declined: false, model: modelId, model_used: modelId,
+    ...(routing ? {
+      tier: routing.decision.tier, pathways: routing.decision.pathways, effort: routing.decision.effort,
+      reasons: routing.decision.reasons, triage_source: routing.triage.source, triage_ms: routing.triageMs,
+    } : {}),
   }
 }
 
 function aggregateRows(runs) {
-  return runs.map((run) => ({ model: run.model, replay: run.replay, scenario: run.scenario, sample: run.sample, ...scoreTranscript(run.turns) }))
+  return runs.map((run) => ({ arm: run.arm ?? run.model, model: run.model, effort: run.effort ?? '', replay: run.replay, scenario: run.scenario, sample: run.sample, pass: run.grade?.pass ?? false, ...scoreTranscript(run.turns) }))
 }
 
 function annotateTurnMetrics(turns) {
@@ -500,17 +1428,61 @@ function annotateTurnMetrics(turns) {
     const metrics = Object.fromEntries(METRIC_COLUMNS.map((key) => [key,
       key === 'ttft_ms' || key === 'total_ms'
         ? Number(turn[key]) || 0
-        : Number((after[key] - before[key]).toFixed?.(8) ?? after[key] - before[key]),
+        // A running maximum does not difference into a per-turn value.
+        : key === 'longest_silent_run'
+          ? progressMetrics(turn.timeline).longestSilentRun
+          : Number((after[key] - before[key]).toFixed?.(8) ?? after[key] - before[key]),
     ]))
     before = after
     return { ...turn, metrics }
   })
 }
 
-function markdown(rows) {
-  const cols = ['model', 'replay', 'scenario', 'sample', ...METRIC_COLUMNS]
+function markdown(rows, scenarioResults, armResults, progressResults = []) {
+  const cols = ['arm', 'replay', 'scenario', 'sample', 'pass', ...METRIC_COLUMNS]
+  const outcomeCols = ['arm', 'replay', 'scenario', 'passed', 'samples', 'pass_rate', 'pass_k', 'mean_cost_usd', 'cost_per_passed_run_usd']
+  const armCols = ['arm', 'passed', 'samples', 'pass_rate', 'pass_k', 'cost_per_scenario_usd', 'cost_per_passed_run_usd', 'quick_pct', 'standard_pct', 'deep_pct']
+  const progressCols = ['arm', 'turns', 'long_turns', 'long_turns_with_progress', 'progress_rate', 'interim_lines_per_long_turn', 'longest_silent_run', 'progress_nudges', 'early_stops', 'ended_on_nudge']
   const show = (value) => typeof value === 'number' && !Number.isInteger(value) ? value.toFixed(6) : String(value)
-  return [`# Deck-E conversation replay probe`, '', `| ${cols.join(' | ')} |`, `| ${cols.map(() => '---').join(' | ')} |`, ...rows.map((row) => `| ${cols.map((key) => show(row[key] ?? 0)).join(' | ')} |`), ''].join('\n')
+  const displayedArms = armResults.map((row) => ({
+    ...row,
+    quick_pct: row.tier_mix.quick,
+    standard_pct: row.tier_mix.standard,
+    deep_pct: row.tier_mix.deep,
+  }))
+  return [
+    '# Deck-E conversation replay probe', '',
+    '## Arm summary', '',
+    `| ${armCols.join(' | ')} |`,
+    `| ${armCols.map(() => '---').join(' | ')} |`,
+    ...displayedArms.map((row) => `| ${armCols.map((key) => show(row[key] ?? '—')).join(' | ')} |`),
+    '',
+    '## Progress between batches', '',
+    `A long turn has ${LONG_TURN_DATA_STEPS}+ data steps; it shows progress with an interim line and no silent run over ${SILENT_RUN_LIMIT}. An early stop is a turn that looked things up and ended without an answer after its last lookup.`, '',
+    `| ${progressCols.join(' | ')} |`,
+    `| ${progressCols.map(() => '---').join(' | ')} |`,
+    ...progressResults.map((row) => `| ${progressCols.map((key) => show(row[key] ?? '—')).join(' | ')} |`),
+    '',
+    '## Scenario outcomes', '',
+    `| ${outcomeCols.join(' | ')} |`,
+    `| ${outcomeCols.map(() => '---').join(' | ')} |`,
+    ...scenarioResults.map((row) => `| ${outcomeCols.map((key) => show(row[key] ?? '—')).join(' | ')} |`),
+    '', '## Raw samples', '',
+    `| ${cols.join(' | ')} |`,
+    `| ${cols.map(() => '---').join(' | ')} |`,
+    ...rows.map((row) => `| ${cols.map((key) => show(row[key] ?? 0)).join(' | ')} |`), '',
+  ].join('\n')
+}
+
+function outcomeTable(rows) {
+  const header = ['arm', 'scenario', 'pass', 'pass^k', 'mean $', '$ / pass']
+  const values = rows.map((row) => [
+    row.arm, row.scenario, `${row.passed}/${row.samples}`, row.pass_k ? 'yes' : 'no',
+    row.mean_cost_usd.toFixed(6), row.cost_per_passed_run_usd == null ? '—' : row.cost_per_passed_run_usd.toFixed(6),
+  ])
+  const widths = header.map((name, i) => Math.max(name.length, ...values.map((row) => String(row[i]).length)))
+  const line = (row) => row.map((value, i) => String(value).padEnd(widths[i])).join('  ')
+  return [line(header), line(widths.map((width) => '-'.repeat(width))), ...values.map(line)].join('\n')
 }
 
 export async function main(argv = process.argv.slice(2)) {
@@ -531,22 +1503,39 @@ export async function main(argv = process.argv.slice(2)) {
   // run that hits --budget-usd keeps what it already paid for.
   const save = (stopped) => {
     const rows = aggregateRows(runs)
-    const result = { generated_at: new Date().toISOString(), options: { ...opts, out: undefined }, spent_usd: Number(budget.spent.toFixed(8)), stopped: stopped ?? null, metrics: METRIC_COLUMNS, rows, runs, writes }
+    const scenarioResults = summarizeScenarioResults(runs)
+    const armResults = summarizeArmResults(runs)
+    const progressResults = summarizeProgress(runs)
+    const result = { generated_at: new Date().toISOString(), options: { ...opts, out: undefined }, spent_usd: Number(budget.spent.toFixed(8)), stopped: stopped ?? null, metrics: METRIC_COLUMNS, arm_results: armResults, progress_results: progressResults, scenario_results: scenarioResults, rows, runs, writes }
     writeFileSync(resolve(opts.out, 'results.json'), `${JSON.stringify(result, null, 2)}
 `)
-    writeFileSync(resolve(opts.out, 'summary.md'), markdown(rows))
+    writeFileSync(resolve(opts.out, 'summary.md'), markdown(rows, scenarioResults, armResults, progressResults))
   }
   try {
-  for (const modelId of opts.models) {
-    const model = opts.mock ? mockModel() : gateway(modelId)
+  for (const arm of opts.arms) {
     for (const scenario of selected) {
       for (let sample = 1; sample <= opts.n; sample++) {
         const priorTurns = []
+        runtime.resetFixture()
         for (const scenarioTurn of scenario.turns) {
-          priorTurns.push(await runTurn({ model, modelId, gateway, runtime, priorTurns, replay: opts.replay, scenarioTurn, budget }))
+          const routing = arm.routed
+            ? await routedChoice({ runtime, gateway, mock: opts.mock, priorTurns, scenario, scenarioTurn, budget })
+            : null
+          const choice = routing?.choice
+          const modelId = choice?.id ?? arm.model
+          const model = opts.mock ? mockModel() : gateway(modelId)
+          priorTurns.push(await runTurn({
+            model, modelId, fallback: choice?.fallback, maxOutputTokens: choice?.maxOutputTokens ?? 8000,
+            effort: routing?.decision.effort ?? arm.effort,
+            gateway, runtime, priorTurns, replay: opts.replay,
+            pathways: routing?.decision.pathways ?? [scenario.pathway ?? 'general'],
+            route: routing?.route ?? scenario.route ?? scenario.page ?? '/', scenarioTurn, budget, routing,
+            progressNudge: opts.progressNudge,
+          }))
         }
-        runs.push({ model: modelId, replay: opts.replay, scenario: scenario.id, sample, turns: annotateTurnMetrics(priorTurns) })
-        process.stdout.write(`completed ${modelId} / ${scenario.id} / ${sample}
+        const annotated = annotateTurnMetrics(priorTurns)
+        runs.push({ arm: arm.id, model: arm.routed ? 'routed' : arm.model, effort: arm.effort, replay: opts.replay, scenario: scenario.id, sample, grade: gradeScenario(annotated), turns: annotated })
+        process.stdout.write(`completed ${arm.id} / ${scenario.id} / ${sample}
 `)
         save()
       }
@@ -559,6 +1548,10 @@ export async function main(argv = process.argv.slice(2)) {
 `)
   }
   save()
+  process.stdout.write(`${outcomeTable(summarizeScenarioResults(runs))}\n`)
+  for (const row of summarizeProgress(runs)) {
+    process.stdout.write(`progress ${row.arm}: ${row.long_turns_with_progress}/${row.long_turns} long turns spoke between batches; longest silent run ${row.longest_silent_run}; ${row.progress_nudges} nudge(s); ${row.early_stops} early stop(s); ${row.ended_on_nudge} ended on the nudged line\n`)
+  }
   process.stdout.write(`wrote ${resolve(opts.out, 'summary.md')} and results.json; cost $${budget.spent.toFixed(6)}\n`)
 }
 

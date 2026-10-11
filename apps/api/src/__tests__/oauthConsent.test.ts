@@ -128,12 +128,50 @@ describe('enforceTokenScope: a read-only connection changes nothing', () => {
     }
   });
 
-  test('the one POST that writes nothing, cart links, is allowed; every other POST is not', () => {
-    assert.equal(run({ method: 'POST', path: '/massentry', authKind: 'token', tokenScope: 'read' }).passed, true);
-    for (const path of ['/lists', '/collection/log', '/massentry/extra', '/lists/x/massentry']) {
+  test('the POSTs that write nothing, cart links and the deck check and odds, are allowed; every other POST is not', () => {
+    for (const path of ['/massentry', '/decks/check', '/decks/odds']) {
+      assert.equal(run({ method: 'POST', path, authKind: 'token', tokenScope: 'read' }).passed, true, path);
+    }
+    for (const path of ['/lists', '/collection/log', '/massentry/extra', '/lists/x/massentry', '/decks', '/decks/save', '/decks/import', '/decks/odds/x']) {
       assert.equal(run({ method: 'POST', path, authKind: 'token', tokenScope: 'read' }).status, 403, path);
     }
     assert.equal(run({ method: 'DELETE', path: '/massentry', authKind: 'token', tokenScope: 'read' }).status, 403);
+  });
+
+  test('every REST call check_deck and deck_odds make for a read-only connection gets through', async () => {
+    // Before 2026-10-10 '/decks/check' was missing from the allowlist, so a
+    // read-only connection was served check_deck and then refused it.
+    const calls: Array<{ method: string; path: string }> = [];
+    const api = {
+      base: 'http://fixture',
+      get: async (path: string) => {
+        calls.push({ method: 'GET', path });
+        return { decks: [{ id: '6f1c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f', name: 'Hide n Sneak' }] };
+      },
+      send: async (method: string, path: string) => {
+        calls.push({ method, path });
+        return path === '/decks/odds'
+          ? { deck: { name: 'Hide n Sneak', size: 60, basics: 16, distinct_names: 24 }, method: 'Monte Carlo, draw-only', trials: 1000, seed: 60,
+              mulligan: { simulated: 0.1, exact: 0.1, avg_per_game: 0.1 }, avg_basics_in_hand: 2, queries: [], per_card: [], per_card_turn: 2, max_margin95: 0.03, warnings: [] }
+          : { format: 'standard', total: 1, legal: false, issues: [], evolution_gaps: [], lines: [], owned: 0, missing_cost_usd: null, ptcgl: '' };
+      },
+    };
+    const ctx = { db: {} as Ctx['db'], api, userId: 'u' } as Ctx;
+    const tool = (name: string) => allTools().find((t) => t.name === name)!;
+    for (const [name, args] of [
+      ['check_deck', { format: 'standard', cards: [{ name: 'Pikachu', quantity: 1 }] }],
+      ['deck_odds', { deck_id: 'Hide n Sneak', trials: 1000 }],
+      ['deck_odds', { cards: [{ name: 'Pikachu', quantity: 1 }], trials: 1000 }],
+    ] as const) {
+      assert.equal(tool(name).annotations.readOnlyHint, true, name);
+      const result = await tool(name).handler(args, ctx);
+      assert.ok(!('isError' in result && result.isError), `${name}: ${JSON.stringify(result)}`);
+    }
+    assert.ok(calls.some((c) => c.path === '/decks/check') && calls.some((c) => c.path === '/decks/odds'));
+    for (const call of calls) {
+      const path = call.path.split('?')[0]!;
+      assert.equal(run({ method: call.method, path, authKind: 'token', tokenScope: 'read' }).passed, true, `${call.method} ${path}`);
+    }
   });
 
   test('every REST call set_cart makes for a read-only connection gets through', async () => {

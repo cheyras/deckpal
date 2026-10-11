@@ -334,6 +334,13 @@ export const oauthRateLimit: RequestHandler = perUserRateLimit('oauth', 30, 60_0
 export const bugsRateLimit: RequestHandler = perUserRateLimit('bugs', 10, 60 * 60_000);
 
 /**
+ * POST /decks/simulate: each call is up to 25 s of CPU (the battle simulator's
+ * budget, apps/api/src/deck/simulate.ts). Six a minute is a person comparing
+ * versions as fast as they can read the reports, and not a loop.
+ */
+export const simulateRateLimit: RequestHandler = perUserRateLimit('simulate', 6, 60_000);
+
+/**
  * The public half of the OAuth "Connect" flow (SEC-09): `/register`,
  * `/token` and the two `.well-known` discovery documents. These are mounted
  * on the bare origin, ahead of the ordinary `/api` router, so none of the

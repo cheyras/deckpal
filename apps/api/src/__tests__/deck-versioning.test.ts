@@ -27,6 +27,7 @@ let deckId: string;
 let cardA: string; // tcgdex ids of two real catalog cards
 let cardB: string;
 let logId: number;
+let inPersonLogId: number;
 
 async function api(method: string, path: string, body?: unknown): Promise<{ status: number; json: any }> {
   const res = await fetch(`${base}/deckpal/api${path}`, {
@@ -111,6 +112,30 @@ test('card edits with no battle logs amend v1 in place (no bump)', async () => {
   assert.equal(versions.json.versions[0].note, 'tuning before first battle');
 });
 
+test('POST /decks/:id/logs dryRun returns the real preview without writing', async () => {
+  const { rows } = await pool.query<{ name: string }>(
+    `SELECT c.name FROM card c WHERE c.tcgdex_id = $1 AND c.lang = 'en' LIMIT 1`, [cardA],
+  );
+  const count = async () => Number((await pool.query<{ count: string }>(
+    `SELECT count(*) AS count FROM battle_log WHERE deck_id = $1`, [deckId],
+  )).rows[0]!.count);
+  const before = await count();
+
+  const { status, json } = await api('POST', `/decks/${deckId}/logs`, {
+    rawLog: winLog(rows[0]!.name), source: 'test-suite', dryRun: true,
+  });
+
+  assert.equal(status, 200);
+  assert.equal(json.dryRun, true);
+  assert.equal(json.attachedToVersion, 1);
+  assert.equal(json.preview.deckName, '__deck-intel integration test__');
+  assert.equal(json.preview.version, 1);
+  assert.equal(json.preview.result, 'win');
+  assert.equal(json.preview.opponent, 'Rival');
+  assert.equal(typeof json.preview.playedAt, 'string');
+  assert.equal(await count(), before, 'a preview must not add a battle_log row');
+});
+
 test('POST /decks/:id/logs attaches to the current version; parser fills result/opponent', async () => {
   const { rows } = await pool.query<{ name: string }>(
     `SELECT c.name FROM card c WHERE c.tcgdex_id = $1 AND c.lang = 'en' LIMIT 1`, [cardA],
@@ -125,13 +150,54 @@ test('POST /decks/:id/logs attaches to the current version; parser fills result/
   assert.equal(json.log.deckVersion, 1);
   assert.ok(json.log.parsed);
   logId = json.log.id;
+
+  const stored = await pool.query<{ used_default_clock: boolean }>(
+    `SELECT played_at = created_at AS used_default_clock FROM battle_log WHERE id = $1`, [logId],
+  );
+  assert.equal(
+    stored.rows[0]!.used_default_clock,
+    true,
+    'omitted playedAt must stay on COALESCE(NULL, now()), without JS millisecond truncation',
+  );
 });
 
-test('an unparseable log with no playerName and no result is a 400', async () => {
-  const { status, json } = await api('POST', `/decks/${deckId}/logs`, { rawLog: 'total nonsense, no players here' });
-  assert.equal(status, 400);
-  assert.equal(json.error.code, 'bad_request');
-  assert.match(json.error.message, /playerName/);
+test('dryRun and insert return the same 400 when the log owner cannot be identified', async () => {
+  const body = { rawLog: 'total nonsense, no players here' };
+  const insert = await api('POST', `/decks/${deckId}/logs`, body);
+  const dryRun = await api('POST', `/decks/${deckId}/logs`, { ...body, dryRun: true });
+
+  assert.equal(insert.status, 400);
+  assert.equal(dryRun.status, insert.status);
+  assert.equal(insert.json.error.code, 'bad_request');
+  assert.equal(dryRun.json.error.code, insert.json.error.code);
+  assert.match(insert.json.error.message, /playerName/);
+  assert.equal(dryRun.json.error.message, insert.json.error.message);
+});
+
+test('dryRun cannot inspect another user\'s deck any more than an insert can', async () => {
+  const username = `__deck-versioning-other-${process.pid}-${Date.now()}__`;
+  const otherUser = await pool.query<{ id: string }>(
+    `INSERT INTO app_user (username) VALUES ($1) RETURNING id`, [username],
+  );
+  try {
+    const otherDeck = await pool.query<{ id: string }>(
+      `INSERT INTO deck (user_id, format_code, name) VALUES ($1, 'unlimited', $2) RETURNING id`,
+      [otherUser.rows[0]!.id, '__other user deck__'],
+    );
+    const path = `/decks/${otherDeck.rows[0]!.id}/logs`;
+    const body = { rawLog: 'unparseable', result: 'win' };
+    const insert = await api('POST', path, body);
+    const dryRun = await api('POST', path, { ...body, dryRun: true });
+
+    assert.ok(insert.status === 403 || insert.status === 404, `insert returned ${insert.status}`);
+    assert.equal(dryRun.status, insert.status);
+    assert.deepEqual(dryRun.json, insert.json);
+  } finally {
+    // Inserting app_user fires admin_sync_new_account, whose admin_account row
+    // has no foreign key back to it — delete it too, or every run leaves one.
+    await pool.query(`DELETE FROM admin_account WHERE user_id = $1::text`, [otherUser.rows[0]!.id]);
+    await pool.query(`DELETE FROM app_user WHERE id = $1`, [otherUser.rows[0]!.id]);
+  }
 });
 
 test('the next card edit auto-bumps to v2 (current version has a battle log)', async () => {
@@ -239,6 +305,57 @@ test('PUT /decks/:id/strategy never bumps and lands on the current snapshot', as
   // Clearing: null empties the guide.
   const cleared = await api('PUT', `/decks/${deckId}/strategy`, { strategyMd: null });
   assert.equal(cleared.json.deck.strategyMd, null);
+});
+
+test('in-person battle logs store without rawLog and round-trip archetype + review', async () => {
+  const reviewMd = '## Turning point\n\nThe missed gust made the prize race unwinnable.';
+  const created = await api('POST', `/decks/${deckId}/logs`, {
+    origin: 'in_person',
+    result: 'loss',
+    opponent: 'League regular',
+    opponentDeck: 'Dragapult ex',
+    opponentArchetype: 'Dragapult EX',
+    notes: 'I would replay turn three.',
+    reviewMd,
+    source: 'deck-e',
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.json.log.origin, 'in_person');
+  assert.equal(created.json.log.result, 'loss');
+  assert.equal(created.json.log.rawLog, null);
+  assert.equal(created.json.log.opponentArchetype, 'dragapult-ex');
+  assert.equal(created.json.log.reviewMd, reviewMd);
+  assert.equal(created.json.log.source, 'deck-e');
+  inPersonLogId = created.json.log.id;
+
+  const detail = await api('GET', `/decks/${deckId}/logs/${inPersonLogId}`);
+  assert.equal(detail.status, 200);
+  assert.equal(detail.json.log.origin, 'in_person');
+  assert.equal(detail.json.log.rawLog, null);
+  assert.equal(detail.json.log.reviewMd, reviewMd);
+});
+
+test('PTCG Live origin still rejects a missing rawLog', async () => {
+  const { status, json } = await api('POST', `/decks/${deckId}/logs`, {
+    origin: 'ptcgl', result: 'win', source: 'test-suite',
+  });
+  assert.equal(status, 400);
+  assert.equal(json.error.message, 'rawLog is required');
+});
+
+test('battle-log list returns per-archetype records and v2 fields', async () => {
+  const { status, json } = await api('GET', `/decks/${deckId}/logs`);
+  assert.equal(status, 200);
+  const dragapult = json.archetypes.find((a: any) => a.opponentArchetype === 'dragapult-ex');
+  assert.deepEqual(
+    { games: dragapult.games, wins: dragapult.wins, losses: dragapult.losses, ties: dragapult.ties },
+    { games: 1, wins: 0, losses: 1, ties: 0 },
+  );
+  assert.ok(dragapult.lastPlayedAt);
+  const row = json.logs.find((l: any) => l.id === inPersonLogId);
+  assert.equal(row.origin, 'in_person');
+  assert.equal(row.opponentArchetype, 'dragapult-ex');
+  assert.match(row.reviewMd, /Turning point/);
 });
 
 test('battle log detail / patch / delete round-trip', async () => {

@@ -917,6 +917,8 @@ CREATE TABLE card_set (
   --   set-info bar renders "Cards: 165 + 42 Secret" but the counter renders "0 / 207 Collected".
   card_count_official SMALLINT,         -- 165 — DISPLAY ONLY. This is the printed denominator that
                                         -- appears in "#006/165". It is NOT a progress denominator.
+                                        -- (Its one non-display use: the set_progress tool's
+                                        -- 'numbered' goal reads it as a MEMBERSHIP bound, §9.2.)
   card_count_total    SMALLINT,         -- 207 — TCGdex cardCount.total, for display/health checks.
                                         -- The AUTHORITATIVE progress denominator is
                                         -- COUNT(*) FROM card WHERE set_id = this. See §9.1.
@@ -1670,17 +1672,26 @@ CREATE TABLE battle_log (
   id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   deck_id       UUID NOT NULL REFERENCES deck(id) ON DELETE CASCADE,
   deck_version  INTEGER NOT NULL,               -- the version current when the game was played
-  raw_log       TEXT NOT NULL CHECK (char_length(raw_log) <= 50000),
+  raw_log       TEXT CHECK (char_length(raw_log) <= 50000),
+  origin        TEXT NOT NULL DEFAULT 'ptcgl'
+                  CHECK (origin IN ('ptcgl','in_person','other')),
   result        TEXT CHECK (result IN ('win','loss','tie')),   -- NULL = undetermined
   opponent      TEXT, opponent_deck TEXT,
+  opponent_archetype TEXT CHECK (
+    char_length(opponent_archetype) <= 64
+    AND opponent_archetype ~ '^[a-z0-9]+(-[a-z0-9]+)*$'),
   notes         TEXT CHECK (char_length(notes) <= 2000),
+  review_md     TEXT CHECK (char_length(review_md) <= 12000),
   parsed        JSONB,                          -- parser output (players, turns, prizes, KOs, …)
   source        TEXT NOT NULL DEFAULT 'web' CHECK (source ~ '^[a-z0-9][a-z0-9._-]{0,39}$'),
   played_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (origin <> 'ptcgl' OR raw_log IS NOT NULL),
   FOREIGN KEY (deck_id, deck_version) REFERENCES deck_version (deck_id, version) ON DELETE CASCADE
 );
 CREATE INDEX battle_log_deck ON battle_log (deck_id, deck_version, played_at DESC);
+CREATE INDEX battle_log_user_deck_archetype
+  ON battle_log (user_id, deck_id, opponent_archetype);
 ```
 
 **The auto-bump rule** (the load-bearing decision, LOCKED — implemented in
@@ -1705,11 +1716,20 @@ handler inside its transaction, after the `deck_card` writes):
 - Deck create and import seed the v1 snapshot in the same transaction; migration
   019 backfilled a v1 snapshot for every pre-existing deck (`source = 'backfill'`).
 
-`source` reuses §9's attribution shape (`web`, `deckpal-mcp`, …) so both snapshot
+Migration 084 adds in-person/other games without inventing a PTCG Live paste,
+countable normalized `opponent_archetype` keys, and `review_md` for Deck-E's
+markdown analysis. Reader-authored words stay in `notes`. Existing rows are
+backfilled as `origin = 'ptcgl'`; simple confident `opponent_deck` labels are
+normalized (lowercase ASCII words, apostrophes removed, hyphen separators), and
+ambiguous old free text remains unclassified. The existing `battle_log_own` RLS
+policy is row-based on `user_id`, so it covers the new columns unchanged.
+
+`source` reuses §9's attribution shape (`web`, `deckpal-mcp`, `deck-e`, …) so both snapshot
 and log rows say who wrote them. `battle_log.result` is nullable on purpose: a
 truncated paste with no win/concede line stores as undetermined rather than
 guessing, and the API refuses (400) only when it can identify neither the deck
-owner nor an explicit result.
+owner nor an explicit result. In-person/other games always require that explicit
+result because no raw game log exists to infer it from.
 
 
 # 9. Collection, goals, and progress
@@ -1778,6 +1798,17 @@ Denominators:
   `card_set.card_count_official` (165) is display-only and is commented as such in §6.
 - **Master:** `COUNT(*)` over `card_variant` joined to `variant_tier_resolved` where `tier='standard'`.
 - **Grandmaster:** `COUNT(*)` over `card_variant` for the set.
+
+**A fourth, unstored goal: `numbered` (agent tool only, 2026-10-10).** The `set_progress` agent
+tool also answers "the regular numbered set": one of any variant of each card with
+`local_id_numeric BETWEEN 1 AND card_set.card_count_official` — the 165 of `165 + 42 Secret`,
+leaving out secret rares numbered above it and unnumbered subset cards (`TG01`, `GG01`). The
+unit is cards, like Complete. This does not reopen the rule above: the printed total decides
+which cards are *in* the numbered set, and the denominator is still `COUNT(*)` over the real
+card rows that pass that test (the tool says so when the catalog holds fewer than the printed
+total). It is computed live per request, never written to `user_set_progress` (whose `goal`
+CHECK stays the three goals below), never a `default_goal`, and has no bar in the web app. A set
+whose `card_count_official` is NULL or 0 gets "not available", not an estimate.
 
 Percentage: `owned_required / total_required × 100`, **one decimal, round-half-up**. [E]
 `BEHAVIOR-SPEC.md` §2.1 item 4, now verified against **nine** observed pairs in
