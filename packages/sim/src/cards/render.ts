@@ -176,6 +176,11 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c06.pickDifferentEnergy': (a) => `Search your deck for up to ${Number(a.n ?? 3)} Basic Energy cards, choosing one at a time, each of a type none of the others provides (into "${String(a.as ?? 'found')}")`,
   'c06.attachSplit': (a) =>
     `Attach each of the cards chosen as "${String(a.cards)}" to ${a.slots ? `one of the Pokémon chosen as "${String(a.slots)}"` : `one of ${slotZoneNoun(String(a.zone ?? 'myPokemon') as SlotZone, a.filter as Filter | undefined)}`}, picking the Pokémon for each card separately${a.distinct ? ', no Pokémon getting more than one' : ''}`,
+  // std-c01-customs.ts
+  'c01.benchCards': (a) => `Put the Pokémon cards chosen as "${String(a.cards ?? 'found')}" onto your Bench, of any Stage, as far as the Bench has room`,
+  'c01.useSupporterEffect': (a) => `Use the effect of the Supporter card chosen as "${String(a.card ?? 'x')}" (it is not played, and it can't be declined)`,
+  'c01.energyToHandFiltered': (a) => `Put ${Number(a.n ?? 1)} ${energyNoun(a.filter as Filter | undefined)} attached to this Pokémon into your hand (all of them if it has fewer)`,
+  'c01.leastHpRemaining': (a) => `Choose the Pokémon in play (yours or your opponent's), other than this Pokémon, that has the least HP remaining (into "${String(a.as ?? 't')}")`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -186,6 +191,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'seed3.defenderKnockedOutByThisAttack': () => "your opponent's Pokémon (the Defending Pokémon) was damaged by this attack and now has damage equal to or over its HP (it is Knocked Out)",
   'c03.ownFirstTurn': () => 'it is your first turn (turn 1 if you went first, turn 2 if you did not)',
   'c04.evolvedFromThisTurn': (a) => `this Pokémon evolved from ${String(a.name)} during this turn`,
+  'c01.evolvedFromThisTurn': (a) => `this Pokémon evolved this turn from ${String(a.from)}`,
   rareCandyPlayable: () => "it isn't your first turn and you have a Basic Pokémon in play, not put into play this turn, that a Stage 2 card in your hand evolves from",
   'c07.benchHasEnergyOfType': (a) => `one of your Benched Pokémon has an attached Energy card providing ${sym(a.type as PType)} Energy`,
   'c06.ownFirstTurn': () => "it is the first turn you take in the game (turn 1 if you went first, turn 2 if you went second)",
@@ -1725,5 +1731,14 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me02.5-189|text': {
     problems: ['"any number of" is rendered'],
     why: '"attach a Basic Energy card … to each of them" is a pick of exactly as many Basic Energy cards as Pokémon chosen (min and max are both the smaller of the two counts); the renderer words a variable count "any number of" and does not name the variable.',
+  },
+  // std-c01
+  'me01-034|attack:Riptide': {
+    problems: ['"any number of" is rendered but not printed'],
+    why: '"for each Basic {W} Energy card in your discard pile ... shuffle those cards" is a chooseCards whose min and max both equal the count of Basic {W} Energy cards in the discard pile: all of them are chosen (forced, no decision), which the renderer words "any number of"; the card test pins that every one is counted and shuffled in.',
+  },
+  'me01-066|attack:Horrifying Bite': {
+    problems: ['"each" is printed but not rendered', '"reveal" is printed but not rendered'],
+    why: '"For each heads" is a repeat of the heads count, rendered "the number of heads times"; "reveals those cards" is information only (the cards are shuffled into the deck at once, and the engine tracks no memory of revealed cards leaving the hand), so the move to the deck has no reveal step.',
   },
 };
