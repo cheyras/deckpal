@@ -311,6 +311,7 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c33.selfToHandDiscardAttached': () => 'Put this Pokémon into your hand (every Pokémon card of its stack) and discard the Energy and Tool cards attached to it',
   'c33.evolveChosen': (a) => `For each Pokémon chosen as "${String(a.slots ?? 't')}", in turn: search your deck for a card that evolves from that Pokémon and put it onto that Pokémon to evolve it (picking none is allowed; not on your first turn; not a Pokémon that evolved this turn)`,
   'c34.moveEnergyAny': (a) => `You may move any amount of Energy cards matching ${JSON.stringify(a.filter ?? {})} from your Pokémon to your other Pokémon in any way you like: repeatedly choose one such Energy card attached to one of your Pokémon (or none, to stop) and a different Pokémon of yours to move it to; each card moves at most once`,
+  'c38.devolveOppAbility': () => "Choose 1 of your opponent's Pokémon that has an Evolution card on it (no choice with one) and put the highest Stage Evolution card on it into your opponent's hand: the Pokémon loses its Special Conditions and the effects of attacks on it; not done to a Pokémon protected from the effects of Abilities",
   'c34.revealOppTopPick': (a) => `Reveal the top ${Number(a.n ?? 10)} cards of your opponent's deck and you may choose a Pokémon that has an attack among them (into "${String(a.as ?? 'c')}"); you may choose none`,
   'c35.moveOppEnergy': () => "Move an Energy from 1 of your opponent's Pokémon to another of their Pokémon: choose one Energy card attached to an opposing Pokémon, then another opposing Pokémon to receive it; a Pokémon protected from the effects of attacks can neither give nor receive it",
   // std-c37-customs.ts
@@ -342,6 +343,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'c16.remainingHpAtMost': (a) => `the HP of the Pokémon this is attached to (with any HP changes) minus its damage is ${Number(a.n ?? 30)} or less`,
   'c19.supporterPlayedThisTurn': () => 'the player played a Supporter card from their hand this turn',
   's01.hitWhileActive': () => 'it was marked as damaged in the Active Spot this turn',
+  'c38.oppHasDevolvable': () => "one of your opponent's Pokémon has a card under its top card (an Evolution card that can be put into their hand)",
   'c23.grandTreeUsable': () => 'one of your Basic Pokémon in play (not on your first turn, not one put into play or evolved this turn) can evolve into a Stage 1 Pokémon card that is in your deck',
   'c25.usedLastTurn': (a) => `one of your Pokémon has the mark left by using ${String(a.attack)} during your previous turn`,
   // std-c37-customs.ts
@@ -2424,5 +2426,26 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv10.5w-003|attack:Healing Wrapping': {
     problems: ['"Basic" is printed but not rendered'],
     why: 'c27.healEach takes a Pokémon filter ({ stage: basic }); its gloss only words a type filter, so "Basic" is not rendered. The card test pins that a Basic is healed and an Evolution on the Bench is not.',
+  },
+  // std-c38
+  'sv10.5w-073|attack:Focus Energy': {
+    problems: ['number 240 is printed 1× but rendered 0×', 'the rendering involves the opponent'],
+    why: "Hyper Fang is this Pokémon's only attack that does damage and its base is 80, so \"base damage is 240\" is +160 on this Pokémon's damage (80 + 160 = 240) through the end of your next turn; the damage modifier is worded as applying to the opponent's Active Pokémon. The test pins 240 on the next turn, 80 after that, and 80 once the Pokémon has moved to the Bench.",
+  },
+  'sv10.5w-073|attack:Hyper Fang': {
+    problems: ['"tails" is printed but not rendered'],
+    why: '"If tails, this attack does nothing" is the else of the heads check (damage 80 only on heads; the damage step itself is not rendered); it is the same single flip.',
+  },
+  'sv10.5w-076|attack:Odor Sleuth': {
+    problems: ['"heads" is printed but not rendered', '"up to" is printed but not rendered', '"any number of" is rendered but not printed'],
+    why: 'The cards chosen are at most the number of heads (a choice of 0 to the heads count, but at least 1 when there is a heads: ruling 2199), which renders as "any number of" because the maximum is a variable; the test pins 0, 1 and 3 heads.',
+  },
+  'sv10.5w-083|text': {
+    problems: ['"tails" is printed but not rendered', '"each" is printed but not rendered'],
+    why: '"If tails" is the else branch of the heads check ("otherwise"); "each player shuffles their hand" is one move of each hand into its deck followed by one shuffle of each deck, which renders as those separate sentences.',
+  },
+  'svp-114|text': {
+    problems: ['"tails" is printed but not rendered'],
+    why: 'One coin: "If tails" is the else branch of the heads check ("otherwise"), which is the same flip.',
   },
 };
