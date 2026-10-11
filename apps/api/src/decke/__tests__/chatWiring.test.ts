@@ -312,7 +312,7 @@ test('a leg after an ask in the same turn finishes the approved work and ends (S
   // The browser replays the ask beside a held write or a browser tool; the
   // reader's approval is consent for that write only, never an answer.
   assert.match(CODE, /const askedEarlierThisTurn = turnToolNames\(messages\)\.includes\('ask_user'\)/);
-  assert.match(SRC, /import \{ askedThisStep, askedThisTurn, askPendingInstruction, spokeAndSettled \}/);
+  assert.match(SRC, /import \{ askedThisStep, askedThisTurn, askPendingInstruction, spokeAndSettled, textAfterLastLookup \}/);
   // No new tool calls (the approved write itself runs before step 0)...
   assert.match(CODE, /\.\.\.\(askedEarlierThisTurn\s*\? \{ toolChoice: 'none' \}\s*: stepNumber === 0 && reflex\.force/);
   // ...one step, and told why.
