@@ -38,6 +38,7 @@
  * header has always promised, and now stays true of every turn that does not
  * need otherwise.
  */
+import { createHash } from 'node:crypto';
 import { makeApi, type Api, type Ctx, type Queryable } from '@deckpal/agent-tools';
 import type pg from 'pg';
 import { openRlsSession, type RlsSession } from './rls.js';
@@ -60,6 +61,76 @@ export interface ToolCtxOptions {
    * guards us. See makeApi.
    */
   selfHopHeaders?: Record<string, string>;
+  /**
+   * The approved call's write key, or absent.
+   *
+   * Set by the adapter only when it executes a held write the reader approved,
+   * and derived there from the SDK-signed tool call (`approvedWriteKey`). Each
+   * non-preview write this ctx sends then carries its own `Idempotency-Key`
+   * (`keyedApi`), so a replayed approval reaches the same keys and the API
+   * answers with the first run's result instead of writing again.
+   */
+  writeKey?: string;
+  /**
+   * Called once per keyed write the API answered, with whether it was a
+   * replay of an earlier run (`replayed: true`) or written now (`false`).
+   */
+  onKeyedWrite?: (replayed: boolean) => void;
+}
+
+/** The header deckpal-api reads a per-call write key from (`writeOnce.ts`). */
+export const IDEMPOTENCY_HEADER = 'idempotency-key';
+
+/**
+ * The key for ONE write request of an approved call.
+ *
+ * A tool can make several writes (edit_list renames, bulk-adds and removes in
+ * one call), and each is its own transaction on the server, so each needs its
+ * own key. A write is identified by its method and path plus how many times
+ * this execution has already sent that same method and path. The path carries
+ * the entity id, so this survives a replay whose reads differ from the first
+ * run: a write that is skipped this time does not shift the others onto the
+ * wrong stored results. The global order of writes would.
+ */
+export function writeRequestKey(writeKey: string, method: string, path: string, occurrence: number): string {
+  return `decke-call:${createHash('sha256').update(`${writeKey}\u0000${method} ${path}\u0000${occurrence}`).digest('hex')}`;
+}
+
+function isPreviewBody(body: unknown): boolean {
+  return !!body && typeof body === 'object' && !Array.isArray(body) && (body as { dryRun?: unknown }).dryRun === true;
+}
+
+/**
+ * Put an `Idempotency-Key` on every write this execution sends.
+ *
+ * A preview (`dryRun: true`) gets none: it writes nothing, so the routes do
+ * not record one, and leaving it out of the count keeps the numbering of the
+ * real writes the same whether or not a preview ran first. Reads are never
+ * keyed. Without a `writeKey` this returns the client untouched, which is
+ * every read, every preview, every sub-agent and the whole MCP server.
+ */
+export function keyedApi(api: Api, writeKey: string | undefined, onWrite?: (replayed: boolean) => void): Api {
+  if (!writeKey) return api;
+  const sent = new Map<string, number>();
+  return {
+    base: api.base,
+    get: (path) => api.get(path),
+    send: async (method, path, body, headers) => {
+      if (isPreviewBody(body)) return api.send(method, path, body, headers);
+      const slot = `${method} ${path}`;
+      const occurrence = sent.get(slot) ?? 0;
+      sent.set(slot, occurrence + 1);
+      const out = await api.send(method, path, body, {
+        ...(headers ?? {}),
+        [IDEMPOTENCY_HEADER]: writeRequestKey(writeKey, method, path, occurrence),
+      });
+      // Every keyed route answers `replayed`; a POST that only reads (the
+      // log preview) answers neither, and counts as neither.
+      const replayed = out && typeof out === 'object' ? (out as { replayed?: unknown }).replayed : undefined;
+      if (typeof replayed === 'boolean') onWrite?.(replayed);
+      return out;
+    },
+  };
 }
 
 /**
@@ -185,7 +256,10 @@ export async function withToolCtx<T>(
 
   const ctx: Ctx = {
     db,
-    api: abortableApi(makeApi(opts.apiBase, opts.jwt, opts.selfHopHeaders), opts.signal),
+    api: abortableApi(
+      keyedApi(makeApi(opts.apiBase, opts.jwt, opts.selfHopHeaders), opts.writeKey, opts.onKeyedWrite),
+      opts.signal,
+    ),
     userId: opts.userId,
   };
 
@@ -213,9 +287,9 @@ export async function withToolCtx<T>(
  *
  * NOTE the honest limitation: this aborts the WAIT, not the work. A `POST` that
  * has already reached deckpal-api will finish and commit. That is why writes
- * carry an idempotency key rather than relying on the caller giving up — and
- * why `log_cards` was made idempotent after the incident where a client gave up
- * on a request that had in fact committed.
+ * carry an idempotency key rather than relying on the caller giving up — first
+ * `log_cards`, after the incident where a client gave up on a request that had
+ * in fact committed, and now every approved write (`keyedApi` above).
  */
 function abortableApi(api: Api, signal?: AbortSignal): Api {
   if (!signal) return api;
@@ -241,6 +315,6 @@ function abortableApi(api: Api, signal?: AbortSignal): Api {
   return {
     base: api.base,
     get: (path) => guard(api.get(path)),
-    send: (method, path, body) => guard(api.send(method, path, body)),
+    send: (method, path, body, headers) => guard(api.send(method, path, body, headers)),
   };
 }
