@@ -197,6 +197,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'c07.benchHasEnergyOfType': (a) => `one of your Benched Pokémon has an attached Energy card providing ${sym(a.type as PType)} Energy`,
   'c06.ownFirstTurn': () => "it is the first turn you take in the game (turn 1 if you went first, turn 2 if you went second)",
   'c06.usedLastTurn': (a) => `this Pokémon has the mark left by using ${String(a.attack)} during its controller's previous turn`,
+  'c14.abilitiesOn': () => "no effect has turned this Pokémon's Abilities off",
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
@@ -1777,5 +1778,18 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me01-066|attack:Horrifying Bite': {
     problems: ['"each" is printed but not rendered', '"reveal" is printed but not rendered'],
     why: '"For each heads" is a repeat of the heads count, rendered "the number of heads times"; "reveals those cards" is information only (the cards are shuffled into the deck at once, and the engine tracks no memory of revealed cards leaving the hand), so the move to the deck has no reveal step.',
+  },
+  // std-c14
+  'sv05-050|ability:Azure Seas': {
+    problems: ['"Active" is printed but not rendered', '"opponent\'s active" is printed but not rendered', 'similarity'],
+    why: 'Azure Seas has no script of its own: its effect (damage from this Pokémon\'s attacks skips effects on the opponent\'s Active Pokémon) is the `ignore: { defenderEffects: true }` on Catharsis Roar, this card\'s only attack that does damage, guarded by c14.abilitiesOn so it stops when the Ability is turned off. The Ability section therefore renders nothing; the card test pins both the ignore and the guard.',
+  },
+  'sv05-050|attack:Catharsis Roar': {
+    problems: ['similarity'],
+    why: 'The damage is computed once (120, plus 120 for a Special Condition) and then dealt twice over in an if/else: with the Ability on, ignoring effects on the Defending Pokémon (Azure Seas), otherwise normally. The if/else wording repeats the number and the condition renders as a long list, so the token overlap with the short printed sentence is low; every number and noun the check looks for is present.',
+  },
+  'sv05-092|attack:Mud Stock': {
+    problems: ['"any number of" is rendered but not printed', 'similarity'],
+    why: '"Attach a Basic Energy card … to each of your Benched Pokémon" is a pick of exactly as many Basic {F} Energy cards, and as many Benched Pokémon, as the smaller of the two counts (min and max are both that count); the renderer words a variable count "any number of" and does not name the variable.',
   },
 };
