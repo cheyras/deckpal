@@ -230,8 +230,8 @@ export const STD_C18: CardScript[] = [
     id: 'sv06-114',
     name: 'Mightyena',
     attacks: {
-      // "If Mightyena is on your Bench, this attack does 90 more damage."
-      'Hunting Pack': { damage: { add: [30, { cond: { onBench: 'self' }, then: 90, else: 0 }] } },
+      // "If Mightyena is on your Bench, this attack does 90 more damage." (a Pokémon named Mightyena on your Bench, not this one)
+      'Hunting Pack': { damage: { add: [30, { cond: { gte: [{ pokemon: { zone: 'myBench', filter: { name: 'Mightyena' } } }, 1] }, then: 90, else: 0 }] } },
       // "During your opponent's next turn, the Defending Pokémon can't retreat."
       Corner: { post: [{ op: 'effect', static: { k: 'cantRetreat' }, on: 'defender', duration: 'oppNextTurn' }] },
     },

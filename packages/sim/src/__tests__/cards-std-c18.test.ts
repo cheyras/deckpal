@@ -470,11 +470,14 @@ test('Okidogi, Adrena-Power: an Energy that provides every type counts as {D} En
 
 // ------------------------------------------------------------------ Mightyena
 
-test('Mightyena, Hunting Pack: 30 from the Active Spot (the +90 needs Mightyena on the Bench)', () => {
+test("Mightyena, Hunting Pack: 30, or 120 with a Mightyena on your Bench (an opponent's Benched Mightyena does not count)", () => {
   const dk = deck([MIGHTYENA, DRA]);
-  const g = scenario(dk, dk, [{ active: 'Mightyena', energy: { active: [D] } }, { active: 'Dragapult ex' }]);
+  const g = scenario(dk, dk, [{ active: 'Mightyena', energy: { active: [D] } }, { active: 'Dragapult ex', bench: ['Mightyena'] }]);
   choose(g, 'Attack: Hunting Pack');
   assert.equal(dmg(g, 1), 30);
+  const pack = scenario(dk, dk, [{ active: 'Mightyena', bench: ['Mightyena'], energy: { active: [D] } }, { active: 'Dragapult ex' }]);
+  choose(pack, 'Attack: Hunting Pack');
+  assert.equal(dmg(pack, 1), 120);
 });
 
 test("Mightyena, Corner: 60, and during the opponent's next turn the Defending Pokémon can't retreat", () => {
