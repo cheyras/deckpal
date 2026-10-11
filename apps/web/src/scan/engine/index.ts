@@ -63,15 +63,38 @@ import {
 } from './frame'
 import { loadModel, type ModelSession } from './model'
 import { computeLetterbox, rgbaToBGRPlanar, MODEL_SIZE, type LetterboxTransform } from './preprocess'
+import { captureLook, cardLook } from './look'
 import { gradientField, quadMeanSaturation, refineQuadChecked } from './refine'
-import { cardRectSize, CAPTURE_QUALITY, rectifyToCapture } from './rectify'
+import { CAPTURE_MARGIN, cardRectSize, CAPTURE_QUALITY, rectifyToCapture } from './rectify'
 import { createTracker } from './tracker'
 
 /** Detect-tick floor. ~8 Hz: fast enough that a tracked quad reads as
  *  continuous, slow enough to leave the thermal budget alone. */
 export const DEFAULT_CADENCE_MS = 120
-/** Consecutive ticks a stable track must sit centred before it can be captured. */
-export const DEFAULT_LOCK_TICKS = 3
+/**
+ * Consecutive ticks a stable track must sit centred before it can be captured.
+ *
+ * 2 since 2026-10-10 (it was 3). The tracker already makes a track wait
+ * TRACKER_DEFAULTS.stableFrames ticks before it is stable at all, so 3 more
+ * put the earliest capture ~5 ticks (~600 ms) after a card appeared — about as
+ * long as a card is shown in a flip-through (0.6-0.9 s in the replayed videos,
+ * scripts/scan-bench/video). Measured there on 192 card appearances, with the
+ * look re-arm (ui/rearm.ts):
+ *
+ *   lockTicks   captured   auto-ID   duplicates   stray captures   wrong
+ *       3          —          —           —              —           —    (no re-arm: 18% / 10% / 2 / 8)
+ *       2         31%        19%          9             10           0
+ *       1         39%        21%         14             13           0
+ *
+ * 1 is not taken, though it measured best: it is the one value at which a
+ * shape flickering between card and not-card every other tick locks on its
+ * good ticks, which is the clutter failure field test 2026-09-03 fenced
+ * (`field-test-regressions.test.ts`, "the dwell must be UNINTERRUPTED"). Two
+ * ticks keep that fence and cost three points of auto-ID against one. The
+ * static-clutter worst case (`__tests__/clutter-lock.ts`) holds each frame
+ * still for many ticks, so it locks the same frames at 2 as at 3.
+ */
+export const DEFAULT_LOCK_TICKS = 2
 
 /**
  * How far a locked candidate's short/long side ratio may sit from a card's own
@@ -710,6 +733,10 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
       return top
     }
     const focus = focusTrack()
+    // The lock's look, off the same working image the refiner used (canonical
+    // coordinates, so no transform) and on the OBSERVATION when there is one —
+    // the same quad capture() warps — not the smoothed display quad.
+    const look = locked && workImg ? cardLook(workImg, locked.raw ?? locked.quad) : null
 
     // Publish this tick's frame and its state together — they are a pair, and
     // `capture()` relies on them being one.
@@ -731,6 +758,7 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
       pending,
       locked,
       saturation: focus ? (saturations.get(focus.id) ?? null) : null,
+      look,
       perf: { detectMs, hz, jitterPx: jitter.displayedPx },
     })
   }
@@ -834,9 +862,11 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
         CAPTURE_QUALITY,
         out.width,
         out.height,
+        CAPTURE_MARGIN,
       )
       if (!capture) throw new Error('scan engine: quad could not be rectified or encoded')
-      return { blob: capture.blob, raw: capture.raw, quad, trackId }
+      // The look reads the card inside the SAME margin the warp just added.
+      return { blob: capture.blob, raw: capture.raw, quad, trackId, look: captureLook(capture.raw, CAPTURE_MARGIN) }
     },
   }
 }
