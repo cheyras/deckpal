@@ -153,16 +153,17 @@ export const STD_C01: CardScript[] = [
       // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2227/): "No, you cannot. If you use the attack, you must use the Supporter card if it is revealed and if you are able to."
       // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2226/): "Sure. You are not playing the Supporter, just using its effect." (a Supporter can't normally be played this turn)
       // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2225/): "Yes, you can. You are not playing a second supporter, but using its effect via an attack." (the turn's Supporter drop is untouched)
+      // Ruling 2376 (https://compendium.pokegym.net/ruling/2376/, 2026-06-04): used through this attack, a Supporter's "up to" choice of cards may be left at none (Eri: zero Item cards), which the same Supporter played from the hand may not.
       'Supernatural Shapeshifter': {
         program: [
           { op: 'move', cards: { top: 1 }, to: 'discard', as: 'x' },
-          { op: 'if', cond: { cardIs: { v: 'x', filter: { ttype: 'supporter' } } }, then: [{ op: 'custom', fn: 'c01.useSupporterEffect', args: { card: 'x' } }] },
+          { op: 'if', cond: { cardIs: { v: 'x', filter: { ttype: 'supporter' } } }, then: [{ op: 'custom', fn: 'rul07.useSupporterEffect', args: { card: 'x' } }] },
         ],
       },
     },
     notes:
-      'Compendium #2376 (April 2026 Rulebook: when a Supporter whose choice is mandatory is used through an attack, a player may choose fewer cards, e.g. zero Item cards for Eri) ' +
-      "is not modelled: the Supporter's own program runs unchanged, so its mandatory choices stay mandatory.",
+      "Compendium #2376 (2026-06-04, newer than the 2026-02-19 ruling that makes a Trainer's \"up to\" 1 to X): used through this attack, a Supporter's \"up to\" choice of cards may be left at none (Eri discards zero Item cards). " +
+      'rul07.useSupporterEffect runs the Supporter with its up-to choices lowered to 0; c01.useSupporterEffect (Mr. Mime) keeps the played-card minimum.',
   },
   {
     id: 'me01-024',
