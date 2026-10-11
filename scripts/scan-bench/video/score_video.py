@@ -13,6 +13,7 @@ Per video and overall:
   auto-ID recall   capturable appearances with a capture named CONFIDENTLY and RIGHT
   duplicates       extra captures inside one appearance
   stray captures   captures outside every appearance (packs, code cards, end screens)
+                   but inside the ground truth's labelled `window`
   confident wrong  captures named confidently as the wrong card (the number to keep at 0)
 """
 from __future__ import annotations
@@ -61,6 +62,14 @@ def main():
         gt = gts[vid]
         caps = [json.loads(l) for l in cj.read_text(encoding="utf8").splitlines() if l.strip()]
         caps = [c for c in caps if not c.get("suppressed")]
+        # Only the stretch the ground truth labels is scored. A replay usually
+        # runs the whole video, and a capture outside `window` is not a stray:
+        # nobody looked at what it shows. (H4FjFjvLhbg is labelled 296-636 s of
+        # a longer video; counting the rest made 27 "strays" and 12 "confident
+        # wrong" out of cards nobody had labelled.)
+        win = gt.get("window")
+        if win:
+            caps = [c for c in caps if win[0] - LEAD_S <= c["t"] <= win[1] + LAG_S]
         if caps:
             # one at a time: dynamic int8 quantizes per batch, production embeds one capture
             V = np.concatenate([emb(E.preprocess(root / vid / c["file"], E.CAPTURE_MARGIN)[None]) for c in caps])
@@ -89,6 +98,15 @@ def main():
                 s, e = apps[i]["start"], apps[i]["end"]
                 return 0.0 if s <= c["t"] <= e else min(abs(c["t"] - s), abs(c["t"] - e))
             i = min(idx, key=lambda i: (edge_gap(i), abs((apps[i]["start"] + apps[i]["end"]) / 2 - c["t"])))
+            # TWO CARDS ON SCREEN AT ONCE (a recap: two held side by side). When
+            # several appearances' OWN windows, not their slack, hold the
+            # capture, it was taken while both cards were shown, and naming either
+            # of them is right (Gc9d5_87odU 231.25 s: Petilil captured beside
+            # Pawniard). A slack window still excuses nothing.
+            own = [j for j in idx if apps[j]["start"] <= c["t"] <= apps[j]["end"]]
+            named = [j for j in own if c.get("pred") in ok_of(j)]
+            if len(own) > 1 and named:
+                i = named[0]
             # A TRANSITION: another appearance's slack window holds this capture
             # too, and the capture was identified as THAT card. Still counted
             # wrong below; flagged so it can be adjudicated by eye (--show-wrong).

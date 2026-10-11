@@ -1,5 +1,7 @@
 // THE TWO REGIONS THE RECIPE READS, AND THE UPSCALE — both measured, neither
-// guessed.
+// guessed. (Plus, since 2026-10-10, a third region read only when those two
+// find no number: the bottom-right `corner`, where pre-2017 cards print theirs.
+// It has its own derivation and its own scales — see `CORNER_SCALES`.)
 //
 // ── THE BANDS WERE DERIVED FROM THE DETECTOR, NOT DRAWN BY EYE ──────────────
 //
@@ -53,9 +55,60 @@ export const ROIS = {
    *  everything right of that is flavour text and the ©-line's tail, which the
    *  extractor only has to throw away again. */
   strip: { x0: 0.0, y0: 0.83, x1: 0.62, y1: 1.0 } satisfies Roi,
+  /** THE BOTTOM-RIGHT CORNER — where every card printed before Sun & Moon
+   *  (2017) puts its collector number: WotC's `93/102`, and the EX, DP, HGSS, BW
+   *  and XY eras after it. `strip` stops at x 0.62 and never sees it. NOT one of
+   *  the two shipped passes: it is read only when they found no number — see
+   *  `CORNER_SCALES` and `pipeline.readFields`. */
+  corner: { x0: 0.66, y0: 0.85, x1: 0.98, y1: 1.0 } satisfies Roi,
 } as const
 
 export type RoiName = keyof typeof ROIS
+
+/**
+ * THE CORNER IS READ TWICE, AT TWO SCALES, AND THE TWO READS MUST AGREE.
+ *
+ * ── WHY IT NEEDS ITS OWN SCALE ──────────────────────────────────────────────
+ *
+ * A vintage collector number is TINY: on a 480×670 crop of a card that filled
+ * the frame, `93/102` is about 5 px tall — roughly half the height of the
+ * modern bottom-left number the 3× recipe was measured on — and on Base Set it
+ * is black on a dark grey band. At 3× the detector mostly returns nothing for
+ * it; 4× and 6× each find about as many as anything tried (3-8×, two ROI
+ * shapes, contrast stretch, CLAHE, ImageNet normalisation — none did better and
+ * most added wrong reads).
+ *
+ * ── WHY TWICE, AND WHY THE GATES ────────────────────────────────────────────
+ *
+ * Because a wrong pair is the worst thing this lane can emit: `number +
+ * denominator` is a confident rung on the server, so a misread names a card.
+ * Measured on this ROI over all 147 pre-2017 card crops in the owner's
+ * `quad-verify` photos (2026-10-10, `scripts/scan-bench`; right / wrong pairs):
+ *
+ *                                      4×       6×     both, agreeing
+ *   any NNN/NNN                       11 / 2    9 / 2      8 / 1
+ *   + plausibility gates              11 / 1    9 / 2      8 / 1
+ *   + every digit at ≥ 0.6            9 / 0    9 / 0      8 / 0   <- shipped
+ *
+ * (`fields.readCornerPair` has the gates and the digit floor.) The one wrong
+ * pair the two scales AGREED on (`53/147` for `56/147`) is why agreement alone
+ * is not enough; the dropped digits the floor cannot see (`9/62` for `19/62`,
+ * seen at 5×) are why the floor alone is not either. Two detections at two
+ * scales resample the glyphs differently and mostly make different mistakes.
+ *
+ * Only 9 of 147 is not a typo: most of those photos are binder pages whose
+ * cards are under 400 px tall in the original, where a 5 px number was 3 px
+ * before it was upscaled and no OCR can read it. Of the 45 whose card was at
+ * least 400 px tall, 8 read.
+ *
+ * ── WHAT IT COSTS ───────────────────────────────────────────────────────────
+ *
+ * Nothing on a card whose strip read its number. Otherwise the 4× pass: the ROI
+ * is 153×100 px of the crop, a 640×416 detector input — 84 % of `strip`'s
+ * 896×352. The 6× confirmation (928×608, 1.8× `strip`) runs ONLY when the 4×
+ * read found a plausible pair.
+ */
+export const CORNER_SCALES = [4, 6] as const
 
 /**
  * 3×, AND THAT IS THE WHOLE OF THE PREPROCESSING (REPORT.md §3.2).

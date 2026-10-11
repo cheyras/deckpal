@@ -1,6 +1,6 @@
 // The look and the look re-arm (engine/look.ts, ui/rearm.ts): a different card
 // put down where the last one was is a new card; the same card still there,
-// or one still sliding into place, is not.
+// or one still sliding into place, or one whose capture came out turned, is not.
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
@@ -149,6 +149,65 @@ test('the look of the captured pixels matches a later tick of the same card', ()
   const fromCapture = captureLook(raw)!
   assert.ok(lookDistance(fromCapture, lookOf(1)) < REARM_STEADY_MAX)
   assert.ok(lookDistance(fromCapture, lookOf(2)) > REARM_NEW_MIN)
+})
+
+/** The capture() of scene `seed` when the corner order came out `turn` quarter
+ *  turns off (orderQuadForCard picks the top-left by position, so a card lying
+ *  past 45° is warped sideways or upside down): the expanded quad warped from
+ *  corner `turn` instead of the card's own top-left, at the device's 480x670. */
+function capturedTurned(seed: number, turn: number) {
+  const s = scene(seed)
+  const q = rect.expandQuad(s.quad, rect.CAPTURE_MARGIN)
+  const ordered = [0, 1, 2, 3].map((i) => q[(i + turn) % 4]) as Quad
+  return rect.warpQuad(s.img, ordered, 480, 670)!
+}
+
+test('a capture carries its four quarter turns; turn 0 is byte for byte the look of the capture as taken', async () => {
+  const { LOOK_BYTES, LOOK_TURNS, lookTurns } = await import('../../engine/look')
+  const raw = capturedTurned(1, 0)
+  const look = captureLook(raw)!
+  assert.equal(lookTurns(look), LOOK_TURNS)
+  assert.equal(lookTurns(lookOf(1)), 1, "a tick's look is just itself")
+  // What captureLook was before it carried turns: cardLook of the card's rectangle inside the margin.
+  const m = rect.CAPTURE_MARGIN
+  const mx = (raw.width * m) / (1 + 2 * m)
+  const my = (raw.height * m) / (1 + 2 * m)
+  const inner: Quad = [
+    [mx, my],
+    [raw.width - mx, my],
+    [raw.width - mx, raw.height - my],
+    [mx, raw.height - my],
+  ]
+  assert.deepEqual(look.subarray(0, LOOK_BYTES), cardLook(raw, inner))
+})
+
+test('a capture that came out sideways or upside down still matches its card — and no other', async () => {
+  const { LOOK_BYTES, LOOK_TURN_COST } = await import('../../engine/look')
+  for (const turn of [1, 2, 3]) {
+    const look = captureLook(capturedTurned(1, turn))!
+    // The bug this fixes: read as taken, the turned capture is "a different card".
+    assert.ok(lookDistance(look.subarray(0, LOOK_BYTES), lookOf(1)) > REARM_NEW_MIN, `turn ${turn}, as taken`)
+    const d = lookDistance(lookOf(1), look)
+    assert.ok(d <= LOOK_TURN_COST + REARM_STEADY_MAX, `turn ${turn}: ${d.toFixed(2)}`)
+    assert.ok(d >= LOOK_TURN_COST, 'a turn other than the capture as taken costs LOOK_TURN_COST')
+    assert.equal(lookDistance(look, lookOf(1)), d, 'either way round')
+    for (const seed of [2, 3, 4, 5]) {
+      const other = lookDistance(lookOf(seed), look)
+      assert.ok(other > REARM_NEW_MIN, `card ${seed} vs card 1 captured at turn ${turn}: ${other.toFixed(2)}`)
+    }
+  }
+  // ...and an upright capture of card 1 is no nearer to another card at any of its turns.
+  for (const seed of [2, 3, 4, 5]) assert.ok(lookDistance(lookOf(seed), captureLook(capturedTurned(1, 0))!) > REARM_NEW_MIN)
+})
+
+test('the re-arm does not re-capture a card whose capture came out sideways (owner session 1, Marill)', () => {
+  const r = createLookRearm()
+  r.judge(7, lookOf(1), [])
+  r.note(captureLook(capturedTurned(1, 1)), 7)
+  const refusedBy = () => [r.lookOfTrack(7)]
+  for (let i = 0; i < 20; i++) assert.equal(r.judge(7, lookOf(1), refusedBy()), false, 'card 1, still there, upright now')
+  assert.equal(r.judge(7, lookOf(2), refusedBy()), false, 'card 2, not yet steady')
+  assert.equal(r.judge(7, lookOf(2), refusedBy()), true, 'card 2, steady: a new card')
 })
 
 test('a card lying near 45 degrees has no look — its corner order is a coin toss', async () => {

@@ -34,6 +34,7 @@ import { collectionRouter } from './routes/collection.js';
 import { listsRouter } from './routes/lists.js';
 import { decksRouter } from './routes/decks.js';
 import { deckCheckRouter } from './routes/deckCheck.js';
+import { deckSimulateRouter } from './routes/deckSimulate.js';
 import { deckOddsRouter } from './routes/deckOdds.js';
 import { insightsRouter, publicPokedexRouter } from './routes/insights.js';
 import { meRouter } from './routes/me.js';
@@ -55,7 +56,7 @@ import { mountSitemaps } from './sitemaps.js';
 import { billingRateLimit, billingRouter } from './routes/billing.js';
 import { billingGateStatus, billingGateWarning, stripeMode } from './billing/stripe.js';
 import { mountStripeWebhook } from './billing/webhook.js';
-import { tokensRateLimit, avatarRateLimit, oauthRateLimit, preAuthFloodGuard, adminRateLimit, creditWalletRateLimit, bugsRateLimit, clientErrorRateLimit } from './rateLimit.js';
+import { tokensRateLimit, avatarRateLimit, oauthRateLimit, preAuthFloodGuard, adminRateLimit, creditWalletRateLimit, bugsRateLimit, clientErrorRateLimit, simulateRateLimit } from './rateLimit.js';
 
 /**
  * deckpal-api — the read/write API over the populated catalog.
@@ -381,6 +382,9 @@ export function createApp(): express.Express {
   // lets this be per-account instead of routes/bugs.ts's old per-`req.ip`
   // bucket (one shared bucket behind a proxy, defeating the whole limit).
   api.use('/bugs', bugsRateLimit);
+  // POST /decks/simulate burns up to 25 s of CPU per call (deck/simulate.ts), so
+  // one account gets a handful a minute — per account, like /bugs above.
+  api.use('/decks/simulate', simulateRateLimit);
 
   // RLS context: in SUPABASE_MODE, wrap authenticated requests in a transaction
   // with SET LOCAL role = 'authenticated' + request.jwt.claims. This makes RLS
@@ -501,7 +505,7 @@ export function createApp(): express.Express {
           // Run the rest of the middleware chain inside the RLS store context
           // so q()/q1()/withTx() pick up the client transparently.
           res.locals.commitAndReleaseRls = async () => {
-            if (!await cleanup('commit')) throw new Error('Request connection closed before Deck-E started');
+            if (!await cleanup('commit')) throw new Error('Request connection closed before its long-running work started');
           };
           rlsStore.run(client, () => requestAccessStore.run(new Map(), () => next()));
         } catch (err) {
@@ -652,7 +656,7 @@ export function createApp(): express.Express {
         '/lists', '/lists/:id', 'POST /lists', 'PATCH /lists/:id', 'DELETE /lists/:id', 'POST /lists/:id/items', 'DELETE /lists/:id/items/:itemId',
         '/decks', 'POST /decks', '/decks/:id', 'PATCH /decks/:id', 'DELETE /decks/:id',
         'POST /decks/:id/cards', 'PATCH /decks/:id/cards/:cardId', 'DELETE /decks/:id/cards/:cardId',
-        '/decks/:id/validate', 'POST /decks/check', 'POST /decks/odds', 'POST /decks/import', 'POST /decks/import/fix', '/decks/:id/export', '/decks/:id/testhand', '/decks/:id/pricing', '/decks/:id/massentry',
+        '/decks/:id/validate', 'POST /decks/check', 'POST /decks/simulate', 'POST /decks/odds', 'POST /decks/import', 'POST /decks/import/fix', '/decks/:id/export', '/decks/:id/testhand', '/decks/:id/pricing', '/decks/:id/massentry',
         'PUT /decks/:id/strategy', '/decks/:id/versions', '/decks/:id/versions/:v', 'POST /decks/:id/revert',
         '/decks/:id/logs', 'POST /decks/:id/logs', '/decks/:id/logs/:logId',
         'PATCH /decks/:id/logs/:logId', 'DELETE /decks/:id/logs/:logId',
@@ -775,6 +779,7 @@ export function createApp(): express.Express {
   api.use('/collection', collectionRouter);
   api.use('/lists', listsRouter);
   api.use('/decks/check', deckCheckRouter);
+  api.use('/decks/simulate', deckSimulateRouter);
   api.use('/decks/odds', deckOddsRouter);
   api.use('/decks', decksRouter);
   api.use('/insights', insightsRouter);

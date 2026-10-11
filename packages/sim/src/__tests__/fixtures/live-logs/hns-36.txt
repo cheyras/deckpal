@@ -1,0 +1,212 @@
+Setup
+PlayerA chose tails for the opening coin flip.
+PlayerB won the coin toss.
+PlayerB decided to go first.
+PlayerA drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • (me3_88) Telepathic Psychic Energy, (sve_5) Basic Psychic Energy, (sv6_163) Secret Box, (me1_119) Lillie's Determination, (me3_81) Poké Pad, (sve_5) Basic Psychic Energy, (sve_5) Basic Psychic Energy
+PlayerB drew 7 cards for the opening hand.
+- 7 drawn cards.
+PlayerA took a mulligan.
+- Cards revealed from Mulligan 1
+   • (me3_88) Telepathic Psychic Energy, (sve_5) Basic Psychic Energy, (sv6_163) Secret Box, (me1_119) Lillie's Determination, (me3_81) Poké Pad, (sve_5) Basic Psychic Energy, (sve_5) Basic Psychic Energy
+PlayerB drew 1 more card because PlayerA took at least 1 mulligan.
+- PlayerB drew a card.
+PlayerA played (me5_39) Dhelmise to the Active Spot.
+PlayerB played (sv5_128) Dunsparce to the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (me1_168) Fighting Gong.
+- PlayerB drew (me1_75) Solrock.
+- PlayerB shuffled their deck.
+PlayerB played (me3_81) Poké Pad.
+- PlayerB drew (me1_76) Riolu.
+- PlayerB shuffled their deck.
+PlayerB played (me1_76) Riolu to the Bench.
+PlayerB ended their turn.
+
+PlayerA's Turn
+PlayerA drew (me2-5_184) Buddy-Buddy Poffin.
+PlayerA played (me2-5_184) Buddy-Buddy Poffin.
+- PlayerA drew 2 cards and played them to the Bench.
+   • (me5_5) Poltchageist, (me5_33) Shuppet
+- PlayerA shuffled their deck.
+PlayerA played (me4_80) Prism Tower to the Stadium spot.
+PlayerA played (me1_119) Lillie's Determination.
+- PlayerA shuffled 4 cards into their deck.
+   • (me1_131) Ultra Ball, (sv6-5_61) Night Stretcher, (me5_78) Gwynn, (me1_131) Ultra Ball
+- PlayerA drew 8 cards.
+   • (me5_5) Poltchageist, (me5_78) Gwynn, (sve_5) Basic Psychic Energy, (sve_5) Basic Psychic Energy, (me5_39) Dhelmise, (me1_131) Ultra Ball, (me2-5_76) Lillie's Clefairy ex, (me3_81) Poké Pad
+PlayerA played (me2-5_76) Lillie's Clefairy ex to the Bench.
+PlayerA played (me3_81) Poké Pad.
+- PlayerA drew (me5_34) Banette.
+- PlayerA shuffled their deck.
+PlayerA attached (sve_5) Basic Psychic Energy to (me5_33) Shuppet on the Bench.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (sv8-5_50) Riolu to the Bench.
+PlayerB played Prism Tower.
+- PlayerA moved PlayerB's 2 cards to the discard pile.
+   • (me1_75) Solrock, (me1_124) Premium Power Pro
+- PlayerA drew a card.
+PlayerB evolved (sv5_128) Dunsparce to (sv9_121) Dudunsparce ex in the Active Spot.
+PlayerB attached (me3_87) Rocky Fighting Energy to (sv9_121) Dudunsparce ex in the Active Spot.
+PlayerB played (me1_114) Boss's Orders.
+- PlayerA's (me5_33) Shuppet was switched with PlayerA's (me5_39) Dhelmise to become the Active Pokémon.
+PlayerA's (me5_33) Shuppet is now in the Active Spot.
+PlayerB's (sv9_121) Dudunsparce ex used Tenacious Tail on PlayerA's (me5_33) Shuppet for 60 damage.
+PlayerA's (me5_33) Shuppet was Knocked Out!
+PlayerB took a Prize card.
+PlayerA's (me5_5) Poltchageist is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (sv5_128) Dunsparce.
+PlayerA played (sv5_128) Dunsparce to the Bench.
+PlayerA played (me1_131) Ultra Ball.
+- PlayerA discarded 2 cards.
+   • (me5_5) Poltchageist, (me5_78) Gwynn
+- PlayerA drew (sv6-5_38) Fezandipiti ex.
+- PlayerA shuffled their deck.
+PlayerA played (sv6-5_38) Fezandipiti ex to the Bench.
+PlayerA attached (sve_5) Basic Psychic Energy to (me2-5_76) Lillie's Clefairy ex on the Bench.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (sv5_144) Buddy-Buddy Poffin.
+- PlayerB drew 2 cards and played them to the Bench.
+   • (sv8-5_50) Riolu, (sv5_128) Dunsparce
+- PlayerB shuffled their deck.
+PlayerB attached (mee_6) Basic Fighting Energy to (sv8-5_50) Riolu on the Bench.
+PlayerB played (me1_114) Boss's Orders.
+- PlayerA's (me2-5_76) Lillie's Clefairy ex was switched with PlayerA's (me5_5) Poltchageist to become the Active Pokémon.
+PlayerA's (me2-5_76) Lillie's Clefairy ex is now in the Active Spot.
+PlayerB's (sv9_121) Dudunsparce ex used Tenacious Tail on PlayerA's (me2-5_76) Lillie's Clefairy ex for 120 damage.
+
+PlayerA's Turn
+PlayerA drew (me5_33) Shuppet.
+PlayerA played (me5_33) Shuppet to the Bench.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (rsv10-5_84) Hilda.
+- PlayerB drew 2 cards.
+   • (me1_160) Mega Lucario ex, (sv6_167) Legacy Energy
+- PlayerB shuffled their deck.
+PlayerB evolved (sv8-5_50) Riolu to (me1_160) Mega Lucario ex on the Bench.
+PlayerB attached (sv6_167) Legacy Energy to (sv9_121) Dudunsparce ex in the Active Spot.
+PlayerB's (sv9_121) Dudunsparce ex used Tenacious Tail on PlayerA's (me2-5_76) Lillie's Clefairy ex for 120 damage.
+PlayerA's (me2-5_76) Lillie's Clefairy ex was Knocked Out!
+PlayerB took 2 Prize cards.
+PlayerA's (me5_33) Shuppet is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (me5_78) Gwynn.
+PlayerA's (sv6-5_38) Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
+   • (me1_131) Ultra Ball, (me3_81) Poké Pad, (sv5_128) Dunsparce
+PlayerA played (me5_78) Gwynn.
+- PlayerA discarded 2 cards.
+   • (me5_39) Dhelmise, (sv5_128) Dunsparce
+- PlayerA drew 6 cards.
+   • (zsv10-5_79) Air Balloon, (sve_5) Basic Psychic Energy, (sve_5) Basic Psychic Energy, (me5_39) Dhelmise, (me2-5_184) Buddy-Buddy Poffin, (sv5_129) Dudunsparce
+PlayerA attached (sve_5) Basic Psychic Energy to (me5_33) Shuppet in the Active Spot.
+PlayerA attached (zsv10-5_79) Air Balloon to (sv6-5_38) Fezandipiti ex on the Bench.
+PlayerA evolved (me5_33) Shuppet to (me5_34) Banette in the Active Spot.
+PlayerA played (me3_81) Poké Pad.
+- PlayerA drew (me5_34) Banette.
+- PlayerA shuffled their deck.
+PlayerA evolved (sv5_128) Dunsparce to (sv5_129) Dudunsparce on the Bench.
+PlayerA played (sv5_129) Dudunsparce.
+- PlayerA drew 3 cards.
+   • (me1_131) Ultra Ball, (me5_78) Gwynn, (sv6_163) Secret Box
+- PlayerA shuffled 2 cards into their deck.
+   • (sv5_129) Dudunsparce, (sv5_128) Dunsparce
+PlayerA played (me2-5_184) Buddy-Buddy Poffin.
+- PlayerA drew 2 cards and played them to the Bench.
+   • (sv5_128) Dunsparce, (me5_33) Shuppet
+- PlayerA shuffled their deck.
+PlayerA's (me5_34) Banette used Puppet Pull on PlayerB's (sv9_121) Dudunsparce ex for 80 damage.
+- PlayerA drew (me1_114) Boss's Orders.
+- PlayerA shuffled their deck.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB evolved (sv5_128) Dunsparce to (sv5_129) Dudunsparce on the Bench.
+PlayerB played (sv5_129) Dudunsparce.
+- PlayerB drew 3 cards.
+- PlayerB shuffled 2 cards into their deck.
+   • (sv5_129) Dudunsparce, (sv5_128) Dunsparce
+PlayerB played (me2-5_261) Jamming Tower to the Stadium spot.
+- PlayerB discarded (me4_80) Prism Tower.
+PlayerB attached (mee_6) Basic Fighting Energy to (me1_160) Mega Lucario ex on the Bench.
+PlayerB evolved (sv8-5_50) Riolu to (me1_160) Mega Lucario ex on the Bench.
+PlayerB played (me1_114) Boss's Orders.
+- PlayerA's (me5_33) Shuppet was switched with PlayerA's (me5_34) Banette to become the Active Pokémon.
+PlayerA's (me5_33) Shuppet is now in the Active Spot.
+PlayerB's (sv9_121) Dudunsparce ex used Tenacious Tail on PlayerA's (me5_33) Shuppet for 60 damage.
+PlayerA's (me5_33) Shuppet was Knocked Out!
+PlayerB took a Prize card.
+PlayerA's (me5_34) Banette is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (me5_34) Banette.
+PlayerA's (sv6-5_38) Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
+   • (me5_33) Shuppet, (me1_119) Lillie's Determination, (me1_131) Ultra Ball
+PlayerA played (me1_114) Boss's Orders.
+- PlayerB's (me1_160) Mega Lucario ex was switched with PlayerB's (sv9_121) Dudunsparce ex to become the Active Pokémon.
+PlayerB's (me1_160) Mega Lucario ex is now in the Active Spot.
+PlayerA played (sv6_163) Secret Box.
+- PlayerA discarded 3 cards.
+   • (me1_119) Lillie's Determination, (me1_131) Ultra Ball, (me1_131) Ultra Ball
+- PlayerA drew 3 cards.
+   • (me4_82) Special Red Card, (me5_78) Gwynn, (me4_80) Prism Tower
+- PlayerA shuffled their deck.
+PlayerA played (me4_80) Prism Tower to the Stadium spot.
+- PlayerA discarded (me2-5_261) Jamming Tower.
+PlayerA attached (sve_5) Basic Psychic Energy to (me5_39) Dhelmise on the Bench.
+PlayerA's (me5_34) Banette used Puppet Pull on PlayerB's (me1_160) Mega Lucario ex for 160 damage. PlayerB's (me1_160) Mega Lucario ex took 80 more damage because of Psychic Weakness.
+- PlayerA drew (me3_88) Telepathic Psychic Energy.
+- PlayerA shuffled their deck.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB evolved (me1_76) Riolu to (me1_160) Mega Lucario ex on the Bench.
+PlayerB played Prism Tower.
+- PlayerA moved PlayerB's 2 cards to the discard pile.
+   • (me1_132) Wally's Compassion, (me1_74) Lunatone
+- PlayerA drew a card.
+PlayerB attached (mee_6) Basic Fighting Energy to (me1_160) Mega Lucario ex in the Active Spot.
+PlayerB's (me1_160) Mega Lucario ex used Aura Jab on PlayerA's (me5_34) Banette for 100 damage. PlayerA's (me5_34) Banette took -30 less damage because of Fighting Resistance.
+PlayerA's (me5_34) Banette was Knocked Out!
+PlayerB took a Prize card.
+PlayerA's (me5_39) Dhelmise is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (me3_81) Poké Pad.
+PlayerA's (sv6-5_38) Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
+   • (me5_6) Sinistcha, (me4_80) Prism Tower, (sv6-5_61) Night Stretcher
+PlayerA's (me5_39) Dhelmise used Vengeful Anchor on PlayerB's (me1_160) Mega Lucario ex for 340 damage. PlayerB's (me1_160) Mega Lucario ex took 170 more damage because of Psychic Weakness.
+PlayerB's (me1_160) Mega Lucario ex was Knocked Out!
+PlayerA took 3 Prize cards.
+PlayerB's (me1_160) Mega Lucario ex is now in the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played Prism Tower.
+- PlayerA moved PlayerB's 2 cards to the discard pile.
+   • (me1_132) Wally's Compassion, (me1_74) Lunatone
+- PlayerA drew a card.
+PlayerB played (sv8_177) Gravity Mountain to the Stadium spot.
+- PlayerB discarded (me4_80) Prism Tower.
+PlayerB attached (mee_6) Basic Fighting Energy to (me1_160) Mega Lucario ex in the Active Spot.
+PlayerB's (me1_160) Mega Lucario ex used Mega Brave on PlayerA's (me5_39) Dhelmise for 240 damage. PlayerA's (me5_39) Dhelmise took -30 less damage because of Fighting Resistance.
+PlayerA's (me5_39) Dhelmise was Knocked Out!
+PlayerB took a Prize card.
+Opponent took all of their Prize cards. PlayerB wins.

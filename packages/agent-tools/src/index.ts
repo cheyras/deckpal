@@ -9,6 +9,7 @@ import { historyTools } from './tools/history.js';
 import { listTools } from './tools/lists.js';
 import { loggingTools } from './tools/logging.js';
 import { shoppingTools } from './tools/shopping.js';
+import { simulateTools } from './tools/simulate.js';
 import { statusTools } from './tools/status.js';
 
 /**
@@ -35,7 +36,8 @@ import { statusTools } from './tools/status.js';
  * in registration order, and that order is what a model sees first; the
  * grouping below is the one the MCP server has always registered — status,
  * collection, catalog, decks, deck intelligence, lists, logging, shopping,
- * history.
+ * history. simulate_battles sits right after check_deck: both test a list,
+ * and check_deck is the one a list must pass first.
  */
 const ALL: ToolDefinition[] = [
   ...statusTools,
@@ -44,6 +46,7 @@ const ALL: ToolDefinition[] = [
   ...deckTools,
   ...deckCheckTools,
   ...deckOddsTools,
+  ...simulateTools,
   ...deckIntelTools,
   ...listTools,
   ...loggingTools,
@@ -94,6 +97,9 @@ export {
   deckOddsInputSchema, renderDeckOdds,
   type DeckOddsInput, type DeckOddsResult, type DeckOddsQueryResult, type DeckOddsCardLine,
 } from './tools/deckOdds.js';
+export {
+  simulateBattles, simulateBattlesInputSchema, type SimulateBattlesInput,
+} from './tools/simulate.js';
 
 /**
  * Re-exported for `apps/mcp`, whose server-side `console.error` lines print a

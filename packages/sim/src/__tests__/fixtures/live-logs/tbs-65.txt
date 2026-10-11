@@ -1,0 +1,175 @@
+Setup
+PlayerB chose tails for the opening coin flip.
+PlayerB won the coin toss.
+PlayerB decided to go first.
+PlayerB drew 7 cards for the opening hand.
+- 7 drawn cards.
+PlayerA drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • (sv6_166) Boomerang Energy, (me1_104) Mega Kangaskhan ex, (sv6-5_54) Academy at Night, (me1_119) Lillie's Determination, (sv7_58) Slowking, (me2-5_98) Spectrier, (me4_61) Metagross
+PlayerB played (me5_29_ph) Slowpoke to the Active Spot.
+PlayerA played (me1_104) Mega Kangaskhan ex to the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (sv5_144) Buddy-Buddy Poffin.
+- PlayerB drew 2 cards and played them to the Bench.
+   • (sv6_14) Grookey, (sv6_14) Grookey
+- PlayerB shuffled their deck.
+PlayerB played (sv4-5_91) Ultra Ball.
+- PlayerB discarded 2 cards.
+   • (me1_130) Switch, (sv2_172) Boss's Orders
+- PlayerB drew (sv6_89) Swirlix.
+- PlayerB shuffled their deck.
+PlayerB played (sv6_89) Swirlix to the Bench.
+PlayerB ended their turn.
+
+PlayerA's Turn
+PlayerA drew (me1_104) Mega Kangaskhan ex.
+PlayerA played (me1_104) Mega Kangaskhan ex to the Bench.
+PlayerA played (me1_119) Lillie's Determination.
+- PlayerA shuffled 5 cards into their deck.
+   • (sv6_166) Boomerang Energy, (sv6-5_54) Academy at Night, (sv7_58) Slowking, (me2-5_98) Spectrier, (me4_61) Metagross
+- PlayerA drew 8 cards.
+   • (sv1_196) Ultra Ball, (me5_29_ph) Slowpoke, (me4_61) Metagross, (sv7_58) Slowking, (me3_81) Poké Pad, (sv6_163) Secret Box, (sv10_78) Zeraora, (me1_119) Lillie's Determination
+PlayerA's (me1_104) Mega Kangaskhan ex used Run Errand.
+- PlayerA drew 2 cards.
+   • (me5_29_ph) Slowpoke, (sv6-5_54) Academy at Night
+PlayerA played (me5_29_ph) Slowpoke to the Bench.
+PlayerA played (me5_29_ph) Slowpoke to the Bench.
+PlayerA played (sv6_163) Secret Box.
+- PlayerA discarded 3 cards.
+   • (sv10_78) Zeraora, (me3_81) Poké Pad, (me1_119) Lillie's Determination
+- PlayerA drew 4 cards.
+   • (sv1_196) Ultra Ball, (sv6_158) Lucky Helmet, (sv5_145) Ciphermaniac's Codebreaking, (sv6-5_54) Academy at Night
+- PlayerA shuffled their deck.
+PlayerA attached (sv6_158) Lucky Helmet to (me1_104) Mega Kangaskhan ex in the Active Spot.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB evolved (me5_29_ph) Slowpoke to (me5_90) Slowbro in the Active Spot.
+PlayerB played (me1_119) Lillie's Determination.
+- PlayerB shuffled 2 cards into their deck.
+- PlayerB drew 8 cards.
+PlayerB played (me2_85) Battle Cage to the Stadium spot.
+PlayerB attached (me3_88) Telepathic Psychic Energy to (me5_90) Slowbro in the Active Spot.
+(me3_88) Telepathic Psychic Energy was activated.
+- PlayerB drew 2 cards and played them to the Bench.
+   • (me5_29_ph) Slowpoke, (sv9_56) Lillie's Clefairy ex
+- PlayerB shuffled their deck.
+PlayerB's (me5_90) Slowbro used All Out on PlayerA's (me1_104) Mega Kangaskhan ex for 50 damage.
+(sv6_158) Lucky Helmet was activated.
+- PlayerA drew 2 cards.
+   • (me3_81) Poké Pad, (sv8_76) Latias ex
+
+PlayerA's Turn
+PlayerA drew (sv6-5_47) Kyurem.
+PlayerA played (sv8_76) Latias ex to the Bench.
+PlayerA played (me3_81) Poké Pad.
+- PlayerA drew (sv7_58) Slowking.
+- PlayerA shuffled their deck.
+PlayerA evolved (me5_29_ph) Slowpoke to (sv7_58) Slowking on the Bench.
+PlayerA evolved (me5_29_ph) Slowpoke to (sv7_58) Slowking on the Bench.
+PlayerA played (sv5_145) Ciphermaniac's Codebreaking.
+- PlayerA shuffled their deck.
+PlayerA's (me1_104) Mega Kangaskhan ex used Run Errand.
+- PlayerA drew 2 cards.
+   • (ec_5) Basic Psychic Energy, (sv6_166) Boomerang Energy
+PlayerA attached (sv6_166) Boomerang Energy to (sv7_58) Slowking on the Bench.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (rsv10-5_84) Hilda.
+- PlayerB drew 2 cards.
+   • (sv6_15) Thwackey, (mee_5) Basic Psychic Energy
+- PlayerB shuffled their deck.
+PlayerB evolved (sv6_14) Grookey to (sv6_15) Thwackey on the Bench.
+PlayerB played (me1_130) Switch.
+- PlayerB's (sv6_89) Swirlix was switched with PlayerB's (me5_90) Slowbro to become the Active Pokémon.
+PlayerB's (sv6_89) Swirlix is now in the Active Spot.
+PlayerB's (sv6_15) Thwackey used Boom Boom Groove.
+- PlayerB drew a card.
+- PlayerB shuffled their deck.
+PlayerB evolved (sv6_14) Grookey to (sv6_15) Thwackey on the Bench.
+PlayerB's (sv6_15) Thwackey used Boom Boom Groove.
+- PlayerB drew a card.
+- PlayerB shuffled their deck.
+PlayerB attached (zsv10-5_79) Air Balloon to (sv6_89) Swirlix in the Active Spot.
+PlayerB attached (mee_5) Basic Psychic Energy to (sv9_56) Lillie's Clefairy ex on the Bench.
+PlayerB retreated (sv6_89) Swirlix to the Bench.
+PlayerB's (me5_90) Slowbro is now in the Active Spot.
+PlayerB's (me5_90) Slowbro used All Out on PlayerA's (me1_104) Mega Kangaskhan ex for 50 damage.
+(sv6_158) Lucky Helmet was activated.
+- PlayerA drew 2 cards.
+   • (me1_104) Mega Kangaskhan ex, (me3_81) Poké Pad
+
+PlayerA's Turn
+PlayerA drew (me1_119) Lillie's Determination.
+PlayerA attached (ec_5) Basic Psychic Energy to (sv7_58) Slowking on the Bench.
+PlayerA's (me1_104) Mega Kangaskhan ex used Run Errand.
+- PlayerA drew 2 cards.
+   • (ec_5) Basic Psychic Energy, (sv5_145) Ciphermaniac's Codebreaking
+PlayerA played (sv5_145) Ciphermaniac's Codebreaking.
+- PlayerA shuffled their deck.
+PlayerA retreated (me1_104) Mega Kangaskhan ex to the Bench.
+PlayerA's (sv7_58) Slowking is now in the Active Spot.
+PlayerA's (sv7_58) Slowking used Seek Inspiration.
+- PlayerA discarded (sv6-5_47) Kyurem.
+- PlayerA chose Trifrost
+- 2 cards were discarded from PlayerA's (sv7_58) Slowking.
+   • (sv6_166) Boomerang Energy, (ec_5) Basic Psychic Energy
+- PlayerB's (sv6_15) Thwackey took 110 damage.
+- PlayerB's (sv9_56) Lillie's Clefairy ex took 110 damage.
+- PlayerB's (me5_29_ph) Slowpoke took 110 damage.
+PlayerB's (me5_29_ph) Slowpoke was Knocked Out!
+PlayerB's (sv6_15) Thwackey was Knocked Out!
+(sv6_14) Grookey was discarded from PlayerB's (sv6_15) Thwackey.
+(sv6_166) Boomerang Energy was activated.
+- PlayerA attached (sv6_166) Boomerang Energy to (sv7_58) Slowking in the Active Spot.
+PlayerA took 2 Prize cards.
+(me1_119) Lillie's Determination was added to PlayerA's hand.
+(sv7_58) Slowking was added to PlayerA's hand.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (sv6_14) Grookey to the Bench.
+PlayerB played (me3_81) Poké Pad.
+- PlayerB drew (sv6_15) Thwackey.
+- PlayerB shuffled their deck.
+PlayerB attached (mee_5) Basic Psychic Energy to (sv9_56) Lillie's Clefairy ex on the Bench.
+PlayerB played (sv1_187) Pokémon Catcher.
+- PlayerB flipped a coin and it landed on tails.
+PlayerB's (me5_90) Slowbro used All Out on PlayerA's (sv7_58) Slowking for 50 damage.
+
+PlayerA's Turn
+PlayerA drew (sv6_166) Boomerang Energy.
+PlayerA attached (ec_5) Basic Psychic Energy to (sv7_58) Slowking in the Active Spot.
+PlayerA played (sv6-5_54) Academy at Night to the Stadium spot.
+- PlayerB discarded (me2_85) Battle Cage.
+PlayerA played Academy at Night.
+- PlayerA put (sv6-5_47) Kyurem on top of their deck.
+PlayerA's (sv7_58) Slowking used Seek Inspiration.
+- PlayerA discarded (sv6-5_47) Kyurem.
+- PlayerA chose Trifrost
+- 2 cards were discarded from PlayerA's (sv7_58) Slowking.
+   • (sv6_166) Boomerang Energy, (ec_5) Basic Psychic Energy
+- PlayerB's (sv6_89) Swirlix took 110 damage.
+- PlayerB's (sv6_15) Thwackey took 110 damage.
+- PlayerB's (sv9_56) Lillie's Clefairy ex took 110 damage.
+(sv6_166) Boomerang Energy was added to PlayerA's hand.
+(me2-5_280) Lillie's Clefairy ex was added to PlayerA's hand.
+(me3_88) Telepathic Psychic Energy was added to PlayerA's hand.
+PlayerA took 4 Prize cards.
+(zsv10-5_79) Air Balloon was discarded from PlayerB's (sv6_89) Swirlix.
+PlayerB's (sv6_89) Swirlix was Knocked Out!
+(sv6_14) Grookey was discarded from PlayerB's (sv6_15) Thwackey.
+(me2-5_288) Fezandipiti ex was added to PlayerA's hand.
+PlayerB's (sv6_15) Thwackey was Knocked Out!
+PlayerB's (sv9_56) Lillie's Clefairy ex was Knocked Out!
+- 2 cards were discarded from PlayerB's (sv9_56) Lillie's Clefairy ex.
+   • (mee_5) Basic Psychic Energy, (mee_5) Basic Psychic Energy
+All Prize cards taken. PlayerA wins.
+(sv6_166) Boomerang Energy was activated.
+- PlayerA attached (sv6_166) Boomerang Energy to (sv7_58) Slowking in the Active Spot.

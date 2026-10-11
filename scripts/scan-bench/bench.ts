@@ -4,7 +4,7 @@
  * identification path, scored against ground truth.
  *
  *   node --import tsx scripts/scan-bench/bench.ts [--ocr off] [--fusion off]
- *        [--vectors <embed tag>] [--datasets a,b] [--out <dir>] [--label <name>]
+ *        [--guard off] [--vectors <embed tag>] [--datasets a,b] [--out <dir>] [--label <name>]
  *
  * For each crop: dHash priors (`phash.ts`, the server's own hashing) → OCR
  * (`ocr.ts`, the device's own pipeline) → vector top-5 (precomputed by
@@ -29,6 +29,7 @@ import { fileURLToPath } from 'node:url'
 
 import sharp from 'sharp'
 
+import { artSiblings, hashMayNameAlone, printedTwinsOf, printingOpenFor } from '../../apps/api/src/scan/artFamilies.js'
 import { resolveCard, type ResolveOutcome } from '../../apps/api/src/scan/resolve.js'
 import type { ScanResolveResponse, ScanResponse } from '../../apps/web/src/lib/api.js'
 import type { OcrRead } from '../../apps/web/src/scan/ocr/pipeline.js'
@@ -49,8 +50,13 @@ const arg = (k: string, d?: string) => {
 }
 const OCR_ON = arg('ocr', 'on') !== 'off'
 const FUSION_ON = arg('fusion', 'on') !== 'off'
+/** The printing guard (artFamilies.ts) — the shipping behaviour; `--guard off` replays without it. */
+const GUARD_ON = arg('guard', 'on') !== 'off'
 const VECTORS = arg('vectors', 'vit_base_patch32_clip_224.openai')!
-const LABEL = arg('label', `ocr-${OCR_ON ? 'on' : 'off'}_fusion-${FUSION_ON ? 'on' : 'off'}_${VECTORS}`)!
+const LABEL = arg(
+  'label',
+  `ocr-${OCR_ON ? 'on' : 'off'}_fusion-${FUSION_ON ? 'on' : 'off'}_guard-${GUARD_ON ? 'on' : 'off'}_${VECTORS}`,
+)!
 const OUT = arg('out', path.join(BENCH_DIR, 'runs'))!
 const DATASETS = arg('datasets')?.split(',') ?? listDatasets()
 const VECTOR_K = 5 // api.ts embedCard asks k=5
@@ -106,10 +112,11 @@ function vectorsFor(rowId: string, full: boolean) {
   return (vectorCache.get(`${full ? 'full' : 'crop'}:${rowId}`) ?? vectorCache.get(`crop:${rowId}`) ?? []).slice(0, VECTOR_K)
 }
 
-function scanResponse(matches: { cardId: string; distance: number }[], matched: boolean): ScanResponse {
+function scanResponse(matches: { cardId: string; distance: number }[], matched: boolean, printingOpen = false): ScanResponse {
   return {
     query: { algo: 'dhash8v3', hash: '' },
     matched,
+    ...(printingOpen ? { printingOpen: true } : {}),
     threshold: CONFIDENT_MAX,
     indexSize: 0,
     matches: matches.map((m) => {
@@ -134,6 +141,7 @@ function toWire(o: ResolveOutcome): ScanResolveResponse {
     matched: o.matched,
     confident: o.confident,
     resolvedBy: o.resolvedBy,
+    ...(o.printingOpen ? { printingOpen: true } : {}),
     matches: o.matches.map((m) => ({
       cardId: m.cardId,
       name: m.name,
@@ -177,13 +185,17 @@ async function runRow(r: BenchRow): Promise<RowResult> {
   const vec = FUSION_ON ? vectorsFor(r.id, full) : []
 
   let s: IdentityState = initialIdentity()
-  s = reduceIdentity(s, { type: 'phash', res: scanResponse(ph.matches, ph.matched) })
+  // router.ts /scan: within the bar AND no same-art reprint (artFamilies.ts) — unless `--guard off`.
+  const phOpen = GUARD_ON && ph.matched && printingOpenFor(ph.matches[0]?.cardId)
+  const phMay = !GUARD_ON || hashMayNameAlone(ph.matches[0]?.cardId)
+  s = reduceIdentity(s, { type: 'phash', res: scanResponse(ph.matches, ph.matched && phMay, phOpen) })
   s = reduceIdentity(s, { type: 'read', read })
   const body = toResolveBody(read, ph.matches, vec)
   let resolved: ScanResolveResponse | null = null
   if (body) {
     const outcome = await resolveCard(body.fields, body.priorMatches, port, {
       phashConfidentMax: CONFIDENT_MAX,
+      ...(GUARD_ON ? { artSiblings, printedTwins: printedTwinsOf } : {}),
       ...(FUSION_ON ? { fusion: { vectorMatches: body.vectorMatches ?? [], modelId: EMBED_MODEL_ID } } : {}),
     })
     resolved = toWire(outcome)

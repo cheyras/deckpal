@@ -4,7 +4,8 @@ import { APICallError, streamText, type LanguageModel } from 'ai';
 import type { Queryable } from '@deckpal/db';
 import { creditWork } from '../../credits/work.js';
 import { DEFAULT_POLICY } from '../../credits/policy.js';
-import { beginAiRequest, finishAiRequest, meteredCapReached, observeUsageModel, runAiUsage, runUsageOperation, type AiRequest } from '../usage.js';
+import { beginAiRequest, finishAiRequest, meteredCapReached, observeUsageModel, runAdvisoryUsage, runAiUsage, runUsageOperation, type AiRequest } from '../usage.js';
+import { runTriage } from '../triage.js';
 const usage={inputTokens:{total:12,noCache:5,cacheRead:7,cacheWrite:0},outputTokens:{total:6,text:4,reasoning:2}};
 function fixture() {
  const records:{sql:string;args:unknown[]}[]=[];
@@ -58,6 +59,27 @@ test('nested web research calls keep distinct operation keys without tool conten
  assert.deepEqual(inserts.map(x=>x.args[6]),['call_research','call_research_again']);
  assert.equal(f.records.some(x=>x.sql.includes('content_append')),false);
  assert.equal(JSON.stringify(f.records).includes('SECRET_TOOL_CONTEXT'),false);
+});
+test('a failed triage call is recorded under its own key and never settles the request as failed',async()=>{
+ // The bookkeeping finding: triage's provider error marked the REQUEST failed,
+ // so a reply that went on to succeed on the heuristic route settled 'failed'.
+ const triage=(m:LanguageModel)=>runTriage({message:'What is my Charizard worth?',previousReply:'',page:'/',pasted:false,model:m});
+ const f=fixture();
+ const routed=await runAdvisoryUsage(f.request,'triage',()=>triage(observeUsageModel(model())));
+ assert.equal(routed.source,'heuristic');assert.equal(routed.pathway,'price_value');
+ assert.equal(f.request.failed,false,'an advisory failure must not fail the request');
+ const begin=f.records.find(x=>x.sql.startsWith('SELECT public.decke_usage_operation_begin'))!;
+ // tool stays chat_turn (the spend binding in SQL requires it); the key is the label.
+ assert.equal(begin.args[3],'chat_turn');assert.equal(begin.args[6],'triage');
+ const update=f.records.find(x=>x.sql.startsWith('UPDATE public.decke_ai_operation'))!;
+ assert.equal(update.args[1],'failed','the operation itself is still honestly recorded as failed');
+ await finishAiRequest(f.request,'completed',1);
+ const finish=f.records.find(x=>x.sql.startsWith('UPDATE public.decke_ai_request'))!;
+ assert.equal(finish.args[1],'completed');
+ // Control: the same failure on the reply's own path still fails the request.
+ const g=fixture();
+ await runAiUsage(g.request,()=>triage(observeUsageModel(model())));
+ assert.equal(g.request.failed,true);
 });
 test('failed invocation followed by explicit fallback does not erase unknown failed cost',async()=>{
  const f=fixture();

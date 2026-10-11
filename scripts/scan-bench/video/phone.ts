@@ -52,6 +52,9 @@ export interface PhoneGeometry {
   srcPerStream: number
   /** How many REAL source pixels span the square the engine reads. */
   nativeSquarePx: number
+  /** Set when the phone is AIMED (`--aim`): the engine square's SOURCE rect.
+   *  The decoder then crops it directly instead of going through the viewport. */
+  aim?: { x: number; y: number; side: number }
 }
 
 /** Largest centred 3:4 portrait crop, even-sized (yuv420 crops want it). */
@@ -70,6 +73,31 @@ export function phoneGeometry(srcW: number, srcH: number): PhoneGeometry {
   const square = squareCrop(STREAM_W, STREAM_H)
   const srcPerStream = w / STREAM_W
   return { srcW, srcH, viewport, square, srcPerStream, nativeSquarePx: Math.round(square.size * srcPerStream) }
+}
+
+/**
+ * THE PHONE, AIMED. `phoneGeometry` bolts the camera to the frame's centre, so
+ * a creator who holds every card low in a landscape frame (WuheDPVq_Bo: the
+ * card's bottom edge sits ~120 source px BELOW the centre square, in the part of
+ * the stream the engine never reads) is replayed as a user who never pointed the
+ * phone at the card. This places the engine square at a chosen SOURCE square
+ * (x, y, side), clamped inside the frame, as a user aiming at that spot would.
+ * It is a fixed aim for the whole video, not a per-card one: nobody re-aims per
+ * card, and a per-card aim would be ground truth leaking into the replay.
+ *
+ * Only the square matters to the engine (frame.ts), so the stream around it is
+ * reported, not decoded: `viewport` is the 3:4 portrait the square would sit
+ * centred in, which may extend past the frame.
+ */
+export function aimedGeometry(srcW: number, srcH: number, aim: { x: number; y: number; side: number }): PhoneGeometry {
+  const even = (n: number) => Math.max(0, Math.floor(n / 2) * 2)
+  const side = even(Math.min(aim.side, srcW, srcH))
+  const x = even(Math.min(Math.max(aim.x, 0), srcW - side))
+  const y = even(Math.min(Math.max(aim.y, 0), srcH - side))
+  const square = squareCrop(STREAM_W, STREAM_H)
+  const srcPerStream = side / square.size
+  const viewport = { x: x - square.x * srcPerStream, y: y - square.y * srcPerStream, w: STREAM_W * srcPerStream, h: STREAM_H * srcPerStream }
+  return { srcW, srcH, viewport, square, srcPerStream, nativeSquarePx: side, aim: { x, y, side } }
 }
 
 /** Canonical/crop-space point -> source-video pixel, for reporting only. */
@@ -134,13 +162,19 @@ export async function* streamSquares(
   opts: { fps: number; startS?: number; endS?: number },
 ): AsyncGenerator<StreamFrame> {
   const { viewport: v, square: s } = g
-  const vf = [
-    `fps=${opts.fps}`,
-    `crop=${v.w}:${v.h}:${v.x}:${v.y}`,
-    `scale=${STREAM_W}:${STREAM_H}:flags=lanczos`,
-    `crop=${s.size}:${s.size}:${s.x}:${s.y}`,
-    'format=rgba',
-  ].join(',')
+  // Aimed: the square's source rect straight to the square's size — the same
+  // lanczos scale factor the viewport route applies, minus the stream around it.
+  const vf = (
+    g.aim
+      ? [`fps=${opts.fps}`, `crop=${g.aim.side}:${g.aim.side}:${g.aim.x}:${g.aim.y}`, `scale=${s.size}:${s.size}:flags=lanczos`, 'format=rgba']
+      : [
+          `fps=${opts.fps}`,
+          `crop=${v.w}:${v.h}:${v.x}:${v.y}`,
+          `scale=${STREAM_W}:${STREAM_H}:flags=lanczos`,
+          `crop=${s.size}:${s.size}:${s.x}:${s.y}`,
+          'format=rgba',
+        ]
+  ).join(',')
   const args = ['-v', 'error']
   if (opts.startS) args.push('-ss', String(opts.startS))
   args.push('-i', file)

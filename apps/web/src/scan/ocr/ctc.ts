@@ -40,6 +40,12 @@ export interface Decoded {
    *  timesteps that contributed a character. The reference's `mean`, and the
    *  value its `>= 0.5` line filter is applied to. */
   mean: number
+  /** Every emitted character, in order (`text` is `chars.join('')`), and beside
+   *  it in `confs` the winning logit it was emitted with. Carried for the corner
+   *  rung, which judges a pair by its WEAKEST DIGIT rather than by the line's
+   *  average — see `fields.readCornerPair`. */
+  chars: string[]
+  confs: number[]
 }
 
 /**
@@ -77,10 +83,12 @@ export function decodeCtc(
     chars.push(keys[bestIdx - 1] ?? '')
     confs.push(bestVal)
   }
-  if (!chars.length) return { text: '', mean: 0 }
+  if (!chars.length) return { text: '', mean: 0, chars, confs }
   return {
     text: chars.join(''),
     mean: confs.reduce((s, v) => s + v, 0) / confs.length,
+    chars,
+    confs,
   }
 }
 

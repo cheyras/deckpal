@@ -242,7 +242,7 @@ REST API and the MCP server (`BEGIN` + `set_config('request.jwt.claims', …)` +
 returns, so a dropped connection can never be handed to the next request still
 carrying a stranger's claims.
 
-**All 26 tools reach the conversational model; the write half is held by the
+**All 27 tools reach the conversational model; the write half is held by the
 SDK, not filtered out.** The adapter Deck-E uses
 (`apps/api/src/decke/adapters/aisdk.ts`) still *defaults* to
 `annotations.readOnlyHint` — never to the verb in a tool's name, because a name
@@ -347,7 +347,7 @@ everything else to `it failed with <code>`. `errText`
 error a handler caught and formatted itself: a driver error becomes its
 SQLSTATE, a statement timeout keeps its "narrow the query" hint, and the
 fallback that carries our own readable messages is scrubbed of DSNs, IP
-addresses, `host:port` pairs and `for user "…"`. Every one of the 26 tools
+addresses, `host:port` pairs and `for user "…"`. Every one of the 27 tools
 formats through it -- not only the ones whose file runs SQL, because whether a
 given catch can reach the database is a call-graph question that was already
 answered wrongly once (issue #94: `log_cards` resolves cards over SQL before its
@@ -394,6 +394,18 @@ address.
 `POST /decks/check` is read-only under the caller's RLS context and accepts only
 bounded deck input. The live chat request's current turn is capped at 240,000
 characters in addition to the SEC-04 history window.
+
+**Triage sends Anthropic a clipped copy of the reader's message.** Before Deck-E answers, Claude Haiku 5.5 classifies each new reader message through the Vercel AI Gateway (`apps/api/src/decke/triage.ts`). That is the same provider that writes the reply. It receives:
+- the reader's latest message, clipped to 2,000 characters (its opening and its end);
+- Deck-E's previous reply (last 800 characters);
+- the page path;
+- two flags (a log was pasted; the message answers an ask card).
+
+No collection or account records are attached. Its spend is recorded under the advisory `triage` operation of the same request. The tier it leads to is chosen by code, not by the classifier. The browser's route echo (`tierRoute`, `routeEcho.ts`) is unsigned, so it is held to these limits:
+- it can select only Quick or Standard for the caller's own turn;
+- its effort is ignored and re-derived on the server;
+- it is read only on continuation legs;
+- it can never select Claude Opus 5.5.
 
 The deck widget's Save is the reader's own click, not a model write, so it has no
 approval card — which makes WHICH deck it writes over the thing to guard. When

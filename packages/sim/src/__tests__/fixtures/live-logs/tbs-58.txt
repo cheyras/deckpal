@@ -1,0 +1,132 @@
+Setup
+PlayerA chose heads for the opening coin flip.
+PlayerA won the coin toss.
+PlayerA decided to go second.
+PlayerA drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • Slowpoke, Boomerang Energy, Ultra Ball, Basic Psychic Energy, Spectrier, Latias ex, Zeraora
+PlayerB drew 7 cards for the opening hand.
+- 7 drawn cards.
+PlayerA played Slowpoke to the Active Spot.
+PlayerA played Latias ex to the Bench.
+PlayerB played Riolu to the Active Spot.
+PlayerB played Lunatone to the Bench.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB attached Basic Fighting Energy to Riolu in the Active Spot.
+PlayerB ended their turn.
+
+PlayerA's Turn
+PlayerA drew Telepathic Psychic Energy.
+PlayerA played Ultra Ball.
+- PlayerA discarded 2 cards.
+   • Spectrier, Basic Psychic Energy
+- PlayerA drew Mega Kangaskhan ex.
+- PlayerA shuffled their deck.
+PlayerA played Mega Kangaskhan ex to the Bench.
+PlayerA retreated Slowpoke to the Bench.
+PlayerA's Mega Kangaskhan ex is now in the Active Spot.
+PlayerA attached Telepathic Psychic Energy to Slowpoke on the Bench.
+Telepathic Psychic Energy was activated.
+- PlayerA drew 2 cards and played them to the Bench.
+   • Slowpoke, Slowpoke
+- PlayerA shuffled their deck.
+PlayerA's Mega Kangaskhan ex used Run Errand.
+- PlayerA drew 2 cards.
+   • Meowth ex, Latias ex
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played Solrock to the Bench.
+PlayerB attached Basic Fighting Energy to Riolu in the Active Spot.
+PlayerB played Ultra Ball.
+- PlayerB discarded 2 cards.
+   • Ultra Ball, Ultra Ball
+- PlayerB drew Mega Lucario ex.
+- PlayerB shuffled their deck.
+PlayerB evolved Riolu to Mega Lucario ex in the Active Spot.
+PlayerB's Mega Lucario ex used Mega Brave on PlayerA’s Mega Kangaskhan ex for 540 damage. PlayerA's Mega Kangaskhan ex took 270 more damage because of Fighting Weakness.
+- Damage breakdown:
+   • Base damage: 270 damage
+   • Weakness to Fighting: 270 damage
+   • Total damage: 540 damage
+
+PlayerA's Mega Kangaskhan ex was Knocked Out!
+PlayerB took 3 Prize cards.
+A card was added to PlayerB's hand.
+A card was added to PlayerB's hand.
+A card was added to PlayerB's hand.
+PlayerA's Slowpoke is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew Switch.
+PlayerA played Meowth ex to the Bench.
+PlayerA's Meowth ex used Last-Ditch Catch.
+- PlayerA drew Ciphermaniac's Codebreaking.
+- PlayerA shuffled their deck.
+PlayerA attached Boomerang Energy to Slowpoke on the Bench.
+PlayerA played Ciphermaniac's Codebreaking.
+- PlayerA shuffled their deck.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played Poké Pad.
+- PlayerB drew Makuhita.
+- PlayerB shuffled their deck.
+PlayerB played Makuhita to the Bench.
+PlayerB's Mega Lucario ex used Aura Jab on PlayerA’s Slowpoke for 100 damage. PlayerA's Slowpoke took -30 less damage because of Fighting Resistance.
+- Damage breakdown:
+   • Base damage: 130 damage
+   • Resistance to Fighting: -30 damage
+   • Total damage: 100 damage
+
+PlayerA's Slowpoke was Knocked Out!
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's Slowpoke is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew Metagross.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played Riolu to the Bench.
+PlayerB played Fighting Gong.
+- PlayerB drew Basic Fighting Energy.
+- PlayerB shuffled their deck.
+PlayerB attached Basic Fighting Energy to Riolu on the Bench.
+PlayerB's Mega Lucario ex used Aura Jab on PlayerA’s Slowpoke for 100 damage. PlayerA's Slowpoke took -30 less damage because of Fighting Resistance.
+- Damage breakdown:
+   • Base damage: 130 damage
+   • Resistance to Fighting: -30 damage
+   • Total damage: 100 damage
+
+PlayerA's Slowpoke was Knocked Out!
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's Slowpoke is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew Slowking.
+PlayerA evolved Slowpoke to Slowking in the Active Spot.
+PlayerA's Slowking used Seek Inspiration.
+- PlayerA discarded Lillie's Determination.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB's Mega Lucario ex used Mega Brave on PlayerA’s Slowking for 240 damage. PlayerA's Slowking took -30 less damage because of Fighting Resistance.
+- Damage breakdown:
+   • Base damage: 270 damage
+   • Resistance to Fighting: -30 damage
+   • Total damage: 240 damage
+
+PlayerA's Slowking was Knocked Out!
+- 3 cards were discarded from PlayerA's Slowking.
+   • Telepathic Psychic Energy, Boomerang Energy, Slowpoke
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+Opponent took all of their Prize cards. PlayerB wins.

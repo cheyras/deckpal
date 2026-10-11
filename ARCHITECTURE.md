@@ -536,7 +536,7 @@ served by `apps/images`. Sync jobs run via cron or any scheduler.
 ## 10. The agent tool layer — one definition, two front-ends
 
 **`packages/agent-tools` (`@deckpal/agent-tools`) is the single definition of
-what an agent may do in DeckPal.** 26 tools (15 read, 11 write, 4 of those
+what an agent may do in DeckPal.** 27 tools (16 read, 11 write, 4 of those
 also destructive), each a `ToolDefinition`: a zod input schema, `annotations`
 (`readOnlyHint` is required in the type, not optional as MCP's own SDK has
 it — a tool that forgets to state it fails to compile rather than defaulting
@@ -575,7 +575,7 @@ and closed-form mulligan, over a saved deck (`loadDeckEntries`, the deck page's
 own loader) or an unsaved list resolved exactly as `POST /decks/check` resolves
 one. It runs inside the API function with no schema change and no new service,
 allocates nothing per trial (one index array, partial Fisher-Yates), bounds its
-CPU by refusing lists over 120 cards and cutting games to fit 2,000,000 dealt
+CPU by refusing lists over 120 cards and cutting games to fit an expected 2,000,000 dealt
 hands (a list that mulligans a lot deals many per game), and states
 method, trials, seed and a 95% margin on every answer, with the exact
 hypergeometric value wherever one group makes it closed-form. It draws cards and
@@ -625,7 +625,7 @@ a set's name.
 
 ### MCP server — live and multi-user
 
-`deckpal-mcp`'s 26 tools are served to any signed-up user at
+`deckpal-mcp`'s 27 tools are served to any signed-up user at
 `https://deckpal.app/mcp` (`apps/mcp/src/cloud.ts`), authenticated per-user by
 a personal access token (`dsk_…`, SHA-256 hashed, shown once at creation,
 revocable from Profile). Each call resolves the token to a `user_id` and runs
@@ -664,6 +664,23 @@ enforced at the MCP edge (read tools only, `BEGIN READ ONLY`) and at the REST
 API (`enforceTokenScope`). Tokens from before 075 are unchanged.
 When a newer web app reaches an older API, missing `trust` on `GET /oauth/client`
 limits the consent screen to full access because the older API ignores scope.
+
+### The battle simulator behind `simulate_battles`
+
+`packages/sim` (`@deckpal/sim`) is a pure, seeded Pokémon TCG rules engine with no I/O: game state is
+plain data, every decision is one "pick k of these numbered options" shape, and card behaviour comes
+from scripts keyed by a printing's game text (a card with no script is played approximately or not at
+all, and every report says which). Its batch runner plays PAIRED games (one seed, seats swapped) and
+reduces each to a compact summary off the event stream; `stats.ts` and `report.ts` turn those into
+Wilson-interval rates and a text of at most 5,000 characters that leads and ends with "simulated, not
+real". `apps/api` is its only caller: `POST /decks/simulate` (routes/deckSimulate.ts) loads every
+deck's frames through `fingerprintInputs` in one batched read, commits and releases its pooled RLS
+connection (`res.locals.commitAndReleaseRls`, as `/decks/import/fix` does for its model call), and
+only then runs the matchups in deck/simulate.ts — a 25 s budget from the request's arrival that is
+also a hard per-game deadline, 40–70-card decks, and an in-process gate of one run per account and two
+per instance (429 `simulator_busy`), since the engine is synchronous CPU on a shared event loop — and
+the read-only `simulate_battles` tool in `packages/agent-tools` calls it for both front-ends
+(DECISIONS 2026-10-10, "Battle simulator: simulate_battles for both assistants").
 
 ## 11. Correctness traps that shape the design
 
@@ -872,9 +889,13 @@ The shape, and the four places it is enforced rather than intended:
   ruling — *"ensure that the image vector match is still a point of data in the
   match"* — means the embedding is a rung of the OCR ladder
   (`apps/api/src/scan/resolve.ts`) and not a rival endpoint's verdict. Three
-  rules, in `fuse.ts`: a printed key that resolved is never reviewed (OCR wins a
-  disagreement, because `(setCode, number)` is unique across 20,444 cards with
-  zero collisions and a cosine is not that kind of claim); where a key narrowed
+  rules, in `fuse.ts`: a printed key that resolved is never reviewed by the
+  vector alone (OCR wins a disagreement, because `(setCode, number)` is unique
+  across 20,444 cards with zero collisions and a cosine is not that kind of
+  claim). Since 2026-10-10 a key resolved on the NUMBER is questioned when the
+  printed NAME agrees with a different card that the vector, or the name plus
+  the denominator, also names, because a dropped digit can land on a real card
+  (`letTheNameQuestionTheKey` in `resolve.ts`). Where a key narrowed
   the world to candidates it cannot choose between — `014/198` is Steenee or
   Floragato — the vector's own top-1 agreeing with one of them makes the answer
   confident and `resolvedBy: 'corroborated'`; and alone, the vector needs the
@@ -1398,10 +1419,11 @@ one generation rather than of the run).
 
 ## 15b. Deck-E — the assistant layer
 
-**Status: chat overhaul, 2026-09-28.** The layer described in §15b–§15g uses
-Claude Sonnet 5 as the chat agent, shared agent tools, write approvals,
-grounding and narration controls, and the chat surface; deep sub-agents are no
-longer part of this path.
+**Status: routed assistant harness, 2026-10-10.** The layer described in
+§15b–§15g uses Claude Haiku 5.5 for triage and Quick work, Claude Sonnet 5.5
+for Standard work, shared agent tools, pathway guidance, write approvals,
+grounding and narration controls, and the chat surface. Claude Opus 5.5 is
+reserved for reader-consented Deep Think, whose consent path is not wired yet.
 Verification of it has been done against previews and against the live backend as
 the QA account, never the owner's, per contract B12. It needs
 `DECKE_VERCEL_AI_GATEWAY_KEY` in the
@@ -1411,8 +1433,24 @@ the write half held behind an approval round trip (§15e) rather than filtered
 out — plus research and deck checking in the normal streamed loop, against the
 six cosmetic tools of the original ship.
 
-Where §15 is the body, this is everything that decides what the body does. Four
-boundaries carry the design.
+Where §15 is the body, this is everything that decides what the body does. Every
+request first gets a bounded Haiku 5.5 triage call; Haiku fills a typed rubric
+(pathway, signals, missing inputs and deep intent), and a deterministic heuristic
+fills it if triage times out, errors, refuses or returns an invalid call. Code in
+`tiers.ts`, not the classifier's confidence, then chooses the tier from pathway
+floors and carried guard state, once per reader turn: the first HTTP leg streams
+its decision as a transient `data-decke-route` part and the browser echoes it as
+`tierRoute` on every continuation leg (`routeEcho.ts`), so an approval or a
+browser tool never re-routes a turn mid-way. This follows the measured design in
+[`roadmap/plans/decke-harness-v2/PLAN.md` §2](roadmap/plans/decke-harness-v2/PLAN.md):
+a small model is useful for classification/routing/extraction, while model
+self-grading is not a dependable escalation gate.
+
+The chosen model receives the stable core, the selected pathway instructions
+and the uncached request context, then runs the normal tool loop. Turn guards
+bound the result. A fixable guard gets a corrective leg on Standard; a silent
+Quick content-filter refusal gets one Standard attempt in the same reader turn.
+The remaining boundaries carry the rest of the design.
 
 **The command channel is invisible.** The model never emits animation syntax into
 its prose. It calls an `express` tool, whose `execute` validates the commands and
@@ -1487,6 +1525,7 @@ apps/web/src/character/host/
                    owns the load-on-intent lifecycle, the reduced-motion query
                    and the measured keep-out bands
   DeckeChat.tsx    the chat, which IS the content pane; the ChatMessage model
+                   and the docked AskCard answer boundary
   useDeckeChat.ts  hand-rolled SSE reader, client-tool execution, one round
   uiTools.ts       flyTo / highlight / goTo / scrollToMe / click + the allowlists
   journey.ts       the client-side journey sequencer (§15g)
@@ -1510,7 +1549,11 @@ apps/api/src/decke/
   rls.ts               the per-tool-call RLS session + its watchdog (§15c)
   entitlement.ts        current database decke.use permission
   meter.ts              the chat and per-operation credit meter, check-and-charge in one statement
-  models.ts             which model each job gets, and why (measured, not assumed)
+  triage.ts             Haiku 5.5 typed rubric; deterministic fallback on every failure
+  tiers.ts              code-owned pathway floors, escalation and effort
+  pathways/             per-job instructions and their names.ts routing metadata
+  models.ts             TIERS: Quick Haiku 5.5, Standard Sonnet 5.5,
+                        Deep Opus 5.5 (reserved, not yet wired)
   adapters/aisdk.ts     ToolDefinition -> the AI SDK's tool(), plus the approval policy (§15c, §15e)
   noOp.ts               "would this write change anything?" -- no dialog if not (§15e)
   focus.ts              every real tool on every step; only a spent meter cap can hide one (§15f)
@@ -1601,10 +1644,36 @@ memory with `apps/api/src/index.ts`, so `/api/health`'s live pool census
 reports the chat pool's *configured* size (`deckeLimits.chatPoolMaxConfigured`)
 rather than pretending to measure something it cannot reach.
 
-### 15d. Planning and live research in the chat loop
+### 15d. Routing, planning and live research in the chat loop
 
-Claude Sonnet 5 plans, analyses and drafts guides in Deck-E's normal streamed
-tool loop rather than delegating to a nested sub-agent. `plan_deck`,
+The pathway table in `pathways/names.ts` is the quality/cost dial. `deck_build`,
+`deck_iterate` and `battle_review` have a Standard/Sonnet floor; `battle_log`,
+`collection_plan`, `lists`, `price_value`, `card_rules`, `research`, `navigate`,
+`small_talk` and `general` start Quick/Haiku. Quick navigation and small talk use
+low effort; the other Quick pathways use medium. Standard uses medium and the
+reserved Deep tier uses high. Signals such as dissatisfaction or correction,
+carried guard failures, repeated tool errors and Deep interest raise Quick to
+Standard; none can enter Deep without reader consent, and that consent flow is
+not wired yet.
+
+Effort is a top-level Anthropic provider option beside
+`thinking: { type: 'adaptive' }`. Putting effort inside `thinking` is not an
+equivalent spelling: the Gateway silently strips that nested shape. Triage is
+the exception: it disables optional thinking and uses low effort for its one
+forced, bounded rubric call.
+
+The system prompt has three ownership regions. The byte-stable core is cached;
+the selected pathway block (which can contain one or two templates) is separately
+cached; route, date and landmarks live in a final volatile block with no cache
+marker. On every model step `cacheConversation` removes the old history marker
+and moves one breakpoint to the newest message, making all earlier messages and
+tool results the reusable prefix. A live Gateway probe on 2026-10-10 observed
+cache reads for both Haiku 5.5 and Sonnet 5.5; that verifies this route through
+the Gateway, not a claim that two models share a cache (they do not).
+
+The selected conversational tier plans, analyses and drafts guides in Deck-E's
+normal streamed tool loop rather than delegating to a nested sub-agent.
+`plan_deck`,
 `analyze_collection` and `write_strategy_guide` are absent. `web_research` is a
 read-only Perplexity operation with no approval card; its short purpose becomes
 the activity label, source hosts enter the model context, and HTTPS source URLs
@@ -1883,15 +1952,12 @@ five observed failures were not markup but bare prose — `flyTo
 [data-decke-goal-switcher] point=true` — and no pattern catches that without
 also eating sentences he is supposed to say.
 
-The only thing that moved that behaviour was the model. Five prompt rewrites
-scored 0/5 each on `flyTo`; the same prompt with the same 34 tools on
-`spacexai/grok-4.20-non-reasoning` called it 5/5, with zero narration across 32
-turns, so that is the chat model now. `models.ts` records the inconvenient half
-too, because a file of measurements is worth nothing if the awkward numbers are
-left out: 7.49x the cost rather than the pricing page's 6.25x (the gap is
-caching — 98.4% cache-hit and 365 no-cache input tokens per turn, against 67.1%
-and 10,078), ~340 ms slower TTFT in every scenario rather than on average, and a
-restraint regression accepted as a direction by the owner.
+The old response was to replace the only chat model after five prompt rewrites
+scored 0/5 on `flyTo`. That is no longer the architecture: `models.ts` now holds
+the code-selected Claude 5.5 tiers described in §15d, while narration filtering
+and the turn guards remain the deterministic bounds. Model routing is measured
+per pathway by the replay probe rather than inferred from a single aggregate
+chat score.
 
 **Per-step tool narrowing was retired on 2026-10-10.** Production logs showed
 that it hid `add_battle_log` from a pasted PTCG Live log on step zero, and the
@@ -1946,6 +2012,16 @@ keeps a compact summary above the reply. Research exposes its sources and
 `showDeck` renders a checked, saveable deck widget; animation follows the
 activity rather than returning to idle during tool calls. Partial and error steps
 remain explicitly labelled, and a turn with no reply gets a real fallback.
+
+**A clarification is a docked card, not prose disguised as a tool result.** The
+`ask_user` tool emits one to four bounded multiple-choice questions; `AskCard`
+occupies the composer dock after the stream settles and offers the listed choices
+plus Other and Skip. The completed ask is replayed in history as its real
+`tool-ask_user` part so the next turn retains what was asked. The reader's
+answers themselves are sent as the next ordinary user `MESSAGE`, because Claude
+Haiku/Sonnet 5.5 may distrust and ignore user-authored words nested inside a
+tool result. The card is therefore an interaction boundary, not permission to
+turn reader text into trusted tool output.
 
 **Closing the chat ends the turn.** It aborts, settles any pending approval as a
 denial — the correct reading of walking away from the question — and records on

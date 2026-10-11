@@ -19,12 +19,16 @@ export function payloadHash(value: unknown): string {
  * browser now sends a bounded WINDOW of history (SEC-04): two genuinely new
  * exchanges can carry byte-identical windows, and without it the second was
  * refused as a replay of the first. A retried leg of the SAME exchange still
- * hashes the same and is still refused. */
-export function chatChargeReference(conversationId: unknown, messages: unknown, route: unknown, landmarks: unknown, exchange?: { exchangeId?: unknown; seq?: unknown }) {
+ * hashes the same and is still refused.
+ * `tierRoute` is the continuation leg's VALIDATED route echo (`decke/routeEcho.ts`,
+ * null when absent or invalid): it chooses the model that runs, so it is input to
+ * the request like the messages are. Omitted from the hash when null, so a request
+ * without one hashes exactly as it did before the echo existed. */
+export function chatChargeReference(conversationId: unknown, messages: unknown, route: unknown, landmarks: unknown, exchange?: { exchangeId?: unknown; seq?: unknown }, tierRoute?: unknown) {
   if (typeof conversationId !== 'string' || !/^[A-Za-z0-9_-]{8,100}$/.test(conversationId)) {
     throw new ApiError(400, 'invalid_conversation', 'A conversation identifier is required.');
   }
-  const hash = payloadHash({ messages, route, landmarks, ...(exchange ? { exchange } : {}) });
+  const hash = payloadHash({ messages, route, landmarks, ...(exchange ? { exchange } : {}), ...(tierRoute != null ? { tierRoute } : {}) });
   return { key: `chat:${conversationId}:${hash}`, hash };
 }
 export async function assertDeckeAccess(userId: string): Promise<void> {

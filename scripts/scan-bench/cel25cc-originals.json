@@ -1,0 +1,105 @@
+{
+ "source": "images.pokemontcg.io/cel25c/{originalNumber}_{A-D} (art audit 2026-10-10): each Celebrations Classic Collection card reprints the card with this name and collector number",
+ "cards": {
+  "cel25cc-CC001": {
+   "name": "Blastoise",
+   "originalNumber": 2
+  },
+  "cel25cc-CC002": {
+   "name": "Charizard",
+   "originalNumber": 4
+  },
+  "cel25cc-CC003": {
+   "name": "Venusaur",
+   "originalNumber": 15
+  },
+  "cel25cc-CC004": {
+   "name": "Imposter Professor Oak",
+   "originalNumber": 73
+  },
+  "cel25cc-CC005": {
+   "name": "Dark Gyarados",
+   "originalNumber": 8
+  },
+  "cel25cc-CC006": {
+   "name": "Here Comes Team Rocket!",
+   "originalNumber": 15
+  },
+  "cel25cc-CC007": {
+   "name": "Rocket's Zapdos",
+   "originalNumber": 15
+  },
+  "cel25cc-CC008": {
+   "name": "_____'s Pikachu",
+   "originalNumber": 24
+  },
+  "cel25cc-CC009": {
+   "name": "Cleffa",
+   "originalNumber": 20
+  },
+  "cel25cc-CC010": {
+   "name": "Shining Magikarp",
+   "originalNumber": 66
+  },
+  "cel25cc-CC011": {
+   "name": "Team Magma's Groudon",
+   "originalNumber": 9
+  },
+  "cel25cc-CC012": {
+   "name": "Rocket's Admin.",
+   "originalNumber": 86
+  },
+  "cel25cc-CC013": {
+   "name": "Mew ex",
+   "originalNumber": 88
+  },
+  "cel25cc-CC014": {
+   "name": "Gardevoir ex",
+   "originalNumber": 93
+  },
+  "cel25cc-CC015": {
+   "name": "Umbreon ☆",
+   "originalNumber": 17
+  },
+  "cel25cc-CC016": {
+   "name": "Claydol",
+   "originalNumber": 15
+  },
+  "cel25cc-CC017": {
+   "name": "Luxray GL LV.X",
+   "originalNumber": 109
+  },
+  "cel25cc-CC018": {
+   "name": "Garchomp C LV.X",
+   "originalNumber": 145
+  },
+  "cel25cc-CC019": {
+   "name": "Donphan",
+   "originalNumber": 107
+  },
+  "cel25cc-CC020": {
+   "name": "Reshiram",
+   "originalNumber": 113
+  },
+  "cel25cc-CC021": {
+   "name": "Zekrom",
+   "originalNumber": 114
+  },
+  "cel25cc-CC022": {
+   "name": "Mewtwo EX",
+   "originalNumber": 54
+  },
+  "cel25cc-CC023": {
+   "name": "Xerneas EX",
+   "originalNumber": 97
+  },
+  "cel25cc-CC024": {
+   "name": "M Rayquaza EX",
+   "originalNumber": 76
+  },
+  "cel25cc-CC025": {
+   "name": "Tapu Lele GX",
+   "originalNumber": 60
+  }
+ }
+}
