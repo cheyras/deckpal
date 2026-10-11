@@ -63,9 +63,15 @@
 //          lock can never re-arm. A floor, not an estimate.
 //
 // BY EYE. `owner-rearm-labels.json` labels every refused lock whose NCC to the
-// captures behind it is below 0.9, from contact sheets of the lock beside each
-// capture's own crop: `new <card>`, `same <card>`, or `motion`. The headline
-// numbers are those labels; the NCC bands are printed beside them.
+// captures behind it is below 0.9: `new <card>`, `same <card>`, or `motion`.
+// The labels were read off the `--sheets` contact sheets, which put each
+// refused lock beside the captures behind it. EVERY tile there, a capture's
+// included, is `Meas.card`: the card re-rectified at 126x176 from the event's
+// recorded 640 frame at its recorded quad. It is not the capture's stored
+// full-resolution crop. Same frame, same quad, same warp: what differs is
+// resolution, which is enough to tell a new card from the same one or from
+// motion blur. The capture's stored crop feeds only its look (`capLook`). The
+// headline numbers are those labels; the NCC bands are printed beside them.
 //
 // ── WHAT IT MEASURED (2026-10-10, PR #292's constants) ──────────────────────
 //
