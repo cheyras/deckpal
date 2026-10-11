@@ -1590,6 +1590,7 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me04-035|attack:Eternity Bloom': {
     problems: ['"up to'],
     why: '"Search your deck for up to 4 Basic {P} Energy cards and attach them … in any way you like" is `repeat 4` of an optional (min 0, max 1) search-and-attach, each pick choosing its own Benched Pokémon; that covers every choice of 0 to 4 cards and targets.',
+  },
   // std-seed4
   'me05-067|attack:Fly': {
     problems: ['"tails" is printed but not rendered'],
