@@ -246,6 +246,13 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c19.scoopUp': (a) => `Put the Pokémon chosen as "${String(a.slot ?? 't')}" and all attached cards into your hand`,
   's01.markHitWhileActive': () => 'Mark this Pokémon, for this turn only, as damaged in the Active Spot',
   's01.moveEnergyToBenched': (a) => `Choose 1 of your Benched Pokémon other than this one and move up to ${Number(a.max ?? 1)} (at least one) of the ${energyNoun(a.filter as Filter | undefined)} cards attached to this Pokémon to it`,
+  // std-c24-customs.ts
+  'c24.moveAllEnergyToBench': (a) =>
+    a.split
+      ? 'Move all Energy from this Pokémon to your Benched Pokémon in any way you like: the controller picks the Benched Pokémon for each Energy card in turn (no question with a single Benched Pokémon); nothing happens with no Bench or no Energy'
+      : 'Move every Energy card attached to this Pokémon to 1 of your Benched Pokémon, chosen by the controller (no question with a single Benched Pokémon); nothing happens with no Bench or no Energy',
+  'c24.discardSpecialEnergyAllOpp': () => "Discard all Special Energy from all of your opponent's Pokémon (Active and Benched), whatever its text does right now; a Pokémon protected from the effects of attacks keeps its Energy",
+  'c24.oppActiveEnergyToHand': (a) => `Put ${Number(a.n ?? 1)} of the Energy cards attached to your opponent's Active Pokémon (all of them when it has fewer) into their hand`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -1755,6 +1762,11 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   },
   // std-seed1
   'sv06-013|attack:Giga Drain': {
+    problems: ['similarity'],
+    why: '"The same amount of damage you did" is measured as the change in the Defending Pokémon\'s damage counters across the attack (snapshot before, difference after), so the renderer spells out the arithmetic instead of the printed phrase; the card test checks it heals exactly the damage dealt, after Weakness.',
+  },
+  // std-c24
+  'sv08-025|attack:Leech Life': {
     problems: ['similarity'],
     why: '"The same amount of damage you did" is measured as the change in the Defending Pokémon\'s damage counters across the attack (snapshot before, difference after), so the renderer spells out the arithmetic instead of the printed phrase; the card test checks it heals exactly the damage dealt, after Weakness.',
   },
