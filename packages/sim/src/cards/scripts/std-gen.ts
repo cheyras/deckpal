@@ -212,7 +212,7 @@ export const STD_GEN: CardScript[] = [
     name: "N's Vanillite",
     attacks: {
       // "Search your deck for up to 2 Basic Pokémon and put them onto your Bench. Then, shuffle your deck."
-      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"cat":"pokemon","stage":"basic"},"min":0,"max":{"min":[2,{"sub":[5,{"pokemon":{"zone":"myBench"}}]}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
+      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"cat":"pokemon","stage":"basic"},"min":0,"max":{"min":[2,{"benchRoom":"self"}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
     },
   },
   {
@@ -312,7 +312,7 @@ export const STD_GEN: CardScript[] = [
     name: "Mawile",
     attacks: {
       // "Search your deck for up to 2 Basic Pokémon and put them onto your Bench. Then, shuffle your deck."
-      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"cat":"pokemon","stage":"basic"},"min":0,"max":{"min":[2,{"sub":[5,{"pokemon":{"zone":"myBench"}}]}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
+      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"cat":"pokemon","stage":"basic"},"min":0,"max":{"min":[2,{"benchRoom":"self"}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
     },
   },
   {
@@ -518,7 +518,7 @@ export const STD_GEN: CardScript[] = [
     name: "Fennekin",
     attacks: {
       // "Search your deck for up to 2 Basic Pokémon and put them onto your Bench. Then, shuffle your deck."
-      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"cat":"pokemon","stage":"basic"},"min":0,"max":{"min":[2,{"sub":[5,{"pokemon":{"zone":"myBench"}}]}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
+      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"cat":"pokemon","stage":"basic"},"min":0,"max":{"min":[2,{"benchRoom":"self"}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
     },
   },
   {
@@ -1022,7 +1022,7 @@ export const STD_GEN: CardScript[] = [
     name: "Skitty",
     attacks: {
       // "Search your deck for a Basic Pokémon and put it onto your Bench. Then, shuffle your deck."
-      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"stage":"basic"},"min":0,"max":{"min":[1,{"sub":[5,{"pokemon":{"zone":"myBench"}}]}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
+      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"stage":"basic"},"min":0,"max":{"min":[1,{"benchRoom":"self"}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
     },
   },
   {
@@ -1030,7 +1030,7 @@ export const STD_GEN: CardScript[] = [
     name: "Chatot",
     attacks: {
       // "Search your deck for up to 3 Basic Pokémon and put them onto your Bench. Then, shuffle your deck."
-      "A Cappella": {"program":[{"op":"chooseCards","from":"deck","filter":{"cat":"pokemon","stage":"basic"},"min":0,"max":{"min":[3,{"sub":[5,{"pokemon":{"zone":"myBench"}}]}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
+      "A Cappella": {"program":[{"op":"chooseCards","from":"deck","filter":{"cat":"pokemon","stage":"basic"},"min":0,"max":{"min":[3,{"benchRoom":"self"}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
     },
   },
   {
@@ -1128,7 +1128,7 @@ export const STD_GEN: CardScript[] = [
     name: "Litwick",
     attacks: {
       // "Search your deck for a Basic Pokémon and put it onto your Bench. Then, shuffle your deck."
-      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"stage":"basic"},"min":0,"max":{"min":[1,{"sub":[5,{"pokemon":{"zone":"myBench"}}]}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
+      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"stage":"basic"},"min":0,"max":{"min":[1,{"benchRoom":"self"}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
     },
   },
   {
@@ -1550,7 +1550,7 @@ export const STD_GEN: CardScript[] = [
     name: "Fidough",
     attacks: {
       // "Search your deck for a Basic Pokémon and put it onto your Bench. Then, shuffle your deck."
-      "Pleasant Aroma": {"program":[{"op":"chooseCards","from":"deck","filter":{"stage":"basic"},"min":0,"max":{"min":[1,{"sub":[5,{"pokemon":{"zone":"myBench"}}]}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
+      "Pleasant Aroma": {"program":[{"op":"chooseCards","from":"deck","filter":{"stage":"basic"},"min":0,"max":{"min":[1,{"benchRoom":"self"}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
     },
   },
   {
@@ -1648,7 +1648,7 @@ export const STD_GEN: CardScript[] = [
     name: "Eevee",
     attacks: {
       // "Search your deck for a Basic Pokémon and put it onto your Bench. Then, shuffle your deck."
-      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"stage":"basic"},"min":0,"max":{"min":[1,{"sub":[5,{"pokemon":{"zone":"myBench"}}]}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
+      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"stage":"basic"},"min":0,"max":{"min":[1,{"benchRoom":"self"}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
     },
   },
   {
@@ -1688,7 +1688,7 @@ export const STD_GEN: CardScript[] = [
     name: "Scatterbug",
     attacks: {
       // "Search your deck for a Basic Pokémon and put it onto your Bench. Then, shuffle your deck."
-      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"stage":"basic"},"min":0,"max":{"min":[1,{"sub":[5,{"pokemon":{"zone":"myBench"}}]}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
+      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"stage":"basic"},"min":0,"max":{"min":[1,{"benchRoom":"self"}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
     },
   },
   {
@@ -1862,7 +1862,7 @@ export const STD_GEN: CardScript[] = [
     name: "Trapinch",
     attacks: {
       // "Search your deck for up to 2 Basic Pokémon and put them onto your Bench. Then, shuffle your deck."
-      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"cat":"pokemon","stage":"basic"},"min":0,"max":{"min":[2,{"sub":[5,{"pokemon":{"zone":"myBench"}}]}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
+      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"cat":"pokemon","stage":"basic"},"min":0,"max":{"min":[2,{"benchRoom":"self"}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
     },
   },
   {
@@ -2158,7 +2158,7 @@ export const STD_GEN: CardScript[] = [
     name: "Oricorio",
     attacks: {
       // "Search your deck for up to 2 Basic Pokémon and put them onto your Bench. Then, shuffle your deck."
-      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"cat":"pokemon","stage":"basic"},"min":0,"max":{"min":[2,{"sub":[5,{"pokemon":{"zone":"myBench"}}]}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
+      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"cat":"pokemon","stage":"basic"},"min":0,"max":{"min":[2,{"benchRoom":"self"}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
     },
   },
   {
@@ -2182,7 +2182,7 @@ export const STD_GEN: CardScript[] = [
     name: "Swinub",
     attacks: {
       // "Search your deck for up to 2 Basic Pokémon and put them onto your Bench. Then, shuffle your deck."
-      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"cat":"pokemon","stage":"basic"},"min":0,"max":{"min":[2,{"sub":[5,{"pokemon":{"zone":"myBench"}}]}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
+      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"cat":"pokemon","stage":"basic"},"min":0,"max":{"min":[2,{"benchRoom":"self"}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
     },
   },
   {
@@ -2724,7 +2724,7 @@ export const STD_GEN: CardScript[] = [
     name: "Emolga",
     attacks: {
       // "Search your deck for up to 2 Basic Pokémon and put them onto your Bench. Then, shuffle your deck."
-      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"cat":"pokemon","stage":"basic"},"min":0,"max":{"min":[2,{"sub":[5,{"pokemon":{"zone":"myBench"}}]}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
+      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"cat":"pokemon","stage":"basic"},"min":0,"max":{"min":[2,{"benchRoom":"self"}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
     },
   },
   {
@@ -3018,7 +3018,7 @@ export const STD_GEN: CardScript[] = [
     name: "Kangaskhan",
     attacks: {
       // "Search your deck for a Basic Pokémon and put it onto your Bench. Then, shuffle your deck."
-      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"stage":"basic"},"min":0,"max":{"min":[1,{"sub":[5,{"pokemon":{"zone":"myBench"}}]}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
+      "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"stage":"basic"},"min":0,"max":{"min":[1,{"benchRoom":"self"}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
     },
   },
   {

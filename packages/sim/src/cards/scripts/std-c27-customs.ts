@@ -8,6 +8,7 @@ import { def, type Env } from '../../context.js';
 import { registerCustom } from '../../customs.js';
 import type { Filter, SlotZone } from '../../dsl.js';
 import { cardMatches, slotMatches, slotsIn } from '../../eval.js';
+import { benchLimit } from '../../query.js';
 import { allSlots, emit, findSlot, healSlot, newSlot, opp, rand, removeFrom, shuffleDeck, takeFromZones } from '../../state.js';
 import type { Decision, GameState, Val } from '../../types.js';
 
@@ -33,7 +34,7 @@ function allSame(env: Env, pool: number[]): boolean {
 registerCustom('c27.searchToBench', (env, s, f, args, answer) => {
   const p = f.player;
   const ps = s.p[p];
-  const space = 5 - ps.bench.length;
+  const space = benchLimit(env, s, p) - ps.bench.length;
   if (space <= 0) return 'next';
   const names = (args.names as string[]) ?? [];
   const max = Math.min(Number(args.max ?? 1), space);
@@ -52,7 +53,7 @@ registerCustom('c27.searchToBench', (env, s, f, args, answer) => {
   const chosen = (answer as number[]).slice(0, max);
   emit(env, { type: 'search', player: p, found: chosen.slice() });
   for (const c of chosen) {
-    if (ps.bench.length >= 5 || !takeFromZones(ps, c)) continue;
+    if (ps.bench.length >= benchLimit(env, s, p) || !takeFromZones(ps, c)) continue;
     const sl = newSlot(s, c);
     ps.bench.push(sl);
     emit(env, { type: 'play_to_bench', player: p, card: c, slot: sl.id });

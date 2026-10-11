@@ -1945,10 +1945,6 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
     problems: ['"up to 2"', 'number 2'],
     why: 'Crispin: the first Basic Energy is an optional pick; the second ("of a different type") comes from the custom chooseEnergyOfOtherType, so the 2 lives in code (tested in cards-ghost.test.ts).',
   },
-  'sv08-185|text': {
-    problems: ['"up to"', '"any number of"'],
-    why: 'Precious Trolley: "any number of Basic Pokémon" onto the Bench is bounded by free Bench space; searchToBench(…, 5) clamps to it and 5 is the whole Bench.',
-  },
   // (Sacred Ash sv10-168 and Energy Recycler me03-108 choose 1-5 for "up to 5": that is what "up to" means on a
   //  Trainer (TPCi 2026-02-19), so they render as printed and need no entry.)
   // Same meaning, different words.

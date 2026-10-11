@@ -7,7 +7,7 @@
 import { def, type Env } from '../../context.js';
 import { registerCustom, registerCustomCond } from '../../customs.js';
 import { cardMatches, resolveSlot } from '../../eval.js';
-import { cardUnits, effectsPrevented } from '../../query.js';
+import { benchLimit, cardUnits, effectsPrevented } from '../../query.js';
 import { emit, findSlot, newSlot, opp, removeFrom, shuffleDeck, takeFromZones } from '../../state.js';
 import type { Filter } from '../../dsl.js';
 import type { Decision, GameState } from '../../types.js';
@@ -33,14 +33,14 @@ registerCustomCond('c04.evolvedFromThisTurn', (env, s, ec, args) => {
 
 /**
  * Silcoon, Multiplying Cocoon: "Search your deck for a Silcoon or a Cascoon and put it onto your Bench. Then, shuffle your deck."
- * args: { names } -- Pokémon cards of any Stage with one of these names. The Bench can only be filled to 5: with a
+ * args: { names } -- Pokémon cards of any Stage with one of these names. The Bench can only be filled to its limit: with a
  * full Bench nothing happens (no search, no shuffle). The controller picks 0 or 1 of the matching cards, which go
  * onto the Bench as they are (a Stage 1 put there this way is not evolving anything); then the deck is shuffled.
  */
 registerCustom('c04.searchToBench', (env, s, f, args, answer) => {
   const p = f.player;
   const ps = s.p[p];
-  if (ps.bench.length >= 5) return 'next';
+  if (ps.bench.length >= benchLimit(env, s, p)) return 'next';
   const names = (args.names as string[]) ?? [];
   if (answer === undefined) {
     ps.prizesKnown = true;

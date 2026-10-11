@@ -8,7 +8,7 @@ import { def, type Env } from '../../context.js';
 import { registerCustom } from '../../customs.js';
 import { cardMatches } from '../../eval.js';
 import { queueStadiumBench } from '../../interp.js';
-import { effectsPrevented, retreatCost } from '../../query.js';
+import { benchLimit, effectsPrevented, retreatCost } from '../../query.js';
 import { allSlots, emit, findSlot, newSlot, opp, removeFrom, shuffleDeck, slotCards, takeFromZones, topCard } from '../../state.js';
 import type { Decision, GameState, Val } from '../../types.js';
 
@@ -47,7 +47,7 @@ registerCustom('seed4.retreatCostOf', (env, s, f, args) => {
 registerCustom('seed4.summoningGate', (env, s, f, args, answer) => {
   const p = f.player;
   const ps = s.p[p];
-  const free = 5 - ps.bench.length;
+  const free = benchLimit(env, s, p) - ps.bench.length;
   if (free <= 0) return 'next';
   const n = Number(args.n ?? 8);
   if (answer === undefined) {
