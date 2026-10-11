@@ -28,6 +28,7 @@ import {
   ownerOf,
   returnToHandBlocked,
   statics,
+  settleBrace,
   surviveKoSources, // lane:zoroark
   toolsDisabled, // lane:fighting
   trainerEffectsPrevented,
@@ -323,6 +324,8 @@ function dealDamage(
       for (const card of new Set(reducers)) queueTriggers(env, s, target, owner, 'damageReduced', { __attacker: f.slot }, card);
     }
     if (dmg <= 0) continue;
+    // A second hit on a Pokémon whose Knock Out Resolute Heart / Survival Brace already replaced lands on its 10 remaining HP, no longer at full HP.
+    if (target.braced) settleBrace(env, s, target);
     // lane:zoroark — Survival Brace: at full HP, damage from an opponent's attack that would Knock the Pokémon
     // Out leaves it at 10 HP instead, then the Tool is discarded.
     if (f.kind === 'attack' && owner !== f.player && target.damage === 0) {

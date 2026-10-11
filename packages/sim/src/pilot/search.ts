@@ -253,6 +253,7 @@ export class SearchPilot implements Pilot {
     const K = Math.max(1, o.worlds);
     const sum = new Float64Array(n);
     const wins = new Uint8Array(n);
+    const winLen = new Float64Array(n); // total decisions in the winning lines found for each first move
     let winLine: { world: GameState; line: number[] } | null = null;
     for (let k = 0; k < K; k++) {
       const world = determinize(game.state, game.ctx, me, this.rng);
@@ -263,12 +264,20 @@ export class SearchPilot implements Pilot {
         sum[i] = (sum[i] as number) + (v === -Infinity ? -o.weights.win : v);
         if (v >= o.weights.win / 2) {
           wins[i] = (wins[i] as number) + 1;
-          if (!winLine) winLine = { world, line: r.lines[i] as number[] };
+          const len = (r.lines[i] as number[]).length;
+          winLen[i] = (winLen[i] as number) + len;
+          // The shortest win, not the first in option order: a win that needs an "as often as you like" Ability first (Rocket Brain moving a
+          // counter) is also a win without it, and picking that Ability every time never gets to the attack.
+          if (!winLine || len < winLine.line.length) winLine = { world, line: r.lines[i] as number[] };
         }
       }
     }
     // Lethal: a first move that wins in every one of several worlds is played outright.
-    if (K >= 2) for (let i = 0; i < n; i++) if (wins[i] === K) return [i];
+    if (K >= 2) {
+      let quick = -1;
+      for (let i = 0; i < n; i++) if (wins[i] === K && (quick < 0 || (winLen[i] as number) < (winLen[quick] as number))) quick = i;
+      if (quick >= 0) return [quick];
+    }
     // A win seen in only some worlds: replay that exact line in fresh worlds; play it if it always wins.
     if (winLine && o.verify > 0) {
       const acts = lineActions(env, winLine.world, me, winLine.line, o.subs, o.profile);

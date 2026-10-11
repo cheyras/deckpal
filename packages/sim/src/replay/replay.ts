@@ -553,6 +553,9 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
   const prizes: [Want[], Want[]] = [[], []];
   const coins: boolean[] = [];
   const setupBasics: [CardMention[], CardMention[]] = [[], []];
+  // How many opening hands each side logged as mulliganed: the engine's Cinderace-style setup question (dealChoice) is answered from it.
+  const loggedMulligans: [number, number] = [0, 0];
+  for (const e of ev) if (e.turn === 0 && e.t === 'mulligan') loggedMulligans[e.p] += e.count;
   const extraDrawn: [CardMention[], CardMention[]] = [[], []];
   const extraCount: [number, number] = [0, 0];
   for (const e of ev) {
@@ -1440,7 +1443,9 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
           choice = answerOption(d) ?? fallback(d);
           break;
         case 'yesno':
-          choice = [0];
+          // A no-Basic hand holding a Pokémon that may start in the Active Spot asks keep-or-mulligan: take the mulligan while the log
+          // still has mulliganed hands for this seat, keep the hand once its logged kept hand is reached.
+          choice = [s.pending?.resume.k === 'dealChoice' && s.p[d.player].mulligans < loggedMulligans[d.player] ? 1 : 0];
           break;
         case 'order':
           choice = fallback(d);

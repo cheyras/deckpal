@@ -151,10 +151,12 @@ test('Compendium #362: a search for Pokémon to Bench does nothing at all when t
   };
   const full = run(['Hawlucha', 'Hawlucha', 'Hawlucha', 'Hawlucha', 'Toxel']);
   assert.equal(full.g.state.p[0].bench.length, 5);
-  assert.deepEqual(full.g.state.p[0].deck, full.before, 'the deck was neither searched nor shuffled');
+  assert.deepEqual(full.g.state.p[0].deck, full.before, 'the deck was neither searched nor shuffled (same cards, same order)');
+  assert.equal(full.g.state.p[0].prizesKnown, false, 'no search happened, so the Prize cards stay unknown to their owner');
   const open = run(['Hawlucha', 'Hawlucha', 'Hawlucha', 'Toxel']);
   assert.equal(open.g.state.p[0].bench.length, 5, 'control: with room it benches one');
   assert.notDeepEqual(open.g.state.p[0].deck, open.before);
+  assert.equal(open.g.state.p[0].prizesKnown, true, 'control: a real search looks through the deck, which reveals the Prize cards');
 });
 
 test('Compendium #2122: a Pokémon whose damage meets its new HP when it evolves is Knocked Out before its evolve trigger', () => {

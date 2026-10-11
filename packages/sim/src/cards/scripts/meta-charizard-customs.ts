@@ -6,7 +6,7 @@
 import { def } from '../../context.js';
 import { registerCustom } from '../../customs.js';
 import { cardMatches } from '../../eval.js';
-import { countersFixed, effectsPrevented, ownerOf, statics } from '../../query.js';
+import { countersFixed, countersPrevented, effectsPrevented, ownerOf, statics } from '../../query.js';
 import { allSlots, emit, findSlot, opp, removeFrom, topCard } from '../../state.js';
 import type { Decision, Frame, GameState, Player, Val } from '../../types.js';
 
@@ -59,7 +59,7 @@ registerCustom('charizard.discardEnergyAmong', (env, s, f, args, answer) => {
 /**
  * Ninetales, Nine-Tailed Transfer: "Move all damage counters from 1 of your Benched Pokémon to your opponent's
  * Active Pokémon." The Benched Pokémon is in var `args.from`. No move under a countersFixed lock; moving them onto
- * the opponent's Pokémon is an effect of the attack (prevented by e.g. Hide 'n' Sneak).
+ * the opponent's Pokémon is an effect of the attack: when the target is protected the counters leave the source and are lost.
  */
 registerCustom('charizard.moveAllCounters', (env, s, f, args) => {
   const from = slotVar(s, f, String(args.from ?? 'from'));
@@ -67,10 +67,11 @@ registerCustom('charizard.moveAllCounters', (env, s, f, args) => {
   if (!from || !to || from === to) return 'next';
   const all = statics(env, s);
   if (countersFixed(env, s, ownerOf(s, from), all) || countersFixed(env, s, ownerOf(s, to), all)) return 'next';
-  if (effectsPrevented(env, s, to, f.player, 'attack', all)) return 'next';
   const n = Math.floor(from.damage / 10);
   if (n <= 0) return 'next';
   from.damage -= n * 10;
+  // A protected target gets none: the counters still leave the source and are lost (Compendium #2150, #2192).
+  if (effectsPrevented(env, s, to, f.player, 'attack', all) || countersPrevented(env, s, to, f.player, 'attack', all)) return 'next';
   to.damage += n * 10;
   emit(env, { type: 'counters', player: ownerOf(s, to), slot: to.id, n });
   return 'next';
