@@ -237,12 +237,10 @@ export const STD_30A: CardScript[] = [
     abilities: [
       {
         // "As long as this Pokémon is in the Active Spot, attacks used by your opponent's Active Pokémon do 20 less damage (before applying Weakness and Resistance)."
-        // Against my Active Pokémon it is a reduction before Weakness and Resistance; a Benched Pokémon has neither, so the same 20 comes off
-        // what it takes (the reading of Garbodor, Gloomy Garbage: Compendium #2345).
+        // The reduction applies to everything the opponent's Active attack damages, Benched Pokémon included (ruling 1822; the reading of Garbodor, Gloomy Garbage: #2345).
         name: 'Lonely Gaze',
         statics: [
           { effect: { k: 'damageOut', amount: -20 }, scope: 'oppActive', when: { inActive: 'self' } },
-          { effect: { k: 'damageIn', amount: -20, fromOpp: true }, scope: 'myBench', when: { inActive: 'self' } },
         ],
       },
     ],

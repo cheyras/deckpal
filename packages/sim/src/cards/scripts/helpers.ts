@@ -17,10 +17,18 @@ export const BENCH_SPACE: Expr = { benchRoom: 'self' };
 
 /** "Search your deck for up to n <filter> and put them onto your Bench. Then, shuffle your deck." */
 export function searchToBench(filter: Filter, n: number): Program {
+  // With no room on the Bench nothing can be put there, which is public information, so the whole effect fails: no search and no
+  // shuffle (ruling 362).
   return [
-    { op: 'chooseCards', from: 'deck', filter: { ...filter, stage: 'basic' }, min: 0, max: { min: [n, BENCH_SPACE] }, as: 'found' },
-    { op: 'move', cards: 'found', to: 'bench' },
-    { op: 'shuffle' },
+    {
+      op: 'if',
+      cond: { gt: [BENCH_SPACE, 0] },
+      then: [
+        { op: 'chooseCards', from: 'deck', filter: { ...filter, stage: 'basic' }, min: 0, max: { min: [n, BENCH_SPACE] }, as: 'found' },
+        { op: 'move', cards: 'found', to: 'bench' },
+        { op: 'shuffle' },
+      ],
+    },
   ];
 }
 

@@ -166,11 +166,9 @@ export const STD_C10: CardScript[] = [
         // "Attacks used by your opponent's Active Pokémon that has a Pokémon Tool attached do 20 less damage (before applying Weakness and Resistance)."
         // Each Garbodor's effect stacks (TPCi ruling 2344), also against Benched Pokémon (ruling 2345), and it is not an effect on the Defending
         // Pokémon, so "isn't affected by effects on the Defending Pokémon" does not skip it (ruling 2346).
-        // Against the Active Pokémon it reduces the attacker's damage before Weakness and Resistance; a Benched Pokémon has neither, so the
-        // same 20 comes off what it takes.
+        // It reduces the attacker's damage before Weakness and Resistance, and reaches Benched Pokémon too (a Benched Pokémon has neither).
         statics: [
           { effect: { k: 'damageOut', amount: -20 }, scope: 'oppActive', filter: { tool: true } },
-          { effect: { k: 'damageIn', amount: -20, fromOpp: true, attacker: { tool: true } }, scope: 'myBench' },
         ],
       },
     ],
@@ -178,7 +176,7 @@ export const STD_C10: CardScript[] = [
       'Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2344/): "Yes, the effect will stack." ' +
       'Ruling (2345): "Gloomy Garbage will also reduce 20 from damage done to Benched Pokemon as well." ' +
       'Ruling (2346): the reduction is on the attacking Pokémon, so Shred (ignores effects on the Defending Pokémon) does not ignore it. ' +
-      'The Bench half is a damageIn on the Garbodor player\'s Benched Pokémon from a Tool-holding attacker.',
+      'The reduction is a damageOut, which reaches Benched Pokémon too.',
   },
   {
     id: 'me04-071',

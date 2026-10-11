@@ -151,6 +151,8 @@ export interface Slot {
   healedTurn?: number;
   /** The "Knocked Out by damage from an attack" triggers have been queued for this Pokémon's current Knock Out (see resolveKOs). */
   koTriggered?: boolean;
+  /** Survival Brace-style: full-HP damage that would have Knocked it Out was dealt; its remaining HP becomes 10 when Knock Outs are checked (ruling 2041). */
+  braced?: boolean;
   /** The owner's answer to "put these cards into your hand instead of the discard pile?" for this Pokémon's current Knock Out (see resolveKOs). */
   koHandAnswer?: boolean;
   /** Damage from opposing attacks this Pokémon took in turn `attackDmgTurn` (a running total for that turn). */
@@ -395,6 +397,8 @@ export interface Pending {
     | { k: 'setupActive'; p: Player }
     | { k: 'setupBench'; p: Player }
     | { k: 'mulliganDraws'; p: Player }
+    /** An opening hand with no Basic Pokémon but one that may start Active (Cinderace): put it there, or mulligan. */
+    | { k: 'dealChoice'; p: Player }
     | { k: 'extraBench'; p: Player }
     | { k: 'promote'; p: Player }
     /** A player with more Benched Pokémon than their Bench allows chooses which to discard. */

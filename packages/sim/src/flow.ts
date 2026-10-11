@@ -152,6 +152,14 @@ export function submit(env: Env, s: GameState, choice: number[]): void {
       }
       break;
     }
+    case 'dealChoice': {
+      if (choice[0] === 0) finishDeal(env, s, r.p); // the Pokémon goes to the Active Spot at the placing step
+      else {
+        takeMulligan(env, s, r.p);
+        mulliganUntilBasic(env, s, r.p);
+      }
+      break;
+    }
     case 'setupActive': {
       const card = (d.values as number[])[choice[0] as number] as number;
       const ps = s.p[r.p];
@@ -301,6 +309,57 @@ function setupActiveAbility(env: Env, c: number): boolean {
   return d.kind === 'pokemon' && d.coverage === 'full' && d.abilities.some((a) => a.script?.setupActive);
 }
 
+function takeMulligan(env: Env, s: GameState, p: Player): void {
+  const ps = s.p[p];
+  emit(env, { type: 'mulligan', player: p, hand: ps.hand.slice() });
+  ps.mulligans++;
+  ps.deck.push(...ps.hand);
+  ps.hand = [];
+  ps.revealed = [];
+  shuffleDeck(env, s, p);
+  draw(env, s, p, 7);
+}
+
+/**
+ * Mulligan `p` until the opening hand has a Basic Pokémon. A hand with none but a Pokémon that may start in the Active Spot (Cinderace's
+ * Explosiveness) lets the player choose between putting it there and mulliganing (ruling 2212): the question is pending, and the answer
+ * (`dealChoice`) comes back here.
+ */
+function mulliganUntilBasic(env: Env, s: GameState, p: Player): void {
+  const ps = s.p[p];
+  let guard = 0;
+  while (!ps.hand.some((c) => isBasic(env, c))) {
+    const starter = ps.hand.find((c) => setupActiveAbility(env, c));
+    if (starter !== undefined) {
+      const name = def(env.ctx, starter).name;
+      s.pending = {
+        decision: {
+          player: p,
+          kind: 'yesno',
+          prompt: `Your opening hand has no Basic Pokémon. Put ${name} in the Active Spot, or take a mulligan?`,
+          min: 1,
+          max: 1,
+          labels: [`Put ${name} in the Active Spot`, 'Take a mulligan'],
+        },
+        resume: { k: 'dealChoice', p },
+      };
+      return;
+    }
+    if (++guard > 200 || !ps.deck.concat(ps.hand).some((c) => isBasic(env, c))) {
+      // A deck with no Basic Pokémon can never start; it loses.
+      endGame(env, s, opp(p), 'no Basic Pokémon');
+      return;
+    }
+    takeMulligan(env, s, p);
+  }
+  finishDeal(env, s, p);
+}
+
+function finishDeal(env: Env, s: GameState, p: Player): void {
+  emit(env, { type: 'opening_hand', player: p, size: s.p[p].hand.length });
+  s.step = p === 0 ? 'deal1' : 'place0';
+}
+
 function setupStep(env: Env, s: GameState): void {
   switch (s.step) {
     case 'coin': {
@@ -318,30 +377,13 @@ function setupStep(env: Env, s: GameState): void {
       };
       return;
     }
-    case 'deal': {
+    case 'deal':
+    case 'deal1': {
       // Shuffle, draw 7, mulligan until a Basic appears. Mutual mulligans cancel for the extra draws.
-      for (const p of [0, 1] as Player[]) {
-        const ps = s.p[p];
-        shuffleDeck(env, s, p);
-        draw(env, s, p, 7);
-        let guard = 0;
-        while (!ps.hand.some((c) => isBasic(env, c))) {
-          if (++guard > 200 || !ps.deck.concat(ps.hand).some((c) => isBasic(env, c))) {
-            // A deck with no Basic Pokémon can never start; it loses.
-            endGame(env, s, opp(p), 'no Basic Pokémon');
-            return;
-          }
-          emit(env, { type: 'mulligan', player: p, hand: ps.hand.slice() });
-          ps.mulligans++;
-          ps.deck.push(...ps.hand);
-          ps.hand = [];
-          ps.revealed = [];
-          shuffleDeck(env, s, p);
-          draw(env, s, p, 7);
-        }
-        emit(env, { type: 'opening_hand', player: p, size: ps.hand.length });
-      }
-      s.step = 'place0';
+      const p: Player = s.step === 'deal' ? 0 : 1;
+      shuffleDeck(env, s, p);
+      draw(env, s, p, 7);
+      mulliganUntilBasic(env, s, p);
       return;
     }
     case 'extra0':
@@ -1079,6 +1121,12 @@ function resolveKOs(env: Env, s: GameState): void {
   for (const p of [0, 1] as Player[]) {
     for (const sl of allSlots(s.p[p])) {
       if (sl.damage > 0 && sl.damage >= maxHp(env, s, sl, (all ??= statics(env, s)))) {
+        if (sl.braced) {
+          // Survival Brace / Resolute Heart / Sturdy: what is left is 10 HP at the max HP it has now, after the attack's effects (ruling 2041).
+          delete sl.braced;
+          sl.damage = Math.max(0, maxHp(env, s, sl, all) - 10);
+          continue;
+        }
         if (koByAttack(s, p, sl) && !sl.koTriggered) {
           // "If this Pokémon would be Knocked Out by damage from an attack, flip a coin. If heads, ... its remaining HP becomes 10."
           // The attack's full damage was dealt; the flip comes now, after it (ruling 2287). Then, for a Pokémon that is Knocked Out:
@@ -1094,6 +1142,7 @@ function resolveKOs(env: Env, s: GameState): void {
         }
         ko.push({ owner: p, slot: sl, prizes: 0 });
       } else {
+        if (sl.braced) delete sl.braced;
         if (sl.koTriggered) delete sl.koTriggered; // a trigger saved it from the Knock Out
         if (sl.koHandAnswer !== undefined) delete sl.koHandAnswer;
       }

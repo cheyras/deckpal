@@ -77,6 +77,7 @@ function cloneSlot(s: Slot): Slot {
   if (s.movedActiveTurn !== undefined) out.movedActiveTurn = s.movedActiveTurn;
   if (s.healedTurn !== undefined) out.healedTurn = s.healedTurn;
   if (s.koTriggered) out.koTriggered = true;
+  if (s.braced) out.braced = true;
   if (s.koHandAnswer !== undefined) out.koHandAnswer = s.koHandAnswer;
   if (s.attackDmgTurn !== undefined) {
     out.attackDmgTurn = s.attackDmgTurn;

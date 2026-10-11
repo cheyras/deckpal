@@ -211,7 +211,7 @@ function candyStage2s(env: Env, s: GameState, p: Player, sl: Slot): number[] {
 
 function candyBasics(env: Env, s: GameState, p: Player): Slot[] {
   return allSlots(s.p[p]).filter(
-    (sl) => isBasicInPlay(def(env.ctx, topCard(sl))) && sl.enteredTurn < s.turn && candyStage2s(env, s, p, sl).length > 0,
+    (sl) => isBasicInPlay(def(env.ctx, topCard(sl))) && sl.enteredTurn < s.turn && sl.evolvedTurn < s.turn && candyStage2s(env, s, p, sl).length > 0,
   );
 }
 
