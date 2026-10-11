@@ -392,7 +392,8 @@ test('Carracosta, Mighty Shell: no damage or effects from Pokémon that have any
   assert.equal(special.state.p[0].active!.cond, 0);
   const basic = mk(LIG);
   choose(basic, 'Attack: Tail Whap');
-  assert.equal(basic.state.p[0].active!.damage, 30 + 20 + 10, 'a Basic Energy is not a Special Energy');
+  // 30 doubled by Carracosta's printed Weakness to {L} (cards/printed-wr.ts), 2 damage counters, then Poison at Checkup.
+  assert.equal(basic.state.p[0].active!.damage, 30 * 2 + 20 + 10, 'a Basic Energy is not a Special Energy');
 });
 
 test('Carracosta, Big Bite: 150 damage, and the Defending Pokémon can\'t retreat during your opponent\'s next turn', () => {

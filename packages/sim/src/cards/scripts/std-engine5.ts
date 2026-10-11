@@ -89,10 +89,8 @@ export const STD_ENGINE5: CardScript[] = [
     // player's first turn stays, which is the "except during their first turn".
     statics: [{ effect: { k: 'evolveTiming', justPlayed: true, into: { type: 'Grass' } }, scope: 'allPokemon', filter: { type: 'Grass' } }],
   },
-  eevee('sv08-143'),
-  eevee('svp-173'), // the promo printing: the same text, with no Weakness printed in the catalog
-  eeveeEx('sv08.5-075'),
-  eeveeEx('svp-174'), // the promo printing
+  eevee('sv08-143'), // also serves the promo printing svp-173 (same text once its printed Weakness is filled: cards/printed-wr.ts)
+  eeveeEx('sv08.5-075'), // also serves the promo printing svp-174
   {
     id: 'sv10.5b-009',
     name: 'Karrablast',
