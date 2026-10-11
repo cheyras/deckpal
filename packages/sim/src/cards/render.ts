@@ -233,6 +233,10 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c21.pickOppBenchLowHp': (a) => `Choose 1 Pokémon on your opponent's Bench that has ${Number(a.max ?? 90)} HP or less remaining (HP with any changes, minus damage) as "${String(a.as ?? 't')}"; no question when only one qualifies, none chosen when none does`,
   'c21.selfIntoDeck': () => 'Put this Pokémon and all attached cards (Energy, Tools, previous Evolutions) into your deck, without shuffling it yet; it is not a Knock Out',
   'c21.lookTopAny': (a) => `Look at the top ${Number(a.n ?? 20)} cards of your deck and choose any number of the ${energyNoun(a.filter as Filter | undefined)} cards you find there (into "${String(a.as ?? 'e')}"); nothing leaves the deck yet`,
+  // std-c16-customs.ts
+  'c16.lookTopTakeDiscardRest': (a) => `Look at the top ${Number(a.n ?? 6)} cards of your deck. Put ${Number(a.take ?? 2)} of them into your hand (your choice; all of them if there are no more). Discard the other cards. The deck is not shuffled`,
+  'c16.energyOnOpp': (a) => `Count the ${sym(a.type as PType)} Energy provided by Energy attached to all of your opponent's Pokémon, Active and Benched (Basic or Special; into "${String(a.as ?? 'n')}")`,
+  'c16.discardEnergyAmong': (a) => `Discard up to ${Number(a.max ?? 3)} Energy cards that provide ${sym(a.type as PType)} Energy where they are attached (Basic or Special) from among your Pokémon, your choice, and count the cards discarded (into "${String(a.as ?? 'n')}")`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -255,6 +259,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'c18.sharesTypeWithOpp': () => "one of your Pokémon in play (Active or Benched) has a type that one of your opponent's Pokémon in play (Active or Benched) also has",
   'c15.lowHpDamaged': () => 'one of your Pokémon has damage on it and 30 or less HP remaining (HP counting any HP changes)',
   'c21.oppBenchLowHp': (a) => `your opponent has a Pokémon on their Bench that has ${Number(a.max ?? 90)} HP or less remaining`,
+  'c16.remainingHpAtMost': (a) => `the HP of the Pokémon this is attached to (with any HP changes) minus its damage is ${Number(a.n ?? 30)} or less`,
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
@@ -2031,5 +2036,30 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv07-006|ability:Selective Slime': {
     problems: ['similarity'],
     why: 'The printed "choose Burned, Confused, or Poisoned" is a three-way option plus one `condition` step per option, and the usability guard from Compendium ruling 2014 (not while the Defending Pokémon is already Burned, Confused and Poisoned) is spelled out; both lengthen the rendering well past the printed sentence.',
+  },
+  // std-c16
+  'sv05-150|text': {
+    problems: ['number 5', '"each" is printed', '"any number of" is rendered', 'similarity'],
+    why: '"Until they have 5 cards" is a discard of exactly (hand size minus 5, at least 0) cards chosen by that player, the opponent first and then the user; the renderer words a count of that shape "any number of cards" and cannot print the 5 (it sits inside the hand-size expression), and the "you can use this card only if" guard (someone has more than 5 cards) carries 6 and 7. The card test pins hand sizes around 5.',
+  },
+  'sv05-155|text': {
+    problems: ['"each" is printed'],
+    why: '"A card for each of your opponent\'s Benched Pokémon" is a draw of the number of the opponent\'s Benched Pokémon, which the renderer words "the number of your opponent\'s Benched Pokémon cards".',
+  },
+  'sv06-023|attack:Re-Brew': {
+    problems: ['"any number of" is rendered'],
+    why: '"Shuffle those Energy cards" is a choice of exactly k Basic {G} Energy cards from the discard pile (k = the number counted, so all of them) moved to the deck, which the renderer words "any number of"; it runs only when counters were really placed (Ruling 1979), which the renderer words as the before/after comparison.',
+  },
+  'sv06-033|ability:Pyro Dance': {
+    problems: ['"each" is printed'],
+    why: '"A Basic {R} Energy card, a Basic {F} Energy card, or 1 of each" is two optional single picks (one {R}, one {F}; at least one in total while the hand has either) and one attach per card chosen, each to a Pokémon of its own, so there is no word "each" to render.',
+  },
+  'sv06-010|attack:Slowing Perfume': {
+    problems: ['similarity'],
+    why: '"You can use this attack only if you go second, and only during your first turn" is a `cantUseAttack` static on the card whose `when` is the negation (not: it is your first turn and it is not turn 1), so the renderer words it as an inverted "can\'t use" sentence; the card test pins turn 2 (usable) against turns 1, 3 and 4.',
+  },
+  'sv06-029|attack:Ground Burn': {
+    problems: ['the rendering involves the opponent'],
+    why: '"The top card of each player\'s deck" is two discards, one from each deck, and the renderer words the second as "your opponent\'s deck", which is the other player\'s deck the card prints as "each player\'s".',
   },
 };
