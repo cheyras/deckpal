@@ -71,12 +71,12 @@ export function hashState(env: Env, s: GameState): string {
       String(ps.deck.length),
       defs(env, ps.discard, true),
       String(ps.prizes.length),
-      `${+ps.supporterPlayed}${+ps.stadiumPlayed}${+ps.energyAttached}${+ps.retreated}${+ps.stadiumAbilityUsed}${ps.globalAbilitiesUsed.join(',')}`,
+      `${+ps.supporterPlayed}${+ps.stadiumPlayed}${+ps.energyAttached}${+ps.retreated}${+ps.stadiumAbilityUsed}${ps.globalAbilitiesUsed.join(',')}${ps.toolUsed?.length ?? 0}`,
       ps.active ? slotKey(env, ps.active) : '-',
       ps.bench.map((b) => slotKey(env, b)).sort().join('/'),
       String(ps.lost.length),
     );
   }
-  parts.push(String(s.effects.length), s.rng.join(','));
+  parts.push(String(s.effects.length), String(s.delayed?.length ?? 0), s.rng.join(','));
   return parts.join(';');
 }

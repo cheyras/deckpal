@@ -31,6 +31,10 @@ export interface GameContext {
   code: Map<string, Op[]>;
   decks: [DeckInput, DeckInput];
   opts: { events: boolean; first: Player | null; maxTurns: number };
+  /** Some card in this game has an `energyProvides` static (Meganium): attached Energy must be counted with the game state (see eval.ts `pushUnits`). */
+  energyMods: boolean;
+  /** Some card in this game has a `noReturnToHand` static (Milotic): custom effects are checked for putting Pokémon in play into a hand (see interp.ts `guardHand`). */
+  handLock: boolean;
 }
 
 export interface Env {
@@ -96,6 +100,8 @@ export function createContext(a: DeckInput, b: DeckInput, opts: EngineOptions = 
     code,
     decks,
     opts: { events: !!opts.events, first: opts.first ?? null, maxTurns: opts.maxTurns ?? 60 },
+    handLock: defs.some((d) => d.statics.some((x) => x.effect.k === 'noReturnToHand') || d.abilities.some((a) => a.script?.statics?.some((x) => x.effect.k === 'noReturnToHand'))),
+    energyMods: defs.some((d) => d.statics.some((x) => x.effect.k === 'energyProvides') || d.abilities.some((a) => a.script?.statics?.some((x) => x.effect.k === 'energyProvides'))),
   };
 }
 
@@ -161,7 +167,11 @@ function compileDef(d: CardDef, script: CardScript | null, code: Map<string, Op[
 /** A Pokémon's own "it is {F} and {P} type" (StaticEffect `types`, scope 'self'): remembered on the definition, so type filters need no game state. */
 function noteTypeFix(d: CardDef, st: StaticDef): void {
   const e = st.effect;
-  if (e.k === 'types' && st.scope === 'self' && !st.when && !st.filter) d.typeFix = { types: e.types.slice(), add: !!e.add };
+  if (e.k !== 'types' || st.scope !== 'self' || st.filter) return;
+  // A condition on the Pokémon itself (`slotIs` self) is remembered as a filter on the slot ("As long as this Pokémon has a Future
+  // Booster Energy Capsule attached, it is {F} and {M} type"); any other condition is not supported.
+  if (!st.when) d.typeFix = { types: e.types.slice(), add: !!e.add };
+  else if ('slotIs' in st.when && st.when.slotIs.ref === 'self') d.typeFix = { types: e.types.slice(), add: !!e.add, ifSlot: st.when.slotIs.filter };
 }
 
 /** Register an ad-hoc program (used by customs and tests). */

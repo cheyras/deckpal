@@ -143,7 +143,7 @@ function development(env: Env, s: GameState, p: Player, all: LiveStatic[], w: Ev
     if (sl.energy.length) {
       let need = 0;
       for (const a of d.attacks) if (a.cost.length > need) need = a.cost.length;
-      const units = Math.min(energyUnits(env, sl).length, need);
+      const units = Math.min(energyUnits(env, sl, s, all).length, need);
       score += units * w.energy * (sl === ps.active ? 1 : w.energyBench);
     }
   }

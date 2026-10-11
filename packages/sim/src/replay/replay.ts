@@ -905,8 +905,8 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
           const st = idx((a) => a.t === 'stadium');
           if (st >= 0) return st;
         }
-        // "PlayerA played Dudunsparce." — a self-played Ability.
-        return idx((a) => a.t === 'ability' && slotMatches(a.slot, e.card.name));
+        // "PlayerA played Dudunsparce." — a self-played Ability (or one used from the hand: Klinklang's Emergency Rotation).
+        return idx((a) => a.t === 'ability' && (a.card !== undefined ? same(name(a.card), e.card.name) : slotMatches(a.slot, e.card.name)));
       }
       case 'evolve':
         return both((x) => pickAction(A, (a) => a.t === 'evolve' && isCard(a.card, want(e.to), x) && slotMatches(a.slot, e.from.name, e.where)));
@@ -915,6 +915,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       case 'use': {
         const ab = idx((a) => {
           if (a.t !== 'ability') return false;
+          if (a.card !== undefined) return same(name(a.card), e.user.name) && same(def(ctx, a.card).abilities[a.idx]?.name ?? '', e.move);
           const f = findSlot(s, a.slot);
           return !!f && same(slotLabel(f.slot), e.user.name) && same(def(ctx, topCard(f.slot)).abilities[a.idx]?.name ?? '', e.move);
         });

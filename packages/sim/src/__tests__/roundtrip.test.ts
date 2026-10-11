@@ -229,6 +229,14 @@ test('every static effect, scope and trigger renders', () => {
     evolveInto: { k: 'evolveInto', evolvesFrom: 'Eevee', filter: { ex: true } },
     koToHand: { k: 'koToHand', cards: 'energy', filter: { energyType: 'Water' }, optional: true },
     checkupCounters: { k: 'checkupCounters', cond: 'burned', n: 3, noStack: 'X' },
+    toolSlots: { k: 'toolSlots', n: 2 },
+    damageCoinFlip: { k: 'damageCoinFlip' },
+    retreatCoinFlip: { k: 'retreatCoinFlip' },
+    coinReflip: { k: 'coinReflip' },
+    keepConfusion: { k: 'keepConfusion' },
+    energyProvides: { k: 'energyProvides', cards: { energyType: 'Grass' }, provides: ['Grass', 'Grass'] },
+    noReturnToHand: { k: 'noReturnToHand' },
+    previousAttacks: { k: 'previousAttacks' },
   };
   const SCOPES: Scope[] = ['self', 'myActive', 'myBench', 'myPokemon', 'oppActive', 'oppBench', 'oppPokemon', 'allPokemon', 'me', 'opp', 'both'];
   for (const [k, effect] of Object.entries(EFFECTS)) {
