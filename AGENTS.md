@@ -24,7 +24,7 @@ packages:
 | `apps/mcp` | `deckpal-mcp` | **deckpal-mcp** -- MCP server, live and multi-user on cloud; also runs self-host |
 | `packages/db` | `@deckpal/db` | Shared Postgres pool + numbered SQL migrations |
 | `packages/storage` | `@deckpal/storage` | Shared image path algebra + the `putAsset()` provenance choke point (B1), used by `apps/images` and the cloud image function |
-| `packages/agent-tools` | `@deckpal/agent-tools` | The 25 agent tool definitions (reads + writes) shared by `apps/mcp` and Deck-E (`apps/api/src/decke`) -- one definition of what an agent can do, two front-ends |
+| `packages/agent-tools` | `@deckpal/agent-tools` | The 26 agent tool definitions (reads + writes) shared by `apps/mcp` and Deck-E (`apps/api/src/decke`) -- one definition of what an agent can do, two front-ends |
 | `packages/matching` | `@deckpal/matching` | The scanner's versioned embed input spec (TypeScript + a bit-parity Python mirror), the pgvector text codec, and the SEPARATE identity/variant confidence gates -- imported by `apps/web`'s scan engine, `apps/api` and `tools/embed-catalog`, so all three agree to the bit about what an image is |
 
 Data lives in a Postgres database. Cloud deployments use Supabase Auth (JWT +

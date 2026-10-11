@@ -1,3 +1,4 @@
+import type { CardLook } from './look'
 // The boundary between the scan ENGINE (camera frames -> tracked card quads ->
 // rectified captures) and the scan UI (reticle, incoming stack, verify feed).
 // Decided 2026-09-02 (DECISIONS.md: "a pretrained corner model replaces
@@ -154,6 +155,14 @@ export interface EngineState {
    * which is the one measurement path to "a real card sitting below 0.13".
    */
   saturation: number | null
+  /**
+   * THE LOCK'S LOOK — a 264-byte colour layout of the locked card on this
+   * tick's working image (engine/look.ts), or null with no lock. The capture
+   * policy compares it with the looks of recent captures to tell a different
+   * card put down in the same place from the same card still there, which the
+   * track id and the region overlap cannot (ui/rearm.ts).
+   */
+  look: CardLook | null
   perf: { detectMs: number; hz: number; jitterPx: number }
 }
 
@@ -174,6 +183,10 @@ export interface CaptureResult {
   quad: Quad
   /** Track id, so the UI can refractory-dedupe re-presentations of the card. */
   trackId: number
+  /** The look of the captured pixels (look.ts captureLook): what a later lock
+   *  on this track or this spot is compared with by the look re-arm. Null only
+   *  when the capture cannot be read as a card. */
+  look: CardLook | null
 }
 
 export interface ScanEngine {
@@ -203,7 +216,7 @@ export interface EngineOptions {
   hold?: number
   /** Detect cadence floor in ms (default 120; engine stretches when slow). */
   cadenceMs?: number
-  /** Consecutive ticks before a stable track can lock (default 3). */
+  /** Consecutive ticks before a stable track can lock (default index.DEFAULT_LOCK_TICKS, 2). */
   lockTicks?: number
   /** Minimum opposite-side ratio for a lock — the straddle gate (default 0.72,
    *  index.DEFAULT_LOCK_PARALLEL_MIN). 0 disables it. */

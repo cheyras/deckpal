@@ -47,6 +47,30 @@ function shuffle<T>(arr: T[], rng: Rng): T[] {
   return arr;
 }
 
+/**
+ * Partial (forward) Fisher-Yates: fill positions `from`..`to-1` with cards drawn
+ * uniformly, without replacement, from positions `from`..end. Positions before
+ * `from` are left alone; positions from `to` on hold the undrawn rest.
+ *
+ * Uniform whatever order the array starts in, so a simulator can keep ONE index
+ * array for every trial and never reset or reallocate it: `(0, 7)` is a fresh
+ * opening hand (a mulligan simply calls it again), and `(7, 13 + turns)` then
+ * deals the Prizes and the draws from what the hand left. The cost is the cards
+ * actually dealt, not the deck size. `odds.ts` is the caller; `shuffle` above is
+ * kept exactly as it was, so a seeded test hand (`GET /decks/:id/testhand?seed=`)
+ * still deals the hand it always dealt.
+ */
+export function partialShuffle(arr: Int32Array | number[], from: number, to: number, rng: Rng): void {
+  const n = arr.length;
+  const end = Math.min(to, n);
+  for (let i = from; i < end; i++) {
+    const j = i + Math.floor(rng() * (n - i));
+    const tmp = arr[i]!;
+    arr[i] = arr[j]!;
+    arr[j] = tmp;
+  }
+}
+
 export interface DrawResult {
   hand: HandCard[];
   mulligans: number;   // number of redraws before a keepable hand

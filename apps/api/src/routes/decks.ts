@@ -371,6 +371,19 @@ function buildDeckModel(meta: DeckMeta, rows: DeckRow[], types: Map<number, Poke
   };
 }
 
+/**
+ * A saved, live deck's name and its cards as engine entries, or null when the
+ * caller has no such deck. Exported for the read-only analyses that take a
+ * `deck_id` beside an ad-hoc list (`POST /decks/odds`, routes/deckOdds.ts), so
+ * "your deck" means exactly the rows the deck page shows — one loader, not two.
+ */
+export async function loadDeckEntries(deckId: string, userId: string): Promise<{ name: string; entries: DeckEntry[] } | null> {
+  const meta = await loadMeta(parseDeckId(deckId), userId);
+  if (!meta) return null;
+  const { rows, types } = await loadRows(meta.id, userId);
+  return { name: meta.name, entries: buildDeckModel(meta, rows, types).deck.entries };
+}
+
 /** Run the engine with a reprint oracle (built on the request's connection) for pool-checked formats. */
 async function validate(deck: Deck, facts: CardFacts[]): Promise<ValidationResult> {
   const cfg = formatConfig(deck.formatCode);

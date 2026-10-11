@@ -41,6 +41,7 @@ function state(over: Partial<EngineState> = {}): EngineState {
     pending: [],
     locked: null,
     saturation: null,
+    look: null,
     perf: { detectMs: 21, hz: 8, jitterPx: 0.4 },
     ...over,
   }
