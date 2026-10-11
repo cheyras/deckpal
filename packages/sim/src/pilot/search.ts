@@ -131,6 +131,17 @@ export interface Memo {
   done: boolean;
 }
 
+/**
+ * Does a line scoring `v` replace the one kept for its first move (score `prevV`, `prevLine`)? A higher score wins. Among winning lines that score the
+ * same, the one with fewer recorded choices is kept, whichever was found first. `line.length` counts the options the search branched on; the
+ * sub-decisions `settle` answers with the policy along the way are not recorded, so they don't count. This keeps the shortest of the continuations the search retained; transposition pruning may still have hidden a
+ * shorter one, so it is not a global shortest path.
+ */
+export function betterLine(prevV: number, prevLine: number[], v: number, line: number[], win: number): boolean {
+  if (v > prevV) return true;
+  return v === prevV && v >= win / 2 && line.length < prevLine.length;
+}
+
 export interface WorldResult {
   best: Float64Array;
   /** The best line per first option (choices from the root), for lethal replay. */
@@ -165,7 +176,7 @@ export function searchWorld(
     return evaluate(env, s, me, o.weights, s.current === me ? opp(me) : s.current);
   };
   const record = (first: number, v: number, line: number[]) => {
-    if (v > (best[first] as number)) {
+    if (betterLine(best[first] as number, lines[first] as number[], v, line, o.weights.win)) {
       best[first] = v;
       lines[first] = line;
     }
@@ -350,6 +361,7 @@ export class SearchPilot implements Pilot {
     const K = Math.max(1, o.worlds);
     const sum = new Float64Array(n);
     const wins = new Uint8Array(n);
+    const winChoices = new Float64Array(n); // recorded (branched) choices in the retained winning line of each first move, summed over worlds
     let winLine: { world: GameState; line: number[] } | null = null;
     for (let k = 0; k < K; k++) {
       const world = determinize(game.state, game.ctx, me, this.rng);
@@ -365,12 +377,20 @@ export class SearchPilot implements Pilot {
         sum[i] = (sum[i] as number) + (v === -Infinity ? -o.weights.win : v);
         if (v >= o.weights.win / 2) {
           wins[i] = (wins[i] as number) + 1;
-          if (!winLine) winLine = { world, line: r.lines[i] as number[] };
+          const len = (r.lines[i] as number[]).length;
+          winChoices[i] = (winChoices[i] as number) + len;
+          // The shortest retained win (fewest submitted choices), not the first in option order: a win that needs an "as often as you like" Ability first (Rocket Brain moving a
+          // counter) is also a win without it, and picking that Ability every time never gets to the attack.
+          if (!winLine || len < winLine.line.length) winLine = { world, line: r.lines[i] as number[] };
         }
       }
     }
     // Lethal: a first move that wins in every one of several worlds is played outright.
-    if (K >= 2) for (let i = 0; i < n; i++) if (wins[i] === K) return [i];
+    if (K >= 2) {
+      let quick = -1;
+      for (let i = 0; i < n; i++) if (wins[i] === K && (quick < 0 || (winChoices[i] as number) < (winChoices[quick] as number))) quick = i;
+      if (quick >= 0) return [quick];
+    }
     // A win seen in only some worlds: replay that exact line in fresh worlds; play it if it always wins.
     if (winLine && o.verify > 0) {
       const acts = lineActions(env, winLine.world, me, winLine.line, o.subs, o.profile);

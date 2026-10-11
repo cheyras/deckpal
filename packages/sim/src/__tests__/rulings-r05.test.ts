@@ -320,19 +320,30 @@ test('Two Gengar ex with Gnawing Curse put 4 damage counters on a Pokémon that 
   assert.equal(two.state.p[1].active!.damage, 40, '4 damage counters');
 });
 
-// Compendium ruling 146, partly pinned (left uncited on purpose): the owner of the affected Pokémon is meant to choose the order of the two Abilities,
-// which the simulator does not model (queued triggers resolve in a fixed order). The rest is pinned: Gnawing Curse and an Ability that heals on an attach
-// from the hand (Miltank's Moomoo Malt in the ruling; Magearna's Auto Heal is the scripted equivalent) never have the damage checked for a Knock Out in between.
-// The engine's fixed order puts the counters first and then heals: 80 + 20 counters, minus the 90 healed, leaves 10 (checked below).
-test("ruling 146 (partly: the player's choice of order is not modelled yet): counters from Gnawing Curse do not Knock Out a Pokémon that an attach-heal Ability then heals", () => {
+// https://compendium.pokegym.net/ruling/146/
+// Gnawing Curse and an Ability that heals on an attach from the hand (Miltank's Moomoo Malt in the ruling; Magearna's Auto Heal is the scripted
+// equivalent) happen at the same time: the owner of the affected Pokémon chooses the order. Damage never goes below zero when the heal comes first, and
+// when the counters come first the heal still happens before any Knock Out check.
+test('ruling 146: Gnawing Curse and an attach-heal Ability: the player chooses the order; no Knock Out check in between (https://compendium.pokegym.net/ruling/146/)', () => {
   const dk = deck([...GENGAR_IDS, 'sv09-107']);
-  const g = scenario(dk, dk, [{ ...gengar }, { active: 'Magearna', damage: { active: 80 }, hand: [FIRE], bench: ['Dhelmise'] }], TURN_OF_P1);
-  choose(g, 'Attach Fire Energy');
+  const run = (first: string): Game => {
+    const g = scenario(dk, dk, [{ ...gengar }, { active: 'Magearna', damage: { active: 80 }, hand: [FIRE], bench: ['Dhelmise'] }], TURN_OF_P1);
+    choose(g, 'Attach Fire Energy');
+    assert.equal(g.decision!.kind, 'option', 'two Abilities at the same time: an order is asked');
+    assert.equal(g.decision!.player, 1, 'the player of the affected Pokémon chooses');
+    assert.deepEqual(labels(g).sort(), ['Gengar ex', 'Magearna']);
+    choose(g, first);
+    return g;
+  };
   // Magearna has 90 HP: 80 + 20 would be a Knock Out if it were checked before the 90 healing.
-  assert.equal(activeName(g, 1), 'Magearna', 'Magearna is still the Active Pokémon');
-  assert.equal(g.state.p[1].discard.length, 0, 'nothing was Knocked Out');
-  const left = g.state.p[1].active!.damage;
-  assert.equal(left, 10, 'fixed engine order: counters first (100), then the 90 heal');
+  const curseFirst = run('Gengar ex');
+  assert.equal(activeName(curseFirst, 1), 'Magearna', 'Magearna is still the Active Pokémon');
+  assert.equal(curseFirst.state.p[1].discard.length, 0, 'nothing was Knocked Out');
+  assert.equal(curseFirst.state.p[1].active!.damage, 10, 'counters first (100), then the 90 heal');
+  const healFirst = run('Magearna');
+  assert.equal(activeName(healFirst, 1), 'Magearna');
+  assert.equal(healFirst.state.p[1].discard.length, 0);
+  assert.equal(healFirst.state.p[1].active!.damage, 20, 'heal first (80 -> 0, not below zero), then the 20 from the counters');
 });
 
 // https://compendium.pokegym.net/ruling/1631/

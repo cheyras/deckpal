@@ -259,6 +259,14 @@ export interface Frame {
   /** The Pokémon slot the effect comes from (attacker / Ability user / Tool or Energy holder). */
   slot: number;
   kind: 'attack' | 'ability' | 'trainer' | 'energy' | 'tool' | 'stadium' | 'trigger' | 'rule';
+  /**
+   * Queued effects that happen at the same time (damage to a Pokémon, Knock Out step 2, an Energy attach, an Evolution, Pokémon Checkup, the end
+   * of the turn): `g` names the moment, `by` is the player the rulebook lets choose their order (Advanced Player's Rulebook v3.4, E-03/E-04/E-05,
+   * the Energy attach entry, the Checkup steps and the end-of-turn entry). `ev` is the event instance (`GameState.ev` when the moment began):
+   * only effects of the same moment, kind and chooser are ordered together. `picked`: the player has chosen this one to go next; the frame
+   * keeps the rest of its identity, so the checks made when it is applied still know it belongs to its moment.
+   */
+  order?: { g: string; by: Player; ev: number; picked?: true };
 }
 
 export type Val = number | boolean | number[] | null;
@@ -327,6 +335,12 @@ export interface GameState {
   benchOwner?: Player;
   /** Triggered effects waiting for the stack to empty. */
   queued: Frame[];
+  /** The event instance being produced (see `beginEvent`): triggers queued by it share this id, and are ordered together. */
+  ev?: number;
+  /** The last event id handed out: ids only ever grow, whatever `ev` is set back to. */
+  evNext?: number;
+  /** Queue length when the effect now running was taken from it: what is queued beyond it was caused by that effect and resolves next. */
+  nest?: number;
   /** A Trainer card being played: out of the hand, not yet in the discard pile. */
   limbo: number[];
   /** Where the flow continues once Knock Outs and promotions are resolved. */
@@ -407,8 +421,8 @@ export interface Pending {
     | { k: 'koHand'; slot: number }
     /** The owner of a Pokémon with more Tools than it may now have chooses which to discard. */
     | { k: 'toolDiscard'; slot: number }
-    /** Several effects wait for the end of the turn and the turn's player chooses which goes first; the answer picks one in the queue. */
-    | { k: 'endOrder' };
+    /** Several effects happen at the same time and the right player chooses which goes first; `idx` are the queue positions offered, in label order. */
+    | { k: 'triggerOrder'; idx: number[] };
 }
 
 // ---------------------------------------------------------------------------

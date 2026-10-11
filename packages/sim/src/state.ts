@@ -3,7 +3,7 @@
  * rules; it only keeps every card in exactly one zone.
  */
 import type { Env, GameContext } from './context.js';
-import { healLocked } from './query.js'; // a function-level import cycle (query.ts reads state.ts): only called, never run at load
+import { healLocked, settleBrace } from './query.js'; // a function-level import cycle (query.ts reads state.ts): only called, never run at load
 import { deriveSeed, step } from './rng.js';
 import type { Decision, GameEvent, GameState, Player, PlayerState, Slot } from './types.js';
 
@@ -251,6 +251,7 @@ export function newSlot(s: GameState, card: number): Slot {
  */
 export function healSlot(s: GameState, slot: Slot, amount: number, env?: Env): number {
   if (env && healLocked(env, s, slot)) return 0;
+  if (env && slot.braced) settleBrace(env, s, slot); // Resolute Heart's 10 HP is already in force when the healing happens
   const removed = Math.max(0, Math.min(slot.damage, amount));
   if (removed > 0) {
     slot.damage -= removed;

@@ -28,6 +28,7 @@ import {
   ownerOf,
   returnToHandBlocked,
   statics,
+  settleBrace,
   surviveKoSources, // lane:zoroark
   toolsDisabled, // lane:fighting
   trainerEffectsPrevented,
@@ -281,6 +282,8 @@ function dealDamage(
   to: SlotRef | { each: SlotZone; filter?: Filter } | { v: string },
   ignore?: DamageIgnore, // lane:fighting
 ): R {
+  // Everything this frame damages is one event (an attack's damage to several Pokémon, or in several steps, happens together).
+  s.ev = (f.vars.__dmgEv as number | undefined) ?? (f.vars.__dmgEv = beginEvent(s));
   const attacker = findSlot(s, f.slot)?.slot;
   const all = statics(env, s);
   const atkTypes = attacker ? slotTypes(env, attacker, s) : []; // "it is {F} and {P} type": both count against Weakness and Resistance
@@ -323,6 +326,8 @@ function dealDamage(
       for (const card of new Set(reducers)) queueTriggers(env, s, target, owner, 'damageReduced', { __attacker: f.slot }, card);
     }
     if (dmg <= 0) continue;
+    // A second hit on a Pokémon whose Knock Out Resolute Heart / Survival Brace already replaced lands on its 10 remaining HP, no longer at full HP.
+    if (target.braced) settleBrace(env, s, target);
     // lane:zoroark — Survival Brace: at full HP, damage from an opponent's attack that would Knock the Pokémon
     // Out leaves it at 10 HP instead, then the Tool is discarded.
     if (f.kind === 'attack' && owner !== f.player && target.damage === 0) {
@@ -362,6 +367,48 @@ function dealDamage(
     }
   }
   return 'next';
+}
+
+/**
+ * Which "at the same time" moment a trigger belongs to and who orders it (Advanced Player's Rulebook v3.4): effects that activate when a
+ * Pokémon is damaged: the damaged Pokémon's player (E-03); Knock Out step 2, an Energy attach, an Evolution from the hand (a Pokémon
+ * Evolving happens on its player's turn) and the end of the turn: the player whose turn it is (E-04, the Energy attach entry, the
+ * end-of-turn entry); Pokémon Checkup: the player whose turn is next.
+ */
+export function orderOf(s: GameState, on: TriggerOn | ReactEvent, owner: Player): Frame['order'] {
+  const o = orderKind(s, on, owner);
+  return o ? { ...o, ev: s.ev ?? 0 } : undefined;
+}
+
+/** A new event instance: the triggers queued from here until the next one are one "at the same time" batch (per moment, kind and chooser). */
+export function beginEvent(s: GameState): number {
+  s.evNext = (s.evNext ?? 0) + 1;
+  s.ev = s.evNext;
+  return s.ev;
+}
+
+function orderKind(s: GameState, on: TriggerOn | ReactEvent, owner: Player): { g: string; by: Player } | undefined {
+  switch (on) {
+    case 'damagedByAttack':
+    case 'damagedByAttackActive':
+    case 'allyActiveDamagedByAttack':
+      return { g: 'damage', by: owner };
+    case 'knockedOutByAttack':
+      return { g: 'ko', by: s.current };
+    case 'attachFromHand':
+    case 'oppAttachFromHand':
+    case 'allyAttachFromHand':
+      return { g: 'attach', by: s.current };
+    case 'evolveFromHand':
+    case 'oppEvolveFromHand':
+      return { g: 'evolve', by: s.current };
+    case 'checkup':
+      return { g: 'checkup', by: opp(s.current) };
+    case 'endOfTurn':
+      return { g: 'end', by: s.current };
+    default:
+      return undefined;
+  }
 }
 
 /** Queue triggers on a Pokémon (its Abilities) and on its attached Tools. */
@@ -420,6 +467,8 @@ export function queueTriggers(
         seen.add(frame.code);
       }
       if (t.t.optional) frame.vars.__optional = true;
+      const order = orderOf(s, on, owner);
+      if (order) frame.order = order;
       s.queued.push(frame);
     }
   }
@@ -480,7 +529,8 @@ export function queueReactions(env: Env, s: GameState, slot: Slot, event: ReactE
   for (const te of s.effects) {
     if (te.slot !== slot.id || te.until < s.turn || te.static.k !== 'react' || te.static.event !== event || !te.code) continue;
     if (once && s.queued.some((q) => q.code === te.code && q.vars.__def === slot.id)) continue;
-    s.queued.push({ code: te.code, pc: 0, vars: { ...vars }, player: te.by ?? te.player, src: te.src, slot: te.from ?? slot.id, kind: te.fromAttack ? 'attack' : 'trigger' });
+    const order = orderOf(s, event, ownerOf(s, slot)); // its own object per frame: picking one must not mark the others
+    s.queued.push({ code: te.code, pc: 0, vars: { ...vars }, player: te.by ?? te.player, src: te.src, slot: te.from ?? slot.id, kind: te.fromAttack ? 'attack' : 'trigger', ...(order ? { order } : {}) });
   }
 }
 
@@ -489,7 +539,8 @@ export function queueReactions(env: Env, s: GameState, slot: Slot, event: ReactE
  * opponent's "whenever your opponent attaches an Energy card from their hand" Abilities, and the timed effects on `target`
  * that wait for it.
  */
-export function queueOppAttachTriggers(env: Env, s: GameState, owner: Player, target: Slot): void {
+export function queueOppAttachTriggers(env: Env, s: GameState, owner: Player, target: Slot, newEvent = true): void {
+  if (newEvent) beginEvent(s);
   const watcher = opp(owner);
   for (const w of allSlots(s.p[watcher])) queueTriggers(env, s, w, watcher, 'oppAttachFromHand', { __target: target.id });
   // ...and the Abilities of the player's own Pokémon that watch for it (Magearna's Auto Heal).
@@ -683,6 +734,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
         if (trainerBlocked(env, s, f, t, all)) continue;
         if ((f.kind === 'attack' || f.kind === 'ability') && effectsPrevented(env, s, t, f.player, kind, all)) continue;
         if ((f.kind === 'attack' || f.kind === 'ability') && countersPrevented(env, s, t, f.player, kind, all)) continue; // lane:darkrai
+        if (t.braced) settleBrace(env, s, t); // Resolute Heart's save covered the attack's damage only; counters are not damage, so they land on the 10 HP it left
         t.damage += n * 10;
         emit(env, { type: 'counters', player: ownerOf(s, t), slot: t.id, n });
       }
