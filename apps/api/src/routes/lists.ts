@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import type pg from 'pg';
 import { cardImages, q, q1, toMajor, withTx } from '../db.js';
-import { asyncHandler, badRequest, notFound, oneOf, parseName, parseOptText, str, userCache, UUID_RE } from '../http.js';
+import { ApiError, asyncHandler, badRequest, notFound, oneOf, parseName, parseOptText, str, userCache, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
 import { pct } from '../insights/trainerLevel.js';
 import { evaluateRule, parseMissingSpec, parseRule, parseRuleItemId, resolveRuleSet, ruleFromDb, ruleItemId, type ListRule } from '../listRules.js';
 import { missingForGoal, type MissingRow } from '../missing.js';
 import { closeBatch, openBatch, OPS, parseSource, recordEvents, type MutationEventInput } from '../mutations.js';
+import { replayField, requestWriteKey, writeOnce } from '../writeOnce.js';
 
 export const listsRouter: Router = Router();
 
@@ -653,8 +654,10 @@ listsRouter.post(
       rule = { ...parsed, setName: set.name };
     }
 
-    const row = await withTx(async (client: pg.PoolClient) => {
-      const batchId = await openBatch(client, { userId, source: parseSource(body.source), tool: 'list.create' });
+    const source = parseSource(body.source);
+    const key = requestWriteKey(req);
+    const once = await writeOnce(userId, key, { source, tool: 'list.create' }, async (client, keyed) => {
+      const batchId = keyed ?? await openBatch(client, { userId, source, tool: 'list.create' });
       const ins = await client.query<{ id: string }>(
         `INSERT INTO card_list (user_id, kind, name, description, visibility, pocket_size, rule)
               VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb) RETURNING id`,
@@ -667,10 +670,15 @@ listsRouter.post(
       await closeBatch(client, batchId, { listId: id, name, kind });
       return { id };
     });
-    const summary = (await summaryQuery(userId, row.id))[0]!;
+    const row = once.value;
+    const summary = (await summaryQuery(userId, row.id))[0];
+    if (!summary) {
+      // Only a replay gets here: the list its first run created has been deleted since.
+      throw new ApiError(410, 'gone', `This approved list was already created (${row.id}) and has since been deleted. Nothing new was written.`);
+    }
     userCache(res);
     const shaped = rule ? shapeSummary(summary, await ruleSummary(userId, rule)) : shapeSummary(summary);
-    res.status(201).json({ list: shaped });
+    res.status(once.replayed ? 200 : 201).json({ list: shaped, ...replayField(key, once) });
   }),
 );
 
@@ -717,7 +725,13 @@ listsRouter.patch(
       }
     }
 
-    await withTx(async (client: pg.PoolClient) => {
+    // Keyed, ONE batch holds the key and both of this request's possible
+    // events (a rule change and a rename), and it is closed even when nothing
+    // changed, so a replay cannot rename a list back after the reader renamed
+    // it again. Unkeyed, this opens zero, one or two batches, as it always has.
+    const key = requestWriteKey(req);
+    const keyedTool = nextRule !== undefined ? 'list.rule.set' : body.name !== undefined ? 'list.rename' : 'list.update';
+    const once = await writeOnce(userId, key, { source: key ? parseSource(body.source) : 'web', tool: keyedTool }, async (client: pg.PoolClient, keyed) => {
       const existing = await client.query<{ id: string; kind: Kind; name: string; rule: unknown }>(
         `SELECT id, kind, name, rule FROM card_list WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL FOR UPDATE`,
         [listId, userId],
@@ -753,7 +767,7 @@ listsRouter.patch(
           `UPDATE card_list SET rule = $3::jsonb, rule_evaluated_at = NULL, updated_at = now() WHERE id = $1 AND user_id = $2`,
           [listId, userId, nextRule ? JSON.stringify(nextRule) : null],
         );
-        const batchId = await openBatch(client, { userId, source: parseSource(body.source), tool: 'list.rule.set' });
+        const batchId = keyed ?? await openBatch(client, { userId, source: parseSource(body.source), tool: 'list.rule.set' });
         await recordEvents(client, batchId, userId, [
           {
             entityType: 'card_list',
@@ -797,7 +811,7 @@ listsRouter.patch(
         // (favourite, cover, pocket size) are presentation, and reverting them
         // would be noise in the history.
         if (body.name !== undefined && parseName(body.name) !== previousName) {
-          const batchId = await openBatch(client, { userId, source: parseSource(body.source), tool: 'list.rename' });
+          const batchId = keyed ?? await openBatch(client, { userId, source: parseSource(body.source), tool: 'list.rename' });
           await recordEvents(client, batchId, userId, [
             {
               entityType: 'card_list',
@@ -841,9 +855,11 @@ listsRouter.patch(
       }
     });
 
-    const summary = (await summaryQuery(userId, listId))[0]!;
+    const summary = (await summaryQuery(userId, listId))[0];
+    // Only a replay gets here: the list has been deleted since its first run.
+    if (!summary) throw notFound(`No list '${listId}'`);
     userCache(res);
-    res.json({ list: shapeSummary(summary) });
+    res.json({ list: shapeSummary(summary), ...replayField(key, once) });
   }),
 );
 
@@ -864,8 +880,10 @@ listsRouter.delete(
     const userId = currentUserId(req);
     const purge = String(req.query.purge ?? '') === 'true';
     const source = parseSource((req.body ?? {}).source);
+    const key = requestWriteKey(req);
+    const tool = purge ? 'list.purge' : 'list.delete';
 
-    const out = await withTx(async (client: pg.PoolClient) => {
+    const once = await writeOnce(userId, key, { source, tool }, async (client: pg.PoolClient, keyed) => {
       const cur = await client.query<{ id: string; name: string; kind: Kind; deleted_at: string | null }>(
         `SELECT id, name, kind, deleted_at FROM card_list WHERE id = $1 AND user_id = $2 FOR UPDATE`,
         [listId, userId],
@@ -873,7 +891,7 @@ listsRouter.delete(
       const list = cur.rows[0];
       if (!list) throw notFound(`No list '${listId}'`);
 
-      const batchId = await openBatch(client, { userId, source, tool: purge ? 'list.purge' : 'list.delete' });
+      const batchId = keyed ?? await openBatch(client, { userId, source, tool });
       if (purge) {
         const items = await client.query<{ n: string }>(`SELECT count(*) AS n FROM list_item WHERE list_id = $1`, [listId]);
         // soft-delete-exempt: this IS the purge — the one deliberate hard delete.
@@ -907,7 +925,7 @@ listsRouter.delete(
     });
 
     userCache(res);
-    res.status(200).json(out);
+    res.status(200).json({ ...once.value, ...replayField(key, once) });
   }),
 );
 
@@ -918,8 +936,9 @@ listsRouter.post(
     const listId = parseListId(String(req.params.id));
     const userId = currentUserId(req);
     const source = parseSource((req.body ?? {}).source);
+    const key = requestWriteKey(req);
 
-    await withTx(async (client: pg.PoolClient) => {
+    const once = await writeOnce(userId, key, { source, tool: 'list.restore' }, async (client: pg.PoolClient, keyed) => {
       const cur = await client.query<{ id: string; name: string; kind: Kind; deleted_at: string | null }>(
         `SELECT id, name, kind, deleted_at FROM card_list WHERE id = $1 AND user_id = $2 FOR UPDATE`,
         [listId, userId],
@@ -927,7 +946,7 @@ listsRouter.post(
       const list = cur.rows[0];
       if (!list) throw notFound(`No list '${listId}'`);
       if (!list.deleted_at) return;
-      const batchId = await openBatch(client, { userId, source, tool: 'list.restore' });
+      const batchId = keyed ?? await openBatch(client, { userId, source, tool: 'list.restore' });
       await client.query(`UPDATE card_list SET deleted_at = NULL, updated_at = now() WHERE id = $1 AND user_id = $2`, [
         listId,
         userId,
@@ -941,7 +960,7 @@ listsRouter.post(
     const summary = (await summaryQuery(userId, listId))[0];
     if (!summary) throw notFound(`No list '${listId}'`);
     userCache(res);
-    res.json({ restored: listId, list: shapeSummary(summary) });
+    res.json({ restored: listId, list: shapeSummary(summary), ...replayField(key, once) });
   }),
 );
 
@@ -1218,8 +1237,12 @@ listsRouter.post(
       return;
     }
 
-    const out = await withTx(async (client: pg.PoolClient) => {
-      const batchId = await openBatch(client, { userId, source, tool: 'list.items.bulk', note: parseOptText(body.note, NOTE_MAX, 'note') });
+    // A static list is a bag, so a replayed bulk add would add every row again.
+    // Keyed, the second run returns the first run's counts instead.
+    const key = requestWriteKey(req);
+    const note = parseOptText(body.note, NOTE_MAX, 'note');
+    const once = await writeOnce(userId, key, { source, tool: 'list.items.bulk', note }, async (client: pg.PoolClient, keyed) => {
+      const batchId = keyed ?? await openBatch(client, { userId, source, tool: 'list.items.bulk', note });
       // Re-check under the lock: the list could have been deleted between the
       // resolution above and this transaction.
       const live = await client.query(
@@ -1293,9 +1316,11 @@ listsRouter.post(
       return payload;
     });
 
-    const summary = (await summaryQuery(userId, listId))[0]!;
+    const summary = (await summaryQuery(userId, listId))[0];
+    // Only a replay gets here: the list has been deleted since its first run.
+    if (!summary) throw notFound(`No list '${listId}'`);
     userCache(res);
-    res.status(201).json({ ...out, list: shapeSummary(summary) });
+    res.status(once.replayed ? 200 : 201).json({ ...once.value, list: shapeSummary(summary), ...replayField(key, once) });
   }),
 );
 
@@ -1314,8 +1339,10 @@ listsRouter.delete(
     // joins the rule's exclude set, undoable (list.rule.exclude) and listed
     // in the rule editor for un-excluding.
     const excludeVariantId = parseRuleItemId(itemId);
+    const key = requestWriteKey(req);
+    const keyedSource = key ? parseSource((req.body ?? {}).source) : 'web';
     if (excludeVariantId !== null) {
-      await withTx(async (client: pg.PoolClient) => {
+      const once = await writeOnce(userId, key, { source: keyedSource, tool: 'list.rule.exclude' }, async (client: pg.PoolClient, keyed) => {
         const cur = await client.query<{ rule: unknown }>(
           `SELECT rule FROM card_list WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL FOR UPDATE`,
           [listId, userId],
@@ -1325,7 +1352,7 @@ listsRouter.delete(
         if (!rule) throw badRequest(`item '${itemId}' names a rule result, but this list has no rule`);
         if (rule.exclude.includes(excludeVariantId)) return; // already excluded — idempotent
         const nextExclude = [...rule.exclude, excludeVariantId];
-        const batchId = await openBatch(client, { userId, source: parseSource((req.body ?? {}).source), tool: 'list.rule.exclude' });
+        const batchId = keyed ?? await openBatch(client, { userId, source: parseSource((req.body ?? {}).source), tool: 'list.rule.exclude' });
         await client.query(
           `UPDATE card_list SET rule = jsonb_set(rule, '{exclude}', $3::jsonb), updated_at = now()
             WHERE id = $1 AND user_id = $2`,
@@ -1349,6 +1376,7 @@ listsRouter.delete(
         deleted: itemId,
         excludedVariantId: excludeVariantId,
         list: summary ? shapeSummary(summary, ruleNow ? await ruleSummary(userId, ruleNow) : undefined) : null,
+        ...replayField(key, once),
       });
       return;
     }
@@ -1356,8 +1384,8 @@ listsRouter.delete(
     if (!/^[0-9a-f-]{36}$/i.test(itemId)) throw notFound(`No item '${itemId}'`);
     // The whole row is snapshotted before it goes, so an undo can put it back
     // exactly — same id, same position, same note.
-    const del = await withTx(async (client: pg.PoolClient) => {
-      const batchId = await openBatch(client, { userId, source: parseSource((req.body ?? {}).source), tool: 'list.item.remove' });
+    const once = await writeOnce(userId, key, { source: keyedSource, tool: 'list.item.remove' }, async (client: pg.PoolClient, keyed) => {
+      const batchId = keyed ?? await openBatch(client, { userId, source: parseSource((req.body ?? {}).source), tool: 'list.item.remove' });
       // The parent must still be live: an agent holding a stale id must not be
       // able to gut a list the user believes is deleted (and then restore a
       // hollowed-out list).
@@ -1403,9 +1431,9 @@ listsRouter.delete(
       await closeBatch(client, batchId, { removed: row.id, listId });
       return row;
     });
-    if (!del) throw notFound(`No item '${itemId}' in list '${listId}'`);
+    if (!once.value) throw notFound(`No item '${itemId}' in list '${listId}'`);
     const summary = (await summaryQuery(userId, listId))[0];
     userCache(res);
-    res.status(200).json({ deleted: itemId, list: summary ? shapeSummary(summary) : null });
+    res.status(200).json({ deleted: itemId, list: summary ? shapeSummary(summary) : null, ...replayField(key, once) });
   }),
 );

@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import type pg from 'pg';
-import { commitRequestTx, q, q1, recomputeSetProgress, withTx } from '../db.js';
+import { commitRequestTx, q, q1, recomputeSetProgress } from '../db.js';
 import { asyncHandler, badRequest, clampInt, notFound, str, userCache, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
 import { recordStrategyChange } from '../deck/versions.js';
 import { closeBatch, openBatch, recordEvents, SOURCE_SHAPE, type MutationEventInput } from '../mutations.js';
+import { replayField, requestWriteKey, writeOnce } from '../writeOnce.js';
 
 /**
  * The mutation log — read side and undo.
@@ -421,8 +422,11 @@ mutationsRouter.post(
     const strategy: Strategy = body.strategy === 'restore' ? 'restore' : 'inverse';
     const note = typeof body.note === 'string' && body.note.trim() ? body.note.trim().slice(0, 500) : null;
     const source = typeof body.source === 'string' && SOURCE_SHAPE.test(body.source) ? body.source : 'web';
+    // Keyed (never on a dry run): a revert that was partial or forced leaves
+    // its events un-marked, so replaying it would apply it again.
+    const key = dryRun ? null : requestWriteKey(req);
 
-    const outcome = await withTx(async (client: pg.PoolClient) => {
+    const once = await writeOnce(userId, key, { source, tool: 'revert', note }, async (client: pg.PoolClient, keyed) => {
       const target = await loadRevertTarget(client, userId, body);
       if (target.events.length === 0) {
         return { dryRun, label: target.label, plan: [] as PlanEntry[], applied: 0, skipped: 0, conflicts: 0, batchId: null };
@@ -555,13 +559,21 @@ mutationsRouter.post(
       }
 
       // ── Execute ──────────────────────────────────────────────────────────
-      const batchId = await openBatch(client, {
+      const batchId = keyed ?? await openBatch(client, {
         userId,
         source,
         tool: 'revert',
         note: note ?? `revert ${target.label}`,
         revertsBatchId: target.batchId,
       });
+      if (keyed) {
+        // The key was claimed before the target was known. Give its batch the
+        // label and the reverted batch an unkeyed revert's own batch carries.
+        await client.query(
+          `UPDATE mutation_batch SET note = $2, reverts_batch_id = $3 WHERE id = $1`,
+          [keyed, note ?? `revert ${target.label}`, target.batchId],
+        );
+      }
 
       const logged: MutationEventInput[] = [];
       const touchedSets = new Set<number>();
@@ -661,7 +673,7 @@ mutationsRouter.post(
 
     if (!dryRun) await commitRequestTx(userId);
     userCache(res);
-    res.json(outcome);
+    res.json({ ...once.value, ...replayField(key, once) });
   }),
 );
 

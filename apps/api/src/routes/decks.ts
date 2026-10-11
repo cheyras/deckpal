@@ -11,6 +11,7 @@ import {
   closeBatch, findCommittedBatch, loadBatchResponse, openBatch, OPS, type StoredBatch,
   parseSource, recordEvents, ReplayError,
 } from '../mutations.js';
+import { replayField, requestWriteKey, writeOnce } from '../writeOnce.js';
 import { buildCart, productIdLine, tokenLine, type CartInput } from '../tcgplayer/massentry.js';
 import { parseBattleLog, prepareBattleLog, scoreDeckMatch } from '../deck/battlelog.js';
 import {
@@ -663,7 +664,15 @@ decksRouter.post(
           cards, state: before?.updated_at ?? null,
         });
     if (requestedKey.length > 200) throw badRequest('idempotencyKey must be 200 characters or fewer');
-    const { key: callerKey, replay } = await resolveRetryKey(userId, requestedKey);
+    // A per-call key (the Idempotency-Key header, which Deck-E derives
+    // out of its signed approval) wins over the content key and is exact: it
+    // replays its own batch whatever has happened to this deck since, and
+    // never moves on to a new generation. A content key may hop, because a
+    // later identical request is a new request. A replayed approval is not.
+    const callKey = requestWriteKey(req);
+    const { key: callerKey, replay } = callKey
+      ? { key: callKey, replay: await withTx((client) => findCommittedBatch(client, userId, [callKey])) }
+      : await resolveRetryKey(userId, requestedKey);
     const keys = [callerKey];
 
     let outcome: { deckId: string; created: boolean; replayed: boolean };
@@ -897,8 +906,10 @@ decksRouter.delete(
     // has to be asked for by name.
     const purge = String(req.query.purge ?? '') === 'true';
     const source = parseSource((req.body ?? {}).source);
+    const key = requestWriteKey(req);
+    const tool = purge ? 'deck.purge' : 'deck.delete';
 
-    const out = await withTx(async (client) => {
+    const once = await writeOnce(userId, key, { source, tool }, async (client, keyed) => {
       const cur = await client.query<{ id: string; name: string; format_code: string; deleted_at: string | null }>(
         `SELECT id, name, format_code, deleted_at FROM deck WHERE id = $1 AND user_id = $2 FOR UPDATE`,
         [deckId, userId],
@@ -906,7 +917,7 @@ decksRouter.delete(
       const deck = cur.rows[0];
       if (!deck) throw notFound(`No deck '${deckId}'`);
 
-      const batchId = await openBatch(client, { userId, source, tool: purge ? 'deck.purge' : 'deck.delete' });
+      const batchId = keyed ?? await openBatch(client, { userId, source, tool });
       if (purge) {
         const counts = await client.query<{ versions: string; logs: string; cards: string }>(
           `SELECT (SELECT count(*) FROM deck_version WHERE deck_id = $1) AS versions,
@@ -945,7 +956,7 @@ decksRouter.delete(
     });
 
     userCache(res);
-    res.json(out);
+    res.json({ ...once.value, ...replayField(key, once) });
   }),
 );
 
@@ -956,8 +967,9 @@ decksRouter.post(
     const deckId = parseDeckId(String(req.params.id));
     const userId = currentUserId(req);
     const source = parseSource((req.body ?? {}).source);
+    const key = requestWriteKey(req);
 
-    await withTx(async (client) => {
+    const once = await writeOnce(userId, key, { source, tool: 'deck.restore' }, async (client, keyed) => {
       const cur = await client.query<{ id: string; name: string; format_code: string; deleted_at: string | null }>(
         `SELECT id, name, format_code, deleted_at FROM deck WHERE id = $1 AND user_id = $2 FOR UPDATE`,
         [deckId, userId],
@@ -965,7 +977,7 @@ decksRouter.post(
       const deck = cur.rows[0];
       if (!deck) throw notFound(`No deck '${deckId}'`);
       if (!deck.deleted_at) return;
-      const batchId = await openBatch(client, { userId, source, tool: 'deck.restore' });
+      const batchId = keyed ?? await openBatch(client, { userId, source, tool: 'deck.restore' });
       await client.query(`UPDATE deck SET deleted_at = NULL, updated_at = now() WHERE id = $1 AND user_id = $2`, [deckId, userId]);
       await recordEvents(client, batchId, userId, [
         { entityType: 'deck', entityId: deckId, operation: OPS.deckRestore, before: null, after: { name: deck.name } },
@@ -976,7 +988,7 @@ decksRouter.post(
     const meta = await loadMeta(deckId, userId);
     if (!meta) throw notFound(`No deck '${deckId}'`);
     userCache(res);
-    res.json({ restored: deckId, deck: await detailPayload(meta, userId) });
+    res.json({ restored: deckId, deck: await detailPayload(meta, userId), ...replayField(key, once) });
   }),
 );
 
@@ -1281,9 +1293,13 @@ decksRouter.post(
       ? body.idempotencyKey.trim()
       : null;
     if (requestedKey && requestedKey.length > 200) throw badRequest('idempotencyKey must be 200 characters or fewer');
-    const resolvedKey = requestedKey
-      ? await resolveRetryKey(userId, requestedKey)
-      : { key: null, replay: null };
+    // A per-call key wins and is exact, as on POST /decks/save.
+    const callKey = requestWriteKey(req);
+    const resolvedKey = callKey
+      ? { key: callKey, replay: await withTx((client) => findCommittedBatch(client, userId, [callKey])) }
+      : requestedKey
+        ? await resolveRetryKey(userId, requestedKey)
+        : { key: null, replay: null };
     const callerKey: string | null = resolvedKey.key;
     const keys = callerKey ? [callerKey] : [];
     const replay = resolvedKey.replay;
@@ -1758,8 +1774,9 @@ decksRouter.put(
       strategyMd = body.strategyMd.trim() ? body.strategyMd : null;
     }
     const source = parseSource(body.source); // validated shape; strategy edits leave the snapshot's writer as-is
+    const key = requestWriteKey(req);
 
-    await withTx(async (client) => {
+    const once = await writeOnce(userId, key, { source, tool: 'deck.strategy.set' }, async (client, keyed) => {
       await assertDeck(client, deckId, userId);
       // A strategy guide is full-replace, and until now the previous text was
       // simply gone — the tool only told you the old guide's first heading and
@@ -1767,7 +1784,7 @@ decksRouter.put(
       // Snapshotting it here is what makes `revert` able to put it back.
       // soft-delete-exempt: behind assertDeck's lock, which filters deleted_at.
       const prev = await client.query<{ strategy_md: string | null }>(`SELECT strategy_md FROM deck WHERE id = $1`, [deckId]);
-      const batchId = await openBatch(client, { userId, source, tool: 'deck.strategy.set' });
+      const batchId = keyed ?? await openBatch(client, { userId, source, tool: 'deck.strategy.set' });
       await recordStrategyChange(client, deckId, strategyMd);
       await recordEvents(client, batchId, userId, [
         {
@@ -1780,9 +1797,11 @@ decksRouter.put(
       ]);
       await closeBatch(client, batchId, { deckId, length: strategyMd?.length ?? 0 });
     });
-    const meta = (await loadMeta(deckId, userId))!;
+    // A replay can find the deck deleted since; a fresh write cannot.
+    const meta = await loadMeta(deckId, userId);
+    if (!meta) throw notFound(`No deck '${deckId}'`);
     userCache(res);
-    res.json(await detailPayload(meta, userId));
+    res.json({ ...(await detailPayload(meta, userId)), ...replayField(key, once) });
   }),
 );
 
@@ -1869,8 +1888,13 @@ decksRouter.post(
     const includeStrategy = body.includeStrategy === undefined ? true : Boolean(body.includeStrategy);
     const source = parseSource(body.source);
     const note = parseNoteText(body.note, VERSION_NOTE_MAX, 'note') ?? `Reverted to v${toVersion}`;
+    // Keyed, because a replayed revert is not refused as "already at that
+    // version": the first one made a NEW version, so the deck is never at the
+    // target, and the replay would add another. The unkeyed path records no
+    // batch, as before; a keyed one records its key's batch and says what it did.
+    const key = requestWriteKey(req);
 
-    const revert = await withTx(async (client) => {
+    const once = await writeOnce(userId, key, { source, tool: 'deck.revert', note }, async (client, keyed) => {
       await assertDeck(client, deckId, userId);
       // soft-delete-exempt: behind assertDeck's lock, which filters deleted_at.
       const deck = await client.query<{ version: number }>(`SELECT version FROM deck WHERE id = $1`, [deckId]);
@@ -1888,12 +1912,21 @@ decksRouter.post(
         { cards: target.cards, strategyMd: target.strategy_md },
         { includeStrategy, source, note },
       );
+      if (keyed) {
+        await recordEvents(client, keyed, userId, [{
+          entityType: 'deck', entityId: deckId, operation: OPS.deckCards,
+          before: { version: deck.rows[0]!.version },
+          after: { version: restored.version, revertedTo: toVersion, includeStrategy },
+        }]);
+      }
       return { toVersion, ...restored };
     });
 
-    const meta = (await loadMeta(deckId, userId))!;
+    // A replay can find the deck deleted since; a fresh write cannot.
+    const meta = await loadMeta(deckId, userId);
+    if (!meta) throw notFound(`No deck '${deckId}'`);
     userCache(res);
-    res.json({ ...(await detailPayload(meta, userId)), revert });
+    res.json({ ...(await detailPayload(meta, userId)), revert: once.value, ...replayField(key, once) });
   }),
 );
 
@@ -2025,8 +2058,10 @@ decksRouter.post(
     const playerName = parseOptText(body.playerName, 100, 'playerName') ?? undefined;
     const source = parseSource(body.source);
     const dryRun = body.dryRun === true;
+    // A preview writes nothing, so it never takes part in idempotency.
+    const key = dryRun ? null : requestWriteKey(req);
 
-    const out = await withTx(async (client) => {
+    const once = await writeOnce(userId, key, { source, tool: 'battle_log.create' }, async (client, keyed) => {
       await assertDeck(client, deckId, userId);
       // soft-delete-exempt: behind assertDeck's lock, which filters deleted_at.
       const deck = await client.query<{ version: number; name: string; played_at: string }>(
@@ -2094,12 +2129,39 @@ decksRouter.post(
           notes, JSON.stringify(prepared.parsed), source, playedAt, userId,
         ],
       );
-      return { dryRun: false as const, log: row.rows[0]!, attachedToVersion: version };
+      const log = row.rows[0]!;
+      if (keyed) {
+        await recordEvents(client, keyed, userId, [{
+          entityType: 'battle_log', entityId: String(log.id), operation: OPS.battleLogCreate,
+          before: null,
+          after: { deckId, deckVersion: version, result: log.result, opponent: log.opponent, opponentDeck: log.opponent_deck },
+        }]);
+        // The key's stored result is the log's id, never the row: the batch
+        // outlives a deleted log, and a second copy of a raw log (with the
+        // opponent's screen name in it) is not something to keep.
+        return { dryRun: false as const, logId: String(log.id), attachedToVersion: version };
+      }
+      return { dryRun: false as const, log, attachedToVersion: version };
     });
+    const out = once.value;
 
     userCache(res);
     if (out.dryRun) {
       res.json(out);
+      return;
+    }
+    if ('logId' in out) {
+      const row = await q1<LogRow>(
+        `SELECT id, deck_version, raw_log, result, opponent, opponent_deck, notes, parsed, source, played_at, created_at
+           FROM battle_log WHERE id = $1 AND deck_id = $2`,
+        [out.logId, deckId],
+      );
+      if (!row) {
+        throw new ApiError(410, 'gone',
+          `This approved battle log was already added (log ${out.logId}) and has since been deleted. Nothing new was written.`);
+      }
+      res.status(once.replayed ? 200 : 201)
+        .json({ log: shapeLogFull(row), attachedToVersion: out.attachedToVersion, replayed: once.replayed });
       return;
     }
     res.status(201).json({ log: shapeLogFull(out.log), attachedToVersion: out.attachedToVersion });
@@ -2295,6 +2357,36 @@ decksRouter.patch(
     }
     if (!sets.length) throw badRequest('nothing to update');
 
+    // Keyed: one transaction holding the key, with the edit's before and after
+    // in its batch. A replay must not put back fields the reader has changed
+    // since. Unkeyed: the single UPDATE it has always been, with no batch.
+    const key = requestWriteKey(req);
+    if (key) {
+      const once = await writeOnce(userId, key, { source: parseSource(body.source), tool: 'battle_log.edit' },
+        async (client, keyed) => {
+          const fields = 'result, opponent, opponent_deck, notes, played_at';
+          const was = await client.query<Pick<LogRow, 'result' | 'opponent' | 'opponent_deck' | 'notes' | 'played_at'>>(
+            `SELECT ${fields} FROM battle_log WHERE id = $1 AND deck_id = $2 FOR UPDATE`, [logId, deckId]);
+          if (!was.rows[0]) throw notFound(`No battle log '${logId}'`);
+          const now = await client.query<Pick<LogRow, 'result' | 'opponent' | 'opponent_deck' | 'notes' | 'played_at'>>(
+            `UPDATE battle_log SET ${sets.join(', ')} WHERE id = $1 AND deck_id = $2 RETURNING ${fields}`, params);
+          await recordEvents(client, keyed!, userId, [{
+            entityType: 'battle_log', entityId: String(logId), operation: OPS.battleLogEdit,
+            before: was.rows[0], after: now.rows[0] ?? null,
+          }]);
+          return { logId: String(logId) };
+        });
+      const row = await q1<LogRow>(
+        `SELECT id, deck_version, raw_log, result, opponent, opponent_deck, notes, parsed, source, played_at, created_at
+           FROM battle_log WHERE id = $1 AND deck_id = $2`,
+        [once.value.logId, deckId],
+      );
+      if (!row) throw notFound(`No battle log '${logId}'`);
+      userCache(res);
+      res.json({ log: shapeLogFull(row), replayed: once.replayed });
+      return;
+    }
+
     const row = await q1<LogRow>(
       `UPDATE battle_log SET ${sets.join(', ')} WHERE id = $1 AND deck_id = $2
        RETURNING id, deck_version, raw_log, result, opponent, opponent_deck, notes, parsed, source, played_at, created_at`,
@@ -2315,6 +2407,33 @@ decksRouter.delete(
     const meta = await loadMeta(deckId, userId);
     if (!meta) throw notFound(`No deck '${deckId}'`);
     const logId = parseLogId(String(req.params.logId));
+
+    // Keyed: a replay answers with the first run's result rather than a 404
+    // for the log that run deleted. The event keeps the summary, not the raw
+    // log, so deleting a log still deletes its text.
+    const key = requestWriteKey(req);
+    if (key) {
+      const once = await writeOnce(userId, key, { source: parseSource((req.body ?? {}).source), tool: 'battle_log.delete' },
+        async (client, keyed) => {
+          const gone = await client.query<Pick<LogRow, 'id' | 'deck_version' | 'result' | 'opponent' | 'opponent_deck' | 'played_at'>>(
+            `DELETE FROM battle_log WHERE id = $1 AND deck_id = $2
+             RETURNING id, deck_version, result, opponent, opponent_deck, played_at`,
+            [logId, deckId],
+          );
+          const was = gone.rows[0];
+          if (!was) throw notFound(`No battle log '${logId}'`);
+          await recordEvents(client, keyed!, userId, [{
+            entityType: 'battle_log', entityId: String(logId), operation: OPS.battleLogDelete,
+            before: { deckId, deckVersion: was.deck_version, result: was.result, opponent: was.opponent, opponentDeck: was.opponent_deck, playedAt: was.played_at },
+            after: null,
+          }]);
+          return { deleted: logId };
+        });
+      userCache(res);
+      res.json({ ...once.value, replayed: once.replayed });
+      return;
+    }
+
     const del = await q1<{ id: string }>(
       `DELETE FROM battle_log WHERE id = $1 AND deck_id = $2 RETURNING id`,
       [logId, deckId],

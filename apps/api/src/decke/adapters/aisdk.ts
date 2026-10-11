@@ -604,6 +604,34 @@ export function forcePreview(def: ToolDefinition, input: unknown): unknown {
 }
 
 /**
+ * The write key for one approved call: the signed SDK call id and its signed
+ * input, scoped to the verified user.
+ *
+ * Nothing unsigned goes in. The conversation id, the route, the landmarks and
+ * the rest of the history are all things the browser can change between two
+ * resumes of the same approval, so a key built from any of them would let a
+ * replay with one field changed write a second time. That is the gap the
+ * request key (`chatChargeReference`) leaves, and this closes it. The user id
+ * is not strictly needed, since `mutation_batch` scopes keys per user, but it
+ * makes the key meaningless outside the account it was made for.
+ *
+ * `ctx.ts`'s `keyedApi` turns it into one `Idempotency-Key` per write request.
+ */
+export function approvedWriteKey(userId: string, name: string, toolCallId: string, input: unknown): string {
+  return createHash('sha256').update(callKey(name, { v: 1, user: userId, call: toolCallId, input })).digest('hex');
+}
+
+/** Appended to a tool's result when the API answered its write from an earlier run. */
+export const REPLAYED_WRITE_NOTE =
+  'REPLAYED — an earlier run of this same approval already applied it, so this run wrote nothing new. ' +
+  'Do not tell the reader it was applied twice.';
+
+/** The same, for a resumed call whose earlier run had applied only some of its writes. */
+export const PARTLY_REPLAYED_WRITE_NOTE =
+  'PARTLY REPLAYED — an earlier run of this same approval had already applied part of it. That part was ' +
+  'not written again; the rest was applied now, once.';
+
+/**
  * The paste channel — what the model is told instead of being asked to re-type
  * a ~3,000-token log back through the model's 8,000-token output budget.
  *
@@ -1516,6 +1544,22 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
                 })).digest('hex')}`,
               }
             : sub.value;
+          // EVERY OTHER APPROVED WRITE, the same way. The signed call gets one
+          // key, and each write request the handler sends carries a key derived
+          // from it (`keyedApi` in ctx.ts), so a second approval-resume POST
+          // for this call reaches the same keys and the API returns the first
+          // run's result instead of writing again. The request key cannot do
+          // this: any changed body field makes it a new request. Only a call
+          // held HERE is signed, so `upstream` calls keep the old behaviour.
+          // `log_cards` already carries its call key in the body.
+          const keyedWrites = { replayed: 0, fresh: 0 };
+          const runOpts = opts.approvals !== 'upstream' && def.name !== 'log_cards' && requiresApproval(def, args)
+            ? {
+                ...opts,
+                writeKey: approvedWriteKey(opts.userId, def.name, toolCallId, args),
+                onKeyedWrite: (replayed: boolean) => { keyedWrites[replayed ? 'replayed' : 'fresh'] += 1; },
+              }
+            : opts;
 
           // ── ASKED ALREADY? ───────────────────────────────────────────────
           //
@@ -1530,10 +1574,12 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
           // and is a write. `registry.ts` says so and this is why it is
           // required there.
           const runOnce = async (): Promise<{ text: string; failed: boolean }> => {
-            const result = await withToolCtx(opts, (ctx: Ctx) => def.handler(runEffective, ctx));
+            const result = await withToolCtx(runOpts, (ctx: Ctx) => def.handler(runEffective, ctx));
             const visible = result.isError
               ? usefulToolFailure(def.name, result.text)
-              : result.text;
+              : keyedWrites.replayed > 0
+                ? `${result.text}\n${keyedWrites.fresh > 0 ? PARTLY_REPLAYED_WRITE_NOTE : REPLAYED_WRITE_NOTE}`
+                : result.text;
             const text = clampToolText(visible, maxToolChars(def.name, opts.maxChars));
             // BEFORE the clamp would have been wrong: an id cut off by the
             // ceiling is an id the model never saw, and grounding it would let
