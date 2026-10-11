@@ -21,7 +21,9 @@ export const META_ZOROARK: CardScript[] = [
         name: 'Trade',
         activated: {
           // "You must discard a card from your hand in order to use this Ability. Once during your turn, you may draw 2 cards."
-          when: { gte: [{ handSize: 'self' }, 1] },
+          // The discard is the cost and the drawing is the effect, so with no card in the deck the Ability can't be used
+          // (Compendium #2115 and #1654; #2114 says this wording works differently from Zoroark-GX's Trade, #280).
+          when: { and: [{ gte: [{ handSize: 'self' }, 1] }, { gte: [{ deckSize: 'self' }, 1] }] },
           program: [
             { op: 'chooseCards', from: 'hand', min: 1, max: 1, as: 'cost', prompt: 'Discard a card' },
             { op: 'move', cards: 'cost', to: 'discard' },
@@ -40,6 +42,9 @@ export const META_ZOROARK: CardScript[] = [
         ],
       },
     },
+    notes:
+      "Trade needs a card in the deck as well as one in the hand (Compendium #2115, 2025-03-27, and #1654 for Liepard's identical wording; #2114 confirms this wording is meant to differ from Zoroark-GX's, " +
+      "for which #280 (2019) ruled the discard could be done alone: the newer ruling decides for this card).",
   },
   // sv09-027: scripted in another lane (deduplicated at merge).
   {

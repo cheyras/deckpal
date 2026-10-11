@@ -317,8 +317,8 @@ export const STD_C07: CardScript[] = [
       {
         name: 'Shell Spikes',
         // "If this Pokémon is in the Active Spot and is damaged by an attack from your opponent's Pokémon (even if this Pokémon is Knocked Out), discard an Energy from the Attacking Pokémon."
-        // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2310/): Mist Energy only prevents effects of attacks and Shell Spikes is an Ability, so you
-        //  still discard "your choice of an energy card from the attacking Pokemon".
+        // Ruling #2310 (https://compendium.pokegym.net/ruling/2310/): Mist Energy only stops effects of attacks and this is an Ability, so the discard
+        //  (the owner's choice of the attacker's Energy) still happens against a Pokémon with Mist Energy.
         triggers: [{ on: 'damagedByAttackActive', program: [{ op: 'discardEnergy', from: 'oppActive', count: 1 }] }],
       },
     ],
