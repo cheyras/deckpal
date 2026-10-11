@@ -312,6 +312,7 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c33.evolveChosen': (a) => `For each Pokémon chosen as "${String(a.slots ?? 't')}", in turn: search your deck for a card that evolves from that Pokémon and put it onto that Pokémon to evolve it (picking none is allowed; not on your first turn; not a Pokémon that evolved this turn)`,
   'c34.moveEnergyAny': (a) => `You may move any amount of Energy cards matching ${JSON.stringify(a.filter ?? {})} from your Pokémon to your other Pokémon in any way you like: repeatedly choose one such Energy card attached to one of your Pokémon (or none, to stop) and a different Pokémon of yours to move it to; each card moves at most once`,
   'c34.revealOppTopPick': (a) => `Reveal the top ${Number(a.n ?? 10)} cards of your opponent's deck and you may choose a Pokémon that has an attack among them (into "${String(a.as ?? 'c')}"); you may choose none`,
+  'c36.benchEnergyToActive': (a) => `Choose up to ${Number(a.max ?? 2)} (at least 1) of the Energy cards attached to your Benched Pokémon and move them to your Active Pokémon (nothing without Energy on the Bench)`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -2361,5 +2362,22 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv10-179|text': {
     problems: ['"tails" is printed but not rendered'],
     why: 'One coin: "If tails" is the else branch of the heads check ("otherwise"), which is the same flip.',
+  },
+  // std-c36
+  'sv10.5b-049|ability:Craftsmanship': {
+    problems: ['"each" is printed but not rendered', 'similarity'],
+    why: '"+40 HP for each {F} Energy attached" is ten statics, one per count of {F} Energy (the HP delta of a static is a fixed number): each adds 40 once the Pokémon has at least n {F} Energy provided, n = 1 to 10; the renderer words each one out, and the card test pins the HP at 0, 1, 2 and 3 Energy, with Legacy Energy (counts) and Prism Energy (does not, on a Stage 2).',
+  },
+  'sv10.5b-052|ability:Sturdy': {
+    problems: ['the rendering involves the opponent'],
+    why: "surviveKoAtFullHp is the one engine clause for 'would be Knocked Out by damage from an attack at full HP' and it only reacts to damage from an opponent's attack; damage from an attack of the controller's own Pokémon is not covered. The renderer's trailing 'discard this card' is the Tool half of the clause and does not apply to an Ability source (same as Pikachu ex, Resolute Heart).",
+  },
+  'sv10.5b-072|attack:Fly': {
+    problems: ['"heads" is printed but not rendered'],
+    why: '"Flip a coin. If tails, this attack does nothing. If heads, ...": one coin; the tails branch ends the attack and everything after it (the damage and the prevention) is the heads branch, so there is no separate "heads" check to render.',
+  },
+  'sv10.5w-003|attack:Healing Wrapping': {
+    problems: ['"Basic" is printed but not rendered'],
+    why: 'c27.healEach takes a Pokémon filter ({ stage: basic }); its gloss only words a type filter, so "Basic" is not rendered. The card test pins that a Basic is healed and an Evolution on the Bench is not.',
   },
 };
