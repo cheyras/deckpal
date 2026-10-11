@@ -152,6 +152,9 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   // std-c03-customs.ts
   'c03.grimsleysMove': (a) =>
     `Look at the top ${Number(a.n ?? 7)} cards of your deck. Choose a {D} Pokémon (of any Stage) you find there and put it onto your Bench if it has room. Shuffle the other cards and put them on the bottom of your deck`,
+  // std-c05-customs.ts
+  'c05.discardBenchEnergy': (a) => `You may discard up to ${Number(a.max ?? 2)} Energy cards from your Benched Pokémon (0 allowed); the number of cards discarded lands in "${String(a.as ?? 'n')}"`,
+  'c05.moveEnergyToSelf': () => 'Move 1 Energy attached to 1 of your other Pokémon to this Pokémon',
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -1620,5 +1623,18 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me02-090|text': {
     problems: ['"can\'t" is printed but not rendered'],
     why: 'Grimsley\'s Move: "You can\'t use this card during your first turn" is the playable condition c03.ownFirstTurn (negated), which renders as "only if it is not the case that it is your first turn"; the deck-size part of the gate is the rule that a card with no effect can\'t be played.',
+  },
+  // std-c05
+  "me02.5-086|attack:Assassin's Magic": {
+    problems: ['similarity'],
+    why: '"affected by a Special Condition" is a filter `or` of the five conditions on the Defending Pokémon, which renders as five clauses, plus the guard that a Benched Pokémon exists; the counters are the single `counters` step the card prints.',
+  },
+  'me02.5-092|attack:Roto Call': {
+    problems: ['"may" is printed', '"up to" is rendered', '"any number of" is printed'],
+    why: '"You may search for any number of" is a search with min 0 (the option to find none) and a maximum of the free Bench space (at most 5), which the renderer words "up to 5"; "any number" is that maximum.',
+  },
+  'me02.5-100|attack:Relentless Burrowing': {
+    problems: ['"each" is printed'],
+    why: '"For each heads, discard the top card" is `repeat` of the discard by the heads count, which the renderer words "the number of heads times".',
   },
 };
