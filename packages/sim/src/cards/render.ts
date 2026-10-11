@@ -312,6 +312,8 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c33.evolveChosen': (a) => `For each Pokémon chosen as "${String(a.slots ?? 't')}", in turn: search your deck for a card that evolves from that Pokémon and put it onto that Pokémon to evolve it (picking none is allowed; not on your first turn; not a Pokémon that evolved this turn)`,
   'c34.moveEnergyAny': (a) => `You may move any amount of Energy cards matching ${JSON.stringify(a.filter ?? {})} from your Pokémon to your other Pokémon in any way you like: repeatedly choose one such Energy card attached to one of your Pokémon (or none, to stop) and a different Pokémon of yours to move it to; each card moves at most once`,
   'c34.revealOppTopPick': (a) => `Reveal the top ${Number(a.n ?? 10)} cards of your opponent's deck and you may choose a Pokémon that has an attack among them (into "${String(a.as ?? 'c')}"); you may choose none`,
+  // std-c37-customs.ts
+  'c37.moveAllCounters': () => `Move all damage counters from your Benched Pokémon chosen as "from" to your opponent's Pokémon chosen as "to" (lost if it is protected; none move under a lock on moving counters)`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -340,6 +342,8 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   's01.hitWhileActive': () => 'it was marked as damaged in the Active Spot this turn',
   'c23.grandTreeUsable': () => 'one of your Basic Pokémon in play (not on your first turn, not one put into play or evolved this turn) can evolve into a Stage 1 Pokémon card that is in your deck',
   'c25.usedLastTurn': (a) => `one of your Pokémon has the mark left by using ${String(a.attack)} during your previous turn`,
+  // std-c37-customs.ts
+  'c37.defenderResists': (a) => `your opponent's Active Pokémon has ${sym(a.type as PType)} Resistance printed on it`,
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
@@ -2361,5 +2365,14 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv10-179|text': {
     problems: ['"tails" is printed but not rendered'],
     why: 'One coin: "If tails" is the else branch of the heads check ("otherwise"), which is the same flip.',
+  },
+  // std-c37
+  'sv10.5w-005|attack:Energy Gift': {
+    problems: ['"up to'],
+    why: '"Search your deck for up to 3 Basic Energy cards and attach them … in any way you like" is `repeat 3` of an optional (min 0, max 1) search-and-attach, each pick choosing its own Pokémon; that covers every choice of 0 to 3 cards and targets (the same shape as Altaria, Humming Charge).',
+  },
+  'sv10.5w-010|attack:Giga Drain': {
+    problems: ['similarity'],
+    why: 'The same arithmetic as Volcarona, Leech Life (above): "the same amount of damage you did" is the change in the damage counters on the Defending Pokémon across the attack, so the renderer spells it out; the card test checks it heals exactly the damage dealt, after Weakness.',
   },
 };
