@@ -55,7 +55,7 @@ def main():
             items.append(("bench", E.crop_path(r, False), r["truth"]))
         elif r.get("kind") == "card" and r.get("truth"):
             items.append(("bench", E.crop_path(r, False), "absent"))
-        elif r.get("kind") in ("negative", "not-a-card", "back"):
+        elif r.get("kind") in ("negative", "not-a-card", "back", "card-back"):  # bench data uses "card-back" (data.ts)
             items.append(("bench", E.crop_path(r, False), None))
     for l in (Q / "verify-truth.jsonl").read_text(encoding="utf8").splitlines():
         if not l.strip():
