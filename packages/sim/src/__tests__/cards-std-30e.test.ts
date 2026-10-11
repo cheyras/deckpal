@@ -169,7 +169,7 @@ test('Mew ex, Memory Helix: a copied attack with an effect does it (Seismitoad\'
 
 test("Mew ex, Memory Helix: \"can't use this attack\" stays with the Pokémon that used it, by the attack's name (rulings 295 and 293)", () => {
   // Ruling (TPCi Rules Team 2015-02-05, https://compendium.pokegym.net/ruling/295/): when Mew ex copies an attack such as X Blast that bars its own use next turn, Mew ex is barred from that named attack.
-  // Ruling (TPCi Rules Team 2012-08-23, https://compendium.pokegym.net/ruling/293/): a "can't use this attack next turn" restriction binds only the Pokémon that attacked, so a Mew EX copying Giant Wave through Versatile is not restricted.
+  // Ruling (TPCi Rules Team 2012-08-23, https://compendium.pokegym.net/ruling/293/): Wailord using Giant Wave last turn does not stop the opposing Mew EX copying it; once Mew EX uses it, Mew EX itself is barred from it next turn.
   const g = game([{ active: 'Mew ex', energy: { active: [F] }, bench: ['Riolu'] }, { active: 'Dragapult ex' }]);
   const mew = g.state.p[0].active!;
   const riolu = g.state.p[0].bench[0]!;

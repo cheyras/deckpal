@@ -240,7 +240,7 @@ test('Landorus, Earthquake: 110 damage, and 10 to each of your Benched Pokémon'
 });
 
 test('Landorus, Earthquake: a Tera Pokémon on your Bench takes no damage from it (Compendium #2190)', () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2190/): Tera Pokémon are protected from all attacks, including your own.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2190/): a Benched Tera Pokémon takes no damage from attacks, even its own side's; this covers damage only, not other attack effects or the Active Spot.
   const g = mk([{ active: 'Landorus', energy: { active: [F, W, W] }, bench: ['Teal Mask Ogerpon ex', 'Pidove'] }, { active: DRA }]);
   choose(g, 'Attack: Earthquake');
   assert.deepEqual(g.state.p[0].bench.map((b) => b.damage), [0, 10]);

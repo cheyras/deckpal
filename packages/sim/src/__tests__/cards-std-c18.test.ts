@@ -370,7 +370,7 @@ test('Greninja ex, Shinobi Blade: 170, and you may search your deck for a card a
   choose(g, 'Attack: Shinobi Blade');
   assert.equal(dmg(g, 1), 170);
   yes(g);
-  // Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1980/): searching is optional but finding a card requires taking one.
+  // Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1980/): searching is optional, but once you search a deck that has cards you must take one, even if none is wanted.
   assert.equal((g.decision as { min?: number }).min, 1, 'once you search you must take a card');
   choose(g, 'Slowpoke');
   assert.equal(g.state.p[0].hand.length, hand + 1);

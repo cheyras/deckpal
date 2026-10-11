@@ -61,8 +61,8 @@ export const STD_ENGINE4: CardScript[] = [
     // Ruling (TPCi Rules Team 2025-04-03, https://compendium.pokegym.net/ruling/2132/): bench discards to 5 happen before a new Active is promoted.
     // Ruling (TPCi Rules Team 2025-04-03, https://compendium.pokegym.net/ruling/2131/): bench discards to 5 happen before a new Active is promoted.
     // Ruling (TPCi Rules Team 2024-09-26, https://compendium.pokegym.net/ruling/2039/): if the new stadium's criteria are met, no bench discards occur since stadiums replace simultaneously.
-    // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2026/): Knock Out the damaged Pokémon first (the opponent takes Prizes), then discard one more from the Bench for Area Zero Underdepths, then choose a new Active.
-    // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2024/): Falinks's Form Ranks places only one Pokémon, since no Tera Pokémon was in play when the attack was used.
+    // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2026/): with 8 Benched, two of them and the only Tera Knocked Out by an attack, resolve the Knock Outs and Prizes first, then discard down to 5 (here one), then promote.
+    // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2024/): with 4 Benched and no Tera in play when Form Ranks starts, it has room for one Pokémon; benching a Tera with it does not add room during that attack.
     statics: [{ effect: { k: 'benchSize', size: 8, withPokemon: { tera: true } }, scope: 'both' }],
   },
   {
@@ -70,7 +70,7 @@ export const STD_ENGINE4: CardScript[] = [
     name: 'Festival Grounds',
     // "Each Pokémon that has any Energy attached (both yours and your opponent's) recovers from all Special Conditions and can't be affected by any Special Conditions."
     // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2428/): Kieran's +30 applies to every attack on a Pokemon ex made in the turn. (each attack is its own attack: see Dipplin)
-    // Ruling (TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2359/): Festival Lead lets Dipplin attack twice, so Adversity Policy draws 3 cards per attack, 6 in total.
+    // Ruling (TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2359/): each Festival Lead attack that damages the Grass-Weak Active holding Adversity Policy draws 3 (6 for both hits, deck permitting).
     // Ruling (TPCi Rules Team 2025-01-09, https://compendium.pokegym.net/ruling/2093/): Festival Lead is not disabled once Flutter Mane is Knocked Out, so Dipplin can attack again.
     statics: [{ effect: { k: 'conditionImmunity' }, scope: 'allPokemon', filter: { energized: true } }],
   },
@@ -105,7 +105,7 @@ export const STD_ENGINE4: CardScript[] = [
     name: 'Dipplin',
     // "If Festival Grounds is in play, this Pokémon may use an attack it has twice. If the first attack Knocks Out your opponent's Active Pokémon, you may attack again after your opponent chooses a new Active Pokémon."
     // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2428/): Kieran's +30 applies to every attack on a Pokemon ex made in the turn. (Kieran's effect lasts the turn, so it applies to both attacks)
-    // Ruling (TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2359/): Festival Lead lets Dipplin attack twice, so Adversity Policy draws 3 cards per attack, 6 in total.
+    // Ruling (TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2359/): each Festival Lead attack that damages the Grass-Weak Active holding Adversity Policy draws 3 (6 for both hits, deck permitting).
     // Ruling (TPCi Rules Team 2025-01-09, https://compendium.pokegym.net/ruling/2093/): Festival Lead is not disabled once Flutter Mane is Knocked Out, so Dipplin can attack again. (the Ability is checked when the second attack is chosen)
     abilities: [FESTIVAL_LEAD],
     attacks: {
