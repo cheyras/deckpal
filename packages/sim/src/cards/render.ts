@@ -162,6 +162,11 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c02.energyAllToHand': (a) => `Put all Energy attached to the Pokémon chosen as "${String(a.slot ?? 't')}" into your hand (it is not discarded; Tools stay)`,
   'c02.devolve': (a) =>
     `Devolve the Pokémon chosen as "${String(a.slot ?? 't')}" by putting any number of Evolution cards (the number in "${String(a.n)}", from the top of its stack, at most all of them) on it into your hand; it recovers from all Special Conditions and attack effects, and can't evolve this turn`,
+  // std-c07-customs.ts
+  'c07.lookTopPick': (a) =>
+    `Look at the top ${Number(a.n ?? 6)} cards of your deck and choose ${art(noun(a.filter as Filter | undefined).sg)} you find there (into "${String(a.as ?? 'e')}"), none if there is none`,
+  'c07.moveEnergyToActive': (a) =>
+    `Choose 1 of your Pokémon on your Bench that has an Energy card providing ${sym(a.type as PType)} Energy where it is attached (Basic or Special), and move 1 such Energy card from it to your Active Pokémon`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -172,6 +177,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'seed3.defenderKnockedOutByThisAttack': () => "your opponent's Pokémon (the Defending Pokémon) was damaged by this attack and now has damage equal to or over its HP (it is Knocked Out)",
   'c03.ownFirstTurn': () => 'it is your first turn (turn 1 if you went first, turn 2 if you did not)',
   rareCandyPlayable: () => "it isn't your first turn and you have a Basic Pokémon in play, not put into play this turn, that a Stage 2 card in your hand evolves from",
+  'c07.benchHasEnergyOfType': (a) => `one of your Benched Pokémon has an attached Energy card providing ${sym(a.type as PType)} Energy`,
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
@@ -1660,5 +1666,26 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me02-010|attack:Jumping Shot': {
     problems: ['"your deck" is printed but not rendered'],
     why: 'The shuffle is the shared seed4.shuffleSlotIntoDeck, glossed for any Pokémon ("into their deck"); the Pokémon chosen here is always the attacking player own Active Pokémon (Lokix itself), so its owner is the attacker and the deck is "your deck".',
+  },
+  // std-c07
+  'me02.5-202|text': {
+    problems: ['"instead" is printed', '"your pokemon" is printed'],
+    why: '"Draw cards until you have 5 (8) cards" is a draw of max(0, target − hand size) with the target picked by the all-Team-Rocket\'s condition: it renders as a subtraction and a "no Pokémon that aren\'t Team Rocket\'s Pokémon" test, not the words "instead" / "your Pokémon". The card test pins 5 versus 8 and the unplayable case.',
+  },
+  'me02.5-205|text': {
+    problems: ['"tails" is printed'],
+    why: '"If tails, search for a Basic ..." is the else branch of the heads test, rendered "Otherwise"; the card test pins both flips (heads takes an Evolution, tails a Basic).',
+  },
+  'me02.5-289|ability:X-Boot': {
+    problems: ['"each" is printed', '"your pokemon" is printed'],
+    why: '"A Basic {P} Energy card, a Basic {M} Energy card, or 1 of each" is two searches (one {P}, one {M}; at least one in total while the deck has either) and one attach per card found, each to its own {P} or {M} Pokémon; there is no word "each" or "your Pokémon" to render.',
+  },
+  "me03-012|ability:Sniper's Eye": {
+    problems: ['"Energy" is printed'],
+    why: '"Ignore all {C} Energy in the costs" is `attackCostC` with a delta larger than any cost, rendered "the attacks of this Pokémon cost {C}... less"; the card test pins that the {C} costs (including the underlying Dartrix\'s) are free at exactly 4 cards and paid otherwise.',
+  },
+  'me03-016|attack:Nasty Plot': {
+    problems: ['"up to" is printed', '"up to 2" is printed'],
+    why: 'Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2315/): "you have to take at least one card if there are any cards in your deck", so "up to 2" is min 1, max 2 and renders "1 to 2".',
   },
 };

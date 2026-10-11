@@ -17,6 +17,7 @@ import { OPP } from './opp.js';
 import { STD_C02 } from './std-c02.js';
 import { STD_C03 } from './std-c03.js';
 import { STD_C05 } from './std-c05.js';
+import { STD_C07 } from './std-c07.js';
 import { STD_GEN } from './std-gen.js';
 import { STD_H01 } from './std-h01.js';
 import { STD_SEED1 } from './std-seed1.js';
@@ -24,4 +25,4 @@ import { STD_SEED2 } from './std-seed2.js';
 import { STD_SEED3 } from './std-seed3.js';
 import { STD_SEED4 } from './std-seed4.js';
 
-export const SCRIPTS: CardScript[] = [...SV, ...ME, ...GHOST, ...FIGHTING, ...METAL, ...MISC, ...META_BLAZIKEN, ...META_CHARIZARD, ...META_DARKRAI, ...META_EXCADRILL, ...META_GRIMMSNARL, ...META_TREVENANT, ...META_ZOROARK, ...OPP, ...STD_C02, ...STD_C03, ...STD_C05, ...STD_GEN, ...STD_H01, ...STD_SEED1, ...STD_SEED2, ...STD_SEED3, ...STD_SEED4];
+export const SCRIPTS: CardScript[] = [...SV, ...ME, ...GHOST, ...FIGHTING, ...METAL, ...MISC, ...META_BLAZIKEN, ...META_CHARIZARD, ...META_DARKRAI, ...META_EXCADRILL, ...META_GRIMMSNARL, ...META_TREVENANT, ...META_ZOROARK, ...OPP, ...STD_C02, ...STD_C03, ...STD_C05, ...STD_C07, ...STD_GEN, ...STD_H01, ...STD_SEED1, ...STD_SEED2, ...STD_SEED3, ...STD_SEED4];
