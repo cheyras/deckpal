@@ -153,16 +153,17 @@ export const STD_C01: CardScript[] = [
       // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2227/): "No, you cannot. If you use the attack, you must use the Supporter card if it is revealed and if you are able to."
       // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2226/): "Sure. You are not playing the Supporter, just using its effect." (a Supporter can't normally be played this turn)
       // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2225/): "Yes, you can. You are not playing a second supporter, but using its effect via an attack." (the turn's Supporter drop is untouched)
+      // Ruling 2376 (https://compendium.pokegym.net/ruling/2376/, 2026-06-04): used through this attack, a Supporter's "up to" choice of cards may be left at none (Eri: zero Item cards), which the same Supporter played from the hand may not.
       'Supernatural Shapeshifter': {
         program: [
           { op: 'move', cards: { top: 1 }, to: 'discard', as: 'x' },
-          { op: 'if', cond: { cardIs: { v: 'x', filter: { ttype: 'supporter' } } }, then: [{ op: 'custom', fn: 'c01.useSupporterEffect', args: { card: 'x' } }] },
+          { op: 'if', cond: { cardIs: { v: 'x', filter: { ttype: 'supporter' } } }, then: [{ op: 'custom', fn: 'rul07.useSupporterEffect', args: { card: 'x' } }] },
         ],
       },
     },
     notes:
-      'Compendium #2376 (April 2026 Rulebook: when a Supporter whose choice is mandatory is used through an attack, a player may choose fewer cards, e.g. zero Item cards for Eri) ' +
-      "is not modelled: the Supporter's own program runs unchanged, so its mandatory choices stay mandatory.",
+      "Compendium #2376 (2026-06-04, newer than the 2026-02-19 ruling that makes a Trainer's \"up to\" 1 to X): used through this attack, a Supporter's \"up to\" choice of cards may be left at none (Eri discards zero Item cards). " +
+      'rul07.useSupporterEffect runs the Supporter with its up-to choices lowered to 0; c01.useSupporterEffect (Mr. Mime) keeps the played-card minimum.',
   },
   {
     id: 'me01-024',
@@ -175,9 +176,13 @@ export const STD_C01: CardScript[] = [
         // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2214/): "Yes, it does. The effect of Intimidating Fang is on the Attacking Pokemon (not on Pyroar), so Shred's condition of "any effects on your opponent's Active Pokemon" does not apply."
         // The first static takes 30 off the attacker's damage to the Active Pokémon (before Weakness and Resistance, and even for an attack that ignores
         // effects on the Defending Pokémon); the second takes 30 off damage to the controller's Benched Pokémon, where there is no Weakness or Resistance to order it against.
+        // Ruling (TPCi Rules Team 2019-05-02, https://compendium.pokegym.net/ruling/158/, same wording on an older card): the reduction covers every
+        // Pokémon the opponent's Active damages with an attack, its own side included. The third takes 30 off damage the opponent's attack does to the opponent's own Pokémon (self-damage, their own Bench),
+        // which only the opponent's attacks can do while it is their turn; the first two never reach those targets.
         statics: [
           { effect: { k: 'damageOut', amount: -30 }, scope: 'oppActive', when: { inActive: 'self' } },
           { effect: { k: 'damageIn', amount: -30, fromOpp: true }, scope: 'myBench', when: { inActive: 'self' } },
+          { effect: { k: 'damageIn', amount: -30 }, scope: 'oppPokemon', when: { and: [{ inActive: 'self' }, { custom: 'rul04.opponentsTurn' }] } },
         ],
       },
     ],
@@ -185,7 +190,7 @@ export const STD_C01: CardScript[] = [
       // "Your opponent's Active Pokémon is now Burned."
       'Searing Flame': { post: [{ op: 'condition', cond: 'burned', to: 'oppActive' }] },
     },
-    notes: 'The Bench half of Intimidating Fang is a damageIn on the controller\'s Bench, which also reduces damage done by an opponent\'s Benched Pokémon that somehow attacks (an effect that lets one attack).',
+    notes: 'The Bench half of Intimidating Fang is a damageIn on the controller\'s Bench, which also reduces damage done by an opponent\'s Benched Pokémon that somehow attacks (an effect that lets one attack). Compendium #158: the reduction also applies to damage the opponent\'s attack does to the opponent\'s own Pokémon (self-damage, own Bench), the third static (rul04.opponentsTurn).',
   },
   {
     id: 'me01-025',

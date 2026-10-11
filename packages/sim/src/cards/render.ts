@@ -340,6 +340,11 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   // std-30d-customs.ts
   'n30d.basicEnergyTypes': (a) => `Count the different types of Basic Energy attached to all of your Pokémon (into "${String(a.as ?? 'n')}")`,
   'n30d.benchWithMaxHp': (a) => `Count your Benched Pokémon that have a maximum HP of ${Number(a.hp)} (into "${String(a.as ?? 'n')}")`,
+  // rul-r07-customs.ts
+  'rul07.useSupporterEffect': (a) => `Use the effect of the Supporter card chosen as "${String(a.card ?? 'x')}" (it is not played and cannot be declined; a choice of a number of cards in it can be lowered to none)`,
+  // rul-r12-customs.ts
+  'rul12.moveCountersLossy': (a) =>
+    `Move up to ${Number(a.max ?? 3)} damage counters from the Pokémon chosen as "${String(a.from)}" to the Pokémon chosen as "${String(a.to)}" (lost if they cannot be placed there)`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -373,6 +378,8 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'c37.defenderResists': (a) => `your opponent's Active Pokémon has ${sym(a.type as PType)} Resistance printed on it`,
   's02.retreatCostIs': (a) => `the Retreat Cost of the Pokémon this is attached to (with every effect that changes it) is exactly ${Number(a.n)}`,
   's02.codeProtectActive': () => "this Pokémon carries the mark left by using C.O.D.E.: Protect, and it is your opponent's turn right after it was used",
+  // rul-r04-customs.ts
+  'rul04.opponentsTurn': () => "it is your opponent's turn",
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
@@ -2777,5 +2784,10 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   '30th-128|text': {
     problems: ['"reveal" is rendered but not printed'],
     why: 'The catalog frame of this printing carries no Trainer text at all (effect null); the script follows the text of its earlier printing (me01-131), which reprints unchanged and does say "reveal it" and the cost of discarding 2 other cards.',
+  },
+  // lane:rul04
+  'me01-024|ability:Intimidating Fang': {
+    problems: ['similarity'],
+    why: 'One printed sentence ("attacks used by your opponent\'s Active Pokémon do 30 less damage") is three statics, because the engine applies the reduction in three places: to the Defending Pokémon before Weakness and Resistance, to the controller\'s Bench, and (ruling 158) to the opponent\'s own Pokémon during their turn. Each renders as its own sentence.',
   },
 };

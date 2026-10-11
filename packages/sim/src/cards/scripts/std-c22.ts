@@ -298,17 +298,25 @@ export const STD_C22: CardScript[] = [
   {
     id: 'sv07-115',
     name: 'Noctowl',
+    notes: 'Compendium #2122: evolved onto a Pokémon whose damage is already over its HP, Noctowl is Knocked Out before Jewel Seeker can happen (the Ability is skipped; the Knock Out follows).',
     abilities: [
       {
         // "Once during your turn, when you play this Pokémon from your hand to evolve 1 of your Pokémon, if you have any Tera Pokémon in play, you may search your deck for up to 2 Trainer cards, reveal them, and put them into your hand. Then, shuffle your deck."
         // "Up to 2" on an Ability is 1 to 2 (TPCi 2026-02-19).
+        // Ruling (TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2122/): a Pokémon whose damage is already over the
+        //  evolved Pokémon's HP (the Basic's extra HP stops applying) is Knocked Out before Jewel Seeker could happen, so it is not offered.
         name: 'Jewel Seeker',
         triggers: [
           {
             on: 'evolveFromHand',
             oncePerTurn: true,
             optional: true,
-            when: { gte: [{ pokemon: { zone: 'myPokemon', filter: { tera: true } } }, 1] },
+            when: {
+              and: [
+                { gte: [{ pokemon: { zone: 'myPokemon', filter: { tera: true } } }, 1] },
+                { not: { custom: 'c12.remainingHpAtMost', args: { n: 0 } } },
+              ],
+            },
             program: searchToHand({ cat: 'trainer' }, 2, { reveal: true, min: 1 }),
           },
         ],

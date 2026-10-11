@@ -33,7 +33,7 @@ function eevee(id: string): CardScript {
     abilities: [
       {
         // "As long as this Pokémon is in the Active Spot, it can evolve during your first turn or the turn you play it."
-        // Ruling (TPCi Rules Team 2026-04-09, https://compendium.pokegym.net/ruling/2327/): "Yes, the text on Strange Timepiece saying "that Pokemon can't evolve this turn" is in parentheses and therefore is simply reminder text for the normal game rules. The Boosted Evolution Ability overrides normal rules."
+        // Ruling #2327 (TPCi 2026-04-09, https://compendium.pokegym.net/ruling/2327/): Strange Timepiece's "can't evolve this turn" is only reminder text, which this Ability overrides.
         name: 'Boosted Evolution',
         statics: [{ effect: { k: 'evolveTiming', firstTurn: true, justPlayed: true }, scope: 'self', when: { inActive: 'self' } }],
       },
