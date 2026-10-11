@@ -212,6 +212,10 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c11.multiplyCounters': (a) => `Put on each Pokémon chosen as "${String(a.slots ?? 't')}" ${Number(a.factor ?? 2) - 1} times the number of damage counters already on it (so each Pokémon has ${Number(a.factor ?? 2)} times as many damage counters); a Pokémon with none gets none`,
   'c11.retreatCostOf': (a) => `Count the {C} in the Retreat Cost your opponent's Active Pokémon has right now, after every effect (into "${String(a.as ?? 'n')}"); an Antique fossil has none`,
   'c11.discardOppActiveEnergy': () => "Discard an Energy of your choice from your opponent's Active Pokémon, unless it is protected from the effects of Abilities (or attacks)",
+  // std-c21-customs.ts
+  'c21.pickOppBenchLowHp': (a) => `Choose 1 Pokémon on your opponent's Bench that has ${Number(a.max ?? 90)} HP or less remaining (HP with any changes, minus damage) as "${String(a.as ?? 't')}"; no question when only one qualifies, none chosen when none does`,
+  'c21.selfIntoDeck': () => 'Put this Pokémon and all attached cards (Energy, Tools, previous Evolutions) into your deck, without shuffling it yet; it is not a Knock Out',
+  'c21.lookTopAny': (a) => `Look at the top ${Number(a.n ?? 20)} cards of your deck and choose any number of the ${energyNoun(a.filter as Filter | undefined)} cards you find there (into "${String(a.as ?? 'e')}"); nothing leaves the deck yet`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -231,6 +235,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'c10.handEvolvesSelf': () => 'you have a card in your hand that evolves from this Pokémon, and this Pokémon has not evolved this turn',
   'c10.weakToOppActive': () => "the Pokémon this card is attached to has a Weakness (as changed by effects) of a type that your opponent's Active Pokémon is",
   'c14.abilitiesOn': () => "no effect has turned this Pokémon's Abilities off",
+  'c21.oppBenchLowHp': (a) => `your opponent has a Pokémon on their Bench that has ${Number(a.max ?? 90)} HP or less remaining`,
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
@@ -1890,5 +1895,18 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me05-020|attack:Aqua Return': {
     problems: ['"your deck" is printed but not rendered'],
     why: 'The shuffle is the shared seed4.shuffleSlotIntoDeck, glossed for any Pokémon ("into their deck"); the Pokémon chosen here is always the attacking player own Active Pokémon (Primarina itself), so its owner is the attacker and the deck is "your deck".',
+  },
+  // std-c21
+  'sv06.5-064|text': {
+    problems: ['number 3 is printed 1× but rendered 0×', '"any number of" is rendered but not printed'],
+    why: 'The number of cards discarded is computed, not fixed: their hand size minus 3 (floored at 0), as both min and max of one choice, so the 3 sits inside an arithmetic Expr the renderer words as "any number of cards"; the `playable` guard (more than 3 cards in their hand) is what keeps the card from being played when it would do nothing.',
+  },
+  'sv07-006|attack:Miasma Wind': {
+    problems: ['similarity'],
+    why: '"each Special Condition affecting" is the sum, over Asleep, Confused, Paralyzed, Poisoned and Burned, of 1 if the Defending Pokémon has that condition, times 100; the renderer spells out the five terms, so the wording is far from the printed sentence while the meaning is the same.',
+  },
+  'sv07-006|ability:Selective Slime': {
+    problems: ['similarity'],
+    why: 'The printed "choose Burned, Confused, or Poisoned" is a three-way option plus one `condition` step per option, and the usability guard from Compendium ruling 2014 (not while the Defending Pokémon is already Burned, Confused and Poisoned) is spelled out; both lengthen the rendering well past the printed sentence.',
   },
 };
