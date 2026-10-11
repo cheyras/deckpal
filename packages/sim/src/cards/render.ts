@@ -162,7 +162,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'std.attackKoLastTurn': () => "one of your Pokémon was Knocked Out by damage from an attack during your opponent's last turn",
   'seed3.defenderKnockedOutByThisAttack': () => "your opponent's Pokémon (the Defending Pokémon) was damaged by this attack and now has damage equal to or over its HP (it is Knocked Out)",
   'c04.evolvedFromThisTurn': (a) => `this Pokémon evolved from ${String(a.name)} during this turn`,
-  rareCandyPlayable: () =>"it isn't your first turn and you have a Basic Pokémon in play, not put into play this turn, that a Stage 2 card in your hand evolves from",
+  rareCandyPlayable: () => "it isn't your first turn and you have a Basic Pokémon in play, not put into play this turn, that a Stage 2 card in your hand evolves from",
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
