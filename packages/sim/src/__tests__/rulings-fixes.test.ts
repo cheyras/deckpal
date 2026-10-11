@@ -10,6 +10,7 @@ import type { Program } from '../dsl.js';
 import type { Game } from '../game.js';
 import { effectsPrevented } from '../query.js';
 import { makePilot } from '../pilot/index.js';
+import { betterLine } from '../pilot/search.js';
 import { scenario } from '../scenario.js';
 import { topCard } from '../state.js';
 import type { Decision } from '../types.js';
@@ -108,12 +109,18 @@ void topCard;
   const NORMAL_HAND = '(me5_5) Poltchageist, (rsv10-5_84) Hilda, (sv5_154) Maximum Belt, (me3_72) Energy Search, (sv7_133) Crispin, (me2_87) Dawn, (sve_19_ph) Basic Water Energy';
   const BEN_HAND = '(me2-5_288) Fezandipiti ex, (rsv10-5_84) Hilda, (sv5_154) Maximum Belt, (me3_72) Energy Search, (sv7_133) Crispin, (me2_87) Dawn, (sve_19_ph) Basic Water Energy';
   const BULLET = '   • ';
+  // How a seat's several mulligans are written: one line each, one cumulative "took N mulligans", or "took a mulligan" followed by the cumulative total.
+  let fmt: 'each' | 'cumulative' | 'mixed' = 'each';
   /** A player's setup lines: the hand they kept (listed when nothing was mulliganed) or the hands they mulliganed. */
   const side = (who: 'A' | 'B', mulliganed: string[], keptHand: string): string[] => {
     const p = `Player${who}`;
     const out = [`${p} drew 7 cards for the opening hand.`, '- 7 drawn cards.'];
     if (!mulliganed.length) out.push(BULLET + keptHand);
-    mulliganed.forEach((h, i) => out.push(`${p} took a mulligan.`, `- Cards revealed from Mulligan ${i + 1}`, BULLET + h));
+    const reveal = (h: string, i: number): string[] => [`- Cards revealed from Mulligan ${i + 1}`, BULLET + h];
+    const n = mulliganed.length;
+    if (fmt === 'each' || n < 2) mulliganed.forEach((h, i) => out.push(`${p} took a mulligan.`, ...reveal(h, i)));
+    else if (fmt === 'cumulative') out.push(`${p} took ${n} mulligans.`, ...mulliganed.flatMap(reveal));
+    else out.push(`${p} took a mulligan.`, ...reveal(mulliganed[0]!, 0), `${p} took ${n} mulligans.`, ...mulliganed.slice(1).flatMap((h, i) => reveal(h, i + 1)));
     return out;
   };
   const extra = (who: 'A' | 'B', n: number): string[] =>
@@ -169,6 +176,29 @@ void topCard;
   test('replay: a Cinderace hand that was kept still puts Cinderace in the Active Spot (the logged kept hand is reached)', async () => {
     await run(log([], CINDER_HAND, CIND, [], BEN_HAND, FEZ));
     await run(log([], NORMAL_HAND, POLT, [], CINDER_HAND, CIND));
+  });
+  test('replay: cumulative and mixed mulligan lines count each hand once, for both seats (three Cinderace hands mulliganed)', async () => {
+    for (const f of ['each', 'cumulative', 'mixed'] as const) {
+      fmt = f;
+      try {
+        await run(log([CINDER_HAND, CINDER_HAND, CINDER_HAND], '', POLT, [], BEN_HAND, FEZ));
+        await run(log([], NORMAL_HAND, POLT, [CINDER_HAND, CINDER_HAND, CINDER_HAND], '', FEZ));
+        await run(log([CINDER_HAND, CINDER_HAND], '', POLT, [CINDER_HAND, CINDER_HAND, CINDER_HAND], '', FEZ));
+        // The kept hand is a Cinderace hand too: the third (kept) question must be answered "keep", so the mulligans are counted once.
+        await run(log([CINDER_HAND, CINDER_HAND], '', CIND, [], BEN_HAND, FEZ));
+        await run(log([], NORMAL_HAND, POLT, [CINDER_HAND, CINDER_HAND, CINDER_HAND], '', CIND));
+      } finally {
+        fmt = 'each';
+      }
+    }
+  });
+  test('replay: the parser marks "took N mulligans" as a cumulative total and "took a mulligan" as one more', async () => {
+    const { parseLiveLog } = await import('../replay/liveLog.js');
+    fmt = 'mixed';
+    const text = log([CINDER_HAND, CINDER_HAND, CINDER_HAND], '', POLT, [], BEN_HAND, FEZ);
+    fmt = 'each';
+    const mulls = (parseLiveLog(text) as unknown as { events: { t: string; count: number; cumulative?: true }[] }).events.filter((e) => e.t === 'mulligan');
+    assert.deepEqual(mulls.map((e) => [e.count, !!e.cumulative]), [[1, false], [3, true]]);
   });
   test('replay: a Cinderace mulligan followed by a kept Cinderace hand (one mulligan logged, then keep)', async () => {
     // The first hand is mulliganed (one logged hand), the next one has Cinderace again and is kept: the Cinderace is the Active Pokémon.
@@ -245,6 +275,16 @@ test('Ruling 2122: Tinkatink under Lively Stadium evolving into Tinkatuff while 
     choose(g, 'Attack: Jet Headbutt');
     assert.ok(inPlay(g), 'Pikachu ex survived');
     assert.equal(dmg(g, 1), HP - 10 - 30, 'remaining HP 10 + 30 healed = 40');
+  });
+  // Placing damage counters is not damage from an attack: the save covered the attack's damage only, so counters the same attack then places land on the
+  // 10 HP it was left with and Knock it Out (rulebook: a Pokémon whose remaining HP reaches zero by any means is Knocked Out).
+  test('Resolute Heart: damage counters placed by the same attack after the save Knock the Pokémon Out', () => {
+    const g = hit([d(300), { op: 'counters', n: 1, to: 'oppActive' }]);
+    choose(g, 'Attack: Jet Headbutt');
+    assert.ok(!inPlay(g), 'the counter is not absorbed into the save');
+    const c = hit([d(300)]);
+    choose(c, 'Attack: Jet Headbutt');
+    assert.ok(inPlay(c), 'control: without the counter it survives');
   });
 }
 
@@ -347,4 +387,18 @@ test("Search CPU: with a winning attack and Rocket Brain available it attacks, i
   }
   assert.ok(g.over, `the game is still going after ${n} decisions: the CPU keeps moving counters`);
   assert.equal(g.state.winner, 0);
+});
+
+// ------------------------------------------------------------------ Follow-up: the shortest retained win
+
+test('Search: among equal-scoring winning lines for one first move the one with fewer submitted choices is kept, whichever is found first', () => {
+  const WIN = 1000;
+  const score = 999;
+  // A longer winning continuation (4 choices) was found first; a shorter one (2) comes later with the same score.
+  assert.equal(betterLine(-Infinity, [], score, [3, 0, 1, 2], WIN), true, 'the first one is kept');
+  assert.equal(betterLine(score, [3, 0, 1, 2], score, [3, 5], WIN), true, 'the shorter equal-scoring one replaces it');
+  assert.equal(betterLine(score, [3, 5], score, [3, 0, 1, 2], WIN), false, 'a longer one found later does not');
+  assert.equal(betterLine(score, [3, 5], score + 1, [3, 0, 1, 2, 4], WIN), true, 'a higher score still wins');
+  // Equal non-winning scores keep the first line (no tie-break on length below the win threshold).
+  assert.equal(betterLine(10, [1, 2, 3], 10, [1], WIN), false);
 });

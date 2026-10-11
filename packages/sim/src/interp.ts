@@ -686,6 +686,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
         if (trainerBlocked(env, s, f, t, all)) continue;
         if ((f.kind === 'attack' || f.kind === 'ability') && effectsPrevented(env, s, t, f.player, kind, all)) continue;
         if ((f.kind === 'attack' || f.kind === 'ability') && countersPrevented(env, s, t, f.player, kind, all)) continue; // lane:darkrai
+        if (t.braced) settleBrace(env, s, t); // Resolute Heart's save covered the attack's damage only; counters are not damage, so they land on the 10 HP it left
         t.damage += n * 10;
         emit(env, { type: 'counters', player: ownerOf(s, t), slot: t.id, n });
       }

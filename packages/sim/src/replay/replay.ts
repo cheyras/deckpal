@@ -554,8 +554,9 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
   const coins: boolean[] = [];
   const setupBasics: [CardMention[], CardMention[]] = [[], []];
   // How many opening hands each side logged as mulliganed: the engine's Cinderace-style setup question (dealChoice) is answered from it.
+  // "took a mulligan" adds one; "took N mulligans" states the seat's total so far (a log can show 1 then "5" for five hands), so it is not added.
   const loggedMulligans: [number, number] = [0, 0];
-  for (const e of ev) if (e.turn === 0 && e.t === 'mulligan') loggedMulligans[e.p] += e.count;
+  for (const e of ev) if (e.turn === 0 && e.t === 'mulligan') loggedMulligans[e.p] = e.cumulative ? Math.max(loggedMulligans[e.p], e.count) : loggedMulligans[e.p] + e.count;
   const extraDrawn: [CardMention[], CardMention[]] = [[], []];
   const extraCount: [number, number] = [0, 0];
   for (const e of ev) {
@@ -568,10 +569,8 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
     let kept: Want[] | null = null;
     if (mull.length) {
       // The mulliganed hands are revealed; the hand finally kept is not.
-      for (const m of mull) {
-        const cs = m.cards ?? [];
-        for (let i = 0; i < 7 * m.count; i++) setupItems[side].push(cs[i] ? want(cs[i]!) : HIDE);
-      }
+      const cs = mull.flatMap((m) => m.cards ?? []);
+      for (let i = 0; i < 7 * loggedMulligans[side]; i++) setupItems[side].push(cs[i] ? want(cs[i]!) : HIDE);
     } else if (opening?.cards?.length) kept = opening.cards.map(want);
     // Extra draws for the opponent's mulligans (after Prize cards are set).
     const extraIdx = ev.findIndex((e) => e.turn === 0 && e.t === 'draw' && !e.sub && e.p === side);
