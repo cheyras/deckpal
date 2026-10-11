@@ -175,9 +175,13 @@ export const STD_C01: CardScript[] = [
         // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2214/): "Yes, it does. The effect of Intimidating Fang is on the Attacking Pokemon (not on Pyroar), so Shred's condition of "any effects on your opponent's Active Pokemon" does not apply."
         // The first static takes 30 off the attacker's damage to the Active Pokémon (before Weakness and Resistance, and even for an attack that ignores
         // effects on the Defending Pokémon); the second takes 30 off damage to the controller's Benched Pokémon, where there is no Weakness or Resistance to order it against.
+        // Ruling (TPCi Rules Team 2019-05-02, https://compendium.pokegym.net/ruling/158/, same wording on an older card): the reduction covers every
+        // Pokémon the opponent's Active damages with an attack, its own side included. The third takes 30 off damage the opponent's attack does to the opponent's own Pokémon (self-damage, their own Bench),
+        // which only the opponent's attacks can do while it is their turn; the first two never reach those targets.
         statics: [
           { effect: { k: 'damageOut', amount: -30 }, scope: 'oppActive', when: { inActive: 'self' } },
           { effect: { k: 'damageIn', amount: -30, fromOpp: true }, scope: 'myBench', when: { inActive: 'self' } },
+          { effect: { k: 'damageIn', amount: -30 }, scope: 'oppPokemon', when: { and: [{ inActive: 'self' }, { custom: 'rul04.opponentsTurn' }] } },
         ],
       },
     ],
@@ -185,7 +189,7 @@ export const STD_C01: CardScript[] = [
       // "Your opponent's Active Pokémon is now Burned."
       'Searing Flame': { post: [{ op: 'condition', cond: 'burned', to: 'oppActive' }] },
     },
-    notes: 'The Bench half of Intimidating Fang is a damageIn on the controller\'s Bench, which also reduces damage done by an opponent\'s Benched Pokémon that somehow attacks (an effect that lets one attack).',
+    notes: 'The Bench half of Intimidating Fang is a damageIn on the controller\'s Bench, which also reduces damage done by an opponent\'s Benched Pokémon that somehow attacks (an effect that lets one attack). Compendium #158: the reduction also applies to damage the opponent\'s attack does to the opponent\'s own Pokémon (self-damage, own Bench), the third static (rul04.opponentsTurn).',
   },
   {
     id: 'me01-025',
