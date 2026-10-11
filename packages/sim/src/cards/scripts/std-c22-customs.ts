@@ -64,7 +64,7 @@ registerCustom('c22.searchAttachedTypes', (env, s, f, args, answer) => {
 registerCustom('c22.healEvolutions', (env, s, f) => {
   const healed: Slot[] = [];
   for (const sl of slotsIn(s, f.player, 'myPokemon')) {
-    if (sl.damage > 0 && slotMatches(env, sl, { stage: 'evolution' })) {
+    if (sl.damage > 0 && slotMatches(env, sl, { stage: 'evolution' }, true, s)) {
       healSlot(s, sl, sl.damage);
       healed.push(sl);
     }

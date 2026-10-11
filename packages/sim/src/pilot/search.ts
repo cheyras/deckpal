@@ -27,7 +27,7 @@ import { cloneState, opp } from '../state.js';
 import type { Action, Decision, GameState, Player } from '../types.js';
 import { branchable, hashState, optionCount, settle } from './lookahead.js';
 import { DEFAULT_WEIGHTS, evaluate, type EvalWeights } from './eval.js';
-import { DEFAULT_PROFILE, policyChoose, type PolicyProfile } from './policy.js';
+import { DEFAULT_PROFILE, publicPolicyChoose, type PolicyProfile } from './policy.js';
 import type { Pilot } from './types.js';
 
 export interface SearchOptions {
@@ -247,7 +247,7 @@ export class SearchPilot implements Pilot {
     const me = d.player;
     const n = optionCount(d);
     const o = this.opts;
-    if (n <= 1 || game.state.phase !== 'main' || !branchable(d, me, o.subs)) return policyChoose(env, game.state, d, o.profile);
+    if (n <= 1 || game.state.phase !== 'main' || !branchable(d, me, o.subs)) return publicPolicyChoose(env, game.state, d, this.rng, o.profile);
     if (d.kind === 'main' && n === 1) return [0];
 
     const K = Math.max(1, o.worlds);

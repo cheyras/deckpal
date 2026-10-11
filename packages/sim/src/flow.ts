@@ -7,6 +7,7 @@
  * function in spirit: (state, choice) → state; `submit` mutates in place, so
  * callers clone first when they need the old state (search does).
  */
+import { evolveOnto } from './evolve.js';
 import { def, type Env } from './context.js';
 import type { Op } from './compile.js';
 import type { Filter, SpecialCondition } from './dsl.js';
@@ -20,7 +21,6 @@ import {
   canAttackTwice,
   canPayAttack,
   checkupExtraCounters,
-  confusionKept,
   retreatCoinFlip,
   returnToHandBlocked,
   toolLimit,
@@ -48,11 +48,11 @@ import {
 } from './query.js';
 import { leaveHand,
   allSlots,
-  clearAttackEffects,
   draw,
   emit,
   findSlot,
   flipCoin,
+  leavePrizeZone,
   newSlot,
   opp,
   removeFrom,
@@ -599,7 +599,7 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
     } else if (d.kind === 'energy') {
       if (ps.energyAttached || d.coverage === 'none') continue;
       const only = d.script?.attachOnly; // "This card can only be attached to a Team Rocket's Pokémon."
-      for (const sl of slots) if (canAttachFromHand(env, s, sl, all) && (!only || slotMatches(env, sl, only)) && once(`a${d.idx}:${sl.id}`)) out.push({ t: 'attach', card: c, slot: sl.id });
+      for (const sl of slots) if (canAttachFromHand(env, s, sl, all) && (!only || slotMatches(env, sl, only, true, s)) && once(`a${d.idx}:${sl.id}`)) out.push({ t: 'attach', card: c, slot: sl.id });
     } else if (d.kind === 'trainer') {
       if (d.coverage === 'none') continue;
       if (d.needsDeck && !ps.deck.length) continue; // it would do nothing (see CardDef.needsDeck)
@@ -738,17 +738,9 @@ function doAction(env: Env, s: GameState, a: Action): void {
       const sl = allSlots(ps).find((x) => x.id === a.slot) as Slot;
       leaveHand(ps, a.card);
       played(ps, a.card);
-      // Once-per-turn use is per Ability: the Evolution's own Abilities are fresh even if the Basic used one this
-      // turn (rules audit). A same-named Ability stays spent — see the todo in rules-audit.test.ts.
-      const spent = sl.usedAbilities.map((i) => def(env.ctx, topCard(sl)).abilities[i]?.name);
-      sl.cards.push(a.card);
-      sl.usedAbilities = def(env.ctx, a.card).abilities.flatMap((ab, i) => (spent.includes(ab.name) ? [i] : []));
-      sl.evolvedTurn = s.turn;
-      // Evolving clears Special Conditions and attack effects on the Pokémon (and "moved to the Active Spot": ruling 2265). Dizzying Valley
-      // keeps Confusion.
-      sl.cond = confusionKept(env, s, sl) ? sl.cond & CONFUSED : 0;
-      delete sl.movedActiveTurn;
-      clearAttackEffects(s, sl.id);
+      // Special Conditions and attack effects end, per-Ability use resets, ...: see evolve.ts. A same-named Ability stays spent
+      // — see the todo in rules-audit.test.ts.
+      evolveOnto(env, s, sl, a.card);
       emit(env, { type: 'evolve', player: p, card: a.card, slot: sl.id });
       queueTriggers(env, s, sl, p, 'evolveFromHand');
       return;
@@ -1027,7 +1019,7 @@ function enforceAttachments(env: Env, s: GameState): boolean {
     for (const sl of allSlots(s.p[p])) {
       const bad = sl.energy.filter((c) => {
         const only = def(env.ctx, c).script?.attachOnly;
-        return !!only && !slotMatches(env, sl, only);
+        return !!only && !slotMatches(env, sl, only, true, s);
       });
       if (bad.length) {
         sl.energy = sl.energy.filter((c) => !bad.includes(c));
@@ -1134,7 +1126,7 @@ function resolveKOs(env: Env, s: GameState): void {
           // each Pokémon Knocked Out that way, wherever it was, with the attack the effect names.
           for (const k of ko) {
             if (k.owner === taker || !koByAttack(s, k.owner, k.slot)) continue;
-            if (e.ko && !slotMatches(env, k.slot, e.ko)) continue;
+            if (e.ko && !slotMatches(env, k.slot, e.ko, true, s)) continue;
             if (e.byThis && s.attackBy !== x.slot) continue;
             if (e.attacker && !attackIsFrom(env, s, e.attacker, all)) continue;
             const key = e.noStack ?? (e.amount === undefined ? 'extraPrize' : undefined);
@@ -1169,7 +1161,9 @@ function resolveKOs(env: Env, s: GameState): void {
       for (let i = 0; i < n && tp.prizes.length; i++) {
         const pc = takePicked(tp.prizes, env.replay?.prize?.(taker, tp.prizes)) ?? (tp.prizes.pop() as number);
         tp.hand.push(pc);
-        removeFrom(tp.revealed, pc); // Prize cards are taken face down
+        // A Prize card is taken face down, unless it was turned face up: then both players know it is in that hand.
+        removeFrom(tp.revealed, pc);
+        if (leavePrizeZone(tp, pc)) tp.revealed.push(pc);
         took++;
       }
       tp.prizesTaken += took;

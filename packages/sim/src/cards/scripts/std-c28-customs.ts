@@ -4,11 +4,12 @@
  *
  * A custom that asks a decision sets `s.pending` (the answer comes back as `answer`) and returns 'wait'.
  */
+import { devolve } from '../../evolve.js';
 import { def } from '../../context.js';
 import { registerCustom } from '../../customs.js';
 import { slotsIn } from '../../eval.js';
 import { effectsPrevented, statics } from '../../query.js';
-import { clearAttackEffects, emit, opp, removeFrom, shuffleDeck, topCard } from '../../state.js';
+import { emit, opp, removeFrom, shuffleDeck, topCard } from '../../state.js';
 import type { Decision, GameState } from '../../types.js';
 
 function ask(s: GameState, d: Decision, mode: 'cards' | 'slots' | 'index'): 'wait' {
@@ -127,10 +128,8 @@ registerCustom('c28.devolveOppToDeck', (env, s, f) => {
   for (const sl of slotsIn(s, f.player, 'oppPokemon')) {
     if (sl.cards.length < 2) continue;
     if (f.kind === 'attack' && effectsPrevented(env, s, sl, f.player, 'attack', all)) continue;
-    const [card] = sl.cards.splice(sl.cards.length - 1, 1);
+    const [card] = devolve(env, s, sl);
     s.p[owner].deck.push(card as number);
-    sl.cond = 0;
-    clearAttackEffects(s, sl.id);
     shuffled = true;
   }
   if (shuffled) shuffleDeck(env, s, owner);

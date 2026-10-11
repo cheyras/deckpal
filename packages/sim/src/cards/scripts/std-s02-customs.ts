@@ -4,11 +4,12 @@
  *
  * A custom that asks a decision sets `s.pending` (the answer comes back as `answer`) and returns 'wait'.
  */
+import { evolveOnto } from '../../evolve.js';
 import { def, type Env } from '../../context.js';
 import { registerCustom, registerCustomCond } from '../../customs.js';
 import { cardMatches } from '../../eval.js';
 import { retreatCost } from '../../query.js';
-import { allSlots, clearAttackEffects, emit, findSlot, removeFrom, topCard } from '../../state.js';
+import { allSlots, emit, findSlot, removeFrom, topCard } from '../../state.js';
 import type { Decision, GameState, Player, Slot, TimedEffect } from '../../types.js';
 
 function ask(s: GameState, d: Decision, mode: 'cards' | 'slots'): 'wait' {
@@ -160,13 +161,7 @@ registerCustom('s02.salvatoreEvolve', (env, s, f, _args, answer) => {
   }
   delete f.vars.__salCard;
   if (!sl || !removeFrom(s.p[p].deck, card)) return 'next';
-  const spent = sl.usedAbilities.map((i) => def(env.ctx, topCard(sl!)).abilities[i]?.name);
-  sl.cards.push(card);
-  sl.usedAbilities = def(env.ctx, card).abilities.flatMap((ab, i) => (spent.includes(ab.name) ? [i] : []));
-  sl.evolvedTurn = s.turn;
-  sl.cond = 0;
-  delete sl.movedActiveTurn;
-  clearAttackEffects(s, sl.id);
+  evolveOnto(env, s, sl, card);
   emit(env, { type: 'evolve', player: p, card, slot: sl.id });
   return 'next';
 });

@@ -4,6 +4,7 @@
  *
  * A custom that asks a decision sets `s.pending` (the answer comes back as `answer`) and returns 'wait'.
  */
+import { devolve } from '../../evolve.js';
 import { registerCustom, registerCustomCond } from '../../customs.js';
 import { countersPrevented, effectsPrevented, maxHp, statics } from '../../query.js';
 import { allSlots, emit, findSlot, opp, shuffleDeck, slotCards } from '../../state.js';
@@ -42,11 +43,9 @@ registerCustom('c25.devolveOpp', (env, s, f, _args, answer) => {
   const sl = cands.find((x) => x.id === id);
   if (!sl) return 'next';
   if (effectsPrevented(env, s, sl, f.player, 'attack')) return 'next';
-  const top = sl.cards.pop() as number;
+  const [top] = devolve(env, s, sl) as [number];
   ps.hand.push(top);
   ps.revealed.push(top);
-  sl.cond = 0;
-  s.effects = s.effects.filter((x) => !(x.slot === sl.id && x.fromAttack));
   return 'next';
 });
 

@@ -134,7 +134,7 @@ function compileDef(d: CardDef, script: CardScript | null, code: Map<string, Op[
     if (s.activated && ab.code) code.set(ab.code, compile(s.activated.program));
     for (const st of s.statics ?? []) {
       d.statics.push({ ...st });
-      noteTypeFix(d, st);
+      noteTypeFix(d, st, true);
     }
     (s.triggers ?? []).forEach((t, j) => {
       const key = `${d.idx}:${ab.name}:t${j}`;
@@ -155,7 +155,7 @@ function compileDef(d: CardDef, script: CardScript | null, code: Map<string, Op[
   }
   for (const st of script.statics ?? []) {
     d.statics.push({ ...st });
-    noteTypeFix(d, st);
+    noteTypeFix(d, st, false);
   }
   (script.triggers ?? []).forEach((t, j) => {
     const key = `d${d.idx}#t${j}`;
@@ -165,13 +165,13 @@ function compileDef(d: CardDef, script: CardScript | null, code: Map<string, Op[
 }
 
 /** A Pokémon's own "it is {F} and {P} type" (StaticEffect `types`, scope 'self'): remembered on the definition, so type filters need no game state. */
-function noteTypeFix(d: CardDef, st: StaticDef): void {
+function noteTypeFix(d: CardDef, st: StaticDef, ability: boolean): void {
   const e = st.effect;
   if (e.k !== 'types' || st.scope !== 'self' || st.filter) return;
   // A condition on the Pokémon itself (`slotIs` self) is remembered as a filter on the slot ("As long as this Pokémon has a Future
   // Booster Energy Capsule attached, it is {F} and {M} type"); any other condition is not supported.
-  if (!st.when) d.typeFix = { types: e.types.slice(), add: !!e.add };
-  else if ('slotIs' in st.when && st.when.slotIs.ref === 'self') d.typeFix = { types: e.types.slice(), add: !!e.add, ifSlot: st.when.slotIs.filter };
+  if (!st.when) d.typeFix = { types: e.types.slice(), add: !!e.add, ability };
+  else if ('slotIs' in st.when && st.when.slotIs.ref === 'self') d.typeFix = { types: e.types.slice(), add: !!e.add, ability, ifSlot: st.when.slotIs.filter };
 }
 
 /** Register an ad-hoc program (used by customs and tests). */

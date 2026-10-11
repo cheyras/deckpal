@@ -2,9 +2,10 @@
  * Bespoke effects for the "std-c02" batch (std-c02.ts). Names are prefixed `c02.` so batches can't collide.
  * Each is exercised by a card test in src/__tests__/cards-std-c02.test.ts.
  */
+import { devolve } from '../../evolve.js';
 import { registerCustom } from '../../customs.js';
 import { endGame } from '../../flow.js';
-import { emit, findSlot, opp, removeFrom } from '../../state.js';
+import { emit, findSlot, leavePrizeZone, opp, removeFrom } from '../../state.js';
 import type { Player, Val } from '../../types.js';
 
 function slotIdOf(v: Val | undefined): number | undefined {
@@ -25,7 +26,8 @@ registerCustom('c02.takePrize', (env, s, f, args) => {
     const c = ps.prizes.pop();
     if (c === undefined) continue;
     ps.hand.push(c);
-    removeFrom(ps.revealed, c); // taken face down
+    removeFrom(ps.revealed, c); // taken face down, unless it was turned face up: then both players know it
+    if (leavePrizeZone(ps, c)) ps.revealed.push(c);
     ps.prizesTaken++;
     emit(env, { type: 'prize_take', player: p, n: 1 });
   }
@@ -63,19 +65,16 @@ registerCustom('c02.energyAllToHand', (_env, s, f, args) => {
  * leave play). As with evolving, the Pokémon recovers from all Special Conditions and loses the effects of attacks on
  * it (the Claydol precedent, `devolveDefender`). It is marked as having evolved this turn, so it can't evolve again.
  */
-registerCustom('c02.devolve', (_env, s, f, args) => {
+registerCustom('c02.devolve', (env, s, f, args) => {
   const id = slotIdOf(f.vars[String(args.slot ?? 't')]);
   const loc = id === undefined ? null : findSlot(s, id);
   if (!loc || loc.slot.cards.length < 2) return 'next';
   const sl = loc.slot;
   const wanted = typeof f.vars[String(args.n)] === 'number' ? (f.vars[String(args.n)] as number) : 1;
   const n = Math.max(1, Math.min(wanted, sl.cards.length - 1));
-  const removed = sl.cards.splice(sl.cards.length - n, n);
+  const removed = devolve(env, s, sl, n, true); // "That Pokémon can't evolve this turn"
   const ps = s.p[loc.owner];
   ps.hand.push(...removed);
   ps.revealed.push(...removed);
-  sl.cond = 0;
-  s.effects = s.effects.filter((x) => !(x.slot === sl.id && x.fromAttack));
-  sl.evolvedTurn = s.turn;
   return 'next';
 });

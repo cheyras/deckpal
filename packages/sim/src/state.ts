@@ -278,6 +278,17 @@ export function leaveHand(ps: PlayerState, card: number): boolean {
   return true;
 }
 
+/**
+ * A card leaves the Prize zone: it stops being a face-up Prize (`prizesUp` lists only cards that are face up Prizes NOW, so no
+ * stale entry can pin a card that has since been shuffled or drawn). Returns true when it was face up, i.e. known to both players.
+ * `prizesUp` is replaced, never mutated: clones share the array.
+ */
+export function leavePrizeZone(ps: PlayerState, card: number): boolean {
+  if (!ps.prizesUp?.includes(card)) return false;
+  ps.prizesUp = ps.prizesUp.filter((c) => c !== card);
+  return true;
+}
+
 /** Take a card out of whichever hidden/public zone of its owner holds it (not from play). */
 export function takeFromZones(ps: PlayerState, card: number): boolean {
   if (leaveHand(ps, card)) return true;
@@ -288,7 +299,11 @@ export function takeFromZones(ps: PlayerState, card: number): boolean {
     ps.deck.splice(di, 1);
     return true;
   }
-  return removeFrom(ps.discard, card) || removeFrom(ps.prizes, card) || removeFrom(ps.lost, card);
+  if (removeFrom(ps.prizes, card)) {
+    leavePrizeZone(ps, card);
+    return true;
+  }
+  return removeFrom(ps.discard, card) || removeFrom(ps.lost, card);
 }
 
 /** Every card in a slot (Pokémon stack, Energy, Tools). */

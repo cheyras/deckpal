@@ -4,9 +4,10 @@
  *
  * A custom that asks a decision sets `s.pending` (the answer comes back as `answer`) and returns 'wait'.
  */
+import { evolveOnto as evolveStack } from '../../evolve.js';
 import { def, type Env } from '../../context.js';
 import { registerCustom, registerCustomCond } from '../../customs.js';
-import { allSlots, clearAttackEffects, emit, findSlot, removeFrom, topCard } from '../../state.js';
+import { allSlots, emit, findSlot, removeFrom, topCard } from '../../state.js';
 import type { Decision, Frame, GameState, Player, Slot } from '../../types.js';
 
 function ask(s: GameState, d: Decision, mode: 'cards' | 'slots' | 'index'): 'wait' {
@@ -25,13 +26,7 @@ function evolveOnto(env: Env, s: GameState, p: Player, sl: Slot, card: number): 
   if (!removeFrom(ps.deck, card)) return false;
   ps.prizesKnown = true; // the player looked through their deck
   emit(env, { type: 'search', player: p, found: [card] });
-  const spent = sl.usedAbilities.map((i) => def(env.ctx, topCard(sl)).abilities[i]?.name);
-  sl.cards.push(card);
-  sl.usedAbilities = def(env.ctx, card).abilities.flatMap((ab, i) => (spent.includes(ab.name) ? [i] : []));
-  sl.evolvedTurn = s.turn;
-  sl.cond = 0;
-  delete sl.movedActiveTurn;
-  clearAttackEffects(s, sl.id);
+  evolveStack(env, s, sl, card);
   emit(env, { type: 'evolve', player: p, card, slot: sl.id });
   return true;
 }

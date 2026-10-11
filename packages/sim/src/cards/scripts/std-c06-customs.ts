@@ -116,7 +116,7 @@ registerCustom('c06.attachSplit', (env, s, f, args, answer) => {
         .filter((l): l is NonNullable<ReturnType<typeof findSlot>> => !!l && l.owner === f.player)
         .map((l) => l.slot);
     }
-    return slotsIn(s, f.player, String(args.zone ?? 'myPokemon') as SlotZone).filter((sl) => slotMatches(env, sl, args.filter as Filter | undefined));
+    return slotsIn(s, f.player, String(args.zone ?? 'myPokemon') as SlotZone).filter((sl) => slotMatches(env, sl, args.filter as Filter | undefined, true, s));
   };
   let i = (f.vars.__c06i as number | undefined) ?? 0;
   const used = cardsOf(f.vars.__c06used);

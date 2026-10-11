@@ -4,12 +4,13 @@
  *
  * A custom that asks a decision sets `s.pending` (the answer comes back as `answer`) and returns 'wait'.
  */
+import { evolveOnto } from '../../evolve.js';
 import { def, type Env } from '../../context.js';
 import type { Filter } from '../../dsl.js';
 import { registerCustom, registerCustomCond } from '../../customs.js';
 import { cardMatches } from '../../eval.js';
 import { countersFixed, countersPrevented, effectsPrevented, maxHp, statics } from '../../query.js';
-import { allSlots, clearAttackEffects, emit, findSlot, healSlot, opp, removeFrom, topCard } from '../../state.js';
+import { allSlots, emit, findSlot, healSlot, opp, removeFrom, topCard } from '../../state.js';
 import type { Decision, GameState, Slot } from '../../types.js';
 
 function ask(s: GameState, d: Decision, mode: 'cards' | 'slots' | 'index'): 'wait' {
@@ -230,13 +231,7 @@ registerCustom('c15.evolveSelfFromDeck', (env, s, f, args, answer) => {
   if (pick === undefined || !removeFrom(ps.deck, pick)) return 'next';
   ps.prizesKnown = true; // the player looked through their deck
   emit(env, { type: 'search', player: f.player, found: [pick] });
-  const spent = sl.usedAbilities.map((i) => def(env.ctx, topCard(sl)).abilities[i]?.name);
-  sl.cards.push(pick);
-  sl.usedAbilities = def(env.ctx, pick).abilities.flatMap((ab, i) => (spent.includes(ab.name) ? [i] : []));
-  sl.evolvedTurn = s.turn;
-  sl.cond = 0;
-  delete sl.movedActiveTurn;
-  clearAttackEffects(s, sl.id);
+  evolveOnto(env, s, sl, pick);
   emit(env, { type: 'evolve', player: f.player, card: pick, slot: sl.id });
   return 'next';
 });

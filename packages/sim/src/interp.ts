@@ -260,7 +260,7 @@ function trainerBlocked(env: Env, s: GameState, f: Frame, t: Slot, all?: ReturnT
 
 function targetsOf(env: Env, s: GameState, f: Frame, to: SlotRef | { each: SlotZone; filter?: Filter } | { v: string }): Slot[] {
   if (typeof to === 'object' && 'each' in to) {
-    return slotsIn(s, f.player, to.each).filter((sl) => slotMatches(env, sl, to.filter));
+    return slotsIn(s, f.player, to.each).filter((sl) => slotMatches(env, sl, to.filter, true, s));
   }
   if (typeof to === 'object' && 'v' in to) {
     const v = f.vars[to.v];
@@ -282,7 +282,7 @@ function dealDamage(
 ): R {
   const attacker = findSlot(s, f.slot)?.slot;
   const all = statics(env, s);
-  const atkTypes = attacker ? slotTypes(env, attacker) : []; // "it is {F} and {P} type": both count against Weakness and Resistance
+  const atkTypes = attacker ? slotTypes(env, attacker, s) : []; // "it is {F} and {P} type": both count against Weakness and Resistance
   for (const target of targetsOf(env, s, f, to)) {
     const owner = ownerOf(s, target);
     const isActive = s.p[owner].active === target;
@@ -402,7 +402,7 @@ export function queueTriggers(
       if (t.t.minDamage !== undefined && !(typeof vars?.__damage === 'number' && vars.__damage >= t.t.minDamage)) continue;
       if (t.t.attacker) {
         const by = typeof vars?.__attacker === 'number' ? findSlot(s, vars.__attacker)?.slot : undefined;
-        if (!by || !slotMatches(env, by, t.t.attacker)) continue;
+        if (!by || !slotMatches(env, by, t.t.attacker, true, s)) continue;
       }
       if (dedupe && s.queued.some((q) => q.code === frame.code && q.slot === frame.slot && q.src === frame.src)) continue;
       if (t.t.noStack && seen) {
@@ -562,7 +562,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
         f.vars[st.as] = a as number[];
         return 'next';
       }
-      let opts = slotsIn(s, f.player, st.from).filter((sl) => slotMatches(env, sl, st.filter));
+      let opts = slotsIn(s, f.player, st.from).filter((sl) => slotMatches(env, sl, st.filter, true, s));
       // An attack or Ability can't choose an opponent's Pokémon that is protected from its effects... but
       // choosing a damage target is not an effect, so no filtering here; prevention applies at resolution.
       const [min, max] = bounds(opts.length, evalExpr(env, s, e, st.min), evalExpr(env, s, e, st.max));
@@ -650,7 +650,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
         const fromHand = s.p[owner].hand.includes(c); // lane:ghost
         if (fromHand && !canAttachFromHand(env, s, target)) continue;
         const only = def(env.ctx, c).script?.attachOnly; // "This card can only be attached to a Team Rocket's Pokémon."
-        if (only && !slotMatches(env, target, only)) continue;
+        if (only && !slotMatches(env, target, only, true, s)) continue;
         if (!takeFromZones(s.p[owner], c)) continue;
         target.energy.push(c);
         emit(env, { type: 'attach', player: owner, card: c, slot: target.id });
@@ -1068,7 +1068,7 @@ function discardEnergy(env: Env, s: GameState, f: Frame, st: Extract<Step, { op:
     // Nitro Fire Energy: only when the Pokémon that used the attack is of the kind the card names.
     const toHand = chosen.filter((c) => {
       const h = def(env.ctx, c).script?.handAfterOwnAttack;
-      return !!h && slotMatches(env, t, h.holder);
+      return !!h && slotMatches(env, t, h.holder, true, s);
     });
     if (toHand.length) {
       const root = s.stack.find((x) => x.kind === 'attack' && x.slot === f.slot) ?? f;

@@ -30,6 +30,7 @@ registerCustom('c31.redeemableTicket', (_env, s, f) => {
   const n = ps.prizes.length;
   if (!n) return 'next';
   const prizes = ps.prizes.splice(0);
+  if (ps.prizesUp?.length) ps.prizesUp = []; // the old Prize cards are in the deck now, the new ones face down
   for (let i = prizes.length - 1; i > 0; i--) {
     const j = Math.floor(rand(s, p) * (i + 1));
     const t = prizes[i] as number;

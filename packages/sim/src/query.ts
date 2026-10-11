@@ -50,8 +50,23 @@ function sources(ctx: Env['ctx']): Sources {
   return r;
 }
 
+let resolving = 0;
+/** True while `statics` is gathering (and filtering by Ability locks): Ability-given types are not applied then — see `slotTypes`. */
+export function staticsResolving(): boolean {
+  return resolving > 0;
+}
+
 /** Gather every live static. Ability statics of Pokémon under a no-Abilities effect are dropped. */
 export function statics(env: Env, s: GameState): LiveStatic[] {
+  resolving++;
+  try {
+    return gatherStatics(env, s);
+  } finally {
+    resolving--;
+  }
+}
+
+function gatherStatics(env: Env, s: GameState): LiveStatic[] {
   const out: LiveStatic[] = [];
   const ctx = env.ctx;
   // Non-ability sources first; they decide which Abilities are switched off.
@@ -177,7 +192,7 @@ export function affectsSlot(env: Env, s: GameState, x: LiveStatic, slot: Slot, o
     default:
       ok = false;
   }
-  return ok && slotMatches(env, slot, x.filter);
+  return ok && slotMatches(env, slot, x.filter, true, s);
 }
 
 export function affectsPlayer(x: LiveStatic, p: Player): boolean {
@@ -444,7 +459,7 @@ export function countersPrevented(
  * Team Rocket's Watchtower says {C} Pokémon have no Abilities, so they are not "Pokémon that have an Ability").
  */
 export function attackerMatches(env: Env, s: GameState, attacker: Slot, f: Filter, all = statics(env, s)): boolean {
-  if (!slotMatches(env, attacker, f)) return false;
+  if (!slotMatches(env, attacker, f, true, s)) return false;
   return !f.anyAbility || !hasNoAbilities(env, s, attacker, all);
 }
 
@@ -483,7 +498,7 @@ export function damageOut(env: Env, s: GameState, attacker: Slot, target: Slot, 
   const once = new Set<string>(); // lane:trevenant — noStack keys already counted
   for (const x of onSlot(env, s, all, attacker, 'damageOut')) {
     const e = x.effect as { amount: number; vs?: Filter; noStack?: string };
-    if (e.vs && !slotMatches(env, target, e.vs)) continue;
+    if (e.vs && !slotMatches(env, target, e.vs, true, s)) continue;
     if (e.noStack) {
       if (once.has(e.noStack)) continue;
       once.add(e.noStack);
@@ -520,9 +535,17 @@ export function damageIn(
   return n;
 }
 
-export function hasNoAbilities(env: Env, s: GameState, slot: Slot, all = statics(env, s)): boolean {
-  const owner = ownerOf(s, slot);
-  return onSlot(env, s, all, slot, 'noAbilities').some((x) => x.slot !== slot.id && lockBites(env, s, all, x, slot, owner));
+export function hasNoAbilities(env: Env, s: GameState, slot: Slot, all?: LiveStatic[]): boolean {
+  // Working out who is locked reads the locks' filters, which may ask for a type, which an Ability may give, which asks whether the
+  // Abilities are on: the loop is broken here as in `statics` — Ability-given types are not applied (see `slotTypes`).
+  resolving++;
+  try {
+    const live = all ?? statics(env, s);
+    const owner = ownerOf(s, slot);
+    return onSlot(env, s, live, slot, 'noAbilities').some((x) => x.slot !== slot.id && lockBites(env, s, live, x, slot, owner));
+  } finally {
+    resolving--;
+  }
 }
 
 /** lane:misc — Damp: "this Pokémon is Knocked Out" Abilities are lost while a loseSelfKoAbilities effect applies. */
@@ -796,7 +819,7 @@ export function benchLimit(env: Env, s: GameState, p: Player, all = statics(env,
   for (const x of all) {
     if (x.effect.k !== 'benchSize' || !affectsPlayer(x, p) || x.effect.size <= n) continue;
     const need = x.effect.withPokemon;
-    if (need && !allSlots(s.p[p]).some((sl) => slotMatches(env, sl, need))) continue;
+    if (need && !allSlots(s.p[p]).some((sl) => slotMatches(env, sl, need, true, s))) continue;
     n = x.effect.size;
   }
   return n;
