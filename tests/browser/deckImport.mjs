@@ -446,9 +446,23 @@ async function checkLatestImport(page, server, width, out) {
   await text.fill(Array(30).fill('1 Squirtle SVI 54').join('\n'))
   await firstRequest
   const abortedBefore = await page.evaluate(() => window.__importChecksAborted)
-  await text.focus()
-  await text.press('ControlOrMeta+End')
-  await text.pressSequentially('          ', { delay: 35 })
+  // The ten edits are typed by the PAGE's own timers, 35 ms apart, not by ten
+  // keystroke round-trips from Node: on a loaded CI runner one of those
+  // round-trips could stall past the 300 ms debounce and send a genuine third
+  // check ("ten edits should send at most two checks, got 3"). Page timers
+  // stall together with the debounce timer: after a stall, overdue timers run
+  // in due order, so each edit (an input event, flushed synchronously by
+  // React) resets the debounce before it can fire. Same property, without
+  // the Node round-trip race (timers are not exact, so a long enough stall can
+  // still fail the real-time assertions around it, as it can anywhere here).
+  await text.evaluate(async (el) => {
+    const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set
+    for (let i = 0; i < 10; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 35))
+      setValue.call(el, el.value + ' ')
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+  })
   await page.waitForFunction(before => window.__importChecksAborted > before, abortedBefore)
   assert.equal(await submit.isDisabled(), true)
   assert.match(await submit.innerText(), /Checking/)
