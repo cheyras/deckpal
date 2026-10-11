@@ -51,7 +51,8 @@ export interface Triage {
   signals: TriageSignal[];
   missing: string[];
   wantsDeep: 'no' | 'offer' | 'requested';
-  source: 'model' | 'heuristic';
+  /** `jev`: `jevRoute.ts` answered with confidence and Haiku was not waited for. */
+  source: 'model' | 'heuristic' | 'jev';
   /** Set only when `runTriage` fell back to the heuristic. */
   fallbackReason?: TriageFallbackReason;
 }

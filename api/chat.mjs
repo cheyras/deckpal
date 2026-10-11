@@ -231,6 +231,7 @@ import {
 } from '../apps/api/dist/decke/turnGuards.js'
 import { failingTools, readerAsksRetry } from '../apps/api/dist/decke/failing.js'
 import { readReflex } from '../apps/api/dist/decke/reflex.js'
+import { jevRouteEnabled, readJevRoute } from '../apps/api/dist/decke/jevRoute.js'
 import {
   auditTurn,
   turnToolNames,
@@ -731,21 +732,50 @@ async function serve(request) {
   // Triage is ADVISORY: recorded under its own `triage` operation key, and a
   // provider error never marks the request failed — it falls back to the
   // deterministic heuristic by design, and the reply it routes may succeed.
-  const [reflex, triage] = await Promise.all([
+  //
+  // ── JEV ROUTES WHEN IT IS SURE (2026-10-11) ──────────────────────────────
+  //
+  // Haiku triage and a Jev route read (`jevRoute.ts`) start together. Jev
+  // answers in ~0.27 s; if its pathway answer is at least 0.9 confident, its
+  // route is used and the reply stops waiting ~1.1 s for Haiku. Haiku is NOT
+  // aborted: it finishes in the background and the request's settlement waits
+  // for it (`usage.pending`), so its real cost is recorded — an aborted call
+  // settled at no recorded cost while the Gateway still billed its prompt. If
+  // Haiku has already answered, its answer is used: the better one, and free.
+  // Otherwise — Jev off (`DECKE_JEV` or `DECKE_JEV_ROUTE`), unsure, slow or failing — Haiku's
+  // triage routes exactly as before. Measured on the triage eval: the hybrid's
+  // tier accuracy was within a point of Haiku's (96.6% vs 97.5%; held-out
+  // 96.7% both), with the same one under-route and Jev deciding 62% of messages.
+  const triageInput = {
+    message: latestUserText(messages),
+    previousReply: previousAssistantText(messages).slice(-800),
+    page: route,
+    pasted: pastedNow,
+    answering: answeringAsk(messages),
+  }
+  let haikuSettled = null
+  const haikuTriage = echoed ? null : runAdvisoryUsage(usage, 'triage', () => runTriage({
+    ...triageInput,
+    model: observeUsageModel(gateway(TRIAGE.id), meter),
+    signal: request.signal,
+  })).then((value) => {
+    triageMs = Math.round(performance.now() - triageStarted)
+    haikuSettled = value
+    return value
+  })
+  const [reflex, jevRoute] = await Promise.all([
     runAiUsage(usage, () => readReflex(messages, route, { key, signal: request.signal })),
-    echoed ? null : runAdvisoryUsage(usage, 'triage', () => runTriage({
-      message: latestUserText(messages),
-      previousReply: previousAssistantText(messages).slice(-800),
-      page: route,
-      pasted: pastedNow,
-      answering: answeringAsk(messages),
-      model: observeUsageModel(gateway(TRIAGE.id), meter),
-      signal: request.signal,
-    })).then((value) => {
-      triageMs = Math.round(performance.now() - triageStarted)
-      return value
-    }),
+    echoed || !jevRouteEnabled() ? null : runAiUsage(usage, () => readJevRoute(triageInput, { key, signal: request.signal })),
   ])
+  let triage
+  if (jevRoute?.route && !haikuSettled) {
+    usage.pending.add(haikuTriage)
+    void haikuTriage.finally(() => usage.pending.delete(haikuTriage))
+    triage = jevRoute.route
+    triageMs = jevRoute.ms ?? triageMs
+  } else {
+    triage = haikuTriage ? await haikuTriage : null
+  }
   // ── THIS REQUEST'S TIER: DEEP FIRST, THEN THE ECHO, THEN TRIAGE ──────────
   //
   // The approval leg and every grant leg are CONTINUATIONS, so the browser
@@ -797,6 +827,8 @@ async function serve(request) {
     triage: echoed ? 'echo' : triage.source,
     leg: firstLeg ? 'first' : 'continuation',
     triageMs,
+    // Jev's own read, used or not, so the hybrid's hit rate is visible in production.
+    jev: jevRoute?.confidence == null ? null : { confidence: Math.round(jevRoute.confidence * 100) / 100, ms: jevRoute.ms },
     deep: deepRouted?.via ?? null,
   }))
   let capReached = await meteredCapReached(usage)

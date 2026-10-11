@@ -1470,7 +1470,11 @@ out — plus research and deck checking in the normal streamed loop, against the
 six cosmetic tools of the original ship.
 
 Where §15 is the body, this is everything that decides what the body does. Every
-request first gets a bounded Haiku 5.5 triage call; Haiku fills a typed rubric
+request first gets a bounded Haiku 5.5 triage call — and, at the same moment, a
+Jev route read (`jevRoute.ts`, ~0.27 s): when Jev's pathway answer is at least
+0.9 confident its route is used and Haiku is stopped, which starts about 62% of
+first replies ~0.9 s sooner at the same measured tier accuracy
+(`scripts/decke-jev-route-eval.mjs`); otherwise Haiku's triage routes as below; Haiku fills a typed rubric
 (pathway, signals, missing inputs and deep intent), and a deterministic heuristic
 fills it if triage times out, errors, refuses or returns an invalid call. Code in
 `tiers.ts`, not the classifier's confidence, then chooses the tier from pathway
