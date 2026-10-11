@@ -1,7 +1,6 @@
 /** Every card script, by era and lane. Regenerated from the lane files on disk. */
 import type { CardScript } from '../../dsl.js';
 import { SV } from './sv.js';
-import { STD_SEED1 } from './std-seed1.js';
 import { ME } from './me.js';
 import { GHOST } from './ghost.js';
 import { FIGHTING } from './fighting.js';
@@ -15,5 +14,7 @@ import { META_GRIMMSNARL } from './meta-grimmsnarl.js';
 import { META_TREVENANT } from './meta-trevenant.js';
 import { META_ZOROARK } from './meta-zoroark.js';
 import { OPP } from './opp.js';
+import { STD_SEED1 } from './std-seed1.js';
+import { STD_SEED2 } from './std-seed2.js';
 
-export const SCRIPTS: CardScript[] = [...SV, ...ME, ...GHOST, ...FIGHTING, ...METAL, ...MISC, ...META_BLAZIKEN, ...META_CHARIZARD, ...META_DARKRAI, ...META_EXCADRILL, ...META_GRIMMSNARL, ...META_TREVENANT, ...META_ZOROARK, ...OPP, ...STD_SEED1];
+export const SCRIPTS: CardScript[] = [...SV, ...ME, ...GHOST, ...FIGHTING, ...METAL, ...MISC, ...META_BLAZIKEN, ...META_CHARIZARD, ...META_DARKRAI, ...META_EXCADRILL, ...META_GRIMMSNARL, ...META_TREVENANT, ...META_ZOROARK, ...OPP, ...STD_SEED1, ...STD_SEED2];
