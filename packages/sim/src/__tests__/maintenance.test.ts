@@ -120,3 +120,75 @@ test('the committed rulings index is well formed and holds no ruling text', () =
   assert.ok(snap.rulings.every((r) => Object.keys(r).sort().join() === 'categories,date,hash,id,source' && /^[0-9a-f]{16}$/.test(r.hash) && r.source));
   assert.ok(raw.length < 600_000, 'an index, not the Compendium text');
 });
+
+// ── refresh-card-tables decision logic, on fixtures ────────────────────────────────────────────────────────────────
+import { buildTables, type Printing, type PtcgCard, type RefreshInput } from '../maintenance/refresh.js';
+
+const P = (cardId: string, name: string, mark: string | null = 'I'): Printing => ({ cardId, name, category: 'Pokemon', mark, setId: cardId.slice(0, cardId.lastIndexOf('-')) });
+const U = (id: string, name: string, number: string, set: string, extra: Partial<PtcgCard> = {}): PtcgCard => ({ id, name, number, set: { id: set }, ...extra });
+const FIRE_WEAK = [{ type: 'Fire', value: '×2' }];
+function input(over: Partial<RefreshInput> = {}): RefreshInput {
+  return {
+    marks: ['H', 'I', 'J'],
+    printings: [P('sv06-001', 'Snivy'), P('sv06-002', 'Servine'), P('sv01-001', 'Old Card', 'G')],
+    tera: [],
+    tags: { Ancient: [], Future: [] },
+    lacking: new Map(),
+    wrUpstream: new Map(),
+    existing: { tera: new Set(), tags: {}, wr: {} },
+    ...over,
+  };
+}
+
+test('a matching upstream entry is added; a clean build has no problems', () => {
+  const r = buildTables(input({ tera: [U('sv6-1', 'Snivy', '1', 'sv6')], tags: { Ancient: [U('sv6-2', 'Servine', '2', 'sv6')], Future: [] } }));
+  assert.deepEqual([...r.tera], ['sv06-001']);
+  assert.deepEqual(r.tags, { 'sv06-002': 'Ancient' });
+  assert.deepEqual(r.problems, []);
+});
+
+test('a name mismatch is a problem, the entry is left out, and the existing entry shows as an unverified removal', () => {
+  const r = buildTables(input({ tera: [U('sv6-1', 'Snivy ex', '1', 'sv6')], existing: { tera: new Set(['sv06-001']), tags: {}, wr: {} } }));
+  assert.equal(r.problems.length, 1);
+  assert.match(r.problems[0]!, /"Snivy ex" but the catalog's sv06-001 is "Snivy"/);
+  assert.equal(r.tera.size, 0);
+  assert.deepEqual(r.unverifiedRemovals, [{ table: 'tera.ts', ids: ['sv06-001'] }]);
+});
+
+test('an unmapped set and an id missing from the catalog are problems', () => {
+  const r = buildTables(input({ tera: [U('swsh1-1', 'X', '1', 'swsh1'), U('sv6-99', 'Ghost', '99', 'sv6')] }));
+  assert.equal(r.problems.length, 2);
+  assert.match(r.problems[0]!, /no mapping/);
+  assert.match(r.problems[1]!, /not in the catalog/);
+});
+
+test('printed W/R: written when upstream has it; kept when upstream is missing, unmapped or empty; dropped only when the catalog supplies it', () => {
+  const lack = [P('sv06-001', 'Snivy')];
+  const old = { weaknesses: FIRE_WEAK, resistances: [] };
+  // upstream has it
+  let r = buildTables(input({ lacking: new Map([['sv06', lack]]), wrUpstream: new Map([['sv06', [U('sv6-1', 'Snivy', '1', 'sv6', { weaknesses: FIRE_WEAK })]]]) }));
+  assert.deepEqual(r.wr['sv06-001'], old);
+  // card missing upstream: the existing entry stays, as a gap
+  r = buildTables(input({ lacking: new Map([['sv06', lack]]), wrUpstream: new Map([['sv06', []]]), existing: { tera: new Set(), tags: {}, wr: { 'sv06-001': old } } }));
+  assert.deepEqual(r.wr['sv06-001'], old);
+  assert.equal(r.gaps.length, 1);
+  assert.equal(r.keptUnresolved, 1);
+  // set has no upstream mapping: kept
+  r = buildTables(input({ lacking: new Map([['sv06', lack]]), existing: { tera: new Set(), tags: {}, wr: { 'sv06-001': old } } }));
+  assert.deepEqual(r.wr['sv06-001'], old);
+  // upstream card exists but now has neither: kept, counted
+  r = buildTables(input({ lacking: new Map([['sv06', lack]]), wrUpstream: new Map([['sv06', [U('sv6-1', 'Snivy', '1', 'sv6')]]]), existing: { tera: new Set(), tags: {}, wr: { 'sv06-001': old } } }));
+  assert.deepEqual(r.wr['sv06-001'], old);
+  assert.equal(r.noUpstream, 1);
+  // upstream name mismatch: a problem, and the entry is still kept
+  r = buildTables(input({ lacking: new Map([['sv06', lack]]), wrUpstream: new Map([['sv06', [U('sv6-1', 'Other', '1', 'sv6', { weaknesses: FIRE_WEAK })]]]), existing: { tera: new Set(), tags: {}, wr: { 'sv06-001': old } } }));
+  assert.equal(r.problems.length, 1);
+  assert.deepEqual(r.wr['sv06-001'], old);
+  // the catalog supplies W/R itself now (printing no longer lacks it): a verified removal
+  r = buildTables(input({ lacking: new Map([['sv06', []]]), existing: { tera: new Set(), tags: {}, wr: { 'sv06-001': old } } }));
+  assert.equal(r.wr['sv06-001'], undefined);
+  // a rotated printing is never dropped
+  r = buildTables(input({ existing: { tera: new Set(), tags: {}, wr: { 'sv01-001': old } } }));
+  assert.deepEqual(r.wr['sv01-001'], old);
+  assert.equal(r.keptRotated, 1);
+});

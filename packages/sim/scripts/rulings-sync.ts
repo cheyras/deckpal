@@ -7,8 +7,8 @@
  *   node --import tsx scripts/rulings-sync.ts                 # fetch, report new rulings on scripted cards, update the index
  *   node --import tsx scripts/rulings-sync.ts --no-write      # same, but leave the index as it is (the next run reports again)
  *   node --import tsx scripts/rulings-sync.ts --all           # report every ruling on a scripted card, not only the new ones
- *   node --import tsx scripts/rulings-sync.ts --uncited       # only the rulings no test cites
- *   node --import tsx scripts/rulings-sync.ts --verbose       # print every row (default: first 60)
+ *   node --import tsx scripts/rulings-sync.ts --uncited       # EVERY ruling on a scripted card that no test cites (not only the new ones)
+ *   node --import tsx scripts/rulings-sync.ts --verbose       # print every row of --all / --uncited / the first run (default: first 60). The new/changed report is always printed in full
  *   node --import tsx scripts/rulings-sync.ts --from page.html   # parse a saved copy of the page instead of fetching
  *
  * Index: packages/sim/data/rulings-compendium.json (one entry per line, newest first): id, date, the card / attack / Ability
@@ -34,7 +34,8 @@ const SNAPSHOT = join(SIM, 'data', 'rulings-compendium.json');
 const PAGE = 'https://compendium.pokegym.net/all-rulings-by-date/';
 const argv = process.argv.slice(2);
 const flag = (n: string) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : undefined);
-const NO_WRITE = argv.includes('--no-write');
+const ALL_ = argv.includes('--all');
+const NO_WRITE = argv.includes('--no-write') || ALL_ || argv.includes('--uncited'); // a listing run never advances the index: only the full new/changed report does
 const ALL = argv.includes('--all');
 const UNCITED = argv.includes('--uncited');
 const VERBOSE = argv.includes('--verbose');
@@ -94,20 +95,23 @@ function rows(list: Ruling[]): Row[] {
   return out;
 }
 
-const scope = ALL || !prev ? rulings : fresh;
+const DELTA = !ALL && !UNCITED && !!prev; // the report of what is new / changed since the last index
+const scope = DELTA ? fresh : rulings;
 const hit = rows(scope);
-const everyHit = ALL || !prev ? hit : rows(rulings);
+const everyHit = DELTA ? rows(rulings) : hit;
 const count = (rs: Row[]) => `${rs.length} (category ${rs.filter((r) => r.by === 'category').length}, text ${rs.filter((r) => r.by === 'text').length}; cited in a test ${rs.filter((r) => r.test).length}, only in a script ${rs.filter((r) => !r.test && r.code).length}, uncited ${rs.filter((r) => !r.test && !r.code).length})`;
 console.log(`scripted cards: ${cards.length}; rulings anywhere citing a Compendium id: tests ${inTests.size}, other source ${inCode.size}`);
 console.log(`ALL ${rulings.length} rulings: ${count(everyHit)} name a scripted card`);
-console.log(`${ALL || !prev ? 'REPORTED' : 'NEW/CHANGED'} rulings (${scope.length}): ${count(hit)} name a scripted card`);
+console.log(`${DELTA ? 'NEW/CHANGED' : 'REPORTED'} rulings (${scope.length}): ${count(hit)} name a scripted card`);
 
 const shown = hit.filter((r) => !UNCITED || !r.test);
-console.log(`\n${shown.length} row(s)${UNCITED ? ' not cited by a test' : ''}${VERBOSE || shown.length <= 60 ? '' : ' (first 60; --verbose for all)'}:`);
-for (const r of VERBOSE ? shown : shown.slice(0, 60)) {
+console.log(`\n${shown.length} row(s)${UNCITED ? ' not cited by a test' : ''}${VERBOSE || DELTA || shown.length <= 60 ? '' : ' (first 60; --verbose for all)'}:`);
+// The delta is always printed in full: the index advances after this run, so a row dropped here would never be reported again.
+for (const r of VERBOSE || DELTA ? shown : shown.slice(0, 60)) {
   const cites = r.test ? 'test' : r.code ? 'script only' : 'UNCITED';
+  const kind = DELTA ? (known.has(r.ruling.id) ? 'CHANGED ' : 'NEW ') : '';
   const who = r.cards.slice(0, 4).map((c) => `${c.name} (${c.id}, ${c.file})`).join('; ') + (r.cards.length > 4 ? ` +${r.cards.length - 4} more` : '');
-  console.log(`  #${r.ruling.id} ${r.ruling.date ?? '----------'} [${r.by}, ${cites}] ${who}\n      ${(r.ruling.q ?? r.ruling.a).replace(/\s+/g, ' ').slice(0, 150)}`);
+  console.log(`  #${r.ruling.id} ${r.ruling.date ?? '----------'} [${kind}${r.by}, ${cites}] ${who}\n      ${(r.ruling.q ?? r.ruling.a).replace(/\s+/g, ' ').slice(0, 150)}`);
 }
 
 // 4. The index (no ruling text).
