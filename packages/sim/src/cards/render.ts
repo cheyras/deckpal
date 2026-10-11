@@ -244,6 +244,8 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c19.shuffleSelfIntoDeck': () => 'Shuffle this card into your deck instead of discarding it',
   'c19.coinDraw': (a) => `Each player flips a coin. If heads, that player draws ${Number(a.heads ?? 6)} cards. If tails, they draw ${Number(a.tails ?? 3)} cards`,
   'c19.scoopUp': (a) => `Put the Pokémon chosen as "${String(a.slot ?? 't')}" and all attached cards into your hand`,
+  's01.markHitWhileActive': () => 'Mark this Pokémon, for this turn only, as damaged in the Active Spot',
+  's01.moveEnergyToBenched': (a) => `Choose 1 of your Benched Pokémon other than this one and move up to ${Number(a.max ?? 1)} (at least one) of the ${energyNoun(a.filter as Filter | undefined)} cards attached to this Pokémon to it`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -268,6 +270,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'c21.oppBenchLowHp': (a) => `your opponent has a Pokémon on their Bench that has ${Number(a.max ?? 90)} HP or less remaining`,
   'c16.remainingHpAtMost': (a) => `the HP of the Pokémon this is attached to (with any HP changes) minus its damage is ${Number(a.n ?? 30)} or less`,
   'c19.supporterPlayedThisTurn': () => 'the player played a Supporter card from their hand this turn',
+  's01.hitWhileActive': () => 'it was marked as damaged in the Active Spot this turn',
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
