@@ -83,6 +83,39 @@ export interface EmbedThresholds {
   marginMin: number
   /** Below this the top candidate is not worth showing at all. */
   simFloor: number
+  /**
+   * A second way to be confident, for a space where it was measured: a match
+   * that stands FAR clear of its runner-up (margin >= marginMin here) at a
+   * lower similarity (>= simMin here). Either tier passing is enough; the
+   * main tier is unchanged. See the checkpoint's entry for what it rests on.
+   */
+  wide?: { simMin: number; marginMin: number }
+}
+
+/**
+ * The confidence rule itself, in one place, so `identityConfidence` and the
+ * API's `vectorVerdict` cannot drift apart: the main tier (simMin AND
+ * marginMin), or the wide tier where the checkpoint has one. A null margin (a
+ * single candidate) is never confident.
+ *
+ * `mainTierOnly` is for an answer that had more than one try at the gate — the
+ * scanner's turned crops (router.ts), three extra looks at the same capture.
+ * The wide tier was measured on ONE look per capture, and its lower similarity
+ * bar is exactly what extra looks at a non-card get to try their luck against:
+ * replayed on the owner's photos and video captures (2026-10-10), a turned
+ * Pokémon TCG Live code card cleared it as Beedrill ex. No turned answer that
+ * was right needed it.
+ */
+export function isConfidentScore(
+  t: EmbedThresholds,
+  similarity: number,
+  margin: number | null,
+  opts: { mainTierOnly?: boolean } = {},
+): boolean {
+  if (margin === null || similarity < t.simFloor) return false
+  if (similarity >= t.simMin && margin >= t.marginMin) return true
+  if (opts.mainTierOnly) return false
+  return t.wide !== undefined && similarity >= t.wide.simMin && margin >= t.wide.marginMin
 }
 
 /**
@@ -112,6 +145,50 @@ export const THRESHOLDS: Readonly<Record<string, EmbedThresholds>> = {
   // 88 MB. Written down rather than recomputed later, so the device probe can
   // switch to it on one line plus a migration.
   'tinyclip-vit-betwixt32-laion400m': { simMin: 0.785, marginMin: 0.035, simFloor: 0.55 },
+  // THE FINE-TUNED CHECKPOINT, v2, 2026-10-10 (tools/scan-embed, run r4
+  // last.pt): CLIP ViT-B/32 trained on synthetic phone captures of the
+  // 20,467-card catalogue, with identical-art printings matched colour-blind
+  // (same_art.py) and kept out of each other's negatives, a colour-cast
+  // augmentation, and 185 of the owner's real photos as extra queries. It
+  // replaced v1 (run r1) BEFORE either was deployed; v1's numbers are in the
+  // decision file. Everything below is the production pairing (fp32 gallery x
+  // int8 query) embedded one capture at a time, as production does — dynamic
+  // int8 quantizes per batch, so batched numbers drift.
+  //
+  // On the scan benchmark's 256 real crops its wrong top-1s come in clean
+  // clusters, and each knob sits in the gap of one:
+  //   cards with NO art in the catalogue   top-1 sim <= 0.484  -> simMin 0.65
+  //   any other wrong card                 top-1 sim <= 0.500
+  //   identical-art reprints (right art,   margin  <= 0.008   -> marginMin 0.03
+  //     wrong printing — OCR's job; v2 is trained NOT to split them, so its
+  //     top-1 among them is a coin toss and top-1 falls to 90.6% from v1's
+  //     93.8% while the decisive answers rise)
+  // Pooled with the owner's verified quad photos and the video replays, the
+  // strongest wrong card or negative anywhere reaches sim 0.597 (margin 0.019),
+  // 0.053 under simMin; with a margin of 0.03 or more, 0.552. The floor stays
+  // with the space: the weakest true matches sit near 0.45, and a candidate
+  // there is still worth showing (and corroborating), which is all it decides.
+  //
+  // THE WIDE TIER. Low-resolution captures — video frames, a card far from the
+  // lens — lower EVERY similarity, the right one included, so a clean match can
+  // land at 0.5 while standing 0.15 clear of anything else. simMin alone
+  // refuses those. The strongest wrong card or negative with sim >= 0.45 has
+  // margin 0.102 (an owner photo of a Gym Heroes card named as a Trainer
+  // Gallery card); 0.10 names it, 0.12 sits above it and 15x above the
+  // same-art cluster, so the wide tier never decides a reprint pair.
+  // (A video "stray" at 0.562 / 0.125 is a motion-blurred real Tyrogue just
+  // outside its ground-truth window, and the tier names it correctly.)
+  //
+  // Named confidently (gate_sweep.py, 2026-10-10), main tier -> with wide tier:
+  //   bench, 247 cards + 11 negatives + 9 no-art   210 -> 212 exact, 0 wrong
+  //   owner quad photos verified by eye, 227 cards 148 -> 157 exact, 0 wrong card,
+  //     + 35 negatives + 10 no-art                 0 negatives; wrong PRINTING
+  //                                                11 -> 12, plus 7 no-art
+  //                                                Celebrations Classic Collection
+  //                                                reprints named as the original
+  //   video replay captures, 106 cards + strays    55 -> 64 exact, 0 wrong
+  // (v1 on the same sets at the same gate: 210, 152 with 17 + 2 printing, 64.)
+  'deckpal-card-b32-v2': { simMin: 0.65, marginMin: 0.03, simFloor: 0.45, wide: { simMin: 0.45, marginMin: 0.12 } },
 }
 
 export type IdentityLevel = 'confident' | 'uncertain' | 'none'
@@ -167,8 +244,7 @@ export function identityConfidence(
   }
   // A single candidate cannot be checked against a runner-up, and the answer to
   // "how sure are you" when there is nothing to compare against is not "very".
-  const marginOk = margin !== null && margin >= t.marginMin
-  const level: IdentityLevel = top.similarity >= t.simMin && marginOk ? 'confident' : 'uncertain'
+  const level: IdentityLevel = isConfidentScore(t, top.similarity, margin) ? 'confident' : 'uncertain'
   return { level, cardId: top.cardId, similarity: top.similarity, margin, modelId }
 }
 

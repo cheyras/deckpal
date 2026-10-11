@@ -40,7 +40,8 @@
 
 import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import { existsSync, mkdirSync, createWriteStream } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, createReadStream, createWriteStream } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -169,6 +170,22 @@ async function fetchTargets(pool: QueryablePool, args: Args, stamp: string): Pro
  * rows labelled with a stamp the embedder did not produce is the one failure
  * mode that would not show up until a scan came back wrong.
  */
+/**
+ * sha256 of the fp32 CATALOGUE-side export per model id, where it is known —
+ * `tools/scan-embed/export.py`'s manifest. (The shipped zero-shot checkpoint
+ * predates this pin; its export was made by hand.)
+ */
+const GALLERY_MODEL_SHA256: Readonly<Record<string, string>> = {
+  // deckpal-card-b32-v2.fp32.onnx (run r4 last.pt, 2026-10-10)
+  'deckpal-card-b32-v2': '45516f0ee7ca651df5d54d9b0b31680eebd4e619140ba9b1d84704b8230e4bf3',
+}
+
+async function sha256File(path: string): Promise<string> {
+  const h = createHash('sha256')
+  for await (const chunk of createReadStream(path)) h.update(chunk as Buffer)
+  return h.digest('hex')
+}
+
 async function startWorker(args: Args, stamp: string) {
   if (!existsSync(args.model)) {
     throw new Error(
@@ -176,6 +193,24 @@ async function startWorker(args: Args, stamp: string) {
         'This job will not fall back to another checkpoint: a catalogue embedded with the wrong model is worse than an empty one, ' +
         'because it looks finished.',
     )
+  }
+  // THE FILE, NOT JUST THE NAME (2026-10-09). The worker's stamp handshake below
+  // compares two constants and never looks at the weights, so pointing this job
+  // at the zero-shot export while EMBED_MODEL_ID names the fine-tuned one would
+  // write zero-shot vectors under the fine-tuned stamp — and the scanner would
+  // then match fine-tuned queries against them with the fine-tuned (looser)
+  // gate. Where the expected file is known, its digest is checked first.
+  const pinned = GALLERY_MODEL_SHA256[EMBED_MODEL_ID]
+  if (pinned) {
+    const digest = await sha256File(args.model)
+    if (digest !== pinned) {
+      throw new Error(
+        `${args.model} is not the ${EMBED_MODEL_ID} catalogue model (sha256 ${digest.slice(0, 12)}…, expected ${pinned.slice(0, 12)}…). ` +
+          'Pass --model the fp32 file tools/scan-embed/export.py wrote for this id.',
+      )
+    }
+  } else {
+    console.warn(`[embed] no pinned digest for ${EMBED_MODEL_ID}'s catalogue model — trusting ${args.model}`)
   }
   const child = spawn(
     args.python,

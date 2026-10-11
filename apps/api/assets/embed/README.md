@@ -17,7 +17,8 @@ that had ever happened.
 
 `scripts/fetch-embed-model.mjs` runs **first** in `vercel.json`'s
 `buildCommand`. It downloads the checkpoint from the `card-art` bucket, where it
-is staged as `models/clip-vit-b32-openai.onnx.part0`, `.part1`, … — one 88 MB
+is staged as `models/<EMBED_MODEL_ID>.onnx.part0`, `.part1`, … (since #288
+`deckpal-card-b32-v2`; `scripts/stage-embed-model.mjs` stages a new one) — one 88 MB
 object was refused with a 413 `EntityTooLarge`, so it is split — concatenates
 the parts in order, verifies a **pinned sha256 over the whole file**, and writes
 it here.
@@ -43,7 +44,7 @@ arithmetic.
 
 ## What goes here
 
-`clip-vit-b32-openai.onnx` — the export named by `EMBED_MODEL_ID`
+`<EMBED_MODEL_ID>.onnx` (today `deckpal-card-b32-v2.onnx`) — the export named by `EMBED_MODEL_ID`
 (`packages/matching/src/input-spec.ts`). **The same file
 `tools/embed-catalog` uses**, and it must be: a query vector and a catalogue
 vector are comparable only when one model produced both. The export snippet is
