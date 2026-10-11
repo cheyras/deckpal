@@ -149,6 +149,9 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'seed4.discardPicked': (a) => `Discard the Energy cards chosen as "${String(a.cards ?? 'd')}" from the Pokémon they are attached to`,
   'seed4.energyToOppHand': (a) => `Put ${Number(a.n ?? 2)} Energy attached to your opponent's Active Pokémon into their hand (all of them if it has fewer)`,
   'seed4.shuffleSlotIntoDeck': (a) => `Shuffle the Pokémon chosen as "${String(a.slot ?? 't')}" and all attached cards into their deck`,
+  // std-c03-customs.ts
+  'c03.grimsleysMove': (a) =>
+    `Look at the top ${Number(a.n ?? 7)} cards of your deck. Choose a {D} Pokémon (of any Stage) you find there and put it onto your Bench if it has room. Shuffle the other cards and put them on the bottom of your deck`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -157,6 +160,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'trevenant.hopsKoByAttackLastTurn': () => "one of your Pokémon with \"Hop's\" in its name was Knocked Out by damage from an attack during your opponent's last turn", // lane:trevenant
   'std.attackKoLastTurn': () => "one of your Pokémon was Knocked Out by damage from an attack during your opponent's last turn",
   'seed3.defenderKnockedOutByThisAttack': () => "your opponent's Pokémon (the Defending Pokémon) was damaged by this attack and now has damage equal to or over its HP (it is Knocked Out)",
+  'c03.ownFirstTurn': () => 'it is your first turn (turn 1 if you went first, turn 2 if you did not)',
   rareCandyPlayable: () => "it isn't your first turn and you have a Basic Pokémon in play, not put into play this turn, that a Stage 2 card in your hand evolves from",
 };
 
@@ -1595,5 +1599,26 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me05-067|attack:Fly': {
     problems: ['"tails" is printed but not rendered'],
     why: '"If tails, this attack does nothing" is the else branch of the heads test: the flip renders as "If heads, ... Otherwise, this effect ends here", so tails is the unnamed complement; the card test pins tails (no damage, no protection) and heads.',
+  },
+  // std-c03
+  'me02-072|attack:Tool Drop': {
+    problems: ['the rendering involves the opponent'],
+    why: '"All Pokémon" means every Pokémon in play, both players; seed2.sumAttached over the allPokemon zone says so in words ("both yours and your opponent\'s"), which the printed text leaves implicit.',
+  },
+  'me02-078|attack:Astonish': {
+    problems: ['"reveal" is printed but not rendered'],
+    why: 'The random card is revealed and then immediately shuffled into the deck, so the reveal has no later effect and nothing in the script keeps it; the custom picks the card uniformly at random and the card moves to the deck.',
+  },
+  'me02-079|attack:Dual Tail': {
+    problems: ['"each" is printed but not rendered'],
+    why: '"60 damage to each of 2 of your opponent\'s Pokémon" is one chooseSlots of exactly 2 and one damage step to the chosen Pokémon, so each gets the 60; the card test pins both.',
+  },
+  'me02-080|attack:Energizing Sketch': {
+    problems: ['"up to', 'similarity'],
+    why: '"An amount of Basic Energy up to the number of heads … in any way you like" is a loop of 3 optional (min 0, max 1) picks, each choosing its own Benched Pokémon, with a counter of heads left and a decline ending it; that covers every choice of 0 to heads cards and targets, but renders as several sentences.',
+  },
+  'me02-090|text': {
+    problems: ['"can\'t" is printed but not rendered'],
+    why: 'Grimsley\'s Move: "You can\'t use this card during your first turn" is the playable condition c03.ownFirstTurn (negated), which renders as "only if it is not the case that it is your first turn"; the deck-size part of the gate is the rule that a card with no effect can\'t be played.',
   },
 };
