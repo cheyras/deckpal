@@ -616,7 +616,9 @@ function saveDeckKey(input: {
 }
 
 /**
- * `newVersion: true` — "this whole list is a new version of the deck".
+ * newVersion: true means "this whole list is a new version of the deck".
+ * (No backticks in this comment: the soft-delete guard pairs them across
+ * lines and reads the prose between as an unguarded statement.)
  *
  * An ordinary edit follows the auto-bump rule (deck/versions.ts): it amends an
  * unplayed version in place, so a burst of stepper taps stays one version. A
