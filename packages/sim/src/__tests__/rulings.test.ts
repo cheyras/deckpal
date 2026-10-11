@@ -25,6 +25,7 @@ const DECK = fromIds('Rulings', [
   ['me04-060', 2], // Metang
   ['me04-061', 4], // Metagross
   ['sv06-167', 1], // Legacy Energy
+  ['sv05-162', 1], // Neo Upper Energy
   ['mee-008', 12], // Metal Energy
   ['sve-005', 12], // Psychic Energy
   ['mee-007', 8], // Darkness Energy
@@ -92,6 +93,20 @@ test('"{M} Energy" counts a Special Energy providing {M}: Metallic Hammer discar
   if (g.decision?.kind === 'yesno') g.submit([0]);
   const left = g.state.p[0].active!.energy.map((c) => g.ctx.defs[g.ctx.cardDef[c]!]!.name);
   assert.deepEqual(left, ['Psychic Energy'], 'Legacy Energy was not discarded as {M} Energy');
+});
+
+test('Metallic Hammer counts {M} Energy provided, not cards: Neo Upper Energy on Metagross pays two of the three', () => {
+  // Neo Upper Energy "provides every type of Energy but provides only 2 Energy at a time" on a Stage 2 Pokémon.
+  // Discarding it and one Basic Metal is 3 {M}; the second Basic Metal stays (Astra review of #309).
+  const g = at([
+    { active: 'Metang', evolve: { active: ['Metagross'] }, energy: { active: ['Neo Upper Energy', 'Metal Energy', 'Metal Energy'] } },
+    { active: 'Dhelmise' },
+  ]);
+  choose(g, 'Attack: Metallic Hammer');
+  if (g.decision?.kind === 'yesno') g.submit([0]);
+  if (g.decision?.kind === 'option') g.submit([0]); // which Basic Metal goes with Neo Upper: either
+  const left = g.state.p[0].active!.energy.map((c) => g.ctx.defs[g.ctx.cardDef[c]!]!.name);
+  assert.deepEqual(left, ['Metal Energy'], `discarded the wrong Energy: ${left.join(', ')} left`);
 });
 
 test('"up to 2" on a Trainer means 1 or 2, never 0 (TPCi 2026-02-19)', () => {

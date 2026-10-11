@@ -234,3 +234,28 @@ test('simulateAsync keeps the event loop responsive: no stall longer than a few 
   // A whole game takes ~0.5 s; between-decision yields keep any single stall far below that.
   assert.ok(worst < 250, `the event loop stalled for ${worst} ms`);
 });
+
+test('a Knock Out by Poison at Checkup is credited to no one, not to an Ability used that turn', async () => {
+  // Astra review of #309: Checkup counters were attributed to the last opposing Attack or Ability.
+  const { scenario } = await import('../scenario.js');
+  const { summarize } = await import('../runner.js');
+  const { describeOptions } = await import('../describe.js');
+  const { POISONED } = await import('../types.js');
+  const { deck, pokemon, PSYCHIC } = await import('./fixtures.js');
+  const seer = { ...pokemon('t-310', 'Seer', { hp: 60 }), abilities: [{ kind: 'Ability', name: 'Peek', effect: 'Once during your turn, you may draw a card.' }] };
+  const pup = pokemon('t-311', 'Pup', { hp: 70 });
+  const A = deck('A', [[seer, 20], [pup, 20], [PSYCHIC, 20]]);
+  // Seer is benched during the turn so the event stream knows which card holds its slot.
+  const g = scenario(A, A, [{ active: 'Pup', hand: ['Seer'] }, { active: 'Pup', bench: ['Pup'], damage: { active: 60 }, cond: POISONED }], {
+    events: true,
+    scripts: [{ id: 't-310', name: 'Seer', abilities: [{ name: 'Peek', activated: { program: [{ op: 'draw', n: 1 }] } }] }],
+  });
+  const pick = (text: string) => g.submit([describeOptions(g.ctx, g.state, g.decision!).findIndex((l) => l.includes(text))]);
+  pick('Bench Seer');
+  pick('Use Peek');
+  pick('End turn'); // Checkup: Poison's counter Knocks Out the 70-HP Pup with 60 damage
+  const ko = g.events.find((e) => e.type === 'knockout');
+  assert.ok(ko, 'the Poisoned Pup was not Knocked Out at Checkup');
+  const sum = summarize(g.ctx, g, { pair: 0, seed: 1, aFirst: true, sideOf: (p) => p, seatOfA: 0 });
+  assert.equal(sum.kos[0]?.attacker, null, `the Checkup Knock Out was credited to ${sum.kos[0]?.attacker}`);
+});

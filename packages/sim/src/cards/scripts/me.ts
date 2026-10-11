@@ -76,7 +76,8 @@ export const ME: CardScript[] = [
             prompt: 'Discard 3 Metal Energy for +150 damage?',
             body: [
               // "{M} Energy": any Energy providing {M} here, Special or Basic (Wash Out ruling, TPCi 2026-03-26).
-              { op: 'discardEnergy', from: 'self', count: 3, filter: { providesType: 'Metal' } },
+              // Counted in Energy provided: Neo Upper Energy on this Stage 2 is two of the three.
+              { op: 'discardEnergy', from: 'self', count: 3, filter: { providesType: 'Metal' }, units: true },
               { op: 'set', v: 'bonus', value: 150 },
             ],
           },

@@ -106,7 +106,7 @@ export interface ReplayResult {
   /** Codeless names with several printings, played as the newest. */
   ambiguousPrintings: string[];
   /** Log actions on cards the engine doesn't script, applied from the log's own lines instead. */
-  logDriven: { line: number; turn: number; action: string }[];
+  logDriven: { line: number; turn: number; action: string; /** The unscripted card. */ card: string }[];
   /** Engine coverage below 'full' among the cards that appeared. */
   partialCoverage: string[];
   winner: { log: Side | null; engine: Player | null; engineReason: string | null };
@@ -1357,7 +1357,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
             scope = scopeEnd(ai);
             scopeSeqs = [next.seq, acts[ai + 1] ? acts[ai + 1]!.seq - 1 : Infinity];
             applyFromLog(d.player, next, scope);
-            result.logDriven.push({ line: next.line, turn: next.turn, action: describe(next) });
+            result.logDriven.push({ line: next.line, turn: next.turn, action: describe(next), card: actionCard(next) });
             evMark = g.events.length;
             lastAction = null;
             ai++;
@@ -1386,7 +1386,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
             // effects (Energy from the deck, a Special Condition, draws) come from the log's lines.
             const effects = scope.filter((l) => l.turn === next.turn && !['damage', 'knockout', 'prize', 'hand_add', 'promote', 'coin_flip', 'turn_start', 'end_turn'].includes(l.t));
             applyFromLog(d.player, next, effects);
-            if (effects.length) result.logDriven.push({ line: next.line, turn: next.turn, action: `${describe(next)} (its effects)` });
+            if (effects.length) result.logDriven.push({ line: next.line, turn: next.turn, action: `${describe(next)} (its effects)`, card: name(topCard(user)) });
           }
           lastAction = next;
           ai++;
@@ -1457,6 +1457,25 @@ function dedupeBy<T>(xs: readonly T[], key: (x: T) => string): T[] {
     seen.add(k);
     return true;
   });
+}
+
+/** The card a log action is about (the one played, the Pokémon using it). */
+function actionCard(e: LiveEvent): string {
+  switch (e.t) {
+    case 'play_bench':
+    case 'play_stadium':
+    case 'play_card':
+    case 'attach':
+      return e.card.name;
+    case 'evolve':
+      return e.to.name;
+    case 'use':
+      return e.user.name;
+    case 'attack':
+      return e.attacker.name;
+    default:
+      return '';
+  }
 }
 
 function describe(e: LiveEvent): string {

@@ -827,11 +827,11 @@ function checkup(env: Env, s: GameState): void {
     if (!sl) continue;
     if (sl.cond & POISONED) {
       sl.damage += 10;
-      emit(env, { type: 'counters', player: p, slot: sl.id, n: 1 });
+      emit(env, { type: 'counters', player: p, slot: sl.id, n: 1, checkup: true });
     }
     if (sl.cond & BURNED) {
       sl.damage += 20;
-      emit(env, { type: 'counters', player: p, slot: sl.id, n: 2 });
+      emit(env, { type: 'counters', player: p, slot: sl.id, n: 2, checkup: true });
       if (flipCoin(env, s, p)) sl.cond &= ~BURNED;
     }
     if (sl.cond & ASLEEP) {

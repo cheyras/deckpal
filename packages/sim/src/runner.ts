@@ -292,7 +292,7 @@ export async function simulateAsync(opts: SimulateOptions): Promise<SimulationRe
 // The event stream → one summary
 // ---------------------------------------------------------------------------
 
-interface SummaryMeta {
+export interface SummaryMeta {
   pair: number;
   seed: number;
   aFirst: boolean;
@@ -301,7 +301,8 @@ interface SummaryMeta {
   error?: string;
 }
 
-function summarize(ctx: GameContext, game: Game, m: SummaryMeta): GameSummary {
+/** Exported for tests. */
+export function summarize(ctx: GameContext, game: Game, m: SummaryMeta): GameSummary {
   const s = game.state;
   const first = s.first;
   const name = (iid: number) => def(ctx, iid).name;
@@ -370,8 +371,9 @@ function summarize(ctx: GameContext, game: Game, m: SummaryMeta): GameSummary {
         }
         break;
       case 'counters':
-        // Counters carry no source; credit the opposing Attack or Ability that just resolved.
-        if (source && source.turn === turn && source.player !== e.player) lastHit.set(e.slot, { by: source.slot, turn });
+        // Counters carry no source; credit the opposing Attack or Ability that just resolved. Poison and
+        // Burn at Checkup are nobody's (a draw Ability then a Poison KO must not credit the Ability).
+        if (!e.checkup && source && source.turn === turn && source.player !== e.player) lastHit.set(e.slot, { by: source.slot, turn });
         break;
       case 'knockout': {
         const victimSide = m.sideOf(e.player);

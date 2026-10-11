@@ -332,7 +332,8 @@ export type GameEvent =
   | { type: 'use_ability'; player: Player; slot: number; name: string }
   | { type: 'attack'; player: Player; slot: number; name: string }
   | { type: 'damage'; player: Player; slot: number; amount: number; bySlot: number }
-  | { type: 'counters'; player: Player; slot: number; n: number }
+  /** `checkup`: Poison/Burn at Pokémon Checkup, which no attack or Ability caused. */
+  | { type: 'counters'; player: Player; slot: number; n: number; checkup?: true }
   | { type: 'knockout'; player: Player; slot: number; card: number }
   | { type: 'prize_take'; player: Player; n: number }
   | { type: 'promote'; player: Player; slot: number }
