@@ -156,5 +156,35 @@
       "tags": [],
       "expectations": ["general-helpful", "no-data-writes"]
     }]
+  },
+  {
+    "id": "battle-review-all-decks",
+    "pathway": "battle_review",
+    "title": "Review every deck's record, versions and worst matchup in one ask",
+    "turns": [{
+      "user": "Go through all three of my decks: for each one, its record, what changed between versions, and the matchup that's hurting it most. Then tell me which one I should practice this week.",
+      "tags": [],
+      "expectations": ["battle-review-evidence", "no-data-writes", "progress-between-batches"]
+    }]
+  },
+  {
+    "id": "collection-evolution-lines",
+    "pathway": "collection_plan",
+    "title": "Count and price three evolution lines stage by stage",
+    "turns": [{
+      "user": "For my Dragapult, Chandelure and Dusknoir lines, check how many of each stage I own and what each card goes for, then tell me what it would cost to own four of every stage.",
+      "tags": [],
+      "expectations": ["no-web-research", "no-data-writes", "progress-between-batches"]
+    }]
+  },
+  {
+    "id": "deck-iterate-locals-prep",
+    "pathway": "deck_iterate",
+    "title": "Prepare a deck for locals from losses, versions and the current meta",
+    "turns": [{
+      "user": "Locals is Saturday. Pull my Slowking deck's recent losses, check what changed in my latest version, see how Dragapult and Raging Bolt are doing in the current meta, and tell me the one change worth making before then.",
+      "tags": [],
+      "expectations": ["iteration-evidence", "at-most-two-changes", "no-unapproved-save", "progress-between-batches"]
+    }]
   }
 ]

@@ -65,12 +65,18 @@ export function buildReport(checks, { callRecords = [], key = null, generatedAt 
   return redact({ generatedAt, checks, calls: callRecords }, secrets)
 }
 
+/**
+ * One nudged loop in a few words. Every failure says which one: a loop that
+ * spoke after the nudge and then never looked Bob up STOPPED — the reader got
+ * a progress line and no answer, which is the defect, not a benign outcome.
+ */
 function nudgeRunSummary(name, run) {
   if (!run) return `${name} ?`
   if (!run.succeeded) return `${name} error`
-  if (!run.nudgeReachedModel) return `${name} no nudge`
-  if (run.textBeforeNextToolCall) return `${name} spoke`
-  return `${name} ${run.spokeAfterNudge ? 'answered' : 'silent'}`
+  if (!run.stepAfterNudgeRan) return `${name} no step after nudge`
+  if (!run.bobLookedUpAfterNudge) return `${name} ${run.spokeAfterNudge ? 'spoke then STOPPED' : 'STOPPED'} before Bob`
+  const tokens = run.nudgeInputTokens == null ? 'tokens ?' : `${run.nudgeInputTokens >= 0 ? '+' : ''}${run.nudgeInputTokens} tok`
+  return `${name} ${run.textBeforeNextToolCall ? 'spoke' : 'silent'}, ${tokens}`
 }
 
 function evidenceSummary(check) {
@@ -78,6 +84,9 @@ function evidenceSummary(check) {
   const evidence = check.evidence ?? {}
   if (check.name === 'mid_conversation_system_message') {
     return `${nudgeRunSummary('sonnet', evidence.sonnet)}, ${nudgeRunSummary('haiku', evidence.haiku)}`
+  }
+  if (check.name === 'mid_conversation_system_message_fallback') {
+    return nudgeRunSummary(String(evidence.fallback?.model ?? 'fallback').replace(/^.*\//, ''), evidence.fallback)
   }
   if (check.name === 'gateway_cost') return `${evidence.withCost ?? 0}/${evidence.successfulCalls ?? 0} calls`
   if ('cacheReadTokens' in evidence) return `cache read ${evidence.cacheReadTokens ?? 0}`
@@ -290,23 +299,47 @@ async function toolLoopCheck({ name, model, anthropic, runCall, callRecords, bet
 /**
  * MID-CONVERSATION SYSTEM MESSAGE (2026-10-10).
  *
- * Production (api/chat.mjs, apps/api/src/decke/progressNudge.ts) now appends a
- * system message after a tool result when Deck-E has gone four lookups without
- * a word. The SDK side is proven offline — ai@7 sends it with
- * `allowSystemInMessages` and refuses it without — but whether the Gateway
- * carries a system message that sits AFTER the first user turn through to
- * Claude, or rejects the request, is only answerable live. A rejection would
- * fail every nudged step in production, so this runs on both models the nudge
- * reaches most (Standard = Sonnet, Quick = Haiku) with production's message
- * shape: the cache breakpoint on the tool result, the nudge after it.
+ * Production (api/chat.mjs, apps/api/src/decke/progressNudge.ts) appends a
+ * system message after a tool result when Deck-E has gone three lookups
+ * without a word. The SDK side is proven offline — ai@7 sends it with
+ * `allowSystemInMessages` and refuses it without — but what the Gateway does
+ * with a system message that sits AFTER the first user turn is only
+ * answerable live. It could reject the request (every nudged step fails),
+ * carry it to Claude, or accept it and silently drop it — and a request that
+ * succeeds cannot tell the last two apart. So PASS needs three things, on
+ * both models the nudge reaches most (Standard = Sonnet, Quick = Haiku), with
+ * production's message shape (cache breakpoint on the tool result, nudge
+ * after it):
  *
- * PASS means the Gateway accepted the nudged request and the model went on.
- * Whether he then spoke before his next lookup is evidence, not the verdict:
- * one sample cannot grade a behaviour, and the replay probe's
- * 'progress-between-batches' is where that is measured. The un-nudged baseline
- * for the same Alice/Bob loop is `haiku_text_between_tools`.
+ * - THE LOOP WENT ON: the follow-up lookup (Bob) ran after the nudge. A loop
+ *   that spoke and then stopped is a FAIL — that is the reader getting a
+ *   progress line and no answer, the defect the nudge must never cause.
+ * - THE MESSAGE WAS CARRIED: the nudged step's input grew by more than the
+ *   tool result alone explains. `nudgeInputTokens` compares the input the
+ *   nudged step added beyond the previous step's input and output with what
+ *   the NEXT step added beyond its own previous step — the same tool-result
+ *   growth, and no new nudge, since ai@7 carries the first one forward
+ *   rather than adding another. A dropped message measures about zero; the
+ *   nudge measured +40 to +51 on both models (2026-10-10).
+ * - The request succeeded at all.
+ *
+ * Whether he spoke before his next lookup is evidence, not the verdict: one
+ * sample cannot grade a behaviour, and the replay probe's
+ * 'progress-between-batches' is where that is measured. The un-nudged
+ * baseline for the same Alice/Bob loop is `haiku_text_between_tools`.
+ *
+ * AND THE FALLBACK. Once a call is nudged, every later step carries the
+ * message, so a Gateway failover on any of them sends it to Standard's
+ * fallback (Gemini) too. `mid_conversation_system_message_fallback` runs the
+ * same nudged loop on `TIERS.standard.fallback` and passes when the Gateway
+ * accepts it and the loop goes on to Bob — i.e. the failover would not choke.
+ * Its token growth is reported but not graded: Gemini's input accounting
+ * through the Gateway does not difference cleanly step to step.
  */
 const NUDGE_LOOP_PROMPT = 'Look up Alice, then Bob — one lookup per step, waiting for each result before the next — then give one short final sentence using both results.'
+
+/** Below this, the nudged step's extra input is noise, not a ~40-token message. */
+export const MIN_NUDGE_TOKENS = 15
 
 async function loadNudgeText() {
   // The production text, from the built module, so the live check cannot drift
@@ -315,35 +348,70 @@ async function loadNudgeText() {
   return PROGRESS_NUDGE_TEXT
 }
 
-/** What one nudged loop showed, from its steps alone. */
+async function loadStandardFallback() {
+  const { TIERS } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/models.js')).href)
+  return TIERS.standard.fallback
+}
+
+const tokenCount = (value) => typeof value === 'number' && Number.isFinite(value) ? value : null
+
+/**
+ * What one nudged loop showed, from its steps alone. `nudgedBeforeStep` is the
+ * index of the step the nudge preceded.
+ */
 export function nudgeLoopEvidence(steps, nudgedBeforeStep) {
   const timeline = (steps ?? []).map((step, index) => ({
     index,
     toolCalls: (step.toolCalls ?? []).map((call) => call.toolName),
+    lookups: (step.toolCalls ?? []).filter((call) => call.toolName === 'lookup').map((call) => String(call.input?.name ?? '')),
     visibleText: step.text ?? '',
+    inputTokens: tokenCount(step.usage?.inputTokens),
+    outputTokens: tokenCount(step.usage?.outputTokens),
     nudged: index === nudgedBeforeStep,
   }))
   const after = nudgedBeforeStep == null ? [] : timeline.slice(nudgedBeforeStep)
   const next = after.findIndex((step) => step.toolCalls.length > 0)
+  // Input a step added beyond everything the previous step was sent and said.
+  const added = (index) => {
+    const step = timeline[index]
+    const previous = timeline[index - 1]
+    if (!step || !previous || step.inputTokens == null || previous.inputTokens == null || previous.outputTokens == null) return null
+    return step.inputTokens - previous.inputTokens - previous.outputTokens
+  }
+  const nudgedAdded = nudgedBeforeStep == null ? null : added(nudgedBeforeStep)
+  const nextAdded = nudgedBeforeStep == null ? null : added(nudgedBeforeStep + 1)
   return {
     steps: timeline,
     nudgedBeforeStep: nudgedBeforeStep ?? null,
-    nudgeReachedModel: after.length > 0,
+    stepAfterNudgeRan: after.length > 0,
     spokeAfterNudge: Boolean(after[0]?.visibleText.trim()),
     nextToolCallStep: next < 0 ? null : after[next].index,
     textBeforeNextToolCall: next >= 0 && after.slice(0, next + 1).some((step) => step.visibleText.trim().length > 0),
+    bobLookedUpAfterNudge: after.some((step) => step.lookups.some((name) => /\bbob\b/i.test(name))),
+    nudgedStepAddedTokens: nudgedAdded,
+    nextStepAddedTokens: nextAdded,
+    nudgeInputTokens: nudgedAdded == null || nextAdded == null ? null : nudgedAdded - nextAdded,
   }
 }
+
+/** The loop went on past the nudge to the follow-up lookup. */
+const wentOn = (run) => run?.succeeded === true && run.stepAfterNudgeRan === true && run.bobLookedUpAfterNudge === true
 
 /** The verdict over both models; the shape the report and table read. */
 export function midConversationResult(nudgeText, sonnet, haiku) {
+  const carried = (run) => typeof run?.nudgeInputTokens === 'number' && run.nudgeInputTokens >= MIN_NUDGE_TOKENS
   return {
-    pass: [sonnet, haiku].every((run) => run?.succeeded === true && run.nudgeReachedModel === true),
-    evidence: { nudgeText, sonnet, haiku },
+    pass: [sonnet, haiku].every((run) => wentOn(run) && carried(run)),
+    evidence: { nudgeText, minNudgeTokens: MIN_NUDGE_TOKENS, sonnet, haiku },
   }
 }
 
-async function nudgedLoop({ model, label, nudgeText, runCall, callRecords }) {
+/** Standard's fallback: accepted, and the loop went on. Tokens are evidence only. */
+export function fallbackResult(nudgeText, fallback) {
+  return { pass: wentOn(fallback), evidence: { nudgeText, fallback } }
+}
+
+async function nudgedLoop({ model, label, nudgeText, runCall, callRecords, anthropic = true }) {
   let nudgedBeforeStep = null
   try {
     const result = await runCall(label, {
@@ -366,7 +434,7 @@ async function nudgedLoop({ model, label, nudgeText, runCall, callRecords }) {
         return { messages: [...marked, { role: 'system', content: nudgeText }] }
       },
       stopWhen: stepCountIs(3),
-      providerOptions: { anthropic: { effort: 'medium', thinking: { type: 'adaptive' } } },
+      ...(anthropic ? { providerOptions: { anthropic: { effort: 'medium', thinking: { type: 'adaptive' } } } } : {}),
       maxOutputTokens: 512,
     })
     return { model, succeeded: true, ...nudgeLoopEvidence(result.steps, nudgedBeforeStep), calls: recordsFor(callRecords, label) }
@@ -382,6 +450,14 @@ async function midConversationSystemCheck(runCall, callRecords) {
     nudgedLoop({ model: HAIKU, label: 'mid_conversation_system_message:haiku', nudgeText, runCall, callRecords }),
   ])
   return midConversationResult(nudgeText, sonnet, haiku)
+}
+
+async function fallbackSystemCheck(runCall, callRecords) {
+  const [nudgeText, model] = await Promise.all([loadNudgeText(), loadStandardFallback()])
+  const fallback = await nudgedLoop({
+    model, label: 'mid_conversation_system_message_fallback', nudgeText, runCall, callRecords, anthropic: false,
+  })
+  return fallbackResult(nudgeText, fallback)
 }
 
 function gatewayCostCheck(callRecords) {
@@ -422,6 +498,7 @@ export async function runProbe({ key }) {
       anthropic: { effort: 'medium', thinking: { type: 'adaptive' } },
     })),
     checked('mid_conversation_system_message', () => midConversationSystemCheck(runCall, callRecords)),
+    checked('mid_conversation_system_message_fallback', () => fallbackSystemCheck(runCall, callRecords)),
   ])
   checks.push(gatewayCostCheck(callRecords))
   return { checks, callRecords }

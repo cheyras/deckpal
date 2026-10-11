@@ -30,30 +30,59 @@
  * probe measures are one thing.
  *
  * WHEN.
- * - After SILENT_DATA_STEPS consecutive silent data steps. The probe's pass
- *   line is "no silent run longer than four", so the nudge lands as a run
- *   reaches it rather than after it has already failed.
+ * - After SILENT_DATA_STEPS consecutive silent data steps. The replay probe
+ *   fails a turn whose silent run is LONGER than SILENT_DATA_STEPS and calls a
+ *   turn long from SILENT_DATA_STEPS + 1 data steps, so the nudge lands just
+ *   before the step that would cross the line — every turn the probe can fail
+ *   is one this had the chance to nudge. (Review, 2026-10-10: the first cut
+ *   nudged at four while the probe called three "long", so it graded turns
+ *   production never asked to speak.) The price is that a turn of exactly three
+ *   silent lookups may be nudged on the step that was going to answer anyway,
+ *   which is why the text asks for "what you're checking next" only if he is
+ *   not done.
  * - Only straight after a data step. The conversation then ends in that step's
  *   tool result, and a system message has to follow a user or tool-result turn,
  *   never sit after the model's own words.
  * - Never before the first step (nothing has happened yet) and never after a
  *   step that already spoke: that IS the behaviour being asked for, and nudging
  *   it would be noise.
- * - At most MAX_PROGRESS_NUDGES per request. A run that already earned a nudge
- *   has to grow by another SILENT_DATA_STEPS silent steps before it earns the
- *   next one (`sinceStep`), so an ignored nudge is not repeated on every step.
+ * - At most MAX_PROGRESS_NUDGES per HTTP REQUEST — not per reader turn. A turn
+ *   that pauses for an approval card or a browser tool resumes in a new
+ *   request, which starts a new ledger. A run that already earned a nudge has
+ *   to grow by another SILENT_DATA_STEPS silent steps before it earns the next
+ *   one (`sinceStep`), so an ignored nudge is not repeated on every step.
+ *
+ * WHAT THE STEP AFTER A NUDGE IS. The ledger remembers it (`landings`), because
+ * the line that answers a nudge is a progress line by construction, and the
+ * stop rule must not mistake it for the answer: "Two losses to Dragapult so far
+ * — checking your list next" plus a face would otherwise settle the turn and be
+ * the whole reply. See `spokeAndSettled` in `stopRule.ts`.
  */
 import { COSMETIC_TOOLS } from './stopRule.js';
 
-/** Silent data steps in a row before the nudge. */
-export const SILENT_DATA_STEPS = 4;
+/** Silent data steps in a row before the nudge; also the replay probe's longest allowed silent run. */
+export const SILENT_DATA_STEPS = 3;
 
-/** Nudges one request may receive. */
+/** Nudges one HTTP request may receive (not one reader turn). */
 export const MAX_PROGRESS_NUDGES = 2;
 
-/** Verbatim from the task that introduced it (2026-10-10); `scripts/decke-gateway-probe.mjs` sends this exact text live. */
+/**
+ * `scripts/decke-gateway-probe.mjs` sends this exact text live.
+ *
+ * "Only if you're not done" (review, 2026-10-10): the nudge can land on the
+ * step that was going to be the answer, and asking unconditionally for "what
+ * you're checking next" invites him to invent a next check — or to end the
+ * reply on one.
+ *
+ * "Then continue" stays, and it is load-bearing. A step that is ONLY text has
+ * no tool call, so the model loop ends on it whatever the stop rule says. The
+ * first softened wording dropped it, and on the live probe Standard's Gemini
+ * fallback answered the nudge with "Now looking up Bob." and stopped — a
+ * progress line as the whole reply (2026-10-10). With "then continue" it went
+ * on to the lookup.
+ */
 export const PROGRESS_NUDGE_TEXT =
-  "The reader hasn't heard from you in a while — say in a sentence what you've found so far and what you're checking next, then continue.";
+  "The reader hasn't heard from you in a while. In one short line, tell them what you've found so far. Only if you're not done, add what you're checking next, then continue.";
 
 /** The shape both ai@7's `StepResult` and the replay probe's timeline satisfy. */
 export type ProgressStep = {
@@ -107,28 +136,43 @@ export function progressNudgeMessage(): { role: 'system'; content: string } {
 
 /**
  * The request-scoped bookkeeping `shouldNudge` needs: how many nudges this
- * request has had, and where the last one landed.
+ * request has had, and which steps of the current model call followed one.
  *
  * One per REQUEST, so the limit holds across the Quick tier's one Standard
  * retry. A retry is a new model call whose steps start again at zero, which is
- * why an empty `steps` resets the landing point but not the count.
+ * why an empty `steps` resets the landing points but not the count.
+ *
+ * `landings` are step INDICES in the current model call — `steps.length` when
+ * the nudge was appended, which is the index the next step will have. The
+ * stop rule reads them (`spokeAndSettled(steps, landings)`) in the same call's
+ * `stopWhen`, which ai@7 evaluates after the step that `prepareStep` prepared,
+ * so the landing is always recorded before it is needed.
  */
 export function createProgressNudges(): {
   next(steps: ReadonlyArray<ProgressStep>): boolean;
   readonly count: number;
+  readonly landings: ReadonlyArray<number>;
 } {
   let nudges = 0;
   let since = 0;
+  let landings: number[] = [];
   return {
     next(steps) {
-      if (steps.length === 0) since = 0;
+      if (steps.length === 0) {
+        since = 0;
+        landings = [];
+      }
       if (!shouldNudge(steps, nudges, since)) return false;
       nudges += 1;
       since = steps.length;
+      landings.push(steps.length);
       return true;
     },
     get count() {
       return nudges;
+    },
+    get landings() {
+      return [...landings];
     },
   };
 }
