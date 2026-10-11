@@ -12,8 +12,8 @@ export function searchToHand(filter: Filter, n: Expr = 1, o: { reveal?: boolean;
   ];
 }
 
-/** Free Bench space for the controller. */
-export const BENCH_SPACE: Expr = { sub: [5, { pokemon: { zone: 'myBench' } }] };
+/** Free Bench space for the controller: the open spaces on their Bench under the limit that applies to them now (5, or more under Area Zero Underdepths). */
+export const BENCH_SPACE: Expr = { benchRoom: 'self' };
 
 /** "Search your deck for up to n <filter> and put them onto your Bench. Then, shuffle your deck." */
 export function searchToBench(filter: Filter, n: number): Program {

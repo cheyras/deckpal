@@ -19,7 +19,9 @@ export type Op =
   | { o: 'jfalse'; v: string; to: number }
   /** Attack damage placeholder: resolves the attack's (possibly scripted) base damage. */
   | { o: 'attackDamage' }
-  | { o: 'confusion' };
+  | { o: 'confusion' }
+  /** A once-per-turn trigger is being used (not declined): note it on the Pokémon (the frame's `__once` key). */
+  | { o: 'used' };
 
 let loopIds = 0;
 

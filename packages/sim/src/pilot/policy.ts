@@ -6,7 +6,9 @@
  * hand and board, and public information. It never reads the opponent's hand,
  * either deck's order or face-down Prize cards — with one exception that is
  * safe by construction: inside search it runs on a determinised copy, where
- * those zones are samples, not the truth.
+ * those zones are samples, not the truth. Its ESTIMATES evaluate card scripts on
+ * the state they are given, so on the real game it must only be reached through
+ * `publicPolicyChoose`, which hands it such a copy.
  *
  * The effect being resolved is read from the top interpreter frame (which card,
  * which step, where the chosen cards go next), so "choose cards" means the
@@ -16,8 +18,10 @@
 import { codeOf, def, type Env } from '../context.js';
 import type { Op } from '../compile.js';
 import type { Step } from '../dsl.js';
+import { determinize } from '../determinize.js';
 import { evalExpr } from '../eval.js';
-import { attackCost, energyUnits, retreatCost, statics, type LiveStatic } from '../query.js';
+import { Rng } from '../rng.js';
+import { attackCost, benchLimit, energyUnits, retreatCost, statics, type LiveStatic } from '../query.js';
 import type { Game } from '../game.js';
 import { opp } from '../state.js';
 import type { Pilot } from './types.js';
@@ -152,7 +156,7 @@ function board(env: Env, s: GameState, p: Player): Board {
     const d = def(env.ctx, topCard(sl));
     inPlay.set(d.name, (inPlay.get(d.name) ?? 0) + 1);
     if (fx.copier.has(d.idx)) copier = true;
-    const units = energyUnits(env, sl);
+    const units = energyUnits(env, sl, s, all);
     for (let i = 0; i < d.attacks.length; i++) {
       if (missingUnits(attackCost(env, s, sl, i, all), units) > 0 && (fx.power[d.idx] ?? 0) > 0) needEnergy = true;
     }
@@ -177,7 +181,7 @@ function cardValue(b: Board, c: number): number {
       return 22;
     }
     let v = b.pokemonCount < 3 ? 62 : b.pokemonCount < 5 ? 40 : 18;
-    if (ps.bench.length >= 5) v = 12;
+    if (ps.bench.length >= benchLimit(b.env, b.s, b.p, b.all)) v = 12; // a full Bench (5, or more under Area Zero Underdepths)
     // A Basic whose evolution is in the list is worth developing.
     const evolves = b.env.ctx.defs.some((x) => x.evolvesFrom === d.name && x.kind === 'pokemon');
     if (evolves) v += 8;
@@ -290,7 +294,7 @@ function gustValue(b: Board, sl: Slot): number {
       if (v > best) best = v;
     }
     // Stall value: a Pokémon that can't attack and is hard to retreat.
-    best += retreatCost(env, s, sl, all) * 8 - energyUnits(env, sl).length * 4;
+    best += retreatCost(env, s, sl, all) * 8 - energyUnits(env, sl, s, all).length * 4;
   } finally {
     them.active = oldActive;
     them.bench = oldBench;
@@ -506,7 +510,10 @@ function mainChoice(b: Board, d: Decision): number[] {
     let aDmg = -1;
     acts.forEach((a, i) => {
       if (a.t !== 'attack' || !ps.active || !them.active) return;
-      const dmg = attackDamageAt(env, s, ps.active, p, a.idx, them.active, all, b.viewer);
+      const dmg =
+        a.card === undefined
+          ? attackDamageAt(env, s, ps.active, p, a.idx, them.active, all, b.viewer)
+          : attackDamageWithDef(env, s, def(env.ctx, a.card), a.idx, ps.active, p, them.active, all, b.viewer);
       if (dmg > aDmg) {
         aDmg = dmg;
         ai = i;
@@ -559,6 +566,13 @@ export function policyChoose(env: Env, s: GameState, d: Decision, profile: Polic
     case 'cards':
       return chooseCards(b, d, askContext(env, s));
     case 'slots':
+      if (s.pending?.resume.k === 'benchDiscard') {
+        // A Bench that is too big: discard the Pokémon worth least.
+        const ids = d.values as number[];
+        const worth = ids.map((id, i) => ({ i, v: activeValue(b, allSlots(s.p[d.player]).find((x) => x.id === id) as Slot) }));
+        worth.sort((x, y) => x.v - y.v);
+        return worth.slice(0, d.min).map((x) => x.i);
+      }
       return chooseSlots(b, d, askContext(env, s));
     case 'option':
       return chooseOption(b, d, askContext(env, s));
@@ -573,11 +587,34 @@ export function policyChoose(env: Env, s: GameState, d: Decision, profile: Polic
   }
 }
 
+/**
+ * The policy's answer to a decision in the REAL game, as the deciding player could know it.
+ *
+ * `policyChoose` reads whatever state it is given, and its estimates (attack damage, Energy still missing, who is worth
+ * promoting) evaluate card scripts on that state: "this attack does N for each Energy in your opponent's hand" would read the
+ * opponent's hand, a count in a deck would read the deck. Handed the real state it would therefore act on hidden information.
+ * So every pilot that decides on the real state (the policy pilot, and the greedy and search pilots for the decisions they do
+ * not branch on) comes through here: the policy decides on a determinised copy, where the opponent's hand (except revealed
+ * cards), either deck's unknown part and the face-down Prize cards are a consistent sample of what the player cannot see.
+ * The sample depends only on WHICH cards are hidden, never on where they really are, and on `rng` (public information), so
+ * swapping a hidden card between the opponent's hand and deck, or reordering a deck, cannot change the answer.
+ *
+ * Decisions that need no estimate (forced picks, the coin toss, yes/no) skip the copy.
+ */
+export function publicPolicyChoose(env: Env, s: GameState, d: Decision, rng: Rng, profile: PolicyProfile = DEFAULT_PROFILE): number[] {
+  const n = count(d);
+  if (n === 0 || (d.min === d.max && d.max === n && d.kind !== 'order')) return policyChoose(env, s, d, profile);
+  if (d.kind === 'goFirst' || d.kind === 'mulliganDraws' || d.kind === 'yesno') return policyChoose(env, s, d, profile);
+  return policyChoose(env, determinize(s, env.ctx, d.player, rng), d, profile);
+}
+
 /** A pilot that plays the policy directly: fast, no lookahead. */
 export class PolicyPilot implements Pilot {
   readonly name = 'policy';
+  /** Seeds the samples of the hidden zones; advances only with the decisions asked, never with hidden information. */
+  private rng = new Rng(0x70c1);
   constructor(private profile: PolicyProfile = DEFAULT_PROFILE) {}
   choose(game: Game, d: Decision): number[] {
-    return policyChoose(game.envForInternals, game.state, d, this.profile);
+    return publicPolicyChoose(game.envForInternals, game.state, d, this.rng, this.profile);
   }
 }

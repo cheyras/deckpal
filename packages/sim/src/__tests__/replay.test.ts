@@ -242,16 +242,16 @@ test('audit catches a log the rules cannot produce', () => {
 //           engine Knocks it Out a turn early and the log's next lines can't happen.
 const DECK_SIZE = '(deck size: the real deck was about empty)';
 const REPLAY_FLOOR: Record<string, { replayed: number; complete?: boolean; allow: string[] }> = {
-  'hns-05.txt': { replayed: 45, allow: ['Bug Catching Set', 'Growing Grass Energy', 'Lurantis ex', 'Petilil'] },
+  'hns-05.txt': { replayed: 57, complete: true, allow: ['Bug Catching Set', 'Growing Grass Energy', 'Petilil', 'Swadloon'] },
   'hns-10.txt': { replayed: 26, complete: true, allow: [] },
-  'hns-11.txt': { replayed: 43, complete: true, allow: ['Salvatore'] },
+  'hns-11.txt': { replayed: 43, complete: true, allow: [] },
   'hns-12.txt': { replayed: 50, complete: true, allow: [] },
   'hns-34.txt': { replayed: 71, complete: true, allow: ['Yveltal ex', DECK_SIZE] },
   'hns-36.txt': { replayed: 65, complete: true, allow: [] },
   'tbs-57.txt': { replayed: 50, complete: true, allow: [] },
   'tbs-58.txt': { replayed: 28, complete: true, allow: [] },
   'tbs-62.txt': { replayed: 28, complete: true, allow: ['Okidogi ex'] },
-  'tbs-65.txt': { replayed: 49, complete: true, allow: ['Thwackey'] },
+  'tbs-65.txt': { replayed: 49, complete: true, allow: [] },
 };
 
 type Replayed = import('../replay/replay.js').ReplayResult;

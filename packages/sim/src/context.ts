@@ -4,8 +4,9 @@
  * copies only the small mutable GameState.
  */
 import { compile, type Op } from './compile.js';
-import type { CardScript, Program, Step } from './dsl.js';
-import { buildDef, textKey } from './cards/frame.js';
+import type { CardScript, Program, StaticDef, Step } from './dsl.js';
+import { buildDef, defKey } from './cards/frame.js';
+import { withPrintedWR } from './cards/printed-wr.js';
 import { scriptFor } from './cards/registry.js';
 import type { CardDef, CardFrame, EngineOptions, GameEvent, Player } from './types.js';
 
@@ -30,6 +31,10 @@ export interface GameContext {
   code: Map<string, Op[]>;
   decks: [DeckInput, DeckInput];
   opts: { events: boolean; first: Player | null; maxTurns: number };
+  /** Some card in this game has an `energyProvides` static (Meganium): attached Energy must be counted with the game state (see eval.ts `pushUnits`). */
+  energyMods: boolean;
+  /** Some card in this game has a `noReturnToHand` static (Milotic): custom effects are checked for putting Pokémon in play into a hand (see interp.ts `guardHand`). */
+  handLock: boolean;
 }
 
 export interface Env {
@@ -63,10 +68,12 @@ export function createContext(a: DeckInput, b: DeckInput, opts: EngineOptions = 
   const owner: Player[] = [];
   const iids: [number[], number[]] = [[], []];
 
-  const decks: [DeckInput, DeckInput] = [a, b];
+  // Runtime frames (supplied by the app) get the printed Weakness/Resistance the catalog may lack.
+  const fill = (d: DeckInput): DeckInput => ({ ...d, cards: d.cards.map((e) => ({ ...e, frame: withPrintedWR(e.frame) })) });
+  const decks: [DeckInput, DeckInput] = [fill(a), fill(b)];
   decks.forEach((deck, p) => {
     for (const e of deck.cards) {
-      const key = textKey(e.frame);
+      const key = defKey(e.frame);
       let di = byKey.get(key);
       if (di === undefined) {
         di = defs.length;
@@ -93,6 +100,8 @@ export function createContext(a: DeckInput, b: DeckInput, opts: EngineOptions = 
     code,
     decks,
     opts: { events: !!opts.events, first: opts.first ?? null, maxTurns: opts.maxTurns ?? 60 },
+    handLock: defs.some((d) => d.statics.some((x) => x.effect.k === 'noReturnToHand') || d.abilities.some((a) => a.script?.statics?.some((x) => x.effect.k === 'noReturnToHand'))),
+    energyMods: defs.some((d) => d.statics.some((x) => x.effect.k === 'energyProvides') || d.abilities.some((a) => a.script?.statics?.some((x) => x.effect.k === 'energyProvides'))),
   };
 }
 
@@ -123,7 +132,10 @@ function compileDef(d: CardDef, script: CardScript | null, code: Map<string, Op[
     const s = ab.script;
     if (!s) return;
     if (s.activated && ab.code) code.set(ab.code, compile(s.activated.program));
-    for (const st of s.statics ?? []) d.statics.push({ ...st });
+    for (const st of s.statics ?? []) {
+      d.statics.push({ ...st });
+      noteTypeFix(d, st, true);
+    }
     (s.triggers ?? []).forEach((t, j) => {
       const key = `${d.idx}:${ab.name}:t${j}`;
       code.set(key, compile(t.program));
@@ -141,12 +153,25 @@ function compileDef(d: CardDef, script: CardScript | null, code: Map<string, Op[
     code.set(key, compile(script.stadiumAbility.program));
     d.stadiumCode = key;
   }
-  for (const st of script.statics ?? []) d.statics.push({ ...st });
+  for (const st of script.statics ?? []) {
+    d.statics.push({ ...st });
+    noteTypeFix(d, st, false);
+  }
   (script.triggers ?? []).forEach((t, j) => {
     const key = `d${d.idx}#t${j}`;
     code.set(key, compile(t.program));
     d.triggers.push({ t, code: key });
   });
+}
+
+/** A Pokémon's own "it is {F} and {P} type" (StaticEffect `types`, scope 'self'): remembered on the definition, so type filters need no game state. */
+function noteTypeFix(d: CardDef, st: StaticDef, ability: boolean): void {
+  const e = st.effect;
+  if (e.k !== 'types' || st.scope !== 'self' || st.filter) return;
+  // A condition on the Pokémon itself (`slotIs` self) is remembered as a filter on the slot ("As long as this Pokémon has a Future
+  // Booster Energy Capsule attached, it is {F} and {M} type"); any other condition is not supported.
+  if (!st.when) d.typeFix = { types: e.types.slice(), add: !!e.add, ability };
+  else if ('slotIs' in st.when && st.when.slotIs.ref === 'self') d.typeFix = { types: e.types.slice(), add: !!e.add, ability, ifSlot: st.when.slotIs.filter };
 }
 
 /** Register an ad-hoc program (used by customs and tests). */

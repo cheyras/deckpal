@@ -6,12 +6,13 @@
  * A custom that asks a decision sets `s.pending` (answer lands in `__a`) and
  * returns 'wait'; the interpreter re-runs it with the answer.
  */
+import { evolveOnto } from '../../evolve.js';
 import { def, type Env, type GameContext } from '../../context.js';
 import { registerCustom, registerCustomCond } from '../../customs.js';
 import { queueTriggers } from '../../interp.js';
-import { countersFixed, countersPrevented, effectsPrevented, ownerOf, statics } from '../../query.js';
+import { countersFixed, countersPrevented, effectsPrevented, ownerOf, pokemonPlayLocked, statics } from '../../query.js';
 import { allSlots, emit, findSlot, opp, removeFrom, slotCards, topCard } from '../../state.js';
-import type { CardDef, Decision, Frame, GameState, Player, Slot, Val } from '../../types.js';
+import { type CardDef, type Decision, type Frame, type GameState, type Player, type Slot, type Val } from '../../types.js';
 import { normText } from '../frame.js';
 import { FRAMES } from '../frames-all.js';
 
@@ -203,7 +204,8 @@ function candyStage2s(env: Env, s: GameState, p: Player, sl: Slot): number[] {
   const basic = def(env.ctx, topCard(sl)).name;
   return s.p[p].hand.filter((c) => {
     const d = def(env.ctx, c);
-    return d.kind === 'pokemon' && d.stage === 2 && !!d.evolvesFrom && stage1Base(env, d.evolvesFrom) === basic;
+    // A play lock on Pokémon that have an Ability (Potent Glare) stops Rare Candy too, as does "put into play only with ..." (Hero's Spirit).
+    return d.kind === 'pokemon' && d.stage === 2 && !!d.evolvesFrom && stage1Base(env, d.evolvesFrom) === basic && !pokemonPlayLocked(env, s, p, d);
   });
 }
 
@@ -250,11 +252,7 @@ registerCustom('rareCandy', (env, s, f, _args, answer) => {
   const ps = s.p[p];
   if (!removeFrom(ps.hand, card)) return 'next';
   removeFrom(ps.revealed, card);
-  sl.cards.push(card);
-  sl.evolvedTurn = s.turn;
-  // Evolving clears Special Conditions and attack effects on the Pokémon.
-  sl.cond = 0;
-  s.effects = s.effects.filter((x) => !(x.slot === sl.id && x.fromAttack));
+  evolveOnto(env, s, sl, card); // Special Conditions, attack effects (timed and delayed) and the rest of evolving: evolve.ts
   emit(env, { type: 'evolve', player: p, card, slot: sl.id });
   queueTriggers(env, s, sl, p, 'evolveFromHand');
   return 'next';

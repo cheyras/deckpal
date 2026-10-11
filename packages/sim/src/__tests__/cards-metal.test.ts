@@ -84,9 +84,10 @@ test('Genesect ex: Metallic Signal finds up to 2 Evolution Metal Pokémon once a
   assert.equal(g.state.p[0].active!.damage, 40);
 });
 
-test('Genesect ex: Weakness {R}×2 and Resistance {G}-30 (the catalog frame prints neither; data-diff fix)', () => {
-  // TCGdex sv10.5b-067 has empty weaknesses/resistances; the card (pokemon-tcg-data zsv10pt5-67) prints both.
-  assert.deepEqual(FRAMES['sv10.5b-067']!.weaknesses, [], 'the snapshot gap this fix covers is still there');
+test('Genesect ex: Weakness {R}×2 and Resistance {G}-30 (the catalog frame prints neither; filled in from the printed card)', () => {
+  // TCGdex sv10.5b-067 has empty weaknesses/resistances; the card (pokemon-tcg-data zsv10pt5-67) prints both. The table in
+  // cards/printed-wr.ts fills them in wherever a frame enters the engine; the raw catalog frame is the one without them.
+  assert.deepEqual(FRAMES['sv10.5b-067']!.weaknesses, [{ type: 'Fire', value: '×2' }], 'the snapshot carries the printed Weakness');
   const g = J([{ active: 'Genesect ex' }, SHARPEDO]);
   const d = def(g.ctx, topCard(g.state.p[0].active!));
   assert.equal(d.weakness, 'Fire');

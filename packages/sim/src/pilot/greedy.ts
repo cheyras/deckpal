@@ -14,7 +14,7 @@ import { submit } from '../flow.js';
 import type { Decision } from '../types.js';
 import { branchable, optionCount, settle } from './lookahead.js';
 import { DEFAULT_WEIGHTS, evaluate, type EvalWeights } from './eval.js';
-import { DEFAULT_PROFILE, policyChoose, type PolicyProfile } from './policy.js';
+import { DEFAULT_PROFILE, publicPolicyChoose, type PolicyProfile } from './policy.js';
 import type { Pilot } from './types.js';
 
 export interface GreedyOptions {
@@ -38,7 +38,7 @@ export class GreedyPilot implements Pilot {
     const env: Env = { ctx: game.ctx, emit: null };
     const me = d.player;
     const n = optionCount(d);
-    if (n <= 1 || !branchable(d, me, true) || game.state.phase !== 'main') return policyChoose(env, game.state, d, this.profile);
+    if (n <= 1 || !branchable(d, me, true) || game.state.phase !== 'main') return publicPolicyChoose(env, game.state, d, this.rng, this.profile);
     const world = determinize(game.state, game.ctx, me, this.rng);
     const rootTurn = world.turn;
     let best = 0;
