@@ -15,7 +15,7 @@ supersedes: []
 
 A ruling that needs an engine change stays uncited until the engine follows it.
 
-The first pass covered the 278 such rulings that no test cited: 226 pinned, 45 reviewed and 7 left open. Six scripts were fixed:
+The first pass covered the 278 such rulings that no test cited: 225 pinned, 43 reviewed and 10 left open. Six scripts were fixed:
 - Pyroar's reduction also covers the attacker's own Pokémon.
 - Mystery Garden is only offered when a card would be drawn.
 - Noctowl's Jewel Seeker doesn't trigger on a Pokémon that is already over its HP.
@@ -27,7 +27,8 @@ The first pass covered the 278 such rulings that no test cited: 226 pinned, 45 r
 
 **Implications:**
 - After a FAQ update, `rulings-sync.ts` reports the new rulings and the same three outcomes apply. CARDS.md "FAQ update" documents the `REVIEWED` table.
-- Six rulings needed engine work: #1138, #2041, #1822, #342, #2212 and #620. They go to a follow-up engine change.
+- Seven rulings needed engine work: #1138, #2041, #1822, #342, #2212, #620 and #2032. They go to a follow-up engine change.
+- Two rulings give the player the order of simultaneous triggers (#146, #2146). Their other parts are tested, but they stay uncited until the engine offers that choice.
 - Ruling #2150 (Team Rocket's Wobbuffet moving counters onto a protected Pokémon) is held for the owner. The fix was proposed but not applied.
 - About 455 older script comments from earlier batches quote ruling answers verbatim. New work paraphrases; whether to paraphrase the old quotes is an open question for the owner.
 - The 816 rulings that only mention a scripted card's name in their text (weaker matches, often about another card) are not covered by this pass.
