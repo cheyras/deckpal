@@ -209,3 +209,75 @@ test('a replay observer that mutates what it is given, or throws, leaves the rep
   assert.match(thrower.observerErrors?.[0] ?? '', /boom/);
   assert.equal(thrower.divergence, plain.divergence);
 });
+
+test('publicKey: using an "as often as you like" Ability again is the same position, so the search can tell it is going in circles', () => {
+  const { g, ctx } = midGame(7);
+  const env = { ctx, emit: null };
+  const a = cloneState(g.state);
+  const slot = a.p[0].active as NonNullable<GameState['p'][0]['active']>;
+  slot.usedAbilities = [0];
+  const once = publicKey(env, a, 0);
+  slot.usedAbilities = [0, 0, 0, 0, 0];
+  assert.equal(publicKey(env, a, 0), once, 'five uses of the same Ability look like one');
+  slot.usedAbilities = [0, 1];
+  assert.notEqual(publicKey(env, a, 0), once, 'a different Ability used is a different position');
+  slot.usedAbilities = [];
+  assert.notEqual(publicKey(env, a, 0), once, 'no Ability used is a different position');
+});
+
+test('a search does not walk back into a position this turn has already been in', () => {
+  const { g, ctx } = midGame(11);
+  const env = { ctx, emit: null };
+  const opts = { ...new SearchPilot(3).opts, nodes: 0 };
+  // With no budget past the root, the memo holds exactly the main-phase positions one move away.
+  const first = new Map<string, Memo>();
+  const plain = searchWorld(env, cloneState(g.state), 0, opts, first);
+  assert.ok(first.size > 0);
+  // Declare them all visited: the same search now finds nothing new to keep, and those lines are not scored.
+  const second = new Map<string, Memo>();
+  const pruned = searchWorld(env, cloneState(g.state), 0, opts, second, new Set(first.keys()));
+  assert.equal(second.size, 0, 'no visited position is searched again');
+  assert.ok(pruned.best.some((v, i) => v < (plain.best[i] as number)), 'a move that only leads back is not scored for it');
+});
+
+test('a turn with Rocket Brain (an Ability usable as often as you like) ends: the search games finish in bounded decisions with reuse on', async () => {
+  const { FRAMES } = await import('../cards/frames-all.js');
+  type Frame = (typeof FRAMES)[string];
+  const ENERGY: Record<string, string> = { Grass: 'mee-001', Fire: 'mee-002', Water: 'mee-003', Lightning: 'mee-004', Psychic: 'mee-005', Fighting: 'mee-006', Darkness: 'mee-007', Metal: 'mee-008' };
+  const byName = new Map<string, Frame>();
+  for (const f of Object.values(FRAMES)) if (!byName.has(f.name)) byName.set(f.name, f);
+  const filler = Object.values(FRAMES).find((f) => f.category === 'Pokemon' && f.stage === 'Basic' && !f.abilities?.length && (f.attacks ?? []).every((a) => !a.effect)) as Frame;
+  const deckAround = (ids: string[], name: string) => {
+    const entries = new Map<string, { frame: Frame; count: number }>();
+    const add = (f: Frame, n: number) => entries.set(f.cardId, { frame: f, count: Math.min(4, (entries.get(f.cardId)?.count ?? 0) + n) });
+    const types = new Set<string>();
+    for (const c of ids.map((id) => FRAMES[id] as Frame)) {
+      add(c, 4);
+      for (const t of c.types ?? []) types.add(t);
+      for (const a of c.attacks ?? []) for (const t of (a.cost ?? '').split(',')) if (ENERGY[t.trim()]) types.add(t.trim());
+      let from = c.evolvesFrom ? byName.get(c.evolvesFrom) : undefined;
+      while (from) {
+        add(from, 4);
+        from = from.evolvesFrom ? byName.get(from.evolvesFrom) : undefined;
+      }
+    }
+    add(filler, 4);
+    const list = [...entries.values()];
+    const energyTypes = [...types].filter((t) => ENERGY[t]);
+    if (!energyTypes.length) energyTypes.push('Psychic');
+    const total = list.reduce((n, e) => n + e.count, 0);
+    const each = Math.max(4, Math.ceil(Math.max(0, 60 - total) / energyTypes.length));
+    for (const t of energyTypes) list.push({ frame: FRAMES[ENERGY[t] as string] as Frame, count: each });
+    return { name, cards: list };
+  };
+  const k = 19;
+  const g = new Game(deckAround(['sv10-088', 'sv10-089', 'sv10-092', 'sv10-093'], 'A'), deckAround(['sv10-115', 'sv10-116', 'sv10-118', 'sv10-121'], 'B'), 1000 + k, { maxTurns: 60 }).start();
+  const pilots = [makePilot('search', k), makePilot('search', k + 1)];
+  let n = 0;
+  while (!g.over && n < 2500) {
+    const d = g.decision as { player: 0 | 1 };
+    g.submit((pilots[d.player] as ReturnType<typeof makePilot>).choose(g, d as never));
+    n++;
+  }
+  assert.ok(g.over, `stalled after ${n} decisions at turn ${g.state.turn}`);
+});

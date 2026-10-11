@@ -156,6 +156,8 @@ export function searchWorld(
   me: Player,
   o: Required<Omit<SearchOptions, 'weights' | 'profile'>> & { weights: EvalWeights; profile: PolicyProfile },
   memo?: Map<string, Memo>,
+  /** The publicKeys of the positions this turn has actually been in: a line that comes back to one has only shuffled (an "as often as you like" Ability moving a counter back and forth) and is not searched. */
+  reached?: ReadonlySet<string>,
 ): WorldResult {
   const d0 = (root.pending as { decision: Decision }).decision;
   const n0 = optionCount(d0);
@@ -209,11 +211,16 @@ export function searchWorld(
           if (stop === 'branch' && (c.pending as { decision: Decision }).decision.kind !== 'main') stop = 'leaf';
         }
       }
+      let pk: string | undefined;
+      if (stop === 'branch' && (memo || reached)) {
+        pk = publicKey(env, c, me);
+        if (reached?.has(pk)) continue; // back to a position of this turn: nothing gained, and playing it again never ends
+      }
       const v = score(c);
       record(f, v, l);
       bump(pn, v);
       if (stop === 'branch') {
-        const h = memo ? publicKey(env, c, me) : hashState(env, c);
+        const h = memo ? (pk as string) : hashState(env, c);
         const old = memo?.get(h);
         if (old?.done && old.val < o.weights.win / 2) {
           // An earlier search of this turn already played this position out: take its result.
@@ -339,6 +346,8 @@ export class SearchPilot implements Pilot {
   nodes = 0;
   /** What the earlier searches of the current turn found out (the `reuse` switch). */
   private memo: { turn: number; me: Player; map: Map<string, Memo> } | null = null;
+  /** The positions `me` has actually decided in this turn (publicKey), so that a search does not walk back into one. */
+  private reached: { turn: number; me: Player; keys: Set<string> } | null = null;
   constructor(seed = 1, opts: SearchOptions = {}) {
     this.rng = new Rng(seed);
     this.opts = {
@@ -358,6 +367,11 @@ export class SearchPilot implements Pilot {
     if (n <= 1 || game.state.phase !== 'main' || !branchable(d, me, o.subs)) return publicPolicyChoose(env, game.state, d, this.rng, o.profile);
     if (d.kind === 'main' && n === 1) return [0];
 
+    if (d.kind === 'main') {
+      if (!this.reached || this.reached.turn !== game.state.turn || this.reached.me !== me) this.reached = { turn: game.state.turn, me, keys: new Set() };
+      this.reached.keys.add(publicKey(env, game.state, me));
+    }
+    const reached = this.reached?.turn === game.state.turn && this.reached.me === me ? this.reached.keys : undefined;
     const K = Math.max(1, o.worlds);
     const sum = new Float64Array(n);
     const wins = new Uint8Array(n);
@@ -370,7 +384,7 @@ export class SearchPilot implements Pilot {
         if (!this.memo || this.memo.turn !== game.state.turn || this.memo.me !== me || this.memo.map.size > 20000) this.memo = { turn: game.state.turn, me, map: new Map() };
         memo = this.memo.map;
       }
-      const r = searchWorld(env, world, me, o, memo);
+      const r = searchWorld(env, world, me, o, memo, reached);
       this.nodes += r.nodes;
       for (let i = 0; i < n; i++) {
         const v = r.best[i] as number;

@@ -106,7 +106,13 @@ function slotHash(env: Env, sl: Slot): Hash {
   h.seq(-1).bag(sl.energy, cd).seq(-2);
   for (const c of sl.tools) h.seq(cd[c] as number);
   h.seq(sl.damage).seq(sl.cond).seq(sl.enteredTurn).seq(sl.evolvedTurn);
-  for (const u of sl.usedAbilities) h.seq(u);
+  // Which Abilities were used, not how often: an "as often as you like" Ability logs every use, and only the first changes what can be played.
+  let used = 0;
+  for (const u of sl.usedAbilities) {
+    if (u >= 0 && u < 30) used |= 1 << u;
+    else h.seq(u);
+  }
+  h.seq(used);
   return h;
 }
 
