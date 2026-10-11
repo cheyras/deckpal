@@ -106,6 +106,8 @@ export interface CardDef {
   // Shared passives/triggers (Tools, Stadiums, Energy)
   statics: StaticDef[];
   triggers: { t: TriggerScript; code: string }[];
+  /** An Ability or card text that makes this Pokémon other types ("it is {F} and {P} type"): see StaticEffect `types`. */
+  typeFix?: { types: PType[]; add: boolean };
   /** Printed text, joined, for the round-trip check and the debug view. */
   text: string;
   script: CardScript | null;
@@ -145,6 +147,11 @@ export interface Slot {
   movedActiveTurn?: number;
   /** Turn a heal last removed damage from this Pokémon. */
   healedTurn?: number;
+  /** The "Knocked Out by damage from an attack" triggers have been queued for this Pokémon's current Knock Out (see resolveKOs). */
+  koTriggered?: boolean;
+  /** Damage from opposing attacks this Pokémon took in turn `attackDmgTurn` (a running total for that turn). */
+  attackDmgTurn?: number;
+  attackDmg?: number;
 }
 
 /** A program scheduled for the end of a turn (the `delay` step). */
@@ -197,6 +204,16 @@ export interface PlayerState {
   knownTop: number;
   /** Hand cards the opponent has seen (revealed by a search), until they leave the hand. */
   revealed: number[];
+  /** Cards (instance ids) this player played from their hand during their current turn by their own actions. Reset when their turn starts. */
+  playedThisTurn?: number[];
+  /** `prizesTaken` when this player's current turn began, and how many Prize cards they took in their most recent finished turn. */
+  prizesAtTurnStart?: number;
+  prizesLastTurn?: number;
+  /** Top cards of this player's Pokémon Knocked Out in turn `koCardsTurn`, and in the turn before (`prevKoCardsTurn`). Replaced, never mutated. */
+  koCards?: number[];
+  koCardsTurn?: number;
+  prevKoCards?: number[];
+  prevKoCardsTurn?: number;
   /** Names of "can't be applied more than once per game" effects already applied (Legacy Energy). Replace, never mutate: clones share it. */ // lane:fighting
   oncePerGame?: string[]; // lane:fighting
 }
@@ -258,6 +275,9 @@ export interface GameState {
   delayed?: DelayedEffect[];
   /** Set when an attack resolves: the turn ends once the stack empties. */
   attacked: boolean;
+  /** The Pokémon (slot id) that used the current attack and the card it was: who the attack's Knock Outs are "from". */
+  attackBy?: number;
+  attackByCard?: number;
   /** Slot ids the current attack has damaged (opposing Pokémon only). Replace, never mutate: clones share it. */ // lane:fighting
   attackHits?: number[]; // lane:fighting
   /** Triggered effects waiting for the stack to empty. */

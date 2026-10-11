@@ -73,6 +73,8 @@ function cloneSlot(s: Slot): Slot {
     ...(s.paralyzedTurn !== undefined ? { paralyzedTurn: s.paralyzedTurn } : {}),
     ...(s.movedActiveTurn !== undefined ? { movedActiveTurn: s.movedActiveTurn } : {}),
     ...(s.healedTurn !== undefined ? { healedTurn: s.healedTurn } : {}),
+    ...(s.koTriggered ? { koTriggered: true } : {}),
+    ...(s.attackDmgTurn !== undefined ? { attackDmgTurn: s.attackDmgTurn, attackDmg: s.attackDmg } : {}),
   };
 }
 
@@ -88,6 +90,7 @@ function clonePlayer(p: PlayerState): PlayerState {
     bench: p.bench.map(cloneSlot),
     globalAbilitiesUsed: p.globalAbilitiesUsed.slice(),
     revealed: p.revealed.slice(),
+    ...(p.playedThisTurn ? { playedThisTurn: p.playedThisTurn.slice() } : {}),
   };
 }
 

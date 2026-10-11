@@ -9,7 +9,7 @@
  */
 import { def, type Env } from './context.js';
 import type { Filter, PType, Scope, StaticEffect } from './dsl.js';
-import { defMatches, evalCond, evalExpr, providesOn, pushUnits, slotMatches, type EnergyUnit, type EvalCtx } from './eval.js';
+import { cardMatches, defMatches, evalCond, evalExpr, providesOn, pushUnits, slotMatches, type EnergyUnit, type EvalCtx } from './eval.js';
 import { allSlots, findSlot, opp, topCard } from './state.js';
 import type { GameState, Player, Slot } from './types.js';
 
@@ -271,6 +271,15 @@ export function countersPrevented(
   return onSlot(env, s, all, slot, 'preventCounters').some((x) => (x.effect as { from: string[] }).from.includes(kind));
 }
 
+/**
+ * Does an attacking Pokémon match an `attacker` filter? `anyAbility` also needs its Abilities to be on right now (ruling 2260:
+ * Team Rocket's Watchtower says {C} Pokémon have no Abilities, so they are not "Pokémon that have an Ability").
+ */
+export function attackerMatches(env: Env, s: GameState, attacker: Slot, f: Filter, all = statics(env, s)): boolean {
+  if (!slotMatches(env, attacker, f)) return false;
+  return !f.anyAbility || !hasNoAbilities(env, s, attacker, all);
+}
+
 /** Is damage from `fromPlayer`'s attack to this Pokémon prevented? */
 export function damagePrevented(
   env: Env,
@@ -289,7 +298,7 @@ export function damagePrevented(
     // lane:ghost — "attacks from your opponent's Pokémon that have 2 or less Energy attached" (Energy units, as energyOn counts).
     const e = x.effect as { attackerMaxEnergy?: number; attacker?: Filter };
     // "attacks from Basic Pokémon": only an attacking Pokémon that matches the filter.
-    if (e.attacker && !(attacker && slotMatches(env, attacker, e.attacker))) return false;
+    if (e.attacker && !(attacker && attackerMatches(env, s, attacker, e.attacker, all))) return false;
     const max = e.attackerMaxEnergy;
     if (max === undefined) return true;
     return !!attacker && energyUnits(env, attacker).length <= max;
@@ -314,10 +323,15 @@ export function damageOut(env: Env, s: GameState, attacker: Slot, target: Slot, 
 /** `fromPlayer`: whose attack it is (lane:metal) — a `fromOpp` reduction skips the target owner's own attacks. */
 export function damageIn(env: Env, s: GameState, target: Slot, all = statics(env, s), fromPlayer?: Player, attacker?: Slot): number {
   let n = 0;
+  const once = new Set<string>(); // noStack keys already counted
   for (const x of onSlot(env, s, all, target, 'damageIn')) {
-    const e = x.effect as { amount: number; fromOpp?: boolean; attacker?: Filter };
-    if (e.attacker && !(attacker && slotMatches(env, attacker, e.attacker))) continue;
+    const e = x.effect as { amount: number; fromOpp?: boolean; attacker?: Filter; noStack?: string };
+    if (e.attacker && !(attacker && attackerMatches(env, s, attacker, e.attacker, all))) continue;
     if (e.fromOpp && fromPlayer !== undefined && fromPlayer === ownerOf(s, target)) continue; // lane:metal
+    if (e.noStack) {
+      if (once.has(e.noStack)) continue;
+      once.add(e.noStack);
+    }
     n += e.amount;
   }
   return n;
@@ -340,9 +354,47 @@ export function abilityLost(
   return selfKo && onSlot(env, s, all, slot, 'loseSelfKoAbilities').length > 0;
 }
 
-/** lane:misc — Wonder Kiss: the extra-Prize effect that applies to a taker (at most one: it doesn't stack). */
-export function extraPrizeFor(_env: Env, _s: GameState, p: Player, all: LiveStatic[]): LiveStatic | undefined {
-  return all.find((x) => x.effect.k === 'extraPrize' && affectsPlayer(x, p));
+/** The extra-Prize effects (Wonder Kiss, Anthea & Concordia) that apply to a taker. */
+export function extraPrizeEffects(p: Player, all: LiveStatic[]): LiveStatic[] {
+  return all.filter((x) => x.effect.k === 'extraPrize' && affectsPlayer(x, p));
+}
+
+/**
+ * Does the attack being resolved come from a Pokémon matching `f`? The Pokémon that used it, if still in play, else the card it
+ * was. With no filter: always. False when no attack is being resolved.
+ */
+export function attackIsFrom(env: Env, s: GameState, f: Filter | undefined, all = statics(env, s)): boolean {
+  if (!f) return true;
+  if (s.attackBy === undefined) return false;
+  const loc = findSlot(s, s.attackBy);
+  if (loc) return attackerMatches(env, s, loc.slot, f, all);
+  return s.attackByCard !== undefined && cardMatches(env, s.attackByCard, f);
+}
+
+/**
+ * Prize cards a Knock Out by damage from the current attack changes by, for a Pokémon (`koPrizes` statics on it): the sum of
+ * the deltas, each `noStack` key counted once; `none` means no Prize cards at all.
+ */
+export function koPrizeEffects(env: Env, s: GameState, slot: Slot, all = statics(env, s)): { delta: number; none: boolean } {
+  let delta = 0;
+  let none = false;
+  const once = new Set<string>();
+  for (const x of onSlot(env, s, all, slot, 'koPrizes')) {
+    const e = x.effect as { delta?: number; none?: boolean; attacker?: Filter; noStack?: string };
+    if (!attackIsFrom(env, s, e.attacker, all)) continue;
+    if (e.noStack) {
+      if (once.has(e.noStack)) continue;
+      once.add(e.noStack);
+    }
+    if (e.none) none = true;
+    delta += e.delta ?? 0;
+  }
+  return { delta, none };
+}
+
+/** "If this Pokémon would be Knocked Out by damage from an attack, flip a coin...": how many such effects apply to it (one flip each). */
+export function surviveKoCoinFlips(env: Env, s: GameState, slot: Slot, all = statics(env, s)): number {
+  return onSlot(env, s, all, slot, 'surviveKoCoinFlip').length;
 }
 
 export function cantAttack(env: Env, s: GameState, slot: Slot, all = statics(env, s)): boolean {

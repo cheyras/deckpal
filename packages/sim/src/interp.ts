@@ -8,8 +8,8 @@
  */
 import { codeOf, def, ensureCode, type Env } from './context.js';
 import type { Op } from './compile.js';
-import type { CardZone, DamageIgnore, Dest, Filter, SlotRef, SlotZone, SpecialCondition, Step } from './dsl.js';
-import { cardMatches, evalCond, evalExpr, resolveSlot, side, slotMatches, slotsIn, type EvalCtx } from './eval.js';
+import type { CardZone, DamageIgnore, Dest, Filter, SlotRef, SlotZone, SpecialCondition, Step, TriggerOn } from './dsl.js';
+import { cardMatches, evalCond, evalExpr, resolveSlot, side, slotMatches, slotsIn, slotTypes, type EvalCtx } from './eval.js';
 import {
   attackCost,
   cardUnits,
@@ -167,6 +167,13 @@ function exec(env: Env, s: GameState, f: Frame, op: Op): R {
       return 'next';
     case 'confusion':
       return confusion(env, s, f);
+    case 'used': {
+      // A once-per-turn trigger was accepted: it can't be used again this turn (the key is a negative "ability index").
+      const sl = findSlot(s, f.slot)?.slot;
+      const key = f.vars.__once;
+      if (sl && typeof key === 'number' && !sl.usedAbilities.includes(key)) sl.usedAbilities.push(key);
+      return 'next';
+    }
     case 'attackDamage':
       return attackDamage(env, s, f);
     case 'step':
@@ -226,7 +233,7 @@ function dealDamage(
 ): R {
   const attacker = findSlot(s, f.slot)?.slot;
   const all = statics(env, s);
-  const atkTypes = attacker ? def(env.ctx, topCard(attacker)).types : [];
+  const atkTypes = attacker ? slotTypes(env, attacker) : []; // "it is {F} and {P} type": both count against Weakness and Resistance
   for (const target of targetsOf(env, s, f, to)) {
     const owner = ownerOf(s, target);
     const isActive = s.p[owner].active === target;
@@ -262,7 +269,12 @@ function dealDamage(
     }
     target.damage += dmg;
     // lane:fighting — remember who this attack damaged (Legacy Energy: "Knocked Out by damage from an attack")
-    if (f.kind === 'attack' && owner !== f.player) s.attackHits = [...(s.attackHits ?? []), target.id];
+    if (f.kind === 'attack' && owner !== f.player) {
+      s.attackHits = [...(s.attackHits ?? []), target.id];
+      // "damage this Pokémon took from an attack during your opponent's last turn": a running total per turn.
+      target.attackDmg = (target.attackDmgTurn === s.turn ? (target.attackDmg ?? 0) : 0) + dmg;
+      target.attackDmgTurn = s.turn;
+    }
     emit(env, { type: 'damage', player: owner, slot: target.id, amount: dmg, bySlot: f.slot });
     if (owner !== f.player && isActive) queueTriggers(env, s, target, owner, 'damagedByAttackActive');
   }
@@ -276,7 +288,7 @@ export function queueTriggers(
   slot: Slot,
   owner: Player,
   // lane:misc — 'checkup' and 'endOfTurn' added; attached Energy are trigger sources too (Ignition Energy).
-  on: 'damagedByAttackActive' | 'knockedOutByAttack' | 'playToBench' | 'evolveFromHand' | 'checkup' | 'endOfTurn' | 'oppAttachFromHand', // lane:ghost
+  on: TriggerOn,
   /** lane:ghost — initial frame variables (e.g. `__target` for oppAttachFromHand). */
   vars?: Record<string, Val>,
 ): void {
@@ -287,12 +299,15 @@ export function queueTriggers(
     if (d.coverage !== 'full') continue;
     const isPokemon = c === topCard(slot);
     if (isPokemon && noAb) continue;
-    for (const t of d.triggers) {
+    for (const [ti, t] of d.triggers.entries()) {
       if (t.t.on !== on) continue;
+      // "Once during your turn": a Pokémon's trigger used already this turn (a negative key in usedAbilities) is not offered again.
+      const onceKey = t.t.oncePerTurn && isPokemon ? -(1 + ti) : undefined;
+      if (onceKey !== undefined && (slot.usedAbilities.includes(onceKey) || s.current !== owner)) continue;
       const frame: Frame = {
         code: t.code,
         pc: 0,
-        vars: { ...vars }, // lane:ghost
+        vars: { ...vars, ...(onceKey !== undefined ? { __once: onceKey } : {}) }, // lane:ghost
         player: owner,
         src: c,
         slot: slot.id,
@@ -801,6 +816,14 @@ export function swapActive(env: Env, s: GameState, who: Player, target: Slot, re
   ps.active = target;
   target.movedActiveTurn = s.turn;
   emit(env, { type: retreat ? 'retreat' : 'switch', player: who, from: old?.id ?? 0, to: target.id });
+  if (old && s.phase === 'main') {
+    // The old Active moved to the Bench: its own "moves from the Active Spot to your Bench" Abilities, and the other side's
+    // "whenever your opponent's Active Pokémon moves to the Bench during their turn" Abilities (only in the mover's own turn).
+    queueTriggers(env, s, old, who, 'movedToBench');
+    if (s.current === who) {
+      for (const w of allSlots(s.p[opp(who)])) queueTriggers(env, s, w, opp(who), 'oppActiveMovedToBench', { __target: old.id });
+    }
+  }
 }
 
 function useAttackOf(env: Env, s: GameState, f: Frame, cardVar: string): R {
