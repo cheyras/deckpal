@@ -72,13 +72,13 @@ test('only a schema-valid ask_user call counts as asking', () => {
 
 test('in the real SDK a malformed ask no longer ends the turn; the corrected ask does', async () => {
   // THE REVIEW FINDING (S1), reproduced through ai@7 itself rather than a
-  // hand-built step: the 13-character header fails `ask_user`'s schema, the SDK
+  // hand-built step: an over-long (25-character) header fails `ask_user`'s schema, the SDK
   // keeps the call in `toolCalls` with `invalid: true`, and `hasToolCall`
   // stopped on it. `askedThisStep` lets the model see the error and ask again.
   const ask = (header: string) => JSON.stringify({
     questions: [{ header, question: 'Which format?', options: [{ label: 'Standard' }, { label: 'Expanded' }] }],
   });
-  const responses = [ask('thirteen char'), ask('Format')];
+  const responses = [ask('Twenty-five characters!!!'), ask('Format')];
   const model = new MockLanguageModelV3({
     doGenerate: async () => ({
       content: [{ type: 'tool-call' as const, toolCallId: `ask-${responses.length}`, toolName: 'ask_user', input: responses.shift()! }],
@@ -93,7 +93,7 @@ test('in the real SDK a malformed ask no longer ends the turn; the corrected ask
   assert.equal(sdkHelper.steps.length, 1, 'premise: hasToolCall stops on the INVALID call');
   assert.equal((sdkHelper.steps[0]!.toolCalls[0] as { invalid?: boolean }).invalid, true, 'premise: ai@7 marks it `invalid`');
 
-  responses.splice(0, responses.length, ask('thirteen char'), ask('Format'));
+  responses.splice(0, responses.length, ask('Twenty-five characters!!!'), ask('Format'));
   const ours = await generateText({ model, tools, prompt: 'build me a deck', stopWhen: [stepCountIs(5), ({ steps }) => askedThisStep(steps)] });
   assert.equal(ours.steps.length, 2, 'the loop continued past the invalid ask and stopped on the valid one');
   assert.equal(askedThisTurn(ours.steps), true);
