@@ -136,6 +136,40 @@ test('a near-miss ask is trimmed to its own schema, lands, and says what was cut
   assert.equal(repairs.size, 0, 'the log is drained so the next call does not inherit it')
 })
 
+test('deep_think is a bounded Deck-E server tool held for signed approval', async () => {
+  type Deep = {
+    description?: string
+    inputSchema: z.ZodTypeAny
+    needsApproval?: boolean
+    execute?: (input: unknown, options: { toolCallId: string }) => Promise<{ status: string; grant?: string; note: string }>
+  }
+  const events: Array<{ phase: string; name: string; id: string }> = []
+  type DeepContext = NonNullable<NonNullable<Parameters<typeof buildTools>[4]>['deepThink']>
+  const build = (deepThink?: DeepContext) =>
+    (buildTools(noopWriter, undefined, undefined, (e) => events.push(e), deepThink ? { deepThink } : undefined) as unknown as Record<string, Deep>).deep_think!
+  const deep = build()
+  assert.equal(deep.needsApproval, true)
+  assert.equal(typeof deep.execute, 'function')
+  assert.equal(deep.inputSchema.safeParse({ why: 'x'.repeat(200), plan: 'y'.repeat(300) }).success, true)
+  assert.equal(deep.inputSchema.safeParse({ why: 'x'.repeat(201), plan: 'enough' }).success, false)
+  assert.equal(deep.inputSchema.safeParse({ why: 'Worth it.', plan: 'y'.repeat(301) }).success, false)
+  assert.equal(deep.inputSchema.safeParse({ why: 'Worth it.', plan: 'Replay it.', cost: 999 }).success, false)
+  assert.match(deep.description ?? '', /only when this request truly benefits/i)
+  assert.match(deep.description ?? '', /never for routine work/i)
+
+  const input = { why: 'Worth it.', plan: 'Replay it.' }
+  // No request context (tests, previews): unavailable, no grant, no row.
+  const off = await deep.execute!(input, { toolCallId: 'd0' })
+  assert.equal(off.status, 'off')
+  assert.equal('grant' in off, false)
+  assert.equal(events.length, 0, 'a Deep Think that did not start drew a row')
+  // On a real Deep approval leg the request hands it a grant, and it shows a row.
+  const on = await build({ result: () => ({ status: 'on', grant: 'dt1.grant', note: 'Deep Think is on for this request' }) })
+    .execute!(input, { toolCallId: 'd1' })
+  assert.deepEqual(on, { status: 'on', grant: 'dt1.grant', note: 'Deep Think is on for this request' })
+  assert.deepEqual(events.map((e) => [e.id, e.name, e.phase]), [['d1', 'deep_think', 'start'], ['d1', 'deep_think', 'ok']])
+})
+
 test('ask_to_share_chat draws one transient choice only when SQL allows it', async () => {
   const writes: Array<{ type: string; data: unknown; transient?: boolean }> = []
   const db = { query: async () => ({ rows: [{ data: { allowed: true } }] }) } as unknown as Queryable
@@ -537,7 +571,7 @@ test('the browser mirror normalises with the same rule and the same list', () =>
     new URL('../../../../web/src/character/host/uiTools.ts', import.meta.url),
     'utf8',
   )
-  const rule = (src: string) => src.match(/function isNormalPath[\s\S]*?\n\}/)?.[0].split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
+  const rule = (src: string) => src.replaceAll('\r\n', '\n').match(/function isNormalPath[\s\S]*?\n\}/)?.[0].split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
   assert.ok(rule(own), 'isNormalPath is gone from tools.ts')
   assert.equal(rule(web), rule(own), 'the browser and the server normalise routes differently')
   assert.match(web, /routeAllowed[\s\S]{0,400}isNormalPath\(clean\) &&/, 'routeAllowed no longer normalises')

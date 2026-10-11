@@ -1449,8 +1449,8 @@ one generation rather than of the run).
 **Status: routed assistant harness, 2026-10-10.** The layer described in
 §15b–§15g uses Claude Haiku 5.5 for triage and Quick work, Claude Sonnet 5.5
 for Standard work, shared agent tools, pathway guidance, write approvals,
-grounding and narration controls, and the chat surface. Claude Opus 5.5 is
-reserved for reader-consented Deep Think, whose consent path is not wired yet.
+grounding and narration controls, and the chat surface. Claude Opus 5.5 runs
+only as reader-consented Deep Think (§15d).
 Verification of it has been done against previews and against the live backend as
 the QA account, never the owner's, per contract B12. It needs
 `DECKE_VERCEL_AI_GATEWAY_KEY` in the
@@ -1580,7 +1580,8 @@ apps/api/src/decke/
   tiers.ts              code-owned pathway floors, escalation and effort
   pathways/             per-job instructions and their names.ts routing metadata
   models.ts             TIERS: Quick Haiku 5.5, Standard Sonnet 5.5,
-                        Deep Opus 5.5 (reserved, not yet wired)
+                        Deep Opus 5.5 (Deep Think, consent-gated)
+  deepThink.ts          Deep Think eligibility, offer/grant tokens, the two Opus routes and the balance floor (§15d)
   consult.ts            Quick asks Sonnet 5.5 one question with a brief it writes (§15d)
   adapters/aisdk.ts     ToolDefinition -> the AI SDK's tool(), plus the approval policy (§15c, §15e)
   noOp.ts               "would this write change anything?" -- no dialog if not (§15e)
@@ -1679,10 +1680,61 @@ The pathway table in `pathways/names.ts` is the quality/cost dial. `deck_build`,
 `collection_plan`, `lists`, `price_value`, `card_rules`, `research`, `navigate`,
 `small_talk` and `general` start Quick/Haiku. Quick navigation and small talk use
 low effort; the other Quick pathways use medium. Standard uses medium and the
-reserved Deep tier uses high. Signals such as dissatisfaction or correction,
+Deep tier uses high. Signals such as dissatisfaction or correction,
 carried guard failures, repeated tool errors and Deep interest raise Quick to
-Standard; none can enter Deep without reader consent, and that consent flow is
-not wired yet.
+Standard; none can enter Deep without reader consent.
+
+**Deep Think** is that consent flow. It exists only on a deployment that signs
+approvals (`DECKE_APPROVAL_SECRET`; unsigned, the tool is not in the set and
+nothing routes to Opus) and only for metered credits: a paid wallet, priced, or
+an unlimited account, unpriced. The daily allowance, credits off and flat v1
+pricing never see it. Deck-E offers it when the pathway rubric says the job
+merits depth (`wantsDeep: offer`) or the reader asks for deeper analysis
+(`requested`); either way the turn stays on Standard until he agrees. The offer
+is the `deep_think` tool, which raises the ordinary signed approval card. Beside
+that card the server streams a `data-decke-deep-offer` part keyed to the call:
+an offer token, and for a paid wallet its estimate ("About low-high credits",
+rendered by `deepThinkCard.ts` above the model-written why/plan; a model never
+writes the number). "Use Deep Think" stays disabled until the wallet balance read
+after the card went up has landed, and becomes Top up when that balance is below
+the estimate's high end.
+
+A request reaches Opus by exactly two routes, both in `deepThink.ts` and both
+read before admission because they size the hold:
+
+- **The approval leg** (`deepApprovalLeg`): the final message ENDS with an
+  `approval-responded`, approved `deep_think` part — the one shape ai@7's
+  `collectToolApprovals` hands to `validateApprovedToolApprovals`, whose HMAC
+  check (approval id, call id, tool name, input) throws before any model call.
+  An approved part anywhere else, or an `output-available` part carrying an
+  approval, is never validated by the SDK and is never authority here. The
+  SDK's HMAC covers the call, not the turn, so the part must also carry the
+  offer token: an HMAC under a key derived from the same secret over user,
+  conversation, exchange (the browser's per-turn id), a digest of the reader's
+  latest message, call id and approval id. An old turn's genuine approval
+  replayed into a new turn fails it.
+- **A later leg of that turn** (`deepGrantThisTurn`): `deep_think`'s execute —
+  which runs only after the SDK accepted the signature — mints a grant (HMAC over
+  user, conversation, exchange and latest-message digest, 15 minutes) into its
+  output, and emits its own start/ok row ("Used Deep Think"). The browser turns
+  the answered approval into that finished result on the next leg
+  (`settleApprovedCalls`), which both pairs the call with a result and carries
+  the grant; a grant from another turn, user or conversation, a tampered one or
+  an expired one does not verify.
+
+Both routes outrank the browser's route echo (`turnDecision`): every Deep leg is
+a continuation, and the echo can never carry Deep itself. Only those routes add
+migration 083's hold multiplier (bounded 1-10; Deep asks for 8x the 25-credit
+hold); settlement is still the actual Gateway cost and the unused hold returns.
+A paid reader whose spendable credits are below the HIGH end of the estimate
+answers on Standard with a one-line note (`settleDeepDecision`): the cap is only
+checked when a model operation starts, so one 32k-token Opus step could
+otherwise overshoot a small hold into the overage buffer. Once a turn has any
+`deep_think` answer, and throughout a Deep run, the offer line and the tool leave
+the model's view for that request (constant per request), and a Deep run has no
+`ask_user` (its answer would be a new turn without the grant; the tool result
+tells Opus to state assumptions instead). "Keep it quick" sends its own reason
+(`[[KEEP_QUICK]] …`) and the turn answers on Standard.
 
 Effort is a top-level Anthropic provider option beside
 `thinking: { type: 'adaptive' }`. Putting effort inside `thinking` is not an

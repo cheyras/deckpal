@@ -55,7 +55,7 @@ import { KbDiag, kbDiagMode } from './KbDiag'
 import { parkFloor } from './parkFloor'
 import { CreditChip, DeckeNotice, type NoticeTone } from './chat/DeckeNotice'
 import type { NoticeAction } from './chat/httpNotice'
-import { deepCost, type DeepQuote } from './chat/deepRequest'
+import type { DeepQuote } from './chat/deepRequest'
 import { HistoryMenu } from './chat/HistoryMenu'
 import { TranscriptExit, TranscriptPane } from './chat/TranscriptView'
 import { ShareChoice } from './chat/ShareChoice'
@@ -75,6 +75,7 @@ import {
 } from './chat/creditState'
 import { ApprovalCard } from './chat/ApprovalCard'
 import type { ApprovalPreview, Choices, RowChoice } from './chat/approvalCardState'
+import type { DeepThinkOffer } from './chat/deepThinkCard'
 import type { PendingApproval, ToolChip } from './useDeckeChat'
 import {
   openersFor,
@@ -1073,6 +1074,7 @@ export function DeckeChat({
   onApprove,
   onDeny,
   approvalPreview,
+  deepThinkOffer,
   approvalChoices,
   onApprovalChoice,
   approvalBusy,
@@ -1120,6 +1122,8 @@ export function DeckeChat({
   onDeny: () => void
   /** The dry run's real rows for a held call, or null for the plain dialog. */
   approvalPreview: (toolCallId: string) => ApprovalPreview | null
+  /** The server's Deep Think offer (turn token, price) for a held call, or null. */
+  deepThinkOffer: (toolCallId: string) => DeepThinkOffer | null
   approvalChoices: Choices
   onApprovalChoice: (index: number, choice: RowChoice) => void
   /** True from the tick Accept is pressed until the write has answered. */
@@ -2383,6 +2387,9 @@ export function DeckeChat({
 
   const lastAskedMsg = [...messages].reverse().find((m) => m.role === 'user')
   const lastAsked = lastAskedMsg ? messageText(lastAskedMsg) : undefined
+  const heldDeepOffer = asking?.[0]
+    ? deepThinkOffer(asking[0].toolCallId)
+    : null
 
   return (
     <>
@@ -3302,12 +3309,16 @@ export function DeckeChat({
             // finishing after the dry run displaced it, and a consent dialog
             // showing another call's result is worse than one showing nothing.
             preview={approvalPreview(asking[0].toolCallId)}
+            approval={asking[0]}
+            deepOffer={heldDeepOffer}
+            // The wallet balance read AFTER the card went up (see `quote`), or
+            // null while unknown: a priced Deep Think waits for it.
+            balance={quote?.balance ?? null}
             choices={approvalChoices}
             onChoice={onApprovalChoice}
             onAccept={onApprove}
             onDeny={onDeny}
             busy={approvalBusy}
-            cost={deepCost(asking[0].name, quote)}
             onTopUp={onTopUp}
           />
           </div>

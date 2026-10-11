@@ -47,6 +47,7 @@ test('battle logging preserves paste, ranking, depth, debrief, and hidden-info r
   assert.match(text, /Only a bare result with no story.*logged immediately/)
   assert.match(text, /hidden information are \*\*unknown\*\*, never guessed/)
   assert.match(text, /battle number, version and deck record/)
+  assert.match(text, /offer Deep Think with `deep_think` and give one sentence saying why/)
 })
 
 // 2026-10-10, from the pathway audit: an in-person game used to dead-end with
@@ -78,9 +79,13 @@ test('a review has a shape and four defined causes', () => {
 // them with no analysis at all. And `dry_run` stays out: a "preview first"
 // line once took write calls to 0/15 (aisdk.ts), and the tool results already
 // say how to apply.
-test('no pathway mentions Deep Think, and the battle texts say nothing about dry_run', () => {
+test('Deep Think is only ever a conditional offer, and the battle texts say nothing about dry_run', () => {
+  // `deep_think` exists only on a signed, metered deployment: every sentence
+  // that names Deep Think must make the offer conditional on holding the tool.
   for (const name of PATHWAY_NAMES as readonly PathwayName[]) {
-    assert.doesNotMatch(pathwayText(name), /Deep Think/i, `${name} mentions Deep Think`)
+    for (const sentence of pathwayText(name).split(/(?<=[.!?;])\s+/).filter((s) => /Deep Think/.test(s))) {
+      assert.match(sentence, /if you hold `deep_think`/i, `${name} offers Deep Think unconditionally: ${sentence}`)
+    }
   }
   for (const name of ['battle_log', 'battle_review'] as const) {
     assert.doesNotMatch(pathwayText(name), /dry_run|dry run|preview first/i, `${name} talks about dry runs`)
@@ -155,6 +160,16 @@ test('deck building checks a grounded legal 60 before showing it', () => {
   assert.match(text, /Never make the reader type the list/)
   assert.match(text, /total 60 cards/)
   assert.match(text, /Run `check_deck`.*run `check_deck` again.*show it with `showDeck`/)
+  assert.match(text, /offer Deep Think with `deep_think` and give one sentence saying why/)
+})
+
+test('season and tournament review offers Deep Think through the consent tool', () => {
+  const text = flat(pathwayText('battle_review'))
+  assert.match(text, /whole-season review or tournament preparation/)
+  assert.match(text, /offer Deep Think with `deep_think` and give one sentence saying why/)
+  for (const name of ['battle_log', 'battle_review', 'deck_build'] as const) {
+    assert.doesNotMatch(pathwayText(name), /suggest the reader asks for Deep Think/)
+  }
 })
 
 test('deck iteration records evidence and sample-size limits in version history', () => {
@@ -239,13 +254,17 @@ test('deck building intake fits one ask card and cost comes only from the check'
   assert.match(text, /12–20 Pokémon, 30–38 Trainers and 6–14 Energy/)
 })
 
-test('pathways do not name tiers, Deep Think, or tools that do not exist', () => {
+test('pathways do not name tiers, offer Deep Think unconditionally, or name tools that do not exist', () => {
   // battle_log and battle_review are rewritten in their own pass; they still
   // carry a tier sentence and "digests" until then.
   const OWN_PASS = new Set<PathwayName>(['battle_log', 'battle_review'])
   for (const name of SPECIFIC) {
     const text = flat(pathwayText(name))
-    assert.doesNotMatch(text, /Deep Think/, `${name} offers a Deep Think that is not wired`)
+    // `deep_think` is only offered where it is wired (signed, metered); every
+    // sentence that names Deep Think must make the offer conditional on holding it.
+    for (const sentence of text.split(/(?<=[.!?])\s+/).filter((s) => /Deep Think/.test(s))) {
+      assert.match(sentence, /if you hold `deep_think`/i, `${name} offers Deep Think without checking it holds the tool: ${sentence}`)
+    }
     if (OWN_PASS.has(name)) continue
     assert.doesNotMatch(text, /\bdigests?\b/i, `${name} names a digest, which no tool returns`)
     assert.doesNotMatch(text, /This is (?:Quick|Standard)|Standard floor|Move to Standard/, `${name} names a tier the model cannot act on`)

@@ -9,6 +9,6 @@ Before concluding, call \`battle_digest\` on the logs that matter most — the l
 
 When the logs are too thin to classify — a handful of games, or notes that record only the result — say so after the record, and ask what felt wrong on an \`ask_user\` card (slow setups, one matchup, a card that never did anything, misplays they noticed) instead of inventing causes.
 
-A whole-season review or tournament preparation that combines a large log history with current research takes the extra reads it needs; say what the evidence could not settle.
+A whole-season review or tournament preparation that combines a large log history with current research: if you hold \`deep_think\`, offer Deep Think with \`deep_think\` and give one sentence saying why; otherwise take the extra reads it needs and say what the evidence could not settle.
 
 Done means the reader can see a per-archetype record with sample sizes and the one or two patterns that genuinely matter. Keep observations separate from proposals. **END with at most two concrete next steps, one line each.** A play change might be a benching or sequencing rule; a list change names one card in and one out. Tie every recommendation to specific games or repeated notes. Do not pad the answer with generic deck advice, recommend five simultaneous experiments, or call normal variance a broken list.`

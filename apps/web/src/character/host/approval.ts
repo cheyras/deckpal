@@ -87,6 +87,12 @@ export type PendingApproval = {
    * rather than sent as `undefined`.
    */
   signature?: string
+  /**
+   * `deep_think` only: the server's offer token for this exact card
+   * (`data-decke-deep-offer`), binding it to the reader's turn. Replayed with
+   * the answer; without it a yes never reaches Opus (`decke/deepThink.ts`).
+   */
+  deepOffer?: string
 }
 
 /**
@@ -170,6 +176,10 @@ export const DECLINED_REASON =
   '[[NO_WORK]] The reader said no to this exact change. Nothing changed. Do not ask ' +
   'again for the same change; carry on with what they say next.'
 
+/** A Deep Think decline means answer this request on the ordinary tier. */
+export const DEEP_THINK_DECLINED_REASON =
+  '[[KEEP_QUICK]] The reader declined Deep Think for this request. Continue now with a useful quick answer; do not ask again.'
+
 /** What a denial says when the turn was abandoned rather than answered. */
 export const ABANDONED_REASON = 'the reader did not answer'
 
@@ -180,6 +190,13 @@ export type ApprovalReplayPart = {
   input: Record<string, unknown>
   state: 'approval-responded'
   approval: { id: string; approved: boolean; signature?: string; reason?: string }
+  /** `deep_think` only — see `PendingApproval.deepOffer`. */
+  deepOffer?: string
+}
+
+/** The denial reason a declined card carries, chosen by the tool it held. */
+export function declinedReasonFor(name: string): string {
+  return name === 'deep_think' ? DEEP_THINK_DECLINED_REASON : DECLINED_REASON
 }
 
 /**
@@ -209,13 +226,16 @@ export function approvalReplayPart(
    * an empty reason reads to the model as no reason at all, which is the
    * silence this field exists to remove.
    */
-  reason: string = DECLINED_REASON,
+  reason: string = declinedReasonFor(a.name),
 ): ApprovalReplayPart {
   return {
     type: `tool-${a.name}`,
     toolCallId: a.toolCallId,
     input: a.input,
     state: 'approval-responded',
+    // Beside `approval`, never inside it: that object is the SDK's, and its
+    // signature covers fields this one must not be mistaken for.
+    ...(a.name === 'deep_think' && a.deepOffer ? { deepOffer: a.deepOffer } : {}),
     approval: {
       id: a.approvalId,
       approved,
@@ -233,7 +253,7 @@ export function approvalReplayPart(
       // refusing it, this is the channel that carries what really happened —
       // the held call genuinely did not run, and the sentence says so along
       // with the numbers of the write that did.
-      ...(approved ? {} : { reason: reason.trim() || DECLINED_REASON }),
+      ...(approved ? {} : { reason: reason.trim() || declinedReasonFor(a.name) }),
     },
   }
 }
