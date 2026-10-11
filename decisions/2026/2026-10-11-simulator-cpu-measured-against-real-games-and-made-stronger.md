@@ -33,8 +33,8 @@ supersedes: []
     (`reuse`, `Memo` in `search.ts`): a position an earlier search already played
     out is not searched again, and the budget goes on what was left. Positions
     are keyed by what the player can see (`publicKey`, a numeric hash), never by
-    the opponent's hand or either deck's order. With it the search runs 125
-    nodes (was 100) at the old speed. Alone: 52.3% [50.8, 53.8] against the same
+    the opponent's hand or either deck's order. With it the search runs 100
+    nodes (as before; 125 once cost no more, until the review fixes) at the old speed. Alone: 52.3% [50.8, 53.8] against the same
     pilot without it at 100 nodes.
   - A Pokémon with a drawing or searching Ability is worth more when the policy
     chooses what to fetch, keep or bench (+14 on its card value). Measured
@@ -49,9 +49,9 @@ supersedes: []
     of range", "choose 2..2 options, got 1"): the line was found with the policy
     answering its last sub-decisions and replayed with branching. It now stops
     instead. This was in the shipped pilot.
-- **Result:** `search` against `search:legacy`: 53.4% [51.9, 54.8], n = 4320
-  (2268-1978-74) with collision-free seeds and the review fixes (exact information
-  keys, memo entries marked played out only when they were; 54.9% [53.4, 56.4] before
+- **Result:** `search` (100 nodes) against `search:legacy`: 52.5% [51.0, 54.0], n = 4320
+  (2223-2008-89) with collision-free seeds and the review fixes (exact information
+  keys, memo entries marked played out only when they were). Before the fixes, at 125 nodes: 54.9% [53.4, 56.4]; with the fixes at 125 nodes: 53.4% [51.9, 54.8], 15% slower than the old speed; 54.0% [52.6, 55.5] at an earlier setting (115 nodes) on
   them); 54.0% [52.6, 55.5] at the previous setting (115 nodes) on
   other seeds. `greedy`: 52.4% [50.9, 53.9]. `policy` does not use the
   evaluation: 50.0%. Agreement with the logs is unchanged within a couple of
@@ -84,14 +84,14 @@ is spending the same time on more of the tree.
   a hand only as far as the log does (cards never shown are fillers until played),
   and a different order of the same plays counts as a disagreement. Strength is
   the arbiter.
-- 55% was the aim; the point estimate is 53.4% and the interval [51.9, 54.8]
-  excludes 50% but not 52%. It moved down from 54.9% with the review fixes (on other seeds,
-  so the gap is not cleanly theirs): the earlier
-  memo skipped work it had not finished. More nodes would get further, but not within the
+- 55% was the aim; the point estimate is 52.5% and the interval [51.0, 54.0]
+  excludes 50% but not 54%. The review fixes made the memo skip only work it had finished, which
+  costs search speed; the budget went from 125 to 100 nodes (equal to the legacy pilot's) to keep the old speed, and
+  what is left is the evaluation and engine changes. More nodes would get further, but not within the
   speed limit.
-- A game takes about 15% longer after the review fixes (28 fixed games, `mini-gauntlet hns 2 meta`:
-  10.4-10.8 s before, 11.8-12.4 s after, as the memo now skips less); originally 25 fixed games: 9.4-10.4 s against
-  9.5-10.7 s for the legacy pilot). `src/__tests__/determinism.test.ts`'s pins
+- A game takes about the time it did (28 fixed games, `mini-gauntlet hns 2 meta`: 10.4-10.8 s legacy-speed baseline;
+  125 nodes 11.8-12.4 s; 100 nodes 10.1-11.0 s); earlier, 25 fixed games: 9.4-10.4 s against
+  9.5-10.7 s for the legacy pilot. `src/__tests__/determinism.test.ts`'s pins
   were regenerated because the pilot's games changed.
 - Switches live in `src/pilot/tuning.ts` (`engine`, `reuse`), weights in
   `DEFAULT_WEIGHTS`; `LEGACY_WEIGHTS` keeps the old values for the baseline.

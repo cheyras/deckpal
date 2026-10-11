@@ -50,13 +50,13 @@ export interface SearchOptions {
  * 160 × 2, 80 × 2 and 160 × 3 (paired seeds, n=20 each), at a third of the cost.
  * Re-measured on the meta lists with scripts/pilot-h2h.ts (n=4320 games each): 300 nodes
  * beat 100 by 54.4% [52.9, 55.9], 3 worlds by 51.0% [49.5, 52.5], so nodes are what
- * buys strength, at a cost that grows with them. 125 is what the search affords at the old
+ * buys strength, at a cost that grows with them. 100 is what the search affords at the old
  * speed once it reuses its earlier searches of the turn (the `reuse` switch: ~14% fewer
  * nodes spent) and keys positions with a numeric hash (publicKey).
  */
 export const DEFAULT_SEARCH: Required<Omit<SearchOptions, 'weights' | 'profile'>> = {
   worlds: 1,
-  nodes: 125,
+  nodes: 100,
   subs: true,
   verify: 3,
 };
