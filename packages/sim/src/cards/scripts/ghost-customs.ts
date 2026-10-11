@@ -9,7 +9,7 @@
 import { evolveOnto } from '../../evolve.js';
 import { def, type Env, type GameContext } from '../../context.js';
 import { registerCustom, registerCustomCond } from '../../customs.js';
-import { queueTriggers } from '../../interp.js';
+import { beginEvent, queueTriggers } from '../../interp.js';
 import { countersFixed, countersPrevented, effectsPrevented, ownerOf, pokemonPlayLocked, statics } from '../../query.js';
 import { allSlots, emit, findSlot, opp, removeFrom, slotCards, topCard } from '../../state.js';
 import { type CardDef, type Decision, type Frame, type GameState, type Player, type Slot, type Val } from '../../types.js';
@@ -254,6 +254,7 @@ registerCustom('rareCandy', (env, s, f, _args, answer) => {
   removeFrom(ps.revealed, card);
   evolveOnto(env, s, sl, card); // Special Conditions, attack effects (timed and delayed) and the rest of evolving: evolve.ts
   emit(env, { type: 'evolve', player: p, card, slot: sl.id });
+  beginEvent(s);
   queueTriggers(env, s, sl, p, 'evolveFromHand');
   return 'next';
 });

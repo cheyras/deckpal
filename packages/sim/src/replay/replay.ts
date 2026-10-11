@@ -1312,6 +1312,19 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
     return null;
   };
 
+  const answerOrder = (d: Decision): number[] => {
+    const labels = (d.labels ?? []).map((l) => l.toLowerCase());
+    for (const e of scope) {
+      if (e.t !== 'chose' || targetUsed.has(e.seq)) continue;
+      const i = labels.indexOf(e.option.toLowerCase());
+      if (i >= 0) {
+        targetUsed.add(e.seq);
+        return [i];
+      }
+    }
+    return [0];
+  };
+
   const fallback = (d: Decision): number[] => {
     unlogged(d);
     const n = d.kind === 'option' || d.kind === 'yesno' ? 1 : Math.max(d.min, 0);
@@ -1439,7 +1452,9 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
           choice = answerSlots(d) ?? fallback(d);
           break;
         case 'option':
-          choice = answerOption(d) ?? fallback(d);
+          // Which of several simultaneous effects goes first: the engine's own order unless the log names an effect (an exact match). The
+          // log rarely says, so this is not a missing answer.
+          choice = s.pending?.resume.k === 'triggerOrder' ? answerOrder(d) : (answerOption(d) ?? fallback(d));
           break;
         case 'yesno':
           // A no-Basic hand holding a Pokémon that may start in the Active Spot asks keep-or-mulligan: take the mulligan while the log

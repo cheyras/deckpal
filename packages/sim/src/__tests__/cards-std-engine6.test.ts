@@ -519,6 +519,10 @@ test("Team Rocket's Ampharos, Darkest Impulse: the owner of the evolving Pokémo
   g.state.p[1].active!.enteredTurn = 0;
   refresh(g);
   choose(g, 'Evolve Team Rocket\'s Zubat');
+  // Both Abilities happen at once and the owner orders them (the engine's default order, Golbat's first, here; trigger-order.test.ts and
+  // rulings-r10.test.ts cover both).
+  assert.equal(g.decision!.prompt, 'Which effect happens first?');
+  g.submit([0]);
   // Golbat's Sneaky Bite ("you may put 2 damage counters on 1 of your opponent's Pokémon") is still to be used.
   choose(g, 'Yes');
   const benched = g.state.p[0].bench[0]!;

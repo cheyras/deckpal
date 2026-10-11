@@ -268,27 +268,36 @@ test('ruling 2219: Mega Lucario ex, Aura Jab can attach zero Energy, or stop aft
 
 // ------------------------------------------------------------------ Team Rocket's Ampharos and Golbat
 
-// Compendium ruling 2146, partly pinned (left uncited on purpose): Golbat evolving under Darkest Impulse: both Abilities happen together and its owner
-// picks the order. The simulator has no such choice yet (queued triggers resolve in a fixed order), so this pins only the outcome the ruling
-// allows: Sneaky Bite can be used before the 4 counters Knock it Out.
-test("ruling 2146 (partly: the player's choice of order is not modelled yet): Team Rocket's Golbat uses Sneaky Bite before Darkest Impulse's counters Knock it Out", () => {
-  const g = game(
-    [
-      { active: "Team Rocket's Mareep", evolve: { active: ["Team Rocket's Flaaffy", "Team Rocket's Ampharos"] }, bench: ['Dreepy'] },
-      { active: "Team Rocket's Zubat", damage: { active: 40 }, hand: ["Team Rocket's Golbat"], bench: ['Dreepy'] },
-    ],
-    { turn: 4, current: 1, first: 0 },
-  );
-  g.state.p[1].active!.enteredTurn = 0;
-  refresh(g);
-  choose(g, "Evolve Team Rocket's Zubat");
-  yes(g); // Sneaky Bite: "you may put 2 damage counters on 1 of your opponent's Pokémon"
-  const benched = g.state.p[0].bench[0]!;
-  pickSlot(g, benched.id);
-  assert.equal(benched.damage, 20, 'Sneaky Bite resolved');
-  // 40 + 40 = Golbat's 80 HP: Knocked Out once both Abilities are done.
-  assert.equal(g.state.p[0].prizesTaken, 1);
-  assert.ok(g.state.p[1].discard.some((c) => nameOf(g, c) === "Team Rocket's Golbat"));
+// https://compendium.pokegym.net/ruling/2146/
+// Golbat evolving under Darkest Impulse: both Abilities happen at the same time, so the Golbat's owner (the player whose turn it is) chooses their
+// order, and Sneaky Bite can be used before the 4 counters Knock Golbat Out (Knock Outs are only checked once both are done).
+test("ruling 2146: Team Rocket's Golbat evolving under Darkest Impulse: its owner chooses the order, and Sneaky Bite is used either way (https://compendium.pokegym.net/ruling/2146/)", () => {
+  const run = (first: string): Game => {
+    const g = game(
+      [
+        { active: "Team Rocket's Mareep", evolve: { active: ["Team Rocket's Flaaffy", "Team Rocket's Ampharos"] }, bench: ['Dreepy'] },
+        { active: "Team Rocket's Zubat", damage: { active: 40 }, hand: ["Team Rocket's Golbat"], bench: ['Dreepy'] },
+      ],
+      { turn: 4, current: 1, first: 0 },
+    );
+    g.state.p[1].active!.enteredTurn = 0;
+    refresh(g);
+    choose(g, "Evolve Team Rocket's Zubat");
+    assert.equal(g.decision!.kind, 'option', 'two Abilities at the same time: an order is asked');
+    assert.equal(g.decision!.player, 1, "the evolving Pokémon's owner (the turn's player) chooses");
+    assert.deepEqual(labels(g).sort(), ["Team Rocket's Ampharos", "Team Rocket's Golbat"].sort());
+    choose(g, first);
+    yes(g); // Sneaky Bite: "you may put 2 damage counters on 1 of your opponent's Pokémon"
+    pickSlot(g, g.state.p[0].bench[0]!.id);
+    return g;
+  };
+  for (const first of ["Team Rocket's Golbat", "Team Rocket's Ampharos"]) {
+    const g = run(first);
+    assert.equal(g.state.p[0].bench[0]!.damage, 20, `${first} first: Sneaky Bite resolved`);
+    // 40 + 40 = Golbat's 80 HP: Knocked Out once both Abilities are done.
+    assert.equal(g.state.p[0].prizesTaken, 1, `${first} first: Golbat was Knocked Out afterwards`);
+    assert.ok(g.state.p[1].discard.some((c) => nameOf(g, c) === "Team Rocket's Golbat"));
+  }
 });
 
 // ------------------------------------------------------------------ Hop's Dubwool

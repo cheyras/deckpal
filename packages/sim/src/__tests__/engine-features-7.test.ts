@@ -543,6 +543,8 @@ test('minDamage and attacker on damagedByAttack(Active): the amount done in one 
     );
     const before = g.state.p[1].hand.length;
     choose(g, o.attacker === "N's Darumaka" ? 'Attack: Rolling Tackle' : 'Attack: Rapid-Fire Combo');
+    // Two effects when the Pokémon is damaged: its player orders them (both resolve whichever goes first).
+    if (g.decision?.prompt === 'Which effect happens first?') g.submit([0]);
     return g.state.p[1].hand.length - before - 1; // (the 1 is the card it draws for its turn)
   };
   // Meganium is Fire-weak (x2 only for the Active Pokémon).
@@ -608,15 +610,34 @@ test('two end-of-turn effects waiting, one not tied to a Pokémon: the turn\'s p
   const k = scenario(dk, dk, [{ active: 'Dreepy', hand: ['Potion', 'Potion'] }, { active: 'Dreepy' }], { scripts: [{ id: 'me03-083', name: 'Potion', play: draw1 }] });
   choose(k, 'Play Potion');
   choose(k, 'Play Potion');
-  choose(k, 'End turn');
-  assert.equal(k.decision!.kind, 'option');
-  assert.match(k.decision!.prompt, /which end-of-turn effect first/);
-  assert.equal(k.decision!.player, 0);
-  assert.deepEqual(labels(k), ['Potion', 'Potion']);
   const hand = k.state.p[0].hand.length;
-  k.submit([1]);
+  choose(k, 'End turn');
+  // Two copies of one effect: every order gives the same result, so nothing is asked (the Amarys case, where it is, is in rulings-r01.test.ts).
+  assert.equal(k.decision!.kind, 'main');
   assert.equal(k.state.p[0].hand.length, hand + 2, 'both ran');
   assert.equal(k.state.current, 1, 'and the turn moved on');
+  assert.equal(k.state.current, 1, 'and the turn moved on');
+  // Different effects at the end of the turn: the turn's player is asked, and both orders resolve.
+  const cape: CardScript = { id: 'sv05-152', name: "Hero's Cape", triggers: [{ on: 'endOfTurn', program: [{ op: 'draw', n: 2 }] }] };
+  const dk2 = deck('Dreepy', 'Potion', "Hero's Cape");
+  const two = scenario(dk2, dk2, [{ active: 'Dreepy', tools: { active: ["Hero's Cape"] }, hand: ['Potion'] }, { active: 'Dreepy' }], { scripts: [{ id: 'me03-083', name: 'Potion', play: draw1 }, cape] });
+  choose(two, 'Play Potion');
+  const before = two.state.p[0].hand.length;
+  choose(two, 'End turn');
+  assert.equal(two.decision!.kind, 'option');
+  assert.match(two.decision!.prompt, /Which effect happens first/);
+  assert.equal(two.decision!.player, 0, "the turn's player is asked");
+  assert.deepEqual(labels(two).sort(), ["Hero's Cape", 'Potion']);
+  choose(two, "Hero's Cape");
+  assert.equal(two.state.p[0].hand.length, before + 3, 'both ran, Cape first');
+  assert.equal(two.state.current, 1);
+  const rev = scenario(dk2, dk2, [{ active: 'Dreepy', tools: { active: ["Hero's Cape"] }, hand: ['Potion'] }, { active: 'Dreepy' }], { scripts: [{ id: 'me03-083', name: 'Potion', play: draw1 }, cape] });
+  choose(rev, 'Play Potion');
+  const before2 = rev.state.p[0].hand.length;
+  choose(rev, 'End turn');
+  choose(rev, 'Potion');
+  assert.equal(rev.state.p[0].hand.length, before2 + 3, 'both ran, Potion first');
+  assert.equal(rev.state.current, 1);
   // One effect on its own: no question.
   const one = scenario(dk, dk, [{ active: 'Dreepy', hand: ['Potion'] }, { active: 'Dreepy' }], { scripts: [{ id: 'me03-083', name: 'Potion', play: draw1 }] });
   choose(one, 'Play Potion');
