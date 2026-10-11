@@ -274,6 +274,14 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
     `Shuffle the Pokémon chosen as "${String(a.slot ?? 't')}" and all attached cards into their owner's deck (your opponent's deck, for their Pokémon), then shuffle that deck once; a Pokémon protected from the effects of attacks stays in play`,
   'c25.rememberUsed': (a) =>
     `Mark that this Pokémon used ${String(a.attack)}, through the end of your next turn (nothing is marked when the attack is only copied by another attack)`,
+  // std-c27-customs.ts
+  'c27.searchToBench': (a) => `Search your deck for up to ${Number(a.max ?? 1)} ${((a.names as string[]) ?? []).join(' or ')} (a Pokémon of any Stage) and put them onto your Bench, as many as fit (nothing at all with a full Bench); then shuffle your deck`,
+  'c27.slotEnergyToHand': (a) => `Put an Energy card attached to the Pokémon chosen as "${String(a.slot ?? 't')}" into its owner's hand (your choice which, no question when they are identical)`,
+  'c27.healEach': (a) => `Heal ${Number(a.amount)} damage from each of your ${(a.filter as Filter | undefined)?.type ? sym((a.filter as Filter).type as PType) + ' ' : ''}Pokémon`,
+  'c27.topToBottomShuffled': (a) => `Shuffle the top ${Number(a.n ?? 3)} cards of your deck among themselves and put them on the bottom of your deck`,
+  'c27.lookDeckPick': (a) => `Look at the ${a.from === 'bottom' ? 'bottom' : 'top'} ${Number(a.n ?? 7)} cards of your deck. You may reveal ${((a.picks as Filter[]) ?? []).map((p) => (p.cat === 'trainer' ? 'a Trainer card' : p.cat === 'pokemon' ? 'a Pokémon' : 'a card')).join(' and ')} you find there and put ${((a.picks as Filter[]) ?? []).length > 1 ? 'them' : 'it'} into your hand. Shuffle the other cards back into your deck`,
+  'c27.discardOppToolsAndSpecialEnergy': () => "Discard all Pokémon Tools and Special Energy from all of your opponent's Pokémon (Active and Benched)",
+  'c27.moveEnergyBetween': (a) => `You may choose 1 or more of the Energy attached to the Pokémon "${String(a.from ?? 'old')}" and move them to the Pokémon "${String(a.to ?? 't')}"`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -2160,5 +2168,22 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv08-105|attack:Screech': {
     problems: ['the rendering involves the opponent'],
     why: '"the Defending Pokémon takes 50 more damage" is a damageIn effect on the Defending Pokémon, which the renderer words as "your opponent\'s Active Pokémon"; the Defending Pokémon is the opponent\'s Active Pokémon.',
+  },
+  // std-c27
+  "sv08-156|attack:Now You're in My Power": {
+    problems: ['the rendering involves the opponent; the printed text does not'],
+    why: 'The "Defending Pokémon" is the opponent\'s Active Pokémon, which is how a timed effect on the defender renders.',
+  },
+  'sv08-166|text': {
+    problems: ['similarity'],
+    why: 'One printed gate ("only if you go second, and only during your first turn") renders as the first-turn condition plus "not the first turn of the game", and the playability guard (an opposing Pokémon has Energy) and the choice of that Pokémon are extra clauses the printed sentence implies; each part is checked by its card test.',
+  },
+  'sv08-173|text': {
+    problems: ['"tails" is printed but not rendered'],
+    why: 'One coin: "If tails" is the else branch of the heads check ("Otherwise"), which is the same flip.',
+  },
+  'sv08-176|text': {
+    problems: ['"any number of" is printed but not rendered'],
+    why: 'Any number of Basic Energy of different types is one card of each of the 8 types at most (oneEach, 0 to 8 cards), which renders as the list of types; the ruling (#2063) that a type can be taken only once is what the list says.',
   },
 };
