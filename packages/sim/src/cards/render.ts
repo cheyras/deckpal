@@ -231,6 +231,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'c10.handEvolvesSelf': () => 'you have a card in your hand that evolves from this Pokémon, and this Pokémon has not evolved this turn',
   'c10.weakToOppActive': () => "the Pokémon this card is attached to has a Weakness (as changed by effects) of a type that your opponent's Active Pokémon is",
   'c14.abilitiesOn': () => "no effect has turned this Pokémon's Abilities off",
+  'c18.sharesTypeWithOpp': () => "one of your Pokémon in play (Active or Benched) has a type that one of your opponent's Pokémon in play (Active or Benched) also has",
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
@@ -1890,5 +1891,18 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me05-020|attack:Aqua Return': {
     problems: ['"your deck" is printed but not rendered'],
     why: 'The shuffle is the shared seed4.shuffleSlotIntoDeck, glossed for any Pokémon ("into their deck"); the Pokémon chosen here is always the attacking player own Active Pokémon (Primarina itself), so its owner is the attacker and the deck is "your deck".',
+  },
+  // std-c18
+  'sv06-085|attack:Homeward Chime': {
+    problems: ['"your deck" is printed but not rendered'],
+    why: 'The shuffle is the shared seed4.shuffleSlotIntoDeck, glossed for any Pokémon ("into their deck"); the Pokémon chosen here is always one of the attacking player own Benched Pokémon, so its owner is the attacker and the deck is "your deck".',
+  },
+  'sv06-090|attack:Slurp Slurp': {
+    problems: ['"tails" is printed but not rendered'],
+    why: 'Two coins are flipped together and only the heads count is kept; "both of them are tails" is that count being exactly 0, which the rendering states as "exactly 0 heads".',
+  },
+  'sv06-105|attack:Gutsy Swing': {
+    problems: ['similarity'],
+    why: 'The printed "affected by a Special Condition" has no single filter key, so the script lists the five conditions; the rendering spells them out one by one and the cost is emptied ("for no Energy"), which is "ignore all Energy in this attack cost".',
   },
 };
