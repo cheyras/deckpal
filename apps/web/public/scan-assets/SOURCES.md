@@ -58,13 +58,50 @@ down — `rectify.ts` produces a portrait card from an oriented quad — so the
 
 ## Detector — DocAligner LC050
 
-| file | bytes |
-|---|--:|
-| `lc050.onnx` | 4 911 217 |
+| file | bytes | sha256 |
+|---|--:|---|
+| `lc050.onnx` | 4 911 217 | `fd0a320c756ca7f445fb58de108b71f6f6e8bf652bb2a5f4f5d852224edcd081` |
 
-Predates this file; provenance lives in
-`roadmap/plans/card-scanner-redesign/` phase-0a and in `src/scan/engine/model.ts`'s
-header. Recorded here so the directory listing is not half-documented.
+The DocAligner LC050 checkpoint predates this file. Its provenance lives in
+`roadmap/plans/card-scanner-redesign/` phase-0a and in the header of
+`src/scan/engine/model.ts`. The checkpoint as first committed had sha256
+`32d186080ce16442674d4c0eaaaaac878eea289b56a8d1284f05fff1ff42e220`.
+
+**The presence head was refit (2026-10-11).** Only the presence head
+changed, through two initializers: `head.has_obj.1.weight` (256 floats) and
+`head.has_obj.1.bias`. The backbone, the corner head and the graph are
+byte-identical, so the quad (corner) outputs are unchanged and only `hasObj`
+differs.
+`scripts/scan-bench/video/presence_head.py` refits it and reproduces this file
+byte for byte from its cached features (`collect`, then `export`). The decision
+file "Scanner detector: the presence head is refit on labelled video frames"
+says why, and how it was measured.
+
+**Training data, attributed under CC BY.** The refit weights are fitted to
+LC050's pooled features of frames from these Creative Commons Attribution
+YouTube videos (`youtube.com/watch?v=<id>`). The labels are our own
+ground-truth files, which say which frames show a card.
+
+| video | channel |
+|---|---|
+| `-1hPV6p3Y8E` | PokéDaddy |
+| `46OLXH5-aLQ`, `QOWR1q_Vaek` | Schmitty's Poke Search |
+| `4vq6zgMd_9U` | 513's collectible cards |
+| `8nqqNrDo3CE` | PokePullShorts |
+| `9qpeku0otao` | GamingEELeete |
+| `ARAWSwYFz2I` | Blues Corner TCG |
+| `BO1Wa-evt6k` | Card Game Nomad |
+| `ETkbLABj598` | Steph And Mannie |
+| `Ep7NokxQ0q4`, `RLULfTjTFSs`, `gUw1BTjycBU` | Welshpokedon |
+| `Gc9d5_87odU`, `WuheDPVq_Bo` | Bkemon |
+| `H4FjFjvLhbg` | Ruxin34 |
+| `JP-MdK4Kr00` | MacCardz |
+| `SKQJEu7DDzo` | SFCollects |
+| `XrKBGUrZV44`, `aWmpwRUfN5E` | OneSPlays |
+| `_dK-gA71H7E` | Team Rocket Joey |
+
+The videos and frames themselves are not in this repo. They stay on the
+developer's machine (`~/deckpal-data`).
 
 ## ONNX Runtime Web — wasm-only bundle
 

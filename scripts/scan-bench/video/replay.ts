@@ -75,7 +75,9 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(HERE, '..', '..', '..')
 const DATA = process.env.DECKPAL_DATA ?? path.join(os.homedir(), 'deckpal-data')
 const RAW_DIR = path.join(DATA, 'cc-videos', 'raw')
-const MODEL = path.join(REPO, 'apps/web/public/scan-assets/lc050.onnx')
+// LC050_MODEL: replay another checkpoint (a retrained head, held out per video)
+// without touching the shipped file.
+const MODEL = process.env.LC050_MODEL || path.join(REPO, 'apps/web/public/scan-assets/lc050.onnx')
 const PY = process.env.PY ?? path.join(DATA, 'venvs', 'scanid', 'Scripts', 'python.exe')
 const SIDECAR = path.join(HERE, 'lc050_stream.py')
 

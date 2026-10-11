@@ -54,7 +54,9 @@ node --import tsx scripts/scan-bench/video/replay.ts clip.mp4 --start 10 --end 4
 Environment: `PY` (default `~/deckpal-data/venvs/scanid/Scripts/python.exe`,
 which needs numpy + onnxruntime), `FFMPEG` (default: the path in
 `~/deckpal-data/cc-videos/ffmpeg-path.txt`, then `ffmpeg` on PATH),
-`DECKPAL_DATA`, and `LC050_THREADS` to pin ORT's threads. The sidecar always
+`DECKPAL_DATA`, `LC050_THREADS` to pin ORT's threads, and `LC050_MODEL` to replay
+another checkpoint than the shipped `lc050.onnx` (a refit presence head, held out
+per video: `presence_head.py export --exclude <id>`). The sidecar always
 runs with `OPENBLAS_NUM_THREADS=1`. A 60-80 s short takes 10-15 s of wall time.
 
 ## Outputs, per video, under `<out>/<videoId>/`
@@ -198,6 +200,11 @@ there is nothing to aim at. A user would back away; the footage cannot.
   (hasObj ≈ 0). If the card IS fully in view and hasObj is still low, look at
   what surrounds it: the presence head is a global average over the whole
   input, so a busy far background out-votes the card (`engine/second-look.ts`).
+  The shipped head was refit on these videos for that reason
+  (`presence_head.py`, 2026-10-11). So the shipped head has SEEN the 20 videos
+  it was fitted on: to measure one of those fairly, replay it with `LC050_MODEL`
+  set to a head refit without it (`export --exclude <id>`). A video added later
+  is unseen until the next refit.
 - **A new card that never fired**: look in `contact-suppressed.png` for a
   `region` row. Then trace `frames.jsonl` around it. If the previous track died
   and the new one was born less than 1.5 s later on the same spot, that is the
