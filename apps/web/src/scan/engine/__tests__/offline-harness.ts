@@ -50,8 +50,11 @@ import {
  *  probe drew on each, and 19 hand-labelled ground-truth quads. */
 export const SESSION2 =
   'E:/users/cheyr/deckpal/roadmap/plans/card-scanner-redesign/p2-work/phase0b/session2'
+/** THIS checkout's model, the one that ships. It used to point at another
+ *  worktree's copy, so these tests could not see a change to the file (Astra,
+ *  review of #317). `LC050_MODEL` overrides it. */
 export const MODEL_PATH =
-  'E:/users/cheyr/deckpal-wt/scan-harness/apps/web/public/scan-assets/lc050.onnx'
+  process.env.LC050_MODEL ?? path.resolve(import.meta.dirname, '../../../../public/scan-assets/lc050.onnx')
 /** phase 0a's interpreter — onnxruntime + numpy already installed there. */
 export const PY =
   'E:/users/cheyr/deckpal/roadmap/plans/card-scanner-redesign/p2-work/phase0a/.venv/Scripts/python.exe'

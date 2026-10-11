@@ -2,7 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { parseBattleLog, normalizeCardCode, mergeLogFields } from '../battlelog.js';
+import {
+  parseBattleLog, normalizeCardCode, normalizeOpponentArchetype, mergeLogFields,
+} from '../battlelog.js';
 
 /**
  * Battle-log parser tests against a REAL PTCG Live log: PlayerA's Hide 'n'
@@ -334,6 +336,14 @@ test('mergeLogFields: create semantics — null explicit means omit (parser fill
   assert.equal(m.result, 'win');
   assert.equal(m.opponent, 'PlayerB');
   assert.equal(m.opponentDeck, parsed.opponentDeckGuess);
+});
+
+test('normalizeOpponentArchetype makes stable lowercase ASCII word keys', () => {
+  assert.equal(normalizeOpponentArchetype('Dragapult ex / Dusknoir'), 'dragapult-ex-dusknoir');
+  assert.equal(normalizeOpponentArchetype("N's Zoroark ex"), 'ns-zoroark-ex');
+  assert.equal(normalizeOpponentArchetype('  Flabébé + Munkidori  '), 'flabebe-munkidori');
+  assert.equal(normalizeOpponentArchetype('---'), null);
+  assert.equal(normalizeOpponentArchetype('a'.repeat(65)), null, 'never silently truncates an identity key');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

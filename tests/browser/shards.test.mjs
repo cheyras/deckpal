@@ -12,6 +12,7 @@ import { browserSuites as privacySuites } from './privacy.mjs'
 import { browserSuites as deckWidgetSuites } from './deckeDeckWidget.mjs'
 import { browserSuites as askCardSuites } from './askCard.mjs'
 import { browserSuites as deepThinkCardSuites } from './deepThinkCard.mjs'
+import { browserSuites as battlesV2Suites } from './battlesV2.mjs'
 import { parseShard, shardSuites } from '../../scripts/browser-shards.mjs'
 
 const names = [
@@ -21,9 +22,9 @@ const names = [
   'cloud-feedback-primary-1280', 'cloud-feedback-primary-390', 'cloud-feedback-primary-428', 'cloud-feedback-lifecycle', 'cloud-a11y', 'cloud-writes', 'cloud-queue',
   'authreturn', 'chat', 'payment-history', 'decke-show', 'decke-chat-phone', 'error-boundary', 'list-table-virtualization', 'bug-report-selfhost', 'bug-report-cloud', 'profile-owned-cards',
   'payment-history-proof', 'scanner-voice-proof', 'cloud-labeler-formats', 'privacy', 'decke-deck-widget',
-  'ask-card', 'deep-think-card',
+  'ask-card', 'deep-think-card', 'battles-v2',
 ]
-const suites = [...browserSuites({}), ...deckeShowSuites({}), ...errorBoundarySuites({}), ...listTableSuites({}), ...bugReportSuites({}), ...profileOwnedCardsSuites({}), ...standaloneProofSuites({}), ...labelerFormatSuites({}), ...privacySuites({}), ...deckWidgetSuites({}), ...askCardSuites({}), ...deepThinkCardSuites({})]
+const suites = [...browserSuites({}), ...deckeShowSuites({}), ...errorBoundarySuites({}), ...listTableSuites({}), ...bugReportSuites({}), ...profileOwnedCardsSuites({}), ...standaloneProofSuites({}), ...labelerFormatSuites({}), ...privacySuites({}), ...deckWidgetSuites({}), ...askCardSuites({}), ...deepThinkCardSuites({}), ...battlesV2Suites({})]
 
 test('all existing journeys remain named suites', () => {
   assert.deepEqual(suites.map(suite => suite.name), names)

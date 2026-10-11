@@ -1348,20 +1348,36 @@ Summaries only — never `rawLog`. `totals` covers the same filter scope.
 { "version": null,
   "logs": [ { "id": 7, "deckVersion": 1, "result": "win", "opponent": "Robni16",
               "opponentDeck": "Dragapult ex / Dusknoir", "turns": 14,
+              "opponentArchetype": "dragapult-ex", "origin": "ptcgl",
               "prizes": { "me": 6, "opponent": 5 }, "notes": null,
+              "reviewMd": "## Turning point\n…",
               "playedAt": "2026-07-30T…", "source": "web" } ],
   "totals": { "total": 4, "wins": 3, "losses": 1, "ties": 0 },
+  "archetypes": [ { "opponentArchetype": "dragapult-ex", "games": 3,
+                     "wins": 2, "losses": 1, "ties": 0, "lastPlayedAt": "…" } ],
   "pagination": { "page": 1, "pageSize": 50, "total": 4, "pageCount": 1 } }
 ```
+`archetypes` is the all-versions record for the deck (not only the current page
+or optional version filter), newest encounter first. Logs without a classified
+`opponentArchetype` are omitted from that summary.
 
 ### POST /deckpal/api/decks/:id/logs
-Body `{ "rawLog" (required, ≤50000), "result"?, "opponent"?, "opponentDeck"?,
-"notes"? (≤2000), "playedAt"? (ISO), "playerName"?, "source"?, "dryRun"? }`.
-Runs the PTCG Live parser; parser-derived `result` / `opponent` /
+Body `{ "rawLog"?, "origin"?: "ptcgl"|"in_person"|"other",
+"result"?, "opponent"?, "opponentDeck"?, "opponentArchetype"?,
+"notes"? (≤2000), "reviewMd"? (≤12000), "playedAt"? (ISO),
+"playerName"?, "source"?, "dryRun"? }`.
+`origin` defaults to `ptcgl`. PTCG Live requires a non-empty `rawLog` (≤50000)
+and runs the parser; `in_person` and `other` may omit `rawLog` but require an
+explicit `result` because there is no game log from which to infer it.
+Parser-derived `result` / `opponent` /
 `opponentDeck` (deck guess)
 fill any fields the caller omitted — **explicit caller values always win over
 the parser** (2026-08-29, `mergeLogFields`). Attaches to the deck's **current**
 version.
+`opponentArchetype` is normalized server-side to a lowercase ASCII word key
+(apostrophes removed, other separators collapsed to hyphens, ≤64 characters),
+for example `N's Zoroark ex` → `ns-zoroark-ex`. `notes` are the reader's own
+words; `reviewMd` is the assistant's markdown analysis (Deck-E's, or a connector client's).
 `400` when the parser cannot tell which player owns the deck **and** neither
 `playerName` nor an explicit `result` was given (the message says which to pass).
 `"dryRun": true` performs that same validation, current-version resolution,
@@ -1374,8 +1390,10 @@ omitted, the preview reports its own clock and a later write uses its own `now()
                    "result": "win", "opponent": "Robni16",
                    "opponentDeck": "Dragapult ex / Dusknoir",
                    "opponentDeckGuess": "Dragapult ex / Dusknoir",
+                   "opponentArchetype": "dragapult-ex", "origin": "ptcgl",
                    "prizes": { "me": 6, "opponent": 5 }, "turns": 14,
-                   "notes": null, "playedAt": "…", "confidence": "high" },
+                   "notes": null, "reviewMd": "## Turning point\n…",
+                   "playedAt": "…", "confidence": "high" },
       "parsed": { "players": { "me": "cheyras", "opponent": "Robni16" }, "…": "…" } }
 ```
 The non-dry-run response remains:
@@ -1383,7 +1401,9 @@ The non-dry-run response remains:
 201 { "attachedToVersion": 2,
       "log": { "id": 7, "deckVersion": 2, "result": "win", "opponent": "Robni16",
                "opponentDeck": "Dragapult ex / Dusknoir", "turns": 14,
+               "opponentArchetype": "dragapult-ex", "origin": "ptcgl",
                "prizes": { "me": 6, "opponent": 5 }, "notes": null,
+               "reviewMd": null,
                "playedAt": "…", "source": "web", "createdAt": "…", "rawLog": "Setup…",
                "parsed": { "players": { "me": "cheyras", "opponent": "Robni16" },
                            "confidence": "high", "result": "win", "wentFirst": "opponent",
@@ -1420,13 +1440,64 @@ re-pasting the log. Consumed by the agent tool `add_battle_log` when `deck_id`
 is omitted.
 
 ### GET /deckpal/api/decks/:id/logs/:logId
-The full row — same `log` shape as the 201 above (summary fields + `rawLog` +
+The full row — same `log` shape as the 201 above (summary fields + nullable `rawLog` +
 `parsed` + `createdAt`).
 
+### GET /deckpal/api/decks/:id/logs/:logId/digest
+Added 2026-10-10. `?playerName=` (optional). Reads the log's **stored raw PTCG
+Live log** into a compact, model-sized digest (`digestBattleLog` in
+`apps/api/src/deck/battlelog.ts`) — read-only, same ownership rules as the
+detail route above. The side is the owner the row was stored with
+(`parsed.players.me`) unless `playerName` names another; the deck's current
+card list is only used when the row has no stored owner.
+```json
+200 { "logId": 7, "deckVersion": 2, "origin": "ptcgl", "result": "win",
+      "digest": {
+        "players": { "me": "PlayerA", "opponent": "PlayerB" },
+        "playerNames": ["PlayerB", "PlayerA"], "confidence": "high",
+        "result": "win", "wentFirst": "opponent", "totalTurns": 14,
+        "turns": { "me": 7, "opponent": 7 },
+        "mulligans": { "me": 0, "opponent": 1 },
+        "firstAttackTurn": { "me": 4, "opponent": 3 },
+        "finalPrizes": { "me": 6, "opponent": 5 },
+        "prizeTimeline": [ { "turn": 3, "side": "opponent", "prizes": 1,
+                             "knockedOut": "Poltchageist", "score": { "me": 0, "opponent": 1 } }, "…" ],
+        "opponentCards": [ { "name": "Dragapult ex", "count": 16 }, { "name": "Judge", "count": 2 }, "…" ],
+        "myPokemonUsed": ["Poltchageist", "Shuppet", "…"],
+        "opponentArchetypeGuess": "Dragapult ex / Dusknoir",
+        "endReason": "prizes", "leadChanged": true, "closeGame": true,
+        "unknowns": ["the opponent's hand, and any card of theirs that was never shown",
+                     "which cards were prized, on either side"] } }
+```
+`turn` is the game's turn number counting both players (1 = the first
+player's first turn, 0 = setup). `firstAttackTurn` is the first turn that side
+dealt attack damage. `opponentCards` is every card the opponent showed —
+played, attached, evolved into, attacked or used an Ability with, Knocked Out,
+promoted, drawn or added to hand face-up, discarded face-up, or listed in a
+revealed group (mulligans, searches, discards) — deduped, most-seen first;
+using the Stadium already in play does not count as running it. `endReason` is
+`prizes` | `concede` | `deck-out` | `other` (timeouts and anything unrecognised).
+`closeGame` is true when the lead in prizes changed hands, or when the final
+prize gap is two or less once someone has taken at least three (so an early
+concession at 0–0 is not "close"). When the owner cannot be identified,
+`players` is null/null and the per-side fields (`turns`, `mulligans`,
+`firstAttackTurn`, `finalPrizes`) are `null`, never a guessed split;
+`unknowns` then names the players to choose between. `result` at the top level
+is the STORED result (explicit corrections win); `digest.result` is what the log
+text alone says.
+```json
+404 { "error": { "code": "not_found",
+                 "message": "no game log to digest — this game was reported in person" } }
+```
+Logs stored without raw text (`origin: in_person` or `other`) have nothing to
+digest. Consumed by the agent tool `battle_digest`.
+
 ### PATCH /deckpal/api/decks/:id/logs/:logId
-Body: any of `{ "result", "opponent", "opponentDeck", "notes", "playedAt" }`.
+Body: any of `{ "result", "opponent", "opponentDeck", "opponentArchetype",
+"notes", "reviewMd", "playedAt" }`.
 Metadata only — the raw log and its version attachment are immutable. Explicit
-`null` clears everything except `playedAt`. Returns `{ "log": … }` (full shape).
+`null` clears everything except `playedAt`; archetypes are normalized when set.
+Returns `{ "log": … }` (full shape).
 
 ### DELETE /deckpal/api/decks/:id/logs/:logId
 `{ "deleted": 7 }`.

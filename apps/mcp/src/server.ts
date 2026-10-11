@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/server';
 import { summaryText, type Ctx } from '@deckpal/agent-tools';
 import { registerAllTools, type ToolVisibility } from './adapters/mcp.js';
+import { PROMPTS, SERVER_INSTRUCTIONS, promptArgsSchema } from './guidance.js';
 
 // package.json sits beside dist/ in the repo, but a serverless bundler only
 // ships files it can see being read. If it did not make the bundle, advertise a
@@ -31,6 +32,10 @@ const iconDataUri: string | null = (() => {
   }
 })();
 
+// buildServer runs per request in the cloud, so the prompt schemas are built
+// once here and shared by reference — as the tools' zod inputSchemas are.
+const PROMPT_ARGS = PROMPTS.map((prompt) => [prompt, promptArgsSchema(prompt)] as const);
+
 /**
  * Build a fresh McpServer wired to a context. Called by createMcpHandler's
  * factory on every request (stateless HTTP mode, SPEC §2): registration is
@@ -43,14 +48,23 @@ const iconDataUri: string | null = (() => {
  * safe to serve to one user or to thousands.
  */
 export function buildServer(ctx: Ctx, options: ToolVisibility = {}): McpServer {
-  const server = new McpServer({
-    name: 'deckpal-mcp',
-    version,
-    title: 'DeckPal — TCG collection assistant',
-    ...(iconDataUri
-      ? { icons: [{ src: iconDataUri, mimeType: 'image/png', sizes: ['128x128'] }] }
-      : {}),
-  });
+  const server = new McpServer(
+    {
+      name: 'deckpal-mcp',
+      version,
+      title: 'DeckPal — TCG collection assistant',
+      ...(iconDataUri
+        ? { icons: [{ src: iconDataUri, mimeType: 'image/png', sizes: ['128x128'] }] }
+        : {}),
+    },
+    // ServerOptions.instructions (@modelcontextprotocol/server 2.1): the SDK
+    // returns it from `initialize` and from 2026-era `server/discover`, and
+    // clients such as claude.ai place it in the model's system prompt. It is
+    // the only guidance a connector client gets on every turn (2026-10-10:
+    // before it, battle logs arrived with no debrief and no review). See
+    // guidance.ts for what it says and why it stays under 4,000 characters.
+    { instructions: SERVER_INSTRUCTIONS },
+  );
 
   // Nine register*Tools calls used to stand here, one per tools/ module, in
   // exactly this order. They are now one call: the tool definitions live in
@@ -58,6 +72,25 @@ export function buildServer(ctx: Ctx, options: ToolVisibility = {}): McpServer {
   // order, which is the order tools/list reports and therefore the order a
   // model reads them in. Adding a tool no longer means editing this file.
   registerAllTools(server, ctx, options);
+
+  // Prompts (2026-10-10). A connector client never receives Deck-E's routed
+  // pathway texts, so the judgment that must hold on every turn travels as
+  // the `instructions` above, and these four give a person an explicit way in
+  // to the longer playbooks (log a battle, review results, build a deck, plan
+  // a set). Registering them makes the SDK advertise the `prompts` capability
+  // and answer prompts/list and prompts/get; the tool catalogue is untouched.
+  for (const [prompt, argsSchema] of PROMPT_ARGS) {
+    server.registerPrompt(
+      prompt.name,
+      { title: prompt.title, description: prompt.description, argsSchema },
+      (args) => ({
+        messages: [{
+          role: 'user' as const,
+          content: { type: 'text' as const, text: prompt.render(args) },
+        }],
+      }),
+    );
+  }
 
   // SPEC §5 resource: same payload as collection_summary, so clients can pull
   // collection context without a tool round-trip. summaryText is exported by

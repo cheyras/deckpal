@@ -261,6 +261,7 @@ export async function withToolCtx<T>(
       opts.signal,
     ),
     userId: opts.userId,
+    source: 'deck-e',
   };
 
   try {

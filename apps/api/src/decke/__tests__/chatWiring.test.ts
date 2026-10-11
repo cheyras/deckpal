@@ -152,7 +152,7 @@ test('Deep Think exists only on a signed deployment with metered credits and a b
   // Read before admission: it sizes the hold.
   assert.ok(CODE.indexOf('deepRouted = deepScope ?') < CODE.indexOf("meter = await meterTurn(user.id, { tier: 'chat_turns'"));
   // Not in the tool set at all where it cannot be had.
-  assert.match(CODE, /\.\.\.offerableTools\(buildTools\(writer, groundingForTools, repairs, emitToolEvent\(writer\), \{[\s\S]*?\}\), deepScope !== null\)/);
+  assert.match(CODE, /\.\.\.offerableTools\(toolsForTier\(buildTools\(writer, groundingForTools, repairs, emitToolEvent\(writer\), \{[\s\S]*?\}\), decision\.tier\), deepScope !== null\)/);
   assert.doesNotMatch(CODE, /deepApprovedThisTurn/, 'the unvalidated any-part-after-the-reader read is back');
 });
 
@@ -729,6 +729,52 @@ test('Anthropic prompt caching, deck checks and the expanded step budget are wir
   assert.doesNotMatch(CODE, /checkDeck\(toolCtx\b/);
   assert.doesNotMatch(CODE, /ownedDeck\(toolCtx\b/);
   assert.match(CODE, /for \(const output of replayedToolOutputs\(messages\)\) grounding\.observe\(output\)/);
+});
+
+// ── THE CONSULT (2026-10-10) ────────────────────────────────────────────────
+//
+// `consult.ts` and `tools.ts` can be perfect and change nothing: the model it
+// asks, the meter it bills, the abort it obeys and the tier that may hold it
+// are four expressions in this file, each one easy to drop in an edit.
+
+test('the consult runs Sonnet through the request meter, with the turn\'s abort', () => {
+  assert.match(SRC, /import \{ runConsult \} from '\.\.\/apps\/api\/dist\/decke\/consult\.js'/);
+  assert.match(
+    CODE,
+    /consult: \(input\) => runConsult\(\{\s*\.\.\.input,\s*model: observeUsageModel\(gateway\(TIERS\.standard\.id\), meter\),\s*signal: abortSignal,\s*\}\)/,
+    'an unmetered consult is a Sonnet call the reader is never charged for — or one that ignores their stop',
+  );
+  // Built inside the call, never hoisted: observeUsageModel reads the usage
+  // context of the step that runs it.
+  assert.doesNotMatch(CODE, /const \w+ = observeUsageModel\(gateway\(TIERS\.standard\.id\)/);
+});
+
+test('the consult is held only on the Quick tier, decided once for the whole request', () => {
+  assert.match(SRC, /import \{ buildTools, CLIENT_TOOLS, SERVER_TOOLS, toolsForTier \} from '\.\.\/apps\/api\/dist\/decke\/tools\.js'/);
+  assert.match(
+    CODE,
+    /\.\.\.offerableTools\(toolsForTier\(buildTools\(writer, groundingForTools, repairs, emitToolEvent\(writer\), \{[\s\S]*?\}\), decision\.tier\)/,
+    'without toolsForTier a Standard request would hold a consult that asks itself',
+  );
+  // Not per step: the set handed to streamText is the one built above.
+  assert.match(CODE, /tools: allDeckeTools,/);
+  assert.doesNotMatch(CODE, /prepareStep:[\s\S]{0,400}toolsForTier/);
+});
+
+test('a consult is not an answer: the empty-answer guard does not excuse it', () => {
+  assert.match(CODE, /const SERVER_SET = new Set\(SERVER_TOOLS\.filter\(\(name\) => name !== 'consult'\)\)/);
+});
+
+// The adapter's "your message held N games" line reads `pastedLogCount` from
+// its options and falls back to 1 when it is absent — so the notice is dead
+// unless this file hands it over, and every adapter test still passes.
+test('the multi-game paste count reaches the data tools beside the paste itself', () => {
+  assert.match(SRC, /import \{ extractPastedLog, pastedLogCount \} from '\.\.\/apps\/api\/dist\/decke\/pastedLog\.js'/);
+  assert.match(
+    CODE,
+    /pastedLog: \(\) => extractPastedLog\(messages\),\s*pastedLogCount: \(\) => pastedLogCount\(messages\),/,
+    'without it a two-game paste logs one game and never says so',
+  );
 });
 
 test('improvement capture receives identity, correlation and runs after usage finalization', () => {

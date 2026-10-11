@@ -132,8 +132,13 @@ const CLIENT_SET = new Set(CLIENT_TOOLS)
  * and produced no text is NOT an empty-answer defect — the panel IS the answer.
  * Built from the real `SERVER_TOOLS` export so it cannot go stale. See
  * `decke/turnGuards.ts`.
+ *
+ * EXCEPT `consult` (2026-10-10). Its result goes to HIM, not to the reader —
+ * the reader sees only the chip. A turn that consulted and then said nothing
+ * left an empty bubble, which is precisely the defect the guard exists to
+ * catch, so it must not count as "the answer was on screen".
  */
-const SERVER_SET = new Set(SERVER_TOOLS)
+const SERVER_SET = new Set(SERVER_TOOLS.filter((name) => name !== 'consult'))
 
 /**
  * Tools whose over-long arguments may be trimmed by `repairToolCall`.
@@ -160,7 +165,8 @@ import { createGateway } from '@ai-sdk/gateway'
 import { verifySupabaseJwt, createSupabaseJwksProvider } from '../apps/api/dist/auth.js'
 import { buildCorePrompt, buildVolatileContext } from '../apps/api/dist/decke/prompt.js'
 import { pathwayBlock } from '../apps/api/dist/decke/pathways/index.js'
-import { buildTools, CLIENT_TOOLS, SERVER_TOOLS } from '../apps/api/dist/decke/tools.js'
+import { buildTools, CLIENT_TOOLS, SERVER_TOOLS, toolsForTier } from '../apps/api/dist/decke/tools.js'
+import { runConsult } from '../apps/api/dist/decke/consult.js'
 import { TIERS, TRIAGE, budgetFor } from '../apps/api/dist/decke/models.js'
 import { runTriage } from '../apps/api/dist/decke/triage.js'
 import { answeringAsk, carriedFromHistory, decideTier, quickRefusalRetry, raisedToStandard, resumesApproval } from '../apps/api/dist/decke/tiers.js'
@@ -190,7 +196,7 @@ import { isMetered } from '../apps/api/dist/credits/policy.js'
 import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/decke/meter.js'
 import { readerNamedPrinting } from '../apps/api/dist/decke/printingSaid.js'
 import { declinedCalls } from '../apps/api/dist/decke/declined.js'
-import { extractPastedLog } from '../apps/api/dist/decke/pastedLog.js'
+import { extractPastedLog, pastedLogCount } from '../apps/api/dist/decke/pastedLog.js'
 import {
   pasteBackstopNeeded,
   PASTE_BACKSTOP_LINE,
@@ -1017,13 +1023,36 @@ async function serve(request) {
         // compacted evidence the client replays into the next leg, so a turn
         // that drew a panel and then flew somewhere came back not knowing the
         // panel existed and narrated its contents a second time.
-        ...offerableTools(buildTools(writer, groundingForTools, repairs, emitToolEvent(writer), {
+        //
+        // ── AND, ON THE QUICK TIER ONLY, A CONSULT (2026-10-10) ─────────────
+        //
+        // Haiku asks Sonnet one question with a brief he writes — the owner's
+        // "Haiku prompting into Sonnet internally" — so a game worth learning
+        // from gets a real analysis without raising the whole request to
+        // Standard. `toolsForTier` removes it on Standard and Deep, where a
+        // consult would ask the same model or a weaker one. Decided once from
+        // `decision.tier`, never per step, so the tool set is constant across
+        // the request's steps and Anthropic's cached tools prefix holds. (The
+        // textless-refusal retry below reuses this set on Standard; it is rare
+        // and keeps the set constant, which matters more.)
+        //
+        // The model is built INSIDE the call, so `observeUsageModel` reads the
+        // usage context of the step that called it: the consult is metered on
+        // this request like every other model call, and credits stay
+        // actual-cost. Same abort as the turn: a reader who stops the turn
+        // stops the consult.
+        ...offerableTools(toolsForTier(buildTools(writer, groundingForTools, repairs, emitToolEvent(writer), {
           // THROUGH `withToolCtx`, LIKE EVERY DATA TOOL. `toolCtx` is the
           // options a `Ctx` is built from, not a `Ctx`: it has no `api`, and
           // passing it straight to `checkDeck` failed every showDeck since #267
           // with "Cannot read properties of undefined (reading 'send')". Driven
           // end to end by `decke/__tests__/deckCheckWiring.test.ts`.
           checkDeck: (input) => withToolCtx(toolCtx, (ctx) => checkDeck(ctx, input)),
+          consult: (input) => runConsult({
+            ...input,
+            model: observeUsageModel(gateway(TIERS.standard.id), meter),
+            signal: abortSignal,
+          }),
           ownedDeck: (ref) => withToolCtx(toolCtx, (ctx) => ownedDeck(ctx, ref)),
           db: chatPool(),
           userId: user.id,
@@ -1036,7 +1065,7 @@ async function serve(request) {
               ? deepThinkResult({ grant: mintDeepGrant(deepSecret, deepScope) })
               : deepThinkResult({ off: deepSettled.off ?? 'unavailable' }),
           },
-        }), deepScope !== null),
+        }), decision.tier), deepScope !== null),
         // READS AND WRITES, because the approval round-trip now exists.
         //
         // `include: () => true` is not "no filter" — every write is still
@@ -1072,6 +1101,10 @@ async function serve(request) {
           // substitutes it for a `@pasted` sentinel or a truncated prefix. See
           // `decke/pastedLog.ts` for the heuristic and its bounds.
           pastedLog: () => extractPastedLog(messages),
+          // How many games that same message held. Only one is logged per
+          // call, so a two-game paste is disclosed on the card and the result
+          // rather than silently halved — and without this line it never is.
+          pastedLogCount: () => pastedLogCount(messages),
           // ── AND WHAT THEY HAVE ALREADY SAID NO TO ────────────────────────
           //
           // Read from the replayed history, the only place it can come from:

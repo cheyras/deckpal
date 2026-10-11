@@ -22,6 +22,7 @@ import { Sheet } from '../../apps/web/src/components/ui/Sheet'
 import type { PendingApproval } from '../../apps/web/src/character/host/approval'
 import type { ApprovalPreview } from '../../apps/web/src/character/host/chat/approvalCardState'
 import type { DeepQuote } from '../../apps/web/src/character/host/chat/deepRequest'
+import { BattlesTab } from '../../apps/web/src/routes/deck/BattlesTab'
 import type { DeckSaved } from '../../apps/web/src/character/host/chat/deckSave'
 
 // Test-only entry: actual components, no host/WebGL/model or production route.
@@ -69,6 +70,7 @@ function Fixture() {
       ({ kind: 'text', text: 'Section ' + (i + 1) })) }} />
   </main>
   if (location.search.includes('deep-think')) return <DeepThinkFixture />
+  if (location.search.includes('battles')) return <BattlesFixture />
   if (location.search.includes('ask')) return <AskFixture />
   if (location.search.includes('meter')) return <MeterFixture />
   if (location.search.includes('errorboundary')) return <ErrorBoundaryFixture />
@@ -188,6 +190,18 @@ function DeepThinkFixture() {
     desktop={innerWidth >= 1068} characterPx={fixtureCharacterPx()}
     onComposerActivity={chat.composerActivity} onDeckSaved={chat.recordDeckSaved}
     credits={{ remaining: 200, allowance: 200 }} quote={{ balance }} onTopUp={() => {}} />
+}
+
+/**
+ * `?battles` — the deck page's real Battles tab over real `fetch`, its API
+ * answered by `battlesV2.mjs`. Self-host build (no Supabase URL), so the client
+ * asks for `/deckpal/api/…`. The wrapper approximates the deck page's left
+ * column: a 16px gutter on a phone, a bounded column on desktop.
+ */
+function BattlesFixture() {
+  return <main style={{ maxWidth: 840, margin: '0 auto', padding: '24px 16px' }}>
+    <BattlesTab deckId="battles-deck" currentVersion={2} />
+  </main>
 }
 
 /** The real chat hook, isolated from the other transport-driven fixture cases. */
