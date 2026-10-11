@@ -169,11 +169,6 @@ function aborted(signal: AbortSignal): { promise: Promise<never>; cleanup: () =>
 }
 
 /**
- * Ask Haiku for one typed call. Every exit other than a valid `triage` call is
- * the heuristic result—including aborts, provider errors and refusals—because
- * classification must never be able to fail the reader's actual turn.
- */
-/**
  * What the classifier reads of the reader's message. A pasted game log can run
  * to 240,000 characters; triage needs the opening and the end (where a reader's
  * own words around a paste usually sit) and the `pasted` flag, not the log, and
@@ -188,6 +183,11 @@ export function clipForTriage(message: string): string {
   return `${message.slice(0, TRIAGE_MESSAGE_CHARS - tail - 1)}…${message.slice(-tail)}`;
 }
 
+/**
+ * Ask Haiku for one typed call. Every exit other than a valid `triage` call is
+ * the heuristic result—including aborts, provider errors and refusals—because
+ * classification must never be able to fail the reader's actual turn.
+ */
 export async function runTriage(input: TriageInput): Promise<Triage> {
   const fallback = () => heuristicTriage(input);
   const timeoutController = new AbortController();

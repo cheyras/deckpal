@@ -51,10 +51,25 @@ export function pasteBackstopNeeded(o: {
 }
 
 type UiMessage = { role?: unknown; parts?: unknown };
-type UiPart = { type?: unknown; toolName?: unknown };
+type UiPart = { type?: unknown; toolName?: unknown; state?: unknown; approval?: unknown; input?: unknown };
 
 const isCall = (part: UiPart, name: string) =>
   part.type === `tool-${name}` || (part.type === 'dynamic-tool' && part.toolName === name);
+
+/**
+ * An `add_battle_log` call that reached the approval card: raised, landed or
+ * declined. A dry-run preview or a deck ranking does not count. The battle_log
+ * pathway makes one of those BEFORE it asks ("which name is yours?"), and
+ * counting it would switch the backstop off in exactly the case it is for.
+ * Replayed parts arrive as `output-available` with the call's input, or as
+ * `output-denied` with an approval.
+ */
+const isLogAttempt = (part: UiPart) => {
+  if (!isCall(part, 'add_battle_log')) return false;
+  if (part.state !== 'output-available' || part.approval) return true;
+  const input = part.input;
+  return !!input && typeof input === 'object' && (input as { dry_run?: unknown }).dry_run === false;
+};
 
 /**
  * Whether the reader's latest message answers an ask that Deck-E raised over a
@@ -63,8 +78,9 @@ const isCall = (part: UiPart, name: string) =>
  * Three facts, all from the replayed history: the latest message answers an
  * ask card (`answeringAsk`, the same reading routing uses); the reader's
  * message BEFORE that ask held a pasted log (the same `extractPastedLog`, on
- * that one message); and no reply between the two touched `add_battle_log` —
- * a log already raised or declined there must not be raised again.
+ * that one message); and no reply between the two took `add_battle_log` to the
+ * approval card — a log already raised or declined there must not be raised
+ * again. A preview made before the ask does not count (`isLogAttempt`).
  */
 export function pastedBeforeAnsweredAsk(messages: unknown): boolean {
   if (!Array.isArray(messages) || answeringAsk(messages) === null) return false;
@@ -80,7 +96,7 @@ export function pastedBeforeAnsweredAsk(messages: unknown): boolean {
       ? (message.parts as unknown[]).filter((part): part is UiPart => !!part && typeof part === 'object')
       : [],
   );
-  if (parts.some((part) => isCall(part, 'add_battle_log'))) return false;
+  if (parts.some(isLogAttempt)) return false;
   return extractPastedLog([messages[previous]]) !== null;
 }
 

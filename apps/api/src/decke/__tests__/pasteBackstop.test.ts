@@ -103,8 +103,13 @@ test('the leg answering an ask raised over a paste may run the backstop', () => 
 });
 
 test('only an answered ask over an unlogged paste in the message right before it counts', () => {
-  // The ask turn already raised (or the reader declined) the log card.
-  assert.equal(pastedBeforeAnsweredAsk(pasteThenAsk([ask, { type: 'tool-add_battle_log', toolCallId: 'log-1', state: 'output-available', input: {}, output: 'held' }])), false);
+  // The ask turn already landed, or the reader declined, the log card.
+  assert.equal(pastedBeforeAnsweredAsk(pasteThenAsk([ask, { type: 'tool-add_battle_log', toolCallId: 'log-1', state: 'output-available', input: { log: '@pasted', deck_id: 7, dry_run: false }, output: 'Logged' }])), false);
+  assert.equal(pastedBeforeAnsweredAsk(pasteThenAsk([ask, { type: 'tool-add_battle_log', toolCallId: 'log-1', state: 'output-denied', input: { log: '@pasted', deck_id: 7, dry_run: false }, approval: { id: 'a1', approved: false, reason: 'declined' } }])), false);
+  // A preview or a deck ranking made before the ask is not a log attempt: the
+  // battle_log pathway previews first and asks only if the log cannot tell.
+  assert.equal(pastedBeforeAnsweredAsk(pasteThenAsk([{ type: 'tool-add_battle_log', toolCallId: 'log-0', state: 'output-available', input: { log: '@pasted' }, output: 'Would attach to …' }, ask])), true);
+  assert.equal(pastedBeforeAnsweredAsk(pasteThenAsk([{ type: 'tool-add_battle_log', toolCallId: 'log-0', state: 'output-available', input: { log: '@pasted', deck_id: 7, dry_run: true }, output: 'preview' }, ask])), true);
   // No ask: the reader simply wrote again.
   assert.equal(pastedBeforeAnsweredAsk(pasteThenAsk([{ type: 'text', text: 'Nice game.' }])), false);
   // An ask, but over a message with no paste.
