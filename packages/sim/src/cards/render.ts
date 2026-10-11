@@ -199,6 +199,13 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   // std-c10-customs.ts
   'c10.evolveSelfFromHand': () =>
     "Choose a card in your hand that evolves from this Pokémon and put it onto this Pokémon to evolve it (it recovers from all Special Conditions, the effects of attacks on it end, and \"when you play this from your hand to evolve\" Abilities run); nothing happens if this Pokémon already evolved this turn, and it can't be used to evolve twice in a turn; the variable \"evolved\" is 1 if it evolved, else 0",
+  // std-c09-customs.ts
+  'c09.energyToHand': (a) => `Put ${Number(a.n ?? 1)} Energy card attached to this Pokémon that provides ${sym(a.type as PType)} Energy where it is attached (Basic or Special) into your hand (all of them if it has fewer)`,
+  'c09.endTurn': () => 'Your turn ends, as it does after using an attack (no attack is used)',
+  'c09.removeCondition': () => 'Remove 1 Special Condition (your choice when there are several) from your Active Pokémon',
+  'c09.discardTopCount': (a) => `Discard the top ${Number(a.n ?? 1)} cards of your deck and count the ${energyNoun(a.filter as Filter | undefined)} cards among them (into "${String(a.as ?? 'n')}")`,
+  'c09.pleasingPresent': (a) =>
+    `Your opponent first, then you, may choose up to ${Number(a.max ?? 3)} Basic Energy cards from your hand and attach each to a Pokémon of yours (Energy put on a Pokémon protected from this effect is discarded instead); the attach triggers fire afterwards, for both players`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -1863,5 +1870,14 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv05-092|attack:Mud Stock': {
     problems: ['"any number of" is rendered but not printed', 'similarity'],
     why: '"Attach a Basic Energy card … to each of your Benched Pokémon" is a pick of exactly as many Basic {F} Energy cards, and as many Benched Pokémon, as the smaller of the two counts (min and max are both that count); the renderer words a variable count "any number of" and does not name the variable.',
+  },
+  // std-c09
+  'me03-079|text': {
+    problems: ["\"can't\" is printed but not rendered", '"may" is printed but not rendered'],
+    why: 'The discard is `chooseCards` with `min: 0` ("you may discard any number" is already the option to discard none), and the parenthesis "(If you cannot draw any cards in this way, you cannot use this card.)" is the `playable` guard (a deck to draw from), which renders as "You can use this card only if ...".',
+  },
+  'me04-013|attack:Energized Storm': {
+    problems: ['the rendering involves the opponent; the printed text does not'],
+    why: "\"all Pokémon\" is every Pokémon in play, both players' Pokémon; the sum custom renders its zone as \"all of Pokémon in play (both yours and your opponent's)\".",
   },
 };
