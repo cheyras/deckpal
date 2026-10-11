@@ -212,6 +212,13 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c11.multiplyCounters': (a) => `Put on each Pokémon chosen as "${String(a.slots ?? 't')}" ${Number(a.factor ?? 2) - 1} times the number of damage counters already on it (so each Pokémon has ${Number(a.factor ?? 2)} times as many damage counters); a Pokémon with none gets none`,
   'c11.retreatCostOf': (a) => `Count the {C} in the Retreat Cost your opponent's Active Pokémon has right now, after every effect (into "${String(a.as ?? 'n')}"); an Antique fossil has none`,
   'c11.discardOppActiveEnergy': () => "Discard an Energy of your choice from your opponent's Active Pokémon, unless it is protected from the effects of Abilities (or attacks)",
+  // std-c15-customs.ts
+  'c15.countAttached': (a) => `Count the ${energyNoun(a.filter as Filter | undefined)} cards attached to this Pokémon (into "${String(a.as ?? 'n')}")`,
+  'c15.collectCounters': () => "Move any number of damage counters from your opponent's Benched Pokémon to their Active Pokémon: for each damaged Benched Pokémon in turn you choose how many of its counters (none to all) move. Nothing moves when an effect stops damage counters from being moved or the Active Pokémon is protected from this effect",
+  'c15.moveEnergyAny': () => 'Move any amount of Energy from your Pokémon to your other Pokémon in any way you like: repeatedly choose one Energy card attached to one of your Pokémon (or none, to stop) and a different Pokémon of yours to move it to; each card moves at most once',
+  'c15.discardOppTools': (a) => `Choose up to ${Number(a.max ?? 2)} Pokémon Tools attached to your opponent's Pokémon (not those protected from this effect) and discard them`,
+  'c15.healLowHp': () => 'Heal all damage from 1 of your damaged Pokémon that has 30 HP or less remaining (your choice when several qualify)',
+  'c15.evolveSelfFromDeck': (a) => `Search your deck for a card named ${(a.names as string[]).join(' or ')} and put it onto this Pokémon to evolve it (even on your first turn or the turn it was played)`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -231,6 +238,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'c10.handEvolvesSelf': () => 'you have a card in your hand that evolves from this Pokémon, and this Pokémon has not evolved this turn',
   'c10.weakToOppActive': () => "the Pokémon this card is attached to has a Weakness (as changed by effects) of a type that your opponent's Active Pokémon is",
   'c14.abilitiesOn': () => "no effect has turned this Pokémon's Abilities off",
+  'c15.lowHpDamaged': () => 'one of your Pokémon has damage on it and 30 or less HP remaining (HP counting any HP changes)',
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
@@ -1890,5 +1898,14 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me05-020|attack:Aqua Return': {
     problems: ['"your deck" is printed but not rendered'],
     why: 'The shuffle is the shared seed4.shuffleSlotIntoDeck, glossed for any Pokémon ("into their deck"); the Pokémon chosen here is always the attacking player own Active Pokémon (Primarina itself), so its owner is the attacker and the deck is "your deck".',
+  },
+  // std-c15
+  'sv05-115|attack:Meteor Mash': {
+    problems: ['"Weakness" is printed but not rendered', '"Resistance" is printed but not rendered', 'similarity'],
+    why: 'The next-turn bonus is a mark the attack leaves on the Pokémon (c06.rememberAttack) plus a +60 that applies while the mark is there (c06.usedLastTurn); the bonus is part of the attack base damage, so it is before Weakness and Resistance like all printed damage, and the engine does not render that parenthesis. The card test pins 60, then 120, then 120.',
+  },
+  'sv05-138|attack:Raging Cannon': {
+    problems: ['number 1 is printed 1× but rendered 0×'],
+    why: 'The `damaged` filter (a Pokémon with at least one damage counter) renders as "have damage counters on them", with no count; the condition is that the number of damaged Benched Pokémon is at least the number of Benched Pokémon.',
   },
 };
