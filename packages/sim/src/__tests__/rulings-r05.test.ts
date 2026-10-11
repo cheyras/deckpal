@@ -320,10 +320,11 @@ test('Two Gengar ex with Gnawing Curse put 4 damage counters on a Pokémon that 
   assert.equal(two.state.p[1].active!.damage, 40, '4 damage counters');
 });
 
-// https://compendium.pokegym.net/ruling/146/
-// Gnawing Curse and an Ability that heals on an attach from the hand (Miltank's Moomoo Malt in the ruling; Magearna's Auto
-// Heal is the scripted equivalent) can go in either order, but the damage is never checked for a Knock Out in between.
-test('Counters from Gnawing Curse do not Knock Out a Pokémon that an attach-heal Ability then heals (https://compendium.pokegym.net/ruling/146/)', () => {
+// Compendium ruling 146, partly pinned (left uncited on purpose): the owner of the affected Pokémon is meant to choose the order of the two Abilities,
+// which the simulator does not model (queued triggers resolve in a fixed order). The rest is pinned: Gnawing Curse and an Ability that heals on an attach
+// from the hand (Miltank's Moomoo Malt in the ruling; Magearna's Auto Heal is the scripted equivalent) never have the damage checked for a Knock Out in between.
+// The engine's fixed order puts the counters first and then heals: 80 + 20 counters, minus the 90 healed, leaves 10 (checked below).
+test("ruling 146 (partly: the player's choice of order is not modelled yet): counters from Gnawing Curse do not Knock Out a Pokémon that an attach-heal Ability then heals", () => {
   const dk = deck([...GENGAR_IDS, 'sv09-107']);
   const g = scenario(dk, dk, [{ ...gengar }, { active: 'Magearna', damage: { active: 80 }, hand: [FIRE], bench: ['Dhelmise'] }], TURN_OF_P1);
   choose(g, 'Attach Fire Energy');
@@ -331,7 +332,7 @@ test('Counters from Gnawing Curse do not Knock Out a Pokémon that an attach-hea
   assert.equal(activeName(g, 1), 'Magearna', 'Magearna is still the Active Pokémon');
   assert.equal(g.state.p[1].discard.length, 0, 'nothing was Knocked Out');
   const left = g.state.p[1].active!.damage;
-  assert.ok(left === 10 || left === 20, `damage was ${left}: the heal never goes below zero, the counters are never lost`);
+  assert.equal(left, 10, 'fixed engine order: counters first (100), then the 90 heal');
 });
 
 // https://compendium.pokegym.net/ruling/1631/

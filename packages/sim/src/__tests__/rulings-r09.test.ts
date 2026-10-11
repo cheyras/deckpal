@@ -232,7 +232,13 @@ test("Compendium #2115 / #1654 / #2114: N's Zoroark ex can't use Trade with no c
   // One card left in the deck is enough to start (draw as many as there are).
   const one = mk(false, ['Dhelmise']);
   one.state.p[0].deck.splice(0, one.state.p[0].deck.length - 1);
+  one.state.pending = null; // the deck changed after the scenario was built: re-derive the legal actions
+  advance(one.env, one.state);
   assert.ok(has(one, 'Use Trade'), 'one card in the deck: still usable');
+  choose(one, 'Use Trade');
+  assert.equal(one.state.p[0].discard.filter((c) => nameOf(one, c) === 'Dhelmise').length, 1, 'the hand card was discarded');
+  assert.equal(one.state.p[0].hand.length, 1, 'and the one card left in the deck was drawn');
+  assert.equal(one.state.p[0].deck.length, 0, 'the deck is now empty');
 });
 
 // ------------------------------------------------------------------ Magmortar, Magma Surge
@@ -431,7 +437,7 @@ const REVIEWED: { ruling: string; why: string }[] = [
   },
   {
     ruling: 'Compendium #21',
-    why: "unscripted card: Golurk and the Eeveelution type-adding Abilities (Flare, Aqua and Electric Effect) are not in the registry; Scovillain ex's and Carbink's Double Type are the only type-setting Abilities scripted and nothing adds a type beside them",
+    why: "unscripted card: the Eeveelution type-adding Abilities (Flare, Aqua and Electric Effect) are not in the registry, and the scripted Golurk is another card without Double Type; the type-setting Abilities that are scripted (Scovillain ex's and Carbink's Double Type, Iron Treads' Dual Core with a Future Booster Energy Capsule) all set a fixed list of types and no scripted effect adds a type to a Pokémon, so the add-versus-set combination the ruling decides cannot be built",
   },
   {
     ruling: 'Compendium #716',

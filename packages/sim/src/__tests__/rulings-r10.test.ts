@@ -268,9 +268,10 @@ test('ruling 2219: Mega Lucario ex, Aura Jab can attach zero Energy, or stop aft
 
 // ------------------------------------------------------------------ Team Rocket's Ampharos and Golbat
 
-// https://compendium.pokegym.net/ruling/2146/ : Golbat evolving under Darkest Impulse: both Abilities happen together, its owner picks the order,
-// so Sneaky Bite can be used before the 4 counters Knock it Out.
-test("ruling 2146: Team Rocket's Golbat uses Sneaky Bite before Darkest Impulse's counters Knock it Out", () => {
+// Compendium ruling 2146, partly pinned (left uncited on purpose): Golbat evolving under Darkest Impulse: both Abilities happen together and its owner
+// picks the order. The simulator has no such choice yet (queued triggers resolve in a fixed order), so this pins only the outcome the ruling
+// allows: Sneaky Bite can be used before the 4 counters Knock it Out.
+test("ruling 2146 (partly: the player's choice of order is not modelled yet): Team Rocket's Golbat uses Sneaky Bite before Darkest Impulse's counters Knock it Out", () => {
   const g = game(
     [
       { active: "Team Rocket's Mareep", evolve: { active: ["Team Rocket's Flaaffy", "Team Rocket's Ampharos"] }, bench: ['Dreepy'] },

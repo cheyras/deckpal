@@ -429,7 +429,7 @@ const REVIEWED: { ruling: string; why: string }[] = [
   },
   {
     ruling: 'Compendium #1964',
-    why: 'outside the game: card legality across printings. The Black & White Master Ball (not an ACE SPEC, different text) is not scripted; the scripted Master Ball is the Standard ACE SPEC and nothing in the rules engine decides which printings may be played.',
+    why: 'outside the game: card legality across printings. The ruling separates the Black & White Plasma Blast printing of Master Ball (the ACE SPEC version, which is playable) from earlier non-ACE SPEC versions (which are not, as only an ACE SPEC Master Ball is Standard-legal); the simulator has no format legality and nothing in the rules engine decides which printings may be played, and only the scripted Standard Master Ball exists.',
   },
   {
     ruling: 'Compendium #717',
@@ -445,7 +445,7 @@ const REVIEWED: { ruling: string; why: string }[] = [
   },
   {
     ruling: 'Compendium #231',
-    why: "different text: the question is a switch aimed at a benched Sigilyph, whose Safeguard blocks effects of Pokémon-EX attacks. The scripted Sylveon's Safeguard only prevents damage, so a switch effect can never be stopped by it and no scenario could differ; Sigilyph and the -EX attackers have no frames in the simulator.",
+    why: "different text: the ruling is about an attacking Pokémon-EX that switches itself with a benched Sigilyph; the attacker is the target of the switch effect, so Sigilyph's Safeguard (which blocks effects of Pokémon-EX attacks on the Pokémon it protects) does not stop it. The scripted Sylveon's Safeguard only prevents damage, so no scripted Ability could block a switch effect either way and no scenario could differ; Sigilyph and the -EX attackers have no frames in the simulator.",
   },
 ];
 

@@ -125,6 +125,8 @@ const IDS = [
   'sv07-036', // Lumineon
   'sv10.5b-074', // Audino
   '30th-085', // Lycanroc
+  'sv05-099', // Iron Boulder ex (Repulsor Axe)
+  'me04-030', // Emolga (Sky Return)
 ];
 const DK = fromIds('rulings-r11', [...IDS.map((id): [string, number] => [id, 4]), ...ENERGY]);
 
@@ -507,6 +509,30 @@ test('Lycanroc, Counter: still adds the damage taken last turn after Lycanroc we
   assert.equal(dmg(g, 1), 10 + taken, 'the damage it took last turn is added although it left and returned');
 });
 
+// https://compendium.pokegym.net/ruling/588/ : an attack that puts its user into the hand (Sky Return) does so before a delayed "damage counters on the Attacking Pokémon" effect (Repulsor Axe, standing in for the older Shell Trap) is applied, so no counters are placed.
+test('Sky Return: Emolga goes to the hand with its Energy before Repulsor Axe puts counters on it, and nothing else gets them (https://compendium.pokegym.net/ruling/588/)', () => {
+  // Emolga (Weak to Fighting) cannot survive Iron Boulder ex's own hit, so Dreepy takes it and then retreats for Emolga.
+  const g = scenario(DK, DK, [
+    { active: 'Iron Boulder ex', energy: { active: [FGT, FGT, FGT] } },
+    { active: 'Dreepy', energy: { active: [LGT], 0: [LGT] }, bench: ['Emolga', 'Dragapult ex'] },
+  ]);
+  choose(g, 'Attack: Repulsor Axe');
+  assert.equal(dmg(g, 1), 60);
+  assert.equal(g.state.effects.filter((e) => e.static.k === 'react').length, 1, 'the delayed counters are established on Iron Boulder ex');
+  choose(g, 'Retreat');
+  choose(g, 'Emolga');
+  assert.equal(activeName(g, 1), 'Emolga');
+  choose(g, 'Attack: Sky Return');
+  assert.equal(dmg(g, 0), 30, 'the 30 damage was done');
+  const hand = names(g, g.state.p[1].hand);
+  assert.ok(hand.includes('Emolga'), 'Emolga is in the hand');
+  assert.ok(hand.includes(LGT), 'with its attached Energy');
+  assert.ok(!g.state.p[1].bench.some((b) => b && nameOf(g, topCard(b)) === 'Emolga'), 'and no longer in play');
+  const left = g.state.p[1].bench.filter((b) => b).map((b) => b!.damage);
+  assert.ok(left.every((d) => d === 0 || d === 60), `no Pokémon in play took the 8 damage counters (damage: ${left})`);
+  if (g.state.p[1].active) assert.ok(![80, 140].includes(g.state.p[1].active.damage), 'nor did a new Active Pokémon');
+});
+
 // ----------------------------------------------------------------------------------------------- Not testable in the simulator
 
 const REVIEWED: { ruling: string; why: string }[] = [
@@ -517,10 +543,6 @@ const REVIEWED: { ruling: string; why: string }[] = [
   {
     ruling: 'Compendium #1073',
     why: 'outside the game: a deck-building restriction (Lysandre and Boss\'s Orders may not share a deck); the simulator has no deck legality check (check_deck in the API owns it) and Lysandre is not in the frame snapshot.',
-  },
-  {
-    ruling: 'Compendium #588',
-    why: 'unscripted card: the outcome hinges on Turtonator-GX\'s Shell Trap and Shaymin-EX\'s Sky Return, neither of which exists in the frame snapshot or the registry (the scripted Emolga merely shares the attack name Sky Return, and nothing scripted places counters on an attacker after its attack).',
   },
 ];
 

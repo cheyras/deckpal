@@ -450,10 +450,6 @@ test('https://compendium.pokegym.net/ruling/462/ Giga Drain heals the full amoun
 
 const REVIEWED: { ruling: string; why: string }[] = [
   {
-    ruling: 'Compendium #2032',
-    why: 'unscripted card: the answer turns on Pokémon League Headquarters adding to an attack cost that Plasma Bane sets to one; Pokémon League Headquarters has no printing in the simulator\'s Standard card set (no frame, no script), so the position cannot be built. The attackCostSet half of the answer (a set cost is not raised by other cost effects) has no second effect in the simulator to be raised by.',
-  },
-  {
     ruling: 'Compendium #1965',
     why: 'outside the game: which cards are legal to search for in a tournament format (Salvatore and a card of a banned or rotated-out kind); the simulator has no format legality, its decks contain only cards it scripts, and the card Salvatore evolves into is decided by the Stage rules, which a legal-card filter would not change.',
   },
