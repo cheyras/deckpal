@@ -182,6 +182,12 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c01.useSupporterEffect': (a) => `Use the effect of the Supporter card chosen as "${String(a.card ?? 'x')}" (it is not played, and it can't be declined)`,
   'c01.energyToHandFiltered': (a) => `Put ${Number(a.n ?? 1)} ${energyNoun(a.filter as Filter | undefined)} attached to this Pokémon into your hand (all of them if it has fewer)`,
   'c01.leastHpRemaining': (a) => `Choose the Pokémon in play (yours or your opponent's), other than this Pokémon, that has the least HP remaining (into "${String(a.as ?? 't')}")`,
+  // std-c11-customs.ts
+  'c11.lookTakeAny': (a) => `Look at the top ${Number(a.n ?? 6)} cards of your deck. You may reveal any number of ${noun(a.filter as Filter | undefined).pl} you find there and put them into your hand. Shuffle the other cards back into your deck (no shuffle if none stay in it)`,
+  'c11.revealBottom': (a) => `Reveal the bottom ${Number(a.n ?? 7)} cards of your deck and count the Pokémon among them that have the ${String(a.attack)} attack (into "${String(a.as ?? 'n')}"). Shuffle the revealed Pokémon back into your deck. Discard the other cards`,
+  'c11.multiplyCounters': (a) => `Put on each Pokémon chosen as "${String(a.slots ?? 't')}" ${Number(a.factor ?? 2) - 1} times the number of damage counters already on it (so each Pokémon has ${Number(a.factor ?? 2)} times as many damage counters); a Pokémon with none gets none`,
+  'c11.retreatCostOf': (a) => `Count the {C} in the Retreat Cost your opponent's Active Pokémon has right now, after every effect (into "${String(a.as ?? 'n')}"); an Antique fossil has none`,
+  'c11.discardOppActiveEnergy': () => "Discard an Energy of your choice from your opponent's Active Pokémon, unless it is protected from the effects of Abilities (or attacks)",
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -1777,5 +1783,10 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me01-066|attack:Horrifying Bite': {
     problems: ['"each" is printed but not rendered', '"reveal" is printed but not rendered'],
     why: '"For each heads" is a repeat of the heads count, rendered "the number of heads times"; "reveals those cards" is information only (the cards are shuffled into the deck at once, and the engine tracks no memory of revealed cards leaving the hand), so the move to the deck has no reveal step.',
+  },
+  // std-c11
+  'me05-020|attack:Aqua Return': {
+    problems: ['"your deck" is printed but not rendered'],
+    why: 'The shuffle is the shared seed4.shuffleSlotIntoDeck, glossed for any Pokémon ("into their deck"); the Pokémon chosen here is always the attacking player own Active Pokémon (Primarina itself), so its owner is the attacker and the deck is "your deck".',
   },
 };
