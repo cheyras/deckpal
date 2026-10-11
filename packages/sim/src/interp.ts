@@ -22,6 +22,7 @@ import {
   maxHp,
   ownerOf,
   statics,
+  surviveKoSources, // lane:zoroark
   toolsDisabled, // lane:fighting
   weaknessOf,
 } from './query.js';
@@ -242,6 +243,20 @@ function dealDamage(
     if (dmg < 0) dmg = 0;
     if (dmg > 0 && !noDefEffects && damagePrevented(env, s, target, f.player, all, attacker ?? undefined)) dmg = 0; // lane:ghost (attacker)
     if (dmg <= 0) continue;
+    // lane:zoroark — Survival Brace: at full HP, damage from an opponent's attack that would Knock the Pokémon
+    // Out leaves it at 10 HP instead, then the Tool is discarded.
+    if (f.kind === 'attack' && owner !== f.player && target.damage === 0) {
+      const hp = maxHp(env, s, target, all);
+      const brace = dmg >= hp ? surviveKoSources(env, s, target, all)[0] : undefined;
+      if (brace) {
+        dmg = hp - 10;
+        if (brace.kind === 'tool' && target.tools.includes(brace.src)) {
+          target.tools = target.tools.filter((c) => c !== brace.src);
+          s.p[owner].discard.push(brace.src);
+        }
+        if (dmg <= 0) continue;
+      }
+    }
     target.damage += dmg;
     // lane:fighting — remember who this attack damaged (Legacy Energy: "Knocked Out by damage from an attack")
     if (f.kind === 'attack' && owner !== f.player) s.attackHits = [...(s.attackHits ?? []), target.id];

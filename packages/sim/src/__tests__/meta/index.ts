@@ -8,6 +8,7 @@ import { LIST as DARKRAI } from './darkrai.js';
 import { LIST as EXCADRILL } from './excadrill.js';
 import { LIST as GRIMMSNARL } from './grimmsnarl.js';
 import { LIST as TREVENANT } from './trevenant.js';
+import { LIST as ZOROARK } from './zoroark.js';
 
 export const META_LISTS: Record<string, [string, number][]> = {
   'Dragapult ex / Blaziken ex': BLAZIKEN,
@@ -16,4 +17,5 @@ export const META_LISTS: Record<string, [string, number][]> = {
   'Mega Excadrill ex': EXCADRILL,
   'Grimmsnarl ex / Froslass': GRIMMSNARL,
   "Hop's Trevenant": TREVENANT,
+  "N's Zoroark ex": ZOROARK,
 };

@@ -180,7 +180,12 @@ export type StaticEffect =
   /** From a Stadium: Pokémon Tools attached to every Pokémon have no effect (Jamming Tower). */ // lane:fighting
   | { k: 'noToolEffects' } // lane:fighting
   /** Prevent damage counters (not damage) placed on the affected Pokémon by effects of the opponent's attacks/Abilities (Battle Cage). */ // lane:darkrai
-  | { k: 'preventCounters'; from: ('attack' | 'ability')[] }; // lane:darkrai
+  | { k: 'preventCounters'; from: ('attack' | 'ability')[] } // lane:darkrai
+  /**
+   * lane:zoroark — Survival Brace: if the affected Pokémon has full HP (no damage) and damage from an
+   * opponent's attack would Knock it Out, it is left with 10 HP instead; a Tool source is then discarded.
+   */
+  | { k: 'surviveKoAtFullHp' }; // lane:zoroark
 
 /** Parts of the damage pipeline an attack's damage skips ("isn't affected by Weakness or Resistance"). */ // lane:fighting
 export interface DamageIgnore {

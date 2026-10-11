@@ -140,6 +140,11 @@ function onSlot(env: Env, s: GameState, all: LiveStatic[], slot: Slot, k: Static
   return all.filter((x) => x.effect.k === k && affectsSlot(env, s, x, slot, owner as Player));
 }
 
+/** lane:zoroark — the live `surviveKoAtFullHp` effects on a Pokémon (Survival Brace). */
+export function surviveKoSources(env: Env, s: GameState, slot: Slot, all = statics(env, s)): LiveStatic[] {
+  return onSlot(env, s, all, slot, 'surviveKoAtFullHp');
+}
+
 export function ownerOf(s: GameState, slot: Slot): Player {
   return s.p[0].active === slot || s.p[0].bench.includes(slot) ? 0 : 1;
 }

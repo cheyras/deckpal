@@ -95,6 +95,10 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   // meta-excadrill-customs.ts (lane:excadrill)
   lookAtTopAttach: (a) =>
     `Look at the top ${Number(a.n ?? 4)} cards of your deck. Choose any number of the ${noun(a.filter as Filter | undefined).pl} you find there and attach each one, one at a time, to 1 of your Pokémon. Shuffle the other cards and put them on the bottom of your deck`,
+  // meta-zoroark-customs.ts (lane:zoroark)
+  slotTopCard: (a) => `Take the Pokémon card on top of the Pokémon chosen as "${String(a.from)}" (into "${String(a.as)}")`,
+  swapBasicFromDiscard: (a) =>
+    `Switch the card in "${String(a.card)}" from your discard pile with the Basic Pokémon card of the Pokémon chosen as "${String(a.slot)}", which goes to your discard pile; attached cards, damage counters, Special Conditions, turns in play and other effects stay with the new Pokémon`,
   // ghost-customs.ts
   moveCounters: (a) => `Move up to ${Number(a.max ?? 3)} damage counters from the Pokémon chosen as "${String(a.from)}" to the Pokémon chosen as "${String(a.to)}"`,
   lookTopPick: (a) => `Look at the top ${Number(a.n ?? 2)} cards of your deck. Put 1 of them into your hand and the rest on the bottom of your deck`,
@@ -947,6 +951,8 @@ class Renderer {
         const what = e.from.includes('attack') && e.from.includes('ability') ? 'attacks and Abilities' : e.from.includes('attack') ? 'attacks' : 'Abilities';
         return `Prevent all damage counters from being placed on ${x} by effects of ${what} from the opponent's Pokémon`;
       }
+      case 'surviveKoAtFullHp': // lane:zoroark
+        return `If ${X} has full HP and would be Knocked Out by damage from an attack from your opponent's Pokémon, it is not Knocked Out, and its remaining HP becomes 10. Then, discard this card`;
       default: {
         const unrendered: never = e;
         return `[unrendered static: ${(unrendered as StaticEffect).k}]`;
@@ -1450,6 +1456,11 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv09-157|text': {
     problems: ['similarity'],
     why: "Ruffian's one sentence renders as a playable gate (some opposing Pokémon has a Tool or a Special Energy), the choice of that Pokémon, and the two discards, so it scores low; each part is checked by its card test.",
+  },
+  // lane:zoroark
+  'me04-083|text': {
+    problems: ['number 2 is printed', 'number 1 is printed'],
+    why: '"play 2 Transformation Tome cards at once (… one time for 2 cards)" is one rule: `playable` needs 2 Tomes in hand and the play discards the 1 other Tome, so the second "2" and the second "1" have no separate step.',
   },
   'me05-029|attack:All-You-Can-Yeet': {
     problems: ['"may" is printed but not rendered'],
