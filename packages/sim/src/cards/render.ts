@@ -140,6 +140,15 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'seed3.countWithAttack': (a) => `Count ${slotZoneNoun(String(a.zone ?? 'myPokemon') as SlotZone)} that have the ${String(a.attack)} attack (into "${String(a.as ?? 'n')}")`,
   'seed3.healEach': (a) => `Heal ${Number(a.amount)} damage from each of ${slotZoneNoun(String(a.zone ?? 'allPokemon') as SlotZone)}`,
   'seed3.doubleCounters': (a) => `Put as many damage counters as it already has on each of ${slotZoneNoun(String(a.zone ?? 'oppPokemon') as SlotZone)} that has any`,
+  // std-seed4-customs.ts
+  'seed4.retreatCostOf': (a) => `Count the {C} in your opponent's Active Pokémon's Retreat Cost, as it is right now (into "${String(a.as ?? 'n')}")`,
+  'seed4.summoningGate': (a) =>
+    `Look at the top ${Number(a.n ?? 8)} cards of your deck. You may put any number of Pokémon (of any Stage) you find there onto your Bench, as many as it has room for. Shuffle the other cards back into your deck. With a full Bench, nothing happens`,
+  'seed4.pickBasicEnergyAmong': (a) =>
+    `You may choose any amount (0 to all) of the Basic Energy attached to your Pokémon, to be discarded after the damage (into "${String(a.as ?? 'd')}")`,
+  'seed4.discardPicked': (a) => `Discard the Energy cards chosen as "${String(a.cards ?? 'd')}" from the Pokémon they are attached to`,
+  'seed4.energyToOppHand': (a) => `Put ${Number(a.n ?? 2)} Energy attached to your opponent's Active Pokémon into their hand (all of them if it has fewer)`,
+  'seed4.shuffleSlotIntoDeck': (a) => `Shuffle the Pokémon chosen as "${String(a.slot ?? 't')}" and all attached cards into their deck`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -1581,5 +1590,9 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me04-035|attack:Eternity Bloom': {
     problems: ['"up to'],
     why: '"Search your deck for up to 4 Basic {P} Energy cards and attach them … in any way you like" is `repeat 4` of an optional (min 0, max 1) search-and-attach, each pick choosing its own Benched Pokémon; that covers every choice of 0 to 4 cards and targets.',
+  // std-seed4
+  'me05-067|attack:Fly': {
+    problems: ['"tails" is printed but not rendered'],
+    why: '"If tails, this attack does nothing" is the else branch of the heads test: the flip renders as "If heads, ... Otherwise, this effect ends here", so tails is the unnamed complement; the card test pins tails (no damage, no protection) and heads.',
   },
 };
