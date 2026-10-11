@@ -1134,7 +1134,7 @@ of `deck_id` (one of the caller's decks, by id or name; a name fragment must mat
 (1..8 of the caller's deck ids or names, or the built-in Standard meta pool: `meta` is the top 6 archetypes by
 tournament share and `meta:<archetype>` is one of them; a name that matches none of the caller's decks also finds a
 pool archetype, but a saved deck always shadows the pool. Default: up to 6 of their other decks, favourites and most
-recently updated first, and when they have none, the top 6 pool decks), `games` (per opponent, default 24, 2..200, rounded up to whole pairs),
+recently updated first, and when they have none or none of them can be played, the top 6 pool decks), `games` (per opponent, default 24, 2..200, rounded up to whole pairs),
 `speed` (`strong` default, or `fast`) and `seed` (default 1; the same seed, decks and pilot replay the same games). Every deck played is 40–70
 cards: the subject or a named opponent outside that is a `400` naming the deck and its count; a
 default opponent outside it is skipped with a note. Each opponent is played in paired games — one

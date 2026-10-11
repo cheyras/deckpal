@@ -207,6 +207,15 @@ function matchesSaved(ref: string, decks: OwnedDeck[]): boolean {
 }
 
 /**
+ * When no opponents were named, the defaults are the caller's other decks; if NONE of those can be played (all
+ * empty or outside the card bounds — e.g. a deck still being built), the run falls back to the top pool archetypes
+ * instead of failing. Named opponents never fall back: the caller asked for those decks.
+ */
+export function metaFallback(named: boolean, playableDefaults: number): MetaDeck[] {
+  return !named && playableDefaults === 0 ? topMetaDecks(SIM_OPPONENTS_DEFAULT) : [];
+}
+
+/**
  * Opponents for a run, saved decks and the built-in meta pool together.
  *  - `meta`: the top SIM_OPPONENTS_DEFAULT pool archetypes.
  *  - `meta:<name>`: that pool archetype (id or name; a unique fragment is enough).
