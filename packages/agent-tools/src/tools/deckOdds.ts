@@ -31,6 +31,9 @@ export interface DeckOddsQueryResult {
   successes: number
   p: number
   margin95: number
+  /** 95% Wilson interval; absent from responses written before it existed. */
+  lo95?: number
+  hi95?: number
   exact: number | null
 }
 export interface DeckOddsCardLine {
@@ -134,9 +137,16 @@ function queryLine(q: DeckOddsQueryResult, i: number, trials: number): string {
   const zone = zoneText(q)
   // A label that already names its zone ("…, opening hand") is not told it twice.
   const name = q.label.toLowerCase().includes(zone) ? q.label : `${q.label}, ${zone}`
-  return `${i + 1}. ${name}: ${pct(q.p)}${extreme ? '' : ` ±${(q.margin95 * 100).toFixed(1)}`}` +
-    (notes.length ? ` (${notes.join('; ')})` : '')
+  // The Wilson interval is not centred on the estimate, so show its ends rather than "±": near 0 the
+  // upper end is what matters (1 success in 1,000 games is 0.1% but could be as high as 0.6%).
+  const interval = q.lo95 !== undefined && q.hi95 !== undefined
+    ? ` [${pct(q.lo95, '')}–${pct(q.hi95)}]`
+    : extreme ? '' : ` ±${(q.margin95 * 100).toFixed(1)}`
+  return `${i + 1}. ${name}: ${pct(q.p)}${interval}` + (notes.length ? ` (${notes.join('; ')})` : '')
 }
+
+/** Leave room under Deck-E's 6,000-character tool clamp, so the method and the caveat always arrive. */
+export const ODDS_TEXT_LIMIT = 5_000
 
 export const DRAW_ONLY_CAVEAT =
   'Draw-only: this counts cards, it does not play them. Ultra Ball, Buddy-Buddy Poffin, Supporters and other ' +
@@ -164,12 +174,20 @@ export function renderDeckOdds(r: DeckOddsResult): string {
       lines.push(`  ${c.copies} ${c.name}: ${cells.join(' / ')}`)
     }
   } else {
-    lines.push('Queries (simulated, ± is the 95% margin; exact where one group has a closed form):')
+    lines.push('Queries (simulated; [ ] is the 95% Wilson interval; exact where one group has a closed form):')
     r.queries.forEach((q, i) => lines.push(`  ${queryLine(q, i, r.trials)}`))
   }
   for (const w of r.warnings) lines.push(`Note: ${w}`)
-  lines.push(DRAW_ONLY_CAVEAT)
-  return lines.join('\n')
+  // Bounded as a whole: drop trailing query/card lines (saying how many) before the caveat could be cut.
+  const tail = DRAW_ONLY_CAVEAT
+  let out = lines
+  let dropped = 0
+  while ([...out, tail].join('\n').length > ODDS_TEXT_LIMIT && out.length > 3) {
+    out = out.slice(0, -1)
+    dropped++
+  }
+  if (dropped) out.push(`(+${dropped} more line${dropped === 1 ? '' : 's'} in the structured result)`)
+  return [...out, tail].join('\n')
 }
 
 export async function deckOddsCall(ctx: Ctx, body: Record<string, unknown>): Promise<DeckOddsResult> {

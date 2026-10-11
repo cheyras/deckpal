@@ -1973,17 +1973,17 @@ can do while signed in — and nothing else: every query it makes runs inside yo
 row-level-security context, so it cannot see another user's rows. It cannot
 change your password, preferences or public showcase, read your Deck-E
 conversations, spend money, or create or revoke tokens (all of that needs a real
-browser session). A **Read only** connection is served only the 15 read tools,
+browser session). A **Read only** connection is served only the 16 read tools,
 inside a read-only database transaction, and the REST API refuses its every
 write with `403 insufficient_scope`. Treat any token like a password, and revoke
 it the moment a client no longer needs it.
 
 ### Tools
 
-26 tools (15 read, 11 write): `health`, `collection_summary`, `collection_log`,
+27 tools (16 read, 11 write): `health`, `collection_summary`, `collection_log`,
 `collection_value`, `search_cards`, `get_card`, `set_progress`,
 `card_price_history`, `decks`, `save_deck`, `delete_deck`, `check_deck`,
-`deck_odds`, `deck_strategy`, `add_battle_log`, `battle_logs`, `deck_history`,
+`deck_odds`, `simulate_battles`, `deck_strategy`, `add_battle_log`, `battle_logs`, `deck_history`,
 `edit_battle_log`, `delete_battle_log`, `lists`, `edit_list`, `delete_list`,
 `log_cards`, `set_cart`, `mutation_history`, `revert`. See `apps/mcp/SPEC.md`
 for the full contract.

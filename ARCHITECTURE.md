@@ -536,7 +536,7 @@ served by `apps/images`. Sync jobs run via cron or any scheduler.
 ## 10. The agent tool layer — one definition, two front-ends
 
 **`packages/agent-tools` (`@deckpal/agent-tools`) is the single definition of
-what an agent may do in DeckPal.** 26 tools (15 read, 11 write, 4 of those
+what an agent may do in DeckPal.** 27 tools (16 read, 11 write, 4 of those
 also destructive), each a `ToolDefinition`: a zod input schema, `annotations`
 (`readOnlyHint` is required in the type, not optional as MCP's own SDK has
 it — a tool that forgets to state it fails to compile rather than defaulting
@@ -575,7 +575,7 @@ and closed-form mulligan, over a saved deck (`loadDeckEntries`, the deck page's
 own loader) or an unsaved list resolved exactly as `POST /decks/check` resolves
 one. It runs inside the API function with no schema change and no new service,
 allocates nothing per trial (one index array, partial Fisher-Yates), bounds its
-CPU by refusing lists over 120 cards and cutting games to fit 2,000,000 dealt
+CPU by refusing lists over 120 cards and cutting games to fit an expected 2,000,000 dealt
 hands (a list that mulligans a lot deals many per game), and states
 method, trials, seed and a 95% margin on every answer, with the exact
 hypergeometric value wherever one group makes it closed-form. It draws cards and
@@ -625,7 +625,7 @@ a set's name.
 
 ### MCP server — live and multi-user
 
-`deckpal-mcp`'s 26 tools are served to any signed-up user at
+`deckpal-mcp`'s 27 tools are served to any signed-up user at
 `https://deckpal.app/mcp` (`apps/mcp/src/cloud.ts`), authenticated per-user by
 a personal access token (`dsk_…`, SHA-256 hashed, shown once at creation,
 revocable from Profile). Each call resolves the token to a `user_id` and runs
@@ -664,6 +664,23 @@ enforced at the MCP edge (read tools only, `BEGIN READ ONLY`) and at the REST
 API (`enforceTokenScope`). Tokens from before 075 are unchanged.
 When a newer web app reaches an older API, missing `trust` on `GET /oauth/client`
 limits the consent screen to full access because the older API ignores scope.
+
+### The battle simulator behind `simulate_battles`
+
+`packages/sim` (`@deckpal/sim`) is a pure, seeded Pokémon TCG rules engine with no I/O: game state is
+plain data, every decision is one "pick k of these numbered options" shape, and card behaviour comes
+from scripts keyed by a printing's game text (a card with no script is played approximately or not at
+all, and every report says which). Its batch runner plays PAIRED games (one seed, seats swapped) and
+reduces each to a compact summary off the event stream; `stats.ts` and `report.ts` turn those into
+Wilson-interval rates and a text of at most 5,000 characters that leads and ends with "simulated, not
+real". `apps/api` is its only caller: `POST /decks/simulate` (routes/deckSimulate.ts) loads every
+deck's frames through `fingerprintInputs` in one batched read, commits and releases its pooled RLS
+connection (`res.locals.commitAndReleaseRls`, as `/decks/import/fix` does for its model call), and
+only then runs the matchups in deck/simulate.ts — a 25 s budget from the request's arrival that is
+also a hard per-game deadline, 40–70-card decks, and an in-process gate of one run per account and two
+per instance (429 `simulator_busy`), since the engine is synchronous CPU on a shared event loop — and
+the read-only `simulate_battles` tool in `packages/agent-tools` calls it for both front-ends
+(DECISIONS 2026-10-10, "Battle simulator: simulate_battles for both assistants").
 
 ## 11. Correctness traps that shape the design
 

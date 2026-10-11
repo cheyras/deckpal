@@ -117,8 +117,11 @@ export interface OddsQueryResult {
   successes: number;
   /** Simulated probability. */
   p: number;
-  /** Half-width of the 95% interval (1.96 binomial standard errors). */
+  /** Half-width of the 95% Wilson score interval (kept for older readers; prefer lo95/hi95). */
   margin95: number;
+  /** The 95% Wilson score interval. It is not centred on `p`, so near 0 or 1 these are what to show. */
+  lo95: number;
+  hi95: number;
   /** Closed-form value for a single-group query; null when only simulated. */
   exact: number | null;
 }
@@ -213,6 +216,18 @@ export function margin95(p: number, n: number): number {
   const z2 = 1.96 * 1.96;
   return (1.96 * Math.sqrt((p * (1 - p)) / n + z2 / (4 * n * n))) / (1 + z2 / n);
 }
+
+/** The 95% Wilson score interval [lo, hi] — centred at (p + z²/2n)/(1 + z²/n), not at p. */
+export function wilson95(p: number, n: number): [number, number] {
+  if (n <= 0) return [0, 1];
+  const z2 = 1.96 * 1.96;
+  const centre = (p + z2 / (2 * n)) / (1 + z2 / n);
+  const half = margin95(p, n);
+  return [Math.max(0, centre - half), Math.min(1, centre + half)];
+}
+
+/** A generated (unlabelled) query description is cut to this many characters. */
+export const ODDS_LABEL_MAX = 80;
 
 // ── Closed forms ─────────────────────────────────────────────────────────────
 
@@ -427,7 +442,8 @@ export function deckOdds(entries: OddsEntry[], opts: DeckOddsOptions = {}): Deck
         parts.push(items.length > 1 && q.all_of.length > 1 ? `(${text})` : text);
         return { matcher: matcherFor(nameIdx, mask), count };
       });
-      const label = q.label?.trim() || parts.join(' + ');
+      const generated = parts.join(' + ');
+      const label = q.label?.trim() || (generated.length > ODDS_LABEL_MAX ? `${generated.slice(0, ODDS_LABEL_MAX - 1)}…` : generated);
       checks.push({ label, zone, byTurn, atDraw: zone === 'seen' ? atDrawFor(byTurn, label) : 0, reqs });
     }
   } else {
@@ -545,7 +561,7 @@ export function deckOdds(entries: OddsEntry[], opts: DeckOddsOptions = {}): Deck
       const p = rate(i);
       queryResults.push({
         label: c.label, zone: c.zone, by_turn: c.byTurn, successes: successes[i]!, p,
-        margin95: margin95(p, trials), exact: exactFor(c),
+        margin95: margin95(p, trials), lo95: wilson95(p, trials)[0], hi95: wilson95(p, trials)[1], exact: exactFor(c),
       });
     });
   } else {

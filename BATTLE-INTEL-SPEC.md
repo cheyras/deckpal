@@ -1,3 +1,4 @@
+> **2026-10-10: the build ORDER below is superseded by `roadmap/plans/battle-sim/PLAN.md` (simulation first).** Its principles still inform that plan.
 > **Predates the cloud pivot -- re-scope before executing.** (Ground truths #5 -- local ollama/pgvector -- and #6 -- connection budget 4 -- are superseded; pooling is now AGENTS.md B2.)
 
 # Battle Intelligence — Feature Spec

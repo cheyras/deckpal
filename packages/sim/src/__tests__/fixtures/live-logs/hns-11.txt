@@ -1,0 +1,194 @@
+Setup
+PlayerB chose tails for the opening coin flip.
+PlayerB won the coin toss.
+PlayerB decided to go first.
+PlayerB drew 7 cards for the opening hand.
+- 7 drawn cards.
+PlayerA drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • (me1_119) Lillie's Determination, (sve_5) Basic Psychic Energy, (sv6-5_61) Night Stretcher, (me5_5) Poltchageist, (me2-5_184) Buddy-Buddy Poffin, (me5_78) Gwynn, (me5_39) Dhelmise
+PlayerB played (me1_76) Riolu to the Active Spot.
+PlayerB played (me3_62) Meowth ex to the Bench.
+PlayerA played (me5_5) Poltchageist to the Active Spot.
+PlayerA played (me5_39) Dhelmise to the Bench.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB attached (mee_6) Basic Fighting Energy to (me1_76) Riolu in the Active Spot.
+PlayerB played (me1_124) Premium Power Pro.
+PlayerB played (me1_131) Ultra Ball.
+- PlayerB discarded 2 cards.
+   • (sv8_177) Gravity Mountain, (me3_76) Judge
+- PlayerB drew (me1_77) Mega Lucario ex.
+- PlayerB shuffled their deck.
+PlayerB ended their turn.
+
+PlayerA's Turn
+PlayerA drew (sv6-5_38) Fezandipiti ex.
+PlayerA played (sv6-5_38) Fezandipiti ex to the Bench.
+PlayerA played (me2-5_184) Buddy-Buddy Poffin.
+- PlayerA drew 2 cards and played them to the Bench.
+   • (me5_5) Poltchageist, (me5_33) Shuppet
+- PlayerA shuffled their deck.
+PlayerA attached (sve_5) Basic Psychic Energy to (me5_33) Shuppet on the Bench.
+PlayerA played (me1_119) Lillie's Determination.
+- PlayerA shuffled 2 cards into their deck.
+   • (sv6-5_61) Night Stretcher, (me5_78) Gwynn
+- PlayerA drew 8 cards.
+   • (me4_82) Special Red Card, (me3_88) Telepathic Psychic Energy, (sve_5) Basic Psychic Energy, (me5_6) Sinistcha, (sve_5) Basic Psychic Energy, (zsv10-5_79) Air Balloon, (me1_119) Lillie's Determination, (me5_6) Sinistcha
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB evolved (me1_76) Riolu to (me1_77) Mega Lucario ex in the Active Spot.
+PlayerB's (me1_77) Mega Lucario ex used Aura Jab on PlayerA’s (me5_5) Poltchageist for 130 damage.
+PlayerA's (me5_5) Poltchageist was Knocked Out!
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's (me5_5) Poltchageist is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (me5_39) Dhelmise.
+PlayerA's (sv6-5_38) Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
+   • (sv6-5_61) Night Stretcher, (me1_131) Ultra Ball, (me5_34) Banette
+PlayerA played (me1_131) Ultra Ball.
+- PlayerA discarded 2 cards.
+   • (me5_6) Sinistcha, (me5_34) Banette
+- PlayerA drew (me5_34) Banette.
+- PlayerA shuffled their deck.
+PlayerA attached (me3_88) Telepathic Psychic Energy to (me5_39) Dhelmise on the Bench.
+(me3_88) Telepathic Psychic Energy was activated.
+- PlayerA drew 2 cards and played them to the Bench.
+   • (me5_33) Shuppet, (me5_39) Dhelmise
+- PlayerA shuffled their deck.
+PlayerA evolved (me5_33) Shuppet to (me5_34) Banette on the Bench.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB attached (mee_6) Basic Fighting Energy to (me1_77) Mega Lucario ex in the Active Spot.
+PlayerB's (me1_77) Mega Lucario ex used Mega Brave on PlayerA’s (me5_5) Poltchageist for 270 damage.
+PlayerA's (me5_5) Poltchageist was Knocked Out!
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's (me5_39) Dhelmise is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (me4_80) Prism Tower.
+PlayerA played (me4_80) Prism Tower to the Stadium spot.
+PlayerA's (sv6-5_38) Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
+   • (me5_78) Gwynn, (zsv10-5_79) Air Balloon, (me5_78) Gwynn
+PlayerA attached (sve_5) Basic Psychic Energy to (me5_33) Shuppet on the Bench.
+PlayerA's (me5_39) Dhelmise used Vengeful Anchor on PlayerB’s (me1_77) Mega Lucario ex for 340 damage. PlayerB's (me1_77) Mega Lucario ex took 170 more damage because of Psychic Weakness.
+- Damage breakdown:
+   • Base damage: 30 damage
+   • 4 discarded Pokémon: 140 damage
+   • Weakness to Psychic: 170 damage
+   • Total damage: 340 damage
+
+PlayerB's (me1_77) Mega Lucario ex was Knocked Out!
+- 3 cards were discarded from PlayerB's (me1_77) Mega Lucario ex.
+   • (mee_6) Basic Fighting Energy, (mee_6) Basic Fighting Energy, (me1_76) Riolu
+PlayerA took 3 Prize cards.
+(me5_39) Dhelmise was added to PlayerA's hand.
+(sv8-5_101) Buddy-Buddy Poffin was added to PlayerA's hand.
+(me3_88) Telepathic Psychic Energy was added to PlayerA's hand.
+PlayerB's (me3_62) Meowth ex is now in the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (me2-5_122) Okidogi to the Bench.
+PlayerB played (me1_76) Riolu to the Bench.
+PlayerB played Prism Tower.
+- PlayerA moved PlayerB's 2 cards to the discard pile.
+   • (me1_124) Premium Power Pro, (me1_116) Fighting Gong
+- PlayerA drew a card.
+PlayerB played (me3_76) Judge.
+- PlayerB shuffled a card into their deck.
+- PlayerB shuffled 13 cards into their deck.
+   • (me4_82) Special Red Card, (sve_5) Basic Psychic Energy, (me5_6) Sinistcha, (zsv10-5_79) Air Balloon, (me1_119) Lillie's Determination, (me5_39) Dhelmise, (sv6-5_61) Night Stretcher, (me5_78) Gwynn, (zsv10-5_79) Air Balloon, (me5_78) Gwynn, (me5_39) Dhelmise, (sv8-5_101) Buddy-Buddy Poffin, (me3_88) Telepathic Psychic Energy
+- PlayerB drew 4 cards.
+- PlayerB drew 4 cards.
+   • (me5_78) Gwynn, (sv6-5_61) Night Stretcher, (sv6_163) Secret Box, (me1_119) Lillie's Determination
+PlayerB attached (mee_6) Basic Fighting Energy to (me1_76) Riolu on the Bench.
+PlayerB played (me1_72) Makuhita to the Bench.
+PlayerB played (me1_124) Premium Power Pro.
+PlayerB attached (zsv10-5_79) Air Balloon to (me3_62) Meowth ex in the Active Spot.
+PlayerB retreated (me3_62) Meowth ex to the Bench.
+PlayerB's (me2-5_122) Okidogi is now in the Active Spot.
+PlayerB ended their turn.
+
+PlayerA's Turn
+PlayerA drew (sv8-5_101) Buddy-Buddy Poffin.
+PlayerA played (sv6_163) Secret Box.
+- PlayerA discarded 3 cards.
+   • (sv8-5_101) Buddy-Buddy Poffin, (sv6-5_61) Night Stretcher, (me5_78) Gwynn
+- PlayerA drew 4 cards.
+   • (me1_130) Switch, (zsv10-5_79) Air Balloon, (me1_114) Boss's Orders, (me4_80) Prism Tower
+- PlayerA shuffled their deck.
+PlayerA attached (zsv10-5_79) Air Balloon to (me5_39) Dhelmise in the Active Spot.
+PlayerA retreated (me5_39) Dhelmise to the Bench.
+- (me3_88) Telepathic Psychic Energy was discarded from PlayerA's (me5_39) Dhelmise.
+PlayerA's (me5_34) Banette is now in the Active Spot.
+PlayerA's (me5_34) Banette used Puppet Pull on PlayerB’s (me2-5_122) Okidogi for 160 damage. PlayerB's (me2-5_122) Okidogi took 80 more damage because of Psychic Weakness.
+- Damage breakdown:
+   • Base damage: 80 damage
+   • Weakness to Psychic: 80 damage
+   • Total damage: 160 damage
+
+- PlayerA drew (me3_88) Telepathic Psychic Energy.
+- PlayerA shuffled their deck.
+PlayerB's (me2-5_122) Okidogi was Knocked Out!
+PlayerA took a Prize card.
+(me5_33) Shuppet was added to PlayerA's hand.
+PlayerB's (me3_62) Meowth ex is now in the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (sv5_160) Salvatore.
+- PlayerB evolved (me1_76) Riolu to (me1_77) Mega Lucario ex on the Bench.
+- PlayerB shuffled their deck.
+PlayerB retreated (me3_62) Meowth ex to the Bench.
+PlayerB's (me1_77) Mega Lucario ex is now in the Active Spot.
+PlayerB's (me1_77) Mega Lucario ex used Aura Jab on PlayerA’s (me5_34) Banette for 100 damage. PlayerA's (me5_34) Banette took -30 less damage because of Fighting Resistance.
+- Damage breakdown:
+   • Base damage: 130 damage
+   • Resistance to Fighting: -30 damage
+   • Total damage: 100 damage
+
+- PlayerB attached (mee_6) Basic Fighting Energy to (me1_72) Makuhita on the Bench.
+- PlayerB attached (mee_6) Basic Fighting Energy to (me1_72) Makuhita on the Bench.
+PlayerA's (me5_34) Banette was Knocked Out!
+- 2 cards were discarded from PlayerA's (me5_34) Banette.
+   • (sve_5) Basic Psychic Energy, (me5_33) Shuppet
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's (me5_39) Dhelmise is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (me1_131) Ultra Ball.
+PlayerA attached (me3_88) Telepathic Psychic Energy to (me5_39) Dhelmise in the Active Spot.
+(me3_88) Telepathic Psychic Energy was activated.
+- PlayerA drew (me5_39) Dhelmise and played it to the Bench.
+- PlayerA shuffled their deck.
+PlayerA's (sv6-5_38) Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
+   • (sve_5) Basic Psychic Energy, (sve_5) Basic Psychic Energy, (me5_5) Poltchageist
+PlayerA played (me5_5) Poltchageist to the Bench.
+PlayerA's (me5_39) Dhelmise used Vengeful Anchor on PlayerB’s (me1_77) Mega Lucario ex for 340 damage. PlayerB's (me1_77) Mega Lucario ex took 170 more damage because of Psychic Weakness.
+- Damage breakdown:
+   • Base damage: 30 damage
+   • 6 discarded Pokémon: 140 damage
+   • Weakness to Psychic: 170 damage
+   • Total damage: 340 damage
+
+PlayerB's (me1_77) Mega Lucario ex was Knocked Out!
+- 2 cards were discarded from PlayerB's (me1_77) Mega Lucario ex.
+   • (mee_6) Basic Fighting Energy, (me1_76) Riolu
+PlayerA took 2 Prize cards.
+(me5_33) Shuppet was added to PlayerA's hand.
+(me1_131) Ultra Ball was added to PlayerA's hand.
+All Prize cards taken. PlayerA wins.
+

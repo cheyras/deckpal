@@ -144,6 +144,11 @@ export async function resolveInputLines(
   return [...grouped.values()]
 }
 
+/** The same resolution for `POST /decks/simulate` (routes/deckSimulate.ts): only the cards are needed. */
+export function resolveCheckLines(requested: InputLine[], format: FormatCode, userId: string): Promise<ResolvedInputLine[]> {
+  return resolveInputLines(requested, format, userId)
+}
+
 deckCheckRouter.post('/', asyncHandler(async (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>
   const format = oneOf<FormatCode>(body.format, FORMATS, 'standard')
