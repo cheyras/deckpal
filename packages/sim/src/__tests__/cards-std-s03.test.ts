@@ -157,6 +157,11 @@ test("Cetitan ex, Snow Camouflage: Team Rocket's Giovanni is blocked when Cetita
   choose(blocked, `Play ${GIO}`);
   assert.equal(activeName(blocked, 0), EX, 'your own switch happens');
   assert.equal(activeName(blocked, 1), 'Dreepy', "the opponent's Active Pokémon stays: Cetitan ex was the target");
+  // Cetitan ex is the ACTIVE Pokémon and the chosen Benched Pokémon has no Snow Camouflage: they switch (the Benched one is the target).
+  const swapped = scenario(dk, dk, [mine, { active: 'Cetitan ex', bench: ['Dreepy'] }]);
+  choose(swapped, `Play ${GIO}`);
+  assert.equal(activeName(swapped, 0), EX);
+  assert.equal(activeName(swapped, 1), 'Dreepy', 'Dreepy is switched in with the Active Cetitan ex');
 });
 
 test('Cetitan ex, Crushing Press: 140, and you may discard a Stadium in play for 140 more', () => {

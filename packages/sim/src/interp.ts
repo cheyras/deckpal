@@ -1126,7 +1126,8 @@ function switchStep(env: Env, s: GameState, f: Frame, st: Extract<Step, { op: 's
   if ((f.kind === 'attack' || f.kind === 'ability') && who !== f.player && effectsPrevented(env, s, ps.active, f.player, f.kind)) {
     return 'next';
   }
-  if (trainerBlocked(env, s, f, ps.active)) return 'next'; // Boss's Orders on a player whose Active Pokémon is protected from Supporters
+  // (No check on the Active Pokémon: a Supporter that switches in a Benched Pokémon targets that Benched Pokémon, so only it is
+  // checked below -- TPCi Rules Team 2025-05-29, ruling 2154, Team Rocket's Giovanni and Cetitan ex.)
   let target: Slot | undefined;
   if (st.with) {
     target = resolveSlot(s, e, st.with) ?? undefined;

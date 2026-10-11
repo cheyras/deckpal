@@ -40,9 +40,8 @@ export const STD_S03: CardScript[] = [
       },
     ],
     notes:
-      'Ruling 2154, second half: with Cetitan ex ACTIVE and the chooser picking a Benched Pokémon without Snow Camouflage, the switch should happen (the Benched ' +
-      'Pokémon is the target). The engine\'s switch step (interp.ts switchStep) blocks any Supporter switch whose Active Pokémon is protected, so it does not; ' +
-      'that needs an engine change (check only the incoming Pokémon for a Supporter that picks it), and is not pinned.',
+      'Ruling 2154: a Supporter that switches in a Benched Pokémon targets that Benched Pokémon only, so with Cetitan ex Active the switch still happens; ' +
+      'the switch step checks only the incoming Pokémon. Both halves are pinned.',
     attacks: {
       // "You may discard a Stadium in play. If you do, this attack does 140 more damage."
       'Crushing Press': {
