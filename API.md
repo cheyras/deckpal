@@ -87,6 +87,12 @@ omit the host.
   accept a free-text `note`/`versionNote` (trimmed, length-capped). The one
   exception is `POST /decks/import`, where `source` was already the decklist syntax,
   so attribution rides as `writeSource`.
+- **Idempotency-Key.** The deck, list, battle-log and revert writes Deck-E makes
+  accept an optional `Idempotency-Key` header (≤200 characters, else `400`). The
+  write runs at most once per key for the requesting user, and a repeat answers
+  with the first run's result plus `"replayed": true`. Without the header, a
+  route behaves and responds exactly as it did before the header existed. Routes
+  and rules: "`Idempotency-Key` — at most once per approved write", below.
 - **Errors.** `{ "error": { "code", "message" } }` with status 400 (bad request),
   404 (not found), 500/503 (server/DB). Success bodies are documented per route.
 - **Rate limiting.** A pre-auth ingress guard applies to all requests on the
@@ -1141,6 +1147,9 @@ nothing is saved.
   `"replayed": true`) only while the deck it made is alive and unchanged since; once it
   was deleted or edited the key moves to its next generation, so a later identical save
   writes normally and a retry of THAT save replays it.
+- **An `Idempotency-Key` header wins over both** and is exact: it replays its own
+  result whatever happened to the deck since, and never moves to a new generation.
+  That is the key Deck-E sends for an approved `save_deck`.
 
 `201` (create) or `200` returns the detail payload plus `replayed`.
 
@@ -1155,7 +1164,8 @@ writes nothing and returns `400` naming those lines (2026-09-29: they used to be
 dropped silently); the dry run below still reports them for the dialog to fix or
 remove; the web dialog removes the lines the reader chose to skip before it
 imports. The write is one transaction. With an `idempotencyKey` a retry returns the deck
-it already made (`"replayed": true`, same rule as `/decks/save`); without one — the web
+it already made (`"replayed": true`, same rule as `/decks/save`, including the exact
+`Idempotency-Key` header winning over the body key); without one — the web
 dialog — importing the same list twice on purpose still makes two decks.
 `201` returns the detail payload plus an `import` summary:
 ```json
@@ -1786,7 +1796,9 @@ accumulate, an absolute `quantity` discards everything before it for that
 variant, and a delta after an absolute adjusts that value — identical to applying
 the items one at a time. `folded` reports which input indices merged.
 
-**Idempotency.** A caller-supplied `idempotencyKey` is honoured indefinitely.
+**Idempotency.** A caller-supplied `idempotencyKey` is honoured indefinitely, and
+an `Idempotency-Key` header means the same when the body has none (the body key
+wins when both are sent).
 Otherwise the server derives one from the batch's resolved contents plus a
 15-minute time bucket. Either way a duplicate returns the ORIGINAL response with
 `replayed: true` and writes nothing. An identical batch outside the window is
@@ -1836,6 +1848,45 @@ for quantities, a `conflicts` array, and `exact`. Items with conflicts are
 skipped unless `force`. Conflicts are raised when the original change clamped,
 when the inverse would clamp, or when a later event asserted an absolute quantity
 on the same entity. The revert is itself a logged batch.
+
+## `Idempotency-Key` — at most once per approved write (added 2026-10-10)
+
+Deck-E sends this header on every write of a tool call the reader approved. It
+derives the value from the SDK-signed tool call, the requesting user and the
+signed input. A tool call that makes several writes sends one key per write
+request. Any client may send its own. A key names one write, scoped to the
+requesting user, and is honoured indefinitely. It is never bucketed and never
+reinterpreted.
+
+| Route | Notes |
+|---|---|
+| `POST /decks/save`, `POST /decks/import` | Wins over the body `idempotencyKey` and never moves to a new generation. |
+| `PUT /decks/:id/strategy` | A replay leaves a guide written since then alone. |
+| `POST /decks/:id/revert` | A replay makes no further version. Keyed requests record a `deck.revert` batch. |
+| `POST /decks/:id/logs` | Ignored on `dryRun`. A replay re-reads the stored log; `410 gone` if it has been deleted since. |
+| `PATCH /decks/:id/logs/:logId`, `DELETE /decks/:id/logs/:logId` | Keyed requests record a `battle_log.*` batch. Its events never hold the raw log. |
+| `DELETE /decks/:id`, `POST /decks/:id/restore` | |
+| `POST /lists`, `PATCH /lists/:id`, `DELETE /lists/:id`, `POST /lists/:id/restore` | `POST /lists` answers `410 gone` on a replay whose list has been deleted since. |
+| `POST /lists/:id/items/bulk`, `DELETE /lists/:id/items/:itemId` | Ignored on `dryRun`. A static list is a bag, so this is what stops a replay doubling it. |
+| `POST /mutations/revert` | Ignored on `dryRun`. |
+| `POST /collection/batch` | Used only when the body has no `idempotencyKey`. |
+
+- **First run.** The key is claimed in the write's own transaction, on its
+  `mutation_batch` row, before anything changes. It commits only if the write
+  commits. A keyed request that changes nothing ("already deleted", "nothing to
+  restore") still records its key. A replay of an approved restore must not undo
+  a delete the reader made afterwards.
+- **Replay.** A repeat answers with the first run's result plus
+  `"replayed": true` (status `200` where the first run returned `201`) and writes
+  nothing. The new body does not matter. Where the original response is a live
+  view (a deck or list payload), it is rebuilt from the current state.
+- **Concurrent duplicates.** The second request waits on the unique index, then
+  replays the first's committed result. If the first rolls back, the second
+  runs. `409 batch_in_flight` is the answer only when the result cannot be read
+  yet.
+- **Without the header,** nothing changes: the same transaction, the same
+  unkeyed batches (or none), and no `replayed` field. The keyed batch is visible
+  in `GET /mutations?idempotency_key=…` like any other.
 
 ## Cart routes
 

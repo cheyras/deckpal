@@ -1667,6 +1667,23 @@ the authenticated user. Unsigned conversation metadata is excluded. The key surv
 replay across the shared tool's 15-minute key boundary; a separate call gets a
 different key. The adapter adds it after approval, leaving signed input intact.
 
+**Every other approved write is keyed the same way (2026-10-10).** A second
+approval-resume POST that differs in any unsigned field gets past the request
+key, and the SDK runs the held tool again. So `execute` derives
+`approvedWriteKey` (user, tool, SDK call ID, signed input) for any call held
+here, `log_cards` aside, and hands it to the tool's ctx. `keyedApi` in
+`decke/ctx.ts` then sends one `Idempotency-Key` per write request. The key is
+`decke-call:` + sha256 of that key plus the method, the path and how many times
+this execution has sent that method and path. Keying on the path rather than on
+global order means a replay whose reads differ, and which skips a write, cannot
+shift the others onto the wrong stored results. Previews (`dryRun: true`) and
+reads are never keyed. On the API side, `writeOnce` (`apps/api/src/writeOnce.ts`)
+opens the route's `mutation_batch` with that key as the transaction's first
+write, records the route's events into it, and stores the transaction's return
+value as its response. A replay returns that, and the tool's text gains a
+REPLAYED line so the model does not report a second write. A request without
+the header takes the unchanged code path. `SECURITY.md` lists the routes.
+
 **Two calls are answered without a dialog, and both are refusals to interrupt
 somebody for nothing.** A write whose (tool, arguments) the reader has already
 declined in this conversation is refused with a sentence rather than asked a

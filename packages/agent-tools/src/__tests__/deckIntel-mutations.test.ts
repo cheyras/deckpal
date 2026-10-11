@@ -308,7 +308,7 @@ test('edit_battle_log dry_run:false applies and recomputes the version record', 
     send: (method, path, body) => {
       assert.equal(method, 'PATCH');
       assert.equal(path, '/decks/deck-1/logs/7');
-      assert.deepEqual(body, { result: 'loss', notes: 'new notes' });
+      assert.deepEqual(body, { result: 'loss', notes: 'new notes', source: 'deckpal-mcp' });
       return {
         log: {
           id: 7,
@@ -362,7 +362,7 @@ test('edit_battle_log null CLEARS a field explicitly — omitted and null are di
       throw new Error(`unexpected get ${path}`);
     },
     send: (method, path, body) => {
-      assert.deepEqual(body, { opponent: null });
+      assert.deepEqual(body, { opponent: null, source: 'deckpal-mcp' });
       return {
         log: {
           id: 7,

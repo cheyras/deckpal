@@ -264,11 +264,42 @@ exception is `POST /api/chat`: its `log_cards` apply intent omits model-facing
 `preview_card_changes` always forces `dry_run: true`; failed or unresolved plans
 return evidence without writing. Existing human approval, replay, identity and
 idempotency protections remain in force.
-For an approved `log_cards` call, Deck-E derives the collection write's
-idempotency key from the SDK tool-call ID and signed input after approval; the
-collection endpoint scopes it to the authenticated user. Unsigned conversation
-metadata is excluded. Replaying that same approval across a 15-minute boundary therefore
-cannot apply the change twice; a new call can still record a new acquisition.
+**Every approved write happens at most once per signed call (2026-10-10).** The
+request key (`chatChargeReference`) rejects only a byte-identical resume of a
+turn. If the browser sends the same approval-resume POST twice with any field
+changed, for example after a network retry or a reload mid-turn, the SDK runs
+the held tool again. For an approved `log_cards` call, Deck-E has long derived
+the collection write's idempotency key from the SDK tool-call ID and signed
+input; the collection endpoint scopes it to the authenticated user. Every other
+held write now gets the same treatment. `approvedWriteKey` hashes the verified
+user ID, the tool name, the SDK tool-call ID and the signed input. `keyedApi`
+(`decke/ctx.ts`) puts one `Idempotency-Key` per write request on the self-hop,
+derived from that hash plus the request's method, path and occurrence. This
+covers `add_battle_log`, `edit_battle_log`, `delete_battle_log`, `save_deck`,
+`edit_list`, `delete_list`, `delete_deck`, `deck_strategy`, `deck_history`
+revert and `revert`. Unsigned conversation metadata is excluded throughout, so a
+resume with a changed conversation ID, route or landmark reaches the same keys.
+Previews carry none.
+
+On the API, `writeOnce` (`apps/api/src/writeOnce.ts`) claims the key on that
+write's own `mutation_batch` row, under the existing `UNIQUE (user_id,
+idempotency_key)`, as the first write of its transaction. The key therefore
+commits exactly when the write does. A replay, concurrent or later, returns the
+first run's result and writes nothing, even when the reader has changed the
+entity since. It cannot rename, re-delete, re-revert or overwrite a later edit.
+A battle log's raw text is never copied into the batch: the batch keeps the
+log's ID, so deleting a log still deletes its text.
+
+Only the server-side adapter, after the SDK has verified the approval's
+signature, sends these keys. A key is scoped to its user, so it cannot reach
+another account. A request without the header, which covers the MCP server, the
+web app and scripts, runs exactly the code it ran before.
+
+Two approved calls are two consents: a new call can still record a new
+acquisition or a second battle log. On `POST /decks/save` and `/decks/import`
+the per-call key replaces the content key for Deck-E. Writes on the
+`approvals: 'upstream'` path (no caller today) are not held here and carry no
+signed ID, so they are not keyed.
 `ARCHITECTURE.md` §15e carries the protocol.
 
 **The consent card can commit a corrected batch from the browser, and that is a
