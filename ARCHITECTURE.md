@@ -673,8 +673,12 @@ from scripts keyed by a printing's game text (a card with no script is played ap
 all, and every report says which). Its batch runner plays PAIRED games (one seed, seats swapped) and
 reduces each to a compact summary off the event stream; `stats.ts` and `report.ts` turn those into
 Wilson-interval rates and a text of at most 5,000 characters that leads and ends with "simulated, not
-real". `apps/api` is its only caller: `POST /decks/simulate` (routes/deckSimulate.ts) loads the decks'
-frames through `fingerprintInputs` and runs the matchups in deck/simulate.ts inside a 25 s budget, and
+real". `apps/api` is its only caller: `POST /decks/simulate` (routes/deckSimulate.ts) loads every
+deck's frames through `fingerprintInputs` in one batched read, commits and releases its pooled RLS
+connection (`res.locals.commitAndReleaseRls`, as `/decks/import/fix` does for its model call), and
+only then runs the matchups in deck/simulate.ts — a 25 s budget from the request's arrival that is
+also a hard per-game deadline, 40–70-card decks, and an in-process gate of one run per account and two
+per instance (429 `simulator_busy`), since the engine is synchronous CPU on a shared event loop — and
 the read-only `simulate_battles` tool in `packages/agent-tools` calls it for both front-ends
 (DECISIONS 2026-10-10, "Battle simulator: simulate_battles for both assistants").
 
