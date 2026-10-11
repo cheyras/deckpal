@@ -310,6 +310,8 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c33.moveOneCounter': () => `Move 1 damage counter from the Pokémon chosen as "from" to another of your Pokémon (your choice; nothing under a Watchful Eye-style lock)`,
   'c33.selfToHandDiscardAttached': () => 'Put this Pokémon into your hand (every Pokémon card of its stack) and discard the Energy and Tool cards attached to it',
   'c33.evolveChosen': (a) => `For each Pokémon chosen as "${String(a.slots ?? 't')}", in turn: search your deck for a card that evolves from that Pokémon and put it onto that Pokémon to evolve it (picking none is allowed; not on your first turn; not a Pokémon that evolved this turn)`,
+  'c34.moveEnergyAny': (a) => `You may move any amount of Energy cards matching ${JSON.stringify(a.filter ?? {})} from your Pokémon to your other Pokémon in any way you like: repeatedly choose one such Energy card attached to one of your Pokémon (or none, to stop) and a different Pokémon of yours to move it to; each card moves at most once`,
+  'c34.revealOppTopPick': (a) => `Reveal the top ${Number(a.n ?? 10)} cards of your opponent's deck and you may choose a Pokémon that has an attack among them (into "${String(a.as ?? 'c')}"); you may choose none`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -2346,5 +2348,18 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv10-124|attack:Hazardous Venom': {
     problems: ['similarity'],
     why: 'The number of Special Conditions is the sum of five "1 if the Defending Pokémon has this condition, else 0" terms (one per condition), which renders as that sum; the test checks 1, 2 and 3 conditions.',
+  },
+  // std-c34
+  'sv10-148|attack:Reckless Abandon': {
+    problems: ['"tails" is printed but not rendered'],
+    why: '"If both of them are tails" is the case of 0 heads among the 2 coins, which renders as "exactly 0 heads"; it is the same flip.',
+  },
+  'sv10-161|text': {
+    problems: ['"instead" is printed but not rendered'],
+    why: '"heal 100 damage from it instead" is the else-branch of a conditional amount (100 if an Arven\'s Pokémon, otherwise 30), which renders as "otherwise"; the heal happens once.',
+  },
+  'sv10-179|text': {
+    problems: ['"tails" is printed but not rendered'],
+    why: 'One coin: "If tails" is the else branch of the heads check ("otherwise"), which is the same flip.',
   },
 };
