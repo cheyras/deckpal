@@ -486,13 +486,29 @@ test('the reflex read runs after the meter, from the built module, with the turn
   // A Gateway call: nothing reaches the Gateway unpaid.
   assert.ok(CODE.indexOf('meter = await meterTurn(') < read, 'the reflex read runs before the meter');
   assert.ok(CODE.indexOf('if (!meter.allowed)') < read, 'the reflex read runs for a refused turn');
-  assert.match(CODE, /const \[reflex, triage\] = await Promise\.all\(\[/);
+  assert.match(CODE, /const \[reflex, jevRoute\] = await Promise\.all\(\[/);
+});
+
+test('Jev routes when it is sure; Haiku triage, started at the same moment, routes otherwise', () => {
+  assert.match(SRC, /import \{ readJevRoute \} from '\.\.\/apps\/api\/dist\/decke\/jevRoute\.js'/);
+  // Metered on this request, with the same inputs triage reads, and the turn's abort.
+  assert.match(CODE, /echoed \? null : runAiUsage\(usage, \(\) => readJevRoute\(triageInput, \{ key, signal: request\.signal \}\)\)/);
+  // Haiku starts BEFORE the await, so an unsure Jev costs no extra wall time.
+  const haiku = CODE.indexOf("const haikuTriage = echoed ? null : runAdvisoryUsage(usage, 'triage'");
+  const wait = CODE.indexOf('const [reflex, jevRoute] = await Promise.all([');
+  assert.ok(haiku > 0 && haiku < wait, 'Haiku triage no longer starts beside Jev');
+  // Sure: Haiku is stopped, still awaited (its usage closes in the request), and Jev's route stands.
+  assert.match(CODE, /signal: AbortSignal\.any\(\[request\.signal, haikuStop\.signal\]\)/);
+  assert.match(CODE, /if \(jevRoute\?\.route\) haikuStop\.abort\(\)\s*\n\s*const haikuResult = haikuTriage \? await haikuTriage : null\s*\n\s*const triage = jevRoute\?\.route \?\? haikuResult/);
+  // Visible in production: Jev's read, used or not.
+  assert.match(CODE, /jev: jevRoute\?\.confidence == null \? null : \{ confidence:/);
 });
 
 test('triage is metered beside reflex and code chooses the conversation tier', () => {
   assert.match(SRC, /import \{ runTriage \} from '\.\.\/apps\/api\/dist\/decke\/triage\.js'/);
   assert.match(SRC, /import \{ answeringAsk, carriedFromHistory, decideTier, quickRefusalRetry, raisedToStandard, resumesApproval \} from '\.\.\/apps\/api\/dist\/decke\/tiers\.js'/);
-  assert.match(CODE, /runTriage\(\{[\s\S]*message: latestUserText\(messages\)[\s\S]*model: observeUsageModel\(gateway\(TRIAGE\.id\), meter\)/);
+  assert.match(CODE, /const triageInput = \{\s*message: latestUserText\(messages\),/);
+  assert.match(CODE, /runTriage\(\{\s*\.\.\.triageInput,\s*model: observeUsageModel\(gateway\(TRIAGE\.id\), meter\)/);
   assert.match(CODE, /answering: answeringAsk\(messages\)/);
   assert.match(CODE, /decide: \(deepApproved\) => decideTier\(\{ triage, carried: carriedFromHistory\(messages\), deepApproved, pastedLog: pastedNow \|\| pasteAwaitingAnswer \}\)/);
   assert.match(CODE, /const choice = TIERS\[decision\.tier\]/);
