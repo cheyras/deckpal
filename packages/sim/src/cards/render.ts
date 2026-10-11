@@ -155,6 +155,13 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   // std-c05-customs.ts
   'c05.discardBenchEnergy': (a) => `You may discard up to ${Number(a.max ?? 2)} Energy cards from your Benched Pokémon (0 allowed); the number of cards discarded lands in "${String(a.as ?? 'n')}"`,
   'c05.moveEnergyToSelf': () => 'Move 1 Energy attached to 1 of your other Pokémon to this Pokémon',
+  // std-c02-customs.ts
+  'c02.takePrize': (a) =>
+    `${a.who === 'self' ? 'You take' : a.who === 'opp' ? 'Your opponent takes' : 'Each player takes'} a Prize card into hand (the player who used it first); a player with no Prize cards left takes none, and a player whose last Prize card is taken wins the game`,
+  'c02.cureConditions': (a) => `The Pokémon chosen as "${String(a.slot ?? 't')}" recovers from all Special Conditions`,
+  'c02.energyAllToHand': (a) => `Put all Energy attached to the Pokémon chosen as "${String(a.slot ?? 't')}" into your hand (it is not discarded; Tools stay)`,
+  'c02.devolve': (a) =>
+    `Devolve the Pokémon chosen as "${String(a.slot ?? 't')}" by putting any number of Evolution cards (the number in "${String(a.n)}", from the top of its stack, at most all of them) on it into your hand; it recovers from all Special Conditions and attack effects, and can't evolve this turn`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -1636,5 +1643,22 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me02.5-100|attack:Relentless Burrowing': {
     problems: ['"each" is printed'],
     why: '"For each heads, discard the top card" is `repeat` of the discard by the heads count, which the renderer words "the number of heads times".',
+  },
+  // std-c02
+  'me01-092|attack:Miraculous Paint': {
+    problems: ['similarity'],
+    why: '"Choose a Special Condition" is a choice among the five conditions, which renders as five options and five "now Asleep / Confused / ..." clauses; the printed sentence says it once.',
+  },
+  'me01-099|attack:All-You-Can-Grab': {
+    problems: ['"heads" is printed but not rendered', '"up to" is printed but not rendered', '"any number of" is rendered but not printed'],
+    why: '"A number of cards up to the number of heads" is a search of 0 to h cards where h is the heads count of the flip step; the renderer shows the search bound (a variable) as "any number of".',
+  },
+  'me01-120|text': {
+    problems: ['"may" is printed but not rendered'],
+    why: '"Ask your opponent if each player may take a Prize card" is a yes/no choice made by the opponent (a chooseOption by the opponent); the rendering names the two options instead of the word "may".',
+  },
+  'me02-010|attack:Jumping Shot': {
+    problems: ['"your deck" is printed but not rendered'],
+    why: 'The shuffle is the shared seed4.shuffleSlotIntoDeck, glossed for any Pokémon ("into their deck"); the Pokémon chosen here is always the attacking player own Active Pokémon (Lokix itself), so its owner is the attacker and the deck is "your deck".',
   },
 };
