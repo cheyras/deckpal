@@ -8,13 +8,10 @@
  *  - sv05-156 Perilous Jungle: a Stadium effect "during Pokémon Checkup" (Stadiums have no checkup trigger; Poison
  *    cannot be given extra counters).
  *  - sv05-158 Reboot Pod: "each of your Future Pokémon" (no Future/Ancient tag).
- *  - sv05-160 Salvatore: "a card that has no Abilities" (no "has any Ability" filter).
- *  - sv06-015 Thwackey: scripted and tested, but held back: the owner's logged game tbs-65.txt (replay.test.ts ratchet) shows a search
- *    as a hidden "drew a card" line, which the replay cannot match to a search choice, so scripting it fails that ratchet.
  *  - sv06-009 Volbeat: Quick Sign is an attack usable on the first player's first turn.
  *  - sv06-018 Dipplin: Festival Lead lets an attack be used twice (and again after a Knock Out).
  */
-import type { CardScript, Expr, Filter } from '../../dsl.js';
+import type { CardScript, Cond, Expr, Filter } from '../../dsl.js';
 import { discardOthers, searchToHand } from './helpers.js';
 import './std-c03-customs.js'; // c03.ownFirstTurn
 import './std-seed1-customs.js'; // std.revealHand
@@ -24,6 +21,9 @@ import './std-c16-customs.js';
 
 /** Cards over 5 in a player's hand. */
 const OVER_FIVE = (who: 'self' | 'opp'): Expr => ({ max: [0, { sub: [{ handSize: who }, 5] }] });
+
+/** "If your Active Pokémon has the Festival Lead Ability" (Dipplin, Goldeen...). */
+const FESTIVAL_LEAD_ACTIVE: Cond = { slotIs: { ref: 'myActive', filter: { hasAbility: 'Festival Lead' } } };
 
 const BASIC_FIRE: Filter = { energyType: 'Fire' };
 const BASIC_FIGHTING: Filter = { energyType: 'Fighting' };
@@ -378,5 +378,20 @@ export const STD_C16: CardScript[] = [
       // "Discard an Energy from this Pokémon."
       'Scorching Fire': { post: [{ op: 'discardEnergy', from: 'self', count: 1 }] },
     },
+  },
+  {
+    id: 'sv06-015',
+    name: 'Thwackey',
+    abilities: [
+      {
+        // "Once during your turn, if your Active Pokémon has the Festival Lead Ability, you may search your deck for a card and put it into your hand. Then, shuffle your deck."
+        // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1972/): "Yes. Each Thwackey can use their Ability once."
+        name: 'Boom Boom Groove',
+        activated: {
+          when: { and: [FESTIVAL_LEAD_ACTIVE, { gte: [{ deckSize: 'self' }, 1] }] },
+          program: searchToHand({}, 1, { reveal: false }),
+        },
+      },
+    ],
   },
 ];

@@ -34,6 +34,7 @@ function inject(g: Game, slotId: number, st: StaticEffect, fromAttack = false): 
 function submitCards(g: Game, ...cards: number[]): void {
   g.submit(cards.map((c) => g.decision!.values!.indexOf(c)));
 }
+const topOf = (sl: { cards: number[] }): number => sl.cards[sl.cards.length - 1]!;
 const dmg = (g: Game, p: 0 | 1): number => g.state.p[p].active!.damage;
 
 const ENERGY: [string, number][] = ['mee-001', 'mee-002', 'mee-003', 'mee-004', 'mee-005', 'mee-006', 'mee-007', 'mee-008'].map((id) => [id, 10]);
@@ -49,6 +50,11 @@ const IDS: Record<string, string> = {
   'Heavy Baton': 'sv05-151',
   Galvantula: 'sv06.5-002',
   Volbeat: 'sv06-009',
+  Salvatore: 'sv05-160',
+  Riolu: 'me01-076',
+  'Mega Lucario ex': 'me01-077',
+  'Lucario ex': 'sv08.5-051',
+  Joltik: 'sv06.5-001', // its Evolution Galvantula has an Ability
   Illumise: 'sv06-010',
   'Great Tusk': 'sv05-097',
   'Iron Moth': 'sv06.5-009',
@@ -538,4 +544,66 @@ test('Volbeat, Coordinated Strike: 20 damage; 60 more if Illumise is on your Ben
   // Illumise as the Active Pokémon is not on the Bench.
   const active = S(dk, [{ active: 'Illumise', energy: { active: [R, R] }, bench: ['Volbeat'] }, { active: DRA }]);
   assert.ok(!has(active, 'Coordinated Strike'));
+});
+
+// ------------------------------------------------------------------ Salvatore
+
+test('Salvatore: search the deck for a card with no Abilities that evolves from 1 of your Pokémon and put it onto that Pokémon; shuffle', () => {
+  const dk = deck('Salvatore', 'Riolu', 'Mega Lucario ex', 'Lucario ex', DRA);
+  const g = S(dk, [{ active: DRA, bench: ['Riolu'], hand: ['Salvatore'] }, { active: DRA }]);
+  const riolu = g.state.p[0].bench[0]!;
+  const deckBefore = g.state.p[0].deck.length;
+  choose(g, 'Play Salvatore');
+  assert.equal(g.decision?.kind, 'cards');
+  assert.equal(g.decision?.min, 0, 'a search may find nothing');
+  assert.equal(g.decision?.max, 1);
+  assert.deepEqual(names(g, g.decision!.values!).filter((n, i, a) => a.indexOf(n) === i).sort(), ['Lucario ex', 'Mega Lucario ex'], 'only cards that evolve from a Pokémon in play');
+  submitCards(g, g.decision!.values!.find((c) => nameOf(g, c) === 'Mega Lucario ex')!);
+  assert.equal(nameOf(g, riolu.cards[riolu.cards.length - 1]!), 'Mega Lucario ex', 'one Pokémon, so no question which');
+  assert.equal(riolu.cards.length, 2);
+  assert.equal(riolu.evolvedTurn, g.state.turn);
+  assert.equal(g.state.p[0].deck.length, deckBefore - 1);
+  assert.deepEqual(names(g, g.state.p[0].discard), ['Salvatore']);
+});
+
+test('Salvatore: works on a Pokémon put into play this turn, but not on one that already evolved this turn', () => {
+  const dk = deck('Salvatore', 'Riolu', 'Mega Lucario ex', DRA);
+  const fresh = S(dk, [{ active: DRA, bench: ['Riolu'], hand: ['Salvatore'] }, { active: DRA }]);
+  fresh.state.p[0].bench[0]!.enteredTurn = fresh.state.turn; // put into play this turn
+  choose(fresh, 'Play Salvatore');
+  submitCards(fresh, fresh.decision!.values![0]!);
+  assert.equal(nameOf(fresh, topOf(fresh.state.p[0].bench[0]!)), 'Mega Lucario ex');
+  const spent = S(dk, [{ active: DRA, bench: ['Riolu'], hand: ['Salvatore'] }, { active: DRA }]);
+  spent.state.p[0].bench[0]!.evolvedTurn = spent.state.turn;
+  const deckBefore = spent.state.p[0].deck.length;
+  choose(spent, 'Play Salvatore'); // playable (a search), but there is nothing to find: no question
+  assert.notEqual(spent.decision?.kind, 'cards');
+  assert.equal(spent.state.p[0].bench[0]!.cards.length, 1);
+  assert.equal(spent.state.p[0].deck.length, deckBefore);
+});
+
+test('Salvatore: a card with an Ability is not found (Galvantula); choosing none leaves the Pokémon as it was', () => {
+  const dk = deck('Salvatore', 'Joltik', 'Galvantula', 'Riolu', 'Mega Lucario ex', DRA);
+  const g = S(dk, [{ active: DRA, bench: ['Joltik'], hand: ['Salvatore'] }, { active: DRA }]);
+  choose(g, 'Play Salvatore'); // nothing eligible: Galvantula has an Ability, and no Riolu is in play
+  assert.notEqual(g.decision?.kind, 'cards');
+  assert.equal(g.state.p[0].bench[0]!.cards.length, 1);
+  const none = S(dk, [{ active: DRA, bench: ['Riolu'], hand: ['Salvatore'] }, { active: DRA }]);
+  choose(none, 'Play Salvatore');
+  none.submit([]);
+  assert.equal(none.state.p[0].bench[0]!.cards.length, 1);
+  assert.deepEqual(names(none, none.state.p[0].discard), ['Salvatore']);
+});
+
+test('Salvatore: with 2 Pokémon it could evolve, the controller says which one', () => {
+  const dk = deck('Salvatore', 'Riolu', 'Mega Lucario ex', DRA);
+  const g = S(dk, [{ active: 'Riolu', bench: ['Riolu'], hand: ['Salvatore'] }, { active: DRA }]);
+  const [a, b] = [g.state.p[0].active!, g.state.p[0].bench[0]!];
+  choose(g, 'Play Salvatore');
+  submitCards(g, g.decision!.values![0]!);
+  assert.equal(g.decision?.kind, 'slots');
+  assert.deepEqual(g.decision!.values!.slice().sort(), [a.id, b.id].sort());
+  g.submit([g.decision!.values!.indexOf(b.id)]);
+  assert.equal(a.cards.length, 1);
+  assert.equal(b.cards.length, 2);
 });

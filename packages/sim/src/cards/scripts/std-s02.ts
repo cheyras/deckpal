@@ -11,12 +11,6 @@
  *  - sv05-156 Perilous Jungle   "During Pokémon Checkup, put 2 more damage counters on each Poisoned non-{D} Pokémon (both yours and your
  *                               opponent's)": a Stadium has no Checkup trigger (the `checkup` trigger fires for Pokémon, their Tools and
  *                               their Energy), and there is no static that adds to what Poison places.
- *  - sv05-160 Salvatore        Written and tested (search the deck for a card with no Abilities that evolves from 1 of your Pokémon, onto that
- *                               Pokémon), then left out: with a script, the owner's logged game hns-11.txt (replay.test.ts ratchet) stops at the
- *                               Salvatore line -- the log's evolution (Riolu into Mega Lucario ex) is applied by the replay as an "unscripted
- *                               card's evolution", but a script asks its own search choice, which the replay answers with the first option
- *                               (a Lucario, not the Mega Lucario ex the log shows), and the game diverges two lines later (38/43 actions
- *                               replayed, floor 43).
  *  - me02.5-217 Team Rocket's   "it provides 2 in any combination of {P} Energy and {D} Energy": an Energy unit that is {P} or {D} per unit,
  *    Energy                     chosen freely. `providesAny` is every type (it would pay {R} too) and `provides` is fixed.
  */
@@ -194,5 +188,13 @@ export const STD_S02: CardScript[] = [
       // "If Illumise is on your Bench, this attack does 60 more damage."
       'Coordinated Strike': { damage: { add: [20, { cond: { gte: [{ pokemon: { zone: 'myBench', filter: { name: 'Illumise' } } }, 1] }, then: 60, else: 0 }] } },
     },
+  },
+  {
+    id: 'sv05-160',
+    name: 'Salvatore',
+    // "Search your deck for a card that has no Abilities and evolves from 1 of your Pokémon, and put it onto that Pokémon to evolve it. Then, shuffle your deck. You can use this card on a Pokémon you put down when you were setting up to play or on a Pokémon that was put into play this turn."
+    // (The deck is searched even when nothing in it fits, so it is playable with any card in the deck.)
+    playable: { gte: [{ deckSize: 'self' }, 1] },
+    play: [{ op: 'custom', fn: 's02.salvatoreEvolve' }, { op: 'shuffle' }],
   },
 ];

@@ -453,6 +453,16 @@ export function auditLog(raw: string, name = 'log', o: ParseOptions = {}): LogAu
     let P = preWR(logged, riders, breakdown);
     const eB = fixed ? engineDamage(snap, B) : null;
     let eP = engineDamage(snap, P);
+    // Live's breakdown already counts an Ability that adds damage ("(Ability) Sunny Day: 20 damage"), so a total that includes it
+    // is not the damage BEFORE the engine's pipeline: the pipeline applies that Ability itself, from the script (attacker
+    // statics), and would add it a second time. When the position has the Ability scripted, the pre-modifier damage is the
+    // total without those lines, and the engine must then arrive at Live's figure by itself, which is the stronger check.
+    // (An Ability the engine doesn't script leaves the breakdown total as it was: replay.ts reports it as a gap.)
+    const abilityAdds = (breakdown ?? []).filter((b) => /^\(Ability\) /.test(b.label) && b.amount > 0).reduce((n, b) => n + b.amount, 0);
+    if (abilityAdds > 0 && eP !== null && eP !== logged && P - abilityAdds >= 0 && engineDamage(snap, P - abilityAdds) === logged) {
+      P -= abilityAdds;
+      eP = logged;
+    }
     // A bare "X took N damage." line on the Active prints no Weakness/Resistance rider, so N is
     // already the final amount: find the pre-modifier damage the pipeline turns into N.
     if (ev.t === 'damage' && where === 'active' && eP !== null && eP !== logged) {

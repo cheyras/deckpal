@@ -68,6 +68,8 @@ const SUNFLORA = 'sv06-007';
 const ILLUMISE = 'sv06-010';
 const GROOKEY = 'sv06-014';
 const THWACKEY = 'sv06-015';
+const APPLIN = 'sv06-017';
+const DIPPLIN = 'sv06-018'; // Festival Lead
 const RILLABOOM = 'sv06-016';
 const POLT_BENCH = 'sv06-020'; // Storehouse Hideaway
 const POLT_TEA = 'sv06-021'; // Tea Server
@@ -415,6 +417,36 @@ test("Illumise, Slowing Perfume: only if you go second, only during your first t
   // Going first: your first turn is turn 1, and that's not "going second".
   const first = scenario(dk, dk, [{ active: 'Illumise', energy: { active: [G] } }, { active: 'Bloodmoon Ursaluna ex', bench: ['Slowpoke'] }], { turn: 1, current: 0, first: 0 });
   assert.equal(has(first, 'Attack: Slowing Perfume'), false);
+});
+
+// ------------------------------------------------------------------ Thwackey
+
+test('Thwackey, Boom Boom Groove: if your Active Pokémon has the Festival Lead Ability, search your deck for a card (each Thwackey once; Ruling 1972)', () => {
+  const dk = deck([GROOKEY, THWACKEY, APPLIN, DIPPLIN, URSA]);
+  const mk = (festival: boolean): Game =>
+    scenario(dk, dk, [
+      {
+        ...(festival ? { active: 'Applin', evolve: { active: ['Dipplin'], 0: ['Thwackey'], 1: ['Thwackey'] } } : { active: 'Bloodmoon Ursaluna ex', evolve: { 0: ['Thwackey'], 1: ['Thwackey'] } }),
+        bench: ['Grookey', 'Grookey'],
+      },
+      { active: 'Bloodmoon Ursaluna ex' },
+    ]);
+  const g = mk(true);
+  assert.deepEqual(g.state.p[0].bench.map((sl) => name(g, topCard(sl))), ['Thwackey', 'Thwackey']);
+  const deckSize = g.state.p[0].deck.length;
+  assert.equal(labels(g).filter((l) => l.includes('Boom Boom Groove')).length, 2, 'both Thwackey can use it');
+  choose(g, 'Boom Boom Groove');
+  assert.equal(labels(g).length > 4, true, 'any card in the deck');
+  pick(g, ['Fire Energy']);
+  assert.deepEqual(names(g, g.state.p[0].hand), ['Fire Energy']);
+  assert.equal(g.state.p[0].deck.length, deckSize - 1);
+  assert.equal(labels(g).filter((l) => l.includes('Boom Boom Groove')).length, 1, 'the other Thwackey can still use it (Ruling 1972)');
+  choose(g, 'Boom Boom Groove');
+  pick(g, ['Water Energy']);
+  assert.deepEqual(names(g, g.state.p[0].hand), ['Fire Energy', 'Water Energy']);
+  assert.equal(has(g, 'Boom Boom Groove'), false, 'each Thwackey once');
+  // Your Active Pokémon doesn't have Festival Lead: not usable.
+  assert.equal(has(mk(false), 'Boom Boom Groove'), false);
 });
 
 // ------------------------------------------------------------------ Rillaboom

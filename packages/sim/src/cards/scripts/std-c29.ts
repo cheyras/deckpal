@@ -11,12 +11,6 @@
  *  - sv09-021 Magmortar, Magma Surge: "During Pokémon Checkup, put 3 more damage counters on your opponent's Burned Pokémon."
  *    The extra counters are placed with Burn's own (Compendium #2112), before the Burn coin flip can cure it; the `checkup`
  *    trigger runs after the flip, so a Pokémon cured by that flip would wrongly escape them. Needs a Burn counter modifier.
- *  - sv09-007 Lilligant, Sunny Day: "Attacks used by your {G} Pokémon and {R} Pokémon do 20 more damage to your opponent's Active Pokémon
- *    (before applying Weakness and Resistance)." Scripts correctly (a `damageOut` static, +20, tested), but it makes the replay audit
- *    (replay.test.ts "zero unexplained mismatches", hns-05.txt L211 Lurantis ex -> Fezandipiti ex) fail: the audit's pre-Weakness
- *    figure already includes Live's "(Ability) Sunny Day: 20" line and the engine then adds the Ability again (300 vs Live's 280).
- *    Left out per instructions; the script is: statics: [{ effect: { k: 'damageOut', amount: 20 }, scope: 'myPokemon',
- *    filter: { type: ['Grass', 'Fire'] } }].
  *  - sv09-037 Ludicolo, Vibrant Dance: "All of your Pokémon in play get +40 HP. The effect of Vibrant Dance doesn't stack." The
  *    `hp` static has no `noStack` key, so two Ludicolo would give +80 HP.
  */
@@ -118,6 +112,17 @@ export const STD_C29: CardScript[] = [
         damage: { add: [60, { mul: [30, { v: 'h' }] }] },
       },
     },
+  },
+  {
+    id: 'sv09-007',
+    name: 'Lilligant',
+    abilities: [
+      {
+        // "Attacks used by your {G} Pokémon and {R} Pokémon do 20 more damage to your opponent's Active Pokémon (before applying Weakness and Resistance)."
+        name: 'Sunny Day',
+        statics: [{ effect: { k: 'damageOut', amount: 20 }, scope: 'myPokemon', filter: { type: ['Grass', 'Fire'] } }],
+      },
+    ],
   },
   {
     id: 'sv09-008',
