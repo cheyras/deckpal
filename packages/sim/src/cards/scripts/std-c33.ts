@@ -102,8 +102,8 @@ export const STD_C33: CardScript[] = [
     abilities: [
       {
         // "As often as you like during your turn, you may move 1 damage counter from 1 of your Team Rocket's Pokémon to another of your Pokémon."
-        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2152/): "You can if you want to; there is no restriction blocking you from KO'ing one of your own Pokemon.  However, you may not move more damage than required to KO the Pokemon because Rocket Brain only moves one damage counter at a time."
-        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2151/): "No, while the damage must be moved from a Team Rocket's Pokemon the damage can be moved to any of your Pokemon."
+        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2152/): moving a counter onto one of your own Pokémon may Knock it Out, but only one counter moves at a time, so no more than needed for that.
+        // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2151/): the counter must come from a Team Rocket's Pokémon, but it may go onto any of your Pokémon.
         name: 'Rocket Brain',
         activated: {
           oncePerTurn: false,
