@@ -44,6 +44,7 @@ import { Icon } from '../../components/Icon'
 import { api } from '../../lib/api'
 import type { DeckEInstance } from './runtime'
 import { DeckeScreen, type ScreenSpec } from './DeckeScreen'
+import type { DeckSaved } from './chat/deckSave'
 import { ChatMarkdown } from './chat/ChatMarkdown'
 import { ActivityLine } from './chat/ActivityLine'
 import { SourcesList } from './chat/SourcesList'
@@ -1173,7 +1174,7 @@ export function DeckeChat({
   /** Where "Top up" goes. Absent means no route yet, and the chip is not a button. */
   onTopUp?: () => void
   /** Records a one-tap widget save in the next conversational wire. */
-  onDeckSaved?: (deck: { id: string; name: string; total: number }) => void
+  onDeckSaved?: (deck: DeckSaved) => void
   /** Opens a saved widget deck through the host's router-neutral navigator. */
   onOpenDeck?: (id: string) => void
   /** Lets the character react to typing without coupling the composer to the hook. */

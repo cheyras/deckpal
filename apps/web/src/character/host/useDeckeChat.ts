@@ -67,6 +67,7 @@ import {
   savedDeckRecord,
   toolReplayParts,
 } from './chat/toolReplay'
+import { savedLine, type DeckSaved } from './chat/deckSave'
 import { kindOf } from './chat/toolKinds'
 import {
   createActivityAnimator,
@@ -627,8 +628,8 @@ export function useDeckeChat(
     }
   }, [applyActivity, decke])
 
-  const recordDeckSaved = useCallback(({ id, name, total }: { id: string; name: string; total: number }) => {
-    savedDeckWireRef.current = savedDeckRecord({ id, name, total })
+  const recordDeckSaved = useCallback((deck: DeckSaved) => {
+    savedDeckWireRef.current = savedDeckRecord(deck)
     setMessages((all) => {
       let at = all.length - 1
       while (at >= 0 && all[at]?.role !== 'assistant') at--
@@ -643,7 +644,7 @@ export function useDeckeChat(
           // DeckeNotice deliberately has no success tone or arbitrary link
           // action; neutral is its truthful completed-action presentation.
           tone: 'neutral' as const,
-          title: `Saved “${name}” to your decks · ${total} cards`,
+          title: savedLine(deck),
         }],
       }
       return next

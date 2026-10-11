@@ -1034,6 +1034,16 @@ export interface CardRef {
   seriesSlug: string
   image: string
 }
+/** `POST /decks/save`. `deckId` edits that deck; without it, `name` creates one. */
+export interface SaveDeckBody {
+  deckId?: string
+  name?: string
+  formatCode?: DeckFormat
+  cards?: Array<{ cardId: string; quantity: number }>
+  versionNote?: string
+  newVersion?: boolean
+  idempotencyKey?: string
+}
 export interface DeckDetail {
   deck: DeckSummary & { strategyMd: string | null }
   counts: DeckCounts
@@ -2099,6 +2109,14 @@ export const api = {
     send<{ restored: string }>('POST', `/decks/${encodeURIComponent(id)}/restore`, undefined, signal),
   importDeck: (body: { text: string; formatCode?: DeckFormat; glcType?: string | null; name?: string; source?: 'ptcgl' | 'massentry' }) =>
     send<DeckDetail>('POST', '/decks/import', body),
+  /**
+   * The whole-list write `save_deck` uses: resolves every card first, then one
+   * transaction. An edit changes only the cards that changed, so printings and
+   * pins survive. `newVersion` (edits only) lands a changed list as the deck's
+   * next version even when the current one has no battle logs; `bumped` says
+   * whether it did.
+   */
+  saveDeck: (body: SaveDeckBody) => send<DeckDetail & { replayed: boolean; bumped?: boolean }>('POST', '/decks/save', body),
   /** The same import resolved WITHOUT creating anything, so unmatched lines can be shown first. */
   checkDeckImport: (body: { text: string; formatCode?: DeckFormat; source?: 'ptcgl' | 'massentry' }, signal?: AbortSignal) =>
     send<{ import: DeckImportSummary }>('POST', '/decks/import', { ...body, dryRun: true }, signal),

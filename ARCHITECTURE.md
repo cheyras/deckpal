@@ -1612,6 +1612,20 @@ are sent only to the browser. `check_deck` validates a proposed list before
 `showDeck` renders its saveable deck widget. Credits remain flat per operation in
 this release, including research at the analysis price.
 
+**A revision saves as a version of the deck it revises** (2026-10-10). `showDeck`
+takes an optional `deck_id` (and a `version_note`). The server resolves the id
+among the reader's own decks, as the reader (`ownedDeck` in
+`apps/api/src/decke/deckCheck.ts`), and only then adds `base: { id, name }` to the
+deck block — a server-only field that `showScreen`'s schema cannot carry and
+`sanitizeScreen` strips. With a `base`, the widget leads with "Save as new
+version" and an editable note, through `POST /decks/save` with `newVersion: true`
+(the route checks ownership again, keeps printings and pins, and always lands a
+changed list as the next version); "Save as a separate deck" remains the
+secondary action. Without one — a brand-new deck, or an id that is not the
+reader's — the widget saves a new deck through `/decks/import`, exactly as
+before. Either save is the reader's own click, so no approval card; the next
+turn is told what was saved (`savedDeckRecord`).
+
 **Not shipped:** foil/variant auto-detection. `research/FOIL-DETECTION.md` has
 the measurement — the signal is real but not lighting-invariant, so the printing
 is a one-tap reader choice in the rip list instead.

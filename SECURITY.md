@@ -395,6 +395,16 @@ address.
 bounded deck input. The live chat request's current turn is capped at 240,000
 characters in addition to the SEC-04 history window.
 
+The deck widget's Save is the reader's own click, not a model write, so it has no
+approval card — which makes WHICH deck it writes over the thing to guard. When
+`showDeck` names a `deck_id`, the server resolves it among the reader's own decks
+with their token (RLS) before the widget may offer "Save as new version", and the
+button names the stored deck, never a model-written label. That target (`base`) is
+server-only: `showScreen`'s schema has no field for it and `sanitizeScreen` strips
+it from any deck block. `POST /decks/save` checks ownership again (`404` for any
+deck that is not the caller's), and the version save always lands as a new
+version, so the list it replaced stays in the deck's history and can be reverted.
+
 **Jev is a data processor under Vercel's zero-retention agreement with TypeSafe** (verified 2026-09-27).
 With `DECKE_JEV=on`, each reader message is judged by `typesafe-ai/jev` (TypeSafe
 AI, San Francisco) through the Vercel AI Gateway before Deck-E answers

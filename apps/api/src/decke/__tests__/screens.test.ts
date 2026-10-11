@@ -63,6 +63,22 @@ test('a deck is sanitised, grounded, capped, and kept as the only block', () => 
   assert.ok(dropped.some((reason) => /made-up-9/.test(reason)))
 })
 
+test('a model-authored deck block cannot name the deck its Save button writes over', () => {
+  // `base` points the widget's Save at an existing deck. Only `showDeck` may
+  // set it, after finding the deck among the reader's own. Through
+  // `showScreen` the model could otherwise label one deck and target another.
+  const deck = {
+    kind: 'deck', name: 'Fire deck', format: 'standard', total: 4, legal: true, issues: [], owned: 4,
+    missingCostUsd: 0, ptcgl: '', sections: [{ title: 'Pokémon', count: 4, cards: [{ id: 'sv01-1', name: 'Pikachu', quantity: 4, owned: 4 }] }],
+    base: { id: 'someone-elses-deck', name: 'Your Fire deck' }, versionNote: 'trust me',
+  }
+  const parsed = screenSchema.parse({ title: 'Fire', blocks: [deck] })
+  assert.equal('base' in parsed.blocks[0]!, false, 'the schema has no base for a model to fill')
+  const { screen } = sanitizeScreen({ title: 'Fire', blocks: [{ ...deck }] } as never)
+  assert.equal('base' in screen.blocks[0]!, false, 'a hand-built block loses it too')
+  assert.equal('versionNote' in screen.blocks[0]!, false)
+})
+
 test('deck schema rejects more than 60 distinct cards', () => {
   const cards = Array.from({ length: 61 }, (_, i) => ({ id: `sv01-${i}`, name: `Card ${i}`, quantity: 1, owned: 0 }))
   assert.equal(screenSchema.safeParse({
