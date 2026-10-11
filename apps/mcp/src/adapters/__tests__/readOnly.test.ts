@@ -20,9 +20,10 @@ function registered(options?: { readOnly?: boolean; deckeImprovementRead?: boole
 test('a read-only connection sees exactly the tools marked readOnlyHint', () => {
   const reads = allTools().filter((t) => t.annotations.readOnlyHint).map((t) => t.name);
   assert.deepEqual(registered({ readOnly: true }), reads);
-  assert.equal(reads.length, 16, 'the ordinary catalogue is 16 reads before capability-gated tools');
+  assert.equal(reads.length, 17, 'the ordinary catalogue is 17 reads before capability-gated tools');
   assert.ok(reads.includes('check_deck'), 'deck checking must remain available on read-only connections');
   assert.ok(reads.includes('deck_odds'), 'deck odds only read, so read-only connections get them too');
+  assert.ok(reads.includes('battle_digest'), 'a read-only connection can still review a game it cannot log');
 });
 
 test('no tool that writes or deletes reaches a read-only connection', () => {

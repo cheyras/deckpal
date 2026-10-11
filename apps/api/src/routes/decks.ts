@@ -13,7 +13,10 @@ import {
 } from '../mutations.js';
 import { replayField, requestWriteKey, writeOnce } from '../writeOnce.js';
 import { buildCart, productIdLine, tokenLine, type CartInput } from '../tcgplayer/massentry.js';
-import { parseBattleLog, prepareBattleLog, scoreDeckMatch } from '../deck/battlelog.js';
+import {
+  digestBattleLog, normalizeOpponentArchetype, parseBattleLog, prepareBattleLog, scoreDeckMatch,
+  type BattleLogOrigin,
+} from '../deck/battlelog.js';
 import {
   validateDeck, resolveDeck, buildReprintOracle,
   parsePtcgl, parseMassEntry, serializeMassEntry,
@@ -94,6 +97,7 @@ function parseNoteText(v: unknown, max: number, field: string): string | null {
 const STRATEGY_MAX = 40000;
 const VERSION_NOTE_MAX = 500;
 const LOG_NOTES_MAX = 2000;
+const LOG_REVIEW_MAX = 12000;
 const RAW_LOG_MAX = 50000;
 
 // ── POST /decks/log-preview fan-out bounds (security finding B) ───────────────
@@ -1987,11 +1991,14 @@ decksRouter.post(
 interface LogRow {
   id: string;
   deck_version: number;
-  raw_log: string;
+  raw_log: string | null;
+  origin: BattleLogOrigin;
   result: 'win' | 'loss' | 'tie' | null;
   opponent: string | null;
   opponent_deck: string | null;
+  opponent_archetype: string | null;
   notes: string | null;
+  review_md: string | null;
   parsed: Record<string, unknown> | null;
   source: string;
   played_at: string;
@@ -2007,9 +2014,12 @@ function shapeLogSummary(r: LogRow) {
     result: r.result,
     opponent: r.opponent,
     opponentDeck: r.opponent_deck,
+    opponentArchetype: r.opponent_archetype,
+    origin: r.origin,
     turns: parsed?.totalTurns ?? null,
     prizes: parsed?.prizesTaken ?? null,
     notes: r.notes,
+    reviewMd: r.review_md,
     playedAt: r.played_at,
     source: r.source,
   };
@@ -2025,6 +2035,22 @@ function parseResultField(v: unknown): 'win' | 'loss' | 'tie' | null | undefined
   if (v === null) return null;
   if (v === 'win' || v === 'loss' || v === 'tie') return v;
   throw badRequest("result must be 'win', 'loss' or 'tie'");
+}
+
+function parseLogOrigin(v: unknown): BattleLogOrigin {
+  if (v === undefined || v === null) return 'ptcgl';
+  if (v === 'ptcgl' || v === 'in_person' || v === 'other') return v;
+  throw badRequest("origin must be 'ptcgl', 'in_person' or 'other'");
+}
+
+/** Normalize at the trust boundary; callers never get to choose stored key syntax. */
+function parseOpponentArchetype(v: unknown): string | null {
+  if (v === undefined || v === null) return null;
+  if (typeof v !== 'string') throw badRequest('opponentArchetype must be a string');
+  if (!v.trim()) return null;
+  const key = normalizeOpponentArchetype(v);
+  if (!key) throw badRequest('opponentArchetype must normalize to 1-64 lowercase ASCII letters, digits or hyphen-separated words');
+  return key;
 }
 
 /** Optional played-at timestamp; invalid → 400, omitted → null (DB default now()). */
@@ -2063,12 +2089,33 @@ decksRouter.get(
       [deckId, versionFilter],
     );
     const rows = await q<LogRow>(
-      `SELECT id, deck_version, raw_log, result, opponent, opponent_deck, notes, parsed, source, played_at, created_at
+      `SELECT id, deck_version, raw_log, origin, result, opponent, opponent_deck, opponent_archetype,
+              notes, review_md, parsed, source, played_at, created_at
          FROM battle_log
         WHERE deck_id = $1 AND ($2::int IS NULL OR deck_version = $2)
         ORDER BY played_at DESC, id DESC
         LIMIT $3 OFFSET $4`,
       [deckId, versionFilter, pageSize, (page - 1) * pageSize],
+    );
+    const archetypes = await q<{
+      opponent_archetype: string;
+      games: string;
+      wins: string;
+      losses: string;
+      ties: string;
+      last_played_at: string;
+    }>(
+      `SELECT opponent_archetype,
+              count(*) AS games,
+              count(*) FILTER (WHERE result = 'win') AS wins,
+              count(*) FILTER (WHERE result = 'loss') AS losses,
+              count(*) FILTER (WHERE result = 'tie') AS ties,
+              max(played_at) AS last_played_at
+         FROM battle_log
+        WHERE deck_id = $1 AND opponent_archetype IS NOT NULL
+        GROUP BY opponent_archetype
+        ORDER BY max(played_at) DESC, opponent_archetype`,
+      [deckId],
     );
 
     const total = Number(totals?.total ?? 0);
@@ -2082,13 +2129,22 @@ decksRouter.get(
         losses: Number(totals?.losses ?? 0),
         ties: Number(totals?.ties ?? 0),
       },
+      archetypes: archetypes.map((a) => ({
+        opponentArchetype: a.opponent_archetype,
+        games: Number(a.games),
+        wins: Number(a.wins),
+        losses: Number(a.losses),
+        ties: Number(a.ties),
+        lastPlayedAt: a.last_played_at,
+      })),
       pagination: { page, pageSize, total, pageCount: Math.max(1, Math.ceil(total / pageSize)) },
     });
   }),
 );
 
-// POST /decks/:id/logs — paste a raw PTCG Live log. `dryRun: true` performs the
-// SAME deck resolution, parsing, owner gate, and field merge as an insert, then
+// POST /decks/:id/logs — record a PTCG Live or debriefed in-person game.
+// `dryRun: true` performs the SAME deck resolution, preparation, owner gate,
+// and field merge as an insert, then
 // returns the row-facing values without writing. Both branches consume the one
 // `prepareBattleLog` result: the approval preview cannot promise a write that
 // owner identification would reject. A real write attaches to the CURRENT
@@ -2099,13 +2155,26 @@ decksRouter.post(
     const deckId = parseDeckId(String(req.params.id));
     const userId = currentUserId(req);
     const body = req.body ?? {};
-    if (typeof body.rawLog !== 'string' || !body.rawLog.trim()) throw badRequest('rawLog is required');
-    if (body.rawLog.length > RAW_LOG_MAX) throw badRequest(`rawLog too large (max ${RAW_LOG_MAX} chars)`);
-    const rawLog = body.rawLog;
+    const origin = parseLogOrigin(body.origin);
+    let rawLog: string | null = null;
+    if (body.rawLog !== undefined && body.rawLog !== null) {
+      // Preserve the shipped PTCG Live validation message byte-for-byte. The
+      // type-specific message is new and only reachable on origins where the
+      // field itself is optional.
+      if (typeof body.rawLog !== 'string') {
+        if (origin === 'ptcgl') throw badRequest('rawLog is required');
+        throw badRequest('rawLog must be a string');
+      }
+      if (body.rawLog.trim()) rawLog = body.rawLog;
+    }
+    if (origin === 'ptcgl' && rawLog === null) throw badRequest('rawLog is required');
+    if (rawLog !== null && rawLog.length > RAW_LOG_MAX) throw badRequest(`rawLog too large (max ${RAW_LOG_MAX} chars)`);
     const explicitResult = parseResultField(body.result) ?? undefined; // null clear is meaningless on create
     const opponent = parseOptText(body.opponent, 200, 'opponent');
     const opponentDeck = parseOptText(body.opponentDeck, 200, 'opponentDeck');
+    const opponentArchetype = parseOpponentArchetype(body.opponentArchetype);
     const notes = parseNoteText(body.notes, LOG_NOTES_MAX, 'notes');
+    const reviewMd = parseNoteText(body.reviewMd, LOG_REVIEW_MAX, 'reviewMd');
     const playedAt = parsePlayedAt(body.playedAt);
     const playerName = parseOptText(body.playerName, 100, 'playerName') ?? undefined;
     const source = parseSource(body.source);
@@ -2128,13 +2197,16 @@ decksRouter.post(
       // COALESCE preserves PostgreSQL's full timestamp precision and makes an
       // omitted played_at exactly the same `now()` as created_at (2026-10-10).
       const resolvedPlayedAt = playedAt ?? new Date(deck.rows[0]!.played_at).toISOString();
-      const names = await client.query<{ name: string }>(
-        `SELECT c.name FROM deck_card dc JOIN card c ON c.id = dc.card_id WHERE dc.deck_id = $1`,
-        [deckId],
-      );
+      const names = origin === 'ptcgl'
+        ? await client.query<{ name: string }>(
+            `SELECT c.name FROM deck_card dc JOIN card c ON c.id = dc.card_id WHERE dc.deck_id = $1`,
+            [deckId],
+          )
+        : { rows: [] as { name: string }[] };
       let prepared;
       try {
         prepared = prepareBattleLog(rawLog, names.rows.map((r) => r.name), {
+          origin,
           playerName,
           result: explicitResult,
           opponent,
@@ -2154,12 +2226,15 @@ decksRouter.post(
             opponent: prepared.opponent,
             opponentDeck: prepared.opponentDeck,
             opponentDeckGuess: prepared.opponentDeck,
-            prizes: prepared.parsed.prizesTaken,
-            turns: prepared.parsed.totalTurns,
+            opponentArchetype,
+            origin,
+            prizes: prepared.parsed?.prizesTaken ?? null,
+            turns: prepared.parsed?.totalTurns ?? null,
             notes,
+            reviewMd,
             playedAt: resolvedPlayedAt,
-            confidence: prepared.parsed.confidence,
-            myPokemon: prepared.parsed.myPokemon,
+            confidence: prepared.parsed?.confidence ?? null,
+            myPokemon: prepared.parsed?.myPokemon ?? [],
           },
           parsed: prepared.parsed,
           attachedToVersion: version,
@@ -2171,14 +2246,18 @@ decksRouter.post(
         // RLS scoping (no join through deck) and backfilled it from the owning
         // deck; this insert was never updated to supply it. assertDeck above
         // has already proved this userId owns this deck.
-        `INSERT INTO battle_log (deck_id, deck_version, raw_log, result, opponent, opponent_deck, notes, parsed, source, played_at, user_id)
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, COALESCE($10::timestamptz, now()), $11)
-         RETURNING id, deck_version, raw_log, result, opponent, opponent_deck, notes, parsed, source, played_at, created_at`,
+        `INSERT INTO battle_log
+           (deck_id, deck_version, raw_log, origin, result, opponent, opponent_deck,
+            opponent_archetype, notes, review_md, parsed, source, played_at, user_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, COALESCE($13::timestamptz, now()), $14)
+         RETURNING id, deck_version, raw_log, origin, result, opponent, opponent_deck,
+                   opponent_archetype, notes, review_md, parsed, source, played_at, created_at`,
         [
-          deckId, version, rawLog, prepared.result,
-          prepared.opponent,
-          prepared.opponentDeck,
-          notes, JSON.stringify(prepared.parsed), source, playedAt, userId,
+          deckId, version, rawLog, origin, prepared.result, prepared.opponent,
+          prepared.opponentDeck, opponentArchetype, notes, reviewMd,
+          // playedAt, not the preview's resolved clock: an omitted time stays
+          // NULL into COALESCE so PostgreSQL stamps it at insert precision (2026-10-10).
+          prepared.parsed === null ? null : JSON.stringify(prepared.parsed), source, playedAt, userId,
         ],
       );
       const log = row.rows[0]!;
@@ -2369,7 +2448,8 @@ decksRouter.get(
     if (!meta) throw notFound(`No deck '${deckId}'`);
     const logId = parseLogId(String(req.params.logId));
     const row = await q1<LogRow>(
-      `SELECT id, deck_version, raw_log, result, opponent, opponent_deck, notes, parsed, source, played_at, created_at
+      `SELECT id, deck_version, raw_log, origin, result, opponent, opponent_deck, opponent_archetype,
+              notes, review_md, parsed, source, played_at, created_at
          FROM battle_log WHERE id = $1 AND deck_id = $2`,
       [logId, deckId],
     );
@@ -2379,9 +2459,73 @@ decksRouter.get(
   }),
 );
 
-// PATCH /decks/:id/logs/:logId { result?, opponent?, opponentDeck?, notes?, playedAt? }
+// GET /decks/:id/logs/:logId/digest?playerName= — one STORED PTCG Live log read
+// into a compact timeline (deck/battlelog.ts `digestBattleLog`): prizes by turn
+// and what they paid for, first attacks, mulligans, the opponent's cards seen,
+// how it ended, whether it was close, and what the log cannot tell. Read-only,
+// and the same ownership gate as the detail route above: the deck must be the
+// caller's (loadMeta) and the log must hang off that deck.
+//
+// WHY A ROUTE AND NOT THE STORED `parsed` (2026-10-10). The stored parse is
+// frozen at insert time and was never asked for a timeline; this re-reads the
+// immutable raw log on demand, so the digest improves for every past game the
+// day the digest does, with no backfill.
+//
+// WHOSE SIDE. `?playerName=` wins; otherwise the owner the row was STORED with
+// (`parsed.players.me`) — that is the identification the battle's result and
+// record already rest on, made against the list the game was played with.
+// Re-identifying against today's list could pick the other chair for a deck
+// that has since changed. The current list is only the last resort, for a row
+// stored without an owner.
+decksRouter.get(
+  '/:id/logs/:logId/digest',
+  asyncHandler(async (req, res) => {
+    const deckId = parseDeckId(String(req.params.id));
+    const userId = currentUserId(req);
+    const meta = await loadMeta(deckId, userId);
+    if (!meta) throw notFound(`No deck '${deckId}'`);
+    const logId = parseLogId(String(req.params.logId));
+    const playerName = parseOptText(str(req.query.playerName), 100, 'playerName') ?? undefined;
+    const row = await q1<Pick<LogRow, 'id' | 'deck_version' | 'raw_log' | 'origin' | 'result' | 'parsed'>>(
+      `SELECT id, deck_version, raw_log, origin, result, parsed
+         FROM battle_log WHERE id = $1 AND deck_id = $2`,
+      [logId, deckId],
+    );
+    if (!row) throw notFound(`No battle log '${logId}'`);
+    if (row.raw_log === null || !row.raw_log.trim()) {
+      // 404, not 400: the request is well-formed and the THING asked for — a
+      // game log — does not exist for this battle. Worded for the model that
+      // will read it, which should fall back to the notes and review.
+      throw notFound(
+        row.origin === 'in_person'
+          ? 'no game log to digest — this game was reported in person'
+          : 'no game log to digest — this game was logged without one',
+      );
+    }
+    const storedMe = (row.parsed as { players?: { me?: unknown } } | null)?.players?.me;
+    const names = await q<{ name: string }>(
+      `SELECT c.name FROM deck_card dc JOIN card c ON c.id = dc.card_id WHERE dc.deck_id = $1`,
+      [deckId],
+    );
+    const digest = digestBattleLog(row.raw_log, names.map((r) => r.name), {
+      playerName: playerName ?? (typeof storedMe === 'string' && storedMe ? storedMe : undefined),
+    });
+    userCache(res);
+    res.json({
+      logId: Number(row.id),
+      deckVersion: row.deck_version,
+      origin: row.origin,
+      // The STORED result, which explicit corrections may have set; the
+      // digest's own `result` is what the log text alone says.
+      result: row.result,
+      digest,
+    });
+  }),
+);
+
+// PATCH /decks/:id/logs/:logId { result?, opponent?, opponentDeck?, opponentArchetype?, notes?, reviewMd?, playedAt? }
 // Metadata only — the raw log and its version attachment are immutable. Explicit
-// null clears result/opponent/opponentDeck/notes.
+// null clears result/opponent/opponentDeck/opponentArchetype/notes/reviewMd.
 decksRouter.patch(
   '/:id/logs/:logId',
   asyncHandler(async (req, res) => {
@@ -2401,7 +2545,9 @@ decksRouter.patch(
     if (body.result !== undefined) push('result', parseResultField(body.result));
     if (body.opponent !== undefined) push('opponent', parseOptText(body.opponent, 200, 'opponent'));
     if (body.opponentDeck !== undefined) push('opponent_deck', parseOptText(body.opponentDeck, 200, 'opponentDeck'));
+    if (body.opponentArchetype !== undefined) push('opponent_archetype', parseOpponentArchetype(body.opponentArchetype));
     if (body.notes !== undefined) push('notes', parseNoteText(body.notes, LOG_NOTES_MAX, 'notes'));
+    if (body.reviewMd !== undefined) push('review_md', parseNoteText(body.reviewMd, LOG_REVIEW_MAX, 'reviewMd'));
     if (body.playedAt !== undefined) {
       const at = parsePlayedAt(body.playedAt);
       if (at === null) throw badRequest('playedAt cannot be cleared');
@@ -2441,7 +2587,8 @@ decksRouter.patch(
 
     const row = await q1<LogRow>(
       `UPDATE battle_log SET ${sets.join(', ')} WHERE id = $1 AND deck_id = $2
-       RETURNING id, deck_version, raw_log, result, opponent, opponent_deck, notes, parsed, source, played_at, created_at`,
+       RETURNING id, deck_version, raw_log, origin, result, opponent, opponent_deck, opponent_archetype,
+                 notes, review_md, parsed, source, played_at, created_at`,
       params,
     );
     if (!row) throw notFound(`No battle log '${logId}'`);

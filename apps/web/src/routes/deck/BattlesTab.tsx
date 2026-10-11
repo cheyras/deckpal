@@ -1,38 +1,93 @@
-// Battles tab — the deck's battle-log list (PTCG Live paste + parse). Logs
-// attach to the deck version they were played with; the header record and the
-// list respect the version filter. Raw logs are fetched lazily on expand.
+// Battles tab — the deck's battle-log list. A log is a pasted PTCG Live game or
+// one the reader told Deck-E about in person (migration 084); both attach to the
+// deck version they were played with, and the header record and the list
+// respect the version filter. A row expands to the game's detail: the digest's
+// prize race and turning points (Live logs, fetched on open), Deck-E's review,
+// and the raw log behind "View log" (fetched only when asked for).
 
-import { useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, type AddBattleLogBody, type BattleLog, type BattleLogSummary, type BattleResult } from '../../lib/api'
+import { api, ApiError, type AddBattleLogBody, type BattleLog, type BattleLogSummary, type BattleResult } from '../../lib/api'
 import { Modal, ConfirmModal } from '../../components/ListModals'
 import { Icon } from '../../components/Icon'
 import { fmtDate } from '../../lib/format'
 import { ResultBadge, SourceChip, VersionChip, RecordSpans } from './intelShared'
 import { writeFailureText } from '../../lib/writes'
+import { DigestView, MostFacedSummary, SECTION_HEADING } from './BattleLogParts'
+import {
+  archetypeLabel,
+  extraOpponentDeck,
+  hasGuaranteedGameLog,
+  hasReview,
+  logOrigin,
+  mayHaveGameLog,
+  mostFacedArchetypes,
+  noGameLogText,
+  ORIGIN_LABEL,
+  rowArchetypeText,
+} from './battleLogView'
 
-// ── One log row: summary line + chevron-expand to the raw log ─────────────────
+// The review renders through the same hardened markdown view as the strategy
+// guide (model output: no remote images, no odd URL schemes, raw HTML escaped),
+// in its own chunk so react-markdown stays out of the deck page's bundle.
+const loadMarkdownView = () => import('./MarkdownView')
+const MarkdownView = lazy(loadMarkdownView)
+
+function PanelLoading() {
+  return <div className="py-[16px] text-center text-[14px] text-text-muted">Loading game…</div>
+}
+
+// ── One log row: summary line + chevron-expand to the game's detail ───────────
 function LogRow({ deckId, log, onDelete }: { deckId: string; log: BattleLogSummary; onDelete: () => void }) {
   const [open, setOpen] = useState(false)
-  const { data } = useQuery({
+  const [showRaw, setShowRaw] = useState(false)
+  const origin = logOrigin(log)
+  const panelId = `battle-log-${log.id}`
+  const wantsDigest = mayHaveGameLog(origin)
+  const digest = useQuery({
+    queryKey: ['battle-digest', deckId, log.id],
+    queryFn: ({ signal }) => api.battleDigest(deckId, log.id, signal),
+    enabled: open && wantsDigest,
+    // A 404 is an answer (this game has no log), not a blip to retry; any other
+    // failure simply leaves the digest out. The detail never shows an error for it.
+    retry: false,
+  })
+  const raw = useQuery({
     queryKey: ['battle-log', deckId, log.id],
     queryFn: ({ signal }) => api.battleLog(deckId, log.id, signal),
-    enabled: open,
+    enabled: open && showRaw,
   })
+  const noGameLog = !wantsDigest || (digest.error instanceof ApiError && digest.error.status === 404)
+  // "View log": always for Live (a CHECK constraint guarantees the text), never
+  // in person, and for `other` unless the digest has already said there is none.
+  const offerLog = hasGuaranteedGameLog(origin) || !noGameLog
+  // Hold the panel on one loading line until the digest settles, so the digest
+  // never arrives late and shoves the review and the buttons down.
+  const settled = !wantsDigest || !digest.isPending
+  const deckText = rowArchetypeText(log)
+  const extraDeck = extraOpponentDeck(log)
+
   return (
-    <div className="rounded-xl border border-border-default bg-surface-secondary">
-      <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-[10px] p-[12px] text-left">
+    <li className="rounded-xl border border-border-default bg-surface-secondary">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-controls={panelId}
+        className="flex w-full items-center gap-[10px] rounded-xl p-[12px] text-left"
+      >
         <ResultBadge result={log.result} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-[8px] gap-y-[4px]">
             <span className="truncate text-[14px] font-semibold text-text-primary">
               {log.opponent ? `vs ${log.opponent}` : 'Unknown opponent'}
             </span>
-            {log.opponentDeck && <span className="truncate text-[14px] text-text-secondary">{log.opponentDeck}</span>}
+            {deckText && <span className="min-w-0 truncate text-[14px] text-text-secondary">{deckText}</span>}
             <VersionChip version={log.deckVersion} />
             <SourceChip source={log.source} />
           </div>
           <div className="mt-[2px] flex flex-wrap items-center gap-x-[10px] gap-y-[2px] text-[14px] text-text-muted">
+            <span>{ORIGIN_LABEL[origin]}</span>
             {log.turns != null && <span>{log.turns} turns</span>}
             {log.prizes && <span>prizes {log.prizes.me}–{log.prizes.opponent}</span>}
             <span>{fmtDate(log.playedAt)}</span>
@@ -42,26 +97,89 @@ function LogRow({ deckId, log, onDelete }: { deckId: string; log: BattleLogSumma
       </button>
       {log.notes && <div className="-mt-[4px] px-[12px] pb-[10px] text-[14px] leading-[17px] text-text-secondary">{log.notes}</div>}
       {open && (
-        <div className="border-t border-divider-subtle p-[12px]">
-          {!data && <div className="py-[16px] text-center text-[14px] text-text-muted">Loading log…</div>}
-          {data && (
-            <>
-              <pre className="max-h-[400px] overflow-y-auto whitespace-pre-wrap rounded-lg bg-surface-primary p-[12px] font-mono text-[14px] leading-[17px] text-text-secondary">
-                {data.log.rawLog}
-              </pre>
-              <div className="mt-[10px] flex justify-end">
-                <button
-                  onClick={onDelete}
-                  className="flex h-[36px] items-center gap-[6px] rounded-full bg-surface-tertiary px-[14px] text-[14px] font-bold text-action-danger hover:bg-action-danger-fill hover:text-action-danger-text"
-                >
-                  <Icon name="close" size={14} /> Delete Log
-                </button>
+        <div id={panelId} className="border-t border-divider-subtle p-[12px]">
+          <Suspense fallback={<PanelLoading />}>
+            {!settled ? (
+              <PanelLoading />
+            ) : (
+              <div className="flex flex-col gap-[14px]">
+                {(log.opponentArchetype || extraDeck) && (
+                  <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-[12px] gap-y-[2px] text-[14px] leading-[20px]">
+                    {log.opponentArchetype && (
+                      <>
+                        <dt className="text-text-muted">Archetype</dt>
+                        <dd className="text-text-primary [overflow-wrap:anywhere]">
+                          {archetypeLabel(log.opponentArchetype, [log.opponentDeck])}
+                        </dd>
+                      </>
+                    )}
+                    {extraDeck && (
+                      <>
+                        <dt className="text-text-muted">Their deck</dt>
+                        <dd className="text-text-secondary [overflow-wrap:anywhere]">{extraDeck}</dd>
+                      </>
+                    )}
+                  </dl>
+                )}
+                {digest.data && <DigestView digest={digest.data.digest} result={log.result} idBase={panelId} />}
+                {hasReview(log.reviewMd) && (
+                  <section aria-labelledby={`${panelId}-review`}>
+                    <h3 id={`${panelId}-review`} className={SECTION_HEADING}>
+                      Deck-E's review
+                    </h3>
+                    <div className="mt-[6px] min-w-0 [overflow-wrap:anywhere]">
+                      <MarkdownView markdown={log.reviewMd} compact />
+                    </div>
+                  </section>
+                )}
+                <div className="flex flex-wrap items-center justify-between gap-[8px]">
+                  {offerLog ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowRaw((s) => !s)}
+                      aria-expanded={showRaw}
+                      aria-controls={`${panelId}-raw`}
+                      className="flex h-[36px] items-center gap-[6px] rounded-full text-[12px] font-semibold text-text-secondary hover:text-text-primary"
+                    >
+                      <Icon name="chevron-down" size={14} className={showRaw ? 'rotate-180' : ''} />
+                      {showRaw ? 'Hide log' : 'View log'}
+                    </button>
+                  ) : (
+                    <span className="text-[12px] text-text-muted">{noGameLogText(origin)}</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={onDelete}
+                    className="ml-auto flex h-[36px] items-center gap-[6px] rounded-full bg-surface-tertiary px-[14px] text-[14px] font-bold text-action-danger hover:bg-action-danger-fill hover:text-action-danger-text"
+                  >
+                    <Icon name="close" size={14} /> Delete Log
+                  </button>
+                </div>
+                {offerLog && showRaw && (
+                  <div id={`${panelId}-raw`}>
+                    {raw.data ? (
+                      // `rawLog` is NULL for an in-person game and may be for
+                      // `other`: say which, never paint an empty <pre>.
+                      raw.data.log.rawLog?.trim() ? (
+                        <pre className="max-h-[400px] overflow-y-auto whitespace-pre-wrap rounded-lg bg-surface-primary p-[12px] font-mono text-[14px] leading-[17px] text-text-secondary [overflow-wrap:anywhere]">
+                          {raw.data.log.rawLog}
+                        </pre>
+                      ) : (
+                        <div className="text-[14px] text-text-muted">{noGameLogText(logOrigin(raw.data.log))}</div>
+                      )
+                    ) : raw.isError ? (
+                      <div className="text-[14px] text-error">{(raw.error as Error).message}</div>
+                    ) : (
+                      <div className="py-[16px] text-center text-[14px] text-text-muted">Loading log…</div>
+                    )}
+                  </div>
+                )}
               </div>
-            </>
-          )}
+            )}
+          </Suspense>
         </div>
       )}
-    </div>
+    </li>
   )
 }
 
@@ -254,6 +372,16 @@ export function BattlesTab({ deckId, currentVersion }: { deckId: string; current
 
   const totals = data?.totals
   const pageCount = data?.pagination.pageCount ?? 1
+  // Scoped by the version the DATA was loaded for (the response echoes it), not
+  // the select: under keepPreviousData the two differ while a new filter loads.
+  const mostFaced = data ? mostFacedArchetypes({ logs: data.logs, archetypes: data.archetypes, version: data.version }) : null
+
+  // Fetch the markdown chunk as soon as there is a review to open, so opening
+  // one does not wait on a network round trip behind the loading line.
+  const anyReview = data?.logs.some((l) => hasReview(l.reviewMd)) ?? false
+  useEffect(() => {
+    if (anyReview) void loadMarkdownView()
+  }, [anyReview])
 
   return (
     <div className="mt-[18px] flex flex-col gap-[14px]">
@@ -306,18 +434,31 @@ export function BattlesTab({ deckId, currentVersion }: { deckId: string; current
             {version != null ? `No battles logged on v${version}` : 'No battles logged yet'}
           </div>
           <p className="max-w-[400px] text-[14px] leading-[19px] text-text-muted">
-            Paste a Pokémon TCG Live battle log to start tracking this deck's record — each log attaches to the version it was
-            played with.
+            Paste a Pokémon TCG Live battle log, or tell Deck-E about a game you played in person, to start tracking this
+            deck's record — each game attaches to the version it was played with.
           </p>
         </div>
       )}
 
+      {data && data.logs.length > 0 && mostFaced && (
+        <MostFacedSummary
+          summary={mostFaced}
+          version={data.version}
+          partial={mostFaced.scope === 'loaded' && pageCount > 1}
+        />
+      )}
+
       {data && data.logs.length > 0 && (
-        <div className="flex flex-col gap-[8px]">
-          {data.logs.map((log) => (
-            <LogRow key={log.id} deckId={deckId} log={log} onDelete={() => setDeleteTarget(log)} />
-          ))}
-        </div>
+        <section aria-labelledby="battles-games">
+          <h2 id="battles-games" className="sr-only">
+            Games
+          </h2>
+          <ul className="flex flex-col gap-[8px]">
+            {data.logs.map((log) => (
+              <LogRow key={log.id} deckId={deckId} log={log} onDelete={() => setDeleteTarget(log)} />
+            ))}
+          </ul>
+        </section>
       )}
 
       {pageCount > 1 && (
