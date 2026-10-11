@@ -41,6 +41,10 @@ function maybePick(g: Game, names: string[]): void {
 const nameOf = (g: Game, card: number): string => def(g.ctx, card).name;
 const namesOf = (g: Game, cards: number[]): string[] => cards.map((c) => nameOf(g, c)).sort();
 const endTurn = (g: Game): void => choose(g, 'End turn');
+/** The engine's own order for effects at the same time (the first option) when the player is asked which goes first. */
+const ord = (g: Game): void => {
+  if (g.decision?.prompt === 'Which effect happens first?') g.submit([0]);
+};
 const dmg = (g: Game, p: 0 | 1, where: 'active' | number = 'active'): number =>
   (where === 'active' ? g.state.p[p].active! : g.state.p[p].bench[where]!).damage;
 const energyOf = (g: Game, p: 0 | 1, where: 'active' | number = 'active'): string[] =>
@@ -274,10 +278,12 @@ test('Snorlax, Good Sleep: if it remains Asleep during Pokémon Checkup, heal al
   const stays = game([{ active: 'Snorlax', damage: { active: 80 }, cond: ASLEEP }, { active: DRA }]);
   stays.state.forcedCoins = [false];
   endTurn(stays);
+  ord(stays);
   assert.equal(dmg(stays, 0), 0, 'remained Asleep: healed');
   const wakes = game([{ active: 'Snorlax', damage: { active: 80 }, cond: ASLEEP }, { active: DRA }]);
   wakes.state.forcedCoins = [true];
   endTurn(wakes);
+  ord(wakes);
   assert.equal(dmg(wakes, 0), 80, 'woke up: not healed');
   const awake = game([{ active: 'Snorlax', damage: { active: 80 } }, { active: DRA }]);
   endTurn(awake);

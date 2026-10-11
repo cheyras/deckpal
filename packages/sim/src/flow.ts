@@ -12,7 +12,7 @@ import { def, type Env } from './context.js';
 import type { Op } from './compile.js';
 import type { Filter, SpecialCondition } from './dsl.js';
 import { evalCond, slotMatches } from './eval.js';
-import { applyCondition, queueMovedToActive, queueOppAttachTriggers, queueStadiumBench, queueTriggers, run, swapActive } from './interp.js';
+import { applyCondition, beginEvent, ec, queueMovedToActive, queueOppAttachTriggers, queueStadiumBench, queueTriggers, run, swapActive } from './interp.js';
 import {
   abilityLost,
   attackIsFrom,
@@ -75,6 +75,7 @@ import {
   type GameState,
   type Player,
   type PlayerState,
+  type Pending,
   type Slot,
 } from './types.js';
 
@@ -218,9 +219,11 @@ export function submit(env: Env, s: GameState, choice: number[]): void {
       }
       break;
     }
-    case 'endOrder': {
-      // Several effects wait for the end of the turn: the one chosen goes first.
-      const pick = s.queued.splice(choice[0] as number, 1);
+    case 'triggerOrder': {
+      // Several effects happen at the same time: the one chosen goes first, and is not asked about again.
+      const at = r.idx[choice[0] as number] as number;
+      const pick = s.queued.splice(at, 1);
+      pick[0]!.order!.picked = true;
       s.queued.unshift(...pick);
       break;
     }
@@ -260,8 +263,33 @@ export function advance(env: Env, s: GameState): void {
       continue;
     }
     if (s.queued.length) {
+      // What the effect that just ran caused (queued after it was taken) resolves next, before the rest of the batch it came from: its
+      // own moment, ordered by its own chooser. (The rulebook is silent on effects caused while effects at the same time resolve.)
+      if (s.nest !== undefined) {
+        if (s.queued.length > s.nest) s.queued.unshift(...s.queued.splice(s.nest));
+        s.nest = undefined;
+      }
+      // Effects at the same time: the right player says which goes first (rulebook; see `orderQuestion`).
+      if (s.queued[0]!.order && !s.queued[0]!.order.picked) {
+        const q = orderQuestion(env, s);
+        if (q) {
+          s.pending = q;
+          return;
+        }
+      }
       // Optional triggers ("you may") become a yes/no first.
       const f = s.queued.shift() as Frame;
+      s.nest = s.queued.length;
+      // A Checkup effect that applies only while something holds ("if it remains Asleep") is checked when it is applied: the Special Condition
+      // checks may have come first and changed that.
+      if (f.order?.g === 'checkup' && f.code !== CHECKUP_CONDITIONS) {
+        const tr = def(env.ctx, f.src).triggers.find((x) => x.code === f.code);
+        if (tr?.t.when && !evalCond(env, s, ec(f), tr.t.when)) continue;
+      }
+      if (f.code === CHECKUP_CONDITIONS) {
+        checkupConditions(env, s);
+        continue;
+      }
       s.stack.push(f);
       const once = f.vars.__once !== undefined;
       if (f.vars.__optional) {
@@ -273,6 +301,61 @@ export function advance(env: Env, s: GameState): void {
     if (s.phase === 'setup') setupStep(env, s);
     else turnStep(env, s);
   }
+}
+
+/** The queued stand-in for "check all Special Conditions" in Pokémon Checkup (step 1), so that other Checkup effects can be ordered around it. */
+const CHECKUP_CONDITIONS = '$checkupConditions';
+
+/**
+ * Two bound effects are taken to be interchangeable only when they are copies of the same card's effect: the same program, for the same
+ * controller, with the same variables set by the event. The same program from another controller (or from a different card) can aim at
+ * different targets or amounts ("put counters on the opponent's Active Pokémon for each counter on this Pokémon"), so those are asked.
+ * Copies of one card on different Pokémon are merged only for a program that does not depend on its source.
+ */
+function effectKey(env: Env, f: Frame): string {
+  if (f.code === CHECKUP_CONDITIONS) return f.code;
+  const prog = JSON.stringify(env.ctx.code.get(f.code));
+  // A program that may read or change something about the Pokémon or card it comes from (self, the defender, a custom function, a use
+  // note) is bound to that source: copies on different Pokémon are different effects. Only a program with none of those may be merged.
+  // A card that only discards itself (Ignition Energy) does not depend on anything else about its source.
+  const rest = prog.replace(/{[^{}]*"fn":"discardThisCard"[^{}]*}/g, '');
+  const onPokemon = /"self"|"defender"|"attacker"|"this"/.test(rest);
+  const onCard = /"custom"|"used"/.test(rest);
+  return [prog, f.player, JSON.stringify(f.vars), def(env.ctx, f.src).name, onPokemon || onCard ? f.slot : '', onCard ? f.src : ''].join('|');
+}
+
+/**
+ * Effects that happen at the same time (Frame.order): when the head of the queue is one of them and its moment has others that differ,
+ * the player the rulebook names chooses which goes first, repeatedly until one is left or the rest are the same effect. Nothing is asked
+ * when only one is pending or all are the same program (the order cannot change the outcome). In Pokémon Checkup a single effect is
+ * still asked about when a Special Condition is on an Active Pokémon (its place before or after the checks can matter).
+ * Every card named is in play, so the question shows nothing the chooser cannot see.
+ */
+function orderQuestion(env: Env, s: GameState): Pending | null {
+  const head = (s.queued[0] as Frame).order as NonNullable<Frame['order']>;
+  // With no Special Condition on either Active Pokémon the checks do nothing, so the effects' place around them cannot matter.
+  const checksMatter = ([0, 1] as Player[]).some((p) => (s.p[p].active?.cond ?? 0) !== 0);
+  const idx: number[] = [];
+  s.queued.forEach((q, i) => {
+    const o = q.order;
+    if (o && !o.picked && o.g === head.g && o.by === head.by && o.ev === head.ev && (q.code !== CHECKUP_CONDITIONS || checksMatter)) idx.push(i);
+  });
+  const codes = new Set(idx.map((i) => effectKey(env, s.queued[i] as Frame)));
+  if (idx.length < 2 || codes.size < 2) return null;
+  return {
+    decision: {
+      player: head.by,
+      kind: 'option',
+      prompt: 'Which effect happens first?',
+      min: 1,
+      max: 1,
+      labels: idx.map((i) => {
+        const q = s.queued[i] as Frame;
+        return q.code === CHECKUP_CONDITIONS ? 'Check Special Conditions' : def(env.ctx, q.src).name;
+      }),
+    },
+    resume: { k: 'triggerOrder', idx },
+  };
 }
 
 /**
@@ -519,7 +602,7 @@ function turnStep(env: Env, s: GameState): void {
       return;
     case 'endTurn': {
       emit(env, { type: 'end_turn', player: s.current, turn: s.turn });
-      let global = false;
+      beginEvent(s);
       // "At the end of ... turn" programs scheduled by the `delay` step, before Checkup. A target that is no longer
       // the Active Pokémon (left play by some route that did not clear it) drops the effect.
       if (s.delayed?.length) {
@@ -529,29 +612,15 @@ function turnStep(env: Env, s: GameState): void {
           if (d.slot > 0) {
             const t = findSlot(s, d.slot);
             if (!t?.active) continue;
-          } else global = true;
-          s.queued.push({ code: d.code, pc: 0, vars: { __def: d.slot }, player: d.player, src: d.src, slot: d.from, kind: d.fromAttack ? 'attack' : 'trigger' });
+          }
+          // Every effect that waits for the end of the turn is one more of the "at the same time" effects the turn's player orders.
+          s.queued.push({ code: d.code, pc: 0, vars: { __def: d.slot }, player: d.player, src: d.src, slot: d.from, kind: d.fromAttack ? 'attack' : 'trigger', order: { g: 'end', by: s.current, ev: s.ev as number } });
         }
       }
       // lane:misc — "at the end of your turn" effects (Powerglass, Ignition Energy) resolve before Checkup.
       for (const sl of allSlots(s.p[s.current])) queueTriggers(env, s, sl, s.current, 'endOfTurn');
-      // Both happen at the end of the turn, so the turn's player chooses the order (TPCi Rules Team 2025-05-01, ruling 2135). Asked only
-      // when an effect not tied to a Pokémon (Amarys) is among at least two.
-      if (global && s.queued.length >= 2) {
-        s.step = 'checkup';
-        s.pending = {
-          decision: {
-            player: s.current,
-            kind: 'option',
-            prompt: 'Resolve which end-of-turn effect first?',
-            min: 1,
-            max: 1,
-            labels: s.queued.map((q) => def(env.ctx, q.src).name),
-          },
-          resume: { k: 'endOrder' },
-        };
-        return;
-      }
+      // The turn's player chooses their order (Advanced Player's Rulebook v3.4, the end-of-turn entry; TPCi Rules Team 2025-05-01, ruling 2135):
+      // `advance` asks when they differ.
       s.step = 'checkup';
       return;
     }
@@ -803,6 +872,7 @@ function doAction(env: Env, s: GameState, a: Action): void {
       // — see the todo in rules-audit.test.ts.
       evolveOnto(env, s, sl, a.card);
       emit(env, { type: 'evolve', player: p, card: a.card, slot: sl.id });
+      beginEvent(s);
       queueTriggers(env, s, sl, p, 'evolveFromHand');
       return;
     }
@@ -813,15 +883,16 @@ function doAction(env: Env, s: GameState, a: Action): void {
       sl.energy.push(a.card);
       ps.energyAttached = true;
       emit(env, { type: 'attach', player: p, card: a.card, slot: sl.id });
+      beginEvent(s); // the Energy's own effect and everything that watches for this attach are one batch
       const d = def(env.ctx, a.card);
       for (const t of d.triggers) {
         if (t.t.on !== 'attachFromHand') continue;
-        const f: Frame = { code: t.code, pc: 0, vars: {}, player: p, src: a.card, slot: sl.id, kind: 'energy' };
+        const f: Frame = { code: t.code, pc: 0, vars: {}, player: p, src: a.card, slot: sl.id, kind: 'energy', order: { g: 'attach', by: s.current, ev: s.ev as number } };
         if (t.t.when && !evalCond(env, s, { player: p, slot: sl.id, vars: {} }, t.t.when)) continue;
         if (t.t.optional) f.vars.__optional = true;
         s.queued.push(f);
       }
-      queueOppAttachTriggers(env, s, p, sl); // lane:ghost (Gengar ex, Gnawing Curse)
+      queueOppAttachTriggers(env, s, p, sl, false); // lane:ghost (Gengar ex, Gnawing Curse)
       return;
     }
     case 'trainer': {
@@ -1118,6 +1189,7 @@ function resolveKOs(env: Env, s: GameState): void {
   // (Undamaged Pokémon can't be Knocked Out: max HP is at least 10.)
   let all: ReturnType<typeof statics> | null = null;
   const queuedBefore = s.queued.length;
+  beginEvent(s);
   for (const p of [0, 1] as Player[]) {
     for (const sl of allSlots(s.p[p])) {
       if (sl.damage > 0 && sl.damage >= maxHp(env, s, sl, (all ??= statics(env, s)))) {
@@ -1310,6 +1382,17 @@ export function endGame(env: Env, s: GameState, winner: Player | null, reason: s
 // ---------------------------------------------------------------------------
 
 function checkup(env: Env, s: GameState): void {
+  // Step 2's effects and step 1's Special Condition checks are queued together: the player whose turn is next orders them, effect by effect
+  // before or after the checks (Advanced Player's Rulebook v3.4, Checkup steps, page 55). The default order is the checks first.
+  s.queued.push({ code: CHECKUP_CONDITIONS, pc: 0, vars: {}, player: s.current, src: 0, slot: 0, kind: 'rule', order: { g: 'checkup', by: opp(s.current), ev: beginEvent(s) } });
+  // lane:misc — "During Pokémon Checkup" Abilities (Froslass).
+  for (const p of [s.current, opp(s.current)] as Player[]) {
+    for (const sl of allSlots(s.p[p])) queueTriggers(env, s, sl, p, 'checkup');
+  }
+}
+
+/** Pokémon Checkup step 1: Poisoned, Burned, Asleep, Paralyzed. */
+function checkupConditions(env: Env, s: GameState): void {
   stripImmuneConditions(env, s);
   for (const p of [s.current, opp(s.current)] as Player[]) {
     const sl = s.p[p].active;
@@ -1335,10 +1418,6 @@ function checkup(env: Env, s: GameState): void {
     // when it was Paralyzed during its own turn (it must have been Paralyzed since that
     // turn began; Compendium). `paralyzedTurn` unset = applied before this turn.
     if (sl.cond & PARALYZED && p === s.current && sl.paralyzedTurn !== s.turn) sl.cond &= ~PARALYZED;
-  }
-  // lane:misc — "During Pokémon Checkup" Abilities (Froslass) resolve after Special Conditions, before Knock Outs.
-  for (const p of [s.current, opp(s.current)] as Player[]) {
-    for (const sl of allSlots(s.p[p])) queueTriggers(env, s, sl, p, 'checkup');
   }
 }
 

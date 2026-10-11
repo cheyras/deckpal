@@ -236,6 +236,18 @@ function onSlot(env: Env, s: GameState, all: LiveStatic[], slot: Slot, k: Static
   return out;
 }
 
+/**
+ * A Pokémon that was `braced` (Survival Brace / Resolute Heart: lethal damage at full HP) has its remaining HP set to 10 when Knock Outs are
+ * checked. Anything else that changes its damage before then (a second damage instance of the same attack, healing) happens to the Pokémon as it
+ * stands after that replacement, so it is settled first, at the max HP it has right now (rulebook D-14, Knock Out procedure; ruling 2041).
+ */
+export function settleBrace(env: Env, s: GameState, slot: Slot): void {
+  if (!slot.braced) return;
+  delete slot.braced;
+  const hp = maxHp(env, s, slot);
+  if (slot.damage >= hp) slot.damage = Math.max(0, hp - 10);
+}
+
 /** lane:zoroark — the live `surviveKoAtFullHp` effects on a Pokémon (Survival Brace). */
 export function surviveKoSources(env: Env, s: GameState, slot: Slot, all = statics(env, s)): LiveStatic[] {
   return onSlot(env, s, all, slot, 'surviveKoAtFullHp');

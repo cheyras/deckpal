@@ -719,9 +719,15 @@ test('Picnicker: cannot be played with no cards in your deck (it would draw noth
 
 // ------------------------------------------------------------------ Pecharunt
 
+/** The engine's own order for effects at the same time (the first option) when the player is asked which goes first. */
+const ord = (g: Game): void => {
+  if (g.decision?.prompt === 'Which effect happens first?') g.submit([0]);
+};
+
 test("Pecharunt, Poison Chain: 10, the opponent's Active Pokémon is now Poisoned, and it can't retreat during their next turn", () => {
   const g = game([{ active: 'Pecharunt', energy: { active: [D, D] } }, { active: DRA, bench: ['Purrloin'], energy: { active: [P] } }]);
   choose(g, 'Attack: Poison Chain');
+  ord(g);
   assert.ok(g.state.p[1].active!.cond & POISONED);
   assert.equal(dmg(g, 1), 10 + 10 + 50, '10 + Poison 10 + Toxic Subjugation 5 more counters');
   assert.ok(!has(g, 'Retreat'), "can't retreat during the opponent's next turn");
@@ -731,15 +737,19 @@ test("Pecharunt, Poison Chain: 10, the opponent's Active Pokémon is now Poisone
 test("Pecharunt, Poison Chain: the Defending Pokémon can retreat again two turns later", () => {
   const g = game([{ active: 'Pecharunt', energy: { active: [D, D] } }, { active: DRA, bench: ['Purrloin'], energy: { active: [P] } }]);
   choose(g, 'Attack: Poison Chain');
+  ord(g);
   assert.ok(!has(g, 'Retreat'));
   choose(g, 'End turn');
+  ord(g);
   choose(g, 'End turn');
+  ord(g);
   assert.ok(has(g, 'Retreat'), "two turns later (the opponent's turn after next) it can");
 });
 
 test("Pecharunt, Toxic Subjugation: while in the Active Spot, 5 more damage counters on the opponent's Poisoned Pokémon at Checkup", () => {
   const g = game([{ active: 'Pecharunt' }, { active: DRA, cond: POISONED, bench: ['Purrloin'] }]);
   choose(g, 'End turn');
+  ord(g);
   assert.equal(dmg(g, 1), 10 + 50, '1 counter for Poison and 5 more');
   assert.equal(g.state.p[1].bench[0]!.damage, 0);
   const calm = game([{ active: 'Pecharunt' }, { active: DRA }]);
@@ -750,9 +760,11 @@ test("Pecharunt, Toxic Subjugation: while in the Active Spot, 5 more damage coun
 test("Pecharunt, Toxic Subjugation: nothing from the Bench, and nothing for your own Poisoned Pokémon", () => {
   const bench = game([{ active: 'Purrloin', bench: ['Pecharunt'] }, { active: DRA, cond: POISONED }]);
   choose(bench, 'End turn');
+  ord(bench);
   assert.equal(dmg(bench, 1), 10, 'just Poison');
   const own = game([{ active: 'Pecharunt', cond: POISONED }, { active: DRA }]);
   choose(own, 'End turn');
+  ord(own);
   assert.equal(dmg(own, 0), 10, 'just Poison');
 });
 

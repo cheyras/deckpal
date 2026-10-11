@@ -515,14 +515,19 @@ test('Sky Return: Emolga goes to the hand with its Energy before Repulsor Axe pu
   const g = scenario(DK, DK, [
     { active: 'Iron Boulder ex', energy: { active: [FGT, FGT, FGT] } },
     { active: 'Dreepy', energy: { active: [LGT], 0: [LGT] }, bench: ['Emolga', 'Dragapult ex'] },
-  ]);
+  ], { events: true });
   choose(g, 'Attack: Repulsor Axe');
   assert.equal(dmg(g, 1), 60);
   assert.equal(g.state.effects.filter((e) => e.static.k === 'react').length, 1, 'the delayed counters are established on Iron Boulder ex');
   choose(g, 'Retreat');
   choose(g, 'Emolga');
   assert.equal(activeName(g, 1), 'Emolga');
+  const emolga = g.state.p[1].active!.id;
+  const mark = g.events.length;
   choose(g, 'Attack: Sky Return');
+  // Sequencing: no placement of damage counters targets Emolga's slot while it is still in play (or at all afterwards).
+  const placed = g.events.slice(mark).filter((e) => e.type === 'counters');
+  assert.ok(!placed.some((e) => (e as { slot: number }).slot === emolga), 'no damage counters were placed on Emolga');
   assert.equal(dmg(g, 0), 30, 'the 30 damage was done');
   const hand = names(g, g.state.p[1].hand);
   assert.ok(hand.includes('Emolga'), 'Emolga is in the hand');
@@ -531,6 +536,23 @@ test('Sky Return: Emolga goes to the hand with its Energy before Repulsor Axe pu
   const left = g.state.p[1].bench.filter((b) => b).map((b) => b!.damage);
   assert.ok(left.every((d) => d === 0 || d === 60), `no Pokémon in play took the 8 damage counters (damage: ${left})`);
   if (g.state.p[1].active) assert.ok(![80, 140].includes(g.state.p[1].active.damage), 'nor did a new Active Pokémon');
+});
+
+// Control for the test above: the same reaction does put its 8 counters on an attacker that stays in play.
+test('Repulsor Axe: an attacker that stays in play does get the 8 damage counters (control for Sky Return, https://compendium.pokegym.net/ruling/588/)', () => {
+  const g = scenario(DK, DK, [
+    { active: 'Iron Boulder ex', energy: { active: [FGT, FGT, FGT] } },
+    { active: 'Dragapult ex', energy: { active: [PSY] } },
+  ], { events: true });
+  choose(g, 'Attack: Repulsor Axe');
+  const attacker = g.state.p[1].active!.id;
+  const before = dmg(g, 1);
+  const mark = g.events.length;
+  choose(g, 'Attack: Jet Headbutt');
+  const placed = g.events.slice(mark).filter((e) => e.type === 'counters' && (e as { slot: number }).slot === attacker);
+  assert.equal(placed.length, 1, 'the reaction placed counters on the attacker once');
+  assert.equal((placed[0] as { n: number }).n, 8);
+  assert.equal(dmg(g, 1), before + 80, 'the attacker has 8 more damage counters');
 });
 
 // ----------------------------------------------------------------------------------------------- Not testable in the simulator

@@ -45,7 +45,8 @@ export type LiveEventBody =
   | { t: 'coin_won'; p: Side }
   | { t: 'go_first'; p: Side; first: boolean }
   | { t: 'opening_hand'; p: Side; count: number; cards?: CardMention[] }
-  | { t: 'mulligan'; p: Side; count: number; cards?: CardMention[] }
+  /** `cumulative`: the line was "took N mulligans" (N is the seat's total so far); otherwise "took a mulligan" (one more). */
+  | { t: 'mulligan'; p: Side; count: number; cumulative?: true; cards?: CardMention[] }
   | { t: 'turn_start'; p: Side }
   | { t: 'checkup' }
   | { t: 'draw'; p: Side; count: number; card?: CardMention; cards?: CardMention[]; toBench?: boolean }
@@ -357,7 +358,7 @@ export function parseLiveLog(raw: string, o: ParseOptions = {}): ParsedLiveLog {
         else if ((m = /^decided to go (first|second)\.$/.exec(rest))) D({ t: 'go_first', p, first: m[1] === 'first' });
         else if ((m = /^drew (\d{1,3}) cards for the opening hand\.$/.exec(rest))) D({ t: 'opening_hand', p, count: Number(m[1]) });
         else if (rest === 'took a mulligan.') D({ t: 'mulligan', p, count: 1 });
-        else if ((m = /^took (\d{1,3}) mulligans\.$/.exec(rest))) D({ t: 'mulligan', p, count: Number(m[1]) });
+        else if ((m = /^took (\d{1,3}) mulligans\.$/.exec(rest))) D({ t: 'mulligan', p, count: Number(m[1]), cumulative: true });
         else if ((m = /^drew (\d{1,3}) more cards? because .+ took at least \d+ mulligans?\.$/.exec(rest))) D({ t: 'draw', p, count: Number(m[1]) });
         else if (rest === 'drew a card.') D({ t: 'draw', p, count: 1 });
         else if ((m = /^drew (\d{1,3}) cards and played them to the Bench\.$/.exec(rest))) fold = { ev: D({ t: 'draw', p, count: Number(m[1]), toBench: true }), kind: 'cards' };

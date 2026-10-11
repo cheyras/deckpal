@@ -200,6 +200,9 @@ test("p.15 between turns: both players' Special Conditions, then Checkup Abiliti
     { active: 'Pup', bench: ['Pup'], damage: { active: 60 }, cond: POISONED },
   ]);
   choose(g, 'End turn');
+  // Field Care and the Special Condition checks happen at once; the player whose turn is next orders them (checks first is the default).
+  assert.equal(g.decision!.prompt, 'Which effect happens first?');
+  g.submit([0]);
   assert.equal(g.state.p[0].active!.damage, 50, 'Poison 10, then Field Care heals 20, before the Knock Out check');
   assert.equal(g.state.p[0].prizesTaken, 1, "P2's Poisoned Pup is Knocked Out in the same Checkup");
   assert.equal(g.state.p[1].prizesTaken, 0);

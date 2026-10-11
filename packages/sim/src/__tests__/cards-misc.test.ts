@@ -18,6 +18,10 @@ import type { CardScript } from '../dsl.js';
 import type { Decision } from '../types.js';
 import { gauntletDeck } from './gauntlet.js';
 
+/** Like effects from different Pokémon or cards may not commute, so the player is asked which goes first: take the engine's own order. */
+const ord = (g: Game): void => {
+  if (g.decision?.prompt === 'Which effect happens first?') g.submit([0]);
+};
 function labels(g: Game): string[] {
   return describeOptions(g.ctx, g.state, g.decision as Decision);
 }
@@ -106,6 +110,7 @@ test('Froslass, Freezing Shroud: each Checkup, 1 counter on every Pokémon with 
   assert.equal(g.state.p[0].active!.damage, 0, 'Froslass is exempt');
   const two = scenario(FRZ, ALL, [{ ...sides[0], bench: ['Munkidori', 'Snorunt'], evolve: { active: ['Froslass'], 1: ['Froslass'] } }, sides[1]]);
   choose(two, 'End turn');
+  ord(two);
   assert.equal(two.state.p[1].bench[0]!.damage, 20, 'two Froslass, two counters');
 });
 

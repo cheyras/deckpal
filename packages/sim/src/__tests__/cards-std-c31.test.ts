@@ -40,6 +40,10 @@ function pick(g: Game, names: string[]): void {
 const nameOf = (g: Game, card: number): string => def(g.ctx, card).name;
 const namesOf = (g: Game, cards: number[]): string[] => cards.map((c) => nameOf(g, c)).sort();
 const activeName = (g: Game, p: 0 | 1): string => nameOf(g, topCard(g.state.p[p].active!));
+/** Like effects from different Pokémon or cards may not commute, so the player is asked which goes first: take the engine's own order. */
+const ord = (g: Game): void => {
+  if (g.decision?.prompt === 'Which effect happens first?') g.submit([0]);
+};
 const dmg = (g: Game, p: 0 | 1): number => g.state.p[p].active!.damage;
 const benchDmg = (g: Game, p: 0 | 1): number[] => g.state.p[p].bench.map((b) => b.damage);
 /** The Pokémon in play (by name) of a player. */
@@ -428,6 +432,7 @@ test('Spiky Energy: even if the Pokémon is Knocked Out; the effect can stack (r
   assert.equal(dmg(ko, 1), 20);
   const two = G([{ active: SUDO, bench: [SLO], energy: { active: ['Spiky Energy', 'Spiky Energy'] } }, { active: DRA, energy: { active: [P] } }], OPP_TURN);
   choose(two, 'Attack: Jet Headbutt');
+  ord(two);
   assert.equal(dmg(two, 1), 40, '4 damage counters');
 });
 
