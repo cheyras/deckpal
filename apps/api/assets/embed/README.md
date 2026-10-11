@@ -44,12 +44,16 @@ arithmetic.
 
 ## What goes here
 
-`<EMBED_MODEL_ID>.onnx` (today `deckpal-card-b32-v2.onnx`) — the export named by `EMBED_MODEL_ID`
-(`packages/matching/src/input-spec.ts`). **The same file
-`tools/embed-catalog` uses**, and it must be: a query vector and a catalogue
-vector are comparable only when one model produced both. The export snippet is
-in `tools/embed-catalog/README.md`; quantise it to int8 for the API, which is
-what the 88.2 MB / 57 ms figures in DECISIONS.md were measured on.
+`<EMBED_MODEL_ID>.onnx` (today `deckpal-card-b32-v2.onnx`) — the **int8**
+query-side export of the checkpoint named by `EMBED_MODEL_ID`
+(`packages/matching/src/input-spec.ts`). A cloud build writes it here with
+`scripts/fetch-embed-model.mjs`, which checks its pinned `MODEL_SHA256`.
+`tools/embed-catalog` uses the **fp32** export of the SAME checkpoint
+(`deckpal-card-b32-v2.fp32.onnx`, pinned in `embed.mts`). That is not the same
+file, but it is the same model, which is what has to hold: a query vector and a
+catalogue vector are comparable only when one checkpoint produced both. Where
+both exports come from, and how the int8 one is staged, is in
+`tools/embed-catalog/README.md`.
 
 Override the location with `SCAN_EMBED_MODEL_PATH` (DEPLOYMENT.md).
 
