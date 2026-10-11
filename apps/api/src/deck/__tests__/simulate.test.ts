@@ -237,3 +237,25 @@ test('runComparison: a spent budget gives both versions the same games and says 
   });
   assert.equal(some.report.reportA.gamesPlayed, some.report.reportB.gamesPlayed);
 });
+
+test('runComparison: oversized notes are clamped; the verdict and the caveat always fit', async () => {
+  const pups = deck('Pups', mon('t-1', 'Pup', 70, '30'));
+  const notes = Array.from({ length: 200 }, (_, i) => `Deck ${i} has a card with no catalogue frame: ${'x'.repeat(80)}`);
+  const out = await runComparison(pups, pups, [deck('Cats', mon('t-2', 'Cat', 60, '20'))], {
+    games: 4, seed: 1, notes, pilot: pilotFactory('fast'),
+  });
+  assert.ok(out.text.length <= SIM_TEXT_LIMIT, `comparison text is ${out.text.length} chars`);
+  assert.match(out.text, /VERDICT:/);
+  assert.match(out.text, /Caveat:/);
+  assert.equal(out.report.notes.length, 200, 'the structured report keeps every note');
+});
+
+test('runComparison: a hard deadline inside version A\'s first game is reported as stopped early', async () => {
+  const pups = deck('Pups', mon('t-1', 'Pup', 70, '30'));
+  let c = 0;
+  const out = await runComparison(pups, pups, [deck('Cats', mon('t-2', 'Cat', 60, '20'))], {
+    games: 40, seed: 1, budgetMs: 40, startedAt: 0, now: () => ++c, pilot: pilotFactory('fast'),
+  });
+  assert.equal(out.report.stoppedEarly, true);
+  assert.equal(out.report.reportA.stoppedEarly, true);
+});

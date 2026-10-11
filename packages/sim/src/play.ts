@@ -46,3 +46,43 @@ export function playOut(game: Game, pilots: [Pilot, Pilot], opts: PlayOptions = 
   }
   return game;
 }
+
+/** Let other work on the event loop run (timers, I/O, other requests). setTimeout: works in Node and Web Workers. */
+export function yieldToEventLoop(): Promise<void> {
+  return new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
+/**
+ * playOut that yields to the event loop at least every `sliceMs` of real time,
+ * between decisions, so one long game can't freeze a shared server process.
+ * The slice is measured on the real clock, not the injectable `now` (which only
+ * drives the deadline), so a fake clock in tests sees exactly the same reads.
+ */
+export async function playOutAsync(game: Game, pilots: [Pilot, Pilot], opts: PlayOptions & { sliceMs?: number } = {}): Promise<Game> {
+  const max = opts.maxDecisions ?? 20000;
+  const deadline = opts.deadline ?? Infinity;
+  const now = opts.now ?? Date.now;
+  const slice = opts.sliceMs ?? 15;
+  let sliceStart = Date.now();
+  if (game.state.phase === 'setup' && !game.decision) game.start();
+  let n = 0;
+  while (!game.over) {
+    const d = game.decision;
+    if (!d) throw new Error('engine stopped without a decision or a result');
+    if (++n > max) {
+      abandon(game, 'decision limit');
+      break;
+    }
+    if (deadline !== Infinity && now() >= deadline) {
+      abandon(game, 'time limit');
+      break;
+    }
+    const choice = pilots[d.player].choose(game, d);
+    game.submit(choice);
+    if (Date.now() - sliceStart >= slice) {
+      await yieldToEventLoop();
+      sliceStart = Date.now();
+    }
+  }
+  return game;
+}

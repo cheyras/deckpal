@@ -532,7 +532,7 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
    draw cards are never played; name them in a group to count them as outs). An unknown card
    name fails with the deck's real names; a short, long or over-copied list is still computed
    and says so; a list with no Basic fails. CPU is bounded twice: a list over 120 cards is
-   refused, and the games are cut to fit 2,000,000 dealt hands (a game deals 1/(1 − p) of them,
+   refused, and the games are cut to fit an expected 2,000,000 dealt hands (a game deals 1/(1 − p) of them on average,
    p the exact mulligan probability), the answer saying so (`trials_requested`). Margins are
    Wilson; "every copy prized" is the closed form; notes are capped at 8 lines; `format?`
    picks which printings an unsaved list's bare names resolve to. First of the simulation tools —

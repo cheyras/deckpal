@@ -127,6 +127,8 @@ function poison(s: GameState, me: Player, rng: Rng): GameState {
   const own = [{ arr: mine.deck, idx: range(Math.max(0, mine.deck.length - mine.knownTop)) }];
   if (!mine.prizesKnown) own.push({ arr: mine.prizes, idx: range(mine.prizes.length) });
   permute(own);
+  // Knowing WHICH cards are prized (after a deck search) is not knowing their order: permute positions too.
+  if (mine.prizesKnown) permute([{ arr: mine.prizes, idx: range(mine.prizes.length) }]);
   const them = t.p[(1 - me) as Player];
   const rev = new Set(them.revealed);
   permute([
@@ -199,4 +201,20 @@ test('invariance: no pilot\'s choice changes when the cards its player cannot se
   }
   assert.ok(checked >= 40, `only ${checked} positions checked`);
   void mid;
+});
+
+test('determinize: with the Prize multiset known (after a deck search) their ORDER is still resampled', () => {
+  const g = new Game(HIDE_N_SNEAK, TOOLBOX_SLOWKING, 7).start();
+  const pilots = [new RandomPilot(1), new RandomPilot(2)];
+  while (!g.over && g.state.phase === 'setup') g.submit((pilots[g.decision!.player] as RandomPilot).choose(g, g.decision!));
+  const s = g.state;
+  s.p[0].prizesKnown = true;
+  const real = s.p[0].prizes.slice();
+  let reordered = 0;
+  for (let k = 0; k < 20; k++) {
+    const d = determinize(s, g.ctx, 0, new Rng(1000 + k));
+    assert.deepEqual(d.p[0].prizes.slice().sort((x, y) => x - y), real.slice().sort((x, y) => x - y), 'the known Prize multiset must be kept');
+    if (d.p[0].prizes.join() !== real.join()) reordered++;
+  }
+  assert.ok(reordered >= 15, `Prize order kept the real order in ${20 - reordered} of 20 worlds`);
 });

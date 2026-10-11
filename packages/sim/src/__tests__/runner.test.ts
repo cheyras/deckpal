@@ -216,3 +216,21 @@ test('the default pilot is the own-turn search CPU', () => {
   assert.equal(r.played, 2);
   assert.ok(!/random/i.test(String(r.pilot ?? '')), `default pilot was ${r.pilot}`);
 });
+
+test('simulateAsync keeps the event loop responsive: no stall longer than a few decisions, even with the search CPU', async () => {
+  let last = Date.now();
+  let worst = 0;
+  const timer = setInterval(() => {
+    const t = Date.now();
+    worst = Math.max(worst, t - last);
+    last = t;
+  }, 5);
+  try {
+    const r = await simulateAsync({ a: HIDE_N_SNEAK, b: TOOLBOX_SLOWKING, games: 2, seed: 4 });
+    assert.equal(r.played, 2);
+  } finally {
+    clearInterval(timer);
+  }
+  // A whole game takes ~0.5 s; between-decision yields keep any single stall far below that.
+  assert.ok(worst < 250, `the event loop stalled for ${worst} ms`);
+});

@@ -302,6 +302,7 @@ export interface Pending {
     | { k: 'setupActive'; p: Player }
     | { k: 'setupBench'; p: Player }
     | { k: 'mulliganDraws'; p: Player }
+    | { k: 'extraBench'; p: Player }
     | { k: 'promote'; p: Player };
 }
 

@@ -29,6 +29,7 @@
  * honest answer is usually "no clear difference", and the text says so.
  */
 import type { DeckInput } from './context.js';
+import { yieldToEventLoop } from './play.js';
 import { runSimulation, type PilotFactory, type SimulationResult, type GameSummary } from './runner.js';
 
 /** Fewest seed pairs before any verdict other than "no clear difference". */
@@ -56,6 +57,8 @@ export interface PairedOptions {
 export interface PairedSimulation {
   /** Play one seed pair for each version. False when finished. */
   step(): boolean;
+  /** The same, each game yielding to the event loop every few milliseconds. */
+  stepAsync(): Promise<boolean>;
   readonly done: boolean;
   /** [version A's result, version B's result] — always the same pairs. */
   result(): [SimulationResult, SimulationResult];
@@ -86,31 +89,46 @@ export function runPaired(opts: PairedOptions): PairedSimulation {
   let done = false;
   let steps = 0;
   let slowest = 0;
+  const mayStep = (): boolean => {
+    if (done) return false;
+    if (steps > 0 && now() - started + slowest > budget) {
+      stoppedEarly = !simA.done;
+      done = true;
+      return false;
+    }
+    return true;
+  };
+  const endStep = (t0: number, t1: number, t2: number, moreA: boolean, moreB: boolean): boolean => {
+    spent[0] += t1 - t0;
+    spent[1] += t2 - t1;
+    slowest = Math.max(slowest, t2 - t0);
+    steps++;
+    if (!moreA || !moreB) done = true;
+    return !done;
+  };
   const sim: PairedSimulation = {
     get done() {
       return done;
     },
     step(): boolean {
-      if (done) return false;
-      if (steps > 0 && now() - started + slowest > budget) {
-        stoppedEarly = !simA.done;
-        done = true;
-        return false;
-      }
+      if (!mayStep()) return false;
       const t0 = now();
       const moreA = simA.step();
       const t1 = now();
       const moreB = simB.step();
-      const t2 = now();
-      spent[0] += t1 - t0;
-      spent[1] += t2 - t1;
-      slowest = Math.max(slowest, t2 - t0);
-      steps++;
-      if (!moreA || !moreB) done = true;
-      return !done;
+      return endStep(t0, t1, now(), moreA, moreB);
+    },
+    async stepAsync(): Promise<boolean> {
+      if (!mayStep()) return false;
+      const t0 = now();
+      const moreA = await simA.stepAsync();
+      const t1 = now();
+      const moreB = await simB.stepAsync();
+      return endStep(t0, t1, now(), moreA, moreB);
     },
     result(): [SimulationResult, SimulationResult] {
-      const fix = (r: SimulationResult, i: 0 | 1): SimulationResult => ({ ...r, stoppedEarly, elapsedMs: spent[i] });
+      // Either stop counts: the soft budget here, or the hard deadline inside a runner's game.
+      const fix = (r: SimulationResult, i: 0 | 1): SimulationResult => ({ ...r, stoppedEarly: r.stoppedEarly || stoppedEarly, elapsedMs: spent[i] });
       return [fix(simA.result(), 0), fix(simB.result(), 1)];
     },
   };
@@ -127,7 +145,7 @@ export function simulatePaired(opts: PairedOptions): [SimulationResult, Simulati
 
 export async function simulatePairedAsync(opts: PairedOptions): Promise<[SimulationResult, SimulationResult]> {
   const sim = runPaired(opts);
-  while (sim.step()) await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  while (await sim.stepAsync()) await yieldToEventLoop();
   return sim.result();
 }
 

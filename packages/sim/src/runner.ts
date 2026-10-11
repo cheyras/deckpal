@@ -30,7 +30,7 @@
 import { makePilot } from './pilot/index.js';
 import { createContext, def, type DeckInput, type GameContext } from './context.js';
 import { Game } from './game.js';
-import { playOut } from './play.js';
+import { playOut, playOutAsync, yieldToEventLoop } from './play.js';
 import type { Pilot } from './pilot/types.js';
 import { deriveSeed } from './rng.js';
 import type { GameEvent, Player } from './types.js';
@@ -123,6 +123,8 @@ export interface SimulationResult {
 export interface Simulation {
   /** Play one pair. False when the batch is finished (all games played or the budget spent). */
   step(): boolean;
+  /** The same as step(), but each game yields to the event loop every few milliseconds. */
+  stepAsync(): Promise<boolean>;
   readonly done: boolean;
   result(): SimulationResult;
 }
@@ -164,7 +166,7 @@ export function runSimulation(opts: SimulateOptions): Simulation {
   let done = false;
   let slowestPair = 0;
 
-  const play = (pair: number, gameSeed: number, aFirst: boolean): GameSummary => {
+  const prepare = (pair: number, gameSeed: number, aFirst: boolean) => {
     const ctx = aFirst ? ctxAB : ctxBA;
     const seatOfA: Player = aFirst ? 0 : 1;
     const sideOf = (p: Player): Side => (p === seatOfA ? 0 : 1);
@@ -173,47 +175,80 @@ export function runSimulation(opts: SimulateOptions): Simulation {
     pilotName ??= pilotA.name === pilotB.name ? pilotA.name : `${pilotA.name} vs ${pilotB.name}`;
     const pilots: [Pilot, Pilot] = aFirst ? [pilotA, pilotB] : [pilotB, pilotA];
     const game = new Game(ctx, null, gameSeed);
-    let error: string | undefined;
+    const finish = (error?: string) => summarize(ctx, game, { pair, seed: gameSeed, aFirst, sideOf, seatOfA, error });
+    return { game, pilots, finish };
+  };
+  const errText = (err: unknown) => (err instanceof Error ? err.message : String(err));
+  const play = (pair: number, gameSeed: number, aFirst: boolean): GameSummary => {
+    const g = prepare(pair, gameSeed, aFirst);
     try {
-      playOut(game, pilots, { maxDecisions: opts.maxDecisions, deadline, now });
+      playOut(g.game, g.pilots, { maxDecisions: opts.maxDecisions, deadline, now });
     } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
+      return g.finish(errText(err));
     }
-    return summarize(ctx, game, { pair, seed: gameSeed, aFirst, sideOf, seatOfA, error });
+    return g.finish();
+  };
+  const playAsync = async (pair: number, gameSeed: number, aFirst: boolean): Promise<GameSummary> => {
+    const g = prepare(pair, gameSeed, aFirst);
+    try {
+      await playOutAsync(g.game, g.pilots, { maxDecisions: opts.maxDecisions, deadline, now });
+    } catch (err) {
+      return g.finish(errText(err));
+    }
+    return g.finish();
+  };
+  /** Before a pair: false (and finished) when the batch is done or the budget can't fit another pair. */
+  const mayStart = (): boolean => {
+    if (done) return false;
+    if (next >= pairs) {
+      done = true;
+      return false;
+    }
+    const elapsed = now() - started;
+    if ((next > 0 && elapsed + slowestPair > budget) || pastDeadline()) {
+      stoppedEarly = true;
+      done = true;
+      return false;
+    }
+    return true;
+  };
+  /** After a pair's first game: false (and finished) when the deadline arrived during it. */
+  const midPairOk = (): boolean => {
+    if (!pastDeadline()) return true;
+    stoppedEarly = true;
+    done = true;
+    return false;
+  };
+  const endPair = (t0: number): boolean => {
+    slowestPair = Math.max(slowestPair, now() - t0);
+    next++;
+    if (next >= pairs) done = true;
+    return !done;
   };
 
   const sim: Simulation = {
     get done() {
       return done;
     },
+    // Don't start a pair the budget can't finish (the slowest pair so far is the estimate), nor any
+    // pair once the deadline has passed; a deadline arriving mid-pair keeps the game it cut short.
     step(): boolean {
-      if (done) return false;
-      if (next >= pairs) {
-        done = true;
-        return false;
-      }
-      const elapsed = now() - started;
-      // Don't start a pair the budget can't finish: the slowest pair so far is the estimate.
-      // Nor any pair at all once the deadline has passed, the first one included.
-      if ((next > 0 && elapsed + slowestPair > budget) || pastDeadline()) {
-        stoppedEarly = true;
-        done = true;
-        return false;
-      }
+      if (!mayStart()) return false;
       const t0 = now();
       const gameSeed = deriveSeed(seed, next);
       games.push(play(next, gameSeed, true));
-      if (pastDeadline()) {
-        // The deadline arrived during the pair's first game: keep that game, play no more.
-        stoppedEarly = true;
-        done = true;
-        return false;
-      }
+      if (!midPairOk()) return false;
       games.push(play(next, gameSeed, false));
-      slowestPair = Math.max(slowestPair, now() - t0);
-      next++;
-      if (next >= pairs) done = true;
-      return !done;
+      return endPair(t0);
+    },
+    async stepAsync(): Promise<boolean> {
+      if (!mayStart()) return false;
+      const t0 = now();
+      const gameSeed = deriveSeed(seed, next);
+      games.push(await playAsync(next, gameSeed, true));
+      if (!midPairOk()) return false;
+      games.push(await playAsync(next, gameSeed, false));
+      return endPair(t0);
     },
     result(): SimulationResult {
       return {
@@ -242,11 +277,14 @@ export function simulate(opts: SimulateOptions): SimulationResult {
   return sim.result();
 }
 
-/** Run the whole batch, yielding to the event loop between pairs. */
+/**
+ * Run the whole batch without holding the event loop: every game yields every
+ * few milliseconds (between decisions), and again between pairs. This is the
+ * path for a shared server process.
+ */
 export async function simulateAsync(opts: SimulateOptions): Promise<SimulationResult> {
   const sim = runSimulation(opts);
-  // setTimeout, not setImmediate: the engine stays runtime-agnostic (a Web Worker has no setImmediate).
-  while (sim.step()) await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  while (await sim.stepAsync()) await yieldToEventLoop();
   return sim.result();
 }
 

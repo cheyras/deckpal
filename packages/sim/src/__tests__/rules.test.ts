@@ -339,19 +339,45 @@ test('p.8, 18 setup: mulligans give the opponent extra draws; a deck with no Bas
   assert.equal(g.state.phase, 'over');
   assert.equal(g.state.winner, 1);
 
+  // Rulebook p.18: both players place Active and Bench and set aside Prizes FIRST; only then does the
+  // opponent of the player who mulliganed draw the extra cards, and Basics drawn that way may be Benched.
   const ONE = deck('One Basic', [[PUP, 1], [FIGHTING, 59]]);
+  const MANY = deck('Many Basics', [[PUP, 30], [FIGHTING, 30]]);
   let sawExtra = false;
-  for (let seed = 1; seed < 40 && !sawExtra; seed++) {
-    const m = new Game(ONE, B, seed, { first: 0 }).start();
-    if (m.state.p[0].mulligans > m.state.p[1].mulligans) {
+  let sawBench = false;
+  for (let seed = 1; seed < 80 && !(sawExtra && sawBench); seed++) {
+    const m = new Game(ONE, MANY, seed, { first: 0 }).start();
+    if (m.state.p[0].mulligans <= m.state.p[1].mulligans) continue;
+    const order: string[] = [];
+    while (m.decision && m.decision.kind !== 'mulliganDraws') {
       const d = m.decision as Decision;
-      assert.equal(d.kind, 'mulliganDraws');
-      assert.equal(d.player, 1);
-      assert.equal(d.labels!.length, m.state.p[0].mulligans - m.state.p[1].mulligans + 1);
-      sawExtra = true;
+      order.push(`${d.kind}:${d.player}`);
+      assert.ok(d.kind === 'setupActive' || d.kind === 'setupBench', `unexpected ${d.kind} before the extra draws`);
+      m.submit(d.kind === 'setupActive' ? [0] : []);
+    }
+    const d = m.decision as Decision;
+    assert.equal(d.kind, 'mulliganDraws');
+    assert.equal(d.player, 1);
+    assert.equal(d.labels!.length, m.state.p[0].mulligans - m.state.p[1].mulligans + 1);
+    assert.ok(order.includes('setupActive:0') && order.includes('setupActive:1'), `both players must set up before the extra draws (${order.join(', ')})`);
+    assert.equal(m.state.p[1].active !== null, true, 'P2 placed an Active before drawing extras');
+    assert.equal(m.state.p[0].prizes.length, 6);
+    assert.equal(m.state.p[1].prizes.length, 6, 'Prize cards are set aside before the extra draws');
+    sawExtra = true;
+    const activeBefore = m.state.p[1].active!.id;
+    const handBefore = m.state.p[1].hand.slice();
+    m.submit([d.labels!.length - 1]); // draw them all
+    const next = m.decision as Decision;
+    if (next.kind === 'setupBench' && next.player === 1) {
+      // Only Basics drawn just now are offered, and the Active can't change.
+      assert.ok(next.values!.every((c) => !handBefore.includes(c)), 'a Basic from the opening hand was offered again');
+      m.submit([0]);
+      assert.equal(m.state.p[1].active!.id, activeBefore);
+      sawBench = true;
     }
   }
-  assert.ok(sawExtra, 'no seed produced a mulligan in 40 tries');
+  assert.ok(sawExtra, 'no seed produced a mulligan in 80 tries');
+  assert.ok(sawBench, 'no seed drew a Basic with the extra cards');
 });
 
 void energy;

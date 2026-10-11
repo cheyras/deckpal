@@ -575,7 +575,7 @@ and closed-form mulligan, over a saved deck (`loadDeckEntries`, the deck page's
 own loader) or an unsaved list resolved exactly as `POST /decks/check` resolves
 one. It runs inside the API function with no schema change and no new service,
 allocates nothing per trial (one index array, partial Fisher-Yates), bounds its
-CPU by refusing lists over 120 cards and cutting games to fit 2,000,000 dealt
+CPU by refusing lists over 120 cards and cutting games to fit an expected 2,000,000 dealt
 hands (a list that mulligans a lot deals many per game), and states
 method, trials, seed and a 95% margin on every answer, with the exact
 hypergeometric value wherever one group makes it closed-form. It draws cards and

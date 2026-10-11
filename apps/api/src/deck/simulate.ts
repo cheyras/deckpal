@@ -381,7 +381,8 @@ export async function runComparison(a: DeckInput, b: DeckInput, opponents: DeckI
     );
   }
   const report = { ...buildComparison({ a, b, opponents, results, elapsedMs: now() - started }), notes: opts.notes ?? [] };
-  const noteText = report.notes.map((n) => `Note: ${n}`).join('\n');
+  // The same bounded notes as a single run (renderWithNotes): the verdict and the caveat always fit.
+  const noteText = clampNotes(report.notes, Math.min(SIM_NOTES_LIMIT, Math.floor(SIM_TEXT_LIMIT / 4)));
   let text = renderComparison(report, SIM_TEXT_LIMIT - (noteText ? noteText.length + 1 : 0));
   if (noteText) {
     // Notes go under the verdict and the overall line, within the same limit.

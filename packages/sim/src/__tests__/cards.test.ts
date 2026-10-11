@@ -480,3 +480,13 @@ test('Lucky Helmet: draw 2 when the Active holder is damaged by an opposing atta
   choose(g, 'Attack: Vengeful Anchor');
   assert.equal(g.state.p[1].hand.length, n + 2 + 1, '+2 from Lucky Helmet, +1 turn draw');
 });
+
+test('an Item lock (Itchy Pollen) stops Items but not Pokémon Tools, which are their own Trainer category', () => {
+  const g = H([{ active: 'Dhelmise', hand: ['Air Balloon', 'Ultra Ball', 'Gwynn', 'Poké Pad'] }, { active: 'Kyurem' }]);
+  g.state.effects.push({ static: { k: 'itemLock' }, slot: -1, player: 0, until: g.state.turn, fromAttack: true, src: g.state.p[1].active!.cards[0]! });
+  g.state.pending = null;
+  g.state.step = 'main';
+  rerun(g);
+  assert.ok(!has(g, 'Play Ultra Ball') && !has(g, 'Play Poké Pad'), 'an Item was offered under an Item lock');
+  assert.ok(has(g, 'Attach Air Balloon to Dhelmise'), 'the Tool was blocked by an Item lock');
+});

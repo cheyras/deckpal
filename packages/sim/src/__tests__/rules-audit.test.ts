@@ -229,16 +229,8 @@ test('a Stadium cannot be played onto a same-name Stadium, whoever played it', (
   assert.ok(!has(g, 'Play Arena'), 'a same-name Stadium was offered');
 });
 
-test.todo(
-  'mulligan extra draws: the engine draws them BEFORE placing the Active and Bench (setup steps extra0/extra1). ' +
-    'Does the Sept 2026 Rulebook / Tournament Handbook put them after both players place Active, Bench and Prizes ' +
-    '(so a Basic drawn this way can still be Benched, or cannot)? The order changes what the drawn cards can do.',
-);
-test.todo(
-  'Paralyzed inflicted during its OWNER\'s turn (a self-Paralyzing attack, or an opponent\'s effect resolving on your turn): ' +
-    'the engine removes it at that same turn\'s Checkup (p === current). The Rulebook says it recovers at the Checkup ' +
-    '"after your next turn" / "if Paralyzed since the start of your last turn" — which wording governs?',
-);
+// Settled since: mulligan extra-draw order (rulebook p.18, rules.test.ts) and own-turn Paralysis
+// (Compendium, rules.test.ts).
 test.todo(
   'playing an Item or Supporter whose effect can do nothing (draw with an empty deck, search an empty deck): the engine ' +
     'offers it unless the card script has a `playable` guard. Is a no-effect Trainer legal to play (thinning, triggering ' +

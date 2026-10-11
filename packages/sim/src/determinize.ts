@@ -103,6 +103,9 @@ export function determinize(state: GameState, _ctx: GameContext, player: Player,
   if (!me.prizesKnown) own.push({ arr: me.prizes, idx: range(0, me.prizes.length) });
   const moved = new Map<number, number>();
   resample(own, pins, rng, moved);
+  // Prize composition known (the deck was searched) is not Prize ORDER known: the cards stay
+  // face down, so which one comes next is still unknown — shuffle their positions on their own.
+  if (me.prizesKnown) resample([{ arr: me.prizes, idx: range(0, me.prizes.length) }], pins, rng, moved);
 
   // Opponent: unrevealed hand, deck, Prize cards — one pool.
   const revealed = new Set(them.revealed);

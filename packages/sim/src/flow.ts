@@ -90,10 +90,41 @@ export function submit(env: Env, s: GameState, choice: number[]): void {
       s.step = 'deal';
       break;
     }
-    case 'mulliganDraws':
-      draw(env, s, r.p, choice[0] as number);
-      s.step = r.p === 0 ? 'extra1' : 'place0';
+    case 'mulliganDraws': {
+      // Rulebook p.18: the extra cards come after both players have set up and set aside Prize
+      // cards; any Basic Pokémon drawn this way may then go onto the Bench.
+      const ps = s.p[r.p];
+      const n = draw(env, s, r.p, choice[0] as number);
+      const drawnBasics = ps.hand.slice(ps.hand.length - n).filter((c) => isBasic(env, c));
+      const room = 5 - ps.bench.length;
+      s.step = r.p === 0 ? 'extra1' : 'begin';
+      if (drawnBasics.length && room > 0) {
+        s.pending = {
+          decision: {
+            player: r.p,
+            kind: 'setupBench',
+            prompt: 'Put any Basic Pokémon you just drew onto your Bench',
+            min: 0,
+            max: Math.min(room, drawnBasics.length),
+            values: drawnBasics,
+          },
+          resume: { k: 'extraBench', p: r.p },
+        };
+        return;
+      }
       break;
+    }
+    case 'extraBench': {
+      const ps = s.p[r.p];
+      for (const i of choice) {
+        const card = (d.values as number[])[i] as number;
+        removeFrom(ps.hand, card);
+        const sl = newSlot(s, card);
+        ps.bench.push(sl);
+        emit(env, { type: 'play_to_bench', player: r.p, card, slot: sl.id });
+      }
+      break;
+    }
     case 'setupActive': {
       const card = (d.values as number[])[choice[0] as number] as number;
       const ps = s.p[r.p];
@@ -231,7 +262,7 @@ function setupStep(env: Env, s: GameState): void {
         }
         emit(env, { type: 'opening_hand', player: p, size: ps.hand.length });
       }
-      s.step = 'extra0';
+      s.step = 'place0';
       return;
     }
     case 'extra0':
@@ -239,7 +270,7 @@ function setupStep(env: Env, s: GameState): void {
       const p: Player = s.step === 'extra0' ? 0 : 1;
       const extra = Math.max(0, s.p[opp(p)].mulligans - s.p[p].mulligans);
       if (!extra) {
-        s.step = p === 0 ? 'extra1' : 'place0';
+        s.step = p === 0 ? 'extra1' : 'begin';
         return;
       }
       s.pending = {
@@ -291,6 +322,10 @@ function setupStep(env: Env, s: GameState): void {
         const ps = s.p[p];
         for (let i = 0; i < 6 && ps.deck.length; i++) ps.prizes.push(ps.deck.pop() as number);
       }
+      s.step = 'extra0';
+      return;
+    }
+    case 'begin': {
       s.phase = 'main';
       s.turn = 1;
       s.current = s.first;
@@ -430,7 +465,7 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
         if (s.stadium && def(env.ctx, s.stadium.card).name === d.name) continue;
         if (once(`t${d.idx}`)) out.push({ t: 'trainer', card: c });
       } else if (d.ttype === 'tool') {
-        if (locked) continue;
+        // Pokémon Tools are their own Trainer category, not Items: an Item lock (Itchy Pollen) does not stop them.
         for (const sl of slots) {
           if (sl.tools.length >= 1) continue;
           if (once(`o${d.idx}:${sl.id}`)) out.push({ t: 'tool', card: c, slot: sl.id });

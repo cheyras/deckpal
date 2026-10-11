@@ -1087,7 +1087,7 @@ plus optional `queries` (≤12), `trials` (1000..200000, default 50000), `seed`
 (uint32, default a fixed 60 so a repeat call agrees) and `format` (which format's
 printings an unsaved list's bare names resolve to, as in `/decks/check`; default
 `standard`). The list may hold at most 120 cards. A list that mulligans a lot has
-its games cut so the call deals at most 2,000,000 opening hands (`trials` is then
+its games cut so the call deals an expected 2,000,000 opening hands at most (`trials` is then
 below `trials_requested`, and a note says why). A query is
 `{ "label"?, "all_of": [Group, …1..6], "by_turn"? 0..10 = 0, "prized"? = false }`
 and a Group is `{ "cards"?: [card name in the deck], "kinds"?: ["basic" |
