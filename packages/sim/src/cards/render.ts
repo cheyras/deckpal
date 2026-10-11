@@ -196,6 +196,9 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c01.leastHpRemaining': (a) => `Choose the Pokémon in play (yours or your opponent's), other than this Pokémon, that has the least HP remaining (into "${String(a.as ?? 't')}")`,
   // std-c12-customs.ts
   'c12.endTurn': () => 'Your turn ends (as after an attack, without an attack happening)',
+  // std-c20-customs.ts
+  'c20.peekOppTop': () => "Look at the top card of your opponent's deck, then you may have your opponent shuffle their deck",
+  'c20.revealFound': (a) => `Reveal the cards in "${String(a.cards ?? 'found')}"`,
   // std-c10-customs.ts
   'c10.evolveSelfFromHand': () =>
     "Choose a card in your hand that evolves from this Pokémon and put it onto this Pokémon to evolve it (it recovers from all Special Conditions, the effects of attacks on it end, and \"when you play this from your hand to evolve\" Abilities run); nothing happens if this Pokémon already evolved this turn, and it can't be used to evolve twice in a turn; the variable \"evolved\" is 1 if it evolved, else 0",
@@ -1890,5 +1893,10 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me05-020|attack:Aqua Return': {
     problems: ['"your deck" is printed but not rendered'],
     why: 'The shuffle is the shared seed4.shuffleSlotIntoDeck, glossed for any Pokémon ("into their deck"); the Pokémon chosen here is always the attacking player own Active Pokémon (Primarina itself), so its owner is the attacker and the deck is "your deck".',
+  },
+  // std-c20
+  'sv06.5-015|attack:Shattering Speed': {
+    problems: ['"attach" is printed but not rendered'],
+    why: '"Discard this Pokémon and all attached cards" is the shared discardSelfFromPlay custom, which moves the Pokémon and every card attached to it (Energy, Tools, pre-evolutions) to the discard pile; its gloss says only "Discard this card from play".',
   },
 };
