@@ -282,6 +282,12 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c27.lookDeckPick': (a) => `Look at the ${a.from === 'bottom' ? 'bottom' : 'top'} ${Number(a.n ?? 7)} cards of your deck. You may reveal ${((a.picks as Filter[]) ?? []).map((p) => (p.cat === 'trainer' ? 'a Trainer card' : p.cat === 'pokemon' ? 'a Pokémon' : 'a card')).join(' and ')} you find there and put ${((a.picks as Filter[]) ?? []).length > 1 ? 'them' : 'it'} into your hand. Shuffle the other cards back into your deck`,
   'c27.discardOppToolsAndSpecialEnergy': () => "Discard all Pokémon Tools and Special Energy from all of your opponent's Pokémon (Active and Benched)",
   'c27.moveEnergyBetween': (a) => `You may choose 1 or more of the Energy attached to the Pokémon "${String(a.from ?? 'old')}" and move them to the Pokémon "${String(a.to ?? 't')}"`,
+  // std-c28-customs.ts
+  'c28.tymeGuess': (a) => `Your opponent guesses the HP of the Pokémon chosen as "${String(a.cards ?? 'x')}" (a choice from 10 HP to 400 HP, the card's whole name in the question), then it is revealed: "${String(a.as ?? 'right')}" becomes 1 when the guess is its HP, else 0`,
+  'c28.pickExactCounters': (a) => `Choose 1 of your opponent's Pokémon, Active or Benched, that has exactly ${Number(a.counters ?? 6)} damage counters on it as "${String(a.as ?? 't')}"; no question when only one has, none chosen when none does`,
+  'c28.discardBenchBasicEnergy': (a) => `You may discard up to ${Number(a.max ?? 2)} Basic Energy cards attached to your Benched Pokémon (0 allowed; Special Energy can't be chosen); the number of cards discarded lands in "${String(a.as ?? 'n')}"`,
+  'c28.devolveOppToDeck': () =>
+    "Devolve each of your opponent's evolved Pokémon, Active and Benched, by shuffling the highest Stage Evolution card on it into your opponent's deck (it recovers from all Special Conditions and loses attack effects; one that is protected from the effects of attacks is left alone); your opponent's deck is shuffled once afterwards",
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -2185,5 +2191,26 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv08-176|text': {
     problems: ['"any number of" is printed but not rendered'],
     why: 'Any number of Basic Energy of different types is one card of each of the 8 types at most (oneEach, 0 to 8 cards), which renders as the list of types; the ruling (#2063) that a type can be taken only once is what the list says.',
+  },
+  // std-c28
+  "sv08-190|text": {
+    problems: ["\"opponent's pokemon\" is printed but not rendered", 'similarity'],
+    why: "The printed \"Tell your opponent the name of a Pokémon in your hand\" is the choice of a Pokémon card from the hand, whose whole name the guessing question names; c28.tymeGuess asks the opponent for its HP and the draws follow from the result, which the renderer words through the custom gloss only.",
+  },
+  "sv08.5-051|attack:Tornado Rush": {
+    problems: ["\"Weakness\" is printed but not rendered", "\"Resistance\" is printed but not rendered", 'similarity'],
+    why: "The next-turn bonus is a mark the attack leaves on the Pokémon (c06.rememberAttack) plus a +100 that applies while the mark is there (c06.usedLastTurn); the bonus is part of the attack base damage, so it is before Weakness and Resistance like all printed damage, and the engine does not render that parenthesis. The card test pins 100, then 200, then 200.",
+  },
+  "sv08.5-060|attack:Onyx": {
+    problems: ['similarity'],
+    why: "Taking a Prize card is the custom c02.takePrize, whose gloss describes the rule at length; both printed clauses (discard all Energy from this Pokémon, take a Prize card) are rendered.",
+  },
+  "sv08.5-081|attack:Moomoo Rolling": {
+    problems: ['similarity'],
+    why: "\"You can use this attack only if this Pokémon used Rollout during your last turn\" is a `cantUseAttack` static on the card whose `when` is the negation of the mark Rollout leaves (c06.usedLastTurn), so the renderer words it as an inverted \"can't use\" sentence; the card test pins the attack unusable without the mark and usable the turn after Rollout.",
+  },
+  "sv08.5-082|attack:Hyper Whirlpool": {
+    problems: ["\"each\" is printed but not rendered"],
+    why: "\"For each heads\" is a repeat of the heads count, rendered \"the number of heads times\".",
   },
 };
