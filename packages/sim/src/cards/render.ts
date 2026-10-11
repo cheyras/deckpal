@@ -206,6 +206,12 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c09.discardTopCount': (a) => `Discard the top ${Number(a.n ?? 1)} cards of your deck and count the ${energyNoun(a.filter as Filter | undefined)} cards among them (into "${String(a.as ?? 'n')}")`,
   'c09.pleasingPresent': (a) =>
     `Your opponent first, then you, may choose up to ${Number(a.max ?? 3)} Basic Energy cards from your hand and attach each to a Pokémon of yours (Energy put on a Pokémon protected from this effect is discarded instead); the attach triggers fire afterwards, for both players`,
+  // std-c11-customs.ts
+  'c11.lookTakeAny': (a) => `Look at the top ${Number(a.n ?? 6)} cards of your deck. You may reveal any number of ${noun(a.filter as Filter | undefined).pl} you find there and put them into your hand. Shuffle the other cards back into your deck (no shuffle if none stay in it)`,
+  'c11.revealBottom': (a) => `Reveal the bottom ${Number(a.n ?? 7)} cards of your deck and count the Pokémon among them that have the ${String(a.attack)} attack (into "${String(a.as ?? 'n')}"). Shuffle the revealed Pokémon back into your deck. Discard the other cards`,
+  'c11.multiplyCounters': (a) => `Put on each Pokémon chosen as "${String(a.slots ?? 't')}" ${Number(a.factor ?? 2) - 1} times the number of damage counters already on it (so each Pokémon has ${Number(a.factor ?? 2)} times as many damage counters); a Pokémon with none gets none`,
+  'c11.retreatCostOf': (a) => `Count the {C} in the Retreat Cost your opponent's Active Pokémon has right now, after every effect (into "${String(a.as ?? 'n')}"); an Antique fossil has none`,
+  'c11.discardOppActiveEnergy': () => "Discard an Energy of your choice from your opponent's Active Pokémon, unless it is protected from the effects of Abilities (or attacks)",
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -1879,5 +1885,10 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me04-013|attack:Energized Storm': {
     problems: ['the rendering involves the opponent; the printed text does not'],
     why: "\"all Pokémon\" is every Pokémon in play, both players' Pokémon; the sum custom renders its zone as \"all of Pokémon in play (both yours and your opponent's)\".",
+  },
+  // std-c11
+  'me05-020|attack:Aqua Return': {
+    problems: ['"your deck" is printed but not rendered'],
+    why: 'The shuffle is the shared seed4.shuffleSlotIntoDeck, glossed for any Pokémon ("into their deck"); the Pokémon chosen here is always the attacking player own Active Pokémon (Primarina itself), so its owner is the attacker and the deck is "your deck".',
   },
 };
