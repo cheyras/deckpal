@@ -326,16 +326,7 @@ export const STD_30D: CardScript[] = [
       },
     ],
   },
-  {
-    id: 'mep-103',
-    name: 'Zeraora',
-    attacks: {
-      // "Draw a card."
-      'Rapid Draw': { post: [{ op: 'draw', n: 1 }] },
-      // "This attack also does 20 damage to 1 of your opponent's Benched Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)"
-      Electrobullet: { post: damageOneOf('oppBench', 20) },
-    },
-  },
+  // mep-103 Zeraora has the same text as 30th-057 (the catalog's HTML energy symbols are cleaned at entry): scripted once, in std-30b.
   {
     id: 'mep-110',
     name: 'Umbreon ex',

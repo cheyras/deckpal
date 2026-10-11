@@ -278,6 +278,21 @@ export function attackOptions(env: Env, s: GameState, slot: Slot, all = statics(
       pd.attacks.forEach((atk, idx) => out.push({ idx, card: c, d: pd, atk }));
     }
   }
+  // Memory Helix: the attacks of any of the owner's Benched Pokémon, as this Pokémon's own (once for each distinct attack).
+  if (onSlot(env, s, all, slot, 'borrowAttacks').length) {
+    const seen = new Set(out.map((o) => `${o.d.idx}:${o.atk.name}`));
+    for (const b of s.p[ownerOf(s, slot)].bench) {
+      if (b === slot) continue;
+      const bc = topCard(b);
+      const bd = def(env.ctx, bc);
+      bd.attacks.forEach((atk, idx) => {
+        const key = `${bd.idx}:${atk.name}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        out.push({ idx, card: bc, d: bd, atk });
+      });
+    }
+  }
   return out;
 }
 
@@ -406,6 +421,23 @@ export function canPay(cost: readonly PType[], units: readonly EnergyUnit[], wai
   }
   const colorless = cost.filter((t) => t === 'Colorless').length;
   return pool.length >= colorless;
+}
+
+/** How Weakness multiplies damage to this Pokémon: ×2, or the highest `weaknessMultiplier` that applies (Illumise). */
+export function weaknessMultiplier(env: Env, s: GameState, slot: Slot, all = statics(env, s)): number {
+  let m = 2;
+  for (const x of onSlot(env, s, all, slot, 'weaknessMultiplier')) m = Math.max(m, (x.effect as { mult: number }).mult);
+  return m;
+}
+
+/** Can this Pokémon not be healed right now (Yveltal, Life-Locked)? */
+export function healLocked(env: Env, s: GameState, slot: Slot, all = statics(env, s)): boolean {
+  return onSlot(env, s, all, slot, 'noHeal').length > 0;
+}
+
+/** How many coins this player flips when they try to use a Trainer card from their hand (Quaking Fist): one for each such effect. */
+export function trainerCoinFlips(p: Player, all: LiveStatic[]): number {
+  return all.filter((x) => x.effect.k === 'trainerCoinFlip' && affectsPlayer(x, p)).length;
 }
 
 export function weaknessOf(env: Env, s: GameState, slot: Slot, all = statics(env, s)): PType | null {

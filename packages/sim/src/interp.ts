@@ -32,6 +32,7 @@ import {
   toolsDisabled, // lane:fighting
   trainerEffectsPrevented,
   weaknessOf,
+  weaknessMultiplier,
 } from './query.js';
 import {
   allSlots,
@@ -295,7 +296,7 @@ function dealDamage(
       // Weakness and Resistance, and effects that change them, are not "effects on" the Defending
       // Pokémon for `defenderEffects` (Shred rulings: Allergy Panic still makes Weakness x4).
       const w = weaknessOf(env, s, target, all);
-      if (!ignore?.weakness && w && atkTypes.includes(w)) dmg *= 2;
+      if (!ignore?.weakness && w && atkTypes.includes(w)) dmg *= weaknessMultiplier(env, s, target, all);
       const r = def(env.ctx, topCard(target)).resistance;
       if (!ignore?.resistance && r && atkTypes.includes(r.type)) dmg -= r.amount;
     }
@@ -686,12 +687,12 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
         const all = statics(env, s);
         for (const t of targetsOf(env, s, f, st.to)) {
           if ((f.kind === 'attack' || f.kind === 'ability') && ownerOf(s, t) !== f.player && effectsPrevented(env, s, t, f.player, f.kind, all)) continue;
-          healSlot(s, t, amount);
+          healSlot(s, t, amount, env);
         }
         return 'next';
       }
       const t = resolveSlot(s, e, st.to);
-      if (t) healSlot(s, t, amount);
+      if (t) healSlot(s, t, amount, env);
       return 'next';
     }
     case 'condition': {

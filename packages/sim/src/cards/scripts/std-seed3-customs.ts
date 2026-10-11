@@ -21,7 +21,7 @@ registerCustom('seed3.healEach', (env, s, f, args) => {
   const all = statics(env, s);
   for (const sl of slotsIn(s, f.player, String(args.zone ?? 'allPokemon') as SlotZone)) {
     if (f.kind === 'attack' && ownerOf(s, sl) !== f.player && effectsPrevented(env, s, sl, f.player, 'attack', all)) continue;
-    healSlot(s, sl, Number(args.amount));
+    healSlot(s, sl, Number(args.amount), env);
   }
   return 'next';
 });

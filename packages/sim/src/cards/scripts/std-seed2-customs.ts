@@ -109,7 +109,7 @@ registerCustom('seed2.sumAttached', (env, s, f, args) => {
  */
 registerCustom('seed2.healEach', (_env, s, f, args) => {
   for (const sl of slotsIn(s, f.player, String(args.zone ?? 'myPokemon') as SlotZone)) {
-    healSlot(s, sl, Number(args.amount));
+    healSlot(s, sl, Number(args.amount), _env);
   }
   return 'next';
 });

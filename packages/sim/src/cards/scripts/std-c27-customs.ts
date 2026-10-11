@@ -89,7 +89,7 @@ registerCustom('c27.slotEnergyToHand', (env, s, f, args, answer) => {
 registerCustom('c27.healEach', (env, s, f, args) => {
   const filter = args.filter as Filter | undefined;
   for (const sl of slotsIn(s, f.player, String(args.zone ?? 'myPokemon') as SlotZone)) {
-    if (slotMatches(env, sl, filter, true, s)) healSlot(s, sl, Number(args.amount));
+    if (slotMatches(env, sl, filter, true, s)) healSlot(s, sl, Number(args.amount), env);
   }
   return 'next';
 });

@@ -2,11 +2,7 @@
  * Card scripts for batch "std-30b" (Standard): 30th Celebration (30th-046 .. 30th-081) and the Mega promo reprints of Pikachu ex and
  * Mewtwo. Written from the printed text in the frames. One test per card in src/__tests__/cards-std-30b.test.ts.
  *
- * Not scripted:
- *  - 30th-066 Mew ex (30th-152, 30th-158): Memory Helix ("This Pokémon can use the attacks of any of your Benched Pokémon. (You still
- *    need the necessary Energy to use each attack.)") needs the attack list of a Pokémon to include attacks printed on OTHER Pokémon
- *    in play. `attackOptions` (query.ts) takes only the Pokémon's own attacks, a Tool's (`grantsAttacks`) and those of the cards
- *    beneath it (`previousAttacks`); there is no static that offers a Benched Pokémon's attacks.
+ * Not here: 30th-066 Mew ex (30th-152, 30th-158), Memory Helix, is scripted in std-30e.ts with the `borrowAttacks` static.
  */
 import type { CardScript, Expr, PType } from '../../dsl.js';
 import { BENCH_SPACE, damageOneOf, inDiscard, searchToHand } from './helpers.js';

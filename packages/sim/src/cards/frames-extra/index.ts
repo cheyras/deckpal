@@ -15,6 +15,7 @@ import { FRAMES as STD_30A } from './std-30a.js';
 import { FRAMES as STD_30B } from './std-30b.js';
 import { FRAMES as STD_30C } from './std-30c.js';
 import { FRAMES as STD_30D } from './std-30d.js';
+import { FRAMES as STD_30E } from './std-30e.js';
 import { FRAMES as STD_NEW } from './std-new.js';
 import { FRAMES as TREVENANT } from './trevenant.js';
 import { FRAMES as ZOROARK } from './zoroark.js';
@@ -31,6 +32,7 @@ export const EXTRA_FRAMES: Record<string, CardFrame> = {
   ...STD_30B,
   ...STD_30C,
   ...STD_30D,
+  ...STD_30E,
   ...STD_NEW,
   ...TREVENANT,
   ...ZOROARK,

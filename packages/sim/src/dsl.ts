@@ -437,7 +437,26 @@ export type StaticEffect =
   /** Player-level: that player's Pokémon in play and all cards attached to them can't be put into their hand (Milotic, Mentally Calm). */
   | { k: 'noReturnToHand' }
   /** The affected evolved Pokémon can use any attack of the cards beneath its top card, with the Energy it needs (Relicanth, Memory Dive). */
-  | { k: 'previousAttacks' };
+  | { k: 'previousAttacks' }
+  /**
+   * Weakness is applied as ×`mult` instead of ×2 for the affected Pokémon (Illumise, Supereffective Pheromones: "apply Weakness for both
+   * Active Pokémon as ×3": scope 'allPokemon', since Weakness only ever applies to an Active Pokémon). Where several apply, the highest wins.
+   */
+  | { k: 'weaknessMultiplier'; mult: number }
+  /**
+   * Player-level (timed, from Seismitoad's Quaking Fist): "whenever they try to use a Trainer card from their hand, they flip a coin. If
+   * tails, ... discards that Trainer card instead of using it." Checked when the card is played (an Item, Supporter, Stadium or Pokémon
+   * Tool): on tails it goes to the discard pile, none of its effects happen, and it does not count as played this turn.
+   */
+  | { k: 'trainerCoinFlip' }
+  /** The affected Pokémon can't be healed: no heal effect, from anyone, removes damage counters from it (Yveltal, Life-Locked). */
+  | { k: 'noHeal' }
+  /**
+   * The affected Pokémon can use the attacks of any of its owner's Benched Pokémon (Mew ex, Memory Helix). The Energy cost is the
+   * attack's own, and the attack is used as an attack of this Pokémon: its effects happen to and from it, and "can't use this attack"
+   * restrictions it sets are kept by name on this Pokémon.
+   */
+  | { k: 'borrowAttacks' };
 
 /** Parts of the damage pipeline an attack's damage skips ("isn't affected by Weakness or Resistance"). */ // lane:fighting
 export interface DamageIgnore {

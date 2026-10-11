@@ -237,6 +237,10 @@ test('every static effect, scope and trigger renders', () => {
     energyProvides: { k: 'energyProvides', cards: { energyType: 'Grass' }, provides: ['Grass', 'Grass'] },
     noReturnToHand: { k: 'noReturnToHand' },
     previousAttacks: { k: 'previousAttacks' },
+    weaknessMultiplier: { k: 'weaknessMultiplier', mult: 3 },
+    trainerCoinFlip: { k: 'trainerCoinFlip' },
+    noHeal: { k: 'noHeal' },
+    borrowAttacks: { k: 'borrowAttacks' },
   };
   const SCOPES: Scope[] = ['self', 'myActive', 'myBench', 'myPokemon', 'oppActive', 'oppBench', 'oppPokemon', 'allPokemon', 'me', 'opp', 'both'];
   for (const [k, effect] of Object.entries(EFFECTS)) {

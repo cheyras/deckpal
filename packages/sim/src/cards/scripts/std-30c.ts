@@ -1,10 +1,8 @@
 /**
  * Batch "std-30c": 30th Celebration cards (Fighting, Darkness and Metal sections), scripted from the printed text.
  *
- * Skipped (the engine cannot say them; frames not added):
- *  - 30th-084 Seismitoad, Quaking Fist: "whenever they try to use a Trainer card from their hand, they flip a coin. If tails, your opponent
- *    discards that Trainer card instead of using it" needs a lasting effect that intercepts a Trainer being played (no such static or play hook).
- *  - 30th-100 Yveltal, Life-Locked: "Your opponent's Active Pokémon can't be healed" needs a static that stops healing (no such StaticEffect).
+ * Not here: 30th-084 Seismitoad (Quaking Fist: a coin flip on the opponent's Trainers) and 30th-100 Yveltal (Life-Locked: no healing) are
+ * scripted in std-30e.ts, with the `trainerCoinFlip` and `noHeal` statics they need.
  */
 import type { CardScript, Cond, Expr, Program } from '../../dsl.js';
 import { damageOneOf } from './helpers.js';

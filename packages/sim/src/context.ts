@@ -7,6 +7,7 @@ import { compile, type Op } from './compile.js';
 import type { CardScript, Program, StaticDef, Step } from './dsl.js';
 import { buildDef, defKey } from './cards/frame.js';
 import { withPrintedWR } from './cards/printed-wr.js';
+import { withCleanText } from './cards/clean-text.js';
 import { scriptFor } from './cards/registry.js';
 import type { CardDef, CardFrame, EngineOptions, GameEvent, Player } from './types.js';
 
@@ -69,7 +70,7 @@ export function createContext(a: DeckInput, b: DeckInput, opts: EngineOptions = 
   const iids: [number[], number[]] = [[], []];
 
   // Runtime frames (supplied by the app) get the printed Weakness/Resistance the catalog may lack.
-  const fill = (d: DeckInput): DeckInput => ({ ...d, cards: d.cards.map((e) => ({ ...e, frame: withPrintedWR(e.frame) })) });
+  const fill = (d: DeckInput): DeckInput => ({ ...d, cards: d.cards.map((e) => ({ ...e, frame: withPrintedWR(withCleanText(e.frame)) })) });
   const decks: [DeckInput, DeckInput] = [fill(a), fill(b)];
   decks.forEach((deck, p) => {
     for (const e of deck.cards) {

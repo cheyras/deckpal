@@ -1437,9 +1437,6 @@ export const POOL_DATA: MetaPool = {
         "sv09-120": "Dunsparce",
         "sv10.5w-084": "Hilda"
       },
-      "unverified": [
-        "30th-066"
-      ],
       "from": {
         "event": "TOURNAMENT OF DOOM! LET'S GO!",
         "date": "2026-09-26",

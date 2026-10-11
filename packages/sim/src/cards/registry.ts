@@ -10,6 +10,7 @@ import type { CardScript } from '../dsl.js';
 import type { CardFrame } from '../types.js';
 import { textKey } from './frame.js';
 import { withPrintedWR } from './printed-wr.js';
+import { withCleanText } from './clean-text.js';
 
 export { FRAMES };
 
@@ -42,7 +43,7 @@ function build(): void {
 /** The script for this printing, or null when none exists. */
 export function scriptFor(f: CardFrame): CardScript | null {
   if (!byKey) build();
-  return byKey!.get(textKey(withPrintedWR(f))) ?? null;
+  return byKey!.get(textKey(withPrintedWR(withCleanText(f)))) ?? null;
 }
 
 export function scriptById(id: string): CardScript | null {

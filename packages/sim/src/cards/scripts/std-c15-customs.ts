@@ -206,7 +206,7 @@ registerCustom('c15.healLowHp', (env, s, f, _args, answer) => {
   else {
     return ask(s, { player: f.player, kind: 'slots', prompt: 'Heal which Pokémon?', min: 1, max: 1, values: pool.map((sl) => sl.id) }, 'slots');
   }
-  if (target) healSlot(s, target, target.damage);
+  if (target) healSlot(s, target, target.damage, env);
   return 'next';
 });
 

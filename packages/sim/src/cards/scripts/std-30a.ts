@@ -2,10 +2,7 @@
  * Standard batch 30a: 30th Celebration (30th) Pokémon, written from the printed text in the frames. Quotes below are that text.
  * Tests: src/__tests__/cards-std-30a.test.ts.
  *
- * Skipped (needs vocabulary the engine does not have):
- *  - 30th-004 Illumise, Supereffective Pheromones: "If you have Volbeat in play, apply Weakness for both Active Pokémon as ×3."
- *    Weakness is always ×2 in the damage pipeline (`weaknessOf` only returns a type): no static can change the multiplier,
- *    and the rule applies to BOTH players' Active Pokémon.
+ * Not here: 30th-004 Illumise (Weakness as ×3) is scripted in std-30e.ts, with the `weaknessMultiplier` static it needs.
  *
  * Rulings: none of the Compendium rulings attached to this batch is about these cards' own text (they are filed under other
  * cards that share a name or an attack name), so none changes behaviour. Spiritomb's Spiteful Swirl (2217 / 2218) has the same
