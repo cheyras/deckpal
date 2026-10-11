@@ -1,0 +1,78 @@
+Setup
+cheyplays chose tails for the opening coin flip.
+cheyplays won the coin toss.
+cheyplays decided to go second.
+TrainerKoji drew 7 cards for the opening hand.
+- 7 drawn cards.
+cheyplays drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • Raging Bolt ex, Teal Mask Ogerpon ex, Earthen Vessel, Professor Sada's Vitality, Grass Energy, Lightning Energy, Nest Ball
+TrainerKoji played Gimmighoul to the Active Spot.
+cheyplays played Teal Mask Ogerpon ex to the Active Spot.
+
+TrainerKoji's Turn
+TrainerKoji drew a card.
+TrainerKoji played Nest Ball.
+- TrainerKoji drew Gimmighoul.
+- TrainerKoji shuffled their deck.
+TrainerKoji played Gimmighoul to the Bench.
+TrainerKoji attached Metal Energy to Gimmighoul in the Active Spot.
+TrainerKoji ended their turn.
+
+cheyplays's Turn
+cheyplays drew Pokégear 3.0.
+cheyplays played Raging Bolt ex to the Bench.
+cheyplays played Earthen Vessel.
+- cheyplays drew Fighting Energy, Lightning Energy.
+- cheyplays shuffled their deck.
+cheyplays played Professor Sada's Vitality.
+- cheyplays attached Grass Energy to Teal Mask Ogerpon ex in the Active Spot.
+- cheyplays attached Fighting Energy to Raging Bolt ex on the Bench.
+cheyplays attached Lightning Energy to Raging Bolt ex on the Bench.
+cheyplays retreated Teal Mask Ogerpon ex to the Bench.
+cheyplays's Raging Bolt ex used Bellowing Thunder on TrainerKoji's Gimmighoul for 140 damage.
+TrainerKoji's Gimmighoul was Knocked Out!
+cheyplays took a Prize card.
+cheyplays ended their turn.
+
+TrainerKoji's Turn
+TrainerKoji drew a card.
+TrainerKoji played Gimmighoul to the Active Spot.
+TrainerKoji evolved Gimmighoul to Gholdengo ex in the Active Spot.
+TrainerKoji played Superior Energy Retrieval.
+TrainerKoji's Gholdengo ex used Coin Bonus.
+- TrainerKoji drew a card.
+TrainerKoji attached Metal Energy to Gholdengo ex in the Active Spot.
+TrainerKoji's Gholdengo ex used Make It Rain on cheyplays's Raging Bolt ex for 250 damage.
+cheyplays's Raging Bolt ex was Knocked Out!
+TrainerKoji took 2 Prize cards.
+TrainerKoji ended their turn.
+
+cheyplays's Turn
+cheyplays drew a card.
+cheyplays played Teal Mask Ogerpon ex to the Active Spot.
+cheyplays attached Grass Energy to Teal Mask Ogerpon ex in the Active Spot.
+cheyplays's Teal Mask Ogerpon ex used Teal Dance.
+- cheyplays drew a card.
+cheyplays ended their turn.
+
+TrainerKoji's Turn
+TrainerKoji drew a card.
+TrainerKoji's Gholdengo ex used Make It Rain on cheyplays's Teal Mask Ogerpon ex for 210 damage.
+cheyplays's Teal Mask Ogerpon ex was Knocked Out!
+TrainerKoji took 2 Prize cards.
+TrainerKoji ended their turn.
+
+cheyplays's Turn
+cheyplays drew a card.
+cheyplays played Raging Bolt ex to the Active Spot.
+cheyplays attached Lightning Energy to Raging Bolt ex in the Active Spot.
+cheyplays ended their turn.
+
+TrainerKoji's Turn
+TrainerKoji drew a card.
+TrainerKoji played Boss's Orders.
+TrainerKoji's Gholdengo ex used Make It Rain on cheyplays's Raging Bolt ex for 240 damage.
+cheyplays's Raging Bolt ex was Knocked Out!
+TrainerKoji took 2 Prize cards.
+All Prize cards taken. TrainerKoji wins.

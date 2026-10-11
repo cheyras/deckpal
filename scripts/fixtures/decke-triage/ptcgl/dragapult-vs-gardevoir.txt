@@ -1,0 +1,116 @@
+Setup
+Ashbourne won the coin toss.
+Ashbourne decided to go first.
+Ashbourne drew 7 cards for the opening hand.
+- 7 drawn cards.
+cheyplays drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • Dreepy, Buddy-Buddy Poffin, Arven, Fire Energy, Psychic Energy, Rare Candy, Iono
+Ashbourne played Ralts to the Active Spot.
+cheyplays played Dreepy to the Active Spot.
+
+Ashbourne's Turn
+Ashbourne drew a card.
+Ashbourne played Buddy-Buddy Poffin.
+- Ashbourne drew Ralts, Munkidori.
+- Ashbourne shuffled their deck.
+Ashbourne played Ralts to the Bench.
+Ashbourne played Munkidori to the Bench.
+Ashbourne attached Psychic Energy to Ralts in the Active Spot.
+Ashbourne ended their turn.
+
+cheyplays's Turn
+cheyplays drew Dreepy.
+cheyplays played Buddy-Buddy Poffin.
+- cheyplays drew Dreepy, Duskull.
+- cheyplays shuffled their deck.
+cheyplays played Dreepy to the Bench.
+cheyplays played Duskull to the Bench.
+cheyplays played Arven.
+- cheyplays drew Rare Candy, Forest Seal Stone.
+- cheyplays shuffled their deck.
+cheyplays attached Psychic Energy to Dreepy in the Active Spot.
+cheyplays ended their turn.
+
+Ashbourne's Turn
+Ashbourne drew a card.
+Ashbourne evolved Ralts to Kirlia on the Bench.
+Ashbourne evolved Ralts to Kirlia in the Active Spot.
+Ashbourne's Kirlia used Refinement.
+- Ashbourne drew 2 cards.
+Ashbourne played Rare Candy.
+Ashbourne evolved Ralts to Gardevoir ex on the Bench.
+Ashbourne's Gardevoir ex used Psychic Embrace.
+Ashbourne attached Psychic Energy to Munkidori on the Bench.
+Ashbourne ended their turn.
+
+cheyplays's Turn
+cheyplays drew Iono.
+cheyplays evolved Dreepy to Drakloak on the Bench.
+cheyplays's Drakloak used Recon Directive.
+- cheyplays drew Fire Energy.
+cheyplays attached Fire Energy to Dreepy in the Active Spot.
+cheyplays ended their turn.
+
+Ashbourne's Turn
+Ashbourne drew a card.
+Ashbourne played Counter Catcher.
+Ashbourne's Kirlia used Slap on cheyplays's Drakloak for 30 damage.
+Ashbourne's Munkidori used Adrena-Brain.
+cheyplays's Drakloak was Knocked Out!
+Ashbourne took a Prize card.
+Ashbourne ended their turn.
+
+cheyplays's Turn
+cheyplays drew a card.
+cheyplays played Iono.
+- cheyplays shuffled their deck.
+- cheyplays drew 5 cards.
+cheyplays evolved Dreepy to Drakloak in the Active Spot.
+cheyplays ended their turn.
+
+Ashbourne's Turn
+Ashbourne drew a card.
+Ashbourne's Gardevoir ex used Psychic Embrace.
+Ashbourne retreated Kirlia to the Bench.
+Ashbourne's Drifantine used Phantom Splash on cheyplays's Drakloak for 120 damage.
+cheyplays's Drakloak was Knocked Out!
+Ashbourne took 2 Prize cards.
+Ashbourne ended their turn.
+
+cheyplays's Turn
+cheyplays drew Rare Candy.
+cheyplays played Rare Candy.
+cheyplays evolved Dreepy to Dragapult ex on the Bench.
+cheyplays attached Psychic Energy to Dragapult ex on the Bench.
+cheyplays retreated Dreepy to the Bench.
+cheyplays's Dragapult ex used Phantom Dive on Ashbourne's Drifantine for 200 damage.
+Ashbourne's Drifantine was Knocked Out!
+cheyplays took 2 Prize cards.
+cheyplays ended their turn.
+
+Ashbourne's Turn
+Ashbourne drew a card.
+Ashbourne played Boss's Orders.
+Ashbourne's Gardevoir ex used Psychic Embrace.
+Ashbourne's Gardevoir ex used Miracle Force on cheyplays's Duskull for 190 damage.
+cheyplays's Duskull was Knocked Out!
+Ashbourne took a Prize card.
+Ashbourne ended their turn.
+
+cheyplays's Turn
+cheyplays drew a card.
+cheyplays's Dragapult ex used Phantom Dive on Ashbourne's Gardevoir ex for 200 damage.
+Ashbourne's Gardevoir ex was Knocked Out!
+cheyplays took 2 Prize cards.
+cheyplays ended their turn.
+
+Ashbourne's Turn
+Ashbourne drew a card.
+Ashbourne played Super Rod.
+Ashbourne played Night Stretcher.
+Ashbourne's Munkidori used Adrena-Brain.
+Ashbourne's Scream Tail used Roaring Scream on cheyplays's Dragapult ex for 320 damage.
+cheyplays's Dragapult ex was Knocked Out!
+Ashbourne took 2 Prize cards.
+All Prize cards taken. Ashbourne wins.
