@@ -93,7 +93,7 @@ type Sides = [SideLayout, SideLayout];
 // ------------------------------------------------------------------ Annihilape / Mist Energy
 
 // https://compendium.pokegym.net/ruling/2427/ : Destined Fight against a Pokémon wearing Mist Energy still Knocks Out Annihilape, and the
-// opponent takes a Prize, but Mist Energy keeps the Defending Pokémon from being Knocked Out.
+// opponent gets 1 Prize for it, while the Mist Energy Pokémon survives.
 test('Ruling 2427: Destined Fight into Mist Energy Knocks Out only Annihilape (the opponent takes a Prize, the Mist Pokémon stays)', () => {
   const dk = deck([ANNIHILAPE, MIST, DHELMISE]);
   const mk = (mist: boolean): Game => {
@@ -351,7 +351,7 @@ test("Ruling 248: Smooth Coat flips for damage done to its own Pokémon by its p
 
 // ------------------------------------------------------------------ Rock Hurl
 
-// https://compendium.pokegym.net/ruling/575/ : "isn't affected by Resistance" is part of the damage calculation, not an effect on the target, so a
+// https://compendium.pokegym.net/ruling/575/ : ignoring Resistance belongs to how damage is worked out rather than to effects on the target, so a
 // Defending Pokémon that is protected from attack effects still has its Resistance ignored.
 test("Ruling 575: Rock Hurl ignores Resistance even when the Defending Pokémon is protected from effects of attacks (Mist Energy)", () => {
   const dk = deck(['me04-043', 'sv08-077', MIST]);
