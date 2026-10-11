@@ -9,7 +9,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { performance } from 'node:perf_hooks'
 import { createGateway } from '@ai-sdk/gateway'
-import { stepCountIs, streamText, tool } from 'ai'
+import { hasToolCall, stepCountIs, streamText, tool } from 'ai'
 import { MockLanguageModelV3 } from 'ai/test'
 import { z } from 'zod'
 
@@ -26,18 +26,40 @@ const WRITE_NAMES = new Set([
 ])
 const DATA_TOOLS = new Set()
 // Mirrors apps/api/src/decke/stopRule.ts COSMETIC_TOOLS: every other tool call
-// makes a step a DATA step for the progress metrics below.
-const COSMETIC_TOOLS = new Set(['express', 'showScreen'])
-// The 'progress-between-batches' line. A turn shorter than LONG_TURN_DATA_STEPS
-// has no batches to speak between; SILENT_RUN_LIMIT is the run at which
-// apps/api/src/decke/progressNudge.ts (SILENT_DATA_STEPS) nudges in production.
-const LONG_TURN_DATA_STEPS = 3
-const SILENT_RUN_LIMIT = 4
+// makes a step a DATA step for the progress metrics below. Pinned against the
+// built module by the probe's tests.
+export const COSMETIC_TOOLS = new Set(['express', 'showScreen'])
+// The 'progress-between-batches' line, aligned with production (review,
+// 2026-10-10). SILENT_RUN_LIMIT is the longest silent run that passes, and it
+// IS apps/api/src/decke/progressNudge.ts SILENT_DATA_STEPS: production nudges
+// as a run reaches the limit, before the step that would cross it. A turn is
+// LONG once it has enough data steps for a run to cross it — one more than the
+// limit — so every turn this grader can fail is one production had the chance
+// to nudge. (The first cut graded long at three and nudged at four: three
+// silent lookups failed here while production never asked him to speak.) The
+// tests pin both numbers to the built module.
+export const SILENT_RUN_LIMIT = 3
+export const LONG_TURN_DATA_STEPS = SILENT_RUN_LIMIT + 1
+// Mirrors api/chat.mjs MAX_STEPS (a local there, not exported).
+const MAX_STEPS = 24
 const STOPWORDS = new Set('a an and are as at be by current do doing for from how i in is it its look meta my of on or pokemon tcg the this to up was what with you your'.split(' '))
 
+/**
+ * `--name value` or `--name=value`. The equals form used to be ignored
+ * silently, so `--progress-nudge=off` ran the arm with the nudge ON and
+ * `--n=3` ran one sample (review, 2026-10-10). A flag given with no value is an
+ * error for the same reason: falling back to the default is a different run
+ * from the one that was asked for.
+ */
 function argvValue(argv, name, fallback) {
+  const prefix = `--${name}=`
+  const joined = argv.filter((arg) => arg.startsWith(prefix))
   const i = argv.indexOf(`--${name}`)
-  return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : fallback
+  if (joined.length + (i >= 0 ? 1 : 0) > 1) throw new Error(`--${name} was given more than once`)
+  if (joined.length) return joined[0].slice(prefix.length)
+  if (i < 0) return fallback
+  if (!argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`--${name} needs a value`)
+  return argv[i + 1]
 }
 
 export function parseArgs(argv = process.argv.slice(2)) {
@@ -54,7 +76,7 @@ export function parseArgs(argv = process.argv.slice(2)) {
   // On by default because production nudges (api/chat.mjs); `off` is the A/B
   // control for measuring what the nudge itself buys.
   const progressNudge = argvValue(argv, 'progress-nudge', 'on')
-  if (!['on', 'off'].includes(progressNudge)) throw new Error('--progress-nudge must be on or off')
+  if (!['on', 'off'].includes(progressNudge)) throw new Error(`--progress-nudge must be on or off, not '${progressNudge}'`)
   return {
     mock,
     replay,
@@ -137,6 +159,18 @@ function isDataRead(call) {
  *   their own (text streams before a step's tool calls) or a later one. The
  *   gateway probe's `visibleTextBeforeOrBetweenTools` draws the same line.
  * - nudges: steps the progress nudge preceded.
+ * - earlyStop: the turn looked things up and ended WITHOUT an answer to them —
+ *   nothing said after the last lookup, or only the line that answered a
+ *   nudge, in a step that also called a tool (so the loop was cut right after
+ *   the progress line rather than ending on it). That second shape is the
+ *   review's blocker: "Two losses to Dragapult so far — checking your list
+ *   next." plus a face, as the whole reply. A turn handed to the reader or the
+ *   browser (`handoff`: ask_user, a client tool) is not an early stop.
+ * - endedOnNudge: the turn's LAST step answered a nudge with words and no
+ *   tool. Not graded — that line may be the whole answer, or it may be "now
+ *   looking up Bob." and nothing after, which no transcript check can tell
+ *   apart — but counted, so a report can say how often the reply was the
+ *   nudged line and someone can read those turns.
  */
 export function progressMetrics(timeline) {
   const steps = Array.isArray(timeline) ? timeline : []
@@ -158,7 +192,12 @@ export function progressMetrics(timeline) {
     if (step?.approval) run = 0
   })
   const interimLines = steps.filter((step, index) => spoke(step) && index <= lastData).length
-  return { dataSteps, longestSilentRun, interimLines, nudges }
+  const answeredAfter = steps.some((step, index) => index > lastData && spoke(step)
+    && !(step?.nudged && (step?.tools ?? []).length > 0))
+  const earlyStop = dataSteps > 0 && !steps.at(-1)?.handoff && !answeredAfter
+  const last = steps.at(-1)
+  const endedOnNudge = Boolean(last?.nudged && spoke(last) && !(last?.tools ?? []).length)
+  return { dataSteps, longestSilentRun, interimLines, nudges, earlyStop, endedOnNudge }
 }
 
 /** The 'progress-between-batches' line; short turns pass trivially. */
@@ -169,7 +208,7 @@ export const METRIC_COLUMNS = [
   'repeated_reads', 'expects_deck_turns', 'check_before_show', 'full_lists_proposed',
   'show_deck_for_full_list', 'show_deck_60', 'text_decklists', 'asks_for_tool_data',
   'false_refusals', 'expects_write_turns', 'write_calls',
-  'data_steps', 'interim_lines', 'longest_silent_run', 'progress_nudges', 'ttft_ms', 'total_ms',
+  'data_steps', 'interim_lines', 'longest_silent_run', 'progress_nudges', 'early_stops', 'ttft_ms', 'total_ms',
   'input_tokens', 'output_tokens', 'cost_usd', 'cache_read_tokens', 'cache_write_tokens',
 ]
 
@@ -220,6 +259,7 @@ export function scoreTranscript(turns) {
     // A maximum, not a sum: two short silences are not one long one.
     m.longest_silent_run = Math.max(m.longest_silent_run, progress.longestSilentRun)
     m.progress_nudges += progress.nudges
+    m.early_stops += progress.earlyStop ? 1 : 0
     m.ttft_ms += Number(turn.ttft_ms) || 0
     m.total_ms += Number(turn.total_ms) || 0
     m.input_tokens += Number(turn.input_tokens) || 0
@@ -252,9 +292,17 @@ function answerOverlap(turn) {
   return overlap
 }
 
+/**
+ * Markdown emphasis is presentation, not content: `1. **+1 Counter Catcher.**`
+ * is the same edit as `1. +1 Counter Catcher.`, and scored 0 while the plain
+ * line scored 1 (2026-10-10). Strip it before any pattern looks at the line.
+ */
+const stripEmphasis = (line) => line.replace(/[*_~]+/g, '')
+
 export function proposedChangeCount(text) {
   const edits = String(text ?? '').split(/\r?\n/)
-    .map((line) => line.replace(/^\s*(?:(?:[-*•])\s+|\d+[.)]\s+)/, '').trim())
+    .map((line) => line.replace(/^\s*(?:(?:[-*•])\s+|\d+[.)]\s+)/, ''))
+    .map((line) => stripEmphasis(line).replace(/^\s*(?:(?:[-•])\s+|\d+[.)]\s+)/, '').trim())
     .filter(Boolean)
 
   const labelDirection = (line) => line.match(/^(?:[*_~]+)?(in|out)(?:[*_~]+)?\s*:(?:[*_~]+)?\s*\S/i)?.[1]?.toLowerCase()
@@ -361,9 +409,13 @@ export function gradeExpectation(tag, turn, turnIndex = 0, turns = [turn]) {
       detail = 'expected battle_logs or deck_history'
       break
     case 'at-most-two-changes': {
+      // At MOST two. Zero is a legitimate review when the evidence supports no
+      // change, and a grader that demands one teaches the model to invent it.
+      // The scenario's other checks (the evidence it read, no unapproved save)
+      // still have to pass.
       const count = proposedChangeCount(turn.text)
-      pass = count >= 1 && count <= 2
-      detail = `expected one or two proposed changes; found ${count}`
+      pass = count <= 2
+      detail = `expected at most two proposed changes; found ${count}`
       break
     }
     case 'no-unapproved-save':
@@ -429,7 +481,7 @@ export function gradeExpectation(tag, turn, turnIndex = 0, turns = [turn]) {
       }
       const p = progressMetrics(turn.timeline)
       pass = progressHolds(p)
-      detail = `expected an interim line and at most ${SILENT_RUN_LIMIT} silent data steps in a row; found ${p.interimLines} interim line(s) and a silent run of ${p.longestSilentRun} across ${p.dataSteps} data steps`
+      detail = `expected an interim line and at most ${SILENT_RUN_LIMIT} silent data steps in a row on a turn of ${LONG_TURN_DATA_STEPS}+ data steps; found ${p.interimLines} interim line(s) and a silent run of ${p.longestSilentRun} across ${p.dataSteps} data steps`
       break
     }
     default:
@@ -510,11 +562,13 @@ export function summarizeProgress(runs) {
   const groups = new Map()
   for (const run of runs) {
     const arm = run.arm ?? run.model
-    const group = groups.get(arm) ?? { arm, turns: 0, long_turns: 0, long_turns_with_progress: 0, interim_lines: 0, longest_silent_run: 0, progress_nudges: 0 }
+    const group = groups.get(arm) ?? { arm, turns: 0, long_turns: 0, long_turns_with_progress: 0, interim_lines: 0, longest_silent_run: 0, progress_nudges: 0, early_stops: 0, ended_on_nudge: 0 }
     for (const turn of run.turns ?? []) {
       const p = progressMetrics(turn.timeline)
       group.turns++
       group.progress_nudges += p.nudges
+      group.early_stops += p.earlyStop ? 1 : 0
+      group.ended_on_nudge += p.endedOnNudge ? 1 : 0
       group.longest_silent_run = Math.max(group.longest_silent_run, p.longestSilentRun)
       if (p.dataSteps < LONG_TURN_DATA_STEPS) continue
       group.long_turns++
@@ -532,6 +586,8 @@ export function summarizeProgress(runs) {
     interim_lines_per_long_turn: group.long_turns ? Number((group.interim_lines / group.long_turns).toFixed(4)) : null,
     longest_silent_run: group.longest_silent_run,
     progress_nudges: group.progress_nudges,
+    early_stops: group.early_stops,
+    ended_on_nudge: group.ended_on_nudge,
   }))
 }
 
@@ -597,7 +653,125 @@ function cardRows(world, ownedOnly = false) {
   return cards.map((card) => `${card.id} — ${card.name} · owned ${card.owned} · $${card.price.toFixed(2)}`).join('\n')
 }
 
-function fixtureOutput(name, input, world, writes, definition) {
+/**
+ * The fixture's mutable side, per conversation. Lists only: a list created in
+ * a run used to vanish — `edit_list` returned no id and `lists` never showed
+ * it — so a model that did the right thing (create, then add) could not
+ * finish. `meansCreate` is the real tool's own reading of `list_id`.
+ */
+export function createFixtureState(world, { meansCreate = (raw) => !String(raw ?? '').trim() } = {}) {
+  const state = {
+    lists: [],
+    created: 0,
+    meansCreate,
+    reset() {
+      state.lists = (world.lists ?? []).map((list) => ({ ...list, items: [...list.items] }))
+      state.created = 0
+    },
+  }
+  state.reset()
+  return state
+}
+
+function findList(state, ref) {
+  const want = String(ref ?? '').trim().toLowerCase()
+  return state.lists.find((list) => list.id.toLowerCase() === want || list.name.trim().toLowerCase() === want)
+}
+
+function listSummary(list) {
+  return `${list.name} | ${list.id} | ${list.kind} | ${list.items.length} item(s)`
+}
+
+function fixtureLists(input, world, state) {
+  if (!String(input.list_id ?? '').trim()) {
+    if (!state.lists.length) return 'No lists yet. Create one with edit_list.'
+    return [...state.lists.map(listSummary), `${state.lists.length} list(s)`].join('\n')
+  }
+  const list = findList(state, input.list_id)
+  if (!list) return `No list matches '${input.list_id}'. Call lists with no list_id to see them with their ids.`
+  const byId = new Map(world.collection.cards.map((card) => [card.id, card]))
+  const rows = list.items.map((id) => {
+    const card = byId.get(id)
+    return `  ${card?.name ?? id} | ${id} | own x${card?.owned ?? 0} | ${card ? `$${card.price.toFixed(2)}` : 'unpriced'} | item ${id}`
+  })
+  return [listSummary(list), ...(rows.length ? rows : ['(list is empty)'])].join('\n')
+}
+
+/** Mirrors packages/agent-tools edit_list's order of refusals and its output lines. */
+function fixtureEditList(input, world, writes, state) {
+  const { mode, list_id: listId, name, add_cards: addCards, add_missing: addMissing, remove_item_ids: removeIds } = input
+  const kind = input.kind ?? 'dynamic'
+  if (input.restore) return 'edit_list failed: the fixture has no deleted lists to restore.'
+  const wantsCreate = mode === 'create' || (mode !== 'edit' && state.meansCreate(listId))
+  if (mode === 'edit' && !String(listId ?? '').trim()) {
+    return "edit_list failed: mode 'edit' needs list_id — which list? Call `lists` to see them with their ids, or use mode 'create' with a name to make a new one."
+  }
+  const current = wantsCreate ? null : findList(state, listId)
+  if (!wantsCreate && !current) {
+    return `edit_list failed: No list '${listId}'.${name ? ` To CREATE a new list called '${name}' instead, call edit_list again with NO list_id at all.` : ' To CREATE a new list, call edit_list with no list_id and a name.'}`
+  }
+  if (!current && !name) return 'edit_list failed: name is required to create a list.'
+  // The real tool refuses this before any dry run: add_missing needs a list
+  // that already exists.
+  if (addMissing && !current) return 'edit_list failed: add_missing needs an existing list_id — create the list first, then add to it.'
+  const byId = new Map(world.collection.cards.map((card) => [card.id.toLowerCase(), card]))
+  const byName = new Map(world.collection.cards.map((card) => [card.name.toLowerCase(), card]))
+  const adds = (addCards ?? []).map((entry) => {
+    const card = entry.card_id ? byId.get(String(entry.card_id).toLowerCase()) : byName.get(String(entry.name ?? '').toLowerCase())
+    return card ? { ok: true, id: card.id, label: card.name } : { ok: false, label: entry.card_id ?? entry.name ?? '?' }
+  })
+  const held = new Set(current?.items ?? [])
+  let missing = []
+  if (addMissing) {
+    const set = world.sets.find((item) => item.id === addMissing.set_id || item.name.toLowerCase() === String(addMissing.set_id ?? '').toLowerCase())
+    const cap = addMissing.max_price_usd == null ? Infinity : Number(addMissing.max_price_usd)
+    missing = (set?.missing ?? []).filter((card) => card.price <= cap && !held.has(card.card_id))
+  }
+  const plan = [current
+    ? `ADD TO your existing list '${current.name}' (${current.items.length} item(s) already in it)`
+    : `CREATE a new ${kind} list called '${name}'`]
+  for (const add of adds) plan.push(add.ok ? `add ${add.label} — card: add x1 ${add.id}` : `add ${add.label} — UNRESOLVABLE: no such card in the fixture`)
+  if (addMissing) {
+    plan.push(`add ${missing.length} missing card(s) from ${addMissing.set_id} (goal ${addMissing.goal ?? 'complete'})`)
+    for (const card of missing) plan.push(`     ${card.name} (${card.card_id}) · $${card.price.toFixed(2)}`)
+  }
+  for (const id of removeIds ?? []) plan.push(`remove item ${id}${current && !held.has(id) ? ' — NOT IN THIS LIST (will fail)' : ''}`)
+  if (input.dry_run !== false) return ['DRY RUN — nothing executed. Would:', ...plan.map((line) => `  ${line}`), 'Re-run with dry_run: false to execute.'].join('\n')
+
+  writes.push({ name: 'edit_list', input })
+  const lines = []
+  let target = current
+  if (!target) {
+    state.created += 1
+    target = { id: `00000000-0000-4000-8000-${String(state.created).padStart(12, '0')}`, name, kind, items: [] }
+    state.lists.push(target)
+    lines.push(`Created ${kind} list '${name}' — id ${target.id}`)
+  } else if (name !== undefined && name !== target.name) {
+    lines.push(`  done: rename → '${name}'`)
+    target.name = name
+  }
+  const before = target.items.length
+  for (const id of [...adds.filter((add) => add.ok).map((add) => add.id), ...missing.map((card) => card.card_id)]) {
+    if (!target.items.includes(id)) target.items.push(id)
+  }
+  const added = target.items.length - before
+  if (adds.length || addMissing) lines.push(`  done: added ${added}`)
+  for (const add of adds.filter((item) => !item.ok)) lines.push(`  FAILED: add ${add.label} — no such card in the fixture`)
+  for (const id of removeIds ?? []) {
+    const at = target.items.indexOf(id)
+    if (at < 0) lines.push(`  FAILED: remove item ${id} — not in this list`)
+    else {
+      target.items.splice(at, 1)
+      lines.push(`  done: remove item ${id}`)
+    }
+  }
+  lines.push(`List '${target.name}' now has ${target.items.length} item(s).`)
+  return lines.join('\n')
+}
+
+export function fixtureOutput(name, input, world, writes, definition, state = createFixtureState(world)) {
+  if (name === 'edit_list') return fixtureEditList(input, world, writes, state)
+  if (name === 'lists') return fixtureLists(input, world, state)
   if (name === 'add_battle_log' && !input.deck_id) {
     return [
       'Parsed fixture log. Ranked candidate decks; nothing was written.',
@@ -637,7 +811,6 @@ function fixtureOutput(name, input, world, writes, definition) {
     return `${set.name} (${set.id}, ${set.series_slug}): ${set.owned}/${set.total} owned; ${set.missing.length} missing; $${set.cost_to_finish_usd.toFixed(2)} to finish.\n${set.missing.map((card) => `${card.card_id} — ${card.name} · $${card.price.toFixed(2)}`).join('\n')}`
   }
   if (name === 'collection_log' || name === 'mutation_history') return 'Recent collection changes: +3 Litwick, +2 Lampent, +1 Dragapult ex.'
-  if (name === 'lists') return world.lists.map((list) => `${list.id} — ${list.name} (${list.kind}, ${list.items.length} cards)`).join('\n')
   if (name === 'health') return 'DeckPal fixture is healthy.'
   return `Fixture ${name} result: no matching rows. The tool ran successfully with ${JSON.stringify(input)}.`
 }
@@ -750,7 +923,7 @@ function fullHistory(turns) {
   ]
 }
 
-async function loadRuntime(world, writes) {
+export async function loadRuntime(world, writes) {
   // The root workspace does not depend on this package by name. Import its
   // compiled entry directly, just as the existing probes import API dist.
   const agent = await import(pathToFileURL(resolve(REPO, 'packages/agent-tools/dist/index.js')).href)
@@ -760,6 +933,11 @@ async function loadRuntime(world, writes) {
   const models = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/models.js')).href)
   const pastedLog = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/pastedLog.js')).href)
   const { createProgressNudges, progressNudgeMessage } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/progressNudge.js')).href)
+  // Production's stop rule, imported rather than copied (review, 2026-10-10:
+  // the first A/B ran with only a step cap, so it never met the rule that let
+  // a nudged line end the turn).
+  const { spokeAndSettled } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/stopRule.js')).href)
+  const { meansCreate } = await import(pathToFileURL(resolve(REPO, 'packages/agent-tools/dist/entities.js')).href)
   const { requiresApproval } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/adapters/aisdk.js')).href)
   let pathways = null
   try {
@@ -767,15 +945,18 @@ async function loadRuntime(world, writes) {
   } catch (error) {
     if (error?.code !== 'ERR_MODULE_NOT_FOUND') throw error
   }
-  const { buildTools } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/tools.js')).href)
+  const { buildTools, CLIENT_TOOLS } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/tools.js')).href)
   const { createGrounding } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/grounding.js')).href)
   const definitions = agent.allTools()
   for (const def of definitions) DATA_TOOLS.add(def.name)
+  // What one conversation has written to the fixture: lists today. Reset per
+  // conversation, so one sample's new list never appears in the next.
+  const state = createFixtureState(world, { meansCreate })
   const dataTools = Object.fromEntries(definitions.map((def) => [def.name, tool({
     description: def.description,
     inputSchema: def.inputSchema ?? z.object({}),
     needsApproval: (input) => requiresApproval(def, input),
-    execute: async (input) => fixtureOutput(def.name, input, world, writes, def),
+    execute: async (input) => fixtureOutput(def.name, input, world, writes, def, state),
   })]))
   const checked = async (input) => fixtureDeckCheck(world, input)
   const cosmetic = buildTools({ write() {} }, createGrounding(), undefined, undefined, { checkDeck: checked })
@@ -800,7 +981,12 @@ async function loadRuntime(world, writes) {
       system(prompt.buildVolatileContext({ route, signedIn: true })),
     ]
   }
-  return { buildInstructions, tools, dataToolList, createProgressNudges, progressNudgeMessage, ...routing, ...triage, ...models, ...pastedLog }
+  return {
+    buildInstructions, tools, dataToolList, createProgressNudges, progressNudgeMessage, spokeAndSettled,
+    handoffTools: new Set([...CLIENT_TOOLS, 'ask_user']),
+    resetFixture: () => state.reset(),
+    ...routing, ...triage, ...models, ...pastedLog,
+  }
 }
 
 // Mirrors api/chat.mjs: one breakpoint on the system prompt covers the tools too.
@@ -918,13 +1104,23 @@ export async function runTurn({ model, modelId, fallback, maxOutputTokens = 8000
         nudgePending = Boolean(progressNudges?.next(steps))
         return { messages: nudgePending ? [...cached, runtime.progressNudgeMessage()] : cached }
       },
-      stopWhen: stepCountIs(24),
+      // Production's stopWhen (api/chat.mjs), from the built modules: the step
+      // cap, ask_user, and the settling rule — which never settles on the step
+      // that answered a nudge. Production's error-budget and metered-cap stops
+      // depend on live accounting this fixture does not have.
+      stopWhen: [
+        stepCountIs(MAX_STEPS),
+        hasToolCall('ask_user'),
+        ({ steps }) => runtime.spokeAndSettled(steps, progressNudges?.landings ?? []),
+      ],
       maxOutputTokens,
       onStepFinish(step) {
+        const tools = (step.toolCalls ?? []).map((call) => call.toolName)
         timeline.push({
           text: step.text ?? '',
-          tools: (step.toolCalls ?? []).map((call) => call.toolName),
+          tools,
           ...(nudgePending ? { nudged: true } : {}),
+          ...(tools.some((name) => runtime.handoffTools?.has(name)) ? { handoff: true } : {}),
         })
         nudgePending = false
         const stepMeasured = readUsage(step.usage, step.providerMetadata)
@@ -1062,7 +1258,7 @@ function markdown(rows, scenarioResults, armResults, progressResults = []) {
   const cols = ['arm', 'replay', 'scenario', 'sample', 'pass', ...METRIC_COLUMNS]
   const outcomeCols = ['arm', 'replay', 'scenario', 'passed', 'samples', 'pass_rate', 'pass_k', 'mean_cost_usd', 'cost_per_passed_run_usd']
   const armCols = ['arm', 'passed', 'samples', 'pass_rate', 'pass_k', 'cost_per_scenario_usd', 'cost_per_passed_run_usd', 'quick_pct', 'standard_pct', 'deep_pct']
-  const progressCols = ['arm', 'turns', 'long_turns', 'long_turns_with_progress', 'progress_rate', 'interim_lines_per_long_turn', 'longest_silent_run', 'progress_nudges']
+  const progressCols = ['arm', 'turns', 'long_turns', 'long_turns_with_progress', 'progress_rate', 'interim_lines_per_long_turn', 'longest_silent_run', 'progress_nudges', 'early_stops', 'ended_on_nudge']
   const show = (value) => typeof value === 'number' && !Number.isInteger(value) ? value.toFixed(6) : String(value)
   const displayedArms = armResults.map((row) => ({
     ...row,
@@ -1078,7 +1274,7 @@ function markdown(rows, scenarioResults, armResults, progressResults = []) {
     ...displayedArms.map((row) => `| ${armCols.map((key) => show(row[key] ?? '—')).join(' | ')} |`),
     '',
     '## Progress between batches', '',
-    `A long turn has ${LONG_TURN_DATA_STEPS}+ data steps; it shows progress with an interim line and no silent run over ${SILENT_RUN_LIMIT}.`, '',
+    `A long turn has ${LONG_TURN_DATA_STEPS}+ data steps; it shows progress with an interim line and no silent run over ${SILENT_RUN_LIMIT}. An early stop is a turn that looked things up and ended without an answer after its last lookup.`, '',
     `| ${progressCols.join(' | ')} |`,
     `| ${progressCols.map(() => '---').join(' | ')} |`,
     ...progressResults.map((row) => `| ${progressCols.map((key) => show(row[key] ?? '—')).join(' | ')} |`),
@@ -1136,6 +1332,7 @@ export async function main(argv = process.argv.slice(2)) {
     for (const scenario of selected) {
       for (let sample = 1; sample <= opts.n; sample++) {
         const priorTurns = []
+        runtime.resetFixture()
         for (const scenarioTurn of scenario.turns) {
           const routing = arm.routed
             ? await routedChoice({ runtime, gateway, mock: opts.mock, priorTurns, scenario, scenarioTurn, budget })
@@ -1169,7 +1366,7 @@ export async function main(argv = process.argv.slice(2)) {
   save()
   process.stdout.write(`${outcomeTable(summarizeScenarioResults(runs))}\n`)
   for (const row of summarizeProgress(runs)) {
-    process.stdout.write(`progress ${row.arm}: ${row.long_turns_with_progress}/${row.long_turns} long turns spoke between batches; longest silent run ${row.longest_silent_run}; ${row.progress_nudges} nudge(s)\n`)
+    process.stdout.write(`progress ${row.arm}: ${row.long_turns_with_progress}/${row.long_turns} long turns spoke between batches; longest silent run ${row.longest_silent_run}; ${row.progress_nudges} nudge(s); ${row.early_stops} early stop(s); ${row.ended_on_nudge} ended on the nudged line\n`)
   }
   process.stdout.write(`wrote ${resolve(opts.out, 'summary.md')} and results.json; cost $${budget.spent.toFixed(6)}\n`)
 }

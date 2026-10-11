@@ -34,24 +34,64 @@
  *
  * Browser tools still end the server request and resume through a fresh HTTP
  * leg; this rule governs only the server-side model loop.
+ *
+ * NOT THE LINE THAT ANSWERED A PROGRESS NUDGE (review, 2026-10-10). After a
+ * silent run of lookups `progressNudge.ts` asks him for one line of progress.
+ * If the step after that nudge is the line plus an `express`, the rule above
+ * saw speech after the last lookup and a cosmetic-only last step, and settled:
+ * "Two losses to Dragapult so far — checking your list next." was the entire
+ * reply, and no turn guard fired, because there WAS text. So the steps that
+ * answered a nudge (`answeredNudge`, the ledger's `landings`) do not count as
+ * speech here: the turn settles only on words he says after them. The cost is
+ * the rarer case where the nudged line really was the whole answer AND came
+ * with a face — the loop gets one more step, which may repeat him. A
+ * text-only nudged step needs no rule at all: with no tool call the loop ends.
  */
 
 export const COSMETIC_TOOLS: ReadonlySet<string> = new Set(['express', 'showScreen']);
 
-export function spokeAndSettled(
-  steps: ReadonlyArray<{
-    text?: string | null;
-    toolCalls?: ReadonlyArray<{ toolName: string }> | null;
-  }>,
-): boolean {
+type SettlingStep = {
+  text?: string | null;
+  toolCalls?: ReadonlyArray<{ toolName: string }> | null;
+};
+
+/** Index of the last step that called a non-cosmetic tool, or -1. */
+export function lastLookupIndex(steps: ReadonlyArray<SettlingStep>): number {
   let lastLookup = -1;
   for (let i = 0; i < steps.length; i += 1) {
     if ((steps[i]?.toolCalls ?? []).some((call) => !COSMETIC_TOOLS.has(call.toolName))) {
       lastLookup = i;
     }
   }
+  return lastLookup;
+}
 
-  const spoke = steps.some((step, index) => index > lastLookup && (step.text ?? '').trim().length > 0);
+/**
+ * What he said AFTER his last lookup — the answer, by this file's rule.
+ *
+ * Text that streamed in a step that also looked something up came BEFORE that
+ * lookup's result, so it is an interim line ("found these, now checking
+ * prices…"), not an answer to what the lookup found. `api/chat.mjs`'s
+ * step-budget and empty-answer guards read this rather than every step's text,
+ * so an interim line cannot switch them off.
+ */
+export function textAfterLastLookup(
+  steps: ReadonlyArray<SettlingStep>,
+  exclude: ReadonlyArray<number> = [],
+): string {
+  const lastLookup = lastLookupIndex(steps);
+  const skip = new Set(exclude);
+  return steps
+    .flatMap((step, index) => (index > lastLookup && !skip.has(index) ? [step.text ?? ''] : []))
+    .filter((text) => text.trim().length > 0)
+    .join('\n');
+}
+
+export function spokeAndSettled(
+  steps: ReadonlyArray<SettlingStep>,
+  answeredNudge: ReadonlyArray<number> = [],
+): boolean {
+  const spoke = textAfterLastLookup(steps, answeredNudge).trim().length > 0;
   const lastCalls = steps.at(-1)?.toolCalls ?? [];
   const settled = lastCalls.length > 0 && lastCalls.every((call) => COSMETIC_TOOLS.has(call.toolName));
   return spoke && settled;

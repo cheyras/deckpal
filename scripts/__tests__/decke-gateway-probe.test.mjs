@@ -3,7 +3,9 @@ import { resolve } from 'node:path'
 import { chdir, cwd, env } from 'node:process'
 import test from 'node:test'
 import {
+  MIN_NUDGE_TOKENS,
   buildReport,
+  fallbackResult,
   formatTable,
   gatewayKey,
   midConversationResult,
@@ -70,61 +72,112 @@ test('formatTable produces a compact, aligned summary for fake checks', () => {
 
 // ── mid_conversation_system_message ─────────────────────────────────────────
 
-const step = (text, ...toolNames) => ({ text, toolCalls: toolNames.map((toolName) => ({ toolName })) })
-const NUDGE = "The reader hasn't heard from you in a while — say in a sentence what you've found so far and what you're checking next, then continue."
+// A step as ai@7 reports it: text, tool calls with input, per-step usage.
+const step = (text, lookups = [], usage = {}) => ({
+  text,
+  toolCalls: lookups.map((name) => ({ toolName: 'lookup', input: { name } })),
+  usage,
+})
+const NUDGE = "The reader hasn't heard from you in a while. In one short line, tell them what you've found so far. Only if you're not done, add what you're checking next, then continue."
 
-test('nudged-loop evidence: text before the next lookup, after the nudge, is what counts', () => {
-  const spoke = nudgeLoopEvidence([step('', 'lookup'), step('Alice is done; now Bob.', 'lookup'), step('Both found.')], 1)
-  assert.deepEqual(spoke, {
-    steps: [
-      { index: 0, toolCalls: ['lookup'], visibleText: '', nudged: false },
-      { index: 1, toolCalls: ['lookup'], visibleText: 'Alice is done; now Bob.', nudged: true },
-      { index: 2, toolCalls: [], visibleText: 'Both found.', nudged: false },
-    ],
-    nudgedBeforeStep: 1,
-    nudgeReachedModel: true,
-    spokeAfterNudge: true,
-    nextToolCallStep: 1,
-    textBeforeNextToolCall: true,
-  })
+// Token shapes measured live on 2026-10-10 (Sonnet 5.5): the nudged step added
+// 55 tokens beyond the previous step's input and output, the next step 15 —
+// the tool result alone. A dropped nudge would add 15 on both.
+const carriedLoop = (speech = 'So far Alice; now Bob.') => [
+  step('', ['Alice'], { inputTokens: 450, outputTokens: 49 }),
+  step(speech, ['Bob'], { inputTokens: 554, outputTokens: 79 }),
+  step('Both found.', [], { inputTokens: 648, outputTokens: 31 }),
+]
+const droppedLoop = () => [
+  step('', ['Alice'], { inputTokens: 450, outputTokens: 49 }),
+  step('', ['Bob'], { inputTokens: 514, outputTokens: 40 }),
+  step('Both found.', [], { inputTokens: 569, outputTokens: 31 }),
+]
 
-  const silent = nudgeLoopEvidence([step('', 'lookup'), step('', 'lookup'), step('Both found.')], 1)
+test('nudged-loop evidence: the follow-up lookup, the carried tokens, and any line before it', () => {
+  const spoke = nudgeLoopEvidence(carriedLoop(), 1)
+  assert.deepEqual(spoke.steps.map(({ index, toolCalls, lookups, visibleText, nudged }) => ({ index, toolCalls, lookups, visibleText, nudged })), [
+    { index: 0, toolCalls: ['lookup'], lookups: ['Alice'], visibleText: '', nudged: false },
+    { index: 1, toolCalls: ['lookup'], lookups: ['Bob'], visibleText: 'So far Alice; now Bob.', nudged: true },
+    { index: 2, toolCalls: [], lookups: [], visibleText: 'Both found.', nudged: false },
+  ])
+  assert.equal(spoke.stepAfterNudgeRan, true)
+  assert.equal(spoke.bobLookedUpAfterNudge, true)
+  assert.equal(spoke.spokeAfterNudge, true)
+  assert.equal(spoke.textBeforeNextToolCall, true)
+  assert.equal(spoke.nextToolCallStep, 1)
+  assert.equal(spoke.nudgedStepAddedTokens, 55)
+  assert.equal(spoke.nextStepAddedTokens, 15)
+  assert.equal(spoke.nudgeInputTokens, 40)
+
+  const silent = nudgeLoopEvidence(carriedLoop(''), 1)
   assert.equal(silent.spokeAfterNudge, false)
   assert.equal(silent.textBeforeNextToolCall, false)
-  assert.equal(silent.nextToolCallStep, 1)
+  assert.equal(silent.bobLookedUpAfterNudge, true)
 
-  // Answered straight after the nudge, with no further lookup: it spoke, but
-  // there was no "next tool call" for the text to come before.
-  const answered = nudgeLoopEvidence([step('', 'lookup'), step('Alice only.')], 1)
-  assert.equal(answered.spokeAfterNudge, true)
-  assert.equal(answered.nextToolCallStep, null)
-  assert.equal(answered.textBeforeNextToolCall, false)
+  // Spoke straight after the nudge and never looked Bob up: the step ran, and
+  // that is all — the reader got a progress line and no answer.
+  const stopped = nudgeLoopEvidence([step('', ['Alice'], { inputTokens: 450, outputTokens: 49 }), step('Alice only so far; Bob next.', [], { inputTokens: 554, outputTokens: 20 })], 1)
+  assert.equal(stopped.stepAfterNudgeRan, true)
+  assert.equal(stopped.spokeAfterNudge, true)
+  assert.equal(stopped.bobLookedUpAfterNudge, false)
+  assert.equal(stopped.nextToolCallStep, null)
+  assert.equal(stopped.nudgeInputTokens, null, 'no next step, nothing to compare the growth with')
 
   // The model never called a tool, so the nudge was never sent.
   const never = nudgeLoopEvidence([step('Hi.')], null)
-  assert.equal(never.nudgeReachedModel, false)
+  assert.equal(never.stepAfterNudgeRan, false)
   assert.equal(never.nudgedBeforeStep, null)
+  assert.equal(never.nudgeInputTokens, null)
+
+  // Usage missing on a step: no number is invented.
+  assert.equal(nudgeLoopEvidence([step('', ['Alice']), step('', ['Bob']), step('Done.')], 1).nudgeInputTokens, null)
 })
 
-test('the check passes only when the Gateway carried the nudge for BOTH models', () => {
-  const ok = { succeeded: true, ...nudgeLoopEvidence([step('', 'lookup'), step('Now Bob.', 'lookup'), step('Done.')], 1) }
+test('PASS needs the follow-up lookup AND the carried nudge on BOTH models', () => {
+  const ok = { succeeded: true, ...nudgeLoopEvidence(carriedLoop(), 1) }
+  const dropped = { succeeded: true, ...nudgeLoopEvidence(droppedLoop(), 1) }
+  const stopped = { succeeded: true, ...nudgeLoopEvidence([step('', ['Alice'], { inputTokens: 450, outputTokens: 49 }), step('Alice so far.', [], { inputTokens: 554, outputTokens: 20 })], 1) }
   const rejected = { succeeded: false, error: 'AI_APICallError: system messages are not supported here', nudgedBeforeStep: 1 }
   const unsent = { succeeded: true, ...nudgeLoopEvidence([step('Hi.')], null) }
+  assert.equal(dropped.nudgeInputTokens, 0)
+  assert.ok(MIN_NUDGE_TOKENS > 0 && MIN_NUDGE_TOKENS < 40)
   assert.equal(midConversationResult(NUDGE, ok, ok).pass, true)
+  assert.equal(midConversationResult(NUDGE, ok, dropped).pass, false, 'a request that succeeded but lost the message passed')
+  assert.equal(midConversationResult(NUDGE, stopped, ok).pass, false, 'spoke-then-stopped passed')
   assert.equal(midConversationResult(NUDGE, ok, rejected).pass, false)
   assert.equal(midConversationResult(NUDGE, unsent, ok).pass, false)
-  assert.deepEqual(Object.keys(midConversationResult(NUDGE, ok, ok).evidence), ['nudgeText', 'sonnet', 'haiku'])
+  assert.deepEqual(Object.keys(midConversationResult(NUDGE, ok, ok).evidence), ['nudgeText', 'minNudgeTokens', 'sonnet', 'haiku'])
   assert.equal(midConversationResult(NUDGE, ok, ok).evidence.nudgeText, NUDGE)
+})
+
+test('the fallback check passes when the Gateway accepts the nudge and the loop goes on', () => {
+  const accepted = { model: 'google/gemini-2.5-flash', succeeded: true, ...nudgeLoopEvidence(droppedLoop(), 1) }
+  const rejected = { model: 'google/gemini-2.5-flash', succeeded: false, error: 'system message not supported', nudgedBeforeStep: 1 }
+  const stopped = { model: 'google/gemini-2.5-flash', succeeded: true, ...nudgeLoopEvidence([step('', ['Alice']), step('Alice.')], 1) }
+  assert.equal(fallbackResult(NUDGE, accepted).pass, true, 'Gemini token growth is evidence only')
+  assert.equal(fallbackResult(NUDGE, rejected).pass, false)
+  assert.equal(fallbackResult(NUDGE, stopped).pass, false)
+  const table = formatTable([
+    { name: 'mid_conversation_system_message_fallback', ...fallbackResult(NUDGE, accepted) },
+    { name: 'mid_conversation_system_message_fallback', ...fallbackResult(NUDGE, rejected) },
+  ])
+  assert.match(table, /mid_conversation_system_message_fallback\s+PASS\s+gemini-2\.5-flash silent, \+0 tok/)
+  assert.match(table, /mid_conversation_system_message_fallback\s+FAIL\s+gemini-2\.5-flash error/)
 })
 
 test('the report and table carry the nudged-loop result for each model, redacted', () => {
   const secret = 'gw_test_nudge_secret'
-  const spoke = { model: 'anthropic/claude-sonnet-5.5', succeeded: true, ...nudgeLoopEvidence([step('', 'lookup'), step('Now Bob.', 'lookup'), step('Done.')], 1) }
-  const silent = { model: 'anthropic/claude-haiku-5.5', succeeded: true, ...nudgeLoopEvidence([step('', 'lookup'), step('', 'lookup'), step('Done.')], 1) }
+  const spoke = { model: 'anthropic/claude-sonnet-5.5', succeeded: true, ...nudgeLoopEvidence(carriedLoop(), 1) }
+  const silent = { model: 'anthropic/claude-haiku-5.5', succeeded: true, ...nudgeLoopEvidence(carriedLoop(''), 1) }
   const failed = { model: 'anthropic/claude-haiku-5.5', succeeded: false, error: `rejected for ${secret}`, nudgedBeforeStep: 1 }
+  const stopped = { model: 'anthropic/claude-haiku-5.5', succeeded: true, ...nudgeLoopEvidence([step('', ['Alice']), step('Alice so far.')], 1) }
+  const dropped = { model: 'anthropic/claude-haiku-5.5', succeeded: true, ...nudgeLoopEvidence(droppedLoop(), 1) }
   const checks = [
     { name: 'mid_conversation_system_message', ...midConversationResult(NUDGE, spoke, silent) },
     { name: 'mid_conversation_system_message', ...midConversationResult(NUDGE, spoke, failed) },
+    { name: 'mid_conversation_system_message', ...midConversationResult(NUDGE, spoke, stopped) },
+    { name: 'mid_conversation_system_message', ...midConversationResult(NUDGE, spoke, dropped) },
   ]
   const report = buildReport(checks, { key: secret, generatedAt: '2026-10-10T00:00:00.000Z' })
   assert.equal(JSON.stringify(report).includes(secret), false)
@@ -132,7 +185,10 @@ test('the report and table carry the nudged-loop result for each model, redacted
   assert.equal(report.checks[0].evidence.haiku.spokeAfterNudge, false)
   assert.match(report.checks[1].evidence.haiku.error, /\[REDACTED\]/)
   const table = formatTable(report.checks)
-  assert.match(table, /mid_conversation_system_message\s+PASS\s+sonnet spoke, haiku silent/)
-  assert.match(table, /mid_conversation_system_message\s+FAIL\s+sonnet spoke, haiku error/)
+  assert.match(table, /mid_conversation_system_message\s+PASS\s+sonnet spoke, \+40 tok, haiku silent, \+40 tok/)
+  assert.match(table, /mid_conversation_system_message\s+FAIL\s+sonnet spoke, \+40 tok, haiku error/)
+  // Never "benign": a line and then nothing is named as the stop it is.
+  assert.match(table, /mid_conversation_system_message\s+FAIL\s+sonnet spoke, \+40 tok, haiku spoke then STOPPED before Bob/)
+  assert.match(table, /mid_conversation_system_message\s+FAIL\s+sonnet spoke, \+40 tok, haiku silent, \+0 tok/)
   assert.match(formatTable([{ name: 'mid_conversation_system_message', pass: false, evidence: {}, error: 'Error: Cannot find module progressNudge.js' }]), /FAIL\s+Error: Cannot find module/)
 })
