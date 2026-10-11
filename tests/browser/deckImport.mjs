@@ -452,7 +452,9 @@ async function checkLatestImport(page, server, width, out) {
   // check ("ten edits should send at most two checks, got 3"). Page timers
   // stall together with the debounce timer: after a stall, overdue timers run
   // in due order, so each edit (an input event, flushed synchronously by
-  // React) resets the debounce before it can fire. Same property, no race.
+  // React) resets the debounce before it can fire. Same property, without
+  // the Node round-trip race (timers are not exact, so a long enough stall can
+  // still fail the real-time assertions around it, as it can anywhere here).
   await text.evaluate(async (el) => {
     const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set
     for (let i = 0; i < 10; i++) {
