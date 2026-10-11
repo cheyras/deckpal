@@ -212,6 +212,10 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c11.multiplyCounters': (a) => `Put on each Pokémon chosen as "${String(a.slots ?? 't')}" ${Number(a.factor ?? 2) - 1} times the number of damage counters already on it (so each Pokémon has ${Number(a.factor ?? 2)} times as many damage counters); a Pokémon with none gets none`,
   'c11.retreatCostOf': (a) => `Count the {C} in the Retreat Cost your opponent's Active Pokémon has right now, after every effect (into "${String(a.as ?? 'n')}"); an Antique fossil has none`,
   'c11.discardOppActiveEnergy': () => "Discard an Energy of your choice from your opponent's Active Pokémon, unless it is protected from the effects of Abilities (or attacks)",
+  // std-c16-customs.ts
+  'c16.lookTopTakeDiscardRest': (a) => `Look at the top ${Number(a.n ?? 6)} cards of your deck. Put ${Number(a.take ?? 2)} of them into your hand (your choice; all of them if there are no more). Discard the other cards. The deck is not shuffled`,
+  'c16.energyOnOpp': (a) => `Count the ${sym(a.type as PType)} Energy provided by Energy attached to all of your opponent's Pokémon, Active and Benched (Basic or Special; into "${String(a.as ?? 'n')}")`,
+  'c16.discardEnergyAmong': (a) => `Discard up to ${Number(a.max ?? 3)} Energy cards that provide ${sym(a.type as PType)} Energy where they are attached (Basic or Special) from among your Pokémon, your choice, and count the cards discarded (into "${String(a.as ?? 'n')}")`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -231,6 +235,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'c10.handEvolvesSelf': () => 'you have a card in your hand that evolves from this Pokémon, and this Pokémon has not evolved this turn',
   'c10.weakToOppActive': () => "the Pokémon this card is attached to has a Weakness (as changed by effects) of a type that your opponent's Active Pokémon is",
   'c14.abilitiesOn': () => "no effect has turned this Pokémon's Abilities off",
+  'c16.remainingHpAtMost': (a) => `the HP of the Pokémon this is attached to (with any HP changes) minus its damage is ${Number(a.n ?? 30)} or less`,
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
@@ -1890,5 +1895,30 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me05-020|attack:Aqua Return': {
     problems: ['"your deck" is printed but not rendered'],
     why: 'The shuffle is the shared seed4.shuffleSlotIntoDeck, glossed for any Pokémon ("into their deck"); the Pokémon chosen here is always the attacking player own Active Pokémon (Primarina itself), so its owner is the attacker and the deck is "your deck".',
+  },
+  // std-c16
+  'sv05-150|text': {
+    problems: ['number 5', '"each" is printed', '"any number of" is rendered', 'similarity'],
+    why: '"Until they have 5 cards" is a discard of exactly (hand size minus 5, at least 0) cards chosen by that player, the opponent first and then the user; the renderer words a count of that shape "any number of cards" and cannot print the 5 (it sits inside the hand-size expression), and the "you can use this card only if" guard (someone has more than 5 cards) carries 6 and 7. The card test pins hand sizes around 5.',
+  },
+  'sv05-155|text': {
+    problems: ['"each" is printed'],
+    why: '"A card for each of your opponent\'s Benched Pokémon" is a draw of the number of the opponent\'s Benched Pokémon, which the renderer words "the number of your opponent\'s Benched Pokémon cards".',
+  },
+  'sv06-023|attack:Re-Brew': {
+    problems: ['"any number of" is rendered'],
+    why: '"Shuffle those Energy cards" is a choice of exactly k Basic {G} Energy cards from the discard pile (k = the number counted, so all of them) moved to the deck, which the renderer words "any number of"; it runs only when counters were really placed (Ruling 1979), which the renderer words as the before/after comparison.',
+  },
+  'sv06-033|ability:Pyro Dance': {
+    problems: ['"each" is printed'],
+    why: '"A Basic {R} Energy card, a Basic {F} Energy card, or 1 of each" is two optional single picks (one {R}, one {F}; at least one in total while the hand has either) and one attach per card chosen, each to a Pokémon of its own, so there is no word "each" to render.',
+  },
+  'sv06-010|attack:Slowing Perfume': {
+    problems: ['similarity'],
+    why: '"You can use this attack only if you go second, and only during your first turn" is a `cantUseAttack` static on the card whose `when` is the negation (not: it is your first turn and it is not turn 1), so the renderer words it as an inverted "can\'t use" sentence; the card test pins turn 2 (usable) against turns 1, 3 and 4.',
+  },
+  'sv06-029|attack:Ground Burn': {
+    problems: ['the rendering involves the opponent'],
+    why: '"The top card of each player\'s deck" is two discards, one from each deck, and the renderer words the second as "your opponent\'s deck", which is the other player\'s deck the card prints as "each player\'s".',
   },
 };
