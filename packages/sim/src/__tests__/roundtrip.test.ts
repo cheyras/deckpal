@@ -178,6 +178,7 @@ test('every DSL step renders', () => {
     useAttackOf: { op: 'useAttackOf', card: 'x' },
     custom: { op: 'custom', fn: 'returnSelfToHand' },
     end: { op: 'end' },
+    delay: { op: 'delay', duration: 'oppNextTurn', program: [{ op: 'counters', n: 9, to: 'defender' }] },
   };
   for (const [op, st] of Object.entries(STEPS)) {
     const text = renderProgram([{ op: 'flip', n: 1, as: 'h' }, { op: 'chooseCards', from: 'hand', min: 1, max: 1, as: 'x' }, st as Step]);
@@ -188,7 +189,9 @@ test('every DSL step renders', () => {
 test('every static effect, scope and trigger renders', () => {
   const EFFECTS: { [K in StaticEffect['k']]: Extract<StaticEffect, { k: K }> } = {
     preventEffects: { k: 'preventEffects', from: ['attack'] },
-    preventDamage: { k: 'preventDamage', attackerMaxEnergy: 2 },
+    preventDamage: { k: 'preventDamage', attackerMaxEnergy: 2, attacker: { stage: 'basic' } },
+    attackCoinFlip: { k: 'attackCoinFlip' },
+    cantAttachFromHand: { k: 'cantAttachFromHand' },
     retreatCost: { k: 'retreatCost', delta: 1 },
     attackCostC: { k: 'attackCostC', delta: -1 },
     attackCostSet: { k: 'attackCostSet', attack: 'Bite', cost: ['Fire', 'Colorless'] },

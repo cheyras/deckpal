@@ -141,6 +141,26 @@ export interface Slot {
   usedAbilities: number[];
   /** Turn it was last made Paralyzed (unset = before this game's tracking, e.g. a scenario). */
   paralyzedTurn?: number;
+  /** Turn this Pokémon last moved from the Bench to the Active Spot (cleared when it evolves). */
+  movedActiveTurn?: number;
+  /** Turn a heal last removed damage from this Pokémon. */
+  healedTurn?: number;
+}
+
+/** A program scheduled for the end of a turn (the `delay` step). */
+export interface DelayedEffect {
+  /** Compiled program key in GameContext.code. */
+  code: string;
+  /** The tracked Pokémon (slot id); the effect is dropped when it leaves the Active Spot, evolves or is Knocked Out. */
+  slot: number;
+  /** Controller of the effect. */
+  player: Player;
+  /** The card whose effect this is, and the Pokémon slot it came from. */
+  src: number;
+  from: number;
+  /** Runs at the end of this turn number. */
+  turn: number;
+  fromAttack: boolean;
 }
 
 export interface PlayerState {
@@ -234,6 +254,8 @@ export interface GameState {
   stack: Frame[];
   pending: Pending | null;
   effects: TimedEffect[];
+  /** Programs waiting for the end of a turn. Replace, never mutate in place. */
+  delayed?: DelayedEffect[];
   /** Set when an attack resolves: the turn ends once the stack empties. */
   attacked: boolean;
   /** Slot ids the current attack has damaged (opposing Pokémon only). Replace, never mutate: clones share it. */ // lane:fighting

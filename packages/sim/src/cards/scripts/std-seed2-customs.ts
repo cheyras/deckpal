@@ -11,7 +11,7 @@ import { def, type Env } from '../../context.js';
 import { registerCustom } from '../../customs.js';
 import { slotsIn } from '../../eval.js';
 import { effectsPrevented, energyUnits } from '../../query.js';
-import { emit, findSlot, opp, rand, removeFrom, topCard } from '../../state.js';
+import { emit, findSlot, healSlot, opp, rand, removeFrom, topCard } from '../../state.js';
 import type { Decision, GameState, Player, Slot } from '../../types.js';
 import type { SlotZone } from '../../dsl.js';
 
@@ -111,7 +111,7 @@ registerCustom('seed2.sumAttached', (env, s, f, args) => {
  */
 registerCustom('seed2.healEach', (_env, s, f, args) => {
   for (const sl of slotsIn(s, f.player, String(args.zone ?? 'myPokemon') as SlotZone)) {
-    sl.damage = Math.max(0, sl.damage - Number(args.amount));
+    healSlot(s, sl, Number(args.amount));
   }
   return 'next';
 });

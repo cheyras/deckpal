@@ -25,7 +25,7 @@ export interface LiveStatic {
   /** For timed effects bound to one Pokémon: that slot id. */
   bound: number;
   src: number;
-  kind: 'ability' | 'tool' | 'energy' | 'stadium' | 'timed';
+  kind: 'ability' | 'tool' | 'energy' | 'stadium' | 'timed' | 'card';
 }
 
 /** Gather every live static. Ability statics of Pokémon under a no-Abilities effect are dropped. */
@@ -46,6 +46,14 @@ export function statics(env: Env, s: GameState): LiveStatic[] {
       for (const e of sl.energy) {
         for (const st of def(ctx, e).statics) out.push({ ...st, player: p, slot: sl.id, bound: 0, src: e, kind: 'energy' });
       }
+    }
+  }
+  // Statics printed on a Pokémon card itself (not in an Ability): never switched off by "no Abilities" effects.
+  for (const p of [0, 1] as Player[]) {
+    for (const sl of allSlots(s.p[p])) {
+      const d = def(ctx, topCard(sl));
+      if (d.coverage !== 'full' || d.kind !== 'pokemon') continue;
+      for (const st of d.script?.statics ?? []) out.push({ ...st, player: p, slot: sl.id, bound: 0, src: topCard(sl), kind: 'card' });
     }
   }
   for (const te of s.effects) {
@@ -243,7 +251,8 @@ export function effectsPrevented(
   }
   if (kind === 'attack') {
     for (const x of onSlot(env, s, all, slot, 'preventDamage')) {
-      if ((x.effect as { andEffects?: boolean }).andEffects) return true;
+      const e = x.effect as { andEffects?: boolean; attacker?: Filter };
+      if (e.andEffects && !e.attacker) return true; // an attacker-filtered prevention is honoured for damage only
     }
   }
   return false;
@@ -278,7 +287,10 @@ export function damagePrevented(
   if (owner === fromPlayer) return false;
   return onSlot(env, s, all, slot, 'preventDamage').some((x) => {
     // lane:ghost — "attacks from your opponent's Pokémon that have 2 or less Energy attached" (Energy units, as energyOn counts).
-    const max = (x.effect as { attackerMaxEnergy?: number }).attackerMaxEnergy;
+    const e = x.effect as { attackerMaxEnergy?: number; attacker?: Filter };
+    // "attacks from Basic Pokémon": only an attacking Pokémon that matches the filter.
+    if (e.attacker && !(attacker && slotMatches(env, attacker, e.attacker))) return false;
+    const max = e.attackerMaxEnergy;
     if (max === undefined) return true;
     return !!attacker && energyUnits(env, attacker).length <= max;
   });
@@ -300,10 +312,11 @@ export function damageOut(env: Env, s: GameState, attacker: Slot, target: Slot, 
 }
 
 /** `fromPlayer`: whose attack it is (lane:metal) — a `fromOpp` reduction skips the target owner's own attacks. */
-export function damageIn(env: Env, s: GameState, target: Slot, all = statics(env, s), fromPlayer?: Player): number {
+export function damageIn(env: Env, s: GameState, target: Slot, all = statics(env, s), fromPlayer?: Player, attacker?: Slot): number {
   let n = 0;
   for (const x of onSlot(env, s, all, target, 'damageIn')) {
-    const e = x.effect as { amount: number; fromOpp?: boolean };
+    const e = x.effect as { amount: number; fromOpp?: boolean; attacker?: Filter };
+    if (e.attacker && !(attacker && slotMatches(env, attacker, e.attacker))) continue;
     if (e.fromOpp && fromPlayer !== undefined && fromPlayer === ownerOf(s, target)) continue; // lane:metal
     n += e.amount;
   }
@@ -334,6 +347,16 @@ export function extraPrizeFor(_env: Env, _s: GameState, p: Player, all: LiveStat
 
 export function cantAttack(env: Env, s: GameState, slot: Slot, all = statics(env, s)): boolean {
   return onSlot(env, s, all, slot, 'cantAttack').length > 0;
+}
+
+/** How many "tries to use an attack" coin flips apply to this Pokémon's attack right now (one per effect). */
+export function attackCoinFlips(env: Env, s: GameState, slot: Slot, all = statics(env, s)): number {
+  return onSlot(env, s, all, slot, 'attackCoinFlip').length;
+}
+
+/** Can Energy be attached from hand to this Pokémon? */
+export function canAttachFromHand(env: Env, s: GameState, slot: Slot, all = statics(env, s)): boolean {
+  return onSlot(env, s, all, slot, 'cantAttachFromHand').length === 0;
 }
 
 export function cantRetreat(env: Env, s: GameState, slot: Slot, all = statics(env, s)): boolean {

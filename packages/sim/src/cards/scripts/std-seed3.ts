@@ -3,13 +3,8 @@
  * printed text in frames.ts; quotes below are that text. Tests in src/__tests__/cards-std-seed3.test.ts.
  *
  * Not scripted (the vocabulary or the engine can't say it yet; see the batch report):
- *  - me01-050 Mega Manectric ex   Flash Ray: damage prevention limited to attacks from Basic Pokémon.
- *  - me01-069 Sandslash           Sand Attack: "tries to use an attack ... flips a coin. If tails, that attack doesn't happen".
- *  - me01-085 Crawdaunt           Cutting Riposte: a Pokémon with no Ability can't carry the attack-cost static (only Abilities,
- *                                 Tools, Energy and Stadiums contribute statics).
- *  - me02-003 Vileplume           Lively Flower: "was healed during this turn" is not tracked.
- *  - me02-084 Mega Lopunny ex     Gale Thrust: "moved from your Bench to the Active Spot this turn" is not tracked.
- *  - me04-039 Trevenant           Cursed Roots: "Energy can't be attached from your opponent's hand to the Defending Pokémon".
+ *  - (the six cards that were blocked here -- Mega Manectric ex, Sandslash, Crawdaunt, Vileplume, Mega Lopunny ex, Trevenant --
+ *    are scripted in std-engine.ts, on the engine features added with it.)
  */
 import type { CardScript, Program } from '../../dsl.js';
 import { damageOneOf, searchToHand } from './helpers.js';
@@ -25,8 +20,7 @@ export const STD_SEED3: CardScript[] = [
     attacks: {
       // "This attack does 40 damage for each of your Pokémon in play that has the Round attack."
       Round: {
-        pre: [{ op: 'custom', fn: 'seed3.countWithAttack', args: { attack: 'Round', zone: 'myPokemon', as: 'n' } }],
-        damage: { mul: [40, { v: 'n' }] },
+        damage: { mul: [40, { pokemon: { zone: 'myPokemon', filter: { hasAttack: 'Round' } } }] },
       },
     },
     notes: 'Wigglytuff itself has Round, so it counts; so does every other Pokémon of yours (Active or Benched) with a printed Round attack.',

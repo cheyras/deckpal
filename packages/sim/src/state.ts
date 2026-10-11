@@ -47,6 +47,7 @@ export function newState(ctx: GameContext, seed: number): GameState {
     stack: [],
     pending: null,
     effects: [],
+    delayed: [],
     attacked: false,
     queued: [],
     limbo: [],
@@ -70,6 +71,8 @@ function cloneSlot(s: Slot): Slot {
     evolvedTurn: s.evolvedTurn,
     usedAbilities: s.usedAbilities.slice(),
     ...(s.paralyzedTurn !== undefined ? { paralyzedTurn: s.paralyzedTurn } : {}),
+    ...(s.movedActiveTurn !== undefined ? { movedActiveTurn: s.movedActiveTurn } : {}),
+    ...(s.healedTurn !== undefined ? { healedTurn: s.healedTurn } : {}),
   };
 }
 
@@ -120,6 +123,7 @@ export function cloneState(s: GameState): GameState {
         }
       : null,
     effects: s.effects.map((e) => ({ ...e })),
+    ...(s.delayed ? { delayed: s.delayed.map((d) => ({ ...d })) } : {}),
     queued: s.queued.map((f) => ({ ...f, vars: { ...f.vars } })),
     limbo: s.limbo.slice(),
   };
@@ -195,6 +199,22 @@ export function newSlot(s: GameState, card: number): Slot {
     evolvedTurn: 0,
     usedAbilities: [],
   };
+}
+
+/** Heal a Pokémon. Records the turn when damage was actually removed ("was healed during this turn"). Returns the damage removed. */
+export function healSlot(s: GameState, slot: Slot, amount: number): number {
+  const removed = Math.max(0, Math.min(slot.damage, amount));
+  if (removed > 0) {
+    slot.damage -= removed;
+    slot.healedTurn = s.turn;
+  }
+  return removed;
+}
+
+/** A Pokémon left the Active Spot, evolved or was Knocked Out: attack effects on it (timed and delayed) end. */
+export function clearAttackEffects(s: GameState, slotId: number): void {
+  s.effects = s.effects.filter((x) => !(x.slot === slotId && x.fromAttack));
+  if (s.delayed?.length) s.delayed = s.delayed.filter((d) => !(d.slot === slotId && d.fromAttack));
 }
 
 /** Remove a card id from an array in place; true when found. */

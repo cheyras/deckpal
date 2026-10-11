@@ -6,7 +6,7 @@
  * and re-running the same op, which consumes it -- so an op is the unit of
  * atomicity and every pause point is just (frame, pc).
  */
-import { codeOf, def, type Env } from './context.js';
+import { codeOf, def, ensureCode, type Env } from './context.js';
 import type { Op } from './compile.js';
 import type { CardZone, DamageIgnore, Dest, Filter, SlotRef, SlotZone, SpecialCondition, Step } from './dsl.js';
 import { cardMatches, evalCond, evalExpr, resolveSlot, side, slotMatches, slotsIn, type EvalCtx } from './eval.js';
@@ -18,6 +18,7 @@ import {
   damagePrevented,
   countersPrevented, // lane:darkrai
   effectsPrevented,
+  canAttachFromHand,
   hasNoAbilities,
   maxHp,
   ownerOf,
@@ -28,10 +29,12 @@ import {
 } from './query.js';
 import {
   allSlots,
+  clearAttackEffects,
   draw,
   emit,
   findSlot,
   flipCoin,
+  healSlot,
   newSlot,
   opp,
   removeFrom,
@@ -239,7 +242,7 @@ function dealDamage(
       const r = def(env.ctx, topCard(target)).resistance;
       if (!ignore?.resistance && r && atkTypes.includes(r.type)) dmg -= r.amount;
     }
-    if (dmg > 0 && !noDefEffects) dmg += damageIn(env, s, target, all, f.player); // lane:metal (fromOpp) + lane:fighting (ignore)
+    if (dmg > 0 && !noDefEffects) dmg += damageIn(env, s, target, all, f.player, attacker ?? undefined); // lane:metal (fromOpp) + lane:fighting (ignore)
     if (dmg < 0) dmg = 0;
     if (dmg > 0 && !noDefEffects && damagePrevented(env, s, target, f.player, all, attacker ?? undefined)) dmg = 0; // lane:ghost (attacker)
     if (dmg <= 0) continue;
@@ -482,6 +485,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
       for (const c of cards) {
         const owner = env.ctx.owner[c] as Player;
         const fromHand = s.p[owner].hand.includes(c); // lane:ghost
+        if (fromHand && !canAttachFromHand(env, s, target)) continue;
         if (!takeFromZones(s.p[owner], c)) continue;
         target.energy.push(c);
         emit(env, { type: 'attach', player: owner, card: c, slot: target.id });
@@ -510,7 +514,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
     }
     case 'heal': {
       const t = resolveSlot(s, e, st.to);
-      if (t) t.damage = Math.max(0, t.damage - evalExpr(env, s, e, st.amount));
+      if (t) healSlot(s, t, evalExpr(env, s, e, st.amount));
       return 'next';
     }
     case 'condition': {
@@ -565,6 +569,16 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
           ...(st.scope ? { scope: st.scope } : {}), // lane:metal
         });
       }
+      return 'next';
+    }
+    case 'delay': {
+      const t = resolveSlot(s, e, st.on ?? 'defender');
+      if (!t) return 'next';
+      if (f.kind === 'attack' && ownerOf(s, t) !== f.player && effectsPrevented(env, s, t, f.player, 'attack')) return 'next';
+      const turn = st.duration === 'thisTurn' ? s.turn : st.duration === 'oppNextTurn' ? s.turn + 1 : s.turn + 2;
+      // One compiled copy per op instance: the frame's program and position name it.
+      const code = ensureCode(env.ctx, `${f.code}@${f.pc}`, st.program);
+      s.delayed = [...(s.delayed ?? []), { code, slot: t.id, player: f.player, src: f.src, from: f.slot, turn, fromAttack: f.kind === 'attack' }];
       return 'next';
     }
     case 'knockOut': {
@@ -781,10 +795,11 @@ export function swapActive(env: Env, s: GameState, who: Player, target: Slot, re
   ps.bench = ps.bench.filter((b) => b !== target);
   if (old) {
     old.cond = 0;
-    s.effects = s.effects.filter((x) => !(x.slot === old.id && x.fromAttack));
+    clearAttackEffects(s, old.id);
     ps.bench.push(old);
   }
   ps.active = target;
+  target.movedActiveTurn = s.turn;
   emit(env, { type: retreat ? 'retreat' : 'switch', player: who, from: old?.id ?? 0, to: target.id });
 }
 

@@ -52,6 +52,8 @@ export interface Filter {
   nameIncludes?: string;
   /** Pokémon whose printed Abilities include this name (e.g. "Hide 'n' Sneak"). */
   hasAbility?: string;
+  /** Pokémon whose printed attacks include one with this name (any of these names), e.g. "Round". Matched on the top card. */
+  hasAttack?: string | string[];
   /** In-play only: the Pokémon has at least one damage counter. */
   damaged?: boolean;
   /** In-play only: at least one attached Energy card matches (e.g. `{ basicEnergy: false }` = has Special Energy). */ // lane:metal
@@ -127,6 +129,17 @@ export type Cond =
   | { cardIs: { v: string; filter: Filter } }
   /** The referenced Pokémon matches. */
   | { slotIs: { ref: SlotRef; filter: Filter } }
+  /**
+   * The referenced Pokémon moved from the Bench to the Active Spot (switch, retreat, promotion) during the current turn.
+   * It must have happened during this turn (not at the end of the opponent's turn or at Checkup), and evolving afterwards
+   * resets it (TPCi Rules Team 2025-12-04, ruling 2265, Mega Lopunny ex Gale Thrust).
+   */
+  | { movedToActiveThisTurn: SlotRef }
+  /**
+   * The referenced Pokémon was healed during the current turn: a heal that actually removed damage counters.
+   * Moving damage counters is not healing (TPCi Rules Team 2026-07-16, ruling 2405).
+   */
+  | { healedThisTurn: SlotRef }
   | { inActive: SlotRef }
   | { onBench: SlotRef }
   /** Any of this side's Pokémon were Knocked Out during the opponent's last turn. */
@@ -145,6 +158,8 @@ export type StaticEffect =
   | {
       k: 'preventDamage';
       andEffects?: boolean;
+      /** Only damage from attacks of an attacking Pokémon matching this ("attacks from Basic Pokémon"). Honoured for damage only, not with `andEffects`. */
+      attacker?: Filter;
       /** lane:ghost — only from attacking Pokémon with at most this much Energy attached (Bastiodon, Ancient Bulwark). */
       attackerMaxEnergy?: number;
     }
@@ -165,7 +180,14 @@ export type StaticEffect =
       noStack?: string;
     }
   /** Damage the affected Pokémon takes from attacks (after W/R; negative = reduction). `fromOpp`: only from the opponent's attacks. */
-  | { k: 'damageIn'; amount: number; fromOpp?: boolean /* lane:metal */ }
+  | { k: 'damageIn'; amount: number; fromOpp?: boolean /* lane:metal */; attacker?: Filter }
+  /**
+   * "If the affected Pokémon tries to use an attack, its owner's opponent flips a coin. If tails, that attack doesn't happen."
+   * The flip comes before Confusion's (TPCi 2026-04-02 ruling 2326, 2026-03-26 ruling 2317).
+   */
+  | { k: 'attackCoinFlip' }
+  /** Energy can't be attached from hand to the affected Pokémon (by the owner's turn action or by an effect). */
+  | { k: 'cantAttachFromHand' }
   | { k: 'hp'; delta: number }
   | { k: 'cantAttack' }
   | { k: 'cantRetreat' }
@@ -296,6 +318,13 @@ export type Step =
   | { op: 'repeat'; n: Expr; body: Step[] }
   /** "You may ..." -- a yes/no decision for the controller. */
   | { op: 'may'; body: Step[]; prompt?: string }
+  /**
+   * "At the end of <the turn named by `duration`>, <program>": schedule a program to run at that turn's end, before Pokémon
+   * Checkup. The Pokémon in `on` (default the Defending Pokémon) is tracked: if it leaves the Active Spot, evolves or is
+   * Knocked Out first, the program is dropped (TPCi 2026-07-16, ruling 2404). In the program, 'defender' is that Pokémon.
+   * From an attack, it is not scheduled on a Pokémon protected from the effects of attacks.
+   */
+  | { op: 'delay'; duration: Duration; program: Step[]; on?: SlotRef }
   /** Create a timed effect on a Pokémon or a player. */
   | {
       op: 'effect';
@@ -402,7 +431,11 @@ export interface CardScript {
   playable?: Cond;
   /** Supporter: "If you go first, you may use this card during your first turn." (Carmine) */ // lane:metal
   firstTurnSupporter?: boolean;
-  /** Trainer (Tool/Stadium) and Energy passives. */
+  /**
+   * Trainer (Tool/Stadium) and Energy passives. On a Pokémon card these are printed on the card itself, not in an Ability
+   * (e.g. an attack that "can be used for {D}" when a condition holds): they apply while it is in play and are not switched
+   * off by "no Abilities" effects.
+   */
   statics?: StaticDef[];
   /** Trainer (Tool) and Energy triggers. */
   triggers?: TriggerScript[];

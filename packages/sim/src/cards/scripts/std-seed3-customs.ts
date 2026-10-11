@@ -6,27 +6,11 @@
  * per-Pokémon doubling of damage counters); they are written as small generic functions so they can be promoted
  * to clauses later.
  */
-import { def } from '../../context.js';
 import { registerCustom, registerCustomCond } from '../../customs.js';
 import { resolveSlot, slotsIn } from '../../eval.js';
 import { countersPrevented, effectsPrevented, maxHp, ownerOf, statics } from '../../query.js';
-import { emit, topCard } from '../../state.js';
+import { emit, healSlot } from '../../state.js';
 import type { SlotZone } from '../../dsl.js';
-
-/**
- * Wigglytuff, Round: "This attack does 40 damage for each of your Pokémon in play that has the Round attack."
- * Sets variable `as` (default `n`) to the number of the controller's Pokémon in `zone` whose printed attacks include one
- * named `attack`. args: { attack, zone, as }.
- */
-registerCustom('seed3.countWithAttack', (env, s, f, args) => {
-  const zone = String(args.zone ?? 'myPokemon') as SlotZone;
-  let n = 0;
-  for (const sl of slotsIn(s, f.player, zone)) {
-    if (def(env.ctx, topCard(sl)).attacks.some((a) => a.name === args.attack)) n++;
-  }
-  f.vars[String(args.as ?? 'n')] = n;
-  return 'next';
-});
 
 /**
  * Mega Floette ex, Gentle Light: "Heal 30 damage from each Pokémon (both yours and your opponent's)."
@@ -37,7 +21,7 @@ registerCustom('seed3.healEach', (env, s, f, args) => {
   const all = statics(env, s);
   for (const sl of slotsIn(s, f.player, String(args.zone ?? 'allPokemon') as SlotZone)) {
     if (f.kind === 'attack' && ownerOf(s, sl) !== f.player && effectsPrevented(env, s, sl, f.player, 'attack', all)) continue;
-    sl.damage = Math.max(0, sl.damage - Number(args.amount));
+    healSlot(s, sl, Number(args.amount));
   }
   return 'next';
 });

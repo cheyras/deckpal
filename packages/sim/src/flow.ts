@@ -14,7 +14,9 @@ import {
   abilityLost,
   extraPrizeFor,
   attackBlocked, // lane:fighting
+  attackCoinFlips,
   attackCost,
+  canAttachFromHand,
   canPay,
   cantAttack,
   cantRetreat,
@@ -28,8 +30,10 @@ import {
 } from './query.js';
 import { leaveHand,
   allSlots,
+  clearAttackEffects,
   draw,
   emit,
+  findSlot,
   flipCoin,
   newSlot,
   opp,
@@ -153,6 +157,7 @@ export function submit(env: Env, s: GameState, choice: number[]): void {
       const sl = ps.bench.find((b) => b.id === id) as Slot;
       ps.bench = ps.bench.filter((b) => b !== sl);
       ps.active = sl;
+      sl.movedActiveTurn = s.turn;
       emit(env, { type: 'promote', player: r.p, slot: sl.id });
       break;
     }
@@ -388,6 +393,17 @@ function turnStep(env: Env, s: GameState): void {
       return;
     case 'endTurn': {
       emit(env, { type: 'end_turn', player: s.current, turn: s.turn });
+      // "At the end of ... turn" programs scheduled by the `delay` step, before Checkup. A target that is no longer
+      // the Active Pokémon (left play by some route that did not clear it) drops the effect.
+      if (s.delayed?.length) {
+        const due = s.delayed.filter((d) => d.turn === s.turn);
+        s.delayed = s.delayed.filter((d) => d.turn > s.turn);
+        for (const d of due) {
+          const t = findSlot(s, d.slot);
+          if (!t?.active) continue;
+          s.queued.push({ code: d.code, pc: 0, vars: { __def: d.slot }, player: d.player, src: d.src, slot: d.from, kind: d.fromAttack ? 'attack' : 'trigger' });
+        }
+      }
       // lane:misc — "at the end of your turn" effects (Powerglass, Ignition Energy) resolve before Checkup.
       for (const sl of allSlots(s.p[s.current])) queueTriggers(env, s, sl, s.current, 'endOfTurn');
       s.step = 'checkup';
@@ -448,7 +464,7 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
       }
     } else if (d.kind === 'energy') {
       if (ps.energyAttached || d.coverage === 'none') continue;
-      for (const sl of slots) if (once(`a${d.idx}:${sl.id}`)) out.push({ t: 'attach', card: c, slot: sl.id });
+      for (const sl of slots) if (canAttachFromHand(env, s, sl, all) && once(`a${d.idx}:${sl.id}`)) out.push({ t: 'attach', card: c, slot: sl.id });
     } else if (d.kind === 'trainer') {
       if (d.coverage === 'none') continue;
       if (d.needsDeck && !ps.deck.length) continue; // it would do nothing (see CardDef.needsDeck)
@@ -558,9 +574,10 @@ function doAction(env: Env, s: GameState, a: Action): void {
       sl.cards.push(a.card);
       sl.usedAbilities = def(env.ctx, a.card).abilities.flatMap((ab, i) => (spent.includes(ab.name) ? [i] : []));
       sl.evolvedTurn = s.turn;
-      // Evolving clears Special Conditions and attack effects on the Pokémon.
+      // Evolving clears Special Conditions and attack effects on the Pokémon (and "moved to the Active Spot": ruling 2265).
       sl.cond = 0;
-      s.effects = s.effects.filter((x) => !(x.slot === sl.id && x.fromAttack));
+      delete sl.movedActiveTurn;
+      clearAttackEffects(s, sl.id);
       emit(env, { type: 'evolve', player: p, card: a.card, slot: sl.id });
       queueTriggers(env, s, sl, p, 'evolveFromHand');
       return;
@@ -641,6 +658,9 @@ function doAction(env: Env, s: GameState, a: Action): void {
       s.attacked = true;
       s.attackHits = []; // lane:fighting
       emit(env, { type: 'attack', player: p, slot: act.id, name: atk.name });
+      // "If the Defending Pokémon tries to use an attack, flip a coin. If tails, that attack doesn't happen." The flip for
+      // such an effect comes first, before Confusion's (rulings 2326 and 2317); on tails the attack never happens.
+      for (let n = attackCoinFlips(env, s, act); n > 0; n--) if (!flipCoin(env, s, p)) return;
       const defender = s.p[opp(p)].active;
       pushFrame(s, {
         code: atk.code,
@@ -682,6 +702,7 @@ function knockOut(env: Env, s: GameState, owner: Player, sl: Slot): void {
   if (ps.active === sl) ps.active = null;
   else ps.bench = ps.bench.filter((b) => b !== sl);
   s.effects = s.effects.filter((x) => x.slot !== sl.id);
+  if (s.delayed?.length) s.delayed = s.delayed.filter((d) => d.slot !== sl.id);
   if (ps.lastKoTurn !== s.turn) ps.prevKoTurn = ps.lastKoTurn; // lane:misc
   ps.lastKoTurn = s.turn;
   // lane:trevenant — "Knocked Out by damage from an attack during your opponent's last turn" (Hop's Trevenant): same test
@@ -769,6 +790,7 @@ function resolveKOs(env: Env, s: GameState): void {
     if (!ps.bench.length) continue; // checkWin already ended the game
     if (ps.bench.length === 1) {
       ps.active = ps.bench.shift() as Slot;
+      ps.active.movedActiveTurn = s.turn;
       emit(env, { type: 'promote', player: p, slot: ps.active.id });
       continue;
     }
