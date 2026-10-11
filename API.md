@@ -70,7 +70,11 @@ omit the host.
 - **Progress.** Read from `user_set_progress` for the requesting user. **Complete
   is a card fraction; Master and Grandmaster are `(card,variant)` pair fractions** —
   the three totals differ (e.g. sv03.5: 207 / 373 / 384). `pct` is one-decimal,
-  round-half-up. `setLevel` (0–5) is on the Complete goal only.
+  round-half-up. `setLevel` (0–5) is on the Complete goal only. No route here takes
+  a `numbered` goal: "the regular numbered set" (cards 1 to the printed total
+  `card_count_official`, no secret rares; unlike `printedCount` it never falls back
+  to the full card count) is computed live by the `set_progress` agent tool only — see
+  `apps/mcp/SPEC.md` §5 and `research/SCHEMA.md` §9.2.
 - **View state in the URL.** Filter/sort/goal/ownership/pagination are query params
   by design; omit a param to accept its default.
 - **Identifiers.** `:setId` and `:cardId` are TCGdex ids (`sv03.5`, `base1`,

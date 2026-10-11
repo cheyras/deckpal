@@ -425,7 +425,7 @@ sees them in `tools/list`:
    display name, tier (from `variant_tier_resolved` — never re-derive), owned qty, market price,
    TCGplayer link when present. Ambiguous → candidate list. Same trailing `series <slug>` addition
    as `search_cards`.
-5. **`set_progress`** — `{ set_id?, goal? ∈ complete|master|grandmaster, rarity?, rarity_exclude?,
+5. **`set_progress`** — `{ set_id?, goal? ∈ complete|master|grandmaster|numbered, rarity?, rarity_exclude?,
    page?, page_size? }`. Every missing row carries its **rarity**, and `rarity`/`rarity_exclude`
    filter on it (case-insensitive; an unknown name is an error listing the vocabulary, never a
    silently empty result). Rarity is NOT `variant_tier_resolved.tier`: an Illustration Rare and a
@@ -439,6 +439,18 @@ sees them in `tools/list`:
    `set_id`: all three goals' numbers + the missing cards for the
    requested goal (via `master_required_variant` for master; paged) + **cost-to-complete** (Σ
    cheapest market price of missing required variants; unpriced listed separately, never $0).
+   **`goal: 'numbered'`** (2026-10-10) is the regular numbered set: one of any variant of each
+   card whose collector number is a plain integer from 1 to the set's printed total
+   (`card_set.card_count_official`, the 165 in "006/165"), so secret rares numbered above it and
+   unnumbered subset cards (TG01, GG01) are out. It is this tool's alone and computed live — not a
+   `user_set_progress` goal, not `default_goal`, not accepted by `set_cart` or `edit_list`. With
+   `set_id` it prints the three stored goals for context, a `numbered owned/total` line that says
+   how many cards fell outside the range (and when the catalog holds fewer cards than the printed
+   total), then `complete`'s card-level missing list over the numbered cards only (`rarity`
+   filters still apply). A set with no printed total (NULL or 0) answers "numbered: not
+   available" with no missing list — never a guess. The overview ranks the same sets by numbered
+   completion and marks a set with no printed total `numbered n/a`. Before this, the only way to
+   ask was `rarity_exclude` with that set's exact secret-rare rarity names.
 6. **`collection_log`** — `{ since?: ISO, source?, limit? = 50 }`. The agentic-logging read
    face: `collection_event` joined to card/variant — `occurred_at | card | variant | Δdelta →
    qty_after | source | note`. Needs migration 018 (below).
