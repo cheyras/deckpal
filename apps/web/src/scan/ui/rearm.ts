@@ -27,6 +27,20 @@
 // last locked", not "since the last tick": a lock blinks off for a tick
 // whenever its track coasts.
 //
+// A CAPTURE THAT CAME OUT TURNED. capture() warps from the corner nearest the
+// frame's top-left (rectify.orderQuadForCard), so a card lying, or swinging,
+// past 45° is captured sideways or upside down — 3 of owner session 1's 42
+// captures — and its look is then far from the very card it is: a Marill
+// re-captured twice behind its own sideways capture, at 1.45 and 1.51. So a
+// capture's look carries its four quarter turns and is compared at the
+// nearest (look.ts captureLook, lookDistance), a turn other than the capture
+// as taken costing LOOK_TURN_COST. Without the cost the three extra turns are
+// three more draws at a chance look-alike: on the owner's sessions they held 3
+// of the 23 new cards the re-arm rescues (Cinccino matched a Skwovet at its
+// half turn, 0.77), on two of the videos 3 of 30 captured cards. With it the
+// Marill duplicates go and nothing else moves on either: the same card turned
+// matched at 0.14-0.57 (scripts/scan-bench/owner-rearm.ts).
+//
 // THE NUMBERS (scripts/scan-bench/video, 2026-10-10): seven pack-opening and
 // flip-through videos replayed through this module, regions.ts and the engine
 // as the camera — 192 capturable card appearances with hand-made ground truth,
