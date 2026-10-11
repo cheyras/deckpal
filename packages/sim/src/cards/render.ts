@@ -332,6 +332,14 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
     'Search your deck for up to 1 card that has no Ability and evolves from 1 of your Pokémon (an Evolution) and put it onto that Pokémon to evolve it (a Pokémon put into play this turn counts; one that already evolved this turn does not); when more than 1 of your Pokémon could evolve into it, you choose which',
   's02.rememberCodeProtect': () =>
     "Mark this Pokémon through the end of your opponent's next turn; the mark ends when it is no longer your Active Pokémon. While the mark holds, the static on the card prevents all damage done to each of your Future Pokémon (your Pokémon in play) by attacks from Pokémon ex",
+  // std-30b-customs.ts
+  'n30b.devolveOppAllToHand': () =>
+    "Devolve each of your opponent's evolved Pokémon, Active and Benched, by putting the highest Stage Evolution card on it into your opponent's hand, face up (it recovers from all Special Conditions and loses attack effects; one that is protected from the effects of attacks is left alone)",
+  'n30b.discardTopPickToHand': (a) =>
+    `Discard the top ${Number(a.n ?? 3)} cards of your deck (fewer if it is smaller), then put 1 of those discarded cards (no other card in your discard pile; none that can't leave the discard pile for the hand) into your hand`,
+  // std-30d-customs.ts
+  'n30d.basicEnergyTypes': (a) => `Count the different types of Basic Energy attached to all of your Pokémon (into "${String(a.as ?? 'n')}")`,
+  'n30d.benchWithMaxHp': (a) => `Count your Benched Pokémon that have a maximum HP of ${Number(a.hp)} (into "${String(a.as ?? 'n')}")`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -2712,5 +2720,81 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv05-076|attack:Plentiful Pollen': {
     problems: ['the rendering involves the opponent'],
     why: 'The Defending Pokémon is the opponent\'s Active Pokémon, and the Prize cards are taken by "that player" (the opponent of the Knocked Out Pokémon\'s owner: the one who used the attack); the printed "take 2 more Prize cards" leaves both implicit. The effect only counts during the attacker\'s next turn and ends if the Pokémon leaves the Active Spot or evolves (ruling 1957), which the card test pins.',
+  },
+  // std-30a
+  '30th-014|attack:Laser Flame': {
+    problems: ["type lightning is printed"],
+    why: "The catalog frame of this 30th Celebration printing keeps the HTML <span class=\"energy-symbol X\" title=\"X\">X</span> around the Energy type, so the type name is counted 3 times in the printed text; the script renders it once as {X}, which is what the card says.",
+  },
+  '30th-019|attack:Hydro Pump': {
+    problems: ["type water is printed"],
+    why: "The catalog frame of this 30th Celebration printing keeps the HTML <span class=\"energy-symbol X\" title=\"X\">X</span> around the Energy type, so the type name is counted 3 times in the printed text; the script renders it once as {X}, which is what the card says.",
+  },
+  '30th-042|attack:Charge-Up Dash': {
+    problems: ["\"heads\" is printed", "\"up to\" is printed", "\"any number of\" is rendered", "type lightning is printed"],
+    why: "The catalog frame of this 30th Celebration printing keeps the HTML <span class=\"energy-symbol X\" title=\"X\">X</span> around the Energy type, so the type name is counted 3 times in the printed text; the script renders it once as {X}, which is what the card says. \"Up to the number of heads\" is a deck pick with min 0 and max the heads count, which renders as \"any number of\" (the count variable is not shown).",
+  },
+  '30th-040|attack:Overwriting Bolt': {
+    problems: ["\"Energy\" is printed", "type lightning is printed", "the rendering involves the opponent", "similarity"],
+    why: "The catalog frame of this 30th Celebration printing keeps the HTML <span class=\"energy-symbol X\" title=\"X\">X</span> around the Energy type, so the type name is counted 3 times in the printed text; the script renders it once as {X}, which is what the card says. \"Until the end of your next turn, the Defending Pokémon's Weakness is now {L}\" is a weaknessType effect on the Defending Pokémon lasting through your next turn (the same effect as Oranguru, Now You're in My Power), which renders as \"During your next turn, the Weakness of your opponent's Active Pokémon is now {L}\".",
+  },
+  '30th-022|ability:Counterattack Grouping': {
+    problems: ["\"your pokemon\" is printed"],
+    why: "The printed \"(even if your Pokémon is Knocked Out)\" refers back to the Wishiwashi or Wishiwashi ex in the Active Spot; the script names it, so the rendering says \"your Active Pokémon named ...\".",
+  },
+  // std-30c
+  '30th-086|attack:Collision Course': {
+    problems: ['type fighting is printed 3'],
+    why: 'The frame prints the Energy symbol as an HTML span ("Discard 2 <span class=\\"energy-symbol Fighting\\" title=\\"Fighting\\">Fighting</span> Energy"), so the type name is counted three times in the printed text; the script discards 2 Energy providing {F} once, and the card test pins it.',
+  },
+  '30th-099|attack:Three-Headed Bite': {
+    problems: ['"each" is printed but not rendered'],
+    why: '"For each heads, discard an Energy" is a discard whose count is the number of heads; the renderer words a counted discard as "the number of heads Energy" without "each", and the card test pins 0 to 3 heads.',
+  },
+  // std-30b
+  '30th-051|attack:Lightning Crash': {
+    problems: ['type lightning is printed'],
+    why: 'The catalog frame prints the {L} symbol as an HTML span (class, title and text each name the type), so the check counts it 3 times; the effect names {L} Energy once, as the script does (providesType Lightning).',
+  },
+  '30th-056|attack:Nitro Thunder': {
+    problems: ['type fire is printed'],
+    why: 'The catalog frame prints the {R} symbol as an HTML span (class, title and text each name the type), so the check counts it 3 times; the effect names {R} Energy once, as the script does.',
+  },
+  '30th-062|attack:Electro Drift': {
+    problems: ['type lightning is printed'],
+    why: 'The catalog frame prints the {L} symbol as an HTML span (class, title and text each name the type), so the check counts it 3 times in the text plus the attack cost; the effect names {L} Energy once, as the script does (providesType Lightning).',
+  },
+  '30th-071|attack:Colorful Harmony': {
+    problems: ['"your pokemon" is printed', 'similarity'],
+    why: '"Each type of Basic Energy attached to all of your Pokémon" is a sum over the 8 Basic Energy types (there is no Basic Colorless Energy) of 1 when any of your Pokémon has a Basic Energy of that type attached, so the one sentence renders as eight clauses.',
+  },
+  '30th-072|attack:Mysterious Signal': {
+    problems: ["\"opponent's pokemon\" is printed"],
+    why: "The attack only damages the Defending (Active) Pokémon, so \"your opponent's Pokémon Knocked Out by damage from this attack\" is the Active one; the script is a this-turn extra Prize effect for Knock Outs by an attack of a Pokémon named Unown, which only this attack can cause here.",
+  },
+  // std-30d
+  '30th-109|attack:Booming Call': {
+    problems: ['"Energy" is printed but not rendered', 'type dragon'],
+    why: 'The catalog text carries the Dragon symbol as markup (<span class="energy-symbol Dragon" title="Dragon">Dragon</span>), so the check counts the type three times and finds the word Energy in the class name; the printed sentence is "up to 3 {N} Pokémon from your discard pile", which is the Dragon filter on the pick.',
+  },
+  '30th-110|attack:Screech': {
+    problems: ['the rendering involves the opponent'],
+    why: "The Defending Pokémon is the opponent's Active Pokémon; the printed text says 'the Defending Pokémon' and the rendering says whose it is.",
+  },
+  '30th-121|attack:Elemental Blast': {
+    problems: ['type fire', 'type water', 'type lightning'],
+    why: 'The catalog text carries each type symbol as markup (class, title and word: three counts per type). The script discards one Energy providing each of the three types, which renders as three sentences with one symbol each.',
+  },
+  '30th-125|attack:Gnaw Together': {
+    problems: ['"each" is printed but not rendered'],
+    why: '"For each Maushold you have in play" is the number of coins flipped (the count of your Pokémon named Maushold) and "for each heads" is the repeat of the discard by the heads count, which the renderer words as "the number of ... coins" and "the number of heads times".',
+  },
+  '30th-126|text': {
+    problems: ['"reveal" is rendered but not printed'],
+    why: 'The catalog frame of this printing carries no Trainer text at all (effect null); the script follows the text of its earlier printing (me03-081), which reprints unchanged and does say "reveal it".',
+  },
+  '30th-128|text': {
+    problems: ['"reveal" is rendered but not printed'],
+    why: 'The catalog frame of this printing carries no Trainer text at all (effect null); the script follows the text of its earlier printing (me01-131), which reprints unchanged and does say "reveal it" and the cost of discarding 2 other cards.',
   },
 };

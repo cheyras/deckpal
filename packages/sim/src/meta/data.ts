@@ -304,9 +304,6 @@ export const POOL_DATA: MetaPool = {
         "sv08-170": "Cyrano",
         "sv09-056": "Lillie's Clefairy ex"
       },
-      "unverified": [
-        "sv07-135"
-      ],
       "from": {
         "event": "TOURNAMENT OF DOOM! Did you know...",
         "date": "2026-10-03",
@@ -1441,8 +1438,7 @@ export const POOL_DATA: MetaPool = {
         "sv10.5w-084": "Hilda"
       },
       "unverified": [
-        "30th-066",
-        "sv07-118"
+        "30th-066"
       ],
       "from": {
         "event": "TOURNAMENT OF DOOM! LET'S GO!",
@@ -1575,9 +1571,6 @@ export const POOL_DATA: MetaPool = {
         "sv07-012": "Applin",
         "sv07-014": "Hydrapple ex"
       },
-      "unverified": [
-        "sv07-012"
-      ],
       "from": {
         "event": "TOURNAMENT OF DOOM! Did you know...",
         "date": "2026-10-03",

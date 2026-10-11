@@ -128,8 +128,11 @@ test('mapCard: PTCGL code + number through the importer alias table; names are c
   // Basic Energy by name, whatever the print.
   assert.deepEqual(mapCard({ count: 4, set: 'SVE', number: '5', name: 'Psychic Energy' }, ALIASES, FRAMES), { ok: true, id: 'sve-005', verified: true });
   assert.deepEqual(mapCard({ count: 4, set: 'XXX', number: '1', name: 'Fire Energy' }, ALIASES, FRAMES), { ok: true, id: 'mee-002', verified: true });
+  // A card the snapshot has, in a known set: verified by name.
+  assert.deepEqual(mapCard({ count: 1, set: 'SCR', number: '135', name: 'Glass Trumpet' }, ALIASES, FRAMES), { ok: true, id: 'sv07-135', verified: true });
   // A card the snapshot lacks in a known set: kept, flagged unverified.
-  assert.deepEqual(mapCard({ count: 1, set: 'SCR', number: '135', name: 'Glass Trumpet' }, ALIASES, FRAMES), { ok: true, id: 'sv07-135', verified: false });
+  assert.ok(!FRAMES['sv07-001'], 'fixture: sv07-001 is not in the snapshot');
+  assert.deepEqual(mapCard({ count: 1, set: 'SCR', number: '1', name: 'Anything' }, ALIASES, FRAMES), { ok: true, id: 'sv07-001', verified: false });
   // An unknown set code is a reason, not a guess.
   const bad = mapCard({ count: 2, set: 'ZZZ', number: '4', name: 'Mystery' }, ALIASES, FRAMES);
   assert.equal(bad.ok, false);
@@ -148,11 +151,13 @@ test('legalityProblem: size, copies, ACE SPEC, rotated cards, a Basic Pokémon',
   const energy = five.findIndex(([id]) => FRAMES[id]!.category === 'Energy' && /^(basic )?\w+ energy$/i.test(FRAMES[id]!.name));
   five[energy] = [five[energy]![0], five[energy]![1] - diff];
   assert.match(legalityProblem(five, names, FRAMES, ACE_NAMES)!, /5 copies of/);
-  // A card whose every print is rotated (mark G).
-  const legalNames = new Set(Object.values(FRAMES).filter((f) => 'HIJ'.includes((f.regulationMark ?? '-').toUpperCase())).map((f) => fold(f.name)));
-  const rotated = Object.values(FRAMES).find((f) => f.regulationMark === 'G' && !legalNames.has(fold(f.name)))!;
+  // A card whose every print is rotated (mark G). The snapshot now holds a Standard reprint of every old card it has, so the
+  // rotated card is a stand-in: a copy of a pool card under a new name, printed only with mark G.
+  const base = FRAMES[ok[nonEnergy]![0]]!;
+  const rotated = { ...base, cardId: 'zz-rot-001', name: 'Rotated Stand-in', regulationMark: 'G' };
+  const withRotatedFrames = { ...FRAMES, [rotated.cardId]: rotated };
   const withRotated = ok.map(([id, n], i): [string, number] => (i === nonEnergy ? [rotated.cardId, n] : [id, n]));
-  assert.match(legalityProblem(withRotated, { ...names, [rotated.cardId]: rotated.name }, FRAMES, ACE_NAMES)!, /not Standard-legal/);
+  assert.match(legalityProblem(withRotated, { ...names, [rotated.cardId]: rotated.name }, withRotatedFrames, ACE_NAMES)!, /not Standard-legal/);
   // Two ACE SPECs.
   const aces = Object.values(FRAMES).filter((f) => ACE_NAMES.has(fold(f.name)) && 'HIJ'.includes((f.regulationMark ?? '-').toUpperCase())).slice(0, 2);
   assert.equal(aces.length, 2);
