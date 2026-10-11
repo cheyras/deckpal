@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 /**
  * Pull the labeler queue's photos — the owner's uploads waiting for a quad —
- * as the QA account (AGENTS.md B12), at their ORIGINAL resolution, so they can
- * become real-photo training and test data for the identity matcher.
+ * as the QA account (AGENTS.md B12), at the resolution the queue stores (the
+ * browser-resized upload, long edge <= 2048 px — far more than telemetry's
+ * 229x320), so they can become real-photo training and test data for the
+ * identity matcher.
  *
  *   node scripts/scan-bench/queue-pull.mjs
  *
@@ -19,9 +21,29 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { ORIGIN, qaToken } from './live.mjs'
+import { fileURLToPath } from 'node:url'
 
-const OUT = process.env.SCAN_QUEUE_DIR ?? path.join(os.homedir(), 'deckpal-data', 'quad-queue')
+// --help must not reach the network: an agent's reflexive `--help` would
+// otherwise start a full pull from production. Any other argument is refused.
+const args = process.argv.slice(2)
+if (args.includes('--help') || args.includes('-h')) {
+  const src = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8')
+  console.log(src.slice(src.indexOf('/**'), src.indexOf('*/') + 2))
+  process.exit(0)
+}
+if (args.length) {
+  console.error(`queue-pull takes no arguments (got ${args.join(' ')}); --help for usage`)
+  process.exit(2)
+}
+
+const { ORIGIN, qaToken } = await import('./live.mjs')
+
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+const OUT = path.resolve(process.env.SCAN_QUEUE_DIR || path.join(os.homedir(), 'deckpal-data', 'quad-queue'))
+if (OUT === REPO || OUT.startsWith(REPO + path.sep)) {
+  console.error(`SCAN_QUEUE_DIR resolves inside the repo (${OUT}); the owner's photos must stay outside git`)
+  process.exit(2)
+}
 const RAW = path.join(OUT, 'raw')
 fs.mkdirSync(RAW, { recursive: true })
 
@@ -60,7 +82,10 @@ async function worker() {
       gone++
       continue
     }
-    fs.writeFileSync(path.join(RAW, `${p.id}.jpg`), jpg)
+    // Written whole, then renamed: an interrupted run must not leave a truncated
+    // jpg that the resume check (exists?) would then never fetch again.
+    fs.writeFileSync(path.join(RAW, `${p.id}.jpg.tmp`), jpg)
+    fs.renameSync(path.join(RAW, `${p.id}.jpg.tmp`), path.join(RAW, `${p.id}.jpg`))
     fs.writeFileSync(path.join(RAW, `${p.id}.json`), JSON.stringify(p))
     if (++done % 100 === 0) console.log(`  ${done}/${photos.length - skipped}`)
     await new Promise((r) => setTimeout(r, 150))

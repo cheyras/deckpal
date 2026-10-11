@@ -65,7 +65,7 @@ benchmark rows. Everything they write goes under `~/deckpal-data/quad-queue/`
 (override: `SCAN_QUEUE_DIR`), never into git.
 
 ```bash
-node scripts/scan-bench/queue-pull.mjs        # raw/<id>.jpg at original resolution, as the QA account
+node scripts/scan-bench/queue-pull.mjs        # raw/<id>.jpg as the queue stores it (long edge <= 2048), as the QA account
 $PY scripts/scan-bench/extract_cards.py --sheet   # cards/<photo>-<n>.jpg (480x670 + 5%) + cards.jsonl
 $PY scripts/scan-bench/label_cards.py --model <fp32.onnx> --query-onnx <int8.onnx>   # cards-labelled.jsonl
 ```
@@ -79,18 +79,23 @@ $PY scripts/scan-bench/label_cards.py --model <fp32.onnx> --query-onnx <int8.onn
    backs or sleeves.
 3. **`label_cards.py`** embeds each crop with the production pairing (int8
    query × fp32 gallery from `embed/<model>/`) and tiers top-1 against the
-   model's gate: `decisive`, `plausible` or `junk`. The default model is the
-   fine-tuned `deckpal-card-b32-v1`, whose gallery needs PR #288's `embed.py`
-   (`.onnx` model support). On main, use the shipped CLIP:
-   `--model-id clip-vit-b32-openai --model timm:vit_base_patch32_clip_224.openai`.
+   gate's MAIN tier: `decisive`, `plausible` or `junk` (a wide tier, where a
+   model has one, is not applied). The gate is inferred from `--model`;
+   `--model-id` is only needed when it cannot be, and a mismatch is refused.
+   The fine-tuned model's gallery needs PR #288's `embed.py` (`.onnx` model
+   support). On main, use the shipped CLIP: `--model timm:vit_base_patch32_clip_224.openai
+   --query-onnx <clip int8.onnx>` (the int8 query model: `tools/embed-catalog/README.md`).
 4. **Hand verification.** Look at a sample of the crops (decisive, plausible
    and junk alike) and write what each card really is, read from its set
    symbol and number strip, into `verify-truth.jsonl`: `{ crop, photo, tier,
    kind, truth: [cardId…], matcherCorrect, note }`.
 5. **A separate bench root.** Turn the verified rows into a dataset
    (`datasets/<name>/manifest.jsonl` + `crops/`, the manifest shape above) under
-   its own root, for example `~/deckpal-data/scan-bench-quad/` with `art/` and
-   `cache/` linked to the main root's, and run the full ladder against it with
+   its own root, for example `~/deckpal-data/scan-bench-quad/`, holding
+   `catalog.json` and `phash-index.json` (copies), `art/` and `cache/` (linked
+   to the main root's), and `embed/<gallery tag>/gallery.npz` for each model
+   (queries and top-k are written there by `embed.py queries`/`score` run with
+   the same `SCAN_BENCH_DIR`), and run the full ladder against it with
    `SCAN_BENCH_DIR` pointing there. Keeping it apart leaves the main datasets
    and their run history untouched.
 

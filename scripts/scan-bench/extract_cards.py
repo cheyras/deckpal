@@ -27,7 +27,16 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 import cv2
 import numpy as np
 
-Q = Path(os.environ.get("SCAN_QUEUE_DIR", Path.home() / "deckpal-data" / "quad-queue"))
+def queue_dir() -> Path:
+    """SCAN_QUEUE_DIR (absolute, outside the repo) or ~/deckpal-data/quad-queue."""
+    q = Path(os.environ.get("SCAN_QUEUE_DIR") or Path.home() / "deckpal-data" / "quad-queue").resolve()
+    repo = Path(__file__).resolve().parents[2]
+    if q == repo or repo in q.parents:
+        raise SystemExit(f"SCAN_QUEUE_DIR resolves inside the repo ({q}); the owner's photos must stay outside git")
+    return q
+
+
+Q = queue_dir()
 CARD = 88 / 63
 CAP_W, CAP_H, MARGIN = 480, 670, 0.05
 
@@ -82,14 +91,36 @@ def candidates(img: np.ndarray) -> list[np.ndarray]:
         if not (CARD * 0.85 <= r <= CARD * 1.15):
             continue
         out.append(o)
-    # de-duplicate: keep the larger of two heavily-overlapping quads
+    # A binder page or a pocket grid is itself roughly 63:88. A candidate that
+    # CONTAINS two or more other candidates is such a page, not a card: drop it.
+    # (Centre-distance de-duplication used to keep the page and drop the cards
+    # whose centres sat near its centre — a whole middle row of a 3x3 page.)
+    out = [q for q in out if sum(1 for o in out if o is not q and _contains(q, o)) < 2]
+    # Then de-duplicate by OVERLAP: a card and its own sleeve or inner border
+    # overlap ~0.85; neighbouring cards barely at all. Keep the larger.
     out.sort(key=lambda q: -cv2.contourArea(q))
     kept: list[np.ndarray] = []
     for q in out:
-        c = q.mean(0)
-        if all(np.linalg.norm(c - k.mean(0)) > 0.25 * np.linalg.norm(k[2] - k[0]) for k in kept):
+        if all(_iou(q, k) < 0.5 for k in kept):
             kept.append(q)
     return kept
+
+
+def _poly(q: np.ndarray) -> np.ndarray:
+    return q.reshape(-1, 1, 2).astype(np.float32)
+
+
+def _iou(a: np.ndarray, b: np.ndarray) -> float:
+    inter, _ = cv2.intersectConvexConvex(_poly(a), _poly(b))
+    union = cv2.contourArea(_poly(a)) + cv2.contourArea(_poly(b)) - inter
+    return float(inter / union) if union > 0 else 0.0
+
+
+def _contains(outer: np.ndarray, inner: np.ndarray) -> bool:
+    """`inner` lies (almost) wholly inside `outer`, and is much smaller."""
+    inter, _ = cv2.intersectConvexConvex(_poly(outer), _poly(inner))
+    a_in = cv2.contourArea(_poly(inner))
+    return a_in > 0 and inter / a_in > 0.9 and a_in < 0.5 * cv2.contourArea(_poly(outer))
 
 
 def rectify(img: np.ndarray, q: np.ndarray) -> np.ndarray:
