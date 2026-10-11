@@ -105,8 +105,8 @@ class Heap {
 
 /**
  * Does a line scoring `v` replace the one kept for its first move (score `prevV`, `prevLine`)? A higher score wins. Among winning lines that score the
- * same, the one with fewer submitted choices (`line.length`: every option answered from the root, branched or policy-resolved sub-decisions alike) is
- * kept, whichever was found first. This keeps the shortest of the continuations the search retained; transposition pruning may still have hidden a
+ * same, the one with fewer recorded choices is kept, whichever was found first. `line.length` counts the options the search branched on; the
+ * sub-decisions `settle` answers with the policy along the way are not recorded, so they don't count. This keeps the shortest of the continuations the search retained; transposition pruning may still have hidden a
  * shorter one, so it is not a global shortest path.
  */
 export function betterLine(prevV: number, prevLine: number[], v: number, line: number[], win: number): boolean {
@@ -264,7 +264,7 @@ export class SearchPilot implements Pilot {
     const K = Math.max(1, o.worlds);
     const sum = new Float64Array(n);
     const wins = new Uint8Array(n);
-    const winChoices = new Float64Array(n); // total submitted choices in the retained winning line of each first move, summed over worlds
+    const winChoices = new Float64Array(n); // recorded (branched) choices in the retained winning line of each first move, summed over worlds
     let winLine: { world: GameState; line: number[] } | null = null;
     for (let k = 0; k < K; k++) {
       const world = determinize(game.state, game.ctx, me, this.rng);
