@@ -52,7 +52,7 @@ export const STD_C03: CardScript[] = [
       },
     },
     notes:
-      'Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2256/): "Yes, there is no restriction to prevent that. The Defending Pokemon will still be damaged and Paralyzed, and then you check for Knock Outs, including Pawmot." ' +
+      'Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2256/): Pawmot can damage itself and Paralyze its target before KO checks occur. ' +
       'The 130 damage, the 60 to itself and the Paralysis all happen before Knock Outs are checked.',
   },
   {
@@ -220,8 +220,8 @@ export const STD_C03: CardScript[] = [
       },
     },
     notes:
-      'Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2251/): "Yes, you can choose not to attach any energy." ' +
-      '"Up to the number of heads" is 0 to that many, so every Energy is optional.',
+      'Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2251/): attaching energy is optional; "up to the number of heads" means 0 to that many. ' +
+      'Every Energy attachment is optional.',
   },
   {
     id: 'me02-082',
@@ -247,7 +247,7 @@ export const STD_C03: CardScript[] = [
     playable: { and: [{ not: { custom: 'c03.ownFirstTurn' } }, { gt: [{ deckSize: 'self' }, 0] }] },
     play: [{ op: 'custom', fn: 'c03.grimsleysMove', args: { n: 7 } }],
     notes:
-      'Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2258/): "Yes, when using this Supporter you can place any stage of {D} Pokemon you find directly onto your bench." ' +
+      'Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2258/): any stage of Darkness Pokemon found can go directly onto your bench. ' +
       '"First turn" is each player\'s own: the second player cannot use it on turn 2 either.',
   },
   {

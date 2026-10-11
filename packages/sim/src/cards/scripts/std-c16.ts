@@ -36,7 +36,7 @@ export const STD_C16: CardScript[] = [
     // (Revealing the hand is an effect, so it needs a card in the opponent's hand.)
     playable: { gte: [{ handSize: 'opp' }, 1] },
     // "Your opponent reveals their hand, and you discard up to 2 Item cards you find there."
-    // ("up to 2" on a Supporter is 1 to 2: Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2376/): "You cannot normally choose to discard zero Item cards when playing Eri as a Supporter; however per the April 2026 Rulebook update, since you are now using that Supporter as the effect as an Attack, you can choose to discard zero Item cards if you wish.")
+    // ("up to 2" on a Supporter is 1 to 2: Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2376/): used as a Supporter requires at least 1; via attack, zero is allowed.)
     play: [
       { op: 'custom', fn: 'std.revealHand', args: { who: 'opp' } },
       {
@@ -100,7 +100,7 @@ export const STD_C16: CardScript[] = [
       // "The Retreat Cost of the Pokémon this card is attached to is {C} less."
       { effect: { k: 'retreatCost', delta: -1 }, scope: 'self' },
       // "If that Pokémon's remaining HP is 30 or less, it has no Retreat Cost."
-      // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1971/): "Nope, if a Pokemon's Retreat Cost is set to zero by an effect such as Rescue Board, it cannot be increased by Big Net."
+      // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1971/): Rescue Board removes the Retreat Cost, and Big Net cannot raise it back.
       { effect: { k: 'retreatCost', set: 0 }, scope: 'self', when: { custom: 'c16.remainingHpAtMost', args: { n: 30 } } },
     ],
   },
@@ -126,8 +126,8 @@ export const STD_C16: CardScript[] = [
     name: 'Pinsir',
     attacks: {
       // "Discard all Energy from this Pokémon. At the end of your opponent's next turn, the Defending Pokémon will be Knocked Out."
-      // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1982/): "Yes, the effect is on the Pokemon that was attacked with Slow Crunch." (Pinsir retreating or being Knocked Out does not stop it.)
-      // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1981/): "No. Evolving or moving to the bench removes all attack effects." (the delayed effect is dropped when the Defending Pokémon leaves the Active Spot or evolves)
+      // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1982/): the effect is on the attacked Pokémon, so it still applies even if Pinsir retreats or is Knocked Out. (Pinsir retreating or being Knocked Out does not stop it.)
+      // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1981/): delayed effects drop when the target leaves Active or evolves. (the delayed effect is dropped when the Defending Pokémon leaves the Active Spot or evolves)
       'Slow Crunch': {
         post: [
           { op: 'discardEnergy', from: 'self', count: 'all' },
@@ -148,7 +148,7 @@ export const STD_C16: CardScript[] = [
     ],
     attacks: {
       // "This attack does 30 more damage for each {C} in your opponent's Active Pokémon's Retreat Cost."
-      // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1970/): "Yes, it does." (the {C} added by Big Net count)
+      // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1970/): extra Retreat Cost from Big Net counts. (the {C} added by Big Net count)
       'String Bind': {
         pre: [{ op: 'custom', fn: 'seed4.retreatCostOf', args: { as: 'n' } }],
         damage: { add: [10, { mul: [30, { v: 'n' }] }] },
@@ -172,7 +172,7 @@ export const STD_C16: CardScript[] = [
     id: 'sv06-010',
     name: 'Illumise',
     // "You can use this attack only if you go second, and only during your first turn."
-    // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1983/): "Yes. That attack is restricted to that one and only time." (turn 2: the second player's first turn)
+    // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1983/): going second, Slowing Perfume is usable on that first turn only. (turn 2: the second player's first turn)
     statics: [
       {
         effect: { k: 'cantUseAttack', attack: 'Slowing Perfume' },
@@ -266,7 +266,7 @@ export const STD_C16: CardScript[] = [
     name: 'Sinistcha ex',
     attacks: {
       // "Put 2 damage counters on 1 of your opponent's Pokémon for each Basic {G} Energy card in your discard pile. Then, shuffle those Energy cards into your deck."
-      // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1979/): "No, if you don't place any damage counters, you don't shuffle the Energy into your deck."
+      // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1979/): shuffle only happens if damage counters are placed.
       'Re-Brew': {
         program: [
           { op: 'set', v: 'k', value: { count: { zone: 'discard', filter: { energyType: 'Grass' } } } },
@@ -385,7 +385,7 @@ export const STD_C16: CardScript[] = [
     abilities: [
       {
         // "Once during your turn, if your Active Pokémon has the Festival Lead Ability, you may search your deck for a card and put it into your hand. Then, shuffle your deck."
-        // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1972/): "Yes. Each Thwackey can use their Ability once."
+        // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1972/): each copy of Thwackey can use this Ability once per turn.
         name: 'Boom Boom Groove',
         activated: {
           when: { and: [FESTIVAL_LEAD_ACTIVE, { gte: [{ deckSize: 'self' }, 1] }] },

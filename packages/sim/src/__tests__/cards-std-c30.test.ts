@@ -242,7 +242,7 @@ test("Lillie's Ribombee, Inviting Wink: evolving, you may reveal the opponent's 
 });
 
 test("Lillie's Ribombee, Inviting Wink: you may choose zero Basic Pokémon (ruling 2111), or decline the Ability", () => {
-  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2111/): "No, you can choose to put zero Pokemon onto the opponent's Bench."
+  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2111/): you can choose to put no Pokémon onto the opponent's Bench.
   const g = game([{ active: "Lillie's Cutiefly", hand: ["Lillie's Ribombee"] }, { active: DRA, hand: ['Rockruff', 'Larvitar'] }]);
   choose(g, "Evolve Lillie's Cutiefly");
   yes(g);
@@ -257,7 +257,7 @@ test("Lillie's Ribombee, Inviting Wink: you may choose zero Basic Pokémon (ruli
 });
 
 test("Lillie's Ribombee, Inviting Wink: can't be used when the opponent's Bench is full (ruling 2109)", () => {
-  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2109/): "No. It's public knowledge that you can't put down any additional Basic Pokemon on your opponent's Bench, so you cannot use the Ability."
+  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2109/): you cannot use the Ability when the opponent's Bench is full.
   const g = game([
     { active: "Lillie's Cutiefly", hand: ["Lillie's Ribombee"] },
     { active: DRA, bench: ['Beldum', 'Cubone', 'Larvitar', 'Rockruff', 'Beldum'], hand: ['Larvitar'] },
@@ -269,7 +269,7 @@ test("Lillie's Ribombee, Inviting Wink: can't be used when the opponent's Bench 
 });
 
 test("Lillie's Ribombee, Inviting Wink: the Pokémon put there may evolve on the opponent's next turn (ruling 2110)", () => {
-  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2110/): "Yes, as long as it's not the opponent's first turn of the game they can evolve those Pokemon if they are able to do so."
+  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2110/): they may evolve on the opponent's next turn, except when that turn is their very first of the game.
   const g = game([{ active: "Lillie's Cutiefly", hand: ["Lillie's Ribombee"] }, { active: DRA, hand: ['Rockruff', 'Lycanroc'] }]);
   choose(g, "Evolve Lillie's Cutiefly");
   yes(g);
@@ -303,7 +303,7 @@ test("Lillie's Comfey, Inviting Flowers: declining searches for nothing", () => 
 });
 
 test("Lillie's Comfey, Fade Out: 30 damage, then this Pokémon and all attached cards go into your hand (ruling 2106)", () => {
-  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2106/): "No, Lillie's Comfey would go to the hand first ..."
+  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2106/): Lillie's Comfey goes to the hand first, so a later trigger such as Exploding Needles finds nothing to Knock Out.
   const g = game([{ active: "Lillie's Comfey", bench: ['Rockruff'], energy: { active: [P] }, damage: { active: 40 } }, { active: DRA }]);
   choose(g, 'Attack: Fade Out');
   assert.equal(dmg(g, 1), 30);
@@ -345,7 +345,7 @@ test('Mimikyu ex, Ghostly Trip: 120, and the Defending Pokémon is Confused', ()
 // ------------------------------------------------------------------ Grimmsnarl
 
 test("Grimmsnarl, Shadowy Knot: 50 for each {C} in the Defending Pokémon's Retreat Cost, as it is right now (ruling 2113)", () => {
-  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2113/): "Reduce the retreat cost by {C}{C}, then calculate the damage done by Shadowy Knot from the remaining retreat cost, if any."
+  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2113/): reduce Retreat Cost by {C}{C} first, then calculate from the remaining amount.
   const plain = game([{ active: 'Grimmsnarl', energy: { active: [P] } }, { active: 'Metagross' }]);
   choose(plain, 'Attack: Shadowy Knot');
   assert.equal(dmg(plain, 1), 150, 'Retreat Cost {C}{C}{C}');
@@ -630,7 +630,7 @@ test("Bombirdier, Drop Shot: discard all Energy from this Pokémon; 120 damage t
 });
 
 test("Bombirdier, Drop Shot: the Energy is discarded even when the chosen Pokémon can't be damaged (ruling 2116)", () => {
-  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2116/): "Yes, even if you can't do any damage, you still discard the Energy."
+  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2116/): Energy discards even when the target takes no damage.
   const g = game([{ active: 'Bombirdier', energy: { active: [D, D, D] } }, { active: 'Metagross', bench: [DRA] }]); // a Benched Tera Pokémon takes no damage from attacks
   choose(g, 'Attack: Drop Shot');
   pick(g, ['Dragapult ex']);

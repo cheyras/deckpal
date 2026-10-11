@@ -276,7 +276,7 @@ test("Glaceon, Permeating Chill: 30, and at the end of the opponent's next turn 
 });
 
 test('Glaceon, Permeating Chill: a Defending Pokémon that retreated is no longer affected (ruling 2404)', () => {
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2404/): "Since the Defending Pokemon that Jynx attacked was moved to the Bench, the attack effect which Intense Kiss placed on that Pokemon was removed. Neither the old Active nor the new Active are discarded."
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2404/): Intense Kiss's effect is removed once the attacked Pokémon is moved to the Bench; neither the old nor the new Active is discarded.
   const g = game([{ active: GLAC, energy: { active: [W] } }, { active: DRA, bench: [WOOPER], energy: { active: [R, R] } }]);
   choose(g, 'Attack: Permeating Chill');
   choose(g, 'Retreat');
@@ -413,7 +413,7 @@ test("Iono's Kilowattrel, Flashing Draw: discard a Basic {L} Energy from it, the
 });
 
 test("Iono's Kilowattrel, Flashing Draw: needs a Basic {L} Energy to discard, a card in the deck and fewer than 6 cards in hand (ruling 2108)", () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2108/): "No.  The effect of Flashing Draw is to draw cards, so if you have no cards in your deck or if you already have 6 or more cards in hand you can't use it."
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2108/): Flashing Draw is an Ability whose effect is drawing, so it cannot be used with an empty deck or with 6 or more cards in hand.
   const noEnergy = game([{ active: KILO, energy: { active: [R, R] }, hand: [P] }, FOE()]);
   assert.ok(!has(noEnergy, 'Use Flashing Draw'), 'no Basic {L} Energy attached');
   const emptyDeck = game([{ active: KILO, energy: { active: [L] }, hand: [P], emptyDeck: true }, FOE()]);
@@ -441,7 +441,7 @@ test("Lillie's Ribombee, Inviting Wink: evolving, you may reveal the opponent's 
 });
 
 test("Lillie's Ribombee, Inviting Wink: you may choose zero Basic Pokémon (ruling 2111), or decline the Ability", () => {
-  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2111/): "No, you can choose to put zero Pokemon onto the opponent's Bench."
+  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2111/): zero Basic Pokémon may be chosen.
   const g = game([{ active: CUTIE, hand: [RIBO] }, FOE({ hand: [ZAP, PACH] })]);
   choose(g, `Evolve ${CUTIE}`);
   yes(g);
@@ -456,7 +456,7 @@ test("Lillie's Ribombee, Inviting Wink: you may choose zero Basic Pokémon (ruli
 });
 
 test("Lillie's Ribombee, Inviting Wink: can't be used when the opponent's Bench is full (ruling 2109)", () => {
-  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2109/): "No. It's public knowledge that you can't put down any additional Basic Pokemon on your opponent's Bench, so you cannot use the Ability."
+  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2109/): can't use the Ability when opponent's Bench is full.
   const g = game([{ active: CUTIE, hand: [RIBO] }, FOE({ bench: [WOOPER, ZAP, PACH, DIAL, KORA], hand: [QUAG, ZAP] })]);
   choose(g, `Evolve ${CUTIE}`);
   assert.notEqual(g.decision?.kind, 'yesno', 'no question is asked');
@@ -465,7 +465,7 @@ test("Lillie's Ribombee, Inviting Wink: can't be used when the opponent's Bench 
 });
 
 test("Lillie's Ribombee, Inviting Wink: the Pokémon put there may evolve on the opponent's next turn (ruling 2110)", () => {
-  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2110/): "Yes, as long as it's not the opponent's first turn of the game they can evolve those Pokemon if they are able to do so."
+  // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2110/): they may evolve the Pokémon placed there on their next turn, unless that is their first turn of the game.
   const g = game([{ active: CUTIE, hand: [RIBO] }, FOE({ hand: [WOOPER, QUAG] })]);
   choose(g, `Evolve ${CUTIE}`);
   yes(g);
@@ -591,7 +591,7 @@ test("Iono's Bellibolt ex, Thunderous Bolt: 230, and during my next turn this Po
 // ------------------------------------------------------------------ Lillie's Clefairy ex
 
 test("Lillie's Clefairy ex, Fairy Zone: the Weakness of the opponent's {N} Pokémon is now {P}, even with no Weakness (ruling 2107)", () => {
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2107/): "Yes it will!" -- Fairy Zone gives a Weakness to {N} Pokémon that don't currently have one.
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2107/): Fairy Zone creates Weakness for {N} Pokémon lacking one.
   const dragon = game([{ active: CLEF, bench: [WOOPER], energy: { active: [P, R] } }, FOE({ bench: [WOOPER] })]);
   choose(dragon, 'Attack: Full Moon Rondo');
   assert.equal(dmg(dragon, 1), 120, '(20 + 20 x 2 Benched Pokémon) x2 against a {N} Pokémon');

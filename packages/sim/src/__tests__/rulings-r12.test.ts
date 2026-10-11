@@ -449,8 +449,8 @@ test('Vivillon, Evo-Powder evolves a Benched Pokémon that was put onto the Benc
 
 // ------------------------------------------------------------------ Palafin
 
-// https://compendium.pokegym.net/ruling/1977/ : Zero to Hero shuffles only the Palafin card into the deck; Finizen stays in play under the Palafin ex.
-test('Palafin, Zero to Hero: only the Palafin goes back into the deck, Finizen stays in play under the Palafin ex (ruling 1977)', () => {
+// https://compendium.pokegym.net/ruling/1977/ : Zero to Hero returns only Palafin to the deck; Finizen remains in play underneath the Palafin ex.
+test('Palafin, Zero to Hero: Palafin returns to the deck while Finizen stays beneath the Palafin ex (ruling 1977)', () => {
   const dk = deck('Finizen', 'Palafin', 'Palafin ex', 'Dreepy', 'Switch');
   const g = scenario(dk, dk, [
     { active: 'Finizen', evolve: { active: ['Palafin'] }, energy: { active: [W, W] }, damage: { active: 30 }, bench: ['Dreepy'], hand: ['Switch'] },

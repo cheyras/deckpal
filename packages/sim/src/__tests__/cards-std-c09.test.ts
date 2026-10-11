@@ -380,7 +380,7 @@ test('Ho-Oh, Flames of Revival: up to 3 Basic Pokémon from the discard pile ont
   pick(g, ['Dunsparce', 'Froakie', 'Dunsparce']);
   assert.deepEqual(benchNames(g, 0).sort(), ['Dunsparce', 'Dunsparce', 'Froakie']);
   assert.deepEqual(names(g, g.state.p[0].discard).filter((n) => n !== 'Kakuna'), ['Dunsparce'], 'the rest stays in the discard pile');
-  // Ruling (TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2351/): "You are not required to put a Basic Pokemon on your bench to use the attack."
+  // Ruling (TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2351/): you can use the attack without placing any Basic Pokémon on the Bench.
   const none = run([], ['Dunsparce']);
   none.submit([]);
   assert.deepEqual(benchNames(none, 0), []);
@@ -443,7 +443,7 @@ test('Delibird, Pleasing Present: your opponent attaches up to 3 Basic Energy fr
     { active: 'Shuppet', bench: ['Dunsparce'], hand: [G, G, G, P, 'Legacy Energy'] },
   ]);
   choose(g, 'Attack: Pleasing Present');
-  // Ruling (TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2353/): "Make sure your opponent has executed this choice, then execute your choice."
+  // Ruling (TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2353/): your opponent chooses first, then you make your choice.
   assert.equal(g.decision?.player, 1, 'the opponent chooses first');
   assert.equal((g.decision as Decision).max, 3, 'up to 3');
   assert.equal(labels(g).length, 4, 'only Basic Energy cards: the Legacy Energy is not offered');
@@ -524,7 +524,7 @@ test('Mega Greninja ex, Ninja Spinner: 120, or 200 if you put a {W} Energy attac
 test('Mega Greninja ex, Ninja Spinner: the Energy only returns to the hand after the damage (Compendium #2385)', () => {
   const dk = deck('me04-022', LATIAS, 'me05-062', 'sv05-162');
   // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2385/): with a basic Water and a Neo Upper Energy attached (3 Energy as Mega Greninja ex is a Stage 2),
-  // putting the Neo Upper Energy back "is not returned to the hand until after damage is done. Mega Greninja ex has 3 Energy attached when the damage is done, so Ancient Bulwark will not prevent the damage."
+  // the Neo Upper Energy goes back to the hand only after damage is done, so 3 Energy are attached at damage time and Ancient Bulwark does not prevent it.
   const g = scenario(dk, dk, [{ active: 'Mega Greninja ex', energy: { active: [W, 'Neo Upper Energy'] } }, { active: 'Mega Latias ex', bench: ['Bastiodon'] }]);
   choose(g, 'Attack: Ninja Spinner');
   yes(g);

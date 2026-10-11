@@ -194,7 +194,7 @@ test('Archeops, Ancient Wing: only while this Pokémon is in the Active Spot', (
 });
 
 test('Archeops, Ancient Wing (ruling 2178): an Evolution Pokémon put directly into play has nothing to devolve into', () => {
-  // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2178/): "No, if an Evolution Pokemon that has been put directly into play cannot devolve since there is no Pokemon to devolve it into."
+  // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2178/): A Pokémon brought into play with an Evolution card on it already cannot devolve, as there is no base underneath.
   const g = game([{ active: 'Archeops' }, { active: DRA, bench: ['Purrloin'] }]);
   assert.ok(!has(g, 'Use Ancient Wing'), 'not usable: no candidate');
   const mixed = game([{ active: 'Archeops' }, { active: DRA, bench: ['Dreepy'], evolve: { 0: ['Drakloak'] } }]);
@@ -244,7 +244,7 @@ test("Terrakion, Retaliate: 50 when none of your Pokémon was Knocked Out last t
 });
 
 test('Terrakion, Retaliate (ruling 2200): a Knock Out that gives up no Prize card (Legacy Energy) still counts', () => {
-  // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2200/): "Yes, you would. Even though the Pokemon with Legacy Energy attached does not give up a prize card, it still counts as a KO'd Pokemon."
+  // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2200/): A Pokémon that gives up no Prize card (Legacy Energy) is still Knocked Out, so Retaliate gets its bonus.
   const g = game(
     [
       { active: 'Purrloin', damage: { active: 50 }, energy: { active: ['Legacy Energy'] }, bench: ['Terrakion'] },
@@ -328,7 +328,7 @@ test("Zoroark, Mind Jack: 30 damage for each of your opponent's Benched Pokémon
 });
 
 test("Zoroark, Foul Play: use 1 of your opponent's Active Pokémon's attacks as this attack, without its Energy cost (ruling 455)", () => {
-  // Ruling (TPCi Rules Team 2011-04-28, https://compendium.pokegym.net/ruling/455/): "No, you do not have to meet the energy requirements for the attack."
+  // Ruling (TPCi Rules Team 2011-04-28, https://compendium.pokegym.net/ruling/455/): you don't need to meet the copied attack's Energy requirements.
   const g = game([{ active: 'Zoroark', energy: { active: [D, D, D] } }, { active: 'Terrakion', energy: { active: [F] } }]);
   choose(g, 'Attack: Foul Play');
   choose(g, 'Land Crush');
@@ -396,7 +396,7 @@ test("Ferrothorn, Power Whip: 20 damage to 1 of your opponent's Pokémon for eac
 // ------------------------------------------------------------------ Durant
 
 test('Durant, Bite Together: 20, and 20 more if Durant is on your Bench (ruling 2188: once, however many)', () => {
-  // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2188/): "No, you only get a maximum of +20 no matter how many Durant are on your bench."
+  // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2188/): Bite Together gives +20 at most, however many Durant are on the Bench.
   const none = game([{ active: 'Durant', energy: { active: [M] }, bench: ['Purrloin'] }, { active: DRA, bench: ['Durant'] }]);
   choose(none, 'Attack: Bite Together');
   assert.equal(dmg(none, 1), 20, "the opponent's Durant doesn't count");
@@ -520,7 +520,7 @@ test('Stoutland, Odor Sleuth: flip 3 coins; put a number of cards up to the numb
 });
 
 test('Stoutland, Odor Sleuth (ruling 2199): with at least one heads you must take at least one card, if able', () => {
-  // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2199/): "No, you must take at least one if you are able to."
+  // Ruling (Black Bolt/White Flare FAQ, TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2199/): Odor Sleuth with at least one heads must take at least one card from the discard pile, if it has any.
   const g = game([{ active: 'Stoutland', energy: { active: [F, F] }, discard: ['Purrloin', 'Sawk'] }, { active: DRA }]);
   g.state.forcedCoins = [true, true, false];
   choose(g, 'Attack: Odor Sleuth');
@@ -592,8 +592,8 @@ test('Tornadus, Hurricane: 100, then move a Basic Energy from this Pokémon to 1
 });
 
 test('Tornadus, Hurricane (rulings 488, 487): no Basic Energy attached, or no Benched Pokémon: that part is simply not done', () => {
-  // Ruling (PUI Rules Team 2011-11-03, https://compendium.pokegym.net/ruling/488/): "If you don't have any Basic Energy cards attached to Tornadus, you simply ignore that part of the Hurricane attack."
-  // Ruling (Emerging Powers FAQ 2011-09-01, https://compendium.pokegym.net/ruling/487/): "If you have no Benched Pokemon there is no place to move an energy card, so you would not do that part of the attack."
+  // Ruling (PUI Rules Team 2011-11-03, https://compendium.pokegym.net/ruling/488/): without Basic Energy attached, that part of the attack is not performed.
+  // Ruling (Emerging Powers FAQ 2011-09-01, https://compendium.pokegym.net/ruling/487/): without a Benched Pokémon, that part of the attack is not performed.
   const special = game([{ active: 'Tornadus', bench: ['Purrloin'], energy: { active: [TPE, TPE, TPE] } }, { active: DRA }]);
   choose(special, 'Attack: Hurricane');
   assert.equal(dmg(special, 1), 100);
@@ -769,7 +769,7 @@ test("Pecharunt, Toxic Subjugation: nothing from the Bench, and nothing for your
 });
 
 test('Pecharunt, Toxic Subjugation (ruling 2090): a Pecharunt promoted after the Knock Out at Checkup adds nothing that Checkup', () => {
-  // Ruling (TPCi Rules Team 2024-12-19, https://compendium.pokegym.net/ruling/2090/): "Both Poisoned Pokemon receive damage counters during Pokemon Checkup, then you check to see if any Pokemon are Knocked Out. A new Active Pokemon is promoted after the check for Special Conditions. So when Pecharunt is promoted Pokemon Checkup is already over and Toxic Subjugation would not apply."
+  // Ruling (TPCi Rules Team 2024-12-19, https://compendium.pokegym.net/ruling/2090/): a Pecharunt promoted after Checkup's KO check does not apply Toxic Subjugation that Checkup.
   const g = game([
     { active: 'Garbodor', cond: POISONED },
     { active: 'Purrloin', damage: { active: 50 }, cond: POISONED, bench: ['Pecharunt'] },

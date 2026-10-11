@@ -137,7 +137,7 @@ test('Victini, Victory Cheer: your Evolution {R} Pokémon do 10 more damage; a S
     const g = game([mine, { active: DRA, ...extra }]);
     return g;
   };
-  // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2044/): "Yes. Although Skeledirge is not an "Evolved Pokemon" in this scenario, it is still considered an "Evolution Pokemon" (Stage 2) that meets the requirements for Victory Cheer."
+  // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2044/): a Skeledirge (Stage 2) put directly into play by Cinnabar Lure is still an Evolution Pokémon, so Victory Cheer's bonus applies.
   // Skeledirge is put straight into play here (not evolved): Torcherto 60 + 20 for the Benched Victini = 80, +10.
   const cheer = run({ active: 'Skeledirge', bench: ['Victini'], energy: { active: [F, W] } });
   choose(cheer, 'Attack: Torcherto');
@@ -218,7 +218,7 @@ test('Skeledirge, Unaware: prevents all effects of the opponent\'s attacks (not 
 test('Skeledirge, Unaware: Delibird\'s Pleasing Present Energy is discarded after the choice (ruling 2354)', () => {
   const g = game([{ active: 'Delibird', energy: { active: [W] } }, { active: 'Skeledirge', hand: [W, G] }]);
   choose(g, 'Attack: Pleasing Present');
-  // Ruling (Chaos Rising FAQ, TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2354/): "...the energy cards are discarded, after they execute their choice."
+  // Ruling (Chaos Rising FAQ, TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2354/): Unaware blocks the attach, but the Energy the opponent picked is discarded once that choice is made.
   assert.equal(g.decision?.player, 1, 'the opponent chooses first');
   pick(g, [W]);
   assert.deepEqual(names(g, g.state.p[1].active!.energy), [], 'nothing stays on Skeledirge');
@@ -244,7 +244,7 @@ test('Armarouge, Crimson Blaster: discard all {R} Energy from this Pokémon, and
 });
 
 test('Armarouge, Crimson Blaster: with no Benched Pokémon the {R} Energy is still discarded and nothing is damaged (ruling 2050)', () => {
-  // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2050/): "Yes, but it would not do any damage to the Active Pokemon."
+  // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2050/): Energy still discards with no Benched Pokémon, but Active takes no damage.
   const g = game([{ active: 'Armarouge', energy: { active: [F, F, W] } }, { active: DRA }]);
   choose(g, 'Attack: Crimson Blaster');
   assert.equal(dmg(g, 1), 0);
@@ -458,7 +458,7 @@ test('Quaquaval, Up-Tempo: put a card from your hand on the bottom of your deck,
 });
 
 test('Quaquaval, Up-Tempo: not usable with 6 or more cards in hand, because you have to be able to draw (ruling 2042)', () => {
-  // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2042/): "No, you cannot.  You have to be able to draw a card when using this ability."
+  // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2042/): with 6 or more cards in hand Up-Tempo cannot be used, because a card must be drawable.
   assert.ok(!has(game([{ active: 'Quaquaval', hand: [F, F, F, F, F, F] }, { active: DRA }]), 'Up-Tempo'), '6 cards');
   const five = game([{ active: 'Quaquaval', hand: [F, W, G, L, P] }, { active: DRA }]);
   choose(five, 'Use Up-Tempo');
@@ -548,7 +548,7 @@ test('Magneton, Overvolt Discharge: needs a Basic Energy card in the discard pil
 test('Rotom, Crushing Pulse: your opponent reveals their hand; discard all Item cards and Pokémon Tool cards you find there', () => {
   const g = game([{ active: 'Rotom', energy: { active: [L] } }, { active: DRA, hand: ['Switch', 'Air Balloon', F, 'Switch', LEGACY] }]);
   choose(g, 'Attack: Crushing Pulse');
-  // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2051/): "No, you must discard all of them." (no choice)
+  // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2051/): All Item and Tool cards must discard—no choice about which ones.
   assert.notEqual(g.decision?.kind, 'cards', 'no choice about which: all of them');
   assert.deepEqual(names(g, g.state.p[1].discard), ['Air Balloon', 'Switch', 'Switch']);
   assert.equal(g.state.p[1].hand.length, 3, 'the Energy cards stay (plus the card drawn for their turn)');
@@ -586,7 +586,7 @@ test('Stunfisk, Paralyzing Crackle: 50; flip a coin, if heads the opponent\'s Ac
   pick(h, [W]);
   assert.deepEqual(names(h, h.state.p[1].active!.energy), [F]);
   assert.deepEqual(names(h, h.state.p[1].discard), [W]);
-  // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2058/): "No, the coin flip is for both Paralyzing the Pokemon and discarding the Energy card."
+  // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2058/): The flip determines both Paralysis and Energy discard together.
   const t = run(false);
   assert.equal(dmg(t, 1), 50);
   assert.equal(t.state.p[1].active!.cond & PARALYZED, 0);

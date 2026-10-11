@@ -439,7 +439,7 @@ test('Heavy Baton: not when the Pokémon is Knocked Out on the Bench, or by Pois
 });
 
 test('Heavy Baton: still works when the attack that Knocks the Pokémon Out moves it to the Bench (ruling 1992), but the Energy cannot stay on it', () => {
-  // Ruling (TPCi Rules Team 2024-06-20, https://compendium.pokegym.net/ruling/1992/): "Yes. Heavy Baton checks for two things here: Iron Hands ex was damaged by an attack while it was your Active Pokemon, and Iron Hands ex was Knocked Out by that attack.  So even though you don't check for a KO until the attack is completed, the criteria for using Heavy Baton has been met, so it can be used."
+  // Ruling (TPCi Rules Team 2024-06-20, https://compendium.pokegym.net/ruling/1992/): yes; the Pokémon was Active when the attack damaged it and that same attack Knocked it Out, so Heavy Baton qualifies although KOs are checked only after the attack, with it on the Bench.
   // Cranidos's Push Down does 70 ({F} Weakness would double it, Onix has {G}) and then switches Onix out.
   const dk = deck('Heavy Baton', 'Onix', REL, 'Slowpoke', 'Cranidos');
   const g = S(dk, [{ active: 'Onix', tools: { active: ['Heavy Baton'] }, energy: { active: [FI, W] }, bench: [REL, 'Slowpoke'], damage: { active: 60 } }, { active: 'Cranidos', energy: { active: [FI, FI] } }], OPP_TURN);
@@ -510,7 +510,7 @@ test("Volbeat, Quick Sign: if you go first, you can use this attack during your 
   submitCards(g, rellor, illumise);
   assert.equal(g.state.p[0].bench.length, 2, 'two Basic Pokémon onto the Bench');
   assert.deepEqual(names(g, g.state.p[0].bench.map((b) => b.cards[0]!)).sort(), ['Illumise', REL].sort());
-  // Ruling (Twilight Masquerade FAQ, TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1978/): "You can use it on any turn, not just your first turn."
+  // Ruling (Twilight Masquerade FAQ, TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1978/): Usable on any turn, not restricted to first turn.
   const later = S(dk, [{ active: 'Volbeat', energy: { active: [R, R] } }, { active: DRA }]);
   assert.ok(has(later, 'Attack: Quick Sign'));
   // The second player's first turn is turn 2: attacks are usable then as for anyone.

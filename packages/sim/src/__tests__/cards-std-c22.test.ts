@@ -118,7 +118,7 @@ test('Drifblim, Everyone Explode Now: 50 damage for each Drifloon and Drifblim i
 
 test('Drifblim, Everyone Explode Now: only the most evolved card of a Pokémon counts and is damaged (ruling 2021)', () => {
   const dk = deck('sv07-061', 'sv07-060', 'sv07-063', ...COMMON);
-  // Ruling (Stellar Crown FAQ, TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2021/): "No, you only count the most evolved stage of a Pokemon in play. The previous stages are now part of that Pokemon."
+  // Ruling (Stellar Crown FAQ, TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2021/): only the final evolution counts; prior stages are part of it.
   const g = game(dk, [
     { active: 'Drifblim', bench: ['Drifloon', 'Comfey'], evolve: { 0: ['Drifblim'] }, energy: { active: [P] } },
     { active: 'Tyranitar ex' },
@@ -165,7 +165,7 @@ test('Alcremie, Colorful Confection: up to 5 Pokémon of a type of a Basic Energ
   assert.deepEqual(offered(g), ['Alcremie', 'Comfey', 'Turtonator']);
   assert.equal(g.decision?.min, 0, '"up to": it can be none');
   assert.equal(g.decision?.max, 5);
-  // Ruling (Stellar Crown FAQ, TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2019/): "You can search for more than one type of Pokemon as long as they match any Basic Energy card types attached to Alcremie. And if you want, more than one of them can be the same Energy type."
+  // Ruling (Stellar Crown FAQ, TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2019/): Colorful Confection can search several Pokémon types, each matching a Basic Energy type attached to Alcremie; the same type may repeat.
   pick(g, ['Comfey', 'Comfey', 'Turtonator', 'Alcremie']);
   assert.deepEqual(names(g, g.state.p[0].hand.slice(before)), ['Alcremie', 'Comfey', 'Comfey', 'Turtonator']);
   assert.deepEqual(names(g, g.state.p[0].revealed ?? []), ['Alcremie', 'Comfey', 'Comfey', 'Turtonator'], 'the cards are revealed');
@@ -174,7 +174,7 @@ test('Alcremie, Colorful Confection: up to 5 Pokémon of a type of a Basic Energ
 
 test('Alcremie, Colorful Confection: a Special Energy gives no type, and no Basic Energy finds nothing (ruling 2020)', () => {
   const dk = deck('sv07-065', 'sv07-063', TURTLE, TYR, 'sv06-167');
-  // Ruling (Stellar Crown FAQ, TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2020/): "No, while Luminous Energy provides all types of Energy at the same time, it is not a Basic Energy card."
+  // Ruling (Stellar Crown FAQ, TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2020/): no, Luminous Energy isn't basic despite providing all types.
   const special = game(dk, [{ active: 'Alcremie', energy: { active: ['Legacy Energy'] } }, { active: 'Tyranitar ex' }]);
   const before = special.state.p[0].hand.length;
   choose(special, 'Attack: Colorful Confection');
@@ -212,7 +212,7 @@ test('Dachsbun ex, Time to Chow Down: heal all damage from each Evolution Pokém
   const g = dachsbunGame({ fidoughDamage: 20, evoDamage: 50 });
   choose(g, 'Evolve Fidough (Active) into Dachsbun ex');
   yes(g);
-  // Ruling (Stellar Crown FAQ, TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2016/): "Yes." (the Dachsbun ex that just evolved is healed too)
+  // Ruling (Stellar Crown FAQ, TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2016/): yes. (the Dachsbun ex that just evolved is healed too)
   assert.equal(activeName(g, 0), 'Dachsbun ex');
   assert.equal(damageOf(g, 0), 0, 'the new Dachsbun ex is healed');
   assert.deepEqual(energyNames(g, 0, 'active'), [], 'and discards its Energy');
@@ -226,7 +226,7 @@ test('Dachsbun ex, Time to Chow Down: heal all damage from each Evolution Pokém
 });
 
 test('Dachsbun ex, Time to Chow Down: the Energy of an Evolution Pokémon that had no damage stays (ruling 2015: all or nothing)', () => {
-  // Ruling (Stellar Crown FAQ, TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2015/): "No, you choose to use the Ability or not. Once you choose to use it, you have to heal all of your Evolution Pokemon and discard Energy from all of them that were healed."
+  // Ruling (Stellar Crown FAQ, TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2015/): using Time to Chow Down is optional, but once used it heals every Evolution Pokémon and discards Energy from each one healed.
   const g = dachsbunGame({ fidoughDamage: 0, evoDamage: 10 });
   choose(g, 'Evolve Fidough (Active) into Dachsbun ex');
   yes(g);
@@ -410,7 +410,7 @@ test("Diancie, Diffuse Reflection: 40 damage for each Special Energy card attach
     return damageOf(g, 1);
   };
   // "This attack does 40 damage for each Special Energy attached to all of your opponent's Pokémon."
-  // Ruling (TPCi Rules Team 2024-09-05, https://compendium.pokegym.net/ruling/2010/): "The damage is calculated based on the number of Special Energy CARDS, not the amount of energy the card provides."
+  // Ruling (TPCi Rules Team 2024-09-05, https://compendium.pokegym.net/ruling/2010/): damage counts special energy cards, not total energy provided.
   // Ignition Energy provides {C}{C}{C} on an Evolution Pokémon (Dachsbun ex), and still counts once. Diancie's own Boomerang Energy is not counted.
   assert.equal(hit(['Ignition Energy'], []), 40, 'one card providing 3 Energy: +40, not +120');
   assert.equal(hit(['Ignition Energy', 'Boomerang Energy'], ['Mist Energy', F]), 120, 'Active and Bench: 3 Special Energy cards; Basic Energy is not counted');
@@ -470,7 +470,7 @@ test('Falinks, All-Out Attack: the bonus is a game-state check, kept after retre
   choose(g, 'Attack: Form Ranks');
   g.submit([]);
   endTurn(g);
-  // Ruling (Stellar Crown FAQ, TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2017/): "It will do 120, since it's a game state check that the attack was used last turn and not an effect on the Pokemon."
+  // Ruling (Stellar Crown FAQ, TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2017/): 120 damage; checks if attacked last turn, not a pokémon effect.
   choose(g, 'Retreat');
   while (g.decision?.kind === 'cards' || (g.decision?.kind as string) === 'slots') {
     if (g.decision!.kind === 'cards') g.submit([0, 1].slice(0, g.decision!.min));
@@ -541,7 +541,7 @@ test("Grimmsnarl, Goad 'n' Grab: switch out the opponent's Active Pokémon (they
 
 test("Grimmsnarl, Goad 'n' Grab: with no new Active Pokémon (no Bench, or the switch is stopped) there is no damage (ruling 2025)", () => {
   const dk = deck('sv07-096', ...COMMON);
-  // Ruling (Stellar Crown FAQ, TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2025/): "No, it will not do any damage because there isn't a NEW Active Pokemon."
+  // Ruling (Stellar Crown FAQ, TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2025/): Goad 'n' Grab does no damage when Mist Energy stops the switch, because no NEW Active Pokémon arrives.
   const mist = game(dk, [
     { active: 'Grimmsnarl', energy: { active: [F, F] } },
     { active: 'Tyranitar ex', bench: ['Turtonator'], energy: { active: ['Mist Energy'] } },

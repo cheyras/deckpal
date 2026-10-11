@@ -138,7 +138,7 @@ test('Mew ex, Memory Helix: it can use the attacks of any of your Benched Pokém
 });
 
 test("Mew ex, Memory Helix: the type and number of Energy must match the attack's own cost (ruling 292)", () => {
-  // Ruling (TPCi Rules Team 2012-08-23, https://compendium.pokegym.net/ruling/292/): "You must meet the energy requirements as to both type and number for the attack Mew EX is copying."
+  // Ruling (TPCi Rules Team 2012-08-23, https://compendium.pokegym.net/ruling/292/): Mew ex must match the copied attack's exact Energy type and number requirements.
   const wrongType = game([{ active: 'Mew ex', energy: { active: [P, P, P] }, bench: ['Chikorita'] }, { active: 'Dragapult ex' }]);
   assert.ok(!has(wrongType, 'Razor Leaf'), '{P}{P}{P} is not {G}');
   const yveltal = game([{ active: 'Mew ex', energy: { active: [D, D] }, bench: ['Yveltal'] }, { active: 'Dragapult ex' }]);
@@ -168,8 +168,8 @@ test('Mew ex, Memory Helix: a copied attack with an effect does it (Seismitoad\'
 });
 
 test("Mew ex, Memory Helix: \"can't use this attack\" stays with the Pokémon that used it, by the attack's name (rulings 295 and 293)", () => {
-  // Ruling (TPCi Rules Team 2015-02-05, https://compendium.pokegym.net/ruling/295/): "When Mew EX attacks, Versatile uses the attack name specified. So when it attacks with X Blast, Mew EX cannot use that attack twice in a row."
-  // Ruling (TPCi Rules Team 2012-08-23, https://compendium.pokegym.net/ruling/293/): "Yes. The effect of "this Pokemon can't use Giant Wave next turn" applies only to the Pokemon that attacked with it."
+  // Ruling (TPCi Rules Team 2015-02-05, https://compendium.pokegym.net/ruling/295/): when Mew ex copies an attack such as X Blast that bars its own use next turn, Mew ex is barred from that named attack.
+  // Ruling (TPCi Rules Team 2012-08-23, https://compendium.pokegym.net/ruling/293/): Wailord using Giant Wave last turn does not stop the opposing Mew EX copying it; once Mew EX uses it, Mew EX itself is barred from it next turn.
   const g = game([{ active: 'Mew ex', energy: { active: [F] }, bench: ['Riolu'] }, { active: 'Dragapult ex' }]);
   const mew = g.state.p[0].active!;
   const riolu = g.state.p[0].bench[0]!;

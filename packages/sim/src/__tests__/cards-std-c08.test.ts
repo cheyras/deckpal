@@ -227,8 +227,7 @@ test('Mawile, Double Eater: 60 damage for each Energy card (up to 2) you discard
   assert.equal(countOf(two, two.state.p[0].discard, F), 1);
   assert.equal(countOf(two, two.state.p[0].discard, W), 1);
   assert.equal(dmg(run([F]), 1), 60);
-  // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2313/): "Yes you can, and then it would do zero damage.
-  // But it would still count as doing an attack."
+  // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2313/): you can attack and do zero damage, still counting as an attack.
   const none = run([]);
   assert.equal(dmg(none, 1), 0);
   assert.equal(none.state.current, 1, 'it was an attack: the turn is over');
@@ -280,8 +279,7 @@ test("Hippopotas, Sand Attack: 10, then the Defending Pokémon's attack happens 
   const tails = mk([false]);
   choose(tails, 'Attack: Petty Grudge');
   assert.equal(dmg(tails, 0), 0, "tails: that attack doesn't happen");
-  // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2317/): "You would flip for Sand Attack's effect first,
-  // then flip for Confusion." A Confused attacker: the first coin is Sand Attack's, the second Confusion's.
+  // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2317/): Sand Attack's coin comes first, then the Confusion coin. A Confused attacker: the first coin is Sand Attack's, the second Confusion's.
   const conf = (coins: boolean[]): Game => {
     const g = scenario(dk, dk, [{ active: 'Hippopotas', energy: { active: [FI] } }, { active: 'Dreepy', energy: { active: [P] }, cond: CONFUSED }]);
     choose(g, 'Attack: Sand Attack');
@@ -518,8 +516,7 @@ test('Doublade, Weaponized Swords: reveal any number of Honedge, Doublade and Ae
     scenario(dk, dk, [{ active: 'Doublade', energy: { active: [M, M] }, hand: ['Doublade', 'Aegislash', 'Aegislash', 'Tyranitar ex', 'Mega Absol ex'] }, { active: 'Tyranitar ex' }]);
   const g = mk();
   choose(g, 'Attack: Weaponized Swords');
-  // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2320/): "the names of the cards revealed must be an exact
-  // match of those listed" -- only cards named exactly Honedge, Doublade or Aegislash can be revealed.
+  // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2320/): Weaponized Swords counts only cards whose names exactly match; only Honedge, Doublade or Aegislash qualify, not Aegislash ex.
   assert.deepEqual(names(g, g.decision!.values as number[]), ['Aegislash', 'Aegislash', 'Doublade']);
   assert.equal(g.decision?.min, 0, 'any number, including none');
   g.submit([0, 1, 2]);

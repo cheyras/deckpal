@@ -384,8 +384,8 @@ test('Sylveon ex, Angelite: usable again the turn after it was blocked', () => {
 });
 
 test('Sylveon ex, Angelite (ruling 2094): a copy of Angelite leaves no mark, so the restriction does not apply', () => {
-  // Ruling (TPCi Rules Team 2025-01-09, https://compendium.pokegym.net/ruling/2094/): "Yes, you can. Mew ex used "the effect" of
-  // Angelite last turn, but the "attack" it did was Genome Hacking, so the restriction of Angelite does not apply."
+  // Ruling (TPCi Rules Team 2025-01-09, https://compendium.pokegym.net/ruling/2094/): using a copied attack doesn't count as using Angelite,
+  // so the restriction doesn't apply.
   const dk = deck('Sylveon ex', DRA);
   const g = game(dk, [{ active: 'Sylveon ex' }, { active: DRA }]);
   const f = { code: 'x', pc: 0, vars: {}, player: 0 as const, src: g.state.p[0].active!.cards[0]!, slot: g.state.p[0].active!.id, kind: 'attack' as const };
@@ -868,8 +868,8 @@ test('Grapploct, Raging Tentacles: 130 for {F}{F}{C}, or for {F} alone if this P
   assert.equal(dmg(hurt, 1), 130);
   assert.ok(!has(mk([G], 10), A), 'but it is still {F}, not any Energy');
   assert.ok(!has(mk([], 10), A), 'and not free');
-  // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2374/): "The attack cost is set at one {F} and is not
-  // further reduced.  It is an alternate cost that cannot be increased or decreased."
+  // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2374/): an alternate attack cost cannot be modified by effects that
+  // increase or reduce costs.
   const belt = mk([], 10);
   inject(belt, belt.state.p[0].active!.id, { k: 'attackCostC', delta: -1 });
   assert.ok(!has(belt, A), 'a cost reduction (Karate Belt) does not make the {F} cost free');

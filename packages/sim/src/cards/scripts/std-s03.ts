@@ -34,7 +34,7 @@ export const STD_S03: CardScript[] = [
     abilities: [
       {
         // "Whenever your opponent plays an Item or Supporter card from their hand, prevent all effects of that card done to this Pokémon."
-        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2154/): "If your opponent's chosen Benched Pokemon is Cetitan ex, then Team Rocket's Giovanni's effect will be blocked. But choosing a Benched Pokemon without "Snow Camouflage" will cause it to switch with the Active Cetitan ex because the Benched Pokemon is the target of Team Rocket's Giovanni. You will still switch your Team Rocket Pokemon either way."
+        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2154/): if the chosen Benched Pokémon is a Cetitan ex, Giovanni's effect is blocked; a Benched Pokémon without Snow Camouflage does switch with the Active Cetitan ex. Your own switch happens either way.
         name: 'Snow Camouflage',
         statics: [{ effect: { k: 'preventTrainerEffects', from: ['item', 'supporter'] }, scope: 'self' }],
       },

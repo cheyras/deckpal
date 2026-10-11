@@ -36,7 +36,7 @@ export const STD_C35: CardScript[] = [
     abilities: [
       {
         // "Attacks used by your Pokémon do 20 more damage to your opponent's Active Pokémon (before applying Weakness and Resistance)."
-        // Ruling (Black Bolt/White Flare FAQ; TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2186/): "Yes, it does." (stacks: no `noStack` key)
+        // Ruling (Black Bolt/White Flare FAQ; TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2186/): this Ability stacks with copies. (stacks: no `noStack` key)
         name: 'Regal Cheer',
         statics: [{ effect: { k: 'damageOut', amount: 20 }, scope: 'myPokemon' }],
       },
@@ -73,7 +73,7 @@ export const STD_C35: CardScript[] = [
     name: 'Maractus',
     attacks: {
       // "If this Pokémon was healed during this turn, this attack does 100 more damage."
-      // Ruling (Black Bolt/White Flare FAQ; TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2198/): "If you did not remove any damage counters the Pokemon is not "healed" by Fennel, so Lively Needles would only do the base 20 damage."
+      // Ruling (Black Bolt/White Flare FAQ; TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2198/): if Fennel removes no damage counters the Pokémon is not "healed", so Lively Needles does only its base 20.
       'Lively Needles': { damage: { add: [20, { cond: { healedThisTurn: 'self' }, then: 100, else: 0 }] } },
     },
     notes: 'Compendium #2198: healing that removes no damage counters is not "healed" (healedThisTurn).',
@@ -218,7 +218,7 @@ export const STD_C35: CardScript[] = [
     abilities: [
       {
         // "Once during your turn, you may attach a Basic {L} Energy card from your discard pile to 1 of your Benched Pokémon."
-        // Ruling (Black Bolt/White Flare FAQ; TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2182/): "No, there is a significant text difference between the two cards. The card from Black Bolt specifies Basic Energy while the older card does not." (only Basic {L} Energy cards)
+        // Ruling (Black Bolt/White Flare FAQ; TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2182/): no, the older Noble Victories Eelektrik can't be used in its place: this Black Bolt card says Basic Energy and the older one does not. (only Basic {L} Energy cards)
         name: 'Dynamotor',
         activated: {
           when: {
@@ -314,7 +314,7 @@ export const STD_C35: CardScript[] = [
     name: 'Elgyem',
     attacks: {
       // "Move an Energy from 1 of your opponent's Pokémon to another of their Pokémon."
-      // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2375/): "No, you cannot." (a Mist Energy on the Defending Pokémon can't be moved to a different Pokémon)
+      // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2375/): no, Slight Shift can't move a Mist Energy off the Defending Pokémon. (a Mist Energy on the Defending Pokémon can't be moved to a different Pokémon)
       'Slight Shift': { program: [{ op: 'custom', fn: 'c35.moveOppEnergy' }] },
     },
     notes: 'Compendium #2375: a Pokémon protected from the effects of attacks (Mist Energy) can not give its Energy away; by the same protection it can not receive one either.',
@@ -335,14 +335,14 @@ export const STD_C35: CardScript[] = [
     abilities: [
       {
         // "If you go first, this Pokémon can use attacks during your first turn."
-        // Ruling (Black Bolt/White Flare FAQ; TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2181/): "Yes, with Debut Performance Meloetta ex can use any attacks it has access to."
+        // Ruling (Black Bolt/White Flare FAQ; TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2181/): Debut Performance lets Meloetta ex use any attack available to it on the first turn, even one from an attached TM.
         // -- carried by `firstTurn` on its only attack, Echoed Voice (no Tool or TM attacks exist yet to be "accessed").
         name: 'Debut Performance',
       },
     ],
     attacks: {
       // "During your next turn, this Pokémon's Echoed Voice attack does 80 more damage (before applying Weakness and Resistance)."
-      // Ruling (Black Bolt/White Flare FAQ; TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2191/): "No, the bonus damage doesn't keep stacking. It is only applied for each next turn, so you would do 30, 110, 110, etc."
+      // Ruling (Black Bolt/White Flare FAQ; TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2191/): no, the 80 more does not keep stacking; three uses in a row do 30, 110, 110.
       // -- the attack leaves a mark on this Pokémon through the end of your next turn; the bonus is "+80 if the mark is there",
       // checked before the new mark is written (the Metagross, Meteor Mash precedent).
       'Echoed Voice': {

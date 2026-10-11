@@ -37,7 +37,7 @@ export const STD_C24: CardScript[] = [
     abilities: [
       {
         // "Attacks used by your Evolution {R} Pokémon do 10 more damage to your opponent's Active Pokémon (before applying Weakness and Resistance)."
-        // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2044/): "Yes. Although Skeledirge is not an "Evolved Pokemon" in this scenario, it is still considered an "Evolution Pokemon" (Stage 2) that meets the requirements for Victory Cheer." (put directly into play, not evolved)
+        // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2044/): a Skeledirge put directly into play by Cinnabar Lure is not "Evolved" but is still an Evolution Pokémon (Stage 2), so Victory Cheer applies. (put directly into play, not evolved)
         name: 'Victory Cheer',
         statics: [{ effect: { k: 'damageOut', amount: 10 }, scope: 'myPokemon', filter: { stage: 'evolution', type: 'Fire' } }],
       },
@@ -63,7 +63,7 @@ export const STD_C24: CardScript[] = [
     abilities: [
       {
         // "Prevent all effects of attacks used by your opponent's Pokémon done to this Pokémon. (Damage is not an effect.)"
-        // Ruling (Chaos Rising FAQ, TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2354/): "Because Skeledirge's Unaware "prevents all effects of attacks used by your opponent's Pokemon done to this Pokemon" the energy cards are discarded, after they execute their choice." (Delibird, Pleasing Present: pinned in the test)
+        // Ruling (Chaos Rising FAQ, TPCi Rules Team 2026-05-21, https://compendium.pokegym.net/ruling/2354/): when the opponent picks Skeledirge for Pleasing Present's attach, Unaware prevents the effect, so the Energy is discarded after the choice is made. (Delibird, Pleasing Present: pinned in the test)
         name: 'Unaware',
         statics: [{ effect: { k: 'preventEffects', from: ['attack'] }, scope: 'self' }],
       },
@@ -80,7 +80,7 @@ export const STD_C24: CardScript[] = [
     name: 'Armarouge',
     attacks: {
       // "Discard all {R} Energy from this Pokémon, and this attack does 180 damage to 1 of your opponent's Benched Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)"
-      // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2050/): "Yes, but it would not do any damage to the Active Pokemon." (no Benched Pokémon: the {R} Energy is still discarded)
+      // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2050/): yes, the {R} Energy is discarded even with no Benched target, though nothing hits the Active Pokémon. (no Benched Pokémon: the {R} Energy is still discarded)
       'Crimson Blaster': {
         program: [
           { op: 'discardEnergy', from: 'self', count: 'all', filter: { providesType: 'Fire' } },
@@ -94,7 +94,7 @@ export const STD_C24: CardScript[] = [
     name: 'Ceruledge',
     attacks: {
       // "Discard all Special Energy from all of your opponent's Pokémon."
-      // Ruling (TPCi Rules Team 2024-11-14, https://compendium.pokegym.net/ruling/2085/): "Yes. While their effects may be turned off, they are still considered Special Energy cards." (the custom looks at the card, never at its text)
+      // Ruling (TPCi Rules Team 2024-11-14, https://compendium.pokegym.net/ruling/2085/): disabled Special Energy still counts as Special Energy. (the custom looks at the card, never at its text)
       'Cursed Edge': { post: [{ op: 'custom', fn: 'c24.discardSpecialEnergyAllOpp' }] },
       // "During your next turn, this Pokémon can't attack."
       'Black Blaze Slash': { post: [{ op: 'effect', static: { k: 'cantAttack' }, on: 'self', duration: 'myNextTurn' }] },
@@ -192,7 +192,7 @@ export const STD_C24: CardScript[] = [
     abilities: [
       {
         // "You must put a card from your hand on the bottom of your deck in order to use this Ability. Once during your turn, you may draw cards until you have 5 cards in your hand."
-        // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2042/): "No, you cannot.  You have to be able to draw a card when using this ability." (6 or more cards in hand)
+        // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2042/): no, drawing a card must be possible when you use this Ability. (6 or more cards in hand)
         // So the Ability needs a card to put back (1 or more in hand), 5 or fewer cards in hand (putting one back leaves room to draw) and a card in the deck to draw.
         name: 'Up-Tempo',
         activated: {
@@ -256,7 +256,7 @@ export const STD_C24: CardScript[] = [
     name: 'Rotom',
     attacks: {
       // "Your opponent reveals their hand. Discard all Item cards and Pokémon Tool cards you find there."
-      // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2051/): "No, you must discard all of them."
+      // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2051/): all matching cards must be discarded.
       'Crushing Pulse': {
         program: [
           { op: 'custom', fn: 'std.revealHand', args: { who: 'opp' } },
@@ -273,7 +273,7 @@ export const STD_C24: CardScript[] = [
     name: 'Stunfisk',
     attacks: {
       // "Flip a coin. If heads, your opponent's Active Pokémon is now Paralyzed, and discard an Energy from that Pokémon."
-      // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2058/): "No, the coin flip is for both Paralyzing the Pokemon and discarding the Energy card." (tails: neither)
+      // Ruling (Surging Sparks FAQ, TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2058/): the one coin flip covers both Paralysis and the Energy discard. (tails: neither)
       'Paralyzing Crackle': {
         post: [
           { op: 'flip', n: 1, as: 'h' },

@@ -37,7 +37,7 @@ export const STD_S02: CardScript[] = [
     name: "Team Rocket's Nidoking ex",
     attacks: {
       // "Your opponent's Active Pokémon is now Poisoned. During Pokémon Checkup, put 8 damage counters on that Pokémon instead of 1."
-      // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2373/), on the same effect with 16 counters (Mega Dragalge ex): "It puts 16 damage counters on every Pokemon Checkup, as long as it survives and has that Poisoned Condition."
+      // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2373/), on the same effect with 16 counters (Mega Dragalge ex): these counters are placed at every Checkup while the Pokémon survives and remains Poisoned.
       'Tainted Horn': { post: [{ op: 'condition', cond: 'poisoned', to: 'oppActive', counters: 8 }] },
     },
   },
@@ -51,7 +51,7 @@ export const STD_S02: CardScript[] = [
     name: 'Bouffalant',
     attacks: {
       // "During your opponent's next turn, if this Pokémon is damaged by an attack (even if this Pokémon is Knocked Out), put 6 damage counters on the Attacking Pokémon."
-      // Ruling (TPCi Rules Team 2024-03-21, https://compendium.pokegym.net/ruling/1958/), on the same kind of effect (Iron Boulder ex, Repulsor Axe): Mist Energy prevents the counters, an effect of the attack.
+      // Ruling (TPCi Rules Team 2024-03-21, https://compendium.pokegym.net/ruling/1958/), on the same kind of effect (Iron Boulder ex, Repulsor Axe): Mist Energy prevents these counters since the effect is from the attack.
       'Ready to Ram': {
         post: [
           {
@@ -71,7 +71,7 @@ export const STD_S02: CardScript[] = [
     name: 'Zamazenta',
     attacks: {
       // "During your opponent's next turn, if this Pokémon is damaged by an attack (even if this Pokémon is Knocked Out), put damage counters on the Attacking Pokémon equal to the damage done to this Pokémon."
-      // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2165/), on a Zamazenta with no damage hit for 200 (13 or 20 counters?): "You place 20 damage counters. Remember, damage done to a Pokemon can be more than its maximum HP."
+      // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2165/), on a Zamazenta with no damage hit for 200 (13 or 20 counters?): 20 counters are placed for 200 damage; damage can exceed the Pokémon's remaining HP.
       // -- the damage done is counted before it is capped at the Pokémon's HP (s02.damageDoneAsCounters).
       'Strong Bash': {
         post: [
@@ -151,7 +151,7 @@ export const STD_S02: CardScript[] = [
       // (bookkeeping, not printed) remember that an attack's damage hit this Pokémon in the Active Spot; see s01.markHitWhileActive.
       { on: 'damagedByAttackActive', program: [{ op: 'custom', fn: 's01.markHitWhileActive' }] },
       // "If the Pokémon this card is attached to has a Retreat Cost of exactly 4, is in the Active Spot, and is Knocked Out by damage from an attack from your opponent's Pokémon, move up to 3 Basic Energy cards from that Pokémon to your Benched Pokémon in any way you like."
-      // Ruling (TPCi Rules Team 2024-06-20, https://compendium.pokegym.net/ruling/1992/), on Iron Hands ex pushed to the Bench by Exciting Dance: "Yes. Heavy Baton checks for two things here: Iron Hands ex was damaged by an attack while it was your Active Pokemon, and Iron Hands ex was Knocked Out by that attack.  So even though you don't check for a KO until the attack is completed, the criteria for using Heavy Baton has been met, so it can be used."
+      // Ruling (TPCi Rules Team 2024-06-20, https://compendium.pokegym.net/ruling/1992/), on Iron Hands ex pushed to the Bench by Exciting Dance: Heavy Baton works: Iron Hands ex was damaged while Active and Knocked Out by that same attack, even though it sits on the Bench when KOs are checked.
       {
         on: 'knockedOutByAttack',
         when: { and: [{ custom: 's02.retreatCostIs', args: { n: 4 } }, { or: [{ inActive: 'self' }, { custom: 's01.hitWhileActive' }] }] },
@@ -182,7 +182,7 @@ export const STD_S02: CardScript[] = [
     name: 'Volbeat',
     attacks: {
       // "If you go first, you can use this attack during your first turn."
-      // Ruling (Twilight Masquerade FAQ, TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1978/): "You can use it on any turn, not just your first turn."
+      // Ruling (Twilight Masquerade FAQ, TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1978/): this attack is usable on any turn, not just the first.
       // "Search your deck for up to 2 Basic Pokémon and put them onto your Bench. Then, shuffle your deck."
       'Quick Sign': { firstTurn: true, post: searchToBench({ cat: 'pokemon' }, 2) },
       // "If Illumise is on your Bench, this attack does 60 more damage."

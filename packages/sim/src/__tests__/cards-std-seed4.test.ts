@@ -237,7 +237,7 @@ test('Reuniclus, Summoning Gate: you may take none -- and only as many as the Be
   choose(none, 'Attack: Summoning Gate');
   none.submit([]);
   assert.deepEqual(benchNames(none, 0), []);
-  // Ruling (TPCi Rules Team 2024-03-21, #1962): "You can put any number of Pokemon you find onto your Bench up to the maximum size of the Bench."
+  // Ruling (TPCi Rules Team 2024-03-21, #1962): Put found Pokémon onto Bench up to capacity.
   const three = reuniclus(['Slowpoke', 'Slowpoke', 'Rellor']);
   choose(three, 'Attack: Summoning Gate');
   assert.equal(three.decision?.max, 2, 'two spaces left on the Bench');
@@ -293,8 +293,7 @@ test('Raging Bolt ex, Bellowing Thunder: you may discard any amount of Basic Ene
 });
 
 test('Raging Bolt ex, Bellowing Thunder: the damage is done first and the Energy discarded afterwards (TPCi 2026-07-16, #2423: Ancient Bulwark)', () => {
-  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2423/): "Bellowing Thunder does damage first, and then the energy is discarded.
-  // So Ancient Bulwark would not prevent the damage because it was done before the energy was discarded."
+  // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2423/): Bellowing Thunder deals damage before the Energy discard, so Ancient Bulwark does not prevent it.
   // Bastiodon (Bench) prevents damage from attackers with 2 or less Energy: Raging Bolt ex has 3 when it hits, 0 once they are discarded.
   const dk = deck('sv05-123', REG, 'me05-062', 'me05-061', 'me05-072');
   const opp = (): SideLayout => ({ active: 'Registeel ex', bench: ['Antique Armor Fossil'], evolve: { 0: ['Shieldon', 'Bastiodon'] } });

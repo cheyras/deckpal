@@ -42,7 +42,7 @@ function choose(g: Game, text: string): void {
   g.submit([i]);
 }
 
-test('Gwynn with an empty deck can still be played to discard (TPCi 2026-07-16: "You can do as much as you can.")', () => {
+test('Gwynn with an empty deck can still be played to discard (TPCi 2026-07-16: perform whatever is possible)', () => {
   const g = at([{ active: 'Dhelmise', hand: ['Gwynn', 'Dhelmise'], emptyDeck: true }, { active: 'Dhelmise' }]);
   assert.ok(has(g, 'Gwynn'), 'Gwynn was not offered with an empty deck');
   // "Up to 2" on a Trainer is 1-2 (TPCi 2026-02-19): with no Pokémon without a Rule Box to discard, it does nothing.
@@ -50,23 +50,23 @@ test('Gwynn with an empty deck can still be played to discard (TPCi 2026-07-16: 
   assert.ok(!has(none, 'Gwynn'), 'Gwynn was offered with nothing it could discard');
 });
 
-test('Prism Tower needs 2 cards to discard and a card to draw (TPCi 2026-05-21, twice)', () => {
+test('Prism Tower requires 2 cards in hand plus deck content (TPCi 2026-05-21, twice)', () => {
   const use = 'Use the Stadium (Prism Tower)';
   const ok = at([{ active: 'Dhelmise', hand: ['Prism Tower', 'Gwynn', 'Dhelmise'] }, { active: 'Dhelmise' }]);
   choose(ok, 'Play Prism Tower');
   assert.ok(has(ok, use), 'Prism Tower was not usable with 2 cards in hand and a deck');
-  // "You must be able to discard 2 cards in order to use Prism Tower's effect."
+  // Needs two cards available to discard for its effect.
   const one = at([{ active: 'Dhelmise', hand: ['Prism Tower', 'Dhelmise'] }, { active: 'Dhelmise' }]);
   choose(one, 'Play Prism Tower');
   assert.ok(!has(one, use), 'Prism Tower was usable with 1 card in hand');
-  // "No, you cannot simply discard 2 cards for no effect" (no cards in the deck).
+  // Can't discard cards without a purpose; empty deck prevents activation.
   const empty = at([{ active: 'Dhelmise', hand: ['Prism Tower', 'Gwynn', 'Dhelmise'], emptyDeck: true }, { active: 'Dhelmise' }]);
   choose(empty, 'Play Prism Tower');
   assert.ok(!has(empty, use), 'Prism Tower was usable with an empty deck');
 });
 
-test("Special Red Card can't be played when the opponent has no hand (TPCi 2026-05-21)", () => {
-  // "If your opponent has no cards in their hand, you can't play Special Red Card."
+test("Special Red Card requires opponent's hand to be non-empty (TPCi 2026-05-21)", () => {
+  // Needs target cards in opponent's hand; unplayable otherwise.
   const withHand = at([{ active: 'Dhelmise', hand: ['Special Red Card'] }, { active: 'Dhelmise', hand: ['Gwynn'], prizes: 3 }]);
   assert.ok(has(withHand, 'Special Red Card'), 'Special Red Card was not offered with a hand to send away');
   const bare = at([{ active: 'Dhelmise', hand: ['Special Red Card'] }, { active: 'Dhelmise', prizes: 3 }]);
@@ -75,16 +75,15 @@ test("Special Red Card can't be played when the opponent has no hand (TPCi 2026-
 });
 
 test("Dark Bell can't be played when both Active Pokémon are {D} and/or Confused (TPCi 2026-07-16)", () => {
-  // "You cannot play the card if there are no valid targets."
+  // A card can't be played when it has no valid targets.
   const ok = at([{ active: 'Dhelmise', hand: ['Dark Bell'] }, { active: 'Dhelmise' }]);
   assert.ok(has(ok, 'Dark Bell'));
   const blocked = at([{ active: 'Dhelmise', hand: ['Dark Bell'], cond: CONFUSED }, { active: 'Dhelmise', cond: CONFUSED }]);
   assert.ok(!has(blocked, 'Dark Bell'), 'Dark Bell was offered with both Actives already Confused');
 });
 
-test('"{M} Energy" counts a Special Energy providing {M}: Metallic Hammer discards Legacy Energy (Wash Out ruling, TPCi 2026-03-26)', () => {
-  // Dewgong's Wash Out: "as long as the Energy card is providing {W} Energy. It does not specify that the energy
-  // card has to be Basic." Metallic Hammer: "You may discard 3 {M} Energy from this Pokémon ...".
+test('Special Energy that provides {M} counts toward Metallic Hammer discard (Wash Out ruling, TPCi 2026-03-26)', () => {
+  // Dewgong's Wash Out: any Energy card counts while it provides {W}; the card doesn't say Basic. Metallic Hammer: "You may discard 3 {M} Energy from this Pokémon ...".
   const g = at([
     { active: 'Metang', evolve: { active: ['Metagross'] }, energy: { active: ['Metal Energy', 'Metal Energy', 'Legacy Energy', 'Psychic Energy'] } },
     { active: 'Dhelmise' },
@@ -109,9 +108,8 @@ test('Metallic Hammer counts {M} Energy provided, not cards: Neo Upper Energy on
   assert.deepEqual(left, ['Metal Energy'], `discarded the wrong Energy: ${left.join(', ')} left`);
 });
 
-test('"up to 2" on a Trainer means 1 or 2, never 0 (TPCi 2026-02-19)', () => {
-  // "For other effects (such as the effects of Trainer cards and Abilities), you can choose any number between 1
-  //  and the maximum."
+test('"Up to N" on Trainer effects means picking at least 1 up to N (TPCi 2026-02-19)', () => {
+  // Trainer card limits require minimum of 1 when an upper bound is stated.
   const g = at([{ active: 'Dhelmise', hand: ['Energy Retrieval'], discard: ['Psychic Energy', 'Psychic Energy'] }, { active: 'Dhelmise' }]);
   choose(g, 'Energy Retrieval');
   assert.equal(g.decision?.kind, 'cards');
@@ -134,8 +132,8 @@ function atS(sides: [SideLayout, SideLayout]): Game {
   return scenario(STADIUMS, STADIUMS, sides);
 }
 
-test('Risky Ruins puts 2 counters on an Antique Fossil played to the Bench (TPCi 2026-07-16)', () => {
-  // "Yes, damage counters are placed. It counts as a Pokemon when it is put into play."
+test('Risky Ruins damages Antique Fossils when they enter the Bench (TPCi 2026-07-16)', () => {
+  // Fossils count as Pokémon for Bench entry effects.
   const g = atS([{ active: 'Dhelmise', hand: ['Antique Armor Fossil', 'Risky Ruins'] }, { active: 'Dhelmise' }]);
   choose(g, 'Play Risky Ruins');
   choose(g, 'Antique Armor Fossil');
@@ -143,15 +141,15 @@ test('Risky Ruins puts 2 counters on an Antique Fossil played to the Bench (TPCi
 });
 
 test("Team Rocket's Watchtower: a Meowth ex benched under it has no Last-Ditch Catch (TPCi 2026-04-16)", () => {
-  // "Yes, Meowth ex will have no Ability when it comes into play."
+  // Meowth ex has no Ability from the moment it comes into play under Watchtower.
   const g = atS([{ active: 'Dhelmise', hand: ["Team Rocket's Watchtower", 'Meowth ex'] }, { active: 'Dhelmise' }]);
   choose(g, "Play Team Rocket's Watchtower");
   choose(g, 'Bench Meowth ex');
   assert.equal(g.decision?.kind, 'main', 'Last-Ditch Catch offered its search under Watchtower');
 });
 
-test('Cursed Blast into Battle Cage: the counters on the Benched target are blocked, Dusknoir is Knocked Out anyway (TPCi)', () => {
-  // "Dusknoir is KO'd even if damage counter placement is blocked."
+test('Cursed Blast under Battle Cage still causes Dusknoir KO despite blocked counters (TPCi)', () => {
+  // Knock Out happens independently of damage counter placement blocking.
   const g = atS([
     { active: 'Dhelmise', bench: ['Duskull'], evolve: { 0: ['Dusclops', 'Dusknoir'] }, hand: ['Battle Cage'] },
     { active: 'Dhelmise', bench: ['Dhelmise'] },

@@ -210,7 +210,7 @@ test("Cradily, Selective Slime: flip a coin; on heads choose Burned, Confused or
 test('Cradily, Selective Slime: not usable while the Defending Pokémon is already Burned, Confused and Poisoned (ruling 2014)', () => {
   const dk = deck('sv07-006', URSA);
   const usable = (cond: number): boolean => has(game(dk, [{ active: 'Cradily' }, { active: 'Bloodmoon Ursaluna ex', cond }]), 'Selective Slime');
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2014/): "No, you cannot. The only exception is if one of those is an "enhanced" Special Condition ..."
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2014/): no when the Defending Pokémon is already Burned, Confused and Poisoned, except when a condition is a strengthened version (e.g. Poisoned placing 2 damage counters at Checkup instead of 1).
   assert.equal(usable(BURNED | CONFUSED | POISONED), false, 'all three already: no');
   assert.equal(usable(BURNED | POISONED), true, 'Confused is still missing');
   assert.equal(usable(CONFUSED | POISONED), true, 'Burned is still missing');
@@ -311,7 +311,7 @@ test('Eldegoss, Breezy Gift: usable with no cards in the deck (ruling 2018)', ()
     { active: 'Bloodmoon Ursaluna ex' },
   ]);
   assert.equal(g.state.p[0].deck.length, 0);
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2018/): "Sure.  You may not have any cards in your deck when you play it, but you will once you shuffle the Eldegoss and all attached cards into it."
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2018/): Can use even if deck is empty before putting Eldegoss into it.
   assert.ok(has(g, 'Attack: Breezy Gift'));
   choose(g, 'Attack: Breezy Gift');
   assert.equal(g.decision?.kind, 'cards');

@@ -132,7 +132,7 @@ test('Rapidash, Hurried Gait: once during your turn, draw a card; each Rapidash 
   const hand = g.state.p[0].hand.length;
   choose(g, 'Hurried Gait');
   assert.equal(g.state.p[0].hand.length, hand + 1);
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2148/): "Yes, you can."
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2148/): each Rapidash can use this Ability.
   choose(g, 'Hurried Gait'); // the other Rapidash
   assert.equal(g.state.p[0].hand.length, hand + 2);
   assert.ok(!has(g, 'Hurried Gait'), 'each Rapidash has used its own: no more this turn');
@@ -163,7 +163,7 @@ test("Team Rocket's Moltres ex, Evil Incineration: discards a Team Rocket's Ener
   assert.equal(g.state.p[1].discard.length, oppDiscard + 4, 'the Pokémon, 2 Energy and the Tool');
   assert.equal(discard.filter((n) => n === DRA).length, 1);
   assert.equal(discard.filter((n) => n === 'Air Balloon').length, 1);
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2156/): "No, you are discarding it, not knocking it out."
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2156/): discarding the Pokémon is not a Knock Out, so no Prize card is taken.
   assert.equal(g.state.p[0].prizesTaken, 0, 'no Prize card');
   assert.equal(g.state.p[1].active === null || nameOf(g, g.state.p[1].active.cards[0]!) === SLO, true);
   assert.equal(g.decision?.player, 1, 'the opponent promotes a new Active Pokémon');
@@ -230,7 +230,7 @@ test("Blaziken, Inferno Kick Flurry: with no Benched Pokémon the Energy is stil
   const g = mk(['Blaziken', DRA], [{ active: 'Blaziken', energy: { active: [R, R, W, W] } }, { active: DRA }]);
   choose(g, 'Attack: Inferno Kick Flurry');
   pick(g, [R, W]);
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2159/): "Yes, you do. The discard of the Energy is a separate effect and is not optional."
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2159/): Energy discards regardless of whether you hit a Benched Pokémon.
   assert.equal(g.state.p[0].active!.energy.length, 2);
   assert.equal(dmg(g, 1), 120);
 });
@@ -308,7 +308,7 @@ test("Misty's Gyarados, Splashing Panic: with fewer than 7 cards in the deck you
   me.deck.length = 0;
   me.deck.push(...keep);
   choose(g, 'Attack: Splashing Panic');
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2164/): "Yes, you would do as much as you can."
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2164/): with fewer than 7 cards, you discard what remains.
   assert.equal(me.deck.length, 0);
   assert.equal(dmg(g, 1), 140, '2 Misty\'s Pokémon among the 3 cards left');
 });
@@ -555,6 +555,6 @@ test('Rotom, Gadget Show: 30 damage for each Pokémon Tool attached to all of yo
   assert.equal(run({}), 0);
   assert.equal(run({ active: ['Air Balloon'] }), 30);
   assert.equal(run({ active: ['Air Balloon'], 0: ['Air Balloon'] }), 60, 'on the Bench too');
-  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1077/): "If an effect depends simply on the presence of a Tool card in a certain location, the effect still works. It is the Tool card's effects that are cancelled, not effects based on the presence of a Tool."
+  // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1077/): this counts Tools' presence even if Jamming Tower cancels their effects.
   assert.equal(run({ active: ['Air Balloon'], 0: ['Air Balloon'] }, true), 60, 'Jamming Tower cancels the Tools\' effects, not their presence');
 });

@@ -212,8 +212,8 @@ export const OPP: CardScript[] = [
   {
     id: 'me03-084',
     name: "Rosa's Encouragement",
-    // "You can use this card only if you have more Prize cards remaining than your opponent.
-    //  Attach up to 2 Basic Energy cards from your discard pile to 1 of your Stage 2 Pokémon."
+    // Playable only when you still hold more Prize cards than the opponent does (you are behind on Prizes).
+    // Effect: 1-2 Basic Energy move from the discard pile onto a single Stage 2 Pokémon.
     playable: {
       and: [
         { gt: [{ prizesLeft: 'self' }, { prizesLeft: 'opp' }] },

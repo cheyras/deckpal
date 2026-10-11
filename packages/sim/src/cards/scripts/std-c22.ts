@@ -34,7 +34,7 @@ export const STD_C22: CardScript[] = [
     attacks: {
       // "This attack does 50 damage for each of your Drifloon and Drifblim in play. This attack also does 30 damage to each of your
       //  Drifloon and Drifblim. (Don't apply Weakness and Resistance for Benched Pokémon.)"
-      // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2021/): "No, you only count the most evolved stage of a Pokemon in play. The previous stages are now part of that Pokemon."
+      // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2021/): only the final evolution counts; prior stages are part of it.
       // (Only the top card of each Pokémon counts and is damaged; this Drifblim is one of "each of your Drifloon and Drifblim".)
       'Everyone Explode Now': {
         damage: { mul: [50, { pokemon: { zone: 'myPokemon', filter: DRIFS } }] },
@@ -65,8 +65,8 @@ export const STD_C22: CardScript[] = [
     name: 'Alcremie',
     attacks: {
       // "Search your deck for up to 5 Pokémon that are the same type as any Basic Energy attached to this Pokémon, reveal them, and put them into your hand. Then, shuffle your deck."
-      // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2020/): "No, while Luminous Energy provides all types of Energy at the same time, it is not a Basic Energy card."
-      // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2019/): "You can search for more than one type of Pokemon as long as they match any Basic Energy card types attached to Alcremie. And if you want, more than one of them can be the same Energy type."
+      // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2020/): no, Luminous Energy isn't basic despite providing all types.
+      // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2019/): search several Pokémon types, each matching a Basic Energy type attached to Alcremie; the same type may repeat.
       'Colorful Confection': {
         program: [
           { op: 'custom', fn: 'c22.searchAttachedTypes', args: { max: 5, as: 'found' } },
@@ -82,8 +82,8 @@ export const STD_C22: CardScript[] = [
     abilities: [
       {
         // "When you play this Pokémon from your hand to evolve 1 of your Pokémon during your turn, you may heal all damage from each of your Evolution Pokémon. If you healed any damage in this way, discard all Energy from those Pokémon."
-        // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2016/): "Yes." (the Dachsbun ex that just evolved is healed too)
-        // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2015/): "No, you choose to use the Ability or not. Once you choose to use it, you have to heal all of your Evolution Pokemon and discard Energy from all of them that were healed."
+        // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2016/): yes. (the Dachsbun ex that just evolved is healed too)
+        // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2015/): using the Ability is optional, but once used it heals every Evolution Pokémon and discards Energy from each one healed.
         // Offered only while one of your Evolution Pokémon has damage on it (a use that heals nothing does nothing).
         name: 'Time to Chow Down',
         triggers: [
@@ -158,7 +158,7 @@ export const STD_C22: CardScript[] = [
     name: 'Diancie',
     attacks: {
       // "This attack does 40 damage for each Special Energy attached to all of your opponent's Pokémon."
-      // Ruling (TPCi Rules Team 2024-09-05, https://compendium.pokegym.net/ruling/2010/): "The damage is calculated based on the number of Special Energy CARDS, not the amount of energy the card provides."
+      // Ruling (TPCi Rules Team 2024-09-05, https://compendium.pokegym.net/ruling/2010/): damage counts special energy cards, not total energy provided.
       'Diffuse Reflection': {
         pre: [{ op: 'custom', fn: 'c22.countAttachedIn', args: { zone: 'oppPokemon', filter: { cat: 'energy', basicEnergy: false }, as: 'n' } }],
         damage: { mul: [40, { v: 'n' }] },
@@ -175,7 +175,7 @@ export const STD_C22: CardScript[] = [
         program: [...searchToBench({}, 2), { op: 'custom', fn: 'c06.rememberAttack', args: { attack: 'Form Ranks' } }],
       },
       // "If this Pokémon used Form Ranks during your last turn, this attack does 90 more damage."
-      // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2017/): "It will do 120, since it's a game state check that the attack was used last turn and not an effect on the Pokemon."
+      // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2017/): 120 damage; checks if attacked last turn, not a pokémon effect.
       // (Retreating Falinks and promoting it again keeps the bonus: the marker stays with the Pokémon.)
       'All-Out Attack': { damage: { add: [30, { cond: FORM_RANKS_LAST_TURN, then: 90, else: 0 }] } },
     },
@@ -205,7 +205,7 @@ export const STD_C22: CardScript[] = [
     name: 'Grimmsnarl',
     attacks: {
       // "Switch out your opponent's Active Pokémon to the Bench. (Your opponent chooses the new Active Pokémon.) If you do, this attack does 160 damage to the new Active Pokémon."
-      // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2025/): "No, it will not do any damage because there isn't a NEW Active Pokemon." (Mist Energy stops the switch: no damage.)
+      // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2025/): no damage when Mist Energy keeps the target from switching, since no NEW Active Pokémon arrives. (Mist Energy stops the switch: no damage.)
       // "If you do" = the Defending Pokémon is no longer Active after the switch (no Bench, or the switch was prevented, leaves it there).
       "Goad 'n' Grab": {
         program: [

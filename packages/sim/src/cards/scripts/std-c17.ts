@@ -191,7 +191,7 @@ export const STD_C17: CardScript[] = [
       // "Heal 20 damage from this Pokémon."
       'Aurora Gain': { post: [{ op: 'heal', amount: 20, to: 'self' }] },
       // "Put up to 9 damage counters on this Pokémon. This attack does 20 damage for each damage counter you placed in this way."
-      // Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1984/): "Yes, you can put up to 9 damage counters on Walking Wake even if it doesn't have that much HP remaining. Undulating Slice will do 20x each damage counter that was placed, and at the end of the attack Walking Wake will be knocked out."
+      // Ruling (TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1984/): up to 9 counters are placed even if they exceed HP; damage is calculated per counter and can KO Walking Wake.
       'Undulating Slice': {
         pre: [
           { op: 'chooseOption', options: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'], as: 'n', prompt: 'How many damage counters to put on this Pokémon?' },
@@ -210,7 +210,7 @@ export const STD_C17: CardScript[] = [
       // "During your opponent's next turn, the Defending Pokémon can't retreat."
       Sob: { post: [{ op: 'effect', static: { k: 'cantRetreat' }, on: 'defender', duration: 'oppNextTurn' }] },
       // "You may shuffle 3 Energy attached to this Pokémon into your deck. If you do, this attack also does 120 damage to 1 of your opponent's Benched Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)"
-      // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2031/): "Yes, this is a case of doing as much as you can. You would get to do the bench damage even though you can't detach 3 energy, but you must shuffle in SOME energy in order to get the bonus. ... remember, damage is still reduced for the DTE since the detachment happens after damage is done)."
+      // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2031/): do as much as you can: the Bench damage still happens if some Energy is shuffled in, and the Double Turbo Energy reduction applies since the shuffle comes after damage.
       // So: with fewer than 3 Energy all of it is shuffled in (at least 1 for the bonus), and the Energy leaves AFTER the damage.
       'Torrential Pump': {
         post: [

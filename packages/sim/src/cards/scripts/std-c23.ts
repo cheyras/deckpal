@@ -108,7 +108,7 @@ export const STD_C23: CardScript[] = [
     name: 'Deluxe Bomb',
     // "If the Pokémon this card is attached to is in the Active Spot and is damaged by an attack from your opponent's Pokémon (even if this
     //  Pokémon is Knocked Out), put 12 damage counters on the Attacking Pokémon. If you placed any damage counters in this way, discard this card."
-    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2028/): "No, they get to take a Prize card. Everything, including all effects, have to be resolved before the game is considered as finished."
+    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2028/): effects resolve before the game ends, so the Deluxe Bomb holder still takes its Prize.
     // The Attacking Pokémon is the opponent's Active Pokémon. The counters from a Tool are not stopped by effects of attacks or Abilities,
     // so they are always placed and the Tool is always discarded.
     triggers: [
@@ -128,9 +128,9 @@ export const STD_C23: CardScript[] = [
     //  onto that Pokémon to evolve it. If that Pokémon was evolved in this way, that player may search their deck for a Stage 2 Pokémon that evolves
     //  from that Pokémon and put it onto that Pokémon to evolve it. Then, that player shuffles their deck. (Players can't evolve a Basic Pokémon during
     //  their first turn or a Basic Pokémon that was put into play this turn.)"
-    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2030/): "No, you may not. There must be a known valid evolution path in order to use Grand Tree." (offered only when a Basic can evolve into a Stage 1 in the deck)
-    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2029/): "Yes, you can search for a Stage 1 Pokemon that has no subsequent Stage 2."
-    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2037/): "No, you cannot use Infernal Reign because Charizard ex was not played from your hand to evolve Charmeleon." (no "play from hand" trigger runs)
+    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2030/): needs a valid evolution path from a Basic in the deck. (offered only when a Basic can evolve into a Stage 1 in the deck)
+    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2029/): can search for Stage 1 even if no Stage 2 exists.
+    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2037/): Infernal Reign is not usable when Grand Tree evolves into Charizard ex, since it was not played from the hand. (no "play from hand" trigger runs)
     stadiumAbility: {
       when: { custom: 'c23.grandTreeUsable' },
       program: [{ op: 'custom', fn: 'c23.grandTree' }, { op: 'shuffle' }],
@@ -140,7 +140,7 @@ export const STD_C23: CardScript[] = [
     id: 'sv07-137',
     name: 'Gravity Gemstone',
     // "As long as the Pokémon this card is attached to is in the Active Spot, the Retreat Cost of both Active Pokémon is {C} more."
-    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2082/): "Nope, if a Pokemon is set to have no Retreat Cost by an effect such as Skyliner or Metal Bridge, it cannot be increased."
+    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2082/): fixed no Retreat Cost can't be increased.
     // The engine caps the Retreat Cost at a `set` value after adding deltas.
     statics: [
       { effect: { k: 'retreatCost', delta: 1 }, scope: 'myActive', when: { inActive: 'self' } },
@@ -304,7 +304,7 @@ export const STD_C23: CardScript[] = [
         ],
       },
       // "Discard the top 3 cards of your deck."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2053/): "You win. You lose if you can't draw a card at the start of your turn, but since you took your last prize the game ends before that happens."
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2053/): game ends immediately after taking last prize; win before draw penalty.
       'Entangling Whip': { post: [{ op: 'move', cards: { top: 3 }, to: 'discard' }] },
     },
   },
@@ -315,7 +315,7 @@ export const STD_C23: CardScript[] = [
     name: 'Paldean Tauros',
     attacks: {
       // "If your opponent's Active Pokémon is a Stage 1 Pokémon, this attack does 90 more damage."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2046/): "It does 180 damage. Although the Stage 1 Pokemon is not an "Evolved Pokemon" in this scenario, it is still considered an "Evolution Pokemon" (Stage 1) that meets the requirements for Spirited Tackle."
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2046/): a Stage 1 put straight into play by Cinnabar Lure is still an Evolution Pokémon (Stage 1), so Spirited Tackle does 180.
       // The test is on the card's Stage, not on whether it evolved in play.
       'Spirited Tackle': { damage: { add: [90, { cond: { slotIs: { ref: 'defender', filter: { stage: 'stage1' } } }, then: 90, else: 0 }] } },
     },

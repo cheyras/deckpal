@@ -58,7 +58,7 @@ const PAGE = `<div class="entry-summary"><button></button><div class="ruling-235
  Chaos Rising FAQ; TPCi Rules Team (2026-05-21)</div></div></div>
 <div class="entry-summary"><button></button><div class="ruling-2176">
 <div class="ruling-categories"><a href="x">Errata</a> &raquo; <a href="y">Sacred Ash</a></div>
-<dl class="single-entry"><dd>The new card text for Sacred Ash will be: "Shuffle up to 5 Pokemon".</dd></dl>
+<dl class="single-entry"><dd>Synthetic fixture answer: this card gets new wording.</dd></dl>
 <div id="source"><span style="font-weight: bold;">Source: </span>Jun 13, 2025 TPCi Announcements (date approximate), TPCi Rules Team (2025-06-05)</div></div></div>`;
 
 test('the Compendium page parses into rulings', () => {
