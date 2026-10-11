@@ -149,6 +149,67 @@ Three general rulings every script follows (each pinned in
 
 ---
 
+## New set, rotation, FAQ update
+
+The simulator has to catch up three times a year: a **new set** releases (new cards to script), Standard **rotates**
+(`apps/api/src/deck/data/formats.json` changes its legal marks), and the TPCi Rules Team publishes an **FAQ update**
+(new rulings on cards we already script). Each is a short, repeatable command sequence. All commands run from
+`packages/sim`, make read-only GETs only (one request at a time, with a pause; `SIM_FETCH_CACHE=<dir>` caches them
+while you iterate), and print what they would change before changing it. Nothing here writes to deckpal.app or the
+database.
+
+"Standard" is never a list in the sim. Every script and test below reads `standard.legal_marks` from `formats.json`
+at run time, the same file the API's legality checks use.
+
+### The commands
+
+| Command | What it does |
+|---|---|
+| `node --import tsx scripts/sync-frames.ts [--dry-run] [--set sv11] [--limit N]` | Lists every Standard printing in the public catalog (`/api/search`, per set) and fetches the printed frame (`/api/cards/:id`) of each one the snapshot lacks into `src/cards/frames-extra/std-new.ts` (registered in `frames-extra/index.ts` on first use). Never edits an existing frame. `fetch-frames.mjs <ids>` still refreshes specific frames. |
+| `node --import tsx scripts/refresh-card-tables.ts [--write] [--check]` | Regenerates `cards/tera.ts`, `cards/tags.ts` and `cards/printed-wr.ts` from pokemontcg.io, matching every entry against the FULL catalog (not the frame snapshot, which holds one printing per text), requiring the id to exist and the names to agree. Dry run by default: prints a diff summary per table, lists `problems` (wrong match: fails `--check`) and `gaps` (upstream lacks the data: does not). Run against the live API it reproduces the committed tables byte for byte when nothing changed upstream. |
+| `node --import tsx scripts/standard-gap.ts [--list]` | The coverage numbers for the snapshot: Standard printings, distinct texts, scripted, vanilla, still to script (`--list` names them). Exit 1 when any is left. |
+| `node --import tsx --test src/__tests__/standard-coverage.test.ts` | The coverage **gate** (also part of the normal suite): fails and lists every Standard printing in the snapshot that is neither scripted nor vanilla. |
+| `node --import tsx scripts/new-card-lanes.ts <outDir> [--size 40]` | Splits the uncovered cards into batches: `std01.json`... each with the card, every printing sharing its text, its frame, and the Compendium rulings that name it (by card name, or by one of its attack/Ability names). Replaces the old `standard-lanes.ts`. |
+| `node --import tsx scripts/standard-tiers.ts <lanesDir> <tiersDir>` | Routes the batches: a Pokémon without Abilities whose attack effects are worded like an already-scripted attack goes to the cheap tier (`h01.json`), the rest to model batches (`s01.json`, with a cookbook of similar scripted cards). |
+| `node --import tsx scripts/codegen-cheap.ts <tiersDir> src/cards/scripts/std-gen-<set>.ts <tiersDir>/rejects.json --name STD_GEN_<SET>` | Generates the cheap tier's scripts deterministically from the tested ones; keeps one only if the text round trip is clean. Rejects go to a model batch. Register the new file in `src/cards/scripts/index.ts` and give it a test like `cards-std-gen.test.ts`. |
+| `node --import tsx scripts/rulings-sync.ts [--no-write] [--all] [--uncited] [--verbose] [--from page.html]` | Downloads the Compendium's full by-date list (one GET), diffs it against `data/rulings-compendium.json`, reports the NEW rulings that name a scripted card (with the script file and whether a test or only a script cites the ruling id), and updates the snapshot. |
+
+### New set released
+
+1. `git pull`, then `node --import tsx scripts/standard-gap.ts`: the baseline (should be 0 to script).
+2. `node --import tsx scripts/sync-frames.ts --dry-run`, then without `--dry-run`: the new set's printings, plus any older printing the snapshot never had, get frames. (Measured 2026-10-11: 1,431 Standard printings were missing, among them the whole of 30th Celebration and the Mega promos; 120 distinct texts of them have no script yet.)
+3. `node --import tsx scripts/refresh-card-tables.ts`, read the diff, then `--write`. Tera, Ancient/Future and printed Weakness/Resistance for the new printings. **A printing's Weakness/Resistance is part of its text key** (`textKey` in `cards/frame.ts`), so a reprint whose catalog frame lacks them looks like a new, unscripted card until the table supplies them: this step comes before counting what is new. A set pokemontcg.io lists under an id the rule in `ptcgSetToOurs` does not know is printed under "unmapped sets": add one line to `PTCG_SET_OVERRIDES` (`src/maintenance/tables.ts`; key = pokemontcg.io set id from `https://api.pokemontcg.io/v2/sets`, value = our set id from `https://deckpal.app/api/series/<slug>`). A set that is not on pokemontcg.io yet shows as a `gap`: re-run when it is.
+4. `node --import tsx scripts/standard-gap.ts --list`: what is really new. The gate test fails with the same list.
+5. `node --import tsx scripts/rulings-sync.ts` (refreshes the rulings the lanes attach).
+6. `node --import tsx scripts/new-card-lanes.ts <dir>/lanes`, `node --import tsx scripts/standard-tiers.ts <dir>/lanes <dir>/tiers`, `node --import tsx scripts/codegen-cheap.ts <dir>/tiers src/cards/scripts/std-gen-<set>.ts <dir>/rejects.json --name STD_GEN_<SET>`.
+7. Script the rest in batches of about 25 cards with the brief in this file ("The loop"), one file per batch under `src/cards/scripts/` with its own test file. Every batch passes: typecheck; its tests; the full suite; the round trip; `scripts/dupes.ts`; `scripts/mutation-check.ts <batch module> <batch test>`; `scripts/fuzz-cards.ts <batch module>`; the real-log replay tests. Batches that need engine changes run one at a time.
+8. Done when `standard-gap.ts` reports 0 to script and the full suite is green, the coverage gate included.
+
+### Standard rotates
+
+Rotation is a data change in `formats.json` (`legal_marks`), made for the API. What it changes in the sim:
+
+- **Nothing to script, nothing to delete.** Scripts stay valid for Expanded and for the replay of old logs. The engine has no legality check of its own and no list of marks (`check_deck` in the API validates decks).
+- **The gate, `standard-gap.ts`, `new-card-lanes.ts`, `sync-frames.ts` and `refresh-card-tables.ts` follow by themselves**: they read the marks from `formats.json`. The gate then covers fewer printings; a new mark brings its printings into scope, which is the New set sequence above.
+- **`printed-wr.ts` is never shrunk by a rotation**: `refresh-card-tables.ts` recomputes entries only for printings that are Standard now and keeps the rest ("kept N entries for printings that are not Standard now"), because dropping a rotated printing's Weakness would change its text key. `tera.ts` and `tags.ts` cover every Scarlet & Violet / Mega Evolution printing regardless of mark.
+- Not mark-driven and left alone: the replay prefers the newest printing by mark letter when a log names a card without a set code (`replay/replay.ts`), which keeps working while marks advance alphabetically; `apps/api/src/deck/prove.ts` is a manual DB proof with its own `['H','I','J']`, unrelated to the sim.
+
+So after a rotation: run `scripts/standard-gap.ts` and `scripts/refresh-card-tables.ts --check` to confirm nothing moved, and nothing else.
+
+### FAQ update (new rulings)
+
+1. `node --import tsx scripts/rulings-sync.ts`. The first lines say how many rulings the page has and how many are new; then one row per NEW ruling that names a scripted card:
+
+   ```
+   #2429 2026-07-16 [category, UNCITED] Antique Armor Fossil (me05-072, src/cards/scripts/ghost.ts); Risky Ruins (...)
+   ```
+
+   `category` = filed under the card's, an attack's or an Ability's name (reliable); `text` = the card's name appears in the question or answer (read it, it can be a different card). `test` = a test cites `compendium.pokegym.net/ruling/<id>/` (or `Compendium #<id>`); `script only` = only a script's comment or `notes` does; `UNCITED` = nothing.
+2. For each row that is not `test`, read the ruling. If the script already does what it says, add a scenario test that pins it and cites the id (`https://compendium.pokegym.net/ruling/<id>/`). If not, fix the script (and its `notes`), with the test. If the ruling contradicts an earlier one a script cites, the newer TPCi date wins; say so in `notes`.
+3. `--uncited` re-lists what no test cites yet; `--all` lists every ruling on a scripted card (the backlog); `--no-write` reports without updating the snapshot (the next run reports the same rulings again). Commit the updated `data/rulings-compendium.json` (public Compendium text, attributed in its header) with the fixes.
+
+---
+
 ## Clause catalogue
 
 Every example is from a real script. Programs are lists of `Step`s, run in order.

@@ -1,0 +1,126 @@
+/**
+ * Download the Pokémon Rulings Compendium's full "all rulings by date" list, keep it as a JSON snapshot in the repo, and
+ * report the rulings that are NEW since the last snapshot AND name a card the simulator scripts. That report is the to-do
+ * list after every TPCi FAQ update: for each ruling it shows the script file and whether a test (or the script itself)
+ * already cites it.
+ *
+ *   node --import tsx scripts/rulings-sync.ts                 # fetch, report new rulings on scripted cards, update the snapshot
+ *   node --import tsx scripts/rulings-sync.ts --no-write      # same, but leave the snapshot as it is (the next run reports again)
+ *   node --import tsx scripts/rulings-sync.ts --all           # report every ruling on a scripted card, not only the new ones
+ *   node --import tsx scripts/rulings-sync.ts --uncited       # only the rulings no test cites
+ *   node --import tsx scripts/rulings-sync.ts --verbose       # print every row (default: first 60)
+ *   node --import tsx scripts/rulings-sync.ts --from page.html   # parse a saved copy of the page instead of fetching
+ *
+ * Snapshot: packages/sim/data/rulings-compendium.json (one ruling per line, newest first). The rulings are the TPCi
+ * Rules Team's and Japanese Q&A text as republished by the Compendium (https://compendium.pokegym.net/); the file's
+ * header carries the attribution. "New" means the id is not in the previous snapshot (ids grow as rulings are added).
+ *
+ * "Names a scripted card": the ruling is filed under the card's name or one of its attack / Ability names (match
+ * "category", the strong signal), or the card's name appears in its question or answer ("text", weaker: read it).
+ * "Cited": a test under src/__tests__ contains `compendium.pokegym.net/ruling/<id>` or `Compendium #<id>`; a script
+ * or other source file citing it is reported separately. One GET, no crawling.
+ */
+import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { allScripts } from '../src/cards/registry.js';
+import { citedRulingIds, parseRulingsHtml, rulingMatch, type Ruling } from '../src/maintenance/rulings.js';
+import { getText } from './lib/net.js';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const SIM = join(here, '..');
+const SNAPSHOT = join(SIM, 'data', 'rulings-compendium.json');
+const PAGE = 'https://compendium.pokegym.net/all-rulings-by-date/';
+const argv = process.argv.slice(2);
+const flag = (n: string) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : undefined);
+const NO_WRITE = argv.includes('--no-write');
+const ALL = argv.includes('--all');
+const UNCITED = argv.includes('--uncited');
+const VERBOSE = argv.includes('--verbose');
+const FROM = flag('--from');
+
+// 1. The page, parsed.
+const html = FROM ? readFileSync(FROM, 'utf8') : await getText(PAGE, { timeoutMs: 180_000 });
+const rulings = parseRulingsHtml(html).sort((a, b) => b.id - a.id);
+if (new Set(rulings.map((r) => r.id)).size !== rulings.length) throw new Error('duplicate ruling ids in the page');
+const missingAnswer = rulings.filter((r) => !r.a);
+console.log(`Compendium: ${rulings.length} rulings (ids ${rulings[rulings.length - 1]!.id}..${rulings[0]!.id}), ${rulings.filter((r) => r.q).length} with a question, ${rulings.filter((r) => r.date).length} dated, ${missingAnswer.length} without an answer`);
+
+// 2. The previous snapshot.
+interface Snapshot { rulings: Ruling[] }
+const prev: Snapshot | null = existsSync(SNAPSHOT) ? (JSON.parse(readFileSync(SNAPSHOT, 'utf8')) as Snapshot) : null;
+const known = new Set(prev?.rulings.map((r) => r.id) ?? []);
+const fresh = rulings.filter((r) => !known.has(r.id));
+console.log(prev ? `previous snapshot: ${prev.rulings.length} rulings; ${fresh.length} new` : 'no previous snapshot: every ruling counts as new');
+
+// 3. Which scripted cards each ruling names; which are cited.
+const files = (dir: string): string[] =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? (e.name === 'node_modules' ? [] : files(join(dir, e.name))) : e.name.endsWith('.ts') ? [join(dir, e.name)] : []));
+const srcFiles = files(join(SIM, 'src'));
+const inTests = new Set<number>();
+const inCode = new Set<number>();
+for (const f of srcFiles) {
+  const ids = citedRulingIds(readFileSync(f, 'utf8'));
+  for (const id of ids) (/[\\/]__tests__[\\/]/.test(f) ? inTests : inCode).add(id);
+}
+const scriptFile = new Map<string, string>();
+for (const f of srcFiles.filter((x) => /[\\/]cards[\\/]scripts[\\/]/.test(x))) {
+  for (const m of readFileSync(f, 'utf8').matchAll(/\bid:\s*'([^']+)'/g)) if (!scriptFile.has(m[1]!)) scriptFile.set(m[1]!, f.slice(SIM.length + 1).replace(/\\/g, '/'));
+}
+const cards = allScripts().map((s) => ({
+  id: s.id,
+  name: s.name,
+  file: scriptFile.get(s.id) ?? '?',
+  names: [...new Set([s.name, ...Object.keys(s.attacks ?? {}), ...(s.abilities ?? []).map((a) => a.name)])],
+}));
+interface Row { ruling: Ruling; by: 'category' | 'text'; cards: { id: string; name: string; file: string; via: string }[]; test: boolean; code: boolean }
+function rows(list: Ruling[]): Row[] {
+  const out: Row[] = [];
+  for (const r of list) {
+    const hits = cards.flatMap((c) => {
+      const m = rulingMatch(r, c.names);
+      return m ? [{ c, m }] : [];
+    });
+    if (!hits.length) continue;
+    // A category hit beats any number of text hits: if the Compendium files it under a name, only those cards are named.
+    const strong = hits.filter((h) => h.m.by === 'category');
+    const use = strong.length ? strong : hits;
+    out.push({ ruling: r, by: strong.length ? 'category' : 'text', cards: use.map((h) => ({ id: h.c.id, name: h.c.name, file: h.c.file, via: h.m.name })), test: inTests.has(r.id), code: inCode.has(r.id) });
+  }
+  return out;
+}
+
+const scope = ALL || !prev ? rulings : fresh;
+const hit = rows(scope);
+const everyHit = ALL || !prev ? hit : rows(rulings);
+const count = (rs: Row[]) => `${rs.length} (category ${rs.filter((r) => r.by === 'category').length}, text ${rs.filter((r) => r.by === 'text').length}; cited in a test ${rs.filter((r) => r.test).length}, only in a script ${rs.filter((r) => !r.test && r.code).length}, uncited ${rs.filter((r) => !r.test && !r.code).length})`;
+console.log(`scripted cards: ${cards.length}; rulings anywhere citing a Compendium id: tests ${inTests.size}, other source ${inCode.size}`);
+console.log(`ALL ${rulings.length} rulings: ${count(everyHit)} name a scripted card`);
+console.log(`${ALL || !prev ? 'REPORTED' : 'NEW'} rulings (${scope.length}): ${count(hit)} name a scripted card`);
+
+const shown = hit.filter((r) => !UNCITED || !r.test);
+console.log(`\n${shown.length} row(s)${UNCITED ? ' not cited by a test' : ''}${VERBOSE || shown.length <= 60 ? '' : ' (first 60; --verbose for all)'}:`);
+for (const r of VERBOSE ? shown : shown.slice(0, 60)) {
+  const cites = r.test ? 'test' : r.code ? 'script only' : 'UNCITED';
+  const who = r.cards.slice(0, 4).map((c) => `${c.name} (${c.id}, ${c.file})`).join('; ') + (r.cards.length > 4 ? ` +${r.cards.length - 4} more` : '');
+  console.log(`  #${r.ruling.id} ${r.ruling.date ?? '----------'} [${r.by}, ${cites}] ${who}\n      ${(r.ruling.q ?? r.ruling.a).replace(/\s+/g, ' ').slice(0, 150)}`);
+}
+
+// 4. The snapshot.
+if (!NO_WRITE) {
+  const same = prev && prev.rulings.length === rulings.length && JSON.stringify(prev.rulings) === JSON.stringify(rulings);
+  if (same) console.log('\nsnapshot unchanged.');
+  else {
+    const header = {
+      _comment:
+        "Snapshot of the Pokémon Rulings Compendium's 'all rulings by date' page (https://compendium.pokegym.net/all-rulings-by-date/). The rulings are the TPCi Rules Team's and Japanese Q&A text as republished by the Compendium, with their sources attributed per ruling (field 'source'); this copy exists so the simulator's rulings are reviewable offline and new FAQ rulings can be diffed (scripts/rulings-sync.ts). Do not edit by hand.",
+      source: PAGE,
+      fetchedOn: new Date().toISOString().slice(0, 10),
+      count: rulings.length,
+    };
+    const body = `{\n${Object.entries(header).map(([k, v]) => ` ${JSON.stringify(k)}: ${JSON.stringify(v)},`).join('\n')}\n "rulings": [\n${rulings.map((r) => `  ${JSON.stringify(r)}`).join(',\n')}\n ]\n}\n`;
+    mkdirSync(dirname(SNAPSHOT), { recursive: true });
+    writeFileSync(SNAPSHOT, body);
+    console.log(`\nwrote ${SNAPSHOT.slice(SIM.length + 1).replace(/\\/g, '/')} (${rulings.length} rulings).`);
+  }
+}
