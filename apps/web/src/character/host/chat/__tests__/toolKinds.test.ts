@@ -9,7 +9,12 @@ test('a finished server status label changes tense', () => assert.equal(labelFor
 test('declined work is skipped without claiming it finished', () => assert.equal(labelFor({ name: 'save_deck', phase: 'declined' }), 'Skipped that change'))
 test('set_cart is price work with its own running and finished labels', () => { assert.equal(kindOf('set_cart'), 'prices'); assert.equal(labelFor({ name: 'set_cart', phase: 'start' }), 'Building your cart'); assert.equal(labelFor({ name: 'set_cart', phase: 'ok' }), 'Built your cart') })
 test('deck_odds is deck checking with its own running and finished labels', () => { assert.equal(kindOf('deck_odds'), 'check'); assert.equal(labelFor({ name: 'deck_odds', phase: 'start' }), 'Working out the odds'); assert.equal(labelFor({ name: 'deck_odds', phase: 'ok' }), 'Worked out the odds') })
-test('Deep Think distinguishes the consent ask from an approved run', () => { assert.equal(labelFor({ name: 'deep_think', phase: 'start' }), 'Asking about Deep Think'); assert.equal(labelFor({ name: 'deep_think', phase: 'ok' }), 'Used Deep Think') })
+test('Deep Think rows exist only for an approved run, and a decline reads as the choice it was', () => {
+  // The server draws the row only once the reader said yes and it started.
+  assert.equal(labelFor({ name: 'deep_think', phase: 'start' }), 'Starting Deep Think')
+  assert.equal(labelFor({ name: 'deep_think', phase: 'ok' }), 'Used Deep Think')
+  assert.equal(labelFor({ name: 'deep_think', phase: 'declined' }), 'Kept it quick')
+})
 test('waiting for approval has its own static decision icon', () => {
   assert.equal(iconFor('collection'), 'cards')
   assert.equal(activityIconFor('collection', true), 'check-circle')

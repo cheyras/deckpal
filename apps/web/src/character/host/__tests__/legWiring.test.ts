@@ -181,15 +181,32 @@ test('an approval preview title becomes the actual question', () => {
   assert.match(HOOK, /approvalTitles\.set\(preview\.toolCallId, preview\.title\.trim\(\)\)/)
 })
 
-test('Deep Think estimates are accepted only as valid server-authored ranges', () => {
-  assert.match(HOOK, /part\.type === 'data-decke-deep-estimate'/)
-  assert.match(HOOK, /typeof estimate\.toolCallId === 'string'/)
-  assert.match(HOOK, /estimate\.toolCallId\.trim\(\)\.length > 0/)
-  assert.match(HOOK, /Number\.isInteger\(estimate\.low\)/)
-  assert.match(HOOK, /Number\.isInteger\(estimate\.high\)/)
-  assert.match(HOOK, /estimate\.low as number\) >= 0/)
-  assert.match(HOOK, /estimate\.high as number\) >= \(estimate\.low as number\)/)
-  assert.match(HOOK, /handlers\.onDeepEstimate\(estimate as DeepThinkEstimate\)/)
+test('Deep Think offers are read strictly from the server part the chat emits', () => {
+  assert.match(CHAT, /type: 'data-decke-deep-offer'/, 'the server stopped emitting the offer')
+  assert.match(HOOK, /part\.type === 'data-decke-deep-offer'/)
+  assert.match(HOOK, /const offer = parseDeepThinkOffer\(part\.data\)/, 'the part is trusted without the strict reader')
+  assert.match(HOOK, /deepOfferTokens\.set\(offer\.toolCallId, offer\.token\)/)
+  assert.match(HOOK, /handlers\.onDeepOffer\(offer\)/)
+})
+
+test("a Deep Think card's answer carries its offer token, so the yes is bound to this turn", () => {
+  // Without it the server never routes the yes to Opus (`decke/deepThink.ts`).
+  assert.match(
+    HOOK,
+    /out\.approvals = out\.approvals\.map\(\(approval\) => \{[\s\S]{0,200}deepOfferTokens\.get\(approval\.toolCallId\)[\s\S]{0,120}deepOffer: token/,
+  )
+  const replay = code(read('../approvalReplay.ts'))
+  assert.match(replay, /approvalReplayPart\(\s*approval,/, 'the answer is no longer built from the pending approval')
+})
+
+test('an answered Deep Think becomes its result before the next leg, which carries the grant', () => {
+  assert.match(HOOK, /const settled = settleApprovedCalls\(wire, capturedOutputs\)/)
+  assert.match(HOOK, /wire\.splice\(0, wire\.length, \.\.\.settled\)/)
+  // Before the next leg is fitted and posted.
+  const loop = HOOK.slice(HOOK.indexOf('const settled = settleApprovedCalls'))
+  assert.ok(loop.indexOf('wire.push({ role: \'assistant\', parts: replayed })') > 0)
+  // And its result is captured: the call's name is seeded from the outgoing wire.
+  assert.match(HOOK, /if \(outputName && !isClientTool\(outputName\)\) handlers\.onToolOutput\(part\.toolCallId, part\.output\)/)
 })
 
 test('a leg marks only what it actually recorded', () => {
@@ -389,7 +406,12 @@ test('a real decline tells him what a repeat decline is already told', () => {
   const approval = code(read('../approval.ts'))
   assert.match(approval, /export const DECLINED_REASON =\s*\r?\n?\s*'\[\[NO_WORK\]\] The reader said no/)
   assert.match(HOOK, /approvalId: a\.approvalId/, 'the declined chip lost the approval identity')
-  assert.match(HOOK, /declineReason: DECLINED_REASON/, 'the declined chip lost the reader reason')
+  // The reason is the HELD TOOL'S: "Keep it quick" on Deep Think is not "do not
+  // make this change", and the chip, the replay and the answer all say so.
+  assert.match(HOOK, /const reason = declinedReasonFor\(a\?\.name \?\? ''\)/)
+  assert.match(HOOK, /declineReason: reason,/, 'the declined chip lost the reader reason')
+  assert.match(HOOK, /settleAll\(\{ approved: false, reason \}, a\?\.approvalId\)/, 'the decline answer ignores the held tool')
+  assert.doesNotMatch(HOOK, /reason: DECLINED_REASON/, 'a decline is hard-wired to the write reason again')
   assert.match(HOOK, /toolReplayParts\(/, 'declines are not replayed as tool answers')
   // ABANDONED_REASON stays short and distinct: `declined.ts` compares against
   // it exactly, and an unanswered panel is not a refusal.

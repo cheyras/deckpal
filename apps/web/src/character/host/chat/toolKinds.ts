@@ -141,7 +141,9 @@ function completedLabel(label: string): string {
 }
 
 export function labelFor(chip: Chip): string {
-  if (chip.phase === 'declined') return 'Skipped that change'
+  // A declined Deep Think changed nothing either way: the reader chose the
+  // normal answer, which is not a skipped change.
+  if (chip.phase === 'declined') return chip.name === 'deep_think' ? 'Kept it quick' : 'Skipped that change'
   const done = !running(chip.phase)
   if (chip.label?.trim()) {
     const label = chip.label.trim()
@@ -172,7 +174,8 @@ export function labelFor(chip: Chip): string {
     case 'deck_odds':
       return pair('Working out the odds', 'Worked out the odds')
     case 'deep_think':
-      return pair('Asking about Deep Think', 'Used Deep Think')
+      // Its row exists only once the reader said yes and it started.
+      return pair('Starting Deep Think', 'Used Deep Think')
     case 'web_research':
     case 'research_meta':
       return pair('Searching the web', 'Searched the web')

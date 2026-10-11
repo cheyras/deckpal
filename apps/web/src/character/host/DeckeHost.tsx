@@ -2033,7 +2033,7 @@ function settledRect(el: HTMLElement): DOMRect {
         onApprove={chat.approve}
         onDeny={chat.deny}
         approvalPreview={chat.approvalPreview}
-        deepThinkEstimate={chat.deepThinkEstimate}
+        deepThinkOffer={chat.deepThinkOffer}
         approvalChoices={chat.approvalChoices}
         onApprovalChoice={chat.onApprovalChoice}
         approvalBusy={chat.approvalBusy}

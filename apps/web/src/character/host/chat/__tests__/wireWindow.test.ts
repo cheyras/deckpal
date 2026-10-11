@@ -123,6 +123,25 @@ test('an open ask survives compaction of a long turn, so the server still sees t
   assert.equal(parts[0], ask, 'the ask was compacted into a text record')
 })
 
+test("an oversized Deep Think turn never summarises away deep_think's result, which carries the grant", () => {
+  const deep = {
+    type: 'tool-deep_think', toolCallId: 'deep-1', state: 'output-available',
+    input: { why: 'w', plan: 'p' }, output: '{"status":"on","grant":"dt1.1760000000000.grant","note":"…"}',
+  }
+  const calls = Array.from({ length: 22 }, (_, index) => ({
+    type: 'tool-web_research',
+    toolCallId: `research-${index}`,
+    state: 'output-available',
+    input: { query: `${index}` },
+    output: `${index}:${'x'.repeat(12_000)}`,
+  }))
+  // The oldest server result in the turn — the first one compaction reaches.
+  const wire = [user('review my season'), { role: 'assistant', parts: [deep] }, { role: 'assistant', parts: calls }]
+  const fitted = fitCurrentTurn(wire, { isServerTool: () => true })
+  assert.equal(fitted[1]!.parts[0], deep, 'the grant-bearing result was compacted')
+  assert.ok(fitted[2]!.parts.some((part) => part.type === 'text'), 'the budget was not actually exceeded')
+})
+
 const failed = (tool: string, id: string) =>
   ({ type: `tool-${tool}`, toolCallId: id, state: 'output-error', input: {}, errorText: 'Internal server error' })
 const recorded = (...lines: string[]) =>

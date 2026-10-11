@@ -115,15 +115,25 @@ test('write approval no longer carries the retired deep-request restatement', ()
 })
 
 test('a short write approval keeps its top-up route without showing a deep price table', () => {
-  // The only price on the card is the server's Deep Think estimate (its high
-  // end, checked against the balance read after the card went up). The old
+  // The only price on the card is the server's Deep Think offer (its high end,
+  // checked against the balance read after the card went up; while that read
+  // is pending "Use Deep Think" is disabled — `deepThinkCard.ts`). The old
   // `deepCost(...)` stub always returned null for writes, so pinning it
-  // protected nothing; a write approval with no estimate carries no price and
-  // the model never writes one.
+  // protected nothing; a write approval carries no price and the model never
+  // writes one.
   assert.doesNotMatch(PANEL, /deepCost\(/, 'the retired always-null price stub is back')
-  assert.match(PANEL, /cost=\{heldDeepEstimate && quote\?\.balance != null\s*\? \{ credits: heldDeepEstimate\.high, balance: quote\.balance \}\s*: null\}/,
-    'ApprovalCard is no longer given the estimate-derived price against the balance')
-  assert.match(PANEL, /deepEstimate=\{heldDeepEstimate\}/, 'the card is not shown the server estimate')
+  assert.match(PANEL, /const heldDeepOffer = asking\?\.\[0\]\s*\? deepThinkOffer\(asking\[0\]\.toolCallId\)\s*: null/)
+  assert.match(PANEL, /deepOffer=\{heldDeepOffer\}/, 'the card is not shown the server offer')
+  assert.match(PANEL, /balance=\{quote\?\.balance \?\? null\}/, 'the card is not told the balance, or told a guess')
+  const CARD = readFileSync(fileURLToPath(new URL('../chat/ApprovalCard.tsx', import.meta.url)), 'utf8')
+  assert.match(CARD, /deepThinkCard\(approval, deepOffer, \{ balance, canTopUp: Boolean\(onTopUp\) \}\)/)
+  assert.match(CARD, /disabled=\{busy \|\| deep\.action !== 'approve'\}/, 'Use Deep Think is live while it cannot work')
+  // The server's price leads; the model-written why and plan follow it. An
+  // injection can steer the prose, never the price. (Geometry: deepThinkCard.mjs.)
+  const deepCard = CARD.slice(CARD.indexOf('if (deep) {'), CARD.indexOf('{deep.declineLabel}'))
+  assert.ok(deepCard.indexOf('{deep.cost}') > 0 && deepCard.indexOf('{deep.cost}') < deepCard.indexOf('{deep.why}'),
+    'the model-written reason is drawn above the server price')
+  assert.ok(deepCard.indexOf('{deep.cost}') < deepCard.indexOf('{deep.plan}'))
   assert.match(PANEL, /onTopUp=\{onTopUp\}\s*\/>/, 'a short balance has nowhere to go')
   // The balance is a wallet read taken AFTER the card went up — neither the
   // pre-turn wallet nor a leg header that predates a deep call inside it.

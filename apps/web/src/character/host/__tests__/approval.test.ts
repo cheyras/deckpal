@@ -44,7 +44,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { convertToModelMessages } from 'ai'
-import { ABANDONED_REASON, DECLINED_REASON, DEEP_THINK_DECLINED_REASON, MAX_APPROVAL_REPLAYS, MAX_LEGS, approvalReplayPart, legBudget, mayAskApproval, pendingApprovalFromChunk, type PendingApproval } from '../approval'
+import { ABANDONED_REASON, DECLINED_REASON, DEEP_THINK_DECLINED_REASON, MAX_APPROVAL_REPLAYS, MAX_LEGS, approvalReplayPart, declinedReasonFor, legBudget, mayAskApproval, pendingApprovalFromChunk, type PendingApproval } from '../approval'
 
 /** The three per-leg lookups, filled from a `tool-input-available` chunk. */
 function lookups(toolCallId: string, name: string, input: Record<string, unknown>) {
@@ -165,6 +165,38 @@ test('declining Deep Think tells the resumed turn to keep this answer quick', ()
 
   assert.equal(approvalReplayPart(deep, false).approval.reason, DEEP_THINK_DECLINED_REASON)
   assert.equal('reason' in approvalReplayPart(deep, true).approval, false)
+  // The one place the hook picks it: by the held tool, not a constant.
+  assert.equal(declinedReasonFor('deep_think'), DEEP_THINK_DECLINED_REASON)
+  assert.equal(declinedReasonFor('log_cards'), DECLINED_REASON)
+  assert.equal(approvalReplayPart(deep, false, '  ').approval.reason, DEEP_THINK_DECLINED_REASON, 'a blank reason falls back by tool')
+})
+
+test("a Deep Think answer carries the server's offer token beside the SDK's approval, and converts cleanly", async () => {
+  const deep: PendingApproval = {
+    approvalId: 'apr_deep',
+    toolCallId: 'call_deep',
+    name: 'deep_think',
+    title: 'Deep Think',
+    input: { why: 'Worth it.', plan: 'Replay the games.' },
+    signature: 'sig_deep',
+    deepOffer: 'dt1.1760000000000.offer',
+  }
+  const yes = approvalReplayPart(deep, true)
+  assert.equal(yes.deepOffer, 'dt1.1760000000000.offer')
+  assert.equal('deepOffer' in yes.approval, false, 'the token must never sit inside the SDK-owned approval')
+  assert.equal(approvalReplayPart(deep, false).deepOffer, 'dt1.1760000000000.offer')
+  // Only deep_think carries one, and only when the server sent it.
+  assert.equal('deepOffer' in approvalReplayPart({ ...deep, name: 'log_cards' }, true), false)
+  assert.equal('deepOffer' in approvalReplayPart({ ...deep, deepOffer: undefined }, true), false)
+  // The SDK ignores the sibling field: still exactly the signed round trip.
+  const modelMessages = await convertToModelMessages([
+    { id: 'u', role: 'user', parts: [{ type: 'text', text: 'Review my season' }] },
+    { id: 'a', role: 'assistant', parts: [yes] },
+  ] as never)
+  assert.deepEqual(modelMessages.at(-1), {
+    role: 'tool',
+    content: [{ type: 'tool-approval-response', approvalId: 'apr_deep', approved: true, reason: undefined, providerExecuted: undefined }],
+  })
 })
 
 test('the lookups fall back when the tool-input-available chunk never arrived', () => {

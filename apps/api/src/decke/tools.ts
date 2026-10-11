@@ -36,7 +36,7 @@ import { NO_WORK } from './deepOutcome.js'
 import type { Queryable } from '@deckpal/db'
 import { canAskToShare } from './improvement.js'
 import { PATHWAY_NAMES } from './pathways/names.js'
-import { DEEP_THINK_TOOL } from './deepThink.js'
+import { DEEP_THINK_TOOL, deepThinkResult, type DeepThinkResult } from './deepThink.js'
 
 /**
  * Routes Deck-E may navigate to.
@@ -582,6 +582,13 @@ export function buildTools(
     db?: Queryable
     userId?: string
     conversationId?: string
+    /**
+     * This request's Deep Think answer, decided by `api/chat.mjs` before the
+     * stream: a freshly minted grant when the approval leg really runs on
+     * Opus, otherwise why it did not start. Absent (tests, previews) means
+     * Deep Think is unavailable, which is the safe reading.
+     */
+    deepThink?: { result: () => DeepThinkResult }
   },
 ): ToolSet {
   /** `start` now, and the matching `ok` when the work is done. */
@@ -1044,9 +1051,20 @@ export function buildTools(
           .describe('What you will do, such as research the archetype, replay turning points and compare lines.'),
       }).strict(),
       needsApproval: true,
-      execute: async () =>
-        'Deep Think is on for this request — take the time it deserves, research what changes, ' +
-        'reason through it, check the work, then answer in full.',
+      // RUNS ONLY AFTER THE SDK ACCEPTED THE SIGNED APPROVAL, which is why a
+      // grant is minted here and nowhere else (`deepThink.ts`). The output is
+      // the call's result, and the browser replays it on the turn's later
+      // legs: that pairs the call with a result and carries the grant there.
+      execute: async ({ why, plan }, { toolCallId }) => {
+        const result = opts?.deepThink?.result() ?? deepThinkResult({ off: 'unavailable' })
+        // A row only for a run that started. One that did not start is said
+        // in words ahead of the answer instead (`deepThinkNote`).
+        if (result.status === 'on') {
+          began(toolCallId, DEEP_THINK_TOOL, 'Deep Think', { why, plan })
+          ended(toolCallId, DEEP_THINK_TOOL, 'Deep Think', 'Deep Think is on for this request')
+        }
+        return result
+      },
     }),
 
     ask_to_share_chat: tool({

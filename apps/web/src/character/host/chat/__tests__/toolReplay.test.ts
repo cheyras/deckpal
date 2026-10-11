@@ -8,6 +8,8 @@ import {
   declineParts,
   replayPlan,
   savedDeckRecord,
+  settleApprovedCalls,
+  RESULT_REPLAYED_APPROVALS,
   toolReplayParts,
   type ReplayChip,
 } from '../toolReplay'
@@ -111,4 +113,54 @@ test('a saved deck becomes a reader fact on the next wire', () => {
     type: 'text',
     text: '[the reader saved the deck "Dragapult Toolbox" from the deck widget — 60 cards, deck id deck-9]',
   })
+})
+
+// ── AN ANSWERED APPROVAL BECOMES ITS RESULT ─────────────────────────────────
+
+const deepYes = {
+  type: 'tool-deep_think',
+  toolCallId: 'deep-1',
+  input: { why: 'Worth it.', plan: 'Replay the games.' },
+  state: 'approval-responded',
+  approval: { id: 'apr-1', approved: true, signature: 'sig' },
+  deepOffer: 'dt1.offer',
+}
+const grantOutput = '{"status":"on","grant":"dt1.1760000000000.grant","note":"Deep Think is on"}'
+
+test('after its leg, an approved Deep Think yes is replayed as the result it produced', () => {
+  const wire = [
+    { role: 'user', parts: [{ type: 'text', text: 'Review my season' }] },
+    { role: 'assistant', parts: [{ type: 'text', text: 'Worth it?' }, deepYes] },
+  ]
+  const settled = settleApprovedCalls(wire, new Map([['deep-1', grantOutput]]))
+  assert.deepEqual(settled[1]!.parts[1], {
+    type: 'tool-deep_think',
+    toolCallId: 'deep-1',
+    input: { why: 'Worth it.', plan: 'Replay the games.' },
+    state: 'output-available',
+    output: grantOutput,
+  })
+  assert.equal(settled[1]!.parts[0], wire[1]!.parts[0], 'the words around it are untouched')
+  assert.equal(settled[0], wire[0])
+  assert.equal(wire[1]!.parts[1], deepYes, 'the input wire is not mutated')
+})
+
+test('nothing else is settled: no output yet, a decline, another tool, an earlier turn', () => {
+  const user = (text: string) => ({ role: 'user', parts: [{ type: 'text', text }] })
+  const no = { ...deepYes, approval: { id: 'apr-2', approved: false, reason: 'keep it quick' } }
+  const write = { ...deepYes, type: 'tool-save_deck', toolCallId: 'save-1' }
+  const outputs = new Map([['deep-1', grantOutput], ['save-1', 'saved']])
+  // The approval leg itself, before any output came back.
+  const pending = [user('Review my season'), { role: 'assistant', parts: [deepYes] }]
+  assert.deepEqual(settleApprovedCalls(pending, new Map()), pending)
+  // A decline already carries its own result (execution-denied).
+  const declined = [user('Review my season'), { role: 'assistant', parts: [no] }]
+  assert.deepEqual(settleApprovedCalls(declined, new Map([['deep-1', grantOutput]])), declined)
+  // Writes keep their existing replay.
+  const writes = [user('Save it'), { role: 'assistant', parts: [write] }]
+  assert.deepEqual(settleApprovedCalls(writes, outputs), writes)
+  // Only the reader's current turn is touched.
+  const older = [user('Review my season'), { role: 'assistant', parts: [deepYes] }, user('Thanks')]
+  assert.deepEqual(settleApprovedCalls(older, outputs), older)
+  assert.deepEqual([...RESULT_REPLAYED_APPROVALS], ['deep_think'])
 })
