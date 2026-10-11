@@ -312,6 +312,7 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c33.evolveChosen': (a) => `For each Pokémon chosen as "${String(a.slots ?? 't')}", in turn: search your deck for a card that evolves from that Pokémon and put it onto that Pokémon to evolve it (picking none is allowed; not on your first turn; not a Pokémon that evolved this turn)`,
   'c34.moveEnergyAny': (a) => `You may move any amount of Energy cards matching ${JSON.stringify(a.filter ?? {})} from your Pokémon to your other Pokémon in any way you like: repeatedly choose one such Energy card attached to one of your Pokémon (or none, to stop) and a different Pokémon of yours to move it to; each card moves at most once`,
   'c34.revealOppTopPick': (a) => `Reveal the top ${Number(a.n ?? 10)} cards of your opponent's deck and you may choose a Pokémon that has an attack among them (into "${String(a.as ?? 'c')}"); you may choose none`,
+  'c35.moveOppEnergy': () => "Move an Energy from 1 of your opponent's Pokémon to another of their Pokémon: choose one Energy card attached to an opposing Pokémon, then another opposing Pokémon to receive it; a Pokémon protected from the effects of attacks can neither give nor receive it",
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -2375,5 +2376,22 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'svp-188|attack:Nab \x27n\x27 Dash': {
     problems: ['"Bench" is printed but not rendered', '"up to" is printed but not rendered', '"any number of" is rendered but not printed', '"your bench" is printed but not rendered'],
     why: '"Up to the number of your Benched Pokémon" is a search of the deck with min 0 and max = the count of the controller\x27s Benched Pokémon; the renderer words an Expr maximum "any number of" and does not name it.',
+  },
+  // lane:c35
+  'sv10.5b-007|attack:Bemusing Aroma': {
+    problems: ['"tails" is printed but not rendered'],
+    why: 'One coin: "If tails" is the else branch of the heads check ("Otherwise"), which is the same flip.',
+  },
+  'sv10.5b-011|attack:Dangerous Reaction': {
+    problems: ['similarity'],
+    why: '"affected by a Special Condition" is the Defending Pokémon being Asleep, Confused, Paralyzed, Poisoned or Burned, which renders as that five-way "or" and so scores low; the card test covers each condition.',
+  },
+  'sv10.5b-044|attack:Echoed Voice': {
+    problems: ['"Weakness" is printed but not rendered', '"Resistance" is printed but not rendered', 'similarity'],
+    why: 'The +80 is a mark left by the previous use (c06.usedLastTurn / rememberAttack, glossed); "before applying Weakness and Resistance" is the order damage modifiers always apply in. The first-turn clause comes from the Debut Performance Ability text.',
+  },
+  'sv10.5b-044|ability:Debut Performance': {
+    problems: ['similarity'],
+    why: 'The Ability is carried by `firstTurn` on its only attack (Echoed Voice renders "If you go first, you can use this attack during your first turn"), so the Ability entry has no steps of its own.',
   },
 };
