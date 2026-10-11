@@ -17,27 +17,22 @@ that is not the stamp it was going to label the rows with.
 
 ## Prerequisites
 
-1. **The model.** Not committed — the repo carries no binaries. Export the
-   checkpoint named by `EMBED_MODEL_ID` (`packages/matching/src/input-spec.ts`)
-   to ONNX and put it where the job looks:
+1. **The model.** Not committed — the repo carries no binaries. The checkpoint
+   named by `EMBED_MODEL_ID` (`packages/matching/src/input-spec.ts`) is
+   `deckpal-card-b32-v2`. That is the fine-tuned CLIP ViT-B/32 from
+   `tools/scan-embed` (run r4); no model hub has it. Its `export.py` writes
+   two files:
 
-   ```bash
-   pip install timm torch onnx onnxruntime numpy pillow
-   python - <<'PY'
-   import timm, torch, os
-   name = 'vit_base_patch32_clip_224.openai'   # EMBED_MODEL_ID's checkpoint
-   m = timm.create_model(name, pretrained=True, num_classes=0).eval()
-   x = torch.zeros(1, 3, 224, 224)
-   os.makedirs('.cache/models', exist_ok=True)
-   torch.onnx.export(m, (x,), '.cache/models/clip-vit-b32-openai.onnx',
-                     input_names=['pixel_values'], output_names=['features'],
-                     dynamic_axes={'pixel_values': {0: 'batch'}, 'features': {0: 'batch'}},
-                     opset_version=17, do_constant_folding=True)
-   PY
-   ```
+   | file | used by | checked by |
+   |---|---|---|
+   | `deckpal-card-b32-v2.fp32.onnx` | this job (the catalogue side) | `embed.mts` `GALLERY_MODEL_SHA256`: any other file is refused |
+   | `deckpal-card-b32-v2.int8.onnx` | the API (the query side) | `scripts/fetch-embed-model.mjs` `MODEL_SHA256`, at build |
 
-   `.cache/` is gitignored in its entirety. Override the location with
-   `--model` or `EMBED_MODEL_PATH`.
+   Point the job at the fp32 file with `--model` or `EMBED_MODEL_PATH`. The
+   default is `.cache/models/<EMBED_MODEL_ID>.onnx`, and `.cache/` is gitignored.
+   (The zero-shot export this section used to describe,
+   `vit_base_patch32_clip_224.openai`, is `clip-vit-b32-openai`. The digest
+   check now refuses it, because its vectors live in another space.)
 
 2. **The image cache.** `IMAGE_CACHE_ROOT`, exactly as the phash indexer reads
    it. A path that differs between the two jobs means two indexes built from two
@@ -108,10 +103,9 @@ pip install onnxruntime numpy pillow           # the worker
 pip install timm torch onnx                    # the export, once
 ```
 
-Export the checkpoint (the snippet in "Prerequisites" above) to
-`.cache/models/clip-vit-b32-openai.onnx`. **Keep it.** The API needs the same
-file at `SCAN_EMBED_MODEL_PATH`, quantised to int8 — a query vector and a
-catalogue vector are comparable only when one model made both.
+Have both exports from `tools/scan-embed` ("Prerequisites" above). The fp32
+file embeds the catalogue. The int8 file is the API's query model. A query
+vector and a catalogue vector are comparable only when one checkpoint made both.
 
 Confirm `IMAGE_CACHE_ROOT` points at the cache the phash indexer used. A path
 that differs between the two jobs means two indexes built from two sets of
@@ -135,7 +129,7 @@ one transaction.
 
 ```bash
 set -a && . ./.env && set +a
-export EMBED_MODEL_PATH="$PWD/.cache/models/clip-vit-b32-openai.onnx"
+export EMBED_MODEL_PATH="$HOME/deckpal-data/scan-embed/export/deckpal-card-b32-v2/deckpal-card-b32-v2.fp32.onnx"
 export PYTHON="$PWD/.venv/bin/python"
 
 # Rehearse first. Costs a minute and catches a wrong cache path.
@@ -147,9 +141,9 @@ node --import tsx tools/embed-catalog/embed.mts
 
 | what | expected |
 |---|---|
-| runtime | **~8 minutes.** Measured: 6,464 images in 128 s single-threaded under ORT's CPU EP, which extrapolates to ~7.8 min for the full catalogue (embed-spike/NOTES.md §4b). |
-| `embedded` | ~22,600 — the catalogue minus the cards with no art |
-| `missing-art` | **~967, and NOT zero.** Zero means the job did not find the cache. |
+| runtime | **~12 minutes.** The v2 run on 2026-10-11 took 726 s at ~28 cards/s. (The zero-shot spike measured 6,464 images in 128 s, embed-spike/NOTES.md §4b.) |
+| `embedded` | the catalogue minus the cards with no art in YOUR cache. The v2 run embedded 20,467 against `~/deckpal-data/scan-bench/art`. |
+| `missing-art` | **NOT zero.** It was 3,304 against that cache; at least ~967 cards have no art anywhere. Zero means the job did not find the cache. Compare `coverage` with the outgoing stamp's row count: the new stamp should cover every card the old one did. |
 | `failed` | 0. Anything else names the file; a single bad image does not stop the run. |
 | `coverage` | the same number as `embedded`, counted back out of `card_embedding` |
 
@@ -157,16 +151,28 @@ It is **resumable and idempotent**: interrupt it and re-run, and it embeds only
 what is missing for this stamp. Re-running after a completed run reports
 `0 card(s) to embed` and exits — verified.
 
-### 3. Place the API's model, then turn the flag on — OWNER ONLY
+### 3. Stage the API's model, then turn the flag on — OWNER ONLY
 
-Quantise the export to int8 and put it where the function will find it:
+The function gets its query model at BUILD time. `scripts/fetch-embed-model.mjs`
+downloads `models/<EMBED_MODEL_ID>.onnx.part*` from storage and checks
+`MODEL_SHA256` (DEPLOYMENT.md, "How the model actually gets into a cloud
+build"). Stage the int8 export there:
 
 ```bash
-cp clip-vit-b32-openai.int8.onnx apps/api/assets/embed/clip-vit-b32-openai.onnx
+# needs SUPABASE_URL + the CURRENT service (secret) key in the environment
+node scripts/stage-embed-model.mjs \
+  "$HOME/deckpal-data/scan-embed/export/deckpal-card-b32-v2/deckpal-card-b32-v2.int8.onnx"
 ```
 
-It is gitignored and carried into the bundle by `vercel.json`'s `includeFiles`.
-Deploy, then set `SCAN_EMBED_MATCH=true` in **Preview first**:
+It uploads the parts, reads them back through the fetch script's own code, and
+verifies the digest, so a staging that would fail the build fails here instead.
+Do steps 1 to 3 BEFORE deploying code that names the new model: the build
+fetches it, and the index must already hold its stamp.
+(The 2026-10-11 v2 run: migration 082; 20,467 cards embedded against the
+local art cache, a superset of the 20,308 the zero-shot stamp covered; the
+model staged and verified.)
+
+The first time only, set `SCAN_EMBED_MATCH=true` in **Preview first**:
 
 ```bash
 vercel env add SCAN_EMBED_MATCH preview     # value: true
