@@ -390,6 +390,10 @@ export interface ScanMatch {
 export interface ScanResponse {
   query: { algo: string; hash: string }
   matched: boolean
+  /** The top match was within the hash's bar, but its picture is shared by
+   *  another printing (the server's same-art guard), so `matched` is false: the
+   *  card is likely right, the printing is the reader's. Absent otherwise. */
+  printingOpen?: true
   threshold: number
   indexSize: number
   matches: ScanMatch[]
@@ -477,6 +481,11 @@ export interface ScanResolveResponse {
     | 'vector'
     | 'corroborated'
     | 'prior-only'
+  /** The server's same-art guard turned a confident answer unconfident: the top
+   *  match's picture is shared by another printing no printed key ruled out, and
+   *  those printings follow it in `matches`. Absent otherwise. Recorded, never
+   *  branched on — `confident: false` already sends the capture to the reader. */
+  printingOpen?: true
   matches: ScanResolveMatch[]
 }
 

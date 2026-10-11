@@ -633,6 +633,43 @@ test('a name family bigger than the list cut cannot crowd the keyed card out of 
   assert.ok(ids(r.matches).includes('zz1-005'), 'the reading the number gave is still on the list');
 });
 
+// 6d'. ...and through the printing guard's own cut (Astra, review of the #297 merge).
+test('the keyed card also survives the printing guard re-cutting a corroborated question', async () => {
+  // The name questions `005/128`, a showable picture corroborates p00-050 among
+  // the 30 Pikachus, and p00-050 shares its picture with three printings the
+  // list does not hold. The guard adds them and re-cuts to MAX_MATCHES; the
+  // number's reading, zz1-005, must still be there.
+  const pikachus = Array.from({ length: 30 }, (_, i) => {
+    const setId = `p${String(i).padStart(2, '0')}`;
+    return card(`${setId}-050`, 'Pikachu', '050', setId);
+  });
+  const twins = ['q1', 'q2', 'q3'].map((s) => card(`${s}-050`, 'Pikachu', '050', s));
+  const official: Record<string, number> = {
+    zz1: 128,
+    ...Object.fromEntries(pikachus.map((c) => [c.setId, 128])),
+    ...Object.fromEntries(twins.map((c) => [c.setId, 100])),
+  };
+  const p = portOver([...pikachus, ...twins, card('zz1-005', 'Raichu', '005', 'zz1')], official);
+  const siblings = (id: string) => (id === 'p00-050' ? twins.map((c) => c.cardId) : []);
+  const r = await resolveCard({ name: 'Pikachu', number: '005', denominator: '128' }, [], p, {
+    phashConfidentMax: 9,
+    fusion: {
+      vectorMatches: [
+        { cardId: 'p00-050', similarity: 0.7 },
+        { cardId: 'p01-050', similarity: 0.5 },
+      ],
+      modelId: MODEL,
+    },
+    artSiblings: siblings,
+  });
+  assert.equal(r.printingOpen, true, 'the corroborated Pikachu shares its picture: the printing is open');
+  assert.equal(r.confident, false);
+  assert.equal(r.matches[0]?.cardId, 'p00-050');
+  assert.equal(r.matches.length, MAX_MATCHES);
+  for (const t of twins) assert.ok(ids(r.matches).includes(t.cardId), `${t.cardId}: a same-art printing to choose from`);
+  assert.ok(ids(r.matches).includes('zz1-005'), 'the reading the number gave is still on the list');
+});
+
 // 6e. One name lookup per request.
 test('rung 5b and the post-climb review share one catalogue name lookup', async () => {
   // `Quilava` reaches rung 5b (a lookup), then `letDecisiveVectorSpeak` asks
