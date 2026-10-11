@@ -170,6 +170,11 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
     `Knock Out each of your opponent's Pokémon, Active or Benched, that has ${Number(a.max ?? 50)} HP or less remaining (its HP minus its damage), unless it is protected from the effects of attacks`,
   'c08.pickByResistance': (a) =>
     `Search your deck: choose up to ${Number(a.max ?? 2)} Pokémon cards printed with ${sym(a.type as PType)} Resistance and reveal them (into "${String(a.as ?? 'found')}") (choosing none is allowed)`,
+  // std-c13-customs.ts
+  'c13.shuffleBenchExcept': (a) =>
+    `Shuffle every one of your opponent's Benched Pokémon except those chosen as "${String(a.keep ?? 'k')}", and all cards attached to them, into their deck (a Pokémon protected from the effects of attacks stays), then shuffle their deck`,
+  'c13.moveAnyEnergyToSelf': () => 'Choose any amount (0 to all) of the Energy cards attached to your other Pokémon and move them to this Pokémon',
+  'c13.lockAttackUntilLeavesActive': (a) => `This Pokémon can't use ${String(a.attack)} again, for as long as it stays in the Active Spot (the effect ends when it leaves)`,
   // std-c07-customs.ts
   'c07.lookTopPick': (a) =>
     `Look at the top ${Number(a.n ?? 6)} cards of your deck and choose ${art(noun(a.filter as Filter | undefined).sg)} you find there (into "${String(a.as ?? 'e')}"), none if there is none`,
@@ -1831,5 +1836,18 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me03-045|attack:Wreak Havoc': {
     problems: ['"each" is printed but not rendered'],
     why: '"For each heads, discard the top card of your opponent\'s deck" is a repeat of the heads count of a one-card discard, rendered "Do this the number of heads times".',
+  },
+  // std-c13
+  'sv05-021|ability:Resilient Soul': {
+    problems: ['"each" is printed but not rendered', 'similarity'],
+    why: '"+50 HP for each Prize card your opponent has taken" is six statics, one per count of Prize cards taken (the HP delta of a static is a fixed number, so +50 x n is written out for n = 1 to 6, each gated on exactly n taken); the renderer words each one out, and the card test pins the HP at every count.',
+  },
+  'sv05-031|attack:Licking Flames': {
+    problems: ['"tails" is printed but not rendered', '"each" is printed but not rendered'],
+    why: '"For each tails, discard an Energy" is a discard of 3 minus the number of heads (the coins are three, so the tails count is that difference); the renderer words it "3 minus the number of heads", and the card test pins 0 to 3 tails.',
+  },
+  'sv05-043|attack:Chew Off': {
+    problems: ['"each" is printed but not rendered'],
+    why: '"For each heads, discard a random card" is a repeat of the heads count, rendered "the number of heads times"; the card test pins 0 to 3 heads.',
   },
 };
