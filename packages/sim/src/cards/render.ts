@@ -282,6 +282,8 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c27.lookDeckPick': (a) => `Look at the ${a.from === 'bottom' ? 'bottom' : 'top'} ${Number(a.n ?? 7)} cards of your deck. You may reveal ${((a.picks as Filter[]) ?? []).map((p) => (p.cat === 'trainer' ? 'a Trainer card' : p.cat === 'pokemon' ? 'a Pokémon' : 'a card')).join(' and ')} you find there and put ${((a.picks as Filter[]) ?? []).length > 1 ? 'them' : 'it'} into your hand. Shuffle the other cards back into your deck`,
   'c27.discardOppToolsAndSpecialEnergy': () => "Discard all Pokémon Tools and Special Energy from all of your opponent's Pokémon (Active and Benched)",
   'c27.moveEnergyBetween': (a) => `You may choose 1 or more of the Energy attached to the Pokémon "${String(a.from ?? 'old')}" and move them to the Pokémon "${String(a.to ?? 't')}"`,
+  'c34.moveEnergyAny': (a) => `You may move any amount of Energy cards matching ${JSON.stringify(a.filter ?? {})} from your Pokémon to your other Pokémon in any way you like: repeatedly choose one such Energy card attached to one of your Pokémon (or none, to stop) and a different Pokémon of yours to move it to; each card moves at most once`,
+  'c34.revealOppTopPick': (a) => `Reveal the top ${Number(a.n ?? 10)} cards of your opponent's deck and you may choose a Pokémon that has an attack among them (into "${String(a.as ?? 'c')}"); you may choose none`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -2185,5 +2187,18 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv08-176|text': {
     problems: ['"any number of" is printed but not rendered'],
     why: 'Any number of Basic Energy of different types is one card of each of the 8 types at most (oneEach, 0 to 8 cards), which renders as the list of types; the ruling (#2063) that a type can be taken only once is what the list says.',
+  },
+  // std-c34
+  'sv10-148|attack:Reckless Abandon': {
+    problems: ['"tails" is printed but not rendered'],
+    why: '"If both of them are tails" is the case of 0 heads among the 2 coins, which renders as "exactly 0 heads"; it is the same flip.',
+  },
+  'sv10-161|text': {
+    problems: ['"instead" is printed but not rendered'],
+    why: '"heal 100 damage from it instead" is the else-branch of a conditional amount (100 if an Arven\'s Pokémon, otherwise 30), which renders as "otherwise"; the heal happens once.',
+  },
+  'sv10-179|text': {
+    problems: ['"tails" is printed but not rendered'],
+    why: 'One coin: "If tails" is the else branch of the heads check ("otherwise"), which is the same flip.',
   },
 };
