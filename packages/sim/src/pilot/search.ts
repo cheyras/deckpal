@@ -70,8 +70,12 @@ interface Node {
   key: string;
   /** The best score found anywhere at or below this node. */
   val: number;
-  /** Its moves were all tried. */
+  /** Played out: its own moves were all tried (`expanded`) and so were those of every position they led to. Set when the search ends. */
   done: boolean;
+  /** Its own moves were all tried: none cut by the node budget. */
+  expanded: boolean;
+  /** The positions its moves led to (kept to play out, or already queued by another line). */
+  kids: Node[];
   /** The choices that led here from the root (option indexes per decision), for replay. */
   line: number[];
 }
@@ -148,7 +152,7 @@ export function searchWorld(
   const lines: number[][] = Array.from({ length: n0 }, () => []);
   const rootTurn = root.turn;
   const heap = new Heap();
-  const seen = new Set<string>();
+  const seen = new Map<string, Node>();
   const made: Node[] = [];
   let nodes = 0;
   const bump = (n: Node | null, v: number) => {
@@ -167,11 +171,13 @@ export function searchWorld(
     }
   };
 
-  const expand = (s: GameState, first: number, line: number[], inline: number, pn: Node | null): void => {
+  /** Expand a position; false when the node budget cut it short (some option, or a sub-decision under it, was not searched). */
+  const expand = (s: GameState, first: number, line: number[], inline: number, pn: Node | null): boolean => {
+    let complete = true;
     const d = (s.pending as { decision: Decision }).decision;
     const m = optionCount(d);
     for (let i = 0; i < m; i++) {
-      if (first >= 0 && nodes >= o.nodes) return;
+      if (first >= 0 && nodes >= o.nodes) return false;
       const c = cloneState(s);
       submit(env, c, [i]);
       const f = first < 0 ? i : first;
@@ -184,9 +190,10 @@ export function searchWorld(
           // A targeting / promote / copied-attack choice mid-action: resolve it now (few options),
           // or with the policy once the budget is spent.
           if (nodes < o.nodes && inline < 3) {
-            expand(c, f, l, inline + 1, pn);
+            if (!expand(c, f, l, inline + 1, pn)) complete = false;
             continue;
           }
+          if (nodes >= o.nodes) complete = false; // the policy answers what the budget could not
           stop = settle(env, c, me, rootTurn, false, o.profile);
           if (stop === 'branch' && (c.pending as { decision: Decision }).decision.kind !== 'main') stop = 'leaf';
         }
@@ -205,13 +212,19 @@ export function searchWorld(
           }
           continue;
         }
-        if (seen.has(h)) continue;
-        seen.add(h);
-        const nd: Node = { s: c, first: f, est: v, line: l, parent: pn, key: h, val: v, done: false };
+        const twin = seen.get(h);
+        if (twin) {
+          pn?.kids.push(twin);
+          continue;
+        }
+        const nd: Node = { s: c, first: f, est: v, line: l, parent: pn, key: h, val: v, done: false, expanded: false, kids: [] };
+        seen.set(h, nd);
+        pn?.kids.push(nd);
         made.push(nd);
         heap.push(nd);
       }
     }
+    return complete;
   };
 
   // The root is expanded in full, past the node budget: every first move gets a score, so the
@@ -221,10 +234,22 @@ export function searchWorld(
   while (heap.size && nodes < o.nodes) {
     const nd = heap.pop();
     if (nd.est >= o.weights.win / 2) continue; // already won along this line
-    nd.done = true;
-    expand(nd.s, nd.first, nd.line, 0, nd);
+    nd.expanded = expand(nd.s, nd.first, nd.line, 0, nd);
   }
   if (memo) {
+    // A position is played out only when its own moves were all tried AND so were those of every position they led to:
+    // one whose expansion the budget cut, or whose follow-ups were left in the queue, stands for work not done, and a
+    // later search must be free to finish it.
+    const finished = new Map<Node, boolean>();
+    const complete = (n: Node): boolean => {
+      const known = finished.get(n);
+      if (known !== undefined) return known;
+      finished.set(n, false); // a position never leads back to itself; this only guards against a loop
+      const r = n.expanded && n.kids.every(complete);
+      finished.set(n, r);
+      return r;
+    };
+    for (const n of made) n.done = complete(n);
     for (const n of made) {
       const prev = memo.get(n.key);
       if (!prev || (n.done && !prev.done) || (n.done === prev.done && n.val > prev.val)) memo.set(n.key, { val: n.val, done: n.done });

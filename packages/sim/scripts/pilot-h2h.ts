@@ -47,16 +47,26 @@ interface Job {
   a: number;
   b: number;
   round: number;
+  seed: number;
 }
+/**
+ * A game seed from the job's unique (round, pair) ordinal. An odd multiplier on the low 30 bits is a bijection, so
+ * distinct jobs get distinct seeds (the old `9100 + round*131 + a*7 + b` collided: pairs (0,8) and (1,1)).
+ */
+const seedOf = (ordinal: number): number => {
+  if (!Number.isSafeInteger(ordinal) || ordinal < 0 || ordinal >= 2 ** 30) throw new Error(`pilot-h2h: job ordinal ${ordinal} out of range`);
+  return 9100 + (Math.imul(ordinal + 1, 0x9e3779b1) & 0x3fffffff);
+};
 const jobs: Job[] = [];
-for (let r = firstRound; r < firstRound + rounds; r++) for (let a = 0; a < pool.length; a++) for (let b = a; b < pool.length; b++) jobs.push({ a, b, round: r });
+for (let r = firstRound; r < firstRound + rounds; r++) for (let a = 0; a < pool.length; a++) for (let b = a; b < pool.length; b++) jobs.push({ a, b, round: r, seed: seedOf(r * pool.length * pool.length + a * pool.length + b) });
+if (new Set(jobs.map((j) => j.seed)).size !== jobs.length) throw new Error('pilot-h2h: two jobs share a game seed');
 
 /** One cluster: four games. Returns the candidate's score in each (1 win, 0.5 draw, 0 loss) and the turn count. */
 function runJob(j: Job): { j: Job; scores: number[]; turns: number[]; reasons: string[] } {
   const scores: number[] = [];
   const turns: number[] = [];
   const reasons: string[] = [];
-  const seed = 9100 + j.round * 131 + j.a * 7 + j.b;
+  const seed = j.seed;
   for (const [mine, theirs] of [
     [j.a, j.b],
     [j.b, j.a],

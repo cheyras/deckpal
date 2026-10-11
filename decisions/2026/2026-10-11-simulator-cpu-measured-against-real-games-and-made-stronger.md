@@ -49,8 +49,10 @@ supersedes: []
     of range", "choose 2..2 options, got 1"): the line was found with the policy
     answering its last sub-decisions and replayed with branching. It now stops
     instead. This was in the shipped pilot.
-- **Result:** `search` against `search:legacy`: 54.9% [53.4, 56.4], n = 4320
-  (2324-1902-94); 54.0% [52.6, 55.5] at the previous setting (115 nodes) on
+- **Result:** `search` against `search:legacy`: 53.4% [51.9, 54.8], n = 4320
+  (2268-1978-74) with collision-free seeds and the review fixes (exact information
+  keys, memo entries marked played out only when they were; 54.9% [53.4, 56.4] before
+  them); 54.0% [52.6, 55.5] at the previous setting (115 nodes) on
   other seeds. `greedy`: 52.4% [50.9, 53.9]. `policy` does not use the
   evaluation: 50.0%. Agreement with the logs is unchanged within a couple of
   decisions of 683 (search 270 -> 272 hits overall, 108 -> 107 of the 394
@@ -82,10 +84,13 @@ is spending the same time on more of the tree.
   a hand only as far as the log does (cards never shown are fillers until played),
   and a different order of the same plays counts as a disagreement. Strength is
   the arbiter.
-- 55% was the aim; the point estimate is 54.9% and the interval [53.4, 56.4]
-  excludes 50% but not 54%. More nodes would get further, but not within the
+- 55% was the aim; the point estimate is 53.4% and the interval [51.9, 54.8]
+  excludes 50% but not 52%. It moved down from 54.9% with the review fixes (on other seeds,
+  so the gap is not cleanly theirs): the earlier
+  memo skipped work it had not finished. More nodes would get further, but not within the
   speed limit.
-- A game takes about the time it did (25 fixed games: 9.4-10.4 s against
+- A game takes about 15% longer after the review fixes (28 fixed games, `mini-gauntlet hns 2 meta`:
+  10.4-10.8 s before, 11.8-12.4 s after, as the memo now skips less); originally 25 fixed games: 9.4-10.4 s against
   9.5-10.7 s for the legacy pilot). `src/__tests__/determinism.test.ts`'s pins
   were regenerated because the pilot's games changed.
 - Switches live in `src/pilot/tuning.ts` (`engine`, `reuse`), weights in

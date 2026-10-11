@@ -121,6 +121,8 @@ export interface ReplayResult {
   reruns?: number;
   /** What `ReplayOptions.observe` collected in this run. */
   observed?: unknown;
+  /** Errors the observer threw (it never affects the replay; they are reported here, not as a divergence). */
+  observerErrors?: string[];
 }
 
 const ACTIONS = new Set(['play_bench', 'play_stadium', 'play_card', 'evolve', 'attach', 'use', 'attack', 'retreat', 'end_turn']);
@@ -1491,15 +1493,21 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       if (DEBUG) console.error(`[replay] T${s.turn} P${d.player} ${d.kind} "${d.prompt}" [${(d.values ?? []).map((v) => (d.kind === 'slots' || d.kind === 'promote' ? `@${slotSig(v)}` : name(v))).join(', ') || (d.labels ?? []).join(', ') || (d.actions ?? []).map(actionLabel).join('; ')}] → ${choice.join(',')}`);
       if (observer && (d.kind === 'main' || d.kind === 'cards' || d.kind === 'slots' || d.kind === 'promote' || d.kind === 'option')) {
         const nextAct = acts[ai - 1];
-        observer.decision({
-          game: g,
-          decision: d,
-          choice,
-          known: !usedFallback && !implicitEnd,
-          event: d.kind === 'main' && nextAct ? { line: nextAct.line, turn: nextAct.turn, text: describe(nextAct) } : null,
-          options: optionTexts(d),
-          fillersInHand: s.p[d.player].hand.filter((c) => name(c) === HIDDEN).length,
-        });
+        // The observer gets copies (a cloned game, a copied decision and answer): whatever it does to them, or throws,
+        // cannot reach the replay. Its errors are reported in `observerErrors`, not counted as the engine diverging.
+        try {
+          observer.decision({
+            game: g.clone(),
+            decision: structuredClone(d),
+            choice: [...choice],
+            known: !usedFallback && !implicitEnd,
+            event: d.kind === 'main' && nextAct ? { line: nextAct.line, turn: nextAct.turn, text: describe(nextAct) } : null,
+            options: optionTexts(d),
+            fillersInHand: s.p[d.player].hand.filter((c) => name(c) === HIDDEN).length,
+          });
+        } catch (err) {
+          (result.observerErrors ??= []).push(`T${s.turn} ${d.kind}: ${(err as Error).message}`);
+        }
       }
       g.submit(choice);
       trackSlots();
@@ -1513,7 +1521,13 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
     diverge(acts[ai - 1] ?? null, acts[ai - 1] ? describe(acts[ai - 1]!) : '', `engine error: ${(err as Error).message}`);
   }
   result.engineTurns = s.turn;
-  if (observer) result.observed = observer.finish();
+  if (observer) {
+    try {
+      result.observed = observer.finish();
+    } catch (err) {
+      (result.observerErrors ??= []).push(`finish: ${(err as Error).message}`);
+    }
+  }
   if (o.transcript) result.transcript = transcript(ctx, g.events);
   result.winner.engine = s.winner;
   result.winner.engineReason = s.winReason;

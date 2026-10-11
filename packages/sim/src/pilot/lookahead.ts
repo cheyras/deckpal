@@ -110,9 +110,38 @@ function slotHash(env: Env, sl: Slot): Hash {
   return h;
 }
 
+const strHashes = new Map<string, Hash>();
+const objHashes = new WeakMap<object, Hash>();
+
+/** Add a string to a hash (the string's own hash is remembered: the same few codes and names come back constantly). */
+function str(h: Hash, x: string): void {
+  let sh = strHashes.get(x);
+  if (!sh) {
+    sh = new Hash().seq(x.length);
+    for (let i = 0; i < x.length; i++) sh.seq(x.charCodeAt(i));
+    if (strHashes.size > 50000) strHashes.clear();
+    strHashes.set(x, sh);
+  }
+  h.child(sh);
+}
+
+/** Add a value by its JSON (remembered per object: effects and records are replaced, never mutated, and shared by clones). */
+function json(h: Hash, x: object): void {
+  let oh = objHashes.get(x);
+  if (!oh) {
+    oh = new Hash();
+    str(oh, JSON.stringify(x));
+    objHashes.set(x, oh);
+  }
+  h.child(oh);
+}
+
 /**
- * A key of what `me` can see of a position: both boards, the Stadium, my hand and both discard piles by card, deck /
- * hand / Prize SIZES (the opponent's hand and either deck's order are not in it), and the turn flags. Two positions with
+ * The identity of what `me` knows of a position: both boards, the Stadium, my hand and both discard piles by card, every
+ * publicly known card (revealed hand cards, face-up Prizes, the Lost Zone), my own known deck-top cards in order, my own
+ * Prize composition once my deck was searched, deck / hand / Prize SIZES for the rest (the opponent's hand, either deck's
+ * unknown order and face-down Prize identities are not in it), and every turn flag and effect that changes what can be
+ * played. Two positions with
  * the same key look the same to `me`, which is how a search recognises one an earlier search of the turn has already
  * played out, whatever world each was run in. A 64-bit hash of that, as a string.
  */
@@ -123,9 +152,24 @@ export function publicKey(env: Env, s: GameState, me: Player): string {
   h.seq(s.stadium ? (cd[s.stadium.card] as number) * 2 + s.stadium.owner : -1);
   for (let who = 0; who < 2; who++) {
     const ps = s.p[who] as GameState['p'][0];
-    if (who === me) h.bag(ps.hand, cd);
-    else h.seq(ps.hand.length);
+    if (who === me) {
+      h.bag(ps.hand, cd);
+      // The deck-top cards I know of (stacked or looked at), in order: the top is the end of the array.
+      const known = Math.min(ps.knownTop, ps.deck.length);
+      h.seq(known);
+      for (let i = ps.deck.length - known; i < ps.deck.length; i++) h.seq(cd[ps.deck[i] as number] as number);
+      // A deck I searched tells me which cards are in my Prizes (not their order).
+      h.seq(+ps.prizesKnown);
+      if (ps.prizesKnown) h.bag(ps.prizes, cd);
+    } else h.seq(ps.hand.length);
     h.seq(ps.deck.length).bag(ps.discard, cd).seq(ps.prizes.length);
+    // Publicly known cards: seen hand cards, face-up Prizes, the Lost Zone, this turn's plays and Knock Out records.
+    h.bag(ps.revealed, cd).bag(ps.prizesUp ?? [], cd).bag(ps.lost, cd).bag(ps.playedThisTurn ?? [], cd);
+    h.bag(ps.koCards ?? [], cd).seq(ps.koCardsTurn ?? -1).bag(ps.prevKoCards ?? [], cd).seq(ps.prevKoCardsTurn ?? -1);
+    h.seq(ps.prizesAtTurnStart ?? -1).seq(ps.prizesLastTurn ?? -1);
+    for (const g of ps.oncePerGame ?? []) str(h, g);
+    if (ps.attackRec) json(h, ps.attackRec);
+    if (ps.prevAttackRec) json(h, ps.prevAttackRec);
     h.seq(+ps.supporterPlayed + 2 * +ps.stadiumPlayed + 4 * +ps.energyAttached + 8 * +ps.retreated + 16 * +ps.stadiumAbilityUsed + 32 * (ps.toolUsed?.length ?? 0));
     for (const g of ps.globalAbilitiesUsed) for (let i = 0; i < g.length; i++) h.seq(g.charCodeAt(i));
     h.seq(ps.active ? 1 : 0);
@@ -137,9 +181,22 @@ export function publicKey(env: Env, s: GameState, me: Player): string {
       ba = (ba + mix(sh.a)) | 0;
       bb = (bb + mix(sh.b ^ 0x3c6ef372)) | 0;
     }
-    h.seq(ba).seq(bb).seq(ps.lost.length);
+    h.seq(ba).seq(bb);
   }
-  return h.seq(s.effects.length).seq(s.delayed?.length ?? 0).value();
+  h.seq(s.attackUses ?? 0).seq(+!!s.attackedViaTool + 2 * +s.attacked + 4 * +!!s.noMoreAttacks).seq(s.stack.length).bag(s.limbo, cd);
+  h.seq(s.effects.length);
+  for (const e of s.effects) {
+    h.seq(e.slot).seq(e.player).seq(e.until).seq(+e.fromAttack).seq(e.since ?? -1).seq(cd[e.src] as number);
+    json(h, e.static);
+    if (e.filter) json(h, e.filter);
+    if (e.code) str(h, e.code);
+  }
+  h.seq(s.delayed?.length ?? 0);
+  for (const d of s.delayed ?? []) {
+    h.seq(d.slot).seq(d.player);
+    str(h, d.code);
+  }
+  return h.value();
 }
 
 /** Canonical key of a position: card instances by definition, Bench as a multiset (collisions only merge near-identical lines). */
