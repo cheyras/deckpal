@@ -282,6 +282,8 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c27.lookDeckPick': (a) => `Look at the ${a.from === 'bottom' ? 'bottom' : 'top'} ${Number(a.n ?? 7)} cards of your deck. You may reveal ${((a.picks as Filter[]) ?? []).map((p) => (p.cat === 'trainer' ? 'a Trainer card' : p.cat === 'pokemon' ? 'a Pokémon' : 'a card')).join(' and ')} you find there and put ${((a.picks as Filter[]) ?? []).length > 1 ? 'them' : 'it'} into your hand. Shuffle the other cards back into your deck`,
   'c27.discardOppToolsAndSpecialEnergy': () => "Discard all Pokémon Tools and Special Energy from all of your opponent's Pokémon (Active and Benched)",
   'c27.moveEnergyBetween': (a) => `You may choose 1 or more of the Energy attached to the Pokémon "${String(a.from ?? 'old')}" and move them to the Pokémon "${String(a.to ?? 't')}"`,
+  // std-c30-customs.ts
+  'c30.winGame': () => 'The controller wins the game on the spot (nothing happens if the game is already over)',
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -2185,5 +2187,18 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv08-176|text': {
     problems: ['"any number of" is printed but not rendered'],
     why: 'Any number of Basic Energy of different types is one card of each of the 8 types at most (oneEach, 0 to 8 cards), which renders as the list of types; the ruling (#2063) that a type can be taken only once is what the list says.',
+  },
+  // std-c30
+  'sv09-058|attack:Mimic': {
+    problems: ['"each" is printed but not rendered'],
+    why: '"Draw a card for each card in your opponent\'s hand" is a draw whose count is the size of that hand, which the renderer words "the number of cards in your opponent\'s hand"; same count.',
+  },
+  'sv09-069|attack:Mischievous Hands': {
+    problems: ['"each" is printed but not rendered'],
+    why: '"Put 3 damage counters on each of them" is one counters step over both chosen Pokémon (the 2 chosen in the step before), which the renderer words "3 damage counters on 2 of your opponent\'s Pokémon"; same targets.',
+  },
+  'sv09-090|attack:Snipping Pincers': {
+    problems: ['"each" is printed but not rendered'],
+    why: '"For each heads, discard an Energy" is a repeat of the discard by the number of heads, which the renderer words "Do this the number of heads times"; same count.',
   },
 };
