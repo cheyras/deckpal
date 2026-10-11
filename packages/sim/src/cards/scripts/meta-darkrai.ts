@@ -72,6 +72,13 @@ export const META_DARKRAI: CardScript[] = [
     id: 'me05-075',
     name: 'Dark Bell',
     // "Both Active non-{D} Pokémon are now Confused."
+    // Ruling (TPCi 2026-07-16): it can't be played "if both Active Pokemon are {D} type and/or Confused".
+    playable: {
+      or: [
+        { and: [{ slotIs: { ref: 'myActive', filter: NOT_DARK } }, { not: { slotIs: { ref: 'myActive', filter: { condition: 'confused' } } } }] },
+        { and: [{ slotIs: { ref: 'oppActive', filter: NOT_DARK } }, { not: { slotIs: { ref: 'oppActive', filter: { condition: 'confused' } } } }] },
+      ],
+    },
     play: [
       { op: 'if', cond: { slotIs: { ref: 'myActive', filter: NOT_DARK } }, then: [{ op: 'condition', cond: 'confused', to: 'myActive' }] },
       { op: 'if', cond: { slotIs: { ref: 'oppActive', filter: NOT_DARK } }, then: [{ op: 'condition', cond: 'confused', to: 'oppActive' }] },

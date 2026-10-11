@@ -48,6 +48,8 @@ export function defMatches(d: CardDef, f: Filter | undefined): boolean {
   if (f.ttype && d.ttype !== f.ttype) return false;
   if (f.basicEnergy !== undefined && (d.kind !== 'energy' || d.basicEnergy !== f.basicEnergy)) return false;
   if (f.energyType && !(d.kind === 'energy' && d.basicEnergy && d.provides.includes(f.energyType))) return false;
+  // Off a Pokémon (no slot to ask), an unconditional "every type" counts; on one, discardEnergy asks the slot.
+  if (f.providesType && !(d.kind === 'energy' && (d.provides.includes(f.providesType) || (d.script?.providesAny && !d.script.providesAny.when)))) return false;
   if (f.name) {
     const names = Array.isArray(f.name) ? f.name : [f.name];
     if (!names.includes(d.name)) return false;

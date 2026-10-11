@@ -132,6 +132,7 @@ function energyNoun(f: Filter | undefined): string {
   if (!f) return 'Energy';
   if (f.basicEnergy === false) return 'Special Energy';
   if (f.energyType) return `Basic ${sym(f.energyType)} Energy`;
+  if (f.providesType) return `${sym(f.providesType)} Energy`;
   if (f.basicEnergy) return 'Basic Energy';
   if (f.name) return (Array.isArray(f.name) ? f.name : [f.name]).map((x) => `"${x}"`).join(' or ');
   return noun(f).sg;
@@ -243,13 +244,17 @@ function numOf(e: Expr): number | null {
   return null;
 }
 
-function counted(min: Expr, max: Expr, nn: Noun): { text: string; plural: boolean } {
+/**
+ * `upFrom` is the smallest number "up to X" allows here: 0 for an attack, 1 for a Trainer's or an
+ * Ability's effect (TPCi 2026-02-19), so a 1-to-X choice on a Trainer reads "up to X".
+ */
+function counted(min: Expr, max: Expr, nn: Noun, upFrom = 0): { text: string; plural: boolean } {
   const lo = numOf(min);
   const hi = numOf(max);
   if (hi === null) return { text: lo ? `${lo} or more ${nn.pl}` : `any number of ${nn.pl}`, plural: true };
   if (hi === 1) return { text: art(nn.sg), plural: false };
   if (lo === hi) return { text: `${hi} ${nn.pl}`, plural: true };
-  if (!lo) return { text: `up to ${hi} ${nn.pl}`, plural: true };
+  if (!lo || lo === upFrom) return { text: `up to ${hi} ${nn.pl}`, plural: true };
   return { text: `${lo} to ${hi} ${nn.pl}`, plural: true };
 }
 
@@ -349,6 +354,8 @@ class Renderer {
   /** Variables used only as an addend of the attack's damage ("have this attack do 150 more damage"). */
   bonus = new Set<string>();
   selfName: string;
+  /** See `counted`: 1 outside attacks. */
+  upFrom = 1;
 
   constructor(
     readonly src: Source,
@@ -610,7 +617,7 @@ class Renderer {
                   .join(st.oneEach.length > 2 ? ', ' : ' '),
                 plural: true,
               }
-            : counted(st.min, st.max, st.others ? { sg: `other ${noun(st.filter).sg}`, pl: `other ${noun(st.filter).pl}` } : noun(st.filter));
+            : counted(st.min, st.max, st.others ? { sg: `other ${noun(st.filter).sg}`, pl: `other ${noun(st.filter).pl}` } : noun(st.filter), this.upFrom);
           const info: VarInfo = { k: 'cards', text: nn.text, plural: nn.plural, zone: st.from, who: st.who, reveal: !!st.reveal, mentioned: false };
           this.vars.set(st.as, info);
           if (st.chooser === 'opp' || !this.deferred(p, i, st.as, 'cards')) {
@@ -1045,6 +1052,7 @@ function bonusVars(a: AttackScript): Set<string> {
 
 export function renderAttack(a: AttackScript, printedDamage: string | null | undefined, problems: string[] = []): string {
   const r = new Renderer('pokemon', problems);
+  r.upFrom = 0; // an attack's "up to X" starts at 0
   r.bonus = bonusVars(a);
   const [base, suffix] = parseDamage(printedDamage);
   if (a.program) {
@@ -1488,15 +1496,8 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
     problems: ['"up to"', '"any number of"'],
     why: 'Precious Trolley: "any number of Basic Pokémon" onto the Bench is bounded by free Bench space; searchToBench(…, 5) clamps to it and 5 is the whole Bench.',
   },
-  // Deliberate: min 1 on an "up to" whose card is only playable with a target (a card with no effect can't be played).
-  'sv10-168|text': {
-    problems: ['"up to'],
-    why: 'Sacred Ash: playable only with a Pokémon in the discard pile, then 1-5 are chosen. Choosing none would play the card for no effect (see the script notes).',
-  },
-  'me03-108|text': {
-    problems: ['"up to'],
-    why: 'Energy Recycler: as Sacred Ash. Playable only with a Basic Energy in the discard pile, then 1-5 are chosen.',
-  },
+  // (Sacred Ash sv10-168 and Energy Recycler me03-108 choose 1-5 for "up to 5": that is what "up to" means on a
+  //  Trainer (TPCi 2026-02-19), so they render as printed and need no entry.)
   // Same meaning, different words.
   'me01-125|text': {
     problems: ['"can\'t" is printed'],

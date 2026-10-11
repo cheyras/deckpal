@@ -73,11 +73,13 @@ export function statics(env: Env, s: GameState): LiveStatic[] {
       }
     }
   }
-  // Drop Ability statics from Pokémon that have no Abilities right now.
+  // Every source's `when` holds right now (a Tool's, an Energy's or a Stadium's as much as an Ability's:
+  // Shadowy Darkness Energy protects only on the Bench). Then drop Ability statics from Pokémon that
+  // have no Abilities right now.
   const locks = out.filter((x) => x.effect.k === 'noAbilities' && live(env, s, x));
-  if (!locks.length) return out.filter((x, i) => i < pre || live(env, s, x));
+  if (!locks.length) return out.filter((x) => live(env, s, x));
   return out.filter((x, i) => {
-    if (i < pre) return true;
+    if (i < pre) return live(env, s, x);
     const sl = findSlot(s, x.slot);
     if (sl && locks.some((l) => l !== x && affectsSlot(env, s, l, sl.slot, sl.owner))) return false;
     return live(env, s, x);

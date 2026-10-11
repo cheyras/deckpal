@@ -156,8 +156,8 @@ export function shuffleDeck(env: Env, s: GameState, p: Player): void {
   emit(env, { type: 'shuffle', player: p });
 }
 
-export function flipCoin(env: Env, s: GameState, p: Player): boolean {
-  const heads = s.forcedCoins.length ? (s.forcedCoins.shift() as boolean) : rand(s, 2) < 0.5;
+export function flipCoin(env: Env, s: GameState, p: Player, why?: 'confusion'): boolean {
+  const heads = env.replay?.coin?.(p, why) ?? (s.forcedCoins.length ? (s.forcedCoins.shift() as boolean) : rand(s, 2) < 0.5);
   emit(env, { type: 'coin_flip', player: p, heads });
   return heads;
 }
@@ -234,11 +234,17 @@ export function slotCards(slot: Slot): number[] {
   return [...slot.cards, ...slot.energy, ...slot.tools];
 }
 
+/** Log replay: take the card a replay hook picked out of `zone`; undefined when it picked none (or one not there). */
+export function takePicked(zone: number[], pick: number | undefined): number | undefined {
+  if (pick === undefined) return undefined;
+  return removeFrom(zone, pick) ? pick : undefined;
+}
+
 export function draw(env: Env, s: GameState, p: Player, n: number): number {
   const ps = s.p[p];
   let drawn = 0;
   for (let i = 0; i < n && ps.deck.length; i++) {
-    const c = ps.deck.pop() as number;
+    const c = takePicked(ps.deck, env.replay?.draw?.(p, ps.deck)) ?? (ps.deck.pop() as number);
     ps.hand.push(c);
     removeFrom(ps.revealed, c); // a secret draw: whatever the opponent knew about this card is stale
     if (ps.knownTop > 0) ps.knownTop--;

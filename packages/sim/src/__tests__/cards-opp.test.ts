@@ -314,3 +314,32 @@ test('Shadowy Darkness Energy: provides {D}; a Benched {D} holder takes no attac
   const d = g.ctx.defs.find((x) => x.name === 'Shadowy Darkness Energy')!;
   assert.deepEqual(d.provides, ['Darkness']);
 });
+
+test('Shadowy Darkness Energy protects its Pokémon on the Bench only, not in the Active Spot (a Tool/Energy `when` holds)', async () => {
+  // Found by the log replay (hns-34): the engine ignored `when` on Tool, Energy and Stadium statics, so
+  // an Active Gastly with Shadowy Darkness Energy took no damage at all.
+  const { FRAMES } = await import('../cards/frames-all.js');
+  const { HIDE_N_SNEAK } = await import('./decks.js');
+  const { statics, affectsSlot } = await import('../query.js');
+  const dark = {
+    name: 'dark',
+    cards: [
+      { frame: FRAMES['me02-054']!, count: 20 },
+      { frame: FRAMES['me05-083']!, count: 20 },
+      { frame: Object.values(FRAMES).find((f) => f.name === 'Darkness Energy')!, count: 20 },
+    ],
+  };
+  const g = scenario(HIDE_N_SNEAK, dark, [
+    { active: 'Dhelmise', energy: { active: ['Psychic Energy'] } },
+    { active: 'Gastly', bench: ['Gastly'], energy: { active: ['Shadowy Darkness Energy'], 0: ['Shadowy Darkness Energy'] } },
+  ]);
+  const env = g.envForInternals;
+  const s = g.state;
+  const prevent = statics(env, s).filter((x) => x.effect.k === 'preventDamage');
+  const act = s.p[1].active!;
+  const bench = s.p[1].bench[0]!;
+  assert.ok(!prevent.some((x) => affectsSlot(env, s, x, act, 1)), 'the Active Gastly must not be protected');
+  assert.ok(prevent.some((x) => affectsSlot(env, s, x, bench, 1)), 'the Benched Gastly must be protected');
+  g.submit([g.decision!.actions!.findIndex((a) => a.t === 'attack')]);
+  assert.equal(s.p[1].active?.damage ?? 30, 30, 'Vengeful Anchor (30) to the Active Gastly');
+});
