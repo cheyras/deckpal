@@ -26,7 +26,7 @@ import {
   retreatCost,
   statics,
 } from './query.js';
-import {
+import { leaveHand,
   allSlots,
   draw,
   emit,
@@ -118,7 +118,7 @@ export function submit(env: Env, s: GameState, choice: number[]): void {
       const ps = s.p[r.p];
       for (const i of choice) {
         const card = (d.values as number[])[i] as number;
-        removeFrom(ps.hand, card);
+        leaveHand(ps, card);
         const sl = newSlot(s, card);
         ps.bench.push(sl);
         emit(env, { type: 'play_to_bench', player: r.p, card, slot: sl.id });
@@ -128,7 +128,7 @@ export function submit(env: Env, s: GameState, choice: number[]): void {
     case 'setupActive': {
       const card = (d.values as number[])[choice[0] as number] as number;
       const ps = s.p[r.p];
-      removeFrom(ps.hand, card);
+      leaveHand(ps, card);
       ps.active = newSlot(s, card);
       emit(env, { type: 'play_to_active', player: r.p, card, slot: ps.active.id });
       s.step = `bench${r.p}`;
@@ -138,7 +138,7 @@ export function submit(env: Env, s: GameState, choice: number[]): void {
       const ps = s.p[r.p];
       for (const i of choice) {
         const card = (d.values as number[])[i] as number;
-        removeFrom(ps.hand, card);
+        leaveHand(ps, card);
         const sl = newSlot(s, card);
         ps.bench.push(sl);
         emit(env, { type: 'play_to_bench', player: r.p, card, slot: sl.id });
@@ -257,6 +257,7 @@ function setupStep(env: Env, s: GameState): void {
           ps.mulligans++;
           ps.deck.push(...ps.hand);
           ps.hand = [];
+          ps.revealed = [];
           shuffleDeck(env, s, p);
           draw(env, s, p, 7);
         }
@@ -538,7 +539,7 @@ function doAction(env: Env, s: GameState, a: Action): void {
       s.afterKo = 'endTurn';
       return;
     case 'bench': {
-      removeFrom(ps.hand, a.card);
+      leaveHand(ps, a.card);
       const sl = newSlot(s, a.card);
       ps.bench.push(sl);
       emit(env, { type: 'play_to_bench', player: p, card: a.card, slot: sl.id });
@@ -548,7 +549,7 @@ function doAction(env: Env, s: GameState, a: Action): void {
     }
     case 'evolve': {
       const sl = allSlots(ps).find((x) => x.id === a.slot) as Slot;
-      removeFrom(ps.hand, a.card);
+      leaveHand(ps, a.card);
       // Once-per-turn use is per Ability: the Evolution's own Abilities are fresh even if the Basic used one this
       // turn (rules audit). A same-named Ability stays spent — see the todo in rules-audit.test.ts.
       const spent = sl.usedAbilities.map((i) => def(env.ctx, topCard(sl)).abilities[i]?.name);
@@ -564,7 +565,7 @@ function doAction(env: Env, s: GameState, a: Action): void {
     }
     case 'attach': {
       const sl = allSlots(ps).find((x) => x.id === a.slot) as Slot;
-      removeFrom(ps.hand, a.card);
+      leaveHand(ps, a.card);
       sl.energy.push(a.card);
       ps.energyAttached = true;
       emit(env, { type: 'attach', player: p, card: a.card, slot: sl.id });
@@ -581,7 +582,7 @@ function doAction(env: Env, s: GameState, a: Action): void {
     }
     case 'trainer': {
       const d = def(env.ctx, a.card);
-      removeFrom(ps.hand, a.card);
+      leaveHand(ps, a.card);
       emit(env, { type: 'play_trainer', player: p, card: a.card });
       if (d.ttype === 'supporter') ps.supporterPlayed = true;
       if (d.ttype === 'stadium') {
@@ -598,7 +599,7 @@ function doAction(env: Env, s: GameState, a: Action): void {
     }
     case 'tool': {
       const sl = allSlots(ps).find((x) => x.id === a.slot) as Slot;
-      removeFrom(ps.hand, a.card);
+      leaveHand(ps, a.card);
       sl.tools.push(a.card);
       emit(env, { type: 'play_trainer', player: p, card: a.card });
       return;
@@ -746,7 +747,9 @@ function resolveKOs(env: Env, s: GameState): void {
       const tp = s.p[taker];
       let took = 0;
       for (let i = 0; i < n && tp.prizes.length; i++) {
-        tp.hand.push(tp.prizes.pop() as number);
+        const pc = tp.prizes.pop() as number;
+        tp.hand.push(pc);
+        removeFrom(tp.revealed, pc); // Prize cards are taken face down
         took++;
       }
       tp.prizesTaken += took;

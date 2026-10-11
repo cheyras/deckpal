@@ -21,7 +21,7 @@ import { RandomPilot } from '../pilot/random.js';
 import { statics } from '../query.js';
 import { Rng } from '../rng.js';
 import { scenario } from '../scenario.js';
-import { cloneState, findSlot } from '../state.js';
+import { cloneState, draw, findSlot, opp } from '../state.js';
 import type { Frame, GameState, Player } from '../types.js';
 import type { CardScript } from '../dsl.js';
 import { HIDE_N_SNEAK, TOOLBOX_SLOWKING } from './decks.js';
@@ -217,4 +217,39 @@ test('determinize: with the Prize multiset known (after a deck search) their ORD
     if (d.p[0].prizes.join() !== real.join()) reordered++;
   }
   assert.ok(reordered >= 15, `Prize order kept the real order in ${20 - reordered} of 20 worlds`);
+});
+
+test('a revealed marker leaves the hand with its card: played, then drawn back in secret, the card is hidden again', () => {
+  // Astra review of #296: a searched (revealed) card that was benched, recycled and redrawn stayed
+  // pinned in every determinized world, so the opponent's search "knew" it was in hand.
+  const g = new Game(HIDE_N_SNEAK, TOOLBOX_SLOWKING, 27).start();
+  const pilots = [new RandomPilot(1), new RandomPilot(2)];
+  let benched: number | null = null;
+  for (let n = 0; n < 400 && !g.over && benched === null; n++) {
+    const d = g.decision!;
+    const i = d.kind === 'main' ? (d.actions ?? []).findIndex((a) => a.t === 'bench') : -1;
+    if (i >= 0) {
+      const card = (d.actions![i] as { card: number }).card;
+      g.state.p[d.player].revealed.push(card); // as if a search had shown it
+      g.submit([i]);
+      assert.ok(!g.state.p[d.player].revealed.includes(card), 'benching kept the revealed marker');
+      benched = card;
+      break;
+    }
+    g.submit((pilots[d.player] as RandomPilot).choose(g, d));
+  }
+  assert.notEqual(benched, null, 'no bench action came up');
+
+  // Secret entry: a stale marker on a card in the deck is dropped when that card is drawn.
+  const s = g.state;
+  const p = s.current;
+  const top = s.p[p].deck[s.p[p].deck.length - 1] as number;
+  s.p[p].revealed.push(top);
+  draw(g.envForInternals, s, p, 1);
+  assert.ok(s.p[p].hand.includes(top));
+  assert.ok(!s.p[p].revealed.includes(top), 'a secretly drawn card kept a revealed marker');
+  const pinned = Array.from({ length: 50 }, (_, k) => determinize(s, g.ctx, opp(p), new Rng(500 + k))).filter((w) =>
+    w.p[p].hand.includes(top),
+  ).length;
+  assert.ok(pinned < 50, 'the drawn card sat in the opponent\'s model of the hand in every world');
 });

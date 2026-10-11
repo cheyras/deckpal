@@ -168,6 +168,9 @@ export function searchWorld(env: Env, root: GameState, me: Player, o: Required<O
     }
   };
 
+  // The root is expanded in full, past the node budget: every first move gets a score, so the
+  // choice never falls to an option nobody looked at. Its cost is bounded by the option count
+  // (one clone + settle each), not by `nodes`; runner.test.ts measures the worst event-loop stall.
   expand(root, -1, [], 0);
   while (heap.size && nodes < o.nodes) {
     const nd = heap.pop();

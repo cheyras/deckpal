@@ -205,12 +205,20 @@ export function removeFrom(arr: number[], card: number): boolean {
   return true;
 }
 
+/**
+ * Take a card out of its owner's hand. Its `revealed` marker goes with it: a marker
+ * means "the opponent knows this card is in hand NOW", so it must not survive the card
+ * leaving (or it would leak the card's identity if it is later drawn back secretly).
+ */
+export function leaveHand(ps: PlayerState, card: number): boolean {
+  if (!removeFrom(ps.hand, card)) return false;
+  removeFrom(ps.revealed, card);
+  return true;
+}
+
 /** Take a card out of whichever hidden/public zone of its owner holds it (not from play). */
 export function takeFromZones(ps: PlayerState, card: number): boolean {
-  if (removeFrom(ps.hand, card)) {
-    removeFrom(ps.revealed, card);
-    return true;
-  }
+  if (leaveHand(ps, card)) return true;
   const di = ps.deck.indexOf(card);
   if (di >= 0) {
     // Taking a card from inside the known top run shortens it; elsewhere it is unchanged.
@@ -232,6 +240,7 @@ export function draw(env: Env, s: GameState, p: Player, n: number): number {
   for (let i = 0; i < n && ps.deck.length; i++) {
     const c = ps.deck.pop() as number;
     ps.hand.push(c);
+    removeFrom(ps.revealed, c); // a secret draw: whatever the opponent knew about this card is stale
     if (ps.knownTop > 0) ps.knownTop--;
     drawn++;
     emit(env, { type: 'draw', player: p, card: c });

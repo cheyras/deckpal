@@ -37,6 +37,7 @@ function checkZones(g: Game): void {
     add('limbo', s.limbo.filter((c) => g.ctx.owner[c] === p));
     assert.equal(seen.size, g.ctx.iids[p].length, `P${p} has ${seen.size} cards in zones, expected ${g.ctx.iids[p].length}`);
     assert.ok(ps.bench.length <= 5, 'bench over 5');
+    for (const c of ps.revealed) assert.ok(ps.hand.includes(c), `card ${c} is marked revealed but is not in P${p}'s hand`);
     for (const sl of allSlots(ps)) {
       assert.equal(sl.damage % 10, 0, 'damage not a multiple of 10');
       assert.ok(sl.tools.length <= 1, 'more than one Tool');

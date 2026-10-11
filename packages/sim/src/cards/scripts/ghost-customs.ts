@@ -104,6 +104,7 @@ registerCustom('lookTopPick', (env, s, f, args, answer) => {
   for (const c of top) removeFrom(ps.deck, c);
   ps.knownTop = Math.max(0, ps.knownTop - top.length);
   ps.hand.push(pick);
+  removeFrom(ps.revealed, pick); // looked at in secret
   ps.deck.unshift(...top.filter((c) => c !== pick));
   return 'next';
 });
