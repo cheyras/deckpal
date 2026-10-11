@@ -272,9 +272,10 @@ export interface IdentityState {
    * that response is five matches with names and image URLs and this exists so a
    * capture's telemetry can say `number+denominator` instead of leaving the next
    * session to guess. Null until the resolve event arrives, and still null when
-   * it arrives empty (no OCR, nothing read, no such endpoint).
+   * it arrives empty (no OCR, nothing read, no such endpoint). `printingOpen`
+   * rides along only when the endpoint sent it (the same-art guard fired).
    */
-  resolveVerdict: { resolvedBy: ScanResolveResponse['resolvedBy']; confident: boolean } | null
+  resolveVerdict: { resolvedBy: ScanResolveResponse['resolvedBy']; confident: boolean; printingOpen?: true } | null
   /**
    * WHAT THE IMAGE RUNG COST AND WHETHER IT ANSWERED — for the RECORD, like
    * `resolveVerdict`, and read by nothing that decides anything.
@@ -612,7 +613,11 @@ export function reduceIdentity(s: IdentityState, e: IdentityEvent): IdentityStat
         ),
         resolveSettled: true,
         resolveVerdict: e.resolved
-          ? { resolvedBy: e.resolved.resolvedBy, confident: e.resolved.confident }
+          ? {
+              resolvedBy: e.resolved.resolvedBy,
+              confident: e.resolved.confident,
+              ...(e.resolved.printingOpen ? { printingOpen: true as const } : {}),
+            }
           : s.resolveVerdict,
         embed: e.embed ? { outcome: e.embed.outcome, ms: e.embed.ms } : s.embed,
       }
@@ -795,6 +800,11 @@ export function identityRecord(s: IdentityState, msToResolve: number): Record<st
       lateAnswerDropped: s.lateAnswerDropped,
       resolvedBy: s.resolveVerdict?.resolvedBy ?? null,
       confident: s.resolveVerdict?.confident ?? null,
+      // THE SAME-ART GUARD (2026-10-10): true when the ladder's confident answer
+      // was reopened because another printing shares its picture — how often
+      // that happens on device is the question this column answers. Null, like
+      // the two above, until a resolve answer has landed.
+      printingOpen: s.resolveVerdict ? s.resolveVerdict.printingOpen === true : null,
       cardId: s.match?.cardId ?? null,
       msToResolve: Math.round(msToResolve),
     },
