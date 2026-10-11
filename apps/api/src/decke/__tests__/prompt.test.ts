@@ -81,9 +81,11 @@ test('an announced action must happen in the same turn', () => {
 test('Deep Think is a costed approval offer, not a claim the model may invent', () => {
   const p = flat(buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS }))
   assert.match(p, /Deep Think is approved Opus/)
-  assert.match(p, /Call `deep_think` once per conversation unless asked; never routine work/)
+  // Conditional on HOLDING the tool: it is absent where Deep Think is not
+  // available (unsigned, unmetered) and hidden once a turn has answered it.
+  assert.match(p, /If you hold `deep_think`, call it once per chat unless asked; never routine work/)
   assert.match(p, /battle deep-dive.*season review.*tournament meta prep/)
-  assert.match(p, /One-sentence why; card shows cost/)
+  assert.match(p, /One-line why; card shows cost/)
   assert.match(p, /never fake it/)
 })
 

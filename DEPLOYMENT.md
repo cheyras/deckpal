@@ -1201,7 +1201,12 @@ hold-multiplier signature so it can reserve up to 200 credits and settle the
 same Gateway-reported actual cost. Deploying that code before 083 means only
 Deep Think approval legs fail admission; Standard and Quick keep their ordinary
 25-credit hold. Apply 083 with the numbered runner on both cloud and self-host;
-it adds no environment variable or infrastructure setting.
+it adds no environment variable or infrastructure setting. Deep Think also needs
+`DECKE_APPROVAL_SECRET` (already declared above): its consent is a signed
+approval plus offer/grant tokens keyed by that secret, so with it unset Deep
+Think is off entirely — never offered, never routed — and the boot warning says
+so. It is offered only to metered credits (a paid wallet or an unlimited
+account), never under the daily allowance, credits off or flat v1 pricing.
 
 Only 065 carries `@supabase-only` and is skipped by the normal runner on
 self-host. Do not skip 067 there: its cloud-role grants are conditional and its

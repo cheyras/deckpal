@@ -9,4 +9,10 @@ test('declined-only activity says the change was skipped', () => {
   assert.equal(activitySummary([step('one', 'declined'), step('two', 'declined')], 7), 'Skipped 2 changes · 7s')
 })
 test('mixed activity counts work and discloses skipped changes', () => assert.equal(activitySummary([step('skip', 'declined'), step('read', 'ok')], 7), 'Looked at 1 thing, skipped 1 change · 7s'))
+test('declining Deep Think is the normal answer, not a skipped change', () => {
+  const kept = { id: 'd', name: 'deep_think', phase: 'declined' as const }
+  assert.equal(activitySummary([kept], 4), 'Kept it quick · 4s')
+  assert.equal(activitySummary([kept, step('read', 'ok')], 4), 'Looked at 1 thing · 4s')
+  assert.equal(activitySummary([kept, step('skip', 'declined')], 4), 'Skipped that change · 4s')
+})
 test('favicon display caps at three and reports the remainder', () => { const sources = ['a.com', 'b.com', 'c.com', 'd.com'].map((host) => ({ host, url: `https://${host}`, title: host })); assert.deepEqual(sourceFavicons(sources), { urls: ['https://icons.duckduckgo.com/ip3/a.com.ico', 'https://icons.duckduckgo.com/ip3/b.com.ico', 'https://icons.duckduckgo.com/ip3/c.com.ico'], more: 1 }) })

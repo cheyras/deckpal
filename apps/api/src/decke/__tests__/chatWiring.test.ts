@@ -135,24 +135,68 @@ test('the frozen policy version is the only flat-versus-metered chat gate', () =
   assert.doesNotMatch(CODE, /DECKE_METERED|METERED_CREDITS_ENABLED/);
 });
 
-test('a signed Deep Think replay selects Deep and expands only that request hold', () => {
-  assert.match(
-    SRC,
-    /import \{[\s\S]*DEEP_HOLD_MULTIPLIER,[\s\S]*deepApprovedThisTurn,[\s\S]*estimateCredits,[\s\S]*\} from '\.\.\/apps\/api\/dist\/decke\/deepThink\.js'/,
-  );
-  assert.match(CODE, /const deepApproved = deepApprovedThisTurn\(messages\)/);
-  assert.match(CODE, /decideTier\(\{ triage, carried: carriedFromHistory\(messages\), deepApproved, pastedLog/);
-  assert.match(CODE, /const choice = TIERS\[decision\.tier\]/);
+// ── DEEP THINK ──────────────────────────────────────────────────────────────
+//
+// `deepThink.test.ts` and `deepThinkSdk.test.ts` prove the reads; these pin
+// that chat actually makes them, in the right order, from the right inputs.
+// Each one a mutation would otherwise leave the whole api suite green on.
+
+test('Deep Think exists only on a signed deployment with metered credits and a bindable turn', () => {
+  assert.match(SRC, /import \{ deckeApprovalSigning \} from '\.\.\/apps\/api\/dist\/decke\/gate\.js'/);
+  assert.match(CODE, /deepSecret = deckeApprovalSigning\(\) === 'signed' \? process\.env\.DECKE_APPROVAL_SECRET : undefined/);
+  assert.match(CODE, /deepPricing = deepSecret \? deepThinkPricing\(quote\) : null/);
+  assert.match(CODE, /deepScope = deepPricing \? deepThinkScope\(\{ userId: user\.id, conversationId, exchangeId, messages \}\) : null/);
+  assert.match(CODE, /deepRouted = deepScope \? deepRoute\(messages, deepScope, deepSecret\) : null/);
+  // Read before admission: it sizes the hold.
+  assert.ok(CODE.indexOf('deepRouted = deepScope ?') < CODE.indexOf("meter = await meterTurn(user.id, { tier: 'chat_turns'"));
+  // Not in the tool set at all where it cannot be had.
+  assert.match(CODE, /\.\.\.offerableTools\(buildTools\(writer, groundingForTools, repairs, emitToolEvent\(writer\), \{[\s\S]*?\}\), deepScope !== null\)/);
+  assert.doesNotMatch(CODE, /deepApprovedThisTurn/, 'the unvalidated any-part-after-the-reader read is back');
+});
+
+test('only a Deep route expands the hold and selects Deep, and admission must agree', () => {
   assert.match(
     CODE,
-    /deepApproved \? \{ holdMultiplier: DEEP_HOLD_MULTIPLIER \} : undefined/,
-    'Deep approval no longer controls the larger reservation',
+    /deepRouted \? \{ holdMultiplier: DEEP_HOLD_MULTIPLIER \} : undefined/,
+    'something other than a validated Deep route controls the larger reservation',
   );
+  assert.match(CODE, /const deepAdmitted = deepRouted !== null && meter\.mode === deepPricing/);
+  // Deep FIRST, over the echo every Deep leg carries (`turnDecision`, whose
+  // precedence `deepThink.test.ts` and `deepThinkSdk.test.ts` exercise).
+  assert.match(CODE, /decision: turnDecision\(\{\s*deep: deepAdmitted,\s*echo: echoed,\s*firstLeg,/);
+  assert.match(CODE, /decide: \(deepApproved\) => decideTier\(\{ triage, carried: carriedFromHistory\(messages\), deepApproved, pastedLog: pastedNow \|\| pasteAwaitingAnswer \}\)/);
+  assert.doesNotMatch(CODE, /decisionFromEcho\(/, 'an echo is decided outside turnDecision, where Deep cannot outrank it');
+  assert.match(CODE, /pricing: deepPricing,\s*admission: meter,/, 'the balance floor is not read from the admission');
+  assert.match(CODE, /const decision = deepSettled\.decision/);
+  assert.match(CODE, /const choice = TIERS\[decision\.tier\]/);
   assert.match(CODE, /result = startConversation\(choice, decision\.effort\)/);
+  // An approved Deep Think that did not start is said, not silent.
+  assert.match(CODE, /if \(deepSettled\.off\) \{\s*writer\.write\(\{ type: 'text-delta', id: 'deep-think-note', delta: deepThinkNote\(deepSettled\.off, deepSettled\.credits\) \}\)/);
+});
+
+test('the grant is minted only by deep_think on a Deep approval leg', () => {
+  assert.match(
+    CODE,
+    /result: \(\) => decision\.tier === 'deep' && deepRouted\?\.via === 'approval'\s*\? deepThinkResult\(\{ grant: mintDeepGrant\(deepSecret, deepScope\) \}\)\s*: deepThinkResult\(\{ off: deepSettled\.off \?\? 'unavailable' \}\)/,
+  );
+  assert.equal(CODE.match(/mintDeepGrant\(/g)?.length, 1, 'a grant is minted somewhere else too');
+});
+
+test('once answered, and on the Deep tier, the offer and its tool leave view for the whole request', () => {
+  assert.match(
+    CODE,
+    /const requestHidden = new Set\(\[\s*\.\.\.\(deepThinkAnsweredThisTurn\(messages\) \|\| decision\.tier === 'deep' \? \[DEEP_THINK_TOOL\] : \[\]\),\s*\.\.\.\(decision\.tier === 'deep' \? \['ask_user'\] : \[\]\),\s*\]\)/,
+  );
+  assert.match(
+    CODE,
+    /const requestedDeepOffer = decision\.reasons\.includes\('deep:requested'\) &&\s*deepScope !== null && !requestHidden\.has\(DEEP_THINK_TOOL\)/,
+  );
+  // The corrective leg never raises a card it has no offer for.
+  const leg = CODE.slice(CODE.indexOf('if (corrective) {'));
+  assert.match(leg, /activeTools: Object\.keys\(allDeckeTools\)\.filter\(\(n\) => n !== DEEP_THINK_TOOL && !requestHidden\.has\(n\)\)/);
 });
 
 test('requested depth gets an uncached Standard instruction before model work', () => {
-  assert.match(CODE, /const requestedDeepOffer = decision\.reasons\.includes\('deep:requested'\)/);
   assert.match(
     CODE,
     /requestedDeepOffer && choice === TIERS\.standard[\s\S]{0,240}systemMessage\(choice, 'The reader asked for depth\./,
@@ -164,13 +208,14 @@ test('requested depth gets an uncached Standard instruction before model work', 
   );
 });
 
-test('the Deep Think approval chunk emits the server estimate keyed to its call', () => {
+test('the Deep Think approval chunk emits the server offer keyed to its call, priced only for a paid wallet', () => {
   assert.match(CODE, /const deepEstimate = estimateCredits\(decision\.pathways\)/);
   assert.match(CODE, /chunk\.type !== 'tool-approval-request'/);
   assert.match(CODE, /chunk\.toolCall\.toolName !== DEEP_THINK_TOOL/);
+  assert.match(CODE, /const call = \{ toolCallId: chunk\.toolCall\.toolCallId, approvalId: chunk\.approvalId \}/);
   assert.match(
     CODE,
-    /type: 'data-decke-deep-estimate',[\s\S]{0,120}toolCallId: chunk\.toolCall\.toolCallId, \.\.\.deepEstimate[\s\S]{0,80}transient: true/,
+    /type: 'data-decke-deep-offer',[\s\S]{0,80}toolCallId: call\.toolCallId,\s*token: mintDeepOffer\(deepSecret, deepScope, call\),\s*estimate: deepPricing === 'paid' \? deepEstimate : null,[\s\S]{0,40}transient: true/,
   );
 });
 
@@ -228,7 +273,7 @@ test('the deep tier is given the turn\'s meter refusals, seeded from the replaye
 test('the same ledger narrows activeTools, so a spent tier leaves the model\'s view', () => {
   assert.match(
     SRC,
-    /activeTools: focusedTools\(allDeckeTools, stepNumber, \(n\) => deepRefusals\.unavailable\(n\) \|\| reflex\.hide\.includes\(n\)\)/,
+    /activeTools: focusedTools\(allDeckeTools, stepNumber, \(n\) => deepRefusals\.unavailable\(n\) \|\| reflex\.hide\.includes\(n\) \|\| requestHidden\.has\(n\)\)/,
     'prepareStep no longer removes a spent deep tier from activeTools',
   );
 });
@@ -245,7 +290,7 @@ test('the model loop uses the post-lookup settling rule from the built module', 
 test('prepareStep still delegates visibility and hard impossibilities to focusedTools', () => {
   assert.match(
     CODE,
-    /activeTools: focusedTools\(allDeckeTools, stepNumber, \(n\) => deepRefusals\.unavailable\(n\) \|\| reflex\.hide\.includes\(n\)\)/,
+    /activeTools: focusedTools\(allDeckeTools, stepNumber, \(n\) => deepRefusals\.unavailable\(n\) \|\| reflex\.hide\.includes\(n\) \|\| requestHidden\.has\(n\)\)/,
   );
 });
 
@@ -401,10 +446,10 @@ test('the reflex read runs after the meter, from the built module, with the turn
 
 test('triage is metered beside reflex and code chooses the conversation tier', () => {
   assert.match(SRC, /import \{ runTriage \} from '\.\.\/apps\/api\/dist\/decke\/triage\.js'/);
-  assert.match(SRC, /import \{ answeringAsk, carriedFromHistory, continuationFloor, decideTier, quickRefusalRetry, raisedToStandard, resumesApproval \} from '\.\.\/apps\/api\/dist\/decke\/tiers\.js'/);
+  assert.match(SRC, /import \{ answeringAsk, carriedFromHistory, decideTier, quickRefusalRetry, raisedToStandard, resumesApproval \} from '\.\.\/apps\/api\/dist\/decke\/tiers\.js'/);
   assert.match(CODE, /runTriage\(\{[\s\S]*message: latestUserText\(messages\)[\s\S]*model: observeUsageModel\(gateway\(TRIAGE\.id\), meter\)/);
   assert.match(CODE, /answering: answeringAsk\(messages\)/);
-  assert.match(CODE, /decision = decideTier\(\{ triage, carried: carriedFromHistory\(messages\), deepApproved, pastedLog: pastedNow \|\| pasteAwaitingAnswer \}\)/);
+  assert.match(CODE, /decide: \(deepApproved\) => decideTier\(\{ triage, carried: carriedFromHistory\(messages\), deepApproved, pastedLog: pastedNow \|\| pasteAwaitingAnswer \}\)/);
   assert.match(CODE, /const choice = TIERS\[decision\.tier\]/);
   assert.match(CODE, /console\.log\('\[deck-e\] route', JSON\.stringify\(\{/);
 });
@@ -427,7 +472,7 @@ test('a pasted log in the latest message reaches decideTier (S6), read from that
 // run on the model and guidance its first leg chose.
 
 test('the echo is read from `tierRoute`, never from `route` (the page)', () => {
-  assert.match(SRC, /import \{ ROUTE_ECHO_PART, decisionFromEcho, readRouteEcho, routeEchoFor \} from '\.\.\/apps\/api\/dist\/decke\/routeEcho\.js'/);
+  assert.match(SRC, /import \{ ROUTE_ECHO_PART, readRouteEcho, routeEchoFor \} from '\.\.\/apps\/api\/dist\/decke\/routeEcho\.js'/);
   assert.match(CODE, /readRouteEcho\(body\?\.tierRoute\)/);
   assert.doesNotMatch(CODE, /readRouteEcho\(body\?\.route\)/);
   assert.match(CODE, /const route = boundedRoute\(body\?\.route\)/, 'the page pathname must stay `route`');
@@ -439,9 +484,10 @@ test('a first leg triages and writes the transient route part; a continuation re
   assert.match(CODE, /const echoed = firstLeg \? null : readRouteEcho\(body\?\.tierRoute\)/);
   // Triage is SKIPPED, not merely overridden, when the echo is reused.
   assert.match(CODE, /echoed \? null : runAdvisoryUsage\(usage, 'triage'/);
-  assert.match(CODE, /if \(echoed\) \{\s*decision = decisionFromEcho\(echoed\)/);
-  // No echo on a continuation: re-triage, never below Standard.
-  assert.match(CODE, /if \(!firstLeg\) decision = continuationFloor\(decision\)/);
+  // The echo is reused, and a continuation without one is re-triaged never
+  // below Standard — both inside `turnDecision` (deepThink.ts), where a
+  // verified Deep route outranks the echo; its unit tests pin each branch.
+  assert.match(CODE, /decision: turnDecision\(\{\s*deep: deepAdmitted,\s*echo: echoed,\s*firstLeg,/);
   // Only a first leg emits, through the same transient writer pattern as the
   // other data-decke-* parts, before anything else on the stream.
   assert.match(CODE, /const routeEcho = firstLeg \? routeEchoFor\(decision\) : null/);

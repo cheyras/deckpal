@@ -134,13 +134,17 @@ test('a near-miss ask is trimmed to its own schema, lands, and says what was cut
 })
 
 test('deep_think is a bounded Deck-E server tool held for signed approval', async () => {
-  const tools = buildTools(noopWriter) as unknown as Record<string, {
+  type Deep = {
     description?: string
     inputSchema: z.ZodTypeAny
     needsApproval?: boolean
-    execute?: () => Promise<string>
-  }>
-  const deep = tools.deep_think!
+    execute?: (input: unknown, options: { toolCallId: string }) => Promise<{ status: string; grant?: string; note: string }>
+  }
+  const events: Array<{ phase: string; name: string; id: string }> = []
+  type DeepContext = NonNullable<NonNullable<Parameters<typeof buildTools>[4]>['deepThink']>
+  const build = (deepThink?: DeepContext) =>
+    (buildTools(noopWriter, undefined, undefined, (e) => events.push(e), deepThink ? { deepThink } : undefined) as unknown as Record<string, Deep>).deep_think!
+  const deep = build()
   assert.equal(deep.needsApproval, true)
   assert.equal(typeof deep.execute, 'function')
   assert.equal(deep.inputSchema.safeParse({ why: 'x'.repeat(200), plan: 'y'.repeat(300) }).success, true)
@@ -149,7 +153,18 @@ test('deep_think is a bounded Deck-E server tool held for signed approval', asyn
   assert.equal(deep.inputSchema.safeParse({ why: 'Worth it.', plan: 'Replay it.', cost: 999 }).success, false)
   assert.match(deep.description ?? '', /only when this request truly benefits/i)
   assert.match(deep.description ?? '', /never for routine work/i)
-  assert.match(await deep.execute!(), /Deep Think is on for this request/)
+
+  const input = { why: 'Worth it.', plan: 'Replay it.' }
+  // No request context (tests, previews): unavailable, no grant, no row.
+  const off = await deep.execute!(input, { toolCallId: 'd0' })
+  assert.equal(off.status, 'off')
+  assert.equal('grant' in off, false)
+  assert.equal(events.length, 0, 'a Deep Think that did not start drew a row')
+  // On a real Deep approval leg the request hands it a grant, and it shows a row.
+  const on = await build({ result: () => ({ status: 'on', grant: 'dt1.grant', note: 'Deep Think is on for this request' }) })
+    .execute!(input, { toolCallId: 'd1' })
+  assert.deepEqual(on, { status: 'on', grant: 'dt1.grant', note: 'Deep Think is on for this request' })
+  assert.deepEqual(events.map((e) => [e.id, e.name, e.phase]), [['d1', 'deep_think', 'start'], ['d1', 'deep_think', 'ok']])
 })
 
 test('ask_to_share_chat draws one transient choice only when SQL allows it', async () => {

@@ -110,6 +110,62 @@ export function toolReplayParts(
   return { parts, unrecorded }
 }
 
+/**
+ * Approved calls whose RESULT is replayed in place of their approval answer.
+ *
+ * The approval answer is a one-leg message: the SDK reads it only at the end
+ * of the final message, runs the call, and streams its output. Left in the
+ * wire after that, it is a tool call with no result on every later leg — an
+ * unpaired call a provider rejects — and its output (for `deep_think`, the
+ * grant that keeps the turn on Deep) would never reach the server again. The
+ * call's chip cannot carry it either: it was marked replayed on the leg that
+ * answered it. Only `deep_think` today; writes keep their existing replay.
+ */
+export const RESULT_REPLAYED_APPROVALS: ReadonlySet<string> = new Set(['deep_think'])
+
+type WirePartLike = Record<string, unknown>
+type WireMessageLike = { role: string; parts: WirePartLike[] }
+
+/**
+ * The wire with each approved, now-answered call in `names` turned into the
+ * finished tool part it became: same call, its captured output, no approval.
+ * Only the reader's current turn is touched, and only a call whose output
+ * actually arrived; everything else is returned as it was.
+ */
+export function settleApprovedCalls<T extends WireMessageLike>(
+  wire: readonly T[],
+  outputs: ReadonlyMap<string, string>,
+  names: ReadonlySet<string> = RESULT_REPLAYED_APPROVALS,
+): T[] {
+  let current = wire.length - 1
+  while (current >= 0 && wire[current]!.role !== 'user') current--
+  return wire.map((message, index) => {
+    if (index <= current) return message
+    let changed = false
+    const parts = message.parts.map((part) => {
+      const type = typeof part.type === 'string' ? part.type : ''
+      const id = typeof part.toolCallId === 'string' ? part.toolCallId : ''
+      const approval = part.approval as { approved?: unknown } | undefined
+      if (
+        part.state !== 'approval-responded' ||
+        approval?.approved !== true ||
+        !type.startsWith('tool-') ||
+        !names.has(type.slice('tool-'.length)) ||
+        !outputs.has(id)
+      ) return part
+      changed = true
+      return {
+        type,
+        toolCallId: id,
+        input: (part.input ?? {}) as Record<string, unknown>,
+        state: 'output-available',
+        output: outputs.get(id)!,
+      }
+    })
+    return changed ? { ...message, parts } : message
+  })
+}
+
 export function savedDeckRecord({
   name,
   total,

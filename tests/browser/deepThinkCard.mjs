@@ -14,12 +14,27 @@ const OFFERS = [
   { toolCallId: 'deep-think-approve', approvalId: 'ap-deep-think-approve' },
 ]
 
+const TOKEN = offer => 'dt1.1760000000000.token-for-' + offer.toolCallId
+const GRANT = 'dt1.1760000000000.grant-for-this-turn'
+const KEEP_QUICK = /^\[\[KEEP_QUICK\]\] The reader declined Deep Think/
+
 const sse = (...chunks) =>
   chunks.map(chunk => 'data: ' + JSON.stringify(chunk) + '\n\n').join('') + 'data: [DONE]\n\n'
+// The server's offer arrives AFTER the SDK's card here, as it may in production
+// (it is written beside the SDK's stream), so the hook must attach it late.
 const offerReply = offer => sse(
   { type: 'tool-input-available', toolCallId: offer.toolCallId, toolName: 'deep_think', input: { why: WHY, plan: PLAN } },
-  { type: 'data-decke-deep-estimate', data: { toolCallId: offer.toolCallId, low: 40, high: 120 } },
   { type: 'tool-approval-request', approvalId: offer.approvalId, toolCallId: offer.toolCallId, signature: 'sig-deep-think' },
+  { type: 'data-decke-deep-offer', data: { toolCallId: offer.toolCallId, token: TOKEN(offer), estimate: { low: 40, high: 120 } } },
+)
+// The approval leg: deep_think ran (its row and its result, which carries the
+// grant), then Opus asked the browser for one tool — so there is a leg after it.
+const approvedReply = offer => sse(
+  { type: 'data-decke-tool', data: { phase: 'start', id: offer.toolCallId, name: 'deep_think', title: 'Deep Think' } },
+  { type: 'data-decke-tool', data: { phase: 'ok', id: offer.toolCallId, name: 'deep_think', title: 'Deep Think', summary: 'Deep Think is on for this request' } },
+  { type: 'tool-output-available', toolCallId: offer.toolCallId, output: { status: 'on', grant: GRANT, note: 'Deep Think is on for this request.' } },
+  { type: 'text-delta', delta: 'Working through it properly.' },
+  { type: 'tool-input-available', toolCallId: 'scroll-after-deep', toolName: 'scrollToMe', input: {} },
 )
 const settledReply = () => sse({ type: 'text-delta', delta: 'I have continued with your choice.' })
 
@@ -64,20 +79,98 @@ async function assertCardGeometry(page, card, width) {
     `Deck-E's park overlaps the visible Deep Think card (${JSON.stringify({ parkBox, cardBox })})`)
 }
 
+/**
+ * At least `count` POSTs. The approval leg and the leg after it can land
+ * within one poll of each other, so a later POST may already be here; the
+ * journey's final count is checked exactly once it settles.
+ */
 async function waitForPosts(page, bodies, count) {
   for (let i = 0; i < 100 && bodies.length < count; i += 1) await page.waitForTimeout(20)
-  assert.equal(bodies.length, count)
+  assert.ok(bodies.length >= count, `expected ${count} POSTs, saw ${bodies.length}`)
 }
 
 function assertApprovalWire(body, offer, approved) {
-  const parts = body.messages.flatMap(message => message.parts)
-  const replay = parts.find(part => part.type === 'tool-deep_think' && part.toolCallId === offer.toolCallId
-    && part.state === 'approval-responded')
-  assert.ok(replay, 'the deep_think approval was not replayed in the next POST')
+  const final = body.messages.at(-1)
+  const replay = final.parts.at(-1)
+  assert.equal(replay.type, 'tool-deep_think', 'the deep_think answer is not the last part of the final message')
+  assert.equal(replay.toolCallId, offer.toolCallId)
+  assert.equal(replay.state, 'approval-responded')
   assert.deepEqual(replay.input, { why: WHY, plan: PLAN })
   assert.equal(replay.approval.id, offer.approvalId)
   assert.equal(replay.approval.approved, approved)
   assert.equal(replay.approval.signature, 'sig-deep-think')
+  // The server's turn binding rides beside the SDK's approval, never inside it.
+  assert.equal(replay.deepOffer, TOKEN(offer), 'the offer token was not replayed with the answer')
+  assert.equal('deepOffer' in replay.approval, false)
+  if (approved) assert.equal('reason' in replay.approval, false)
+  else assert.match(replay.approval.reason, KEEP_QUICK, '"Keep it quick" sent the write-decline reason')
+}
+
+/** The leg after the approval leg: the yes has become the result that carries the grant. */
+function assertGrantWire(body, offer) {
+  const parts = body.messages.flatMap(message => message.parts)
+  const deep = parts.filter(part => part.type === 'tool-deep_think' && part.toolCallId === offer.toolCallId)
+  assert.equal(deep.length, 1, 'the deep_think call is replayed twice (or not at all) — a duplicate or unpaired call')
+  assert.equal(deep[0].state, 'output-available', 'the answered yes was left behind as an unpaired approval')
+  assert.equal(JSON.parse(deep[0].output).grant, GRANT, 'the grant did not reach the next leg')
+  assert.equal('approval' in deep[0], false)
+  const scroll = parts.find(part => part.type === 'tool-scrollToMe')
+  assert.equal(scroll?.state, 'output-available', 'the browser tool result is missing')
+}
+
+/**
+ * The newest reply's activity line that reads `summary` (a reply has one per
+ * run of steps between its words), and opening it shows the `step` row.
+ */
+async function expandedStep(panel, summary, step) {
+  const lines = panel.locator('[data-decke-activity]')
+  let seen = []
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    seen = await lines.locator('> button[aria-expanded]').allTextContents()
+    const at = seen.findLastIndex(text => summary.test(text.trim()))
+    if (at >= 0) {
+      const line = lines.nth(at)
+      const toggle = line.locator('> button[aria-expanded]')
+      if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click()
+      await line.getByText(step, { exact: true }).waitFor()
+      return
+    }
+    await panel.page().waitForTimeout(100)
+  }
+  throw new Error(`no activity line reads ${summary}; the lines read ${JSON.stringify(seen)}`)
+}
+
+/**
+ * The server's price is what the eye lands on: above the model-written reason
+ * and plan, and at least as large and as heavy. An injection can steer the
+ * prose on this card, never the price.
+ */
+async function assertPriceLeads(card) {
+  const look = locator => locator.evaluate(element => {
+    const style = getComputedStyle(element)
+    return { top: element.getBoundingClientRect().top, size: parseFloat(style.fontSize), weight: Number(style.fontWeight) }
+  })
+  const cost = await look(card.locator('[data-decke-deep-think-cost]'))
+  const why = await look(card.getByText(WHY, { exact: true }))
+  const plan = await look(card.locator('p', { hasText: PLAN }))
+  assert.ok(cost.top < why.top && cost.top < plan.top, `the model's prose is drawn above the price (${JSON.stringify({ cost, why, plan })})`)
+  assert.ok(cost.size >= why.size && cost.size >= plan.size, `the price is smaller than the model's prose (${JSON.stringify({ cost, why, plan })})`)
+  assert.ok(cost.weight > why.weight, `the price is no heavier than the model's prose (${JSON.stringify({ cost, why })})`)
+}
+
+/** "Use Deep Think" is disabled until the balance read after the card went up has landed. */
+async function assertWaitsForBalance(page, card) {
+  const use = card.getByRole('button', { name: 'Use Deep Think' })
+  assert.equal(await use.count(), 1)
+  assert.equal(await use.isDisabled(), true, 'Use Deep Think is live while the balance is unknown')
+  await card.getByText('Checking your balance…', { exact: true }).waitFor()
+  await page.evaluate(() => window.deepThinkChat.setBalance(200))
+  await page.waitForFunction(() => {
+    const button = [...document.querySelectorAll('[data-decke-deep-think] button')]
+      .find(element => element.textContent?.trim() === 'Use Deep Think')
+    return button && !button.disabled
+  })
+  assert.equal(await card.getByText('Checking your balance…', { exact: true }).count(), 0)
 }
 
 export async function checkDeepThinkCard(browser, server, out) {
@@ -88,13 +181,23 @@ export async function checkDeepThinkCard(browser, server, out) {
     await page.route('**/decke/history', route => route.fulfill({
       status: 200, contentType: 'application/json', body: '{"ok":true,"recorded":false}',
     }))
+    // POST by POST: offer → decline answer → offer → approval leg → the leg after it.
+    const replies = [
+      () => offerReply(OFFERS[0]),
+      settledReply,
+      () => offerReply(OFFERS[1]),
+      () => approvedReply(OFFERS[1]),
+      settledReply,
+    ]
     await page.route('**/api/chat', route => {
       bodies.push(JSON.parse(route.request().postData() ?? '{}'))
+      const reply = replies[bodies.length - 1]
+      if (!reply) return route.fulfill({ status: 500, body: 'unexpected extra POST ' + bodies.length })
       return route.fulfill({
         status: 200,
         contentType: 'text/event-stream',
         headers: { 'x-decke-credits': '200', 'cache-control': 'no-cache' },
-        body: bodies.length % 2 === 1 ? offerReply(OFFERS[Math.floor((bodies.length - 1) / 2)]) : settledReply(),
+        body: reply(),
       })
     })
     try {
@@ -109,8 +212,9 @@ export async function checkDeepThinkCard(browser, server, out) {
       await card.getByText('Deep Think', { exact: true }).waitFor()
       await card.getByText(WHY, { exact: true }).waitFor()
       await card.getByText('About 40–120 credits', { exact: true }).waitFor()
+      await assertPriceLeads(card)
       assert.equal(await card.getByRole('button', { name: 'Keep it quick' }).count(), 1)
-      assert.equal(await card.getByRole('button', { name: 'Use Deep Think' }).count(), 1)
+      await assertWaitsForBalance(page, card)
       await assertCardGeometry(page, card, width)
       await page.screenshot({ path: path.join(out, 'deep-think-' + width + '.png'), fullPage: true })
 
@@ -118,16 +222,27 @@ export async function checkDeepThinkCard(browser, server, out) {
       await waitForPosts(page, bodies, 2)
       assertApprovalWire(bodies[1], OFFERS[0], false)
       await page.waitForFunction(() => window.deepThinkChat.busy === false)
+      // The turn's activity line says what the reader chose — not "Skipped that change".
+      await expandedStep(panel, /^Kept it quick · \d+s$/, 'Kept it quick')
 
+      // A new card is priced against a NEW balance read, unknown until it lands.
+      await page.evaluate(() => window.deepThinkChat.setBalance(null))
       await page.evaluate(() => window.deepThinkChat.send('Now use Deep Think for the same choice.'))
       await waitForPosts(page, bodies, 3)
       await card.waitFor()
+      await assertWaitsForBalance(page, card)
       await card.getByRole('button', { name: 'Use Deep Think' }).click()
       await waitForPosts(page, bodies, 4)
       assertApprovalWire(bodies[3], OFFERS[1], true)
+      // The approval leg ran deep_think and handed the browser a tool, so the
+      // turn continues — and that next POST carries the result, not the yes.
+      await waitForPosts(page, bodies, 5)
+      assertGrantWire(bodies[4], OFFERS[1])
       await page.waitForFunction(() => window.deepThinkChat.busy === false)
+      await expandedStep(panel, /^Looked at 1 thing · \d+s$/, 'Used Deep Think')
 
-      results.push({ case: 'deep-think-card', width, docked: true, declineWire: true, approvalWire: true })
+      assert.equal(bodies.length, 5, 'the journey made an unexpected extra request')
+      results.push({ case: 'deep-think-card', width, docked: true, waitsForBalance: true, priceLeads: true, declineWire: true, approvalWire: true, grantWire: true })
     } finally {
       await context.close()
     }
