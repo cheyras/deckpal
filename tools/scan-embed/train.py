@@ -110,8 +110,10 @@ def load_catalog():
     return cat, cards
 
 
-def art_groups(cards, max_dist: int):
-    """card index -> art-group id: same name and dHash within max_dist bits."""
+def art_groups(cards, max_dist: int, same_art: str = "", min_art_inliers: int = 0, max_shift: float = 0.15):
+    """card index -> art-group id: same name and dHash within max_dist bits, OR
+    (with --same-art) a same_art.py pair whose art band agrees under one
+    near-identity homography — the colour-blind test dHash on a 9x8 grid is not."""
     ph = json.loads((BENCH / "phash-index.json").read_text())
     by_name = defaultdict(list)
     for i, c in enumerate(cards):
@@ -130,15 +132,30 @@ def art_groups(cards, max_dist: int):
             for b in range(a + 1, len(idxs)):
                 if bin(hs[a] ^ hs[b]).count("1") <= max_dist:
                     group[find(idxs[a])] = find(idxs[b])
+    if same_art:
+        idx = {c["cardId"]: i for i, c in enumerate(cards)}
+        n = 0
+        for row in json.loads(Path(same_art).read_text())["pairs"]:
+            a_, b_, _inl, art, shift = row[:5]  # later columns: same_art.py --foil-only
+            if art >= min_art_inliers and shift <= max_shift and a_ in idx and b_ in idx:
+                group[find(idx[a_])] = find(idx[b_])
+                n += 1
+        print(f"same-art pairs joined: {n} (art inliers >= {min_art_inliers}, shift <= {max_shift})")
     return [find(i) for i in range(len(cards))], by_name
 
 
 class CardSet(Dataset):
-    def __init__(self, cards, size, seed=0):
+    """One step's pair per card: a query (a synthetic capture, or - when the card
+    has REAL photo crops and the coin says so - one of those, lightly jittered)
+    and the clean render it must match."""
+
+    def __init__(self, cards, size, seed=0, real=None, p_real=0.0):
         self.cards = cards
         self.size = size
         self.seed = seed
         self._cache = {}
+        self.real = real or {}
+        self.p_real = p_real
 
     def art(self, i):
         a = self._cache.get(i)
@@ -154,9 +171,42 @@ class CardSet(Dataset):
     def __getitem__(self, i):
         rng = np.random.default_rng((self.seed * 1_000_003 + i * 7919 + random.getrandbits(31)) & 0xFFFFFFFF)
         art = self.art(i)
-        others = [self.art(int(rng.integers(len(self.cards))))] if rng.random() < 0.5 else None
-        q = synth_capture(art, rng, others)
+        crops = self.real.get(i)
+        if crops and rng.random() < self.p_real:
+            q = np.asarray(Image.open(crops[int(rng.integers(len(crops)))]).convert("RGB"))
+            q = real_jitter(q, rng)
+        else:
+            others = [self.art(int(rng.integers(len(self.cards))))] if rng.random() < 0.5 else None
+            q = synth_capture(art, rng, others)
         return torch.from_numpy(to_u8(q, MARGIN, self.size)), torch.from_numpy(to_u8(art, 0.0, self.size)), i
+
+
+def real_jitter(img: np.ndarray, rng) -> np.ndarray:
+    """A real crop already carries the field's damage; this only keeps the model
+    from memorising the exact pixels: small shift/scale, exposure, JPEG."""
+    h, w = img.shape[:2]
+    s = rng.uniform(0.95, 1.05)
+    tx, ty = rng.normal(0, 0.015, 2) * [w, h]
+    M = np.array([[s, 0, (1 - s) * w / 2 + tx], [0, s, (1 - s) * h / 2 + ty]], np.float32)
+    out = cv2.warpAffine(img, M, (w, h), borderMode=cv2.BORDER_REPLICATE).astype(np.float32)
+    out = np.clip(out * rng.uniform(0.85, 1.15) + rng.uniform(-12, 12), 0, 255).astype(np.uint8)
+    ok, enc = cv2.imencode(".jpg", out[..., ::-1], [cv2.IMWRITE_JPEG_QUALITY, int(rng.integers(60, 95))])
+    return cv2.imdecode(enc, cv2.IMREAD_COLOR)[..., ::-1].copy()
+
+
+def load_real_pairs(manifest: str, cards) -> dict:
+    """card index -> list of real crop paths, from a JSONL of {crop, cardId}."""
+    idx = {c["cardId"]: i for i, c in enumerate(cards)}
+    base = Path(manifest).parent
+    out: dict = {}
+    for line in Path(manifest).read_text(encoding="utf8").splitlines():
+        if not line.strip():
+            continue
+        r = json.loads(line)
+        i = idx.get(r["cardId"])
+        if i is not None:
+            out.setdefault(i, []).append(str(base / r["crop"]))
+    return out
 
 
 class FamilyBatches(Sampler):
@@ -255,11 +305,19 @@ def main():
     ap.add_argument("--batch", type=int, default=256)
     ap.add_argument("--per-family", type=int, default=4)
     ap.add_argument("--art-dist", type=int, default=6)
+    ap.add_argument("--same-art", default="", help="same_art.py output: also group printings whose images agree there")
+    ap.add_argument("--same-art-min", type=int, default=120, help="art-band inliers a same-art pair needs")
+    ap.add_argument("--same-art-shift", type=float, default=0.15, help="largest corner shift of its homography (fraction of width)")
     ap.add_argument("--lr", type=float, default=2e-5)
     ap.add_argument("--wd", type=float, default=0.05)
     ap.add_argument("--temp", type=float, default=0.05)
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--eval-every", type=int, default=2)
+    ap.add_argument("--real-pairs", default="",
+                    help="JSONL of {crop, cardId} real photo crops (paths relative to the file) mixed in as queries")
+    ap.add_argument("--p-real", type=float, default=0.5,
+                    help="chance a card with real crops uses one instead of a synthetic capture")
+    ap.add_argument("--init", default="", help="start from this checkpoint (e.g. runs/r1/last.pt) instead of the pretrained backbone")
     ap.add_argument("--holdout-sets", default="",
                     help="comma-separated set ids left OUT of training (still in the eval gallery): measures cards the model never saw, e.g. a set released after training")
     ap.add_argument("--dim-out", type=int, default=0,
@@ -274,7 +332,7 @@ def main():
 
     cat, cards = load_catalog()
     holdout = {x for x in a.holdout_sets.split(",") if x}
-    groups, by_name = art_groups(cards, a.art_dist)
+    groups, by_name = art_groups(cards, a.art_dist, a.same_art, a.same_art_min, a.same_art_shift)
     id_of = [c["cardId"] for c in cards]
     name_of = {c["cardId"]: c["name"].lower() for c in cards}
     group_of_id = {id_of[i]: groups[i] for i in range(len(cards))}
@@ -284,6 +342,9 @@ def main():
           f"({len(cards) - n_groups} cards share art with another printing)")
 
     model = Embedder(a.model, a.dim_out or None).to(device)
+    if a.init:
+        model.load_state_dict(torch.load(a.init, map_location="cpu", weights_only=False)["model"])
+        print(f"initialised from {a.init}")
     logit_scale = torch.nn.Parameter(torch.tensor(math.log(1 / a.temp), device=device))
     opt = torch.optim.AdamW([{"params": model.parameters()}, {"params": [logit_scale], "lr": 1e-3, "weight_decay": 0}],
                             lr=a.lr, weight_decay=a.wd)
@@ -292,7 +353,10 @@ def main():
     sched = torch.optim.lr_scheduler.LambdaLR(
         opt, lambda s: min(1.0, s / max(1, steps_per_epoch)) * 0.5 * (1 + math.cos(math.pi * min(1.0, s / total))))
 
-    ds = CardSet(cards, a.size)
+    real = load_real_pairs(a.real_pairs, cards) if a.real_pairs else {}
+    if real:
+        print(f"real photo crops: {sum(len(v) for v in real.values())} for {len(real)} cards (p_real {a.p_real})")
+    ds = CardSet(cards, a.size, real=real, p_real=a.p_real)
     train_fams = by_name
     if holdout:
         train_fams = {k: [i for i in v if cards[i]["setId"] not in holdout] for k, v in by_name.items()}

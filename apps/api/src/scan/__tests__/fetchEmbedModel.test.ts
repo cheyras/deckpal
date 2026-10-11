@@ -146,8 +146,9 @@ test('the staged object key sits under models/ in the bucket', () => {
 
 test('the pinned digest is a sha256, and the size is the measured one', () => {
   assert.match(MODEL_SHA256, /^[0-9a-f]{64}$/, 'MODEL_SHA256 is not a 64-hex-character sha256');
-  // 88.2 MB: deckpal-card-b32-v1.int8.onnx (2026-10-09), the same architecture
-  // and quantisation as the clip-vit-b32-openai file it replaced (88,187,806).
+  // 88.2 MB: deckpal-card-b32-v2.int8.onnx (2026-10-10), the same architecture
+  // and quantisation as the clip-vit-b32-openai file it replaced (88,187,806);
+  // run r1's v1, which v2 replaced before deployment, was the same 88,228,669.
   assert.equal(MODEL_BYTES, 88_228_669);
 });
 

@@ -25,6 +25,7 @@ import numpy as np
 CAP_W, CAP_H = 240, 335
 S = CAP_W / 480
 MARGIN = 0.05  # rectify.ts CAPTURE_MARGIN: the card spans the middle 1/(1+2m) of each axis
+CAST_P, CAST_GAIN = 0.4, 0.15  # per-channel gain U(1 +- GAIN) on this share of captures (_photometric)
 
 
 def _bg(rng: np.random.Generator, others: list[np.ndarray] | None) -> np.ndarray:
@@ -82,6 +83,12 @@ def _photometric(img: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     img = np.clip(img, 0, 1) ** rng.uniform(0.75, 1.35)  # gamma
     temp = rng.normal(0, 0.06)
     img *= np.array([1 + temp, 1 + rng.normal(0, 0.02), 1 - temp])  # white balance (RGB)
+    if rng.random() < CAST_P:
+        # A CAST, not a light: the catalogue's scans disagree in colour (Base Set's
+        # are 1st Edition scans tinted purple-blue; its Base Set 2 reprint is
+        # clean), and a real card under a warm lamp matches neither. Without
+        # this the model separates same-art printings by scan colour.
+        img *= rng.uniform(1 - CAST_GAIN, 1 + CAST_GAIN, 3)
     grey = img.mean(axis=2, keepdims=True)
     img = grey + (img - grey) * rng.uniform(0.6, 1.3)  # saturation
     return np.clip(img, 0, 1) * 255

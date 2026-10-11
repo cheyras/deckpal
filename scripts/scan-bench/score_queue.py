@@ -51,7 +51,7 @@ def main():
     cards = [r for r in rows if r["kind"] == "card" and r["truth"] and any(t in known for t in r["truth"])]
     negs = [r for r in rows if r["kind"] == "negative"]
     emb = E.Embedder(a.model, a.query_onnx)
-    V = E.embed_paths(emb, [Q / r["crop"] for r in cards + negs], E.CAPTURE_MARGIN, bs=32)
+    V = E.embed_paths(emb, [Q / r["crop"] for r in cards + negs], E.CAPTURE_MARGIN, bs=E.QUERY_BS)
     S = V @ gv.T
     o = np.argsort(-S, axis=1)[:, :2]
     c = dict(n=len(cards), top1=0, top1name=0, dec=0, dec_exact=0, dec_printing=0, dec_wrong=0)

@@ -29,16 +29,18 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import embed as E  # noqa: E402
+from deckpal_matching.input_spec import EMBED_MODEL_ID  # noqa: E402  (embed.py put it on the path)
 
-EXP = Path.home() / "deckpal-data" / "scan-embed" / "export" / "deckpal-card-b32-v1"
+# The active checkpoint's export (tools/scan-embed/export.py) unless told otherwise.
+EXP = Path.home() / "deckpal-data" / "scan-embed" / "export" / EMBED_MODEL_ID
 Q = Path.home() / "deckpal-data" / "quad-queue"
 VB = Path.home() / "deckpal-data" / "video-bench"
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default=str(EXP / "deckpal-card-b32-v1.fp32.onnx"))
-    ap.add_argument("--query-onnx", default=str(EXP / "deckpal-card-b32-v1.int8.onnx"))
+    ap.add_argument("--model", default=str(EXP / f"{EMBED_MODEL_ID}.fp32.onnx"))
+    ap.add_argument("--query-onnx", default=str(EXP / f"{EMBED_MODEL_ID}.int8.onnx"))
     ap.add_argument("--video-run", default="runs/g06-up")
     a = ap.parse_args()
     g = np.load(E.BENCH / "embed" / E.model_tag(a.model) / "gallery.npz")
@@ -86,8 +88,8 @@ def main():
                 # a capture in an overlap window may be either card: both are truth
                 items.append(("video", run / gp.stem / c["file"], truth))
 
-    # bs=1: dynamic int8 quantizes activations PER BATCH, and production embeds one capture at a time
-    V = E.embed_paths(emb, [p for _, p, _ in items], E.CAPTURE_MARGIN, bs=1)
+    # one at a time (E.QUERY_BS): dynamic int8 quantizes activations PER BATCH
+    V = E.embed_paths(emb, [p for _, p, _ in items], E.CAPTURE_MARGIN, bs=E.QUERY_BS)
     S = V @ gv.T
     o = np.argsort(-S, axis=1)[:, :2]
     rows = []

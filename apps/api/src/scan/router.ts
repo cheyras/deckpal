@@ -9,7 +9,7 @@ import { CURRENT_STAMP, assertQueryVector, buildResponse, pgNeighbours } from '.
 import { DEFAULT_CAPTURE_MARGIN, cropTensor, embedTensor, rotateTensor, warmEmbed } from './queryEmbed.js';
 import type { VectorMatch } from './fuse.js';
 import { ownerOnlyInProduction } from '../ownerGate.js';
-import { EMBED_MODEL_ID, EMBED_SIZE, identityConfidence } from '@deckpal/matching';
+import { EMBED_MODEL_ID, EMBED_SIZE, THRESHOLDS, identityConfidence, isConfidentScore } from '@deckpal/matching';
 
 /**
  * Offline card scanner (Phase 8) — image → card matcher.
@@ -680,6 +680,15 @@ scanRouter.post(
     // bought one right answer and one wrong one; and it costs nothing on a
     // decisive capture.
     //
+    // A TURN MUST CLEAR THE MAIN TIER (2026-10-10). Three extra looks at a
+    // capture are three extra chances at the wide tier's lower similarity bar,
+    // which was measured on one look. Replayed for deckpal-card-b32-v2 on the
+    // benchmark, the owner's verified photos and the video replays, a turn
+    // named 12 more cards exactly (all at sim >= 0.72, margin >= 0.23) and 2
+    // more by name in the wrong printing, every one of them on the main tier;
+    // and, through the wide tier only, a Pokémon TCG Live code card as Beedrill
+    // ex. Main tier only: the 14 stay, the code card does not.
+    //
     // TIME-BOXED. Each turn is an inference on this one-thread runtime, and the
     // client drops the whole vector at EMBED_TIMEOUT_MS (8 s) — losing the
     // upright shortlist too. So no new turn starts once the request is past
@@ -693,7 +702,7 @@ scanRouter.post(
           CURRENT_STAMP,
           k,
         );
-        if (!isDecisive(turned.rows)) continue;
+        if (!isDecisiveTurned(turned.rows)) continue;
         if (best.quarterTurns === 0 || (turned.rows[0]?.similarity ?? -1) > (best.rows[0]?.similarity ?? -1)) {
           best = { rows: turned.rows, quarterTurns: turns };
         }
@@ -712,11 +721,21 @@ scanRouter.post(
  *  (the client gives the whole embed call 8 s). */
 const ROTATION_BUDGET_MS = 3_000;
 
-/** Checkpoints whose vector space the orientation fallback was measured on. */
-const ROTATION_FALLBACK_MODELS: ReadonlySet<string> = new Set(['deckpal-card-b32-v1']);
+/** Checkpoints whose vector space the orientation fallback was measured on:
+ *  run r1's v1 (2026-10-09) and, replacing it before deployment, v2
+ *  (2026-10-10, with turns held to the main tier). */
+const ROTATION_FALLBACK_MODELS: ReadonlySet<string> = new Set(['deckpal-card-b32-v2']);
 
 function isDecisive(rows: readonly { cardId: string; similarity: number }[]): boolean {
   return identityConfidence(rows.map((r) => ({ cardId: r.cardId, similarity: r.similarity })), EMBED_MODEL_ID).level === 'confident';
+}
+
+/** The same gate for a TURNED crop, main tier only (see the call site). */
+function isDecisiveTurned(rows: readonly { cardId: string; similarity: number }[]): boolean {
+  const t = THRESHOLDS[EMBED_MODEL_ID];
+  const [top, second] = rows;
+  if (!t || !top || !second) return false;
+  return isConfidentScore(t, top.similarity, top.similarity - second.similarity, { mainTierOnly: true });
 }
 
 /**

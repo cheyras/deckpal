@@ -1,6 +1,6 @@
 """Export a fine-tuned identity embedding to the two ONNX files production needs.
 
-    python tools/scan-embed/export.py --run r1 [--ckpt best.pt] --name deckpal-card-b32-v1
+    python tools/scan-embed/export.py --run r4 [--ckpt best.pt] --name deckpal-card-b32-v2
 
 Writes ~/deckpal-data/scan-embed/export/<name>/:
   <name>.fp32.onnx   the catalogue side (tools/embed-catalog embeds the gallery with it)

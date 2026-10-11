@@ -176,7 +176,8 @@ async function fetchTargets(pool: QueryablePool, args: Args, stamp: string): Pro
  * predates this pin; its export was made by hand.)
  */
 const GALLERY_MODEL_SHA256: Readonly<Record<string, string>> = {
-  'deckpal-card-b32-v1': '0eee327e9bd3d7ab14cbcf67682b1c324f94b01a2050c1b9aaed445fbe26e6b9',
+  // deckpal-card-b32-v2.fp32.onnx (run r4 last.pt, 2026-10-10)
+  'deckpal-card-b32-v2': '45516f0ee7ca651df5d54d9b0b31680eebd4e619140ba9b1d84704b8230e4bf3',
 }
 
 async function sha256File(path: string): Promise<string> {

@@ -68,7 +68,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url))
  * Duplicated because this script may not import a workspace package; pinned to
  * that constant by a test.
  */
-export const EMBED_MODEL_ID = 'deckpal-card-b32-v1'
+export const EMBED_MODEL_ID = 'deckpal-card-b32-v2'
 
 /** Where `queryEmbed.ts`'s `DEFAULT_MODEL_PATH` and `includeFiles` both look. */
 export const MODEL_DEST = `apps/api/assets/embed/${EMBED_MODEL_ID}.onnx`
@@ -86,9 +86,10 @@ export const OBJECT_KEY = `models/${EMBED_MODEL_ID}.onnx`
  * current stamp gives a scanner that is confidently wrong. Update the two
  * together or not at all.
  */
-// deckpal-card-b32-v1.int8.onnx, exported 2026-10-09 by tools/scan-embed/export.py
-// from run r1 last.pt (dynamic int8, the shipped quantisation).
-export const MODEL_SHA256 = '807d0f320784f38ce1a8f4d28067442a8126a979d19c3b8d0e9c6ce2711a6f0e'
+// deckpal-card-b32-v2.int8.onnx, exported 2026-10-10 by tools/scan-embed/export.py
+// from run r4 last.pt (dynamic int8, the shipped quantisation). Its manifest.json
+// carries the same digest.
+export const MODEL_SHA256 = '67b1068b93e4e7fea1a21b8258dd1dfe7da6242f5aff402cd566bb470801691f'
 
 /** Whole-file size, for the log line and for a cheap pre-digest sanity check. */
 export const MODEL_BYTES = 88_228_669

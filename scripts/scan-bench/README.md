@@ -62,9 +62,12 @@ local dHash index against what production returned for the same field crops.
 - **Most crops are 229×320**, the size scan telemetry keeps, not the 480×670
   the device reads. OCR cannot read them, so OCR-dependent numbers are reported
   separately for the full-resolution rows (`FULL-RES crops`).
-- **The vector gallery is fp32 on both sides** here; production embeds the
-  query with the int8 model. Rankings agree closely; absolute similarities
-  differ by a few thousandths.
+- **Without `--query-onnx` the vectors are fp32 on both sides**; production
+  embeds the query with the int8 model. Rankings agree closely; absolute
+  similarities differ by a few thousandths. Pass `--query-onnx <int8.onnx>` for
+  the production pairing. Queries are embedded one at a time either way
+  (`embed.py` `QUERY_BS`), because dynamic int8 picks its activation scale per
+  batch, and a batched query is not the vector production computes.
 - **Rung 9 (body text) never runs**: the local catalogue port has no
   `card_text` tokens. It only matters when OCR read neither a name nor a number.
 - **Labels can be wrong.** Two were (2026-10-09, quad-check-a); rows carrying

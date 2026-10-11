@@ -34,6 +34,12 @@ from deckpal_matching.input_spec import embed_input_numpy  # noqa: E402
 
 BENCH = Path(os.environ.get("SCAN_BENCH_DIR", Path.home() / "deckpal-data" / "scan-bench"))
 CAPTURE_MARGIN = 0.05
+# Queries are embedded ONE AT A TIME, as production embeds a capture. Dynamic int8
+# (the shipped query quantisation) picks its activation scale per batch, so a
+# crop embedded beside 31 others gets a slightly different vector than the same
+# crop alone — enough to move a similarity by a few thousandths and a borderline
+# capture across the gate. The fp32 gallery batches freely (no per-batch scale).
+QUERY_BS = 1
 
 
 def model_tag(spec: str) -> str:
@@ -149,8 +155,13 @@ def crop_path(r, full: bool) -> Path:
     return r["_dir"] / rel
 
 
+def query_dir(a) -> Path:
+    """embed/<gallery tag>[-q_<query model>][<--tag-suffix>]: one query run's vectors."""
+    return BENCH / "embed" / (model_tag(a.model) + ("-q_" + Path(a.query_onnx).stem if a.query_onnx else "") + a.tag_suffix)
+
+
 def cmd_queries(a):
-    out = BENCH / "embed" / (model_tag(a.model) + ("-q_" + Path(a.query_onnx).stem if a.query_onnx else ""))
+    out = query_dir(a)
     out.mkdir(parents=True, exist_ok=True)
     rows = [r for r in load_rows() if r["kind"] != "exclude"]
     emb = Embedder(a.model, a.query_onnx)
@@ -158,14 +169,14 @@ def cmd_queries(a):
         sel = [r for r in rows if (not full) or r.get("cropFull")]
         if not sel:
             continue
-        vecs = embed_paths(emb, [crop_path(r, full) for r in sel], CAPTURE_MARGIN, bs=32)
+        vecs = embed_paths(emb, [crop_path(r, full) for r in sel], CAPTURE_MARGIN, bs=QUERY_BS)
         tag = "full" if full else "crop"
         np.savez(out / f"queries-{tag}.npz", ids=np.array([r["id"] for r in sel]), vecs=vecs)
         print(f"-> {out / f'queries-{tag}.npz'} ({len(sel)})")
 
 
 def cmd_score(a):
-    qdir = BENCH / "embed" / (model_tag(a.model) + ("-q_" + Path(a.query_onnx).stem if a.query_onnx else ""))
+    qdir = query_dir(a)
     g = np.load(BENCH / "embed" / model_tag(a.model) / "gallery.npz")
     gids, gv = g["ids"], g["vecs"]
     if a.with_pocket:
@@ -239,7 +250,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["gallery", "gallery-pocket", "queries", "score"])
     ap.add_argument("--with-pocket", action="store_true")
-    ap.add_argument("--tag-suffix", default="")
+    ap.add_argument("--tag-suffix", default="", help="appended to the query run's directory name (queries/score), e.g. --tag-suffix=-bs1")
     ap.add_argument("--model", default="timm:vit_base_patch32_clip_224.openai")
     ap.add_argument("--query-onnx", default=None)
     ap.add_argument("--sim-min", type=float, default=0.74)

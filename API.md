@@ -1602,8 +1602,9 @@ Read-only.
 
 **The two vector verdicts.** `"vector"` means the image answered alone, on the
 calibrated gate of the active checkpoint (`packages/matching` THRESHOLDS:
-similarity >= 0.65 AND top1-top2 margin >= 0.03 for `deckpal-card-b32-v1`, the
-fine-tuned model since 2026-10-09; 0.74 / 0.02 for the zero-shot
+similarity >= 0.65 AND top1-top2 margin >= 0.03, or the wide tier's
+similarity >= 0.45 AND margin >= 0.12, for `deckpal-card-b32-v2`, the
+fine-tuned model of #288; 0.74 / 0.02 for the zero-shot
 `clip-vit-b32-openai` before it); it is the LAST rung that can name a card, below every
 rung that read something printed. `"corroborated"` means two independent
 signals named one card while neither was sufficient alone — the `014/198`
