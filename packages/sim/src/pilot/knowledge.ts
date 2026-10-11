@@ -12,7 +12,7 @@
  */
 import { def, type Env, type GameContext } from '../context.js';
 import type { Cond, Expr, Filter, PType, Program, Step } from '../dsl.js';
-import { defMatches, evalCond, evalExpr, unitFits, type EvalCtx } from '../eval.js';
+import { defMatches, evalCond, evalExpr, slotTypes, unitFits, type EvalCtx } from '../eval.js';
 import {
   attackCost,
   attackOptions,
@@ -197,7 +197,7 @@ export function throughPipeline(env: Env, s: GameState, attacker: Slot, owner: P
   if (tOwner !== owner && isActive) {
     dmg += damageOut(env, s, attacker, target, all);
     const w = weaknessOf(env, s, target, all);
-    const types = def(env.ctx, topCard(attacker)).types;
+    const types = slotTypes(env, attacker, s); // "it is {G} and {R} type": both count (and stop counting under a no-Abilities lock)
     if (w && types.includes(w)) dmg *= 2;
     const r = def(env.ctx, topCard(target)).resistance;
     if (r && types.includes(r.type)) dmg -= r.amount;

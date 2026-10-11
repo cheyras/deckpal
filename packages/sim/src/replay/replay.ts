@@ -36,6 +36,7 @@
  * `divergence`: an engine rule, a card script, or a harness gap). Consequence
  * differences are `mismatches` and the replay carries on.
  */
+import { evolveOnto } from '../evolve.js';
 import { def, type DeckEntry, type DeckInput, type Env } from '../context.js';
 import { legalActions } from '../flow.js';
 import { Game } from '../game.js';
@@ -1054,9 +1055,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
         const c = findIn(ps2.deck, want(l.to)) ?? findIn(ps2.hand, want(l.to));
         if (sl && c !== undefined) {
           if (!removeFrom(ps2.deck, c)) removeFrom(ps2.hand, c);
-          sl.cards.push(c);
-          sl.evolvedTurn = s.turn;
-          sl.cond = 0;
+          evolveOnto(env, s, sl, c);
           slotName.set(sl.id, name(c));
         }
       } else if (l.t === 'attach' && l.sub) {

@@ -6,7 +6,7 @@ import { def, type Env, type GameContext } from './context.js';
 import type { Cond, Expr, Filter, PType, SlotRef, SlotZone, SpecialCondition, Who } from './dsl.js';
 import { allSlots, findSlot, opp, topCard } from './state.js';
 import { CUSTOM_CONDS } from './customs.js'; // lane:ghost
-import { benchLimit, energyReplacement, staticsForEnergy, type LiveStatic } from './query.js';
+import { benchLimit, energyReplacement, hasNoAbilities, staticsForEnergy, staticsResolving, type LiveStatic } from './query.js';
 import type { CardDef, GameState, Player, Slot, Val } from './types.js';
 import { ASLEEP, BURNED, CONFUSED, PARALYZED, POISONED } from './types.js'; // lane:metal
 
@@ -68,14 +68,38 @@ export function defMatches(d: CardDef, f: Filter | undefined): boolean {
   return true;
 }
 
-/** The types of a Pokémon in play: its printed types, or those an Ability or card text of its own makes it (StaticEffect `types`). */
-export function slotTypes(env: Env, slot: Slot): readonly PType[] {
+/**
+ * The types of a Pokémon in play: its printed types, or those an Ability or card text of its own makes it (StaticEffect `types`).
+ *
+ * A type an ABILITY gives (Scovillain ex, Double Type) is gone while that Pokémon's Abilities are switched off (Initialization,
+ * Iron Thorns ex), and back when they are on again: it is resolved against the current game state, `s`. Every game-play caller
+ * passes it; a caller with no state (a bare unit test of a card definition) gets the Ability's types, as there is nothing to
+ * switch the Ability off.
+ *
+ * Whether Abilities are off is worked out from the statics in play, and those statics' own conditions and filters may ask for a
+ * Pokémon's type. That is a loop (the lock's filter asks the type, the type asks the lock), broken deterministically: while the
+ * statics are being gathered (`staticsResolving`), every Ability-given type is ignored and PRINTED types are used. So a lock whose
+ * filter names a type sees the printed type; everything else (damage, Weakness, filters in play) sees the resolved one.
+ */
+export function slotTypes(env: Env, slot: Slot, s?: GameState): readonly PType[] {
   const d = def(env.ctx, topCard(slot));
   const fix = d.typeFix;
   if (!fix) return d.types;
   // "As long as this Pokémon has a Future Booster Energy Capsule attached, it is {F} and {M} type": a condition on the Pokémon itself.
-  if (fix.ifSlot && !slotMatches(env, slot, fix.ifSlot, false)) return d.types;
+  if (fix.ifSlot && !slotMatches(env, slot, fix.ifSlot, false, s)) return d.types;
+  if (fix.ability && (staticsResolving() || (s && hasNoAbilities(env, s, slot)))) return d.types;
   return fix.add ? [...new Set([...d.types, ...fix.types])] : fix.types;
+}
+
+const usesTypeMemo = new WeakMap<Filter, boolean>();
+/** Does this filter (or one nested in `not` / `any`) look at the Pokémon's type? Only then does the type fix matter. */
+function usesType(f: Filter): boolean {
+  let v = usesTypeMemo.get(f);
+  if (v === undefined) {
+    v = !!f.type || (!!f.not && usesType(f.not)) || (!!f.any && f.any.some(usesType));
+    usesTypeMemo.set(f, v);
+  }
+  return v;
 }
 
 /**
@@ -103,7 +127,7 @@ export function cardMatches(env: Env, iid: number, f: Filter | undefined): boole
 // lane:metal: in-play-only filter keys `energy`, `tool`, `condition`.
 const COND_BIT: Record<SpecialCondition, number> = { asleep: ASLEEP, confused: CONFUSED, paralyzed: PARALYZED, poisoned: POISONED, burned: BURNED };
 
-export function slotMatches(env: Env, slot: Slot, f: Filter | undefined, withTypeFix = true): boolean {
+export function slotMatches(env: Env, slot: Slot, f: Filter | undefined, withTypeFix = true, s?: GameState): boolean {
   if (!f) return true;
   if (f.toolCard && !slot.tools.some((c) => cardMatches(env, c, f.toolCard))) return false;
   if (f.damaged !== undefined && slot.damage > 0 !== f.damaged) return false;
@@ -112,11 +136,11 @@ export function slotMatches(env: Env, slot: Slot, f: Filter | undefined, withTyp
   if (f.condition && !(slot.cond & COND_BIT[f.condition])) return false; // lane:metal
   if (f.energized !== undefined && slot.energy.length > 0 !== f.energized) return false; // lane:ghost
   // lane:trevenant — `any` alternatives may use in-play keys too (Ruffian: has a Tool, or has a Special Energy).
-  if (f.any && !f.any.some((x) => slotMatches(env, slot, x, withTypeFix))) return false;
+  if (f.any && !f.any.some((x) => slotMatches(env, slot, x, withTypeFix, s))) return false;
   let d = def(env.ctx, topCard(slot));
   // lane:ghost — a Trainer in play was played as a Pokémon (Antique fossils): match it as one.
   if (d.kind !== 'pokemon') d = { ...d, kind: 'pokemon', ttype: null };
-  if (d.typeFix && withTypeFix) d = { ...d, types: slotTypes(env, slot) as PType[] };
+  if (d.typeFix && withTypeFix && usesType(f)) d = { ...d, types: slotTypes(env, slot, s) as PType[] };
   return defMatches(d, { ...f, damaged: undefined, energized: undefined, any: undefined, toolCard: undefined });
 }
 
@@ -132,10 +156,10 @@ export function unitFits(u: EnergyUnit, t: PType): boolean {
 }
 
 /** lane:misc — the Energy an attached card provides on this Pokémon (CardScript.providesIf, e.g. Ignition Energy). */
-export function providesOn(env: Env, slot: Slot, card: number): PType[] {
+export function providesOn(env: Env, slot: Slot, card: number, s?: GameState): PType[] {
   const d = def(env.ctx, card);
   const alt = d.coverage === 'full' ? d.script?.providesIf : undefined;
-  if (alt && slotMatches(env, slot, alt.filter)) return alt.provides;
+  if (alt && slotMatches(env, slot, alt.filter, true, s)) return alt.provides;
   return d.provides;
 }
 
@@ -162,11 +186,11 @@ export function pushUnits(env: Env, slot: Slot, card: number, out: EnergyUnit[],
   }
   // lane:fighting — "provides every type of Energy but provides only n Energy at a time"
   const any = d.script?.providesAny;
-  if (any && (!any.when || slotMatches(env, slot, any.when))) {
+  if (any && (!any.when || slotMatches(env, slot, any.when, true, s))) {
     for (let i = 0; i < any.n; i++) out.push('Any');
     return;
   }
-  const p = providesOn(env, slot, card); // lane:misc
+  const p = providesOn(env, slot, card, s); // lane:misc
   if (p.length) out.push(...p);
   else out.push('Colorless');
 }
@@ -232,7 +256,7 @@ export function evalExpr(env: Env, s: GameState, ec: EvalCtx, e: Expr): number {
     return n;
   }
   if ('pokemon' in e) {
-    return slotsIn(s, ec.player, e.pokemon.zone).filter((sl) => slotMatches(env, sl, e.pokemon.filter)).length;
+    return slotsIn(s, ec.player, e.pokemon.zone).filter((sl) => slotMatches(env, sl, e.pokemon.filter, true, s)).length;
   }
   if ('prizesLeft' in e) return s.p[side(ec, e.prizesLeft)].prizes.length;
   if ('prizesTaken' in e) return s.p[side(ec, e.prizesTaken)].prizesTaken;
@@ -297,7 +321,7 @@ export function evalCond(env: Env, s: GameState, ec: EvalCtx, c: Cond): boolean 
   }
   if ('slotIs' in c) {
     const sl = resolveSlot(s, ec, c.slotIs.ref);
-    return !!sl && slotMatches(env, sl, c.slotIs.filter);
+    return !!sl && slotMatches(env, sl, c.slotIs.filter, true, s);
   }
   if ('movedToActiveThisTurn' in c) {
     const sl = resolveSlot(s, ec, c.movedToActiveThisTurn);
@@ -337,7 +361,7 @@ export function evalCond(env: Env, s: GameState, ec: EvalCtx, c: Cond): boolean 
       if (c.attackedLastTurn.other && id === ec.slot) return false;
       const loc = findSlot(s, id);
       // The Pokémon as it is now, or, once it has left play, the card it was.
-      return loc ? slotMatches(env, loc.slot, f) : cardMatches(env, rec.cards[i] as number, f);
+      return loc ? slotMatches(env, loc.slot, f, true, s) : cardMatches(env, rec.cards[i] as number, f);
     });
   }
   if ('playedThisTurn' in c) {

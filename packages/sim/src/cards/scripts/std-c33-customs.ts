@@ -4,6 +4,7 @@
  *
  * A custom that asks a decision sets `s.pending` (the answer comes back as `answer`) and returns 'wait'.
  */
+import { evolveOnto } from '../../evolve.js';
 import { def, type Env } from '../../context.js';
 import { registerCustom } from '../../customs.js';
 import { countersFixed, ownerOf, statics } from '../../query.js';
@@ -141,10 +142,7 @@ registerCustom('c33.evolveChosen', (env, s, f, args, answer) => {
       if (pick === undefined || !sl || !removeFrom(ps.deck, pick)) continue;
       ps.prizesKnown = true;
       emit(env, { type: 'search', player: p, found: [pick] });
-      sl.cards.push(pick);
-      sl.evolvedTurn = s.turn;
-      sl.cond = 0;
-      s.effects = s.effects.filter((x) => !(x.slot === sl.id && x.fromAttack));
+      evolveOnto(env, s, sl, pick);
       emit(env, { type: 'evolve', player: p, card: pick, slot: sl.id });
       continue;
     }

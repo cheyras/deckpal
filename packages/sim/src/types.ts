@@ -107,7 +107,7 @@ export interface CardDef {
   statics: StaticDef[];
   triggers: { t: TriggerScript; code: string }[];
   /** An Ability or card text that makes this Pokémon other types ("it is {F} and {P} type"): see StaticEffect `types`. */
-  typeFix?: { types: PType[]; add: boolean; /** Only while the Pokémon matches this (a condition on the Pokémon itself: "has a Future Booster Energy Capsule attached"). */ ifSlot?: import('./dsl.js').Filter };
+  typeFix?: { types: PType[]; add: boolean; /** The type change is an Ability's (it ends while the Pokémon's Abilities are switched off), not the card's own text. */ ability: boolean; /** Only while the Pokémon matches this (a condition on the Pokémon itself: "has a Future Booster Energy Capsule attached"). */ ifSlot?: import('./dsl.js').Filter };
   /** The printed "Ancient" / "Future" tag of this PRINTING (src/cards/tags.ts), or null. See Filter `tag`. */
   tag: 'Ancient' | 'Future' | null;
   /** Printed text, joined, for the round-trip check and the debug view. */

@@ -66,7 +66,7 @@ registerCustom('c29.countEnergyOnPokemon', (env, s, f, args) => {
   const type = args.type as PType;
   let n = 0;
   for (const sl of slotsIn(s, f.player, String(args.zone ?? 'myPokemon') as 'myPokemon')) {
-    if (!slotMatches(env, sl, args.slotFilter as Filter | undefined)) continue;
+    if (!slotMatches(env, sl, args.slotFilter as Filter | undefined, true, s)) continue;
     n += energyUnits(env, sl).filter((u) => u === type || u === 'Any').length;
   }
   f.vars[String(args.as ?? 'n')] = n;
