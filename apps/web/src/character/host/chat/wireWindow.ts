@@ -175,6 +175,10 @@ export function fitCurrentTurn<T extends WireLike>(
       const type = typeof part.type === 'string' ? part.type : ''
       const name = type.startsWith('tool-') ? type.slice('tool-'.length) : ''
       if (part.state !== 'output-available' || !name || !opts.isServerTool(name)) continue
+      // An ask is small, and it is the server's only sign that a question is
+      // still open in this turn (`askedEarlierThisTurn` in `api/chat.mjs`).
+      // Compacted into a text record, the next leg would act as if answered.
+      if (name === 'ask_user') continue
 
       const id = typeof part.toolCallId === 'string' ? part.toolCallId : ''
       const summary = opts.summaryFor?.(id) ?? outputSummary(part)

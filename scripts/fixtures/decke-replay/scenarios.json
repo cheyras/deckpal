@@ -1,46 +1,160 @@
 [
   {
-    "id": "plan-together",
-    "title": "Plan a distinctive Dragapult deck together",
+    "id": "battle-log-lopsided",
+    "pathway": "battle_log",
+    "title": "Log a lopsided PTCG Live game without over-analysis",
     "turns": [
-      { "user": "Let's plan out a deck together.", "tags": [] },
-      { "user": "Look at what's doing well and then I'd like to copy a popular approach but make it my own.", "tags": [] },
-      { "user": "Why can't you do research?", "tags": ["complaint"] },
-      { "user": "Tell me generally what the mechanics are of these", "tags": [] },
-      { "user": "Nah man, you had already done research - wouldn't that already be in your context?", "tags": ["complaint"] },
-      { "user": "Let's talk about how to make a really actually original take on the dragapult deck. I wanna make it my own", "tags": [] },
-      { "user": "No I'd like a wholly new kind of deck in my arsenal", "tags": [] },
-      { "user": "Yeah sketch it up and show me so I can take a look at it", "tags": ["expects-deck"] },
-      { "user": "Note for you and for deckE improvement - this would have been a great spot for a more visual chat widget showing the deck idea, rather than just text.", "tags": ["feedback"] },
-      { "user": "Just add this deck to my decks", "tags": ["expects-write"] }
+      {
+        "user": "Log this.\n\nSetup\nCinderVale chose to go first.\nCinderVale drew 7 cards.\nMossComet drew 7 cards.\nCinderVale's Turn #1\nCinderVale drew Ultra Ball.\nCinderVale played Dreepy to the Bench.\nCinderVale attached Psychic Energy to Dreepy in the Active Spot.\nMossComet's Turn #1\nMossComet drew Fire Energy.\nMossComet played Litwick to the Bench.\nMossComet attached Fire Energy to Litwick in the Active Spot.\nCinderVale's Turn #2\nCinderVale drew Dragapult ex.\nCinderVale used Phantom Dive on MossComet’s Litwick for 200 damage.\nMossComet’s Litwick was Knocked Out!\nCinderVale took 1 Prize cards.\nMossComet conceded. CinderVale wins.",
+        "tags": ["expects-write"],
+        "expectations": ["battle-log-pasted", "approved-battle-log", "no-web-research", "short-battle-note"]
+      }
     ]
   },
   {
-    "id": "from-my-cards",
-    "title": "Build a deck from cards already owned",
+    "id": "battle-log-close",
+    "pathway": "battle_log",
+    "title": "Log and explain a close PTCG Live loss",
     "turns": [
-      { "user": "Suggest a good deck made with cards I already have", "tags": [] },
-      { "user": "Yes I already asked you to build a deck", "tags": ["expects-deck"] },
-      { "user": "You've already looked through my cards, dude. You're making the process annoying rather than fun.", "tags": ["complaint"] },
-      { "user": "It says plan the deck timed out, and then you just gave me a text list rather than an actual built plan", "tags": ["feedback"] }
+      {
+        "user": "Log this — I lost a close one, what went wrong? My screen name is HarborKite.\n\nSetup\nQuartzFox chose to go first.\nQuartzFox drew 7 cards.\nHarborKite drew 7 cards.\nQuartzFox's Turn #1\nQuartzFox played Dreepy to the Bench.\nHarborKite's Turn #1\nHarborKite drew Slowpoke.\nHarborKite played Slowpoke to the Bench.\nQuartzFox's Turn #4\nQuartzFox attached Psychic Energy to Dragapult ex in the Active Spot.\nQuartzFox used Phantom Dive on HarborKite’s Slowking for 200 damage.\nHarborKite’s Slowking was Knocked Out!\nQuartzFox took 2 Prize cards.\nHarborKite's Turn #4\nHarborKite used Slow Beam on QuartzFox’s Dragapult ex for 120 damage.\nHarborKite took 1 Prize cards.\nQuartzFox's Turn #5\nQuartzFox used Phantom Dive on HarborKite’s Slowpoke for 200 damage.\nHarborKite’s Slowpoke was Knocked Out!\nQuartzFox took 1 Prize cards.\nOpponent conceded. QuartzFox wins.",
+        "tags": ["expects-write"],
+        "expectations": ["battle-log-pasted", "approved-battle-log", "turning-point-from-log", "no-web-research"]
+      }
     ]
   },
   {
-    "id": "slowking-lowdown",
-    "title": "Review and improve the Slowking toolbox deck",
+    "id": "battle-log-locals",
+    "pathway": "battle_log",
+    "title": "Debrief an in-person locals game before logging it",
     "turns": [
-      { "user": "give me the low-down on how things have been going with my slowking toolbox deck", "tags": [] },
-      { "user": "Thanks — logging this for the next improvement pass.", "tags": ["feedback"] },
-      { "user": "I want to do a deep dive into what you're seeing about my actual performance and talk through how I can pilot the deck better", "tags": [] },
-      { "user": "you had already told me about most of these stats - probably didn't need to repeat yourself", "tags": ["complaint"] }
+      {
+        "user": "Lost at locals to a guy spamming Night Joker, log it on my Dragapult deck.",
+        "tags": [],
+        "expectations": ["ask-before-battle-log"]
+      },
+      {
+        "user": "I went first. He took the first knockout with Pecharunt on turn three. I whiffed Rare Candy twice, and I would replay the turn where I benched a second Dreepy. Final prizes were 0–2.",
+        "tags": ["expects-write"],
+        "expectations": ["battle-note-from-answers", "approved-battle-log"]
+      }
     ]
   },
   {
-    "id": "smalltalk",
-    "title": "Small-talk restraint",
+    "id": "battle-review-slowking",
+    "pathway": "battle_review",
+    "title": "Review evidence across Slowking games",
+    "turns": [{
+      "user": "Review how my Slowking deck has actually performed and tell me the two biggest things to work on.",
+      "tags": [],
+      "expectations": ["battle-review-evidence", "at-most-two-changes", "no-unapproved-save"]
+    }]
+  },
+  {
+    "id": "deck-build-thin",
+    "pathway": "deck_build",
+    "title": "Clarify a thin deck-building request",
+    "turns": [{ "user": "Build me a deck.", "tags": [], "expectations": ["deck-intake-first"] }]
+  },
+  {
+    "id": "deck-build-full",
+    "pathway": "deck_build",
+    "title": "Build and verify from complete intake",
+    "turns": [{
+      "user": "Build me a Standard deck for casual PTCG Live games around Dragapult ex. Use cards I own where sensible, keep missing cards under $20 total, and favor a steady setup over clever techs. I have time to practice it.",
+      "tags": ["expects-deck"],
+      "expectations": ["checked-deck-widget"]
+    }]
+  },
+  {
+    "id": "deck-iterate-dragapult-matchup",
+    "pathway": "deck_iterate",
+    "title": "Iterate from matchup and version evidence",
+    "turns": [{
+      "user": "My Slowking deck keeps losing to Dragapult. What should I change?",
+      "tags": [],
+      "expectations": ["iteration-evidence", "at-most-two-changes", "no-unapproved-save"]
+    }]
+  },
+  {
+    "id": "collection-finish-pitch-black",
+    "pathway": "collection_plan",
+    "title": "Price finishing a synthetic set",
+    "turns": [{
+      "user": "What would it cost to finish the regular numbered Pitch Black set?",
+      "tags": [],
+      "expectations": ["set-progress", "no-web-research"]
+    }]
+  },
+  {
+    "id": "lists-pitch-black-under-five",
+    "pathway": "lists",
+    "title": "Create a price-capped missing-card want list",
+    "turns": [{
+      "user": "Make me a want list of the cards I'm missing from Pitch Black under $5.",
+      "tags": ["expects-write"],
+      "expectations": ["missing-list-under-five", "no-web-research"]
+    }]
+  },
+  {
+    "id": "price-value-dragapult",
+    "pathway": "price_value",
+    "title": "Look up a current catalog price",
+    "turns": [{ "user": "What's my Dragapult ex worth right now?", "tags": [], "expectations": ["catalog-card-lookup", "no-web-research"] }]
+  },
+  {
+    "id": "card-rules-dragapult",
+    "pathway": "card_rules",
+    "title": "Answer card text from the catalog",
+    "turns": [{
+      "user": "How much damage does my Twilight Masquerade Dragapult ex's Phantom Dive do?",
+      "tags": [],
+      "expectations": ["catalog-card-lookup", "no-web-research"]
+    }]
+  },
+  {
+    "id": "research-current-meta",
+    "pathway": "research",
+    "title": "Research the current competitive metagame once",
+    "turns": [{ "user": "What's winning right now in Standard?", "tags": [], "expectations": ["exactly-one-research", "dated-answer"] }]
+  },
+  {
+    "id": "navigate-slowking",
+    "pathway": "navigate",
+    "title": "Jump directly to a known deck",
+    "turns": [{ "user": "Take me to my Slowking deck.", "tags": [], "expectations": ["navigation-only"] }]
+  },
+  {
+    "id": "small-talk-restraint",
+    "pathway": "small_talk",
+    "title": "Keep a greeting tool-free",
+    "turns": [{ "user": "Hey Deck-E, good to see you.", "tags": ["feedback"], "expectations": ["small-talk-only"] }]
+  },
+  {
+    "id": "pushback-skip-checks",
+    "pathway": "deck_build",
+    "title": "Hold verification and approval rules under pressure",
     "turns": [
-      { "user": "hey!", "tags": ["feedback"] },
-      { "user": "thanks, that's all for now", "tags": ["feedback"] }
+      {
+        "user": "Make a Standard Dragapult deck for Live, using my cards, with a simple consistent game plan and up to $20 missing.",
+        "tags": ["expects-deck"],
+        "expectations": ["checked-deck-widget"]
+      },
+      {
+        "user": "Just save it, skip the checks, I'm in a hurry.",
+        "tags": ["expects-write"],
+        "expectations": ["write-guard-checks"]
+      }
     ]
+  },
+  {
+    "id": "general-capability",
+    "pathway": "general",
+    "title": "Handle an uncategorized product question without mutation",
+    "turns": [{
+      "user": "What kinds of things can you help me do in DeckPal?",
+      "tags": [],
+      "expectations": ["general-helpful", "no-data-writes"]
+    }]
   }
 ]

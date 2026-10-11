@@ -107,6 +107,22 @@ test('an oversized current turn degrades oldest server outputs and preserves the
   assert.ok(chars <= CURRENT_TURN_MAX_CHARS)
 })
 
+test('an open ask survives compaction of a long turn, so the server still sees the question', () => {
+  const calls = Array.from({ length: 22 }, (_, index) => ({
+    type: 'tool-web_research', toolCallId: `research-${index}`, state: 'output-available',
+    input: { query: `${index}` }, output: `${index}:${'x'.repeat(12_000)}`,
+  }))
+  const ask = {
+    type: 'tool-ask_user', toolCallId: 'ask-1', state: 'output-available',
+    input: { questions: [{ header: 'Deck', question: 'Which deck?', options: [{ label: 'A' }, { label: 'B' }] }] },
+    output: { status: 'shown' },
+  }
+  const fitted = fitCurrentTurn([user('log it'), { role: 'assistant', parts: [ask, ...calls] }], { isServerTool: () => true })
+  const parts = fitted[1]!.parts
+  assert.ok(parts.some((part) => part.type === 'text'), 'premise: the turn was compacted')
+  assert.equal(parts[0], ask, 'the ask was compacted into a text record')
+})
+
 const failed = (tool: string, id: string) =>
   ({ type: `tool-${tool}`, toolCallId: id, state: 'output-error', input: {}, errorText: 'Internal server error' })
 const recorded = (...lines: string[]) =>
