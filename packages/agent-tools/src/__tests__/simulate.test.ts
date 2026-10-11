@@ -38,3 +38,57 @@ test('simulateBattles forwards the compare list to POST /decks/simulate', async 
   assert.deepEqual(calls[0]![2], { cards, compare_cards: cards, compare_name: 'v4 with 2 Gwynn' })
   assert.ok(JSON.stringify(out).includes('VERDICT'))
 })
+
+test('simulate_battles: the built-in meta pool is named in the schema and the description', () => {
+  const opp = simulateBattlesInputSchema.shape.opponents.description ?? ''
+  assert.match(opp, /'meta'/)
+  assert.match(opp, /'meta:<archetype>'/)
+  assert.match(opp, /as-of date/)
+  assert.match(opp, /snapshot/)
+  assert.match(simulateBattlesTool.description, /built-in Standard meta pool/)
+  assert.equal(simulateBattlesTool.annotations?.readOnlyHint, true)
+  assert.ok(simulateBattlesInputSchema.safeParse({ deck_id: 'v4', opponents: ['meta', 'meta:Dragapult', 'Gengar'] }).success)
+})
+
+test('simulateBattles passes meta and meta:<archetype> to the API as written, without a deck lookup', async () => {
+  const calls: unknown[][] = []
+  // A ctx whose database throws: a meta reference must never reach the deck resolver.
+  const ctx = { userId: 'u', db: new Proxy({}, { get: () => { throw new Error('deck lookup') } }) as never, api: {
+    base: 'test', get: async () => ({}),
+    send: async (...args: unknown[]) => { calls.push(args); return { text: 'SIMULATED', report: {} } },
+  } } as never
+  await simulateBattles(ctx, { cards, opponents: ['meta', ' Meta : Dragapult Dusknoir'] })
+  assert.deepEqual((calls[0]![2] as { opponents: string[] }).opponents, ['meta', ' Meta : Dragapult Dusknoir'])
+})
+
+test('simulateBattles: a spaced meta reference never queries the deck index, even with a colliding saved name', async () => {
+  const gets: unknown[] = []
+  const calls: unknown[][] = []
+  const ctx = { userId: 'u', db: {} as never, api: {
+    base: 'test',
+    get: async (...a: unknown[]) => { gets.push(a); return { decks: [{ id: '00000000-0000-4000-8000-000000000001', name: 'Meta Dragapult' }] } },
+    send: async (...args: unknown[]) => { calls.push(args); return { text: 'SIMULATED', report: {} } },
+  } } as never
+  await simulateBattles(ctx, { cards, opponents: ['meta : Dragapult', 'META\t:Slowking', 'meta'] })
+  assert.equal(gets.length, 0, 'the deck index was not read')
+  assert.deepEqual((calls[0]![2] as { opponents: string[] }).opponents, ['meta : Dragapult', 'META\t:Slowking', 'meta'])
+})
+
+test('simulateBattles: an ambiguous saved name is reported, not handed to the pool; an absent one is', async () => {
+  const calls: unknown[][] = []
+  const decks = [
+    { id: '00000000-0000-4000-8000-000000000001', name: 'N s Zoroark' },
+    { id: '00000000-0000-4000-8000-000000000002', name: 'N-s Zoroark' },
+  ]
+  const ctx = { userId: 'u', db: {} as never, api: {
+    base: 'test',
+    get: async () => ({ decks }),
+    send: async (...args: unknown[]) => { calls.push(args); return { text: 'SIMULATED', report: {} } },
+  } } as never
+  const amb = await simulateBattles(ctx, { cards, opponents: ["N's Zoroark"] })
+  assert.equal(calls.length, 0, 'nothing was sent to the API')
+  assert.match(JSON.stringify(amb), /Opponent/)
+  assert.match(JSON.stringify(amb), /00000000-0000-4000-8000-000000000001/)
+  await simulateBattles(ctx, { cards, opponents: ['Slowking'] })
+  assert.deepEqual((calls[0]![2] as { opponents: string[] }).opponents, ['Slowking'], 'a name no saved deck matches is left to the pool')
+})

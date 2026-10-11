@@ -40,3 +40,7 @@ export {
   PAIRED_METHOD, buildComparison, renderComparison,
   type BuildComparisonInput, type ChangedCardImpact, type ComparisonMatchup, type ComparisonReport,
 } from './compareReport.js';
+export {
+  META_POOL, metaDeck, metaDeckSize, metaDecksMatching, metaLabel, topMetaDecks,
+  type MetaDeck, type MetaPool,
+} from './meta/index.js';

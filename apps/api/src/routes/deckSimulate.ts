@@ -1,21 +1,23 @@
 import { Router, type Response } from 'express'
-import type { DeckInput } from '@deckpal/sim'
+import { metaLabel, type DeckInput, type MetaDeck } from '@deckpal/sim'
 import { dbHandle, q, rlsStore } from '../db.js'
 import type { FormatCode } from '../deck/index.js'
 import {
-  SIM_RUN_GATE, assertDeckSize, buildDeckInput, busyMessage, cardTotal, deckSizeOk, parseSimulateBody, pickOpponents,
+  SIM_RUN_GATE, assertDeckSize, buildDeckInput, busyMessage, cardTotal, deckSizeOk, metaNote, playableMeta, parseSimulateBody, pickOpponentsWithMeta,
   pilotFactory, resolveDeckRef, runComparison, runMatchups, SIM_DECK_MAX, SIM_DECK_MIN, type CardCount, type OwnedDeck,
 } from '../deck/simulate.js'
 import { asyncHandler, badRequest, oneOf, userCache } from '../http.js'
 import { currentUserId } from '../identity.js'
-import { cardFrames } from '../sim/frames.js'
+import { cardFrames, cardsByTcgdexId } from '../sim/frames.js'
 import { deckCheckInputLines, resolveCheckLines } from './deckCheck.js'
 
 /**
  * POST /decks/simulate — play the caller's deck (a saved deck, or an ad-hoc
- * list in check_deck's shape) against their other decks in the battle
- * simulator (@deckpal/sim) and return `{ text, report }`: the compact text an
- * assistant reads and the structured report it came from.
+ * list in check_deck's shape) against their other decks and/or the built-in
+ * meta pool of current Standard archetypes (`meta`, `meta:<name>`; the pool is
+ * also the default when they have no other deck), in the battle simulator
+ * (@deckpal/sim), and return `{ text, report }`: the compact text an assistant
+ * reads and the structured report it came from.
  *
  * Read-only. The simulated games are never stored: they are a computation over
  * decklists, not a battle record, and `battle_logs` stays the place for games
@@ -107,10 +109,10 @@ deckSimulateRouter.post('/', asyncHandler(async (req, res) => {
       compareCounts = lines.map((l) => ({ card_id: String(l.card!.id), quantity: l.line.quantity }))
     }
 
-    const opponents = pickOpponents(params.opponents, decks, [subjectId, compareId])
-    if (!opponents.length) throw badRequest('No opponent decks to play against: save at least one other deck, or name opponents.')
+    const opponents = pickOpponentsWithMeta(params.opponents, decks, [subjectId, compareId])
+    if (!opponents.length) throw badRequest('No opponent decks to play against: save at least one other deck, or name opponents (`meta` for the built-in Standard meta decks).')
 
-    const ids = [...new Set([...(subjectId ? [subjectId] : []), ...(compareId ? [compareId] : []), ...opponents.map((o) => o.id)])]
+    const ids = [...new Set([...(subjectId ? [subjectId] : []), ...(compareId ? [compareId] : []), ...opponents.flatMap((o) => (o.kind === 'saved' ? [o.deck.id] : []))])]
     const rows = await q<{ deck_id: string; card_id: string; quantity: number }>(
       `SELECT deck_id::text AS deck_id, card_id::text AS card_id, sum(quantity)::int AS quantity
          FROM deck_card WHERE user_id = $1 AND deck_id = ANY($2::uuid[])
@@ -131,15 +133,38 @@ deckSimulateRouter.post('/', asyncHandler(async (req, res) => {
     const secondCounts = params.compare ? (compareCounts ?? byDeck.get(compareId!) ?? []) : null
     if (secondCounts) assertDeckSize(compareName, cardTotal(secondCounts))
     const played: Array<{ name: string; counts: CardCount[] }> = []
+    const metaSlots: Array<{ slot: { name: string; counts: CardCount[] }; deck: MetaDeck }> = []
     for (const o of opponents) {
-      const counts = byDeck.get(o.id) ?? []
+      if (o.kind === 'meta') {
+        // Pool lists are always 60 cards; their catalogue ids are looked up below, in one read.
+        const slot = { name: metaLabel(o.deck), counts: [] as CardCount[] }
+        played.push(slot)
+        metaSlots.push({ slot, deck: o.deck })
+        continue
+      }
+      const counts = byDeck.get(o.deck.id) ?? []
       const total = cardTotal(counts)
-      if (deckSizeOk(total)) played.push({ name: o.name, counts })
+      if (deckSizeOk(total)) played.push({ name: o.deck.name, counts })
       // A named opponent is the caller's choice: tell them. A default one is skipped with a note.
-      else if (params.opponents) assertDeckSize(o.name, total)
-      else notes.push(`${o.name} has ${total} cards, outside the simulator's ${SIM_DECK_MIN}–${SIM_DECK_MAX} — skipped.`)
+      else if (params.opponents) assertDeckSize(o.deck.name, total)
+      else notes.push(`${o.deck.name} has ${total} cards, outside the simulator's ${SIM_DECK_MIN}–${SIM_DECK_MAX} — skipped.`)
     }
-    if (!played.length) throw badRequest(`None of your other decks is ${SIM_DECK_MIN}–${SIM_DECK_MAX} cards — nothing to play against. Name opponents, or finish a deck first.`)
+    if (metaSlots.length) {
+      const catalog = await cardsByTcgdexId(dbHandle(), metaSlots.flatMap((m) => m.deck.list.map(([id]) => id)))
+      for (const { slot, deck } of metaSlots) {
+        const can = playableMeta(slot.name, deck, catalog)
+        if (!can.ok) {
+          // A wrong card under a pool id, or too few cards left once the catalogue's gaps are dropped: skip, never play a distorted list.
+          played.splice(played.indexOf(slot), 1)
+          notes.push(can.note)
+          continue
+        }
+        slot.counts = can.counts
+        notes.push(...can.notes)
+      }
+      notes.push(metaNote())
+    }
+    if (!played.length) throw badRequest(`None of the opponent decks can be played (${SIM_DECK_MIN}–${SIM_DECK_MAX} cards, known to the catalogue) — nothing to play against. Name opponents, use 'meta', or finish a deck first.`)
 
     // Every deck's frames in one batched read (each cardFrames call is a handful of queries).
     const allCounts = [subjectCounts, ...(secondCounts ? [secondCounts] : []), ...played.map((p) => p.counts)]

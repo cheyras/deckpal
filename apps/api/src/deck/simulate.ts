@@ -27,6 +27,7 @@
  */
 import * as sim from '@deckpal/sim';
 import {
+  META_POOL, metaDecksMatching, topMetaDecks, type MetaDeck,
   buildComparison, buildReport, renderComparison, renderReport, simulateAsync, simulatePairedAsync,
   type CardFrame, type ComparisonReport, type DeckInput, type PilotFactory, type SimReport, type SimulationResult,
 } from '@deckpal/sim';
@@ -166,6 +167,118 @@ export function pickOpponents(refs: string[] | null, decks: OwnedDeck[], exclude
   }
   const skip = new Set((Array.isArray(exclude) ? exclude : [exclude]).filter((x): x is string => !!x));
   return decks.filter((d) => !skip.has(d.id)).slice(0, SIM_OPPONENTS_DEFAULT);
+}
+
+/** An opponent to play: one of the caller's saved decks, or a built-in meta-pool list. */
+export type Opponent = { kind: 'saved'; deck: OwnedDeck } | { kind: 'meta'; deck: MetaDeck };
+
+const META_WORD = /^meta$/i;
+const META_PREFIX = /^meta\s*:\s*(.*)$/i;
+
+/** The pool's archetype names, for an error that tells the caller what they can ask for. */
+function listMeta(decks: MetaDeck[] = META_POOL.decks): string {
+  return decks.map((d) => d.name).join('; ');
+}
+
+/** The one pool deck a reference names, or a 400 that lists the archetypes (or the ambiguous matches). */
+export function resolveMetaRef(ref: string): MetaDeck {
+  const hits = metaDecksMatching(ref);
+  if (hits.length === 1) return hits[0]!;
+  if (!hits.length) throw badRequest(`No meta archetype matches '${ref}'. The pool (as of ${META_POOL.asOf}): ${listMeta()}`);
+  throw badRequest(`'${ref}' matches ${hits.length} meta archetypes — name one: ${listMeta(hits)}`);
+}
+
+/** Whether a reference could be one of the caller's saved decks: an id, or a name (or name fragment) of one. */
+function matchesSaved(ref: string, decks: OwnedDeck[]): boolean {
+  if (UUID_RE.test(ref)) return true; // an id is always a saved-deck reference, found or not
+  const want = fold(ref);
+  return decks.some((d) => fold(d.name).includes(want));
+}
+
+/**
+ * Opponents for a run, saved decks and the built-in meta pool together.
+ *  - `meta`: the top SIM_OPPONENTS_DEFAULT pool archetypes.
+ *  - `meta:<name>`: that pool archetype (id or name; a unique fragment is enough).
+ *  - Any other reference is a saved deck, exactly as resolveDeckRef has it. A
+ *    SAVED DECK ALWAYS SHADOWS THE POOL: a name that matches any saved deck is
+ *    that deck (or an ambiguity error), never a pool list. Only a name that
+ *    matches no saved deck at all falls through to the pool.
+ *  - No references: the caller's other decks (pickOpponents); and when they
+ *    have none, the top SIM_OPPONENTS_DEFAULT pool archetypes.
+ * Duplicates are dropped; at most SIM_OPPONENTS_MAX in all (`meta` counts as the six it expands to).
+ */
+export function pickOpponentsWithMeta(refs: string[] | null, decks: OwnedDeck[], exclude: string | null | (string | null)[]): Opponent[] {
+  const saved = (d: OwnedDeck): Opponent => ({ kind: 'saved', deck: d });
+  const meta = (d: MetaDeck): Opponent => ({ kind: 'meta', deck: d });
+  if (!refs) {
+    const own = pickOpponents(null, decks, exclude);
+    return own.length ? own.map(saved) : topMetaDecks(SIM_OPPONENTS_DEFAULT).map(meta);
+  }
+  const out: Opponent[] = [];
+  const seen = new Set<string>();
+  const add = (o: Opponent) => {
+    const key = `${o.kind}:${o.deck.id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(o);
+  };
+  for (const ref of refs) {
+    const prefixed = META_PREFIX.exec(ref);
+    if (META_WORD.test(ref) || (prefixed && !prefixed[1]!.trim())) topMetaDecks(SIM_OPPONENTS_DEFAULT).forEach((d) => add(meta(d)));
+    else if (prefixed) add(meta(resolveMetaRef(prefixed[1]!.trim())));
+    else if (matchesSaved(ref, decks)) add(saved(resolveDeckRef(ref, decks)));
+    else if (metaDecksMatching(ref).length) add(meta(resolveMetaRef(ref)));
+    else resolveDeckRef(ref, decks); // throws the usual "No deck matches", with the caller's decks listed
+  }
+  if (out.length > SIM_OPPONENTS_MAX) throw badRequest(`at most ${SIM_OPPONENTS_MAX} opponents per run (\`meta\` counts as ${SIM_OPPONENTS_DEFAULT})`);
+  return out;
+}
+
+export interface MetaCatalogCard {
+  id: number;
+  name: string;
+}
+
+/**
+ * A pool deck's card counts keyed by catalogue ids, from the catalogue rows
+ * found for its TCGdex ids. A card the catalogue lacks is reported in
+ * `missing` (left out and noted, like a saved deck's); one whose catalogue name
+ * is not the name the pool recorded is in `mismatched` (a wrong id: the caller
+ * skips the whole deck rather than play a different card).
+ */
+export function metaCounts(deck: MetaDeck, catalog: Map<string, MetaCatalogCard>): { counts: CardCount[]; missing: string[]; mismatched: string[] } {
+  const counts: CardCount[] = [];
+  const missing: string[] = [];
+  const mismatched: string[] = [];
+  for (const [tcgdexId, quantity] of deck.list) {
+    const row = catalog.get(tcgdexId);
+    const want = deck.names[tcgdexId];
+    if (!row) missing.push(want ? `${want} (${tcgdexId})` : tcgdexId);
+    else if (want && fold(row.name) !== fold(want)) mismatched.push(`${tcgdexId} is ${row.name}, expected ${want}`);
+    else counts.push({ card_id: String(row.id), quantity });
+  }
+  return { counts, missing, mismatched };
+}
+
+/**
+ * Whether a pool deck can be played, given the catalogue rows found for it: its
+ * counts and any notes, or the note saying why it is skipped. A different card
+ * under a pool id, or a list the catalogue leaves outside the 40–70 bound once
+ * its missing cards are dropped, is skipped (a saved opponent gets the same bound).
+ */
+export function playableMeta(label: string, deck: MetaDeck, catalog: Map<string, MetaCatalogCard>): { ok: true; counts: CardCount[]; notes: string[] } | { ok: false; note: string } {
+  const found = metaCounts(deck, catalog);
+  if (found.mismatched.length) return { ok: false, note: `${label} skipped — the catalogue disagrees with the pool on ${found.mismatched.slice(0, 3).join('; ')}.` };
+  const total = cardTotal(found.counts);
+  const missing = found.missing.length ? `${label}: not in the catalogue yet: ${found.missing.join(', ')} — left out of the simulated deck.` : null;
+  if (!deckSizeOk(total)) return { ok: false, note: `${label} skipped — only ${total} of its cards are in the catalogue, outside the simulator's ${SIM_DECK_MIN}–${SIM_DECK_MAX}${missing ? ` (${found.missing.length} missing)` : ''}.` };
+  return { ok: true, counts: found.counts, notes: missing ? [missing] : [] };
+}
+
+/** The note every meta-pool run carries: what these opponents are, and how old. */
+export function metaNote(): string {
+  const w = META_POOL.window;
+  return `Meta opponents are one representative list per archetype from ${META_POOL.source.name} events (${w.from} to ${w.to}, as of ${META_POOL.asOf}), a snapshot and not today's ladder.`;
 }
 
 /**

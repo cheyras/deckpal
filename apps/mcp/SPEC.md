@@ -550,7 +550,7 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
    picks which printings an unsaved list's bare names resolve to. First of the simulation tools —
    the battle simulator that plays cards will report the same way.
 8c. **`simulate_battles`** — read-only `{ deck_id? | cards? | ptcgl_text?, name?, format?, opponents?: [deck id or
-   name] (≤8; default up to 6 of the caller's other decks), games? = 24 (2..200, per opponent, rounded up to
+   name, or `meta` / `meta:<archetype>` for the built-in Standard meta pool] (≤8; default up to 6 of the caller's other decks, else the top 6 meta decks), games? = 24 (2..200, per opponent, rounded up to
    pairs), seed? = 1, speed? = strong|fast, compare_with? | compare_cards? | compare_ptcgl_text?, compare_name? }` → `POST /decks/simulate`. Plays the deck against each opponent in `@deckpal/sim` with
    a CPU pilot on both sides: paired games (seats swapped per seed, so each deck goes first half the time)
    inside a 25 s budget that is also a hard deadline (a game still running at it is a time-out), on decks
@@ -560,7 +560,10 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
    liabilities, loss patterns, early-card impact (an association), and a coverage block naming every
    card the engine only approximates or cannot play. The text says on its first and last line that
    these are simulated games by a bot, never real results; nothing is stored. Deck refs resolve loosely
-   through `needDeck` (a read). **Paired comparison** (2026-10-10): with at most one of `compare_with`
+   through `needDeck` (a read); `meta` and `meta:<archetype>` skip that lookup and go to the API as written, as does a name
+   that matches none of the caller's decks (the API shadows the pool with saved decks and falls through to it otherwise).
+   **Meta pool** (2026-10-11): `packages/sim/src/meta/` holds one list per current Standard archetype, refreshed by hand from
+   Limitless's public tournament API; the tool description and the report's notes carry the as-of date and each list's source. **Paired comparison** (2026-10-10): with at most one of `compare_with`
    (a saved deck id or name), `compare_cards` or `compare_ptcgl_text` (an unsaved whole list, labelled by
    `compare_name?`), the subject is version A and the second list version B; both play every opponent
    on the SAME seeds and seats (common random numbers), and the text leads with a `VERDICT:` line and the

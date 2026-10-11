@@ -59,3 +59,20 @@ export async function cardFrames(db: Queryable, ids: number[]): Promise<Map<numb
   }
   return out;
 }
+
+/**
+ * Catalogue rows for TCGdex card ids ('sv06-130'), keyed by that id: the numeric
+ * `card.id` the frames are keyed on, and the name. The built-in meta pool
+ * (@deckpal/sim META_POOL) names its cards by TCGdex id. Unknown ids are absent.
+ */
+export async function cardsByTcgdexId(db: Queryable, tcgdexIds: string[]): Promise<Map<string, { id: number; name: string }>> {
+  const out = new Map<string, { id: number; name: string }>();
+  const unique = [...new Set(tcgdexIds)];
+  if (!unique.length) return out;
+  const { rows } = await db.query<{ id: string; tcgdex_id: string; name: string }>(
+    `SELECT id, tcgdex_id, name FROM card WHERE tcgdex_id = ANY($1::text[]) AND lang = 'en'`,
+    [unique],
+  );
+  for (const r of rows) out.set(r.tcgdex_id, { id: Number(r.id), name: r.name });
+  return out;
+}

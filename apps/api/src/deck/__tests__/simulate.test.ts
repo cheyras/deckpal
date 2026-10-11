@@ -5,12 +5,12 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { CardFrame, DeckInput } from '@deckpal/sim';
+import { META_POOL, metaLabel, type CardFrame, type DeckInput } from '@deckpal/sim';
 import { ApiError } from '../../http.js';
 import {
   SIM_DECK_MAX, SIM_DECK_MIN, SIM_GAMES_DEFAULT, SIM_NOTES_LIMIT, SIM_OPPONENTS_DEFAULT, SIM_RUN_GATE, SIM_TEXT_LIMIT,
   assertDeckSize, buildDeckInput, busyMessage, cardTotal, clampNotes, createRunGate, deckNotes, deckSizeOk,
-  parseSimulateBody, pickOpponents, pilotFactory, resolveDeckRef, runComparison, runMatchups, type OwnedDeck,
+  metaCounts, metaNote, playableMeta, parseSimulateBody, pickOpponents, pickOpponentsWithMeta, pilotFactory, resolveDeckRef, runComparison, runMatchups, type OwnedDeck,
 } from '../simulate.js';
 
 const ID = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -258,4 +258,114 @@ test('runComparison: a hard deadline inside version A\'s first game is reported 
   });
   assert.equal(out.report.stoppedEarly, true);
   assert.equal(out.report.reportA.stoppedEarly, true);
+});
+
+// ── the built-in meta pool as opponents ─────────────────────────────────────
+
+test('pickOpponentsWithMeta: `meta` is the top six pool archetypes, in share order', () => {
+  const got = pickOpponentsWithMeta(['meta'], DECKS, ID(1));
+  assert.equal(got.length, SIM_OPPONENTS_DEFAULT);
+  assert.ok(got.every((o) => o.kind === 'meta'));
+  assert.deepEqual(got.map((o) => o.deck.id), META_POOL.decks.slice(0, SIM_OPPONENTS_DEFAULT).map((d) => d.id));
+  // Case does not matter, and a bare `meta:` is the same as `meta`.
+  assert.equal(pickOpponentsWithMeta(['META'], [], null).length, SIM_OPPONENTS_DEFAULT);
+  assert.equal(pickOpponentsWithMeta(['meta:'], [], null).length, SIM_OPPONENTS_DEFAULT);
+});
+
+test('pickOpponentsWithMeta: meta:<name> is one pool deck; an unknown or ambiguous one is a 400 that lists the archetypes', () => {
+  const first = META_POOL.decks[0]!;
+  const one = pickOpponentsWithMeta([`meta:${first.name}`], [], null);
+  assert.deepEqual(one.map((o) => [o.kind, o.deck.id]), [['meta', first.id]]);
+  assert.equal(pickOpponentsWithMeta([`Meta : ${first.name.toUpperCase()}`], [], null)[0]!.deck.id, first.id);
+  rejects(() => pickOpponentsWithMeta(['meta:Nonexistent Deck'], DECKS, null), new RegExp(`No meta archetype matches 'Nonexistent Deck'.*as of ${META_POOL.asOf}.*${first.name}`));
+  rejects(() => pickOpponentsWithMeta(['meta:alakazam'], DECKS, null), /matches 2 meta archetypes — name one: .*Alakazam/);
+});
+
+test('pickOpponentsWithMeta: an archetype name that matches no saved deck is the pool deck; a saved deck shadows the pool', () => {
+  const first = META_POOL.decks[0]!;
+  const withSame: OwnedDeck[] = [...DECKS, { id: ID(20), name: first.name }];
+  // A saved deck with the pool deck's own name: the saved deck, never the pool's list.
+  const shadowed = pickOpponentsWithMeta([first.name], withSame, null);
+  assert.deepEqual(shadowed.map((o) => [o.kind, o.deck.name]), [['saved', first.name]]);
+  // …but meta: always means the pool.
+  assert.equal(pickOpponentsWithMeta([`meta:${first.name}`], withSame, null)[0]!.kind, 'meta');
+  // With no saved deck by that name, the archetype name finds the pool deck.
+  const pool = pickOpponentsWithMeta([first.name], [{ id: ID(1), name: 'Toolbox Slowking' }], null);
+  assert.deepEqual(pool.map((o) => [o.kind, o.deck.id]), [['meta', first.id]]);
+  // A saved id never falls through to the pool, and a name nobody has is the usual error with the caller's decks.
+  rejects(() => pickOpponentsWithMeta([ID(99)], DECKS, null), /No deck with id/);
+  rejects(() => pickOpponentsWithMeta(['Nothing Like It'], DECKS, null), /No deck matches 'Nothing Like It'. Your decks:/);
+});
+
+test('pickOpponentsWithMeta: saved and pool decks mix in order, duplicates drop, and the total is capped', () => {
+  const second = META_POOL.decks[1]!;
+  const mixed = pickOpponentsWithMeta(['Gengar ex', `meta:${second.name}`, ID(5), `meta:${second.id}`], DECKS, ID(1));
+  assert.deepEqual(mixed.map((o) => o.kind), ['saved', 'meta']);
+  // `meta` is six; six plus three named is over the cap of 8.
+  rejects(() => pickOpponentsWithMeta(['meta', ID(2), ID(3), ID(5)], DECKS, null), /at most 8 opponents per run/);
+  assert.equal(pickOpponentsWithMeta(['meta', ID(2), ID(3)], DECKS, null).length, 8);
+});
+
+test('pickOpponentsWithMeta: with no opponents named, the caller\'s other decks; with none, the top six pool decks', () => {
+  const own = pickOpponentsWithMeta(null, DECKS, ID(1));
+  assert.ok(own.every((o) => o.kind === 'saved') && own.length === SIM_OPPONENTS_DEFAULT);
+  assert.deepEqual(own.map((o) => o.deck.id), pickOpponents(null, DECKS, ID(1)).map((d) => d.id));
+  const none = pickOpponentsWithMeta(null, [], null);
+  assert.deepEqual(none.map((o) => o.deck.id), META_POOL.decks.slice(0, SIM_OPPONENTS_DEFAULT).map((d) => d.id));
+  // Their only deck is the subject: still nobody to play, so the pool.
+  assert.ok(pickOpponentsWithMeta(null, [DECKS[0]!], ID(1)).every((o) => o.kind === 'meta'));
+});
+
+test('metaCounts: catalogue ids for the pool\'s TCGdex ids; a missing card is noted, a different card refuses the deck', () => {
+  const d = META_POOL.decks[0]!;
+  const catalog = new Map(d.list.map(([id], i) => [id, { id: 1000 + i, name: d.names[id]! }] as const));
+  const full = metaCounts(d, catalog);
+  assert.deepEqual([full.missing, full.mismatched], [[], []]);
+  assert.equal(cardTotal(full.counts), 60);
+  assert.equal(full.counts[0]!.card_id, '1000');
+  const gone = d.list[0]![0];
+  const lacking = new Map(catalog);
+  lacking.delete(gone);
+  assert.match(metaCounts(d, lacking).missing[0]!, new RegExp(gone));
+  assert.equal(metaCounts(d, lacking).counts.length, d.list.length - 1);
+  const wrong = new Map(catalog).set(gone, { id: 1, name: 'Some Other Card' });
+  assert.match(metaCounts(d, wrong).mismatched[0]!, /Some Other Card, expected/);
+});
+
+test('a pool deck is a labelled opponent in the report, with the pool\'s source, date and record', async () => {
+  const label = metaLabel(META_POOL.decks[0]!);
+  assert.match(label, /^Meta: .+ \(Limitless online, \d{4}-\d{2}-\d{2}, \d+-\d+(-\d+)?\)$/);
+  const out = await runMatchups(deck('Pups', mon('t-1', 'Pup', 70, '30')), [deck(label, mon('t-2', 'Cat', 60, '20'))], {
+    games: 2, seed: 1, notes: [metaNote()], pilot: pilotFactory('fast'), budgetMs: 60_000,
+  });
+  assert.ok(out.text.includes(`vs ${label}`), out.text.slice(0, 200));
+  assert.match(out.text, /Note: Meta opponents are one representative list per archetype from Limitless online events \(.* to .*, as of \d{4}-\d{2}-\d{2}\)/);
+  assert.ok(out.text.length <= SIM_TEXT_LIMIT);
+});
+
+test('every pool deck is within the simulator\'s deck bounds (so a pool opponent is never rejected on size)', () => {
+  for (const d of META_POOL.decks) assert.ok(deckSizeOk(d.list.reduce((n, [, c]) => n + c, 0)), d.name);
+});
+
+test('playableMeta: a pool list the catalogue leaves under 40 cards is skipped with a specific note; a small gap is kept and noted', () => {
+  const d = META_POOL.decks[0]!;
+  const full = new Map(d.list.map(([id], i) => [id, { id: 1000 + i, name: d.names[id]! }] as const));
+  const ok = playableMeta('Meta: X', d, full);
+  assert.ok(ok.ok && ok.notes.length === 0 && cardTotal(ok.counts) === 60);
+  // Drop one line: still inside the bound, noted.
+  const one = new Map(full);
+  one.delete(d.list[0]![0]);
+  const small = playableMeta('Meta: X', d, one);
+  assert.ok(small.ok && small.notes[0]!.includes('not in the catalogue yet'));
+  // A catalogue holding only a handful of the cards: skipped, not simulated.
+  const few = new Map([...full].slice(0, 5));
+  const bad = playableMeta('Meta: X', d, few);
+  assert.ok(!bad.ok);
+  assert.match(bad.note, /^Meta: X skipped — only \d+ of its cards are in the catalogue, outside the simulator's 40–70/);
+  // An empty catalogue (nothing known) is the same.
+  assert.ok(!playableMeta('Meta: X', d, new Map()).ok);
+  // A different card under a pool id is still refused.
+  const wrong = new Map(full).set(d.list[0]![0], { id: 1, name: 'Some Other Card' });
+  const w = playableMeta('Meta: X', d, wrong);
+  assert.ok(!w.ok && /disagrees with the pool/.test(w.note));
 });

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { Ctx } from '../ctx.js'
-import { needDeck } from '../entities.js'
+import { needDeck, resolveDeck } from '../entities.js'
 import { defineTool, type ToolDefinition } from '../registry.js'
 import { fail, ok, type ToolResult } from '../result.js'
 import { errText } from '../shared.js'
@@ -47,7 +47,13 @@ export const simulateBattlesInputSchema = z.object({
   format: z.string().trim().min(1).max(24).optional()
     .describe('Format used to resolve card names in an unsaved list; default standard.'),
   opponents: z.array(z.string().trim().min(1).max(200)).min(1).max(8).optional()
-    .describe("Opponent decks, by id or name, from the user's saved decks (scouting lists of real opponents count). Default: up to 6 of the user's other decks."),
+    .describe(
+      "Opponent decks. A saved deck by id or name (scouting lists of real opponents count) — a saved deck always wins a name clash. " +
+      "Or the built-in Standard META POOL: 'meta' is the top 6 archetypes by tournament share, 'meta:<archetype>' one of them (for example 'meta:Dragapult'; " +
+      "a name that matches none of the user's decks also finds a pool archetype). The pool is one representative list per archetype from recent online " +
+      "Limitless events (its as-of date, source and each list's event and record are in the report's opponent names and notes), refreshed by hand, so it is " +
+      "a snapshot and not today's ladder. Use it when the user has no rivals saved or asks 'how does it do into the meta'. " +
+      "Default: up to 6 of the user's other decks, and when they have none, the top 6 meta decks."),
   games: z.number().int().min(2).max(200).optional()
     .describe('Games per opponent, default 24, at most 200; rounded up to an even number. More games means narrower intervals but a longer run. The whole call stops at about 25 seconds and reports how many games it actually played.'),
   speed: z.enum(['strong', 'fast']).optional()
@@ -81,6 +87,12 @@ interface SimulateResponse {
   report: Record<string, unknown>
 }
 
+/** 'meta' or 'meta:<archetype>': the built-in meta pool, passed through to the API as written. */
+export const isMetaRef = (ref: string): boolean => /^meta\s*(:|$)/i.test(ref.trim())
+
+/** A reference that is a name, not a deck id: the API may still find it in the meta pool. */
+const looksLikeName = (ref: string): boolean => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref.trim())
+
 export async function simulateBattles(ctx: Ctx, input: SimulateBattlesInput): Promise<ToolResult> {
   const body: Record<string, unknown> = {}
   if (input.deck_id !== undefined) {
@@ -97,9 +109,23 @@ export async function simulateBattles(ctx: Ctx, input: SimulateBattlesInput): Pr
   if (input.opponents !== undefined) {
     const ids: string[] = []
     for (const ref of input.opponents) {
-      const picked = await needDeck(ctx, ref)
-      if (!picked.ok) return fail(`Opponent ${picked.message}`)
-      ids.push(picked.value.id)
+      // The built-in meta pool is the API's to resolve; so is a name that matches none of the user's decks (it may be an archetype).
+      if (isMetaRef(ref)) {
+        ids.push(ref)
+        continue
+      }
+      const found = await resolveDeck(ctx, ref)
+      if (found.kind === 'found') {
+        ids.push(found.value.id)
+        continue
+      }
+      // Only a name that matches NO saved deck may be a pool archetype; an ambiguous one keeps the usual candidate list.
+      if (found.kind === 'not-found' && looksLikeName(ref)) {
+        ids.push(ref)
+        continue
+      }
+      const missed = await needDeck(ctx, ref)
+      return fail(`Opponent ${missed.ok ? 'is ambiguous' : missed.message}`)
     }
     body.opponents = ids
   }
@@ -133,6 +159,8 @@ export const simulateBattlesTool: ToolDefinition = defineTool({
     'not a cause), and which cards the engine only approximates or cannot play, which skews any matchup they are in. ' +
     'These are simulations by a bot, not real games. When you report them, say so, give the n and the interval with every rate, ' +
     'treat differences whose intervals overlap as noise, and never present them as real-world or ladder win rates. ' +
+    "Opponents can be the user's saved decks or the built-in Standard meta pool ('meta', or 'meta:<archetype>'): one representative list per current archetype, " +
+    "refreshed by hand from online tournament results (the report shows each list's source, date and record, and the pool's as-of date) — so a user with one deck still has opponents. " +
     'A run takes up to about 25 seconds.',
   inputSchema: simulateBattlesInputSchema,
   annotations: { readOnlyHint: true, idempotentHint: true },

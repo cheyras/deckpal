@@ -1131,8 +1131,10 @@ Read-only battle simulation (`@deckpal/sim`; the `simulate_battles` agent tool).
 of `deck_id` (one of the caller's decks, by id or name; a name fragment must match exactly one deck),
 `cards` or `ptcgl_text` (an unsaved list in `POST /decks/check`'s shape, with optional `format` and
 `name`; every line must resolve, else `400` naming the ones that did not), plus optional `opponents`
-(1..8 of the caller's deck ids or names; default up to 6 of their other decks, favourites and most
-recently updated first), `games` (per opponent, default 24, 2..200, rounded up to whole pairs),
+(1..8 of the caller's deck ids or names, or the built-in Standard meta pool: `meta` is the top 6 archetypes by
+tournament share and `meta:<archetype>` is one of them; a name that matches none of the caller's decks also finds a
+pool archetype, but a saved deck always shadows the pool. Default: up to 6 of their other decks, favourites and most
+recently updated first, and when they have none, the top 6 pool decks), `games` (per opponent, default 24, 2..200, rounded up to whole pairs),
 `speed` (`strong` default, or `fast`) and `seed` (default 1; the same seed, decks and pilot replay the same games). Every deck played is 40–70
 cards: the subject or a named opponent outside that is a `400` naming the deck and its count; a
 default opponent outside it is skipped with a note. Each opponent is played in paired games — one
@@ -1146,8 +1148,12 @@ characters (Deck-E clamps tool results at 6,000) and always ends with the caveat
 fit; `report` is the structured form (`kind: "deckpal.simulation"`, `simulated: true`, per-matchup
 stats with Wilson 95% intervals and n, card impact, per-deck coverage naming every approximated or
 unplayable card, the standing caveat, and every note — decks that are not 60 cards, cards with no
-catalogue data, skipped opponents). Results are simulations, never real-game statistics, and nothing
-is written. Concurrency: one run per account and two per server instance at a time — beyond that,
+catalogue data, skipped opponents). The meta pool (`packages/sim/src/meta/data.ts`, refreshed by hand with
+`packages/sim/scripts/meta-refresh.ts` from Limitless's public tournament API) holds one representative 60-card list per current
+archetype; a pool opponent is named `Meta: <archetype> (<source>, <event date>, <record>)` in the report, and a note gives the
+pool's window and as-of date. Its cards are mapped to the catalogue by TCGdex id and name; a card the catalogue lacks is left
+out with a note, and a list whose id is a different card is skipped with a note. Results are simulations, never real-game
+statistics, and nothing is written. Concurrency: one run per account and two per server instance at a time — beyond that,
 `429` `simulator_busy` with `Retry-After` (seconds until the run in the way should finish) and a
 message saying which.
 - **Paired comparison.** At most one of `compare_with` (another of the caller's decks, by id or name; `400`
