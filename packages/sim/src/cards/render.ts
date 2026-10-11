@@ -312,6 +312,11 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c33.evolveChosen': (a) => `For each Pokémon chosen as "${String(a.slots ?? 't')}", in turn: search your deck for a card that evolves from that Pokémon and put it onto that Pokémon to evolve it (picking none is allowed; not on your first turn; not a Pokémon that evolved this turn)`,
   'c34.moveEnergyAny': (a) => `You may move any amount of Energy cards matching ${JSON.stringify(a.filter ?? {})} from your Pokémon to your other Pokémon in any way you like: repeatedly choose one such Energy card attached to one of your Pokémon (or none, to stop) and a different Pokémon of yours to move it to; each card moves at most once`,
   'c34.revealOppTopPick': (a) => `Reveal the top ${Number(a.n ?? 10)} cards of your opponent's deck and you may choose a Pokémon that has an attack among them (into "${String(a.as ?? 'c')}"); you may choose none`,
+  // std-s02-customs.ts
+  's02.damageDoneAsCounters': (a) => `Set "${String(a.as ?? 'n')}" to the number of damage counters equal to the damage the opponent's attack did to the Pokémon that was damaged this turn (counted before any cap at its HP; 0 when none is on record)`,
+  's02.moveBasicEnergyToBench': (a) => `Move up to ${Number(a.max ?? 3)} Basic Energy cards (at least one) from that Pokémon to your Benched Pokémon other than it, choosing for each card where it goes`,
+  's02.rememberCodeProtect': () =>
+    "Mark this Pokémon through the end of your opponent's next turn; the mark ends when it is no longer your Active Pokémon. While the mark holds, the static on the card prevents all damage done to each of your Future Pokémon (your Pokémon in play) by attacks from Pokémon ex",
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -340,6 +345,8 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   's01.hitWhileActive': () => 'it was marked as damaged in the Active Spot this turn',
   'c23.grandTreeUsable': () => 'one of your Basic Pokémon in play (not on your first turn, not one put into play or evolved this turn) can evolve into a Stage 1 Pokémon card that is in your deck',
   'c25.usedLastTurn': (a) => `one of your Pokémon has the mark left by using ${String(a.attack)} during your previous turn`,
+  's02.retreatCostIs': (a) => `the Retreat Cost of the Pokémon this is attached to (with every effect that changes it) is exactly ${Number(a.n)}`,
+  's02.codeProtectActive': () => "this Pokémon carries the mark left by using C.O.D.E.: Protect, and it is your opponent's turn right after it was used",
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
@@ -2361,5 +2368,14 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv10-179|text': {
     problems: ['"tails" is printed but not rendered'],
     why: 'One coin: "If tails" is the else branch of the heads check ("otherwise"), which is the same flip.',
+  },
+  // std-s02
+  'sv08-069|text': {
+    problems: ['the rendering involves the opponent; the printed text does not'],
+    why: "The Miraidon card has no printed text outside its attacks: this section is the static that backs C.O.D.E.: Protect (prevent damage to your Future Pokémon from attacks by Pokémon ex, while the mark the attack leaves holds), which is the opponent's attacks by nature; the attack section carries the printed sentence.",
+  },
+  'sv05-158|text': {
+    problems: ['"any number of" is rendered but not printed'],
+    why: 'The cards chosen are exactly as many as the smaller of your Future Pokémon and the Basic Energy cards in your discard pile (a computed count, which the renderer words as "any number of"); each Future Pokémon gets at most one, so "a Basic Energy card ... to each of your Future Pokémon" as far as the discard pile allows.',
   },
 };
