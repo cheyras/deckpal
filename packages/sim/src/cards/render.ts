@@ -233,6 +233,15 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c21.pickOppBenchLowHp': (a) => `Choose 1 Pokémon on your opponent's Bench that has ${Number(a.max ?? 90)} HP or less remaining (HP with any changes, minus damage) as "${String(a.as ?? 't')}"; no question when only one qualifies, none chosen when none does`,
   'c21.selfIntoDeck': () => 'Put this Pokémon and all attached cards (Energy, Tools, previous Evolutions) into your deck, without shuffling it yet; it is not a Knock Out',
   'c21.lookTopAny': (a) => `Look at the top ${Number(a.n ?? 20)} cards of your deck and choose any number of the ${energyNoun(a.filter as Filter | undefined)} cards you find there (into "${String(a.as ?? 'e')}"); nothing leaves the deck yet`,
+  // std-c25-customs.ts
+  'c25.devolveOpp': () =>
+    "Devolve 1 of your opponent's evolved Pokémon (one with an Evolution card on it) by putting the highest Stage Evolution card on it into your opponent's hand, face up; it recovers from all Special Conditions and attack effects. A Pokémon protected from the effects of attacks is left alone",
+  'c25.benchCountersUntilHp': (a) =>
+    `Put damage counters on each of your opponent's Benched Pokémon until its remaining HP is ${Number(a.hp ?? 100)} (HP with any changes, minus damage; none on a Pokémon already at or below that, or protected from the effects of attacks or from damage counters); not damage`,
+  'c25.shuffleSlotsIntoDeck': (a) =>
+    `Shuffle the Pokémon chosen as "${String(a.slot ?? 't')}" and all attached cards into their owner's deck (your opponent's deck, for their Pokémon), then shuffle that deck once; a Pokémon protected from the effects of attacks stays in play`,
+  'c25.rememberUsed': (a) =>
+    `Mark that this Pokémon used ${String(a.attack)}, through the end of your next turn (nothing is marked when the attack is only copied by another attack)`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -255,6 +264,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'c18.sharesTypeWithOpp': () => "one of your Pokémon in play (Active or Benched) has a type that one of your opponent's Pokémon in play (Active or Benched) also has",
   'c15.lowHpDamaged': () => 'one of your Pokémon has damage on it and 30 or less HP remaining (HP counting any HP changes)',
   'c21.oppBenchLowHp': (a) => `your opponent has a Pokémon on their Bench that has ${Number(a.max ?? 90)} HP or less remaining`,
+  'c25.usedLastTurn': (a) => `one of your Pokémon has the mark left by using ${String(a.attack)} during your previous turn`,
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
@@ -2031,5 +2041,14 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv07-006|ability:Selective Slime': {
     problems: ['similarity'],
     why: 'The printed "choose Burned, Confused, or Poisoned" is a three-way option plus one `condition` step per option, and the usability guard from Compendium ruling 2014 (not while the Defending Pokémon is already Burned, Confused and Poisoned) is spelled out; both lengthen the rendering well past the printed sentence.',
+  },
+  // std-c25
+  'sv08-079|attack:Full Heart': {
+    problems: ['"up to', '"up to 2" is printed but not rendered'],
+    why: '"Attach up to 2 … in any way you like" is `repeat 2` of an optional (min 0, max 1) pick, each with its own chosen Pokémon, so the Energy can go to the same Pokémon or two; the renderer words each pick as "up to 1".',
+  },
+  'sv08-105|attack:Screech': {
+    problems: ['the rendering involves the opponent'],
+    why: '"the Defending Pokémon takes 50 more damage" is a damageIn effect on the Defending Pokémon, which the renderer words as "your opponent\'s Active Pokémon"; the Defending Pokémon is the opponent\'s Active Pokémon.',
   },
 };
