@@ -282,6 +282,8 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c27.lookDeckPick': (a) => `Look at the ${a.from === 'bottom' ? 'bottom' : 'top'} ${Number(a.n ?? 7)} cards of your deck. You may reveal ${((a.picks as Filter[]) ?? []).map((p) => (p.cat === 'trainer' ? 'a Trainer card' : p.cat === 'pokemon' ? 'a Pokémon' : 'a card')).join(' and ')} you find there and put ${((a.picks as Filter[]) ?? []).length > 1 ? 'them' : 'it'} into your hand. Shuffle the other cards back into your deck`,
   'c27.discardOppToolsAndSpecialEnergy': () => "Discard all Pokémon Tools and Special Energy from all of your opponent's Pokémon (Active and Benched)",
   'c27.moveEnergyBetween': (a) => `You may choose 1 or more of the Energy attached to the Pokémon "${String(a.from ?? 'old')}" and move them to the Pokémon "${String(a.to ?? 't')}"`,
+  // std-c32-customs.ts
+  'c32.flusteredLeap': () => 'If this Pokémon is on your Bench and your deck has a card: discard the bottom card of your deck, discard every Energy and Tool attached to this Pokémon, and put this Pokémon (the card itself) on top of your deck, without shuffling (not a Knock Out); nothing happens with an empty deck',
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -2185,5 +2187,22 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv08-176|text': {
     problems: ['"any number of" is printed but not rendered'],
     why: 'Any number of Basic Energy of different types is one card of each of the 8 types at most (oneEach, 0 to 8 cards), which renders as the list of types; the ruling (#2063) that a type can be taken only once is what the list says.',
+  },
+  // std-c32
+  'sv10-031|attack:Evil Incineration': {
+    problems: ['"Active" is printed but not rendered', "\"opponent's active\" is printed but not rendered"],
+    why: "The Defending Pokémon is the opponent's Active Pokémon, so the shared custom (as Jynx, Intense Kiss) renders it as the Defending Pokémon; the card test pins that the opponent's Active Pokémon and everything attached to it are discarded with no Prize card (ruling 2156).",
+  },
+  'sv10-056|attack:Crescendo Wave': {
+    problems: ['"may" is printed but not rendered'],
+    why: '"You may attach any number" is a choice of 0 to all of the Basic {W} Energy cards in the hand, which already is the option to attach none (as Slowpoke, All-You-Can-Yeet).',
+  },
+  'sv10-069|attack:High-Voltage Press': {
+    problems: ['number 2 is printed 1× but rendered 0×'],
+    why: "\"At least 2 extra Energy (in addition to this attack's cost)\": the cost is {L}{L}{C}, so the script tests 5 or more Energy attached.",
+  },
+  'sv10-077|attack:Astonish': {
+    problems: ['"reveal" is printed but not rendered'],
+    why: 'The random card is revealed and then immediately shuffled into the deck, so the reveal has no later effect and nothing in the script keeps it (as Team Rocket Meowth, Paw-cket Pilfer).',
   },
 };
