@@ -448,9 +448,12 @@ const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 /**
  * POSTs that change nothing. `POST /massentry` builds TCGplayer cart links from
  * a card list too long for a query string, and `set_cart`, a read tool, calls
- * it. Anything added here must never write.
+ * it. `POST /decks/check` (`check_deck`) and `POST /decks/odds` (`deck_odds`)
+ * take a whole deck list in the body for the same reason and only read; the
+ * first was missing here, so a read-only connection was offered check_deck and
+ * then refused it (2026-10-10). Anything added here must never write.
  */
-const READ_ONLY_POSTS = new Set(['/massentry']);
+const READ_ONLY_POSTS = new Set(['/massentry', '/decks/check', '/decks/odds']);
 
 /**
  * A read-only connection (chosen on the consent screen, migration 075) may
