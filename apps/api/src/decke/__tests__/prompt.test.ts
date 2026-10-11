@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { pathwayText } from '../pathways/index.js'
 import { test } from 'node:test'
 import { dataToolSummary } from '../adapters/aisdk.js'
 import {
@@ -38,7 +39,7 @@ test('the conversation, memory, progress, asking, and failure contracts are pres
     'Progress while you work',
     'one `ask_user` card that turn',
     'Keep working until everything they asked for is done',
-    'Odds come from `deck_odds`, never from your head.',
+    'Odds come from `deck_odds` and matchups from `simulate_battles`',
     'Never say you were blocked, refused or declined unless the reader actually',
   ]) {
     assert.ok(p.includes(phrase), `missing: ${phrase}`)
@@ -134,7 +135,10 @@ test('core is stable, request-local context is volatile, and compatibility is ex
 test('the stable core stays below the cacheable-prefix budget', () => {
   const currentTools = dataToolSummary({ include: () => true, conversationalLogging: true })
   const core = buildCorePrompt({ signedIn: true, dataTools: currentTools })
-  assert.ok(core.length <= 16_000, `core is ${core.length} characters`)
+  // 16,000 when the core shipped at 15.8k (was 29.6k); 16,500 once deck_odds
+  // and simulate_battles joined the data-tool list, which grows a line per
+  // tool. Job-specific guidance belongs in a pathway, not here.
+  assert.ok(core.length <= 16_500, `core is ${core.length} characters`)
 })
 
 test('signed-out readers are not promised collection access', () => {
@@ -162,4 +166,22 @@ test('the natural share ask keeps its load-bearing limits', () => {
     'Never ask when things are going fine, never ask twice',
     '"No thanks" is a fine answer',
   ]) assert.ok(p.includes(phrase), `missing: ${phrase}`)
+})
+
+test('simulated matchups are run, paired, and reported as a bot\'s with their uncertainty', () => {
+  // The rule lives in the core; how to run and report a matchup lives in the
+  // deck_iterate pathway, with the rest of "is v4 better than v3".
+  const core = flat(buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS }))
+  assert.match(core, /matchups from `simulate_battles` \(a bot's: give n and the interval\), never from your head/)
+  const p = flat(pathwayText('deck_iterate'))
+  assert.match(p, /Matchups come from `simulate_battles`, and they are a bot's/)
+  assert.match(p, /is v4 better than v3/)
+  assert.match(p, /both versions against the same opponents and seed/)
+  assert.match(p, /saved lists of decks they really face/)
+  assert.match(p, /Every rate is a CPU simulation: give n and the interval/)
+  assert.match(p, /intervals overlap heavily is noise, not an improvement/)
+  assert.match(p, /Name approximated or unplayable cards/)
+  assert.match(p, /"strong" by default, "fast" when they want more games/)
+  assert.match(p, /A `table` of opponent, W–L, win % \[interval\]/)
+  assert.match(flat(pathwayText('deck_build')), /simulate_battles/)
 })

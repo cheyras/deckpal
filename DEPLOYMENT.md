@@ -360,6 +360,7 @@ legacy API keys does not remove DeckPal's own HS256 verifier.
 | `SCAN_EMBED_ORT_DIR` | `apps/web/public/scan-assets` (default) | Where the API finds the ONNX Runtime it executes that model with: `ort.wasm.min.mjs` and `ort-wasm-simd-threaded.wasm`. **Both are already in the repo** — the detector ships them to the browser, and the server reads the same two files rather than vendoring a second 13 MB copy that could drift from the one phones run. Override only if a bundle puts them elsewhere. The runtime is WASM and not native on purpose: `onnxruntime-node` unpacks to **296 MB** against Vercel's 250 MB function ceiling, and the 44.7 MB `libonnxruntime.so` it `dlopen`s is invisible to static tracing, so it would either blow the limit or deploy green and 500 on the first scan (measured 2026-09-06 — see DECISIONS.md). |
 | `EMBED_MODEL_PATH` | `.cache/models/<EMBED_MODEL_ID>.onnx` (default) | Read only by `tools/embed-catalog`, never by the API or the web app — the operator-side twin of `SCAN_EMBED_MODEL_PATH`. Where the exported ONNX checkpoint lives on the machine running the catalogue embed. The job **refuses to run** if the file is absent rather than falling back to another checkpoint: a catalogue embedded with the wrong model is worse than an empty one, because it looks finished. `tools/embed-catalog/README.md` has the export snippet. |
 | `DRIVE_EXPORT_CREDENTIALS` | path to the service-account JSON | Read only by `tools/drive-export`, never by any deployed process — this is an operator's tool, not part of the running product, and the variable belongs on the machine somebody runs it from rather than in Vercel. Absent, the tool **refuses to start** with a message naming this variable and the expected file; it never silently no-ops and never falls back to a local write unless `--local-out` says so explicitly. The key file itself is gitignored (`.drive-export-credentials.json`) and its contents are never printed. |
+| `SCAN_QUEUE_DIR` | `~/deckpal-data/quad-queue` (default) | Read only by the scan-bench dev scripts `scripts/scan-bench/queue-pull.mjs`, `extract_cards.py` and `label_cards.py`, never by the API, the web app or any deployed process. It does not belong in Vercel. It names the directory on the developer's machine that holds the owner's labeler-queue photos and the card crops cut from them. Those are the owner's photos, so all three scripts **refuse to start** when it resolves inside the repo. The check compares real paths, with symlinks and junctions resolved and case folded on Windows, so a different-case spelling of the checkout cannot get round it. Unset means the default, which is outside every checkout. |
 | `DRIVE_EXPORT_FOLDER_ID` | Drive folder id (optional) | Where curated training images go. Unset, the tool resolves `/deckpal/card_scans` **by name** and fails loudly if it cannot find it — it will not CREATE the folder, per B9: a tool that makes its own destination when it cannot find one is a tool that uploads somewhere nobody is watching. The folder must be shared with the service account's `client_email`. |
 | `DRIVE_EXPORT_CROP_BUCKET` | `card-scans` (default) | Which storage bucket holds the retained crops the export reads. **The default is a guess and has not been confirmed against a real deployment** — the opt-in crop tier has never written an object. Confirm it before the first run. |
 
@@ -1973,17 +1974,17 @@ can do while signed in — and nothing else: every query it makes runs inside yo
 row-level-security context, so it cannot see another user's rows. It cannot
 change your password, preferences or public showcase, read your Deck-E
 conversations, spend money, or create or revoke tokens (all of that needs a real
-browser session). A **Read only** connection is served only the 15 read tools,
+browser session). A **Read only** connection is served only the 16 read tools,
 inside a read-only database transaction, and the REST API refuses its every
 write with `403 insufficient_scope`. Treat any token like a password, and revoke
 it the moment a client no longer needs it.
 
 ### Tools
 
-26 tools (15 read, 11 write): `health`, `collection_summary`, `collection_log`,
+27 tools (16 read, 11 write): `health`, `collection_summary`, `collection_log`,
 `collection_value`, `search_cards`, `get_card`, `set_progress`,
 `card_price_history`, `decks`, `save_deck`, `delete_deck`, `check_deck`,
-`deck_odds`, `deck_strategy`, `add_battle_log`, `battle_logs`, `deck_history`,
+`deck_odds`, `simulate_battles`, `deck_strategy`, `add_battle_log`, `battle_logs`, `deck_history`,
 `edit_battle_log`, `delete_battle_log`, `lists`, `edit_list`, `delete_list`,
 `log_cards`, `set_cart`, `mutation_history`, `revert`. See `apps/mcp/SPEC.md`
 for the full contract.

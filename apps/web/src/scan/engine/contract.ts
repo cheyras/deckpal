@@ -248,6 +248,17 @@ export interface EngineOptions {
    * offline against the phase-0b corpus — see __tests__/clutter-lock.ts.
    */
   lockAspectTol?: number
+  /**
+   * THE SECOND LOOK (engine/second-look.ts; default OFF, index.DEFAULT_SECOND_LOOK).
+   * When a tick's has_obj is below `acquire` and its quad is centred in the
+   * reticle, run LC050 again on a crop around that quad (from this tick's own
+   * full-res frame) and take the crop's has_obj if it is higher and found the
+   * same rectangle; the quad stays the first look's. It rescues cards on busy
+   * backgrounds, which out-vote the card in the presence head's global pool.
+   * Costs a second inference on most no-card ticks (76% of ticks on the video
+   * bench), so it stays off until a device test says the tick budget holds.
+   */
+  secondLook?: boolean
 }
 
 export type CreateScanEngine = (opts?: EngineOptions) => ScanEngine

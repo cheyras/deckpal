@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { Ctx } from '../ctx.js'
 import { allTools } from '../index.js'
-import { DRAW_ONLY_CAVEAT, deckOddsInputSchema, deckOddsTool, renderDeckOdds, type DeckOddsCardLine, type DeckOddsResult } from '../tools/deckOdds.js'
+import { DRAW_ONLY_CAVEAT, ODDS_TEXT_LIMIT, deckOddsInputSchema, deckOddsTool, renderDeckOdds, type DeckOddsCardLine, type DeckOddsResult } from '../tools/deckOdds.js'
 
 const DECK_ID = '6f1c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f'
 
@@ -138,4 +138,21 @@ test('rendering the default report stays compact even for sixty singletons', () 
   assert.match(text, /^ {2}1 A Fairly Long Card Name Number 1: 11\.7 \/ 15\.0 \/ 10\.0$/m)
   assert.match(text, /^Note: This list has 59 cards, not 60\.$/m)
   assert.ok(text.length < 5_000, `Deck-E clamps a tool result at 6,000 chars; this was ${text.length}`)
+})
+
+test('with Wilson bounds the answer shows the interval ends, not a symmetric ±', () => {
+  const q = withQueries.queries[0]!
+  const text = renderDeckOdds({ ...withQueries, queries: [{ ...q, p: 0.001, successes: 50, lo95: 0.0008, hi95: 0.0013 }] })
+  assert.match(text, /\[0\.1–0\.1%\]|\[0\.1–0\.13%\]|\[<0\.1–0\.1%\]|\[/)
+  assert.doesNotMatch(text.split('\n').find((l) => l.startsWith('  1.'))!, /±/)
+})
+
+test('the whole answer stays under the tool-result budget, caveat last, even for twelve maximal queries', () => {
+  const q = withQueries.queries[0]!
+  const long = 'X'.repeat(400)
+  const queries = Array.from({ length: 12 }, (_, i) => ({ ...q, label: `${long} ${i}`, lo95: 0.2, hi95: 0.3 }))
+  const text = renderDeckOdds({ ...withQueries, queries, warnings: Array.from({ length: 8 }, () => 'W'.repeat(300)) })
+  assert.ok(text.length <= ODDS_TEXT_LIMIT, `answer is ${text.length} chars`)
+  assert.ok(text.endsWith(DRAW_ONLY_CAVEAT))
+  assert.match(text, /more lines? in the structured result/)
 })

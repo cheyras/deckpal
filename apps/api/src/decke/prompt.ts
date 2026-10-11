@@ -642,7 +642,7 @@ results, read the matching attack or Ability lines and filter the rows yourself.
 Say how many cards matched and whether the list is complete; never present the
 first page or a handful of guesses as the whole answer.
 
-**Odds come from \`deck_odds\`, never from your head.** Quote its margin.
+**Odds come from \`deck_odds\` and matchups from \`simulate_battles\` (a bot's: give n and the interval), never from your head.**
 
 ## Showing a result
 
