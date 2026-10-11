@@ -36,40 +36,25 @@ if (args.length) {
   process.exit(2)
 }
 
-const { ORIGIN, qaToken } = await import('./live.mjs')
+const { canonical, checkedOut, insideRepo } = await import('./queue-guard.mjs')
 
-/**
- * The real, canonical location of `p`: symlinks and junctions resolved on the
- * longest part that exists, and — on Windows, where paths are case-insensitive
- * — lower-cased, so `E:\USERS\…` cannot slip past a check written for `E:\users\…`.
- */
-function canonical(p) {
-  let head = path.resolve(p)
-  const tail = []
-  while (!fs.existsSync(head)) {
-    const up = path.dirname(head)
-    if (up === head) break
-    tail.unshift(path.basename(head))
-    head = up
-  }
-  const real = path.join(fs.realpathSync.native(head), ...tail)
-  return process.platform === 'win32' ? real.toLowerCase() : real
-}
-
+// The queue root AND every file written into it must resolve outside the repo:
+// a `raw` directory or a `listing.json` inside an outside queue can itself be
+// a link back into the checkout (queue_paths.py says more).
 const REPO = canonical(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..'))
 const OUT = path.resolve(process.env.SCAN_QUEUE_DIR || path.join(os.homedir(), 'deckpal-data', 'quad-queue'))
-const outReal = canonical(OUT)
-if (outReal === REPO || outReal.startsWith(REPO + path.sep)) {
-  console.error(`SCAN_QUEUE_DIR resolves inside the repo (${OUT}); the owner's photos must stay outside git`)
-  process.exit(2)
-}
 const RAW = path.join(OUT, 'raw')
-fs.mkdirSync(RAW, { recursive: true })
-// ...and once more after creating it, in case a junction appeared along the way.
-if (canonical(RAW).startsWith(REPO + path.sep)) {
-  console.error(`${RAW} resolves inside the repo; refusing to write the owner's photos there`)
-  process.exit(2)
+for (const p of [OUT, RAW]) {
+  if (insideRepo(p, REPO)) {
+    console.error(`${p} resolves inside the repo (${canonical(p)}); the owner's photos must stay outside git`)
+    process.exit(2)
+  }
 }
+const out = (p) => checkedOut(p, REPO)
+fs.mkdirSync(RAW, { recursive: true })
+out(RAW) // again: it may have existed already, as a link
+
+const { ORIGIN, qaToken } = await import('./live.mjs')
 
 const token = await qaToken()
 async function get(url, kind) {
@@ -90,13 +75,23 @@ async function get(url, kind) {
 
 const listing = await get(`${ORIGIN}/api/dev/scan-queue`, 'json')
 const photos = listing.photos ?? []
-fs.writeFileSync(path.join(OUT, 'listing.json'), JSON.stringify(listing, null, 1))
+fs.writeFileSync(out(path.join(OUT, 'listing.json')), JSON.stringify(listing, null, 1))
 console.log(`queue: ${photos.length} photos`)
 
 let done = 0
 let gone = 0
 const todo = photos.filter((p) => !fs.existsSync(path.join(RAW, `${p.id}.jpg`)))
 const skipped = photos.length - todo.length
+// A run interrupted between the rename and the sidecar leaves a jpg with no
+// json. The listing holds what the sidecar holds, so repair it without a fetch.
+let repaired = 0
+for (const p of photos) {
+  const side = path.join(RAW, `${p.id}.json`)
+  if (fs.existsSync(path.join(RAW, `${p.id}.jpg`)) && !fs.existsSync(side)) {
+    fs.writeFileSync(out(side), JSON.stringify(p))
+    repaired++
+  }
+}
 async function worker() {
   for (;;) {
     const p = todo.shift()
@@ -108,12 +103,14 @@ async function worker() {
     }
     // Written whole, then renamed: an interrupted run must not leave a truncated
     // jpg that the resume check (exists?) would then never fetch again.
-    fs.writeFileSync(path.join(RAW, `${p.id}.jpg.tmp`), jpg)
-    fs.renameSync(path.join(RAW, `${p.id}.jpg.tmp`), path.join(RAW, `${p.id}.jpg`))
-    fs.writeFileSync(path.join(RAW, `${p.id}.json`), JSON.stringify(p))
+    fs.writeFileSync(out(path.join(RAW, `${p.id}.jpg.tmp`)), jpg)
+    fs.renameSync(path.join(RAW, `${p.id}.jpg.tmp`), out(path.join(RAW, `${p.id}.jpg`)))
+    fs.writeFileSync(out(path.join(RAW, `${p.id}.json`)), JSON.stringify(p))
     if (++done % 100 === 0) console.log(`  ${done}/${photos.length - skipped}`)
     await new Promise((r) => setTimeout(r, 150))
   }
 }
 await Promise.all([worker(), worker(), worker()])
-console.log(`pulled ${done}, already had ${skipped}${gone ? `, ${gone} gone (404)` : ''} -> ${RAW}`)
+console.log(
+  `pulled ${done}, already had ${skipped}${repaired ? ` (${repaired} sidecars repaired)` : ''}${gone ? `, ${gone} gone (404)` : ''} -> ${RAW}`,
+)

@@ -18,9 +18,10 @@ test data, through three dev scripts in `scripts/scan-bench/`:
 The scripts only PROPOSE. A crop counts as truth only after someone has read
 its set symbol and number strip by eye and written it into a
 `verify-truth.jsonl` row. Everything stays under `~/deckpal-data/quad-queue/`
-(override: `SCAN_QUEUE_DIR`), and each script refuses to start when that
-directory resolves inside the repo. The check compares real paths, with
-symlinks and junctions resolved and case folded on Windows. `label_cards.py`
+(override: `SCAN_QUEUE_DIR`). Every write is checked before it happens, the
+queue root and each file in it, and refused if it resolves inside the repo. The
+check compares real paths, with symlinks and junctions resolved (dangling ones
+included) and case folded on Windows. `label_cards.py`
 gets its threshold gate only from a gallery tag it knows exactly. Any other
 model must name `--model-id`.
 
@@ -51,6 +52,9 @@ A gate is measured on one vector space and means nothing on another.
 - `SCAN_QUEUE_DIR` is a developer-machine variable, recorded in
   `DEPLOYMENT.md`'s table like `DRIVE_EXPORT_CREDENTIALS`. It never goes in
   Vercel.
-- `scripts/scan-bench/test_queue_tools.py` covers the three reproduced review
-  cases: the case bypass, a card's duplicate inner contours, and an unknown
-  CLIP checkpoint.
+- `scripts/scan-bench/test_queue_tools.py` and
+  `scripts/scan-bench/__tests__/queue-guard.test.mjs` cover the reproduced
+  review cases: the case bypass, child directories and files linked back into
+  the repo (dangling links included), a card's duplicate inner contours, and an
+  unknown CLIP checkpoint. The guard is not a defence against someone racing
+  the script to swap a link after the check.

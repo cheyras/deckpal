@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -24,6 +25,17 @@ _SAFE = tempfile.mkdtemp(prefix="queue-tools-test-")
 os.environ["SCAN_QUEUE_DIR"] = _SAFE
 import extract_cards as X  # noqa: E402
 import label_cards as L  # noqa: E402
+import queue_paths as QP  # noqa: E402
+
+
+def _dir_link(link: Path, target: Path) -> None:
+    """A directory link that needs no privilege: a junction on Windows."""
+    if sys.platform == "win32":
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        os.symlink(target, link, target_is_directory=True)
 
 
 def _card(img: np.ndarray, x: int, y: int, w: int, art: bool = True) -> None:
@@ -66,6 +78,65 @@ class QueueDirTest(unittest.TestCase):
             self.assertFalse(self._refused(m, _SAFE))
             # A sibling whose name merely STARTS with the repo's is outside it.
             self.assertFalse(self._refused(m, str(REPO) + "-queue"))
+
+
+class ChildLinkTest(unittest.TestCase):
+    """A queue outside the repo whose CHILDREN link back into it (Astra's review
+    of #298). A temporary directory stands in for the repo, so nothing here
+    touches the real checkout."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="queue-links-"))
+        self.repo = self.tmp / "fake-repo"
+        (self.repo / "inside").mkdir(parents=True)
+        self.q = self.tmp / "queue"
+        self.q.mkdir()
+        self._saved = QP._repo_real
+        QP._repo_real = QP._real(self.repo)
+
+    def tearDown(self):
+        QP._repo_real = self._saved
+        # rmtree removes a junction or symlink without following it (3.8+).
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_queue_root_itself(self):
+        self.assertRaises(SystemExit, QP.checked, self.repo)
+        self.assertRaises(SystemExit, QP.checked, self.repo / "inside" / "x.jpg")
+        self.assertEqual(QP.checked(self.q / "x.jpg"), self.q / "x.jpg")
+
+    def test_child_directory_junction(self):
+        _dir_link(self.q / "cards", self.repo / "inside")
+        self.assertRaises(SystemExit, QP.checked, self.q / "cards")
+        self.assertRaises(SystemExit, QP.checked, self.q / "cards" / "photo-0.jpg")
+
+    def test_dangling_child_junction(self):
+        # The target does not exist yet: writing under it would create it, in the repo.
+        (self.repo / "not-yet").mkdir()  # a junction needs its target to exist when made...
+        _dir_link(self.q / "cards", self.repo / "not-yet")
+        (self.repo / "not-yet").rmdir()  # ...and then it dangles
+        self.assertRaises(SystemExit, QP.checked, self.q / "cards" / "photo-0.jpg")
+
+    def test_child_file_symlink(self):
+        try:
+            os.symlink(self.repo / "cards.jsonl", self.q / "cards.jsonl")
+        except OSError:
+            self.skipTest("file symlinks need a privilege this shell does not have")
+        self.assertRaises(SystemExit, QP.checked, self.q / "cards.jsonl")
+
+    def test_extract_cards_writes_nothing_through_a_linked_cards_dir(self):
+        (self.q / "raw").mkdir()
+        img = np.full((900, 900, 3), 120, np.uint8)
+        _card(img, 300, 150, 300)
+        cv2.imwrite(str(self.q / "raw" / "photo.jpg"), img)
+        _dir_link(self.q / "cards", self.repo / "inside")
+        saved_q, saved_argv = X.Q, sys.argv
+        X.Q, sys.argv = self.q, ["extract_cards.py"]
+        try:
+            self.assertRaises(SystemExit, X.main)
+        finally:
+            X.Q, sys.argv = saved_q, saved_argv
+        self.assertEqual(list((self.repo / "inside").iterdir()), [])
+        self.assertFalse((self.q / "cards.jsonl").exists())
 
 
 class CandidatesTest(unittest.TestCase):

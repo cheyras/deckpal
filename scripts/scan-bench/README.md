@@ -62,10 +62,13 @@ local dHash index against what production returned for the same field crops.
 The labeler queue holds the owner's uploads waiting for a quad, mostly
 whole-binder and wall photos. Three scripts turn them into candidate
 benchmark rows. Everything they write goes under `~/deckpal-data/quad-queue/`
-(override: `SCAN_QUEUE_DIR`), never into git: each script refuses to start when
-that directory resolves inside the repo (real paths, case-folded on Windows).
-`$PY scripts/scan-bench/test_queue_tools.py` checks that guard, the page and
-duplicate-contour rules in `extract_cards.py`, and the gate inference, offline.
+(override: `SCAN_QUEUE_DIR`), never into git. Every write is checked first, the
+queue root and each file in it, because a child directory or file can itself be
+a link back into the checkout. The check compares real paths, case-folded on
+Windows (`queue_paths.py`, and `queue-guard.mjs` for `queue-pull.mjs`). Two
+offline test files cover it: `$PY scripts/scan-bench/test_queue_tools.py` (the
+guard, the page and duplicate-contour rules in `extract_cards.py`, the gate
+inference) and `node --test scripts/scan-bench/__tests__/queue-guard.test.mjs`.
 
 ```bash
 node scripts/scan-bench/queue-pull.mjs        # raw/<id>.jpg as the queue stores it (long edge <= 2048), as the QA account

@@ -27,19 +27,9 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 import cv2
 import numpy as np
 
-def queue_dir() -> Path:
-    """SCAN_QUEUE_DIR (outside the repo) or ~/deckpal-data/quad-queue.
-
-    The check compares REAL paths (symlinks and junctions resolved by
-    os.path.realpath) case-folded with os.path.normcase, so neither a junction
-    nor a different-case spelling of the checkout on Windows gets past it."""
-    q = Path(os.environ.get("SCAN_QUEUE_DIR") or Path.home() / "deckpal-data" / "quad-queue").resolve()
-    real = lambda p: os.path.normcase(os.path.realpath(p))
-    repo, target = real(Path(__file__).resolve().parents[2]), real(q)
-    if target == repo or target.startswith(repo + os.sep):
-        raise SystemExit(f"SCAN_QUEUE_DIR resolves inside the repo ({q}); the owner's photos must stay outside git")
-    return q
-
+# Every write below goes through checked(): the queue root AND each file in it
+# must resolve outside the repo (queue_paths.py says why).
+from queue_paths import checked, queue_dir  # noqa: E402
 
 Q = queue_dir()
 CARD = 88 / 63
@@ -142,8 +132,9 @@ def main():
     ap.add_argument("--limit", type=int, default=0, help="only the first N photos (0 = all)")
     ap.add_argument("--sheet", action="store_true", help="also write cards-sample.jpg, a contact sheet of the first 36 crops")
     a = ap.parse_args()
-    out = Q / "cards"
+    out = checked(Q / "cards")
     out.mkdir(parents=True, exist_ok=True)
+    checked(out)  # again: it may have existed already, as a link
     files = sorted((Q / "raw").glob("*.jpg"))
     if a.limit:
         files = files[: a.limit]
@@ -157,10 +148,10 @@ def main():
         for n, q in enumerate(candidates(img)):
             crop = rectify(img, q)
             name = f"{f.stem}-{n}.jpg"
-            cv2.imwrite(str(out / name), crop[..., ::-1], [cv2.IMWRITE_JPEG_QUALITY, 85])
+            cv2.imwrite(str(checked(out / name)), crop[..., ::-1], [cv2.IMWRITE_JPEG_QUALITY, 85])
             side = float(np.linalg.norm(q[3] - q[0]))
             rows.append({"crop": f"cards/{name}", "photo": f.name, "n": n, "quad": q.round(1).tolist(), "cardPx": round(side)})
-    (Q / "cards.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    checked(Q / "cards.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
     print(f"{len(files)} photos -> {len(rows)} candidate card crops -> {out}")
     if a.sheet and rows:
         tiles = []
@@ -170,7 +161,7 @@ def main():
         while len(tiles) % 9:
             tiles.append(np.zeros((223, 160, 3), np.uint8))
         sheet = np.vstack([np.hstack(tiles[i : i + 9]) for i in range(0, len(tiles), 9)])
-        cv2.imwrite(str(Q / "cards-sample.jpg"), sheet, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        cv2.imwrite(str(checked(Q / "cards-sample.jpg")), sheet, [cv2.IMWRITE_JPEG_QUALITY, 80])
 
 
 if __name__ == "__main__":

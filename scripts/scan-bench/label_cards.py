@@ -44,20 +44,8 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import embed as E  # noqa: E402
-
-def queue_dir() -> Path:
-    """SCAN_QUEUE_DIR (outside the repo) or ~/deckpal-data/quad-queue.
-
-    The check compares REAL paths (symlinks and junctions resolved by
-    os.path.realpath) case-folded with os.path.normcase, so neither a junction
-    nor a different-case spelling of the checkout on Windows gets past it."""
-    q = Path(os.environ.get("SCAN_QUEUE_DIR") or Path.home() / "deckpal-data" / "quad-queue").resolve()
-    real = lambda p: os.path.normcase(os.path.realpath(p))
-    repo, target = real(HERE.parents[1]), real(q)
-    if target == repo or target.startswith(repo + os.sep):
-        raise SystemExit(f"SCAN_QUEUE_DIR resolves inside the repo ({q}); the owner's photos must stay outside git")
-    return q
-
+# The queue root AND the file written must resolve outside the repo (queue_paths.py).
+from queue_paths import checked, queue_dir  # noqa: E402
 
 Q = queue_dir()
 # (simMin, marginMin, simFloor): copies of THRESHOLDS in
@@ -123,7 +111,7 @@ def main():
         counts[tier] += 1
         out.append({**r, "tier": tier, "top": top, "sims": sims, "margin": round(margin, 4),
                     "topName": name_of.get(top[0])})
-    (Q / "cards-labelled.jsonl").write_text("\n".join(json.dumps(o) for o in out) + "\n")
+    checked(Q / "cards-labelled.jsonl").write_text("\n".join(json.dumps(o) for o in out) + "\n")
     print(f"{len(out)} crops: {counts}")
 
 
