@@ -792,8 +792,10 @@ function checkup(env: Env, s: GameState): void {
     if (sl.cond & ASLEEP) {
       if (flipCoin(env, s, p)) sl.cond &= ~ASLEEP;
     }
-    // Paralyzed wears off during the Checkup after its owner's turn.
-    if (sl.cond & PARALYZED && p === s.current) sl.cond &= ~PARALYZED;
+    // Paralyzed wears off during the Checkup after its owner's turn — the owner's NEXT turn
+    // when it was Paralyzed during its own turn (it must have been Paralyzed since that
+    // turn began; Compendium). `paralyzedTurn` unset = applied before this turn.
+    if (sl.cond & PARALYZED && p === s.current && sl.paralyzedTurn !== s.turn) sl.cond &= ~PARALYZED;
   }
   // lane:misc — "During Pokémon Checkup" Abilities (Froslass) resolve after Special Conditions, before Knock Outs.
   for (const p of [s.current, opp(s.current)] as Player[]) {

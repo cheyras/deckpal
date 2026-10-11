@@ -130,6 +130,8 @@ interface Board {
   env: Env;
   s: GameState;
   p: Player;
+  /** The player actually deciding: `p` may be the opponent when the policy scores their side. */
+  viewer: Player;
   all: LiveStatic[];
   /** Names on top of my Pokémon in play (that can still evolve). */
   inPlay: Map<string, number>;
@@ -160,7 +162,7 @@ function board(env: Env, s: GameState, p: Player): Board {
     const n = def(env.ctx, c).name;
     handNames.set(n, (handNames.get(n) ?? 0) + 1);
   }
-  return { env, s, p, all, inPlay, handNames, needEnergy, pokemonCount: allSlots(ps).length, copier };
+  return { env, s, p, viewer: p, all, inPlay, handNames, needEnergy, pokemonCount: allSlots(ps).length, copier };
 }
 
 /** How much this card is worth to `p` right now (higher = keep / fetch). */
@@ -241,18 +243,18 @@ function topK(env: Env, values: number[], k: number, score: (c: number) => numbe
 
 /** How good this Pokémon of mine is as my Active (promote, switch, setup). */
 function activeValue(b: Board, sl: Slot): number {
-  const { env, s, p, all } = b;
+  const { env, s, p, viewer, all } = b;
   const them = s.p[opp(p)];
   const d = def(env.ctx, topCard(sl));
   let v = hpLeft(env, s, sl, all) / 6 - retreatCost(env, s, sl, all) * 6;
   if (them.active) {
-    const t = bestAttack(env, s, sl, p, them.active, 1, all);
+    const t = bestAttack(env, s, sl, p, them.active, 1, all, viewer);
     const left = hpLeft(env, s, them.active, all);
     const disc = MISSING_DISCOUNT[Math.min(t.missing, 4)] as number;
     v += t.dmg >= left ? 260 * prizeValue(env, them.active) : t.dmg * 0.8;
     v += disc * 40;
     // Exposure: can their Active Knock it Out next turn?
-    const back = bestAttack(env, s, them.active, opp(p), sl, 1, all);
+    const back = bestAttack(env, s, them.active, opp(p), sl, 1, all, viewer);
     if (back.dmg >= hpLeft(env, s, sl, all)) v -= 120 * d.prizeValue;
   }
   return v;
@@ -282,7 +284,7 @@ function gustValue(b: Board, sl: Slot): number {
   try {
     const left = hpLeft(env, s, sl, all);
     for (const a of allSlots(me)) {
-      const t = bestAttack(env, s, a, p, sl, me.energyAttached ? 0 : 1, all);
+      const t = bestAttack(env, s, a, p, sl, me.energyAttached ? 0 : 1, all, b.viewer);
       const f = a === me.active ? 1 : 0.4;
       const v = t.dmg >= left ? 1000 * prizeValue(env, sl) * f : (t.dmg / Math.max(10, left)) * 80 * f;
       if (v > best) best = v;
@@ -303,7 +305,7 @@ function needValue(b: Board, sl: Slot): number {
   const them = s.p[opp(p)];
   const pw = facts(env.ctx).power[d.idx] ?? 0;
   if (!them.active) return pw;
-  const t = bestAttack(env, s, sl, p, them.active, 0, all);
+  const t = bestAttack(env, s, sl, p, them.active, 0, all, b.viewer);
   return pw + (t.missing > 0 && t.missing < 99 ? 60 / t.missing : 0) + (sl === s.p[p].active ? 10 : 0);
 }
 
@@ -429,7 +431,7 @@ function chooseOption(b: Board, d: Decision, ask: Ask): number[] {
       let bestV = -1;
       const left = hpLeft(env, s, target, all);
       x.attacks.forEach((_a, i) => {
-        const dmg = attackDamageWithDef(env, s, x, i, attacker, p, target, all);
+        const dmg = attackDamageWithDef(env, s, x, i, attacker, p, target, all, b.viewer);
         const val = dmg >= left ? 1000 + dmg : dmg;
         if (val > bestV) {
           bestV = val;
@@ -465,7 +467,7 @@ function mainChoice(b: Board, d: Decision): number[] {
         break;
       case 'attach': {
         const sl = allSlots(ps).find((x) => x.id === a.slot) as Slot;
-        v = 50 + (them.active ? Math.min(40, bestAttack(env, s, sl, p, them.active, 1, all).dmg / 5) : 0) + (sl === ps.active ? 10 : 0);
+        v = 50 + (them.active ? Math.min(40, bestAttack(env, s, sl, p, them.active, 1, all, b.viewer).dmg / 5) : 0) + (sl === ps.active ? 10 : 0);
         break;
       }
       case 'trainer': {
@@ -504,7 +506,7 @@ function mainChoice(b: Board, d: Decision): number[] {
     let aDmg = -1;
     acts.forEach((a, i) => {
       if (a.t !== 'attack' || !ps.active || !them.active) return;
-      const dmg = attackDamageAt(env, s, ps.active, p, a.idx, them.active, all);
+      const dmg = attackDamageAt(env, s, ps.active, p, a.idx, them.active, all, b.viewer);
       if (dmg > aDmg) {
         aDmg = dmg;
         ai = i;

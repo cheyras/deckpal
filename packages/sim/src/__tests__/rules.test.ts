@@ -261,6 +261,25 @@ test('p.15 Checkup: Poisoned 10, Burned 20 then flip, Asleep flip, Paralyzed wea
   assert.ok(!(z.state.p[1].active!.cond & PARALYZED));
 });
 
+test('Paralyzed during its own turn: it recovers at the Checkup after its owner\'s NEXT turn, not this one (Compendium)', () => {
+  const ZAP: CardScript = { id: 't-012', name: 'Zapper', attacks: { Overload: { post: [{ op: 'condition', cond: 'paralyzed', to: 'self' }] } } };
+  const ZAPPER = pokemon('t-012', 'Zapper', { hp: 100, type: 'Psychic', attacks: [['Overload', 'Colorless', '10']] });
+  ZAPPER.attacks![0]!.effect = 'This Pokémon is now Paralyzed.';
+  const D1 = deck('Z', [[ZAPPER, 4], [PUP, 16], [PSYCHIC, 40]]);
+  const g = scenario(D1, B, [{ active: 'Zapper', energy: { active: ['Psychic Energy'] } }, { active: 'Big ex' }], { scripts: [ZAP] });
+  choose(g, 'Attack: Overload');
+  // Checkup after P1's own turn: it has not been Paralyzed since the start of that turn, so it stays.
+  assert.equal(g.decision?.player, 1);
+  assert.ok(g.state.p[0].active!.cond & PARALYZED, 'Paralysis from its own turn wore off at that same turn\'s Checkup');
+  choose(g, 'End turn');
+  // P1's next turn: still Paralyzed — no attack, no retreat.
+  assert.equal(g.decision?.player, 0);
+  assert.ok(g.state.p[0].active!.cond & PARALYZED);
+  assert.ok(!has(g, 'Attack') && !has(g, 'Retreat'));
+  choose(g, 'End turn'); // the Checkup after its owner's next turn removes it
+  assert.ok(!(g.state.p[0].active!.cond & PARALYZED));
+});
+
 test('p.15-16 Special Conditions: Asleep/Confused/Paralyzed replace each other; Poisoned and Burned stack; all clear on evolving or moving to the Bench', () => {
   const sl = { cond: 0 } as Parameters<typeof applyCondition>[0];
   applyCondition(sl, 'poisoned');
