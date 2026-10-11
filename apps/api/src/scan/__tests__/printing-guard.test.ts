@@ -348,6 +348,22 @@ test('the shipped table carries every Celebrations original as a printed twin', 
   assert.deepEqual(printedTwinsOf('sv02-050'), []);
 });
 
+test('every printing of one BASIC energy type is one family; special energies with basic names are not', async () => {
+  // v2 named a Mega Evolution Psychic Energy (mee-005) as Sun & Moon's
+  // (sm1-168) at 0.806, and a Base Set Fighting Energy (base1-97) as Ruby &
+  // Sapphire's (ex1-105): different designs, but one picture to the model.
+  const { artSiblings, printingOpenFor } = await import('../artFamilies.js');
+  assert.ok(artSiblings('mee-005').includes('sm1-168'), 'Psychic: Mega Evolution and Sun & Moon printings');
+  assert.ok(artSiblings('base1-97').includes('ex1-105'), 'Fighting: Base Set and Ruby & Sapphire printings');
+  assert.ok(!artSiblings('mee-005').includes('base1-97'), 'one family per TYPE, not one for all energy');
+  // Neo Genesis Metal Energy (neo1-19) and the e-Card Darkness Energy are
+  // SPECIAL cards with their own art: energy_type, not the name, decides.
+  assert.ok(!artSiblings('neo1-19').some((id) => id === 'dp1-130' || id === 'sv01-258'));
+  assert.ok(!artSiblings('ecard1-158').includes('sm1-170'), 'special e-Card Darkness is not a basic Darkness');
+  assert.ok(artSiblings('sm1-170').length > 0, 'basic Darkness printings are joined');
+  assert.equal(printingOpenFor('sm1-168'), true);
+});
+
 test('a Celebrations card twins ONE original: later printings at the same number are not twins', async () => {
   // Base Set 2's Charizard prints 4/130, Secret Wonders' Blastoise 2/132: the
   // Classic Collection reprints Base Set's 4/102 and 2/102 only, so a printed

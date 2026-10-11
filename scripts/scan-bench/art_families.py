@@ -26,6 +26,10 @@ past the colour gates scored a figure of 0.21 or less. Two kinds of pair it deli
   across different designs (Generations' striped backgrounds, a Celebi
   silhouette), so the foil rule skips category Energy.
 
+Every printing of one BASIC energy type (energy-types.json: the catalogue's
+energy_type 'Normal') is also one family, because the identity model does not
+separate the eras' energy designs (decision 2026-10-11).
+
 What the scanner does with it (apps/api/src/scan/artFamilies.ts): no image
 signal — the hash or the embedding — may name ONE printing of a family on its
 own, because none of them can see the difference (a set symbol and a number a
@@ -37,6 +41,7 @@ import argparse
 import datetime
 import json
 import os
+import re
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -50,6 +55,7 @@ import embed as E  # noqa: E402
 
 REPRINT_SETS = {"base4": ["base1", "base2"], "lc": ["base1", "base2", "base3", "base5"], "xy12": ["base1"]}
 WITHIN_SET_HOLO = ["base2", "base3", "base5"]
+BASIC_ENERGY = re.compile(r"^(?:Basic )?(Grass|Fire|Water|Lightning|Psychic|Fighting|Darkness|Metal|Fairy) Energy$", re.I)
 
 
 def _close(a: str, b: str) -> bool:
@@ -78,6 +84,7 @@ def main():
     ap.add_argument("--figure-min", type=float, default=0.24)
     ap.add_argument("--frame-colour-min", type=float, default=0.6)
     ap.add_argument("--figure-colour-min", type=float, default=0.3)
+    ap.add_argument("--no-basic-energy", action="store_true", help="do not join every printing of one basic energy type")
     ap.add_argument("--out", default=str(REPO / "apps" / "api" / "src" / "scan" / "data" / "art-families.json"))
     a = ap.parse_args()
     cards = E.load_catalog()["cards"]
@@ -169,6 +176,31 @@ def main():
                 for y in ids[1:]:
                     union(ids[0], y)
                     n_rule += 1
+    # BASIC ENERGY: every printing of one energy type is one family. A basic
+    # Energy is a type symbol on a coloured field, and its designs differ by
+    # era in ways the identity model does not separate: v2 named a Mega
+    # Evolution Psychic Energy as Sun & Moon's (sm1-168) at sim 0.806, a
+    # main-tier confident answer, though the two pictures differ. The printed
+    # key decides the printing (modern energies print a set code and number);
+    # without one the reader chooses. --no-basic-energy turns this off.
+    #
+    # BASIC means the catalogue's energy_type 'Normal' (energy-types.json), not
+    # the name. Before Diamond & Pearl, Darkness and Metal Energy were SPECIAL
+    # cards with their own art and text (Neo Genesis Metal Energy, neo1-19), and
+    # a name match swept them in. An energy with no recorded type (trainer-kit
+    # basics) keeps its own family, as before this rule.
+    n_energy = 0
+    if not a.no_basic_energy:
+        etype = json.loads((HERE / "energy-types.json").read_text(encoding="utf8"))["types"]
+        by_type = defaultdict(list)
+        for c in cards:
+            m = BASIC_ENERGY.match(c["name"]) if etype.get(c["cardId"]) == "Normal" else None
+            if m:
+                by_type[m.group(1).lower()].append(c["cardId"])
+        for ids in by_type.values():
+            for y in ids[1:]:
+                union(ids[0], y)
+                n_energy += 1
     # Celebrations Classic Collection: no catalogue art, so no image test can
     # see it — but each card reprints ONE card, with its name and collector
     # number, from one set (cel25cc-originals.json). Matching on name and
@@ -208,6 +240,7 @@ def main():
                    f"dHash joins vetoed where the image comparison measured different pictures (art inliers < {a.art_floor}, no shared figure; Energy exempt); "
                    f"plus known reprint sets joined by name ({rules_txt}; holo/non-holo within {holo_txt}) "
                    f"and Celebrations Classic Collection to its one original each by set, name and number; "
+                   f"{'' if a.no_basic_energy else 'every printing of one basic energy type as one family; '}"
                    f"transitive closure. scripts/scan-bench/art_families.py"),
         "cards": sum(len(f) for f in families),
         "families": families,
@@ -216,7 +249,7 @@ def main():
         "printedTwins": {k: sorted(v) for k, v in sorted(printed_twins.items())},
     }
     Path(a.out).write_text(json.dumps(out, separators=(",", ":")) + "\n", encoding="utf8")
-    print(f"{n_art} image pairs + {n_foil} foil pairs + {n_hash} hash pairs ({n_vetoed} hash joins vetoed) + {n_rule} reprint-set joins + {n_cc} Celebrations joins -> {len(families)} families, "
+    print(f"{n_art} image pairs + {n_foil} foil pairs + {n_hash} hash pairs ({n_vetoed} hash joins vetoed) + {n_rule} reprint-set joins + {n_energy} basic-energy joins + {n_cc} Celebrations joins -> {len(families)} families, "
           f"{out['cards']} cards -> {a.out}")
 
 

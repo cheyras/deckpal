@@ -1843,6 +1843,12 @@ names bw1-87 or xy11-87; a same-art 2011bw-12 prints another number) —
 except for a **printed twin**: a Celebrations Classic Collection reprint prints
 its original's number (CC002 Charizard reads `4/102`) under a `CCnnn` catalogue
 number, so a number key cannot tell them apart and the printing stays open.
+**Basic Energy** counts as one picture per type: every printing of a basic
+Grass, Fire, Water, Lightning, Psychic, Fighting, Darkness, Metal or Fairy
+Energy is one family. The type is the catalogue's `energy_type` 'Normal', so
+special energies with the same names are not included. Their designs differ by
+era in ways the image model does not separate, so a printed key decides the
+printing, or the reader does.
 `printingOpen` is absent whenever the guard did not fire, so those responses
 are byte-identical to before it.
 
