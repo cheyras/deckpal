@@ -71,8 +71,13 @@ export function decideTier(o: {
     tier = 'standard';
     reasons.push(reason);
   };
-  if (o.triage.signals.includes('dissatisfied')) raise('signal:dissatisfied');
-  if (o.triage.signals.includes('correction')) raise('signal:correction');
+  // SMALL TALK NEVER ESCALATES ON A SIGNAL. "3 brick hands in a row, this game
+  // hates me" reads as `dissatisfied` to Haiku 5.5 3/3 (triage eval,
+  // 2026-10-10), and a sympathetic line needs no Sonnet. A complaint about
+  // Deck-E's own answer arrives with the job it was about, so it still raises.
+  const chatOnly = routed.every((name) => name === 'small_talk');
+  if (!chatOnly && o.triage.signals.includes('dissatisfied')) raise('signal:dissatisfied');
+  if (!chatOnly && o.triage.signals.includes('correction')) raise('signal:correction');
   if (o.carried.guardFired) raise('carried:guard');
   if (o.carried.toolErrors >= 2) raise('carried:tool_errors');
   if (o.triage.wantsDeep === 'offer') raise('deep:offer');
