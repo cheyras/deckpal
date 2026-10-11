@@ -233,6 +233,10 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c21.pickOppBenchLowHp': (a) => `Choose 1 Pokémon on your opponent's Bench that has ${Number(a.max ?? 90)} HP or less remaining (HP with any changes, minus damage) as "${String(a.as ?? 't')}"; no question when only one qualifies, none chosen when none does`,
   'c21.selfIntoDeck': () => 'Put this Pokémon and all attached cards (Energy, Tools, previous Evolutions) into your deck, without shuffling it yet; it is not a Knock Out',
   'c21.lookTopAny': (a) => `Look at the top ${Number(a.n ?? 20)} cards of your deck and choose any number of the ${energyNoun(a.filter as Filter | undefined)} cards you find there (into "${String(a.as ?? 'e')}"); nothing leaves the deck yet`,
+  // std-c23-customs.ts
+  'c23.evolveSelfFromDeck': () => 'Search your deck for a Pokémon card whose "evolves from" is this Pokémon\'s name (or none) and put it onto this Pokémon to evolve it (also on your first turn), or none; the deck is not shuffled yet',
+  'c23.grandTree': () =>
+    "Search your deck for a Stage 1 Pokémon card that evolves from the name of one of your Basic Pokémon in play (a Basic Pokémon can't be evolved on your first turn or when it was put into play or evolved this turn), or none, and put it onto that Pokémon (you choose which when several share the name) to evolve it; then search your deck for a Stage 2 Pokémon card that evolves from that Pokémon, or none, and put it onto it to evolve it again; the deck is not shuffled yet",
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -255,6 +259,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'c18.sharesTypeWithOpp': () => "one of your Pokémon in play (Active or Benched) has a type that one of your opponent's Pokémon in play (Active or Benched) also has",
   'c15.lowHpDamaged': () => 'one of your Pokémon has damage on it and 30 or less HP remaining (HP counting any HP changes)',
   'c21.oppBenchLowHp': (a) => `your opponent has a Pokémon on their Bench that has ${Number(a.max ?? 90)} HP or less remaining`,
+  'c23.grandTreeUsable': () => 'one of your Basic Pokémon in play (not on your first turn, not one put into play or evolved this turn) can evolve into a Stage 1 Pokémon card that is in your deck',
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
@@ -2031,5 +2036,18 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv07-006|ability:Selective Slime': {
     problems: ['similarity'],
     why: 'The printed "choose Burned, Confused, or Poisoned" is a three-way option plus one `condition` step per option, and the usability guard from Compendium ruling 2014 (not while the Defending Pokémon is already Burned, Confused and Poisoned) is spelled out; both lengthen the rendering well past the printed sentence.',
+  },
+  // std-c23
+  'sv07-123|attack:Aero Chase': {
+    problems: ['type colorless is printed 2× but rendered 1×'],
+    why: 'The printed "{C}{C} or more" is a Retreat Cost of 2: the custom counts the {C} in the Retreat Cost into a number and the condition compares it with 2, so the two {C} symbols appear as the number 2.',
+  },
+  'sv07-132|text': {
+    problems: ['"your pokemon" is printed but not rendered'],
+    why: 'The extra Prize is an `extraPrize` effect for the player, restricted to attackers that are Tera Pokémon; the renderer words the attacker as "Tera Pokémon" without "your", but the effect belongs to the player who played Briar and so only ever covers their own Pokémon.',
+  },
+  'sv07-138|text': {
+    problems: ['number 2 is printed 3× but rendered 1×', '"can\'t" is printed but not rendered'],
+    why: 'The printed reminder "(If you can\'t put 2 cards from your hand on the bottom of your deck, you can\'t use this card.)" is the `playable` guard (3 cards in hand: Kofu itself and 2 others), which the renderer words as "only if you have 3 or more cards in your hand"; the 2 cards are one choice with min and max 2, rendered once.',
   },
 };
