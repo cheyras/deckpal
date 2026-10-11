@@ -454,7 +454,7 @@ const addBattleLogTool = defineTool({
       .optional()
       .describe("Countable archetype key or label, e.g. 'dragapult-ex' or \"N's Zoroark ex\"; the API normalizes it."),
     notes: z.string().max(2000).optional().describe('Free-text notes about the game — misplays, key turns, matchup reads.'),
-    review: z.string().max(12000).optional().describe("Deck-E's markdown analysis. Keep the reader's own words in notes."),
+    review: z.string().max(12000).optional().describe("Your own analysis of the game, in markdown. Keep the player's own words in notes."),
     played_at: z.string().optional().describe('ISO-8601 timestamp of when the game was played. Omit for now.'),
     dry_run: z
       .boolean()
@@ -888,7 +888,7 @@ const editBattleLogTool = defineTool({
     opponent_deck: z.string().max(200).nullable().optional().describe("Archetype label, e.g. 'Dragapult ex / Dusknoir'; null clears."),
     opponent_archetype: z.string().max(200).nullable().optional().describe('Normalized matchup key/label; the API normalizes it. null clears.'),
     notes: z.string().max(2000).nullable().optional().describe('Replacement notes; null clears.'),
-    review: z.string().max(12000).nullable().optional().describe("Replacement Deck-E markdown analysis; null clears. Reader words stay in notes."),
+    review: z.string().max(12000).nullable().optional().describe("Replacement analysis of the game, in markdown; null clears. The player's own words stay in notes."),
     played_at: z.string().optional().describe('Corrected ISO-8601 played-at timestamp.'),
     dry_run: z
       .boolean()

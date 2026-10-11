@@ -568,6 +568,18 @@ test('a consult is not an answer: the empty-answer guard does not excuse it', ()
   assert.match(CODE, /const SERVER_SET = new Set\(SERVER_TOOLS\.filter\(\(name\) => name !== 'consult'\)\)/);
 });
 
+// The adapter's "your message held N games" line reads `pastedLogCount` from
+// its options and falls back to 1 when it is absent — so the notice is dead
+// unless this file hands it over, and every adapter test still passes.
+test('the multi-game paste count reaches the data tools beside the paste itself', () => {
+  assert.match(SRC, /import \{ extractPastedLog, pastedLogCount \} from '\.\.\/apps\/api\/dist\/decke\/pastedLog\.js'/);
+  assert.match(
+    CODE,
+    /pastedLog: \(\) => extractPastedLog\(messages\),\s*pastedLogCount: \(\) => pastedLogCount\(messages\),/,
+    'without it a two-game paste logs one game and never says so',
+  );
+});
+
 test('improvement capture receives identity, correlation and runs after usage finalization', () => {
   assert.match(SRC, /import \{ autoShareAndRecordLeg \} from '\.\.\/apps\/api\/dist\/decke\/improvement\.js'/)
   assert.match(CODE, /db: chatPool\(\),\s*userId: user\.id,\s*conversationId,/)

@@ -488,7 +488,143 @@ function cardRows(world, ownedOnly = false) {
   return cards.map((card) => `${card.id} — ${card.name} · owned ${card.owned} · $${card.price.toFixed(2)}`).join('\n')
 }
 
-function fixtureOutput(name, input, world, writes, definition) {
+// ── Battle logs v2 in the fixture world (2026-10-10) ────────────────────────
+//
+// The battle_log pathway now runs log → battle number → `battle_digest` →
+// `consult` → `edit_battle_log`, and picks its depth from the per-archetype
+// record. A fixture that answered every write with "recorded" and every digest
+// with "no matching rows" would leave that whole path unexercised, so the
+// fixture keeps the games logged in THIS conversation (`helpers.state.logged`,
+// reset per conversation) and answers from them with the real code: the paste
+// is the one `extractPastedLog` finds in the conversation (what the adapter
+// substitutes for `@pasted` in production), the owner and result come from the
+// real `parseBattleLog`, and the digest is the real `digestBattleLog` rendered
+// by the real `renderBattleDigest`. The world's older games carry no raw log,
+// so digesting one says so, as the real tool does for a log stored without one.
+function fixtureDeck(world, ref) {
+  const q = String(ref ?? '').trim().toLowerCase()
+  if (!q) return null
+  return world.decks.find((deck) => deck.id.toLowerCase() === q || deck.name.toLowerCase() === q)
+    ?? world.decks.find((deck) => deck.name.toLowerCase().includes(q) || q.includes(deck.name.toLowerCase()))
+    ?? null
+}
+
+function fixtureDeckCardNames(world, deck) {
+  const byId = new Map(world.collection.cards.map((card) => [card.id.toLowerCase(), card.name]))
+  return (deck?.cards ?? []).map((row) => byId.get(String(row.card_id).toLowerCase())).filter(Boolean)
+}
+
+const fixtureVersion = (deck) => deck?.versions?.at(-1)?.version ?? deck?.version ?? 1
+const trunc = (text, n) => (text.length <= n ? text : `${text.slice(0, n - 1)}…`)
+
+/** Every game on a deck: the world's (ids 1..n, no raw log) and this conversation's. */
+function fixtureLogs(world, deck, helpers) {
+  const archetypeOf = (label) => (label ? helpers.battlelog.normalizeOpponentArchetype(label) : null)
+  const older = world.battle_logs.map((log, index) => ({
+    id: index + 1, deck_id: log.deck_id, version: log.version ?? 1, result: String(log.result).toLowerCase(),
+    opponent: null, opponent_deck: log.opponent, opponent_archetype: archetypeOf(log.opponent),
+    origin: 'ptcgl', notes: log.note, review: null, raw: null,
+  }))
+  return [...older, ...helpers.state.logged].filter((log) => !deck || log.deck_id === deck.id)
+}
+
+function fixtureBattleOutput(name, input, world, writes, helpers) {
+  const { battlelog, state } = helpers
+  if (name === 'add_battle_log') {
+    const origin = input.origin ?? (input.log !== undefined ? 'ptcgl' : undefined)
+    if (!input.deck_id) {
+      if (origin !== 'ptcgl') return 'add_battle_log failed: deck_id is required for an in-person or other game because there is no pasted log to rank against your decks.'
+      return [
+        'Parsed fixture log. Ranked candidate decks; nothing was written.',
+        ...world.decks.slice(0, 3).map((deck, index) => `${index + 1}. ${deck.id} — ${deck.name}`),
+        'Call add_battle_log again with the chosen deck_id and dry_run:false.',
+      ].join('\n')
+    }
+    if (input.dry_run !== false) return null
+    const deck = fixtureDeck(world, input.deck_id)
+    if (!deck) return `add_battle_log failed: No deck '${input.deck_id}'`
+    let raw = null
+    if (origin === 'ptcgl') {
+      raw = input.log === '@pasted' ? helpers.extractPastedLog(state.messages) : (input.log ?? null)
+      if (!raw) return 'add_battle_log: no pasted log found in this conversation — ask the reader to paste the full PTCG Live battle log.'
+    }
+    const parsed = raw ? battlelog.parseBattleLog(raw, fixtureDeckCardNames(world, deck), input.player_name) : null
+    const result = input.result ?? parsed?.result ?? null
+    const opponentDeck = input.opponent_deck ?? parsed?.opponentDeckGuess ?? null
+    const log = {
+      id: 100 + state.logged.length + 1, deck_id: deck.id, version: fixtureVersion(deck), result,
+      opponent: parsed?.players?.opponent ?? null, opponent_deck: opponentDeck,
+      opponent_archetype: battlelog.normalizeOpponentArchetype(input.opponent_archetype ?? opponentDeck ?? '') || null,
+      origin, notes: input.notes ?? null, review: input.review ?? null, raw, me: parsed?.players?.me ?? null,
+    }
+    state.logged.push(log)
+    writes.push({ name, input })
+    const record = fixtureLogs(world, deck, helpers).filter((row) => row.version === log.version)
+    const count = (r) => record.filter((row) => row.result === r).length
+    return [
+      `Logged battle #${log.id} → attached to v${log.version} (the deck's current version).`,
+      [`${result ? result.toUpperCase() : 'NO RESULT'} vs ${log.opponent ?? 'unknown'}${opponentDeck ? ` (${opponentDeck})` : ''}`,
+        parsed ? `${parsed.totalTurns} turns` : null,
+        parsed ? `prizes ${parsed.prizesTaken.me}-${parsed.prizesTaken.opponent}` : null,
+        parsed ? `parser confidence ${parsed.confidence}` : null].filter(Boolean).join(' | '),
+      `v${log.version} record: ${count('win')}W–${count('loss')}L–${count('tie')}T (${record.length} log(s))`,
+      '(Fixture: approved by the fixture reader; no live data was changed.)',
+    ].join('\n')
+  }
+  if (name === 'edit_battle_log' && input.dry_run === false) {
+    const log = state.logged.find((row) => row.id === input.log_id)
+    if (log) for (const key of ['result', 'opponent_deck', 'notes', 'review']) if (input[key] !== undefined) log[key] = input[key]
+    if (log && input.opponent_archetype !== undefined) log.opponent_archetype = input.opponent_archetype ? battlelog.normalizeOpponentArchetype(input.opponent_archetype) : null
+    return null
+  }
+  if (name === 'battle_logs') {
+    const deck = fixtureDeck(world, input.deck_id)
+    const logs = fixtureLogs(world, deck, helpers)
+    if (input.log_id) {
+      const log = logs.find((row) => row.id === input.log_id)
+      if (!log) return `battle_logs failed: No battle log '${input.log_id}'`
+      return [`battle #${log.id} | v${log.version} | ${String(log.result ?? 'no result').toUpperCase()} vs ${log.opponent ?? 'unknown'}${log.opponent_deck ? ` (${log.opponent_deck})` : ''}`,
+        `archetype ${log.opponent_archetype ?? 'unclassified'} | origin ${log.origin}`,
+        `notes: ${log.notes ?? '(none)'}`, `review: ${log.review ?? '(none)'}`].join('\n')
+    }
+    const byArchetype = new Map()
+    for (const log of logs) {
+      if (!log.opponent_archetype) continue
+      const row = byArchetype.get(log.opponent_archetype) ?? { w: 0, l: 0, t: 0, n: 0 }
+      row.n++
+      if (log.result === 'win') row.w++
+      else if (log.result === 'loss') row.l++
+      else if (log.result === 'tie') row.t++
+      byArchetype.set(log.opponent_archetype, row)
+    }
+    const record = [...byArchetype].map(([key, row]) => `${key} ${row.w}W–${row.l}L–${row.t}T (${row.n})`).join(' · ')
+    return [
+      `${deck ? `'${deck.name}'` : 'all decks'} — ${logs.length} game(s)`,
+      `archetype record: ${record || 'none classified'}`,
+      ...[...logs].reverse().map((log) => [`#${log.id}`, `v${log.version}`,
+        `${String(log.result ?? 'no result').toUpperCase()} vs ${log.opponent ?? 'unknown'}${log.opponent_deck ? ` (${log.opponent_deck})` : ''}`,
+        `archetype ${log.opponent_archetype ?? 'unclassified'}`, `origin ${log.origin}`,
+        log.notes ? `note: ${trunc(log.notes, 40)}` : null].filter(Boolean).join(' | ')),
+    ].join('\n')
+  }
+  if (name === 'battle_digest') {
+    const deck = fixtureDeck(world, input.deck_id)
+    if (!deck) return `battle_digest failed: No deck '${input.deck_id}'`
+    const log = fixtureLogs(world, deck, helpers).find((row) => row.id === input.log_id)
+    if (!log) return `battle_digest failed: No battle log '${input.log_id}'`
+    if (!log.raw) {
+      const why = log.origin === 'in_person' ? 'this game was reported in person' : 'this game was logged without one'
+      return `Battle #${log.id}: no game log to digest — ${why}. Read its notes and saved review with battle_logs (log_id ${log.id}) instead.`
+    }
+    const digest = battlelog.digestBattleLog(log.raw, fixtureDeckCardNames(world, deck), { playerName: input.player_name ?? log.me ?? undefined })
+    return helpers.renderBattleDigest({ logId: log.id, deckVersion: log.version, origin: log.origin, result: log.result, digest }, deck.name)
+  }
+  return null
+}
+
+function fixtureOutput(name, input, world, writes, definition, helpers) {
+  const battle = helpers ? fixtureBattleOutput(name, input, world, writes, helpers) : null
+  if (battle != null) return battle
   if (name === 'add_battle_log' && !input.deck_id) {
     return [
       'Parsed fixture log. Ranked candidate decks; nothing was written.',
@@ -641,7 +777,7 @@ function fullHistory(turns) {
   ]
 }
 
-async function loadRuntime(world, writes) {
+export async function loadRuntime(world, writes) {
   // The root workspace does not depend on this package by name. Import its
   // compiled entry directly, just as the existing probes import API dist.
   const agent = await import(pathToFileURL(resolve(REPO, 'packages/agent-tools/dist/index.js')).href)
@@ -657,18 +793,31 @@ async function loadRuntime(world, writes) {
   } catch (error) {
     if (error?.code !== 'ERR_MODULE_NOT_FOUND') throw error
   }
-  const { buildTools } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/tools.js')).href)
+  const { buildTools, toolsForTier } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/tools.js')).href)
   const { createGrounding } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/grounding.js')).href)
+  const { runConsult } = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/decke/consult.js')).href)
+  const battlelog = await import(pathToFileURL(resolve(REPO, 'apps/api/dist/deck/battlelog.js')).href)
+  const { renderBattleDigest } = await import(pathToFileURL(resolve(REPO, 'packages/agent-tools/dist/tools/battleDigest.js')).href)
+  // `messages`: the current turn's conversation, for the `@pasted` substitution.
+  // `logged`: games written in this conversation (reset per conversation).
+  const state = { messages: [], logged: [] }
+  const helpers = { state, battlelog, renderBattleDigest, extractPastedLog: pastedLog.extractPastedLog }
   const definitions = agent.allTools()
   for (const def of definitions) DATA_TOOLS.add(def.name)
   const dataTools = Object.fromEntries(definitions.map((def) => [def.name, tool({
     description: def.description,
     inputSchema: def.inputSchema ?? z.object({}),
     needsApproval: (input) => requiresApproval(def, input),
-    execute: async (input) => fixtureOutput(def.name, input, world, writes, def),
+    execute: async (input) => fixtureOutput(def.name, input, world, writes, def, helpers),
   })]))
   const checked = async (input) => fixtureDeckCheck(world, input)
-  const cosmetic = buildTools({ write() {} }, createGrounding(), undefined, undefined, { checkDeck: checked })
+  // Mirrors api/chat.mjs: the character's tools are built once per request and
+  // `toolsForTier` keeps `consult` on the Quick tier only. `consult` is the
+  // request's injected implementation (a real Sonnet call, or a labelled stub).
+  const cosmeticFor = (tier, consult) => toolsForTier(
+    buildTools({ write() {} }, createGrounding(), undefined, undefined, { checkDeck: checked, ...(consult ? { consult } : {}) }),
+    tier,
+  )
   const web_research = tool({
     description: 'Quickly research the current state of the Pokémon TCG world: the current meta and tournament results, community opinion, news, recent releases, and price trends. Use it when DeckPal does not store the answer. Do not use it when findings already in the conversation answer the question. Write `purpose` as the short status the reader should see, such as "Dragapult ex tournament results".',
     inputSchema: z.object({
@@ -678,7 +827,7 @@ async function loadRuntime(world, writes) {
     }),
     execute: async (input) => /dragapult/i.test(`${input.query} ${input.purpose}`) ? world.research.dragapult : world.research.meta,
   })
-  const tools = { ...cosmetic, ...dataTools, web_research }
+  const toolsFor = (tier, consult) => ({ ...cosmeticFor(tier, consult), ...dataTools, web_research })
   const dataToolList = [...definitions.map((def) => ({ name: def.name, title: def.title })), { name: 'web_research', title: 'Research the web' }]
   const buildInstructions = (choice, selectedPathways, route) => {
     const cache = choice.id.startsWith('anthropic/') ? { anthropic: { cacheControl: { type: 'ephemeral' } } } : null
@@ -690,7 +839,34 @@ async function loadRuntime(world, writes) {
       system(prompt.buildVolatileContext({ route, signedIn: true })),
     ]
   }
-  return { buildInstructions, tools, dataToolList, ...routing, ...triage, ...models, ...pastedLog }
+  return { buildInstructions, toolsFor, state, runConsult, dataToolList, ...routing, ...triage, ...models, ...pastedLog }
+}
+
+/**
+ * The request's consult, as api/chat.mjs injects it: Sonnet (TIERS.standard)
+ * through the Gateway, its usage added to this turn and to the run's budget.
+ * Under --mock there is no Gateway, so it is a stub that says so in its answer
+ * rather than an invented analysis.
+ */
+function probeConsult({ runtime, gateway, budget, usage }) {
+  return async ({ question, brief }) => {
+    usage.calls++
+    if (!gateway) return '[PROBE STUB — --mock run, no model was called. A real consult answers this question from the brief.]'
+    const raw = gateway(runtime.TIERS.standard.id)
+    const model = new Proxy(raw, {
+      get(target, property, receiver) {
+        if (property !== 'doGenerate') return Reflect.get(target, property, receiver)
+        return async (options) => {
+          const result = await target.doGenerate(options)
+          const measured = readUsage(result.usage, result.providerMetadata)
+          for (const key of Object.keys(measured)) usage[key] = (usage[key] ?? 0) + (measured[key] ?? 0)
+          budget.spent += measured.cost_usd
+          return result
+        }
+      },
+    })
+    return runtime.runConsult({ question, brief, model })
+  }
 }
 
 // Mirrors api/chat.mjs: one breakpoint on the system prompt covers the tools too.
@@ -775,7 +951,13 @@ async function runTurn({ model, modelId, fallback, maxOutputTokens = 8000, effor
   let stepCount = 0
   const modelMessages = []
   const instructions = runtime.buildInstructions({ id: modelId }, pathways, route)
-  const allTools = cacheTools(modelId, runtime.tools)
+  // The paste the fixture substitutes for `@pasted`, read from this turn's
+  // conversation exactly as api/chat.mjs reads it from the replayed messages.
+  runtime.state.messages = routingMessages(priorTurns, scenarioTurn)
+  // One tool set per request, by tier (a fixed-model arm: Haiku is Quick).
+  const tier = routing?.decision.tier ?? (/haiku/i.test(modelId) ? 'quick' : 'standard')
+  const consultUsage = { calls: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0 }
+  const allTools = cacheTools(modelId, runtime.toolsFor(tier, probeConsult({ runtime, gateway, budget, usage: consultUsage })))
   let legMessages = messages
   let pendingApprovedCalls = new Set()
   for (let approvalRound = 0; approvalRound < 8; approvalRound++) {
@@ -891,11 +1073,12 @@ async function runTurn({ model, modelId, fallback, maxOutputTokens = 8000, effor
   return {
     user: scenarioTurn.user, tags: scenarioTurn.tags, expectations: scenarioTurn.expectations ?? [], text: text.trim(), calls,
     ttft_ms: Math.round((first ?? performance.now()) - started), total_ms: Math.round(performance.now() - started),
-    input_tokens: inputTokens + (routing?.triageUsage.input_tokens ?? 0),
-    output_tokens: outputTokens + (routing?.triageUsage.output_tokens ?? 0),
-    cost_usd: turnCost + (routing?.triageUsage.cost_usd ?? 0),
-    cache_read_tokens: cacheReadTokens + (routing?.triageUsage.cache_read_tokens ?? 0),
-    cache_write_tokens: cacheWriteTokens + (routing?.triageUsage.cache_write_tokens ?? 0),
+    input_tokens: inputTokens + consultUsage.input_tokens + (routing?.triageUsage.input_tokens ?? 0),
+    output_tokens: outputTokens + consultUsage.output_tokens + (routing?.triageUsage.output_tokens ?? 0),
+    cost_usd: turnCost + consultUsage.cost_usd + (routing?.triageUsage.cost_usd ?? 0),
+    cache_read_tokens: cacheReadTokens + consultUsage.cache_read_tokens + (routing?.triageUsage.cache_read_tokens ?? 0),
+    cache_write_tokens: cacheWriteTokens + consultUsage.cache_write_tokens + (routing?.triageUsage.cache_write_tokens ?? 0),
+    consult_calls: consultUsage.calls, consult_cost_usd: Number(consultUsage.cost_usd.toFixed(8)), tool_tier: tier,
     steps: stepCount, modelMessages, declined: false, model: modelId, model_used: modelId,
     ...(routing ? {
       tier: routing.decision.tier, pathways: routing.decision.pathways, effort: routing.decision.effort,
@@ -992,6 +1175,8 @@ export async function main(argv = process.argv.slice(2)) {
     for (const scenario of selected) {
       for (let sample = 1; sample <= opts.n; sample++) {
         const priorTurns = []
+        // A conversation's logged games are its own: none leak into the next sample's record.
+        runtime.state.logged = []
         for (const scenarioTurn of scenario.turns) {
           const routing = arm.routed
             ? await routedChoice({ runtime, gateway, mock: opts.mock, priorTurns, scenario, scenarioTurn, budget })

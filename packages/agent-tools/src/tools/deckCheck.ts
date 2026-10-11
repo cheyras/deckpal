@@ -84,7 +84,7 @@ export const checkDeckTool: ToolDefinition = defineTool({
   name: 'check_deck',
   title: 'Check a deck list',
   description:
-    'Run this on every complete deck list before showing or saving it. It accepts card names or catalog ids, checks legality, evolution gaps, ownership and missing cost. Fix everything it flags, then run it again before showDeck.',
+    'Run this on every complete deck list before showing or saving it. It accepts card names or catalog ids, checks legality, evolution gaps, ownership and missing cost. Fix everything it flags, then run it again before you show or save the final list.',
   inputSchema: checkDeckInputSchema,
   annotations: { readOnlyHint: true, idempotentHint: true },
   handler: async (input, ctx): Promise<ToolResult> => {

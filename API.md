@@ -1274,7 +1274,7 @@ version.
 `opponentArchetype` is normalized server-side to a lowercase ASCII word key
 (apostrophes removed, other separators collapsed to hyphens, ≤64 characters),
 for example `N's Zoroark ex` → `ns-zoroark-ex`. `notes` are the reader's own
-words; `reviewMd` is Deck-E's markdown analysis.
+words; `reviewMd` is the assistant's markdown analysis (Deck-E's, or a connector client's).
 `400` when the parser cannot tell which player owns the deck **and** neither
 `playerName` nor an explicit `result` was given (the message says which to pass).
 `"dryRun": true` performs that same validation, current-version resolution,

@@ -126,7 +126,7 @@ export function renderBattleDigest(p: DigestPayload, deckName: string, note?: st
 
     if (d.players.me === null) {
       lines.push(
-        `players: could not tell which one is the reader — the log names ${d.playerNames.join(' and ') || 'nobody'}. ` +
+        `players: could not tell which one owns this deck — the log names ${d.playerNames.join(' and ') || 'nobody'}. ` +
           'Re-call with player_name set to their exact screen name for the per-side digest.',
       );
       lines.push(row(`${d.totalTurns} turns`, `ended ${ENDED[d.endReason]}`, d.closeGame ? 'close game' : 'not close'));
@@ -198,7 +198,7 @@ const battleDigestTool = defineTool({
       .string()
       .max(100)
       .optional()
-      .describe("Only when a digest said it could not tell which player is the reader: their exact screen name in the log."),
+      .describe("Only when a digest said it could not tell which player owns the deck: the owner's exact screen name in the log."),
   }),
   annotations: { readOnlyHint: true, idempotentHint: true },
   handler: async ({ deck_id: deckRef, log_id, player_name }, ctx) => {

@@ -536,7 +536,7 @@ served by `apps/images`. Sync jobs run via cron or any scheduler.
 ## 10. The agent tool layer — one definition, two front-ends
 
 **`packages/agent-tools` (`@deckpal/agent-tools`) is the single definition of
-what an agent may do in DeckPal.** 24 tools (13 read, 11 write, 4 of those
+what an agent may do in DeckPal.** 26 tools (15 read, 11 write, 4 of those
 also destructive), each a `ToolDefinition`: a zod input schema, `annotations`
 (`readOnlyHint` is required in the type, not optional as MCP's own SDK has
 it — a tool that forgets to state it fails to compile rather than defaulting
@@ -583,6 +583,22 @@ reverse order and tolerated unknown client lines); if a healthy first leg neithe
 logs it nor raises its card, a bounded paste backstop ranks decks and raises that
 signed card. See
 [`2026-10-10-deck-e-logs-a-pasted-battle-every-tool-in-view-from-step-one-a-backstop-the-whol.md`](decisions/2026/2026-10-10-deck-e-logs-a-pasted-battle-every-tool-in-view-from-step-one-a-backstop-the-whol.md).
+
+**Battle logs v2 (migration 084, 2026-10-10).** A game has an `origin`
+(`ptcgl`, `in_person`, `other`): only `ptcgl` requires a raw log, and an
+in-person game needs a `deck_id` and an explicit result instead. Two voices are
+stored apart — `notes` (the player's words) and `review_md` (the assistant's
+markdown analysis) — and `opponent_archetype` is a normalized countable key, so
+`battle_logs` can open with the deck's record per archetype. The 15th read,
+`battle_digest`, calls `GET /decks/:id/logs/:logId/digest`, which re-reads the
+stored, immutable raw log through `digestBattleLog` on every call: the prize
+race turn by turn, first attacks, mulligans, the opposing cards seen, the end
+reason and whether the game was close, rendered under 3,000 characters for a
+model (or a consult brief) to judge. On the Deck-E side, a declined pasted game
+is remembered by a hash of the game rather than by the `@pasted` sentinel
+(`declineCallKey`), and a message holding several games logs the last one and
+says so on the card and in the result (`pastedLogCount`). See
+[`2026-10-10-battle-logs-keep-in-person-games-countable-archetypes-and-a-saved-review-deck-e.md`](decisions/2026/2026-10-10-battle-logs-keep-in-person-games-countable-archetypes-and-a-saved-review-deck-e.md).
 
 Two adapters translate that one definition into a protocol:
 
@@ -1392,7 +1408,7 @@ Verification of it has been done against previews and against the live backend a
 the QA account, never the owner's, per contract B12. It needs
 `DECKE_VERCEL_AI_GATEWAY_KEY` in the
 Vercel project; it fails closed without one and reports its own readiness on
-`/api/health`. He now holds all 25 of `packages/agent-tools`' tools (§15c) —
+`/api/health`. He now holds all 26 of `packages/agent-tools`' tools (§15c) —
 the write half held behind an approval round trip (§15e) rather than filtered
 out — plus research and deck checking in the normal streamed loop, against the
 six cosmetic tools of the original ship.
@@ -1518,6 +1534,7 @@ apps/api/src/decke/
   pathways/             per-job instructions and their names.ts routing metadata
   models.ts             TIERS: Quick Haiku 5.5, Standard Sonnet 5.5,
                         Deep Opus 5.5 (reserved, not yet wired)
+  consult.ts            Quick asks Sonnet 5.5 one question with a brief it writes (§15d)
   adapters/aisdk.ts     ToolDefinition -> the AI SDK's tool(), plus the approval policy (§15c, §15e)
   noOp.ts               "would this write change anything?" -- no dialog if not (§15e)
   focus.ts              every real tool on every step; only a spent meter cap can hide one (§15f)
@@ -1635,6 +1652,19 @@ tool results the reusable prefix. A live Gateway probe on 2026-10-10 observed
 cache reads for both Haiku 5.5 and Sonnet 5.5; that verifies this route through
 the Gateway, not a claim that two models share a cache (they do not).
 
+**A Quick turn can buy judgement one question at a time (2026-10-10).** On the
+Quick tier only, Deck-E holds `consult` (`consult.ts`): one question plus a brief
+he writes — for a game review, the `battle_digest` text and the reader's own
+words — sent to Claude Sonnet 5.5 at medium effort with no tools and no
+conversation. It runs at most twice per request, inside `observeUsageModel` so
+it is metered on the reader's request like every other model call, and under the
+turn's abort. Its answer returns to Deck-E, not the reader, and is never passed
+to `grounding.observe`: every card id in it came from his own brief. The tool is
+removed on Standard and Deep by `toolsForTier`, decided once per request from the
+routed tier so the tool list (and Anthropic's cached tools prefix) never changes
+between steps; a consult that then says nothing is still an empty answer, since
+`SERVER_SET` in `api/chat.mjs` excludes it.
+
 The selected conversational tier plans, analyses and drafts guides in Deck-E's
 normal streamed tool loop rather than delegating to a nested sub-agent.
 `plan_deck`,
@@ -1703,7 +1733,8 @@ different key. The adapter adds it after approval, leaving signed input intact.
 **Two calls are answered without a dialog, and both are refusals to interrupt
 somebody for nothing.** A write whose (tool, arguments) the reader has already
 declined in this conversation is refused with a sentence rather than asked a
-second time (`decke/declined.ts`). And a write that would
+second time (`decke/declined.ts`; a pasted battle log is keyed by the game it
+carried, so declining one paste never refuses the next). And a write that would
 change nothing is not a write: `decke/noOp.ts` answers "would this change
 anything?" for the tools that can answer it cheaply, and `deck_strategy` sending
 back the guide already stored is neither asked about nor run. Measured against

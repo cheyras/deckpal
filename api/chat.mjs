@@ -171,7 +171,7 @@ import { isMetered } from '../apps/api/dist/credits/policy.js'
 import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/decke/meter.js'
 import { readerNamedPrinting } from '../apps/api/dist/decke/printingSaid.js'
 import { declinedCalls } from '../apps/api/dist/decke/declined.js'
-import { extractPastedLog } from '../apps/api/dist/decke/pastedLog.js'
+import { extractPastedLog, pastedLogCount } from '../apps/api/dist/decke/pastedLog.js'
 import {
   pasteBackstopNeeded,
   PASTE_BACKSTOP_LINE,
@@ -1009,6 +1009,10 @@ async function serve(request) {
           // substitutes it for a `@pasted` sentinel or a truncated prefix. See
           // `decke/pastedLog.ts` for the heuristic and its bounds.
           pastedLog: () => extractPastedLog(messages),
+          // How many games that same message held. Only one is logged per
+          // call, so a two-game paste is disclosed on the card and the result
+          // rather than silently halved — and without this line it never is.
+          pastedLogCount: () => pastedLogCount(messages),
           // ── AND WHAT THEY HAVE ALREADY SAID NO TO ────────────────────────
           //
           // Read from the replayed history, the only place it can come from:
