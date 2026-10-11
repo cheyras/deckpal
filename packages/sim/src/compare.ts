@@ -48,6 +48,8 @@ export interface PairedOptions {
   timeBudgetMs?: number;
   maxTurns?: number;
   maxDecisions?: number;
+  /** Hard wall-clock stop (in `now()` time), passed to every game. */
+  deadline?: number;
   now?: () => number;
 }
 
@@ -74,6 +76,7 @@ export function runPaired(opts: PairedOptions): PairedSimulation {
     pilotFactory: opts.pilotFactory,
     maxTurns: opts.maxTurns,
     maxDecisions: opts.maxDecisions,
+    deadline: opts.deadline,
     now,
   };
   const simA = runSimulation({ ...base, a: opts.a });

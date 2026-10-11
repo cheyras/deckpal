@@ -4,18 +4,31 @@
  * the matchups inside one time budget. routes/deckSimulate.ts does the reads
  * and hands the results here, which keeps everything below testable with no DB.
  *
- * THE BUDGET. A Vercel function here may run 60 s, but the request's pooled
- * database connection is reclaimed by the RLS watchdog at 30 s
- * (PGRLS_MAX_HOLD_MS, apps/api/src/index.ts) and the MCP function that relays a
- * tool call has its own 60 s. So the games get 25 s in all, split across the
- * matchups as they run — a matchup that finishes early leaves its time to the
- * ones after it — and the report says when the budget, not the request, decided
- * how many games were played.
+ * THE BUDGET. 25 s in all, counted from the moment the request arrived (the
+ * route passes `startedAt`), so the database reads come out of it too. The route
+ * reads everything first and then commits and RELEASES its pooled connection
+ * before a single game is played (`res.locals.commitAndReleaseRls`, the RLS
+ * middleware in apps/api/src/index.ts) — the CPU work holds no connection, and
+ * the RLS watchdog's 30 s (PGRLS_MAX_HOLD_MS) never meets it. What bounds the
+ * run is the function's own 60 s (vercel.json) and the 60 s of the MCP function
+ * that relays a tool call. The budget is split across the matchups as they run
+ * — a matchup that finishes early leaves its time to the ones after it — and
+ * it is also a hard DEADLINE handed to the engine, which ends a game still
+ * running at that moment as a 'time limit' draw (a time-out in the report). The
+ * report says when the budget, not the request, decided how many games were
+ * played.
+ *
+ * THE BOUNDS. Every deck played is 40–70 cards (SIM_DECK_MIN/MAX: short and long
+ * lists are fine, unbounded ones are not), a game is abandoned after
+ * SIM_MAX_DECISIONS decisions (a normal game is ~100–250), and SIM_RUN_GATE lets
+ * one run per account and two per instance be in flight at once — the engine is
+ * synchronous CPU, and a Fluid instance serves other requests on the same event
+ * loop. A run that would exceed either answers 429 with Retry-After.
  */
 import * as sim from '@deckpal/sim';
 import {
   buildComparison, buildReport, renderComparison, renderReport, simulateAsync, simulatePairedAsync,
-  type ComparisonReport, type DeckInput, type PilotFactory, type SimReport, type SimulationResult,
+  type CardFrame, type ComparisonReport, type DeckInput, type PilotFactory, type SimReport, type SimulationResult,
 } from '@deckpal/sim';
 import { badRequest, UUID_RE } from '../http.js';
 
@@ -26,6 +39,16 @@ export const SIM_OPPONENTS_MAX = 8;
 export const SIM_BUDGET_MS = 25_000;
 /** Deck-E clamps a tool result at 6,000 characters; leave room for the tool's own framing. */
 export const SIM_TEXT_LIMIT = 5_000;
+/** The most of SIM_TEXT_LIMIT the notes may take; the report and its caveat keep the rest. */
+export const SIM_NOTES_LIMIT = 1_200;
+/** Every simulated deck — the subject and each opponent — is this many cards, inclusive. */
+export const SIM_DECK_MIN = 40;
+export const SIM_DECK_MAX = 70;
+/** Decisions per game before the engine abandons it as a time-out. Measured: 14–212 a game across the gauntlet. */
+export const SIM_MAX_DECISIONS = 3_000;
+/** Runs in flight at once: one per account, two per instance (see THE BOUNDS above). */
+export const SIM_RUNS_PER_USER = 1;
+export const SIM_RUNS_PER_INSTANCE = 2;
 
 export interface SimulateParams {
   /** A saved deck: its id, or its name. */
@@ -155,12 +178,104 @@ export function pilotFactory(speed: 'strong' | 'fast' = 'strong'): PilotFactory 
   return (_side, seed) => sim.makePilot(kind, seed);
 }
 
+/** The total of a list's quantities. */
+export function cardTotal(counts: Array<{ quantity: number }>): number {
+  return counts.reduce((n, c) => n + c.quantity, 0);
+}
+
+/** 400 unless a deck's listed total is inside SIM_DECK_MIN..SIM_DECK_MAX. */
+export function assertDeckSize(name: string, total: number): void {
+  if (total < SIM_DECK_MIN || total > SIM_DECK_MAX) {
+    throw badRequest(`${name} has ${total} cards; the simulator plays decks of ${SIM_DECK_MIN}–${SIM_DECK_MAX} cards. Fix the list (check_deck shows the count) and run it again.`);
+  }
+}
+
+/** Whether a deck's listed total is inside the simulator's bounds. */
+export function deckSizeOk(total: number): boolean {
+  return total >= SIM_DECK_MIN && total <= SIM_DECK_MAX;
+}
+
+export interface CardCount {
+  card_id: string;
+  quantity: number;
+}
+
+/**
+ * A deck's simulator input from its card counts and the frames loaded for every
+ * deck in the run (one batched read, routes/deckSimulate.ts). Cards with no
+ * frame are left out and named in the notes.
+ */
+export function buildDeckInput(name: string, counts: CardCount[], frames: Map<number, CardFrame>): { deck: DeckInput; notes: string[] } {
+  // Ascending catalogue id: a fixed order, so the same deck and seed always deal the same games.
+  const rows = counts.slice().sort((a, b) => Number(a.card_id) - Number(b.card_id));
+  const missing: string[] = [];
+  const cards: DeckInput['cards'] = [];
+  for (const r of rows) {
+    const frame = frames.get(Number(r.card_id));
+    if (frame) cards.push({ frame, count: r.quantity });
+    else missing.push(`card ${r.card_id}`);
+  }
+  const deck = { name, cards };
+  return { deck, notes: deckNotes(deck, missing) };
+}
+
+/**
+ * At most `perUser` runs per account and `perInstance` in all, in flight at
+ * once, in this process. `tryAcquire` never waits: it hands back a release
+ * function, or the reason it is full and how long until the oldest run in the
+ * way should be done (its start + `expectedMs`), for a 429's Retry-After.
+ */
+export interface RunGate {
+  tryAcquire(userId: string): { ok: true; release: () => void } | { ok: false; scope: 'user' | 'instance'; retryAfterSec: number };
+  readonly active: number;
+}
+
+export function createRunGate(perUser: number, perInstance: number, expectedMs: number, now: () => number = Date.now): RunGate {
+  const runs = new Map<symbol, { userId: string; startedAt: number }>();
+  const retryAfter = (starts: number[]) => Math.max(1, Math.ceil((Math.min(...starts) + expectedMs - now()) / 1000));
+  return {
+    get active() {
+      return runs.size;
+    },
+    tryAcquire(userId) {
+      const mine = [...runs.values()].filter((r) => r.userId === userId).map((r) => r.startedAt);
+      if (mine.length >= perUser) return { ok: false, scope: 'user', retryAfterSec: retryAfter(mine) };
+      if (runs.size >= perInstance) return { ok: false, scope: 'instance', retryAfterSec: retryAfter([...runs.values()].map((r) => r.startedAt)) };
+      const key = Symbol(userId);
+      runs.set(key, { userId, startedAt: now() });
+      let released = false;
+      return {
+        ok: true,
+        release: () => {
+          if (released) return;
+          released = true;
+          runs.delete(key);
+        },
+      };
+    },
+  };
+}
+
+/** The process-wide gate POST /decks/simulate takes before any work. */
+export const SIM_RUN_GATE: RunGate = createRunGate(SIM_RUNS_PER_USER, SIM_RUNS_PER_INSTANCE, SIM_BUDGET_MS + 2_000);
+
+/** The 429 message for a full gate: what is in the way, and when to try again. */
+export function busyMessage(scope: 'user' | 'instance', retryAfterSec: number): string {
+  return scope === 'user'
+    ? `A simulation for this account is already running — the simulator plays one run at a time per account. Try again in about ${retryAfterSec}s, once it has finished.`
+    : `The simulator is busy with other runs right now. Try again in about ${retryAfterSec}s.`;
+}
+
 export interface RunMatchupsOptions {
   games: number;
   seed: number;
   budgetMs?: number;
+  /** When the budget started, in `now()` time: the request's arrival, so its DB reads count. Default: now. */
+  startedAt?: number;
   notes?: string[];
   pilot?: PilotFactory;
+  /** Per-game decision cap. Default SIM_MAX_DECISIONS. */
+  maxDecisions?: number;
   now?: () => number;
 }
 
@@ -172,19 +287,15 @@ export interface SimulateResponse {
 /** Play the subject against each opponent in turn, sharing one time budget. */
 export async function runMatchups(subject: DeckInput, opponents: DeckInput[], opts: RunMatchupsOptions): Promise<SimulateResponse> {
   const now = opts.now ?? Date.now;
-  const started = now();
+  const started = opts.startedAt ?? now();
   const budget = opts.budgetMs ?? SIM_BUDGET_MS;
+  // One wall-clock stop for the whole run, inside games as well as between them.
+  const deadline = started + budget;
   const pilot = opts.pilot ?? pilotFactory();
   const results: SimulationResult[] = [];
   for (const [i, opponent] of opponents.entries()) {
     const left = Math.max(0, budget - (now() - started));
-    if (left <= 0 && i > 0) {
-      // Out of time: say so for this opponent rather than overrun by a pair per opponent left.
-      const prior = results[results.length - 1]!;
-      const requested = Math.max(2, opts.games + (opts.games % 2));
-      results.push({ ...prior, b: opponent.name, requested, played: 0, stoppedEarly: true, elapsedMs: 0, games: [] });
-      continue;
-    }
+    // Past the deadline the engine plays nothing and says so (played 0, stopped early) for this opponent.
     results.push(
       await simulateAsync({
         a: subject,
@@ -193,21 +304,46 @@ export async function runMatchups(subject: DeckInput, opponents: DeckInput[], op
         seed: opts.seed,
         pilotFactory: pilot,
         timeBudgetMs: left / (opponents.length - i),
+        deadline,
+        maxDecisions: opts.maxDecisions ?? SIM_MAX_DECISIONS,
         now,
       }),
     );
   }
   const report = { ...buildReport({ subject, opponents, results, elapsedMs: now() - started }), notes: opts.notes ?? [] };
-  let text = renderReport(report, SIM_TEXT_LIMIT);
-  if (report.notes.length) {
-    // Notes (short decks, cards with no catalogue frame) go under the header, within the same limit.
-    const noteText = report.notes.map((n) => `Note: ${n}`).join('\n');
-    text = renderReport(report, SIM_TEXT_LIMIT - noteText.length - 1);
-    const lines = text.split('\n');
-    lines.splice(2, 0, noteText);
-    text = lines.join('\n');
+  return { text: renderWithNotes(report), report };
+}
+
+/**
+ * The report text with the notes (odd-sized decks, cards with no catalogue
+ * frame) under its header, always within SIM_TEXT_LIMIT and always ending in the
+ * report's caveat: the notes are clamped to SIM_NOTES_LIMIT first, so however
+ * many there are the report keeps room for itself. The structured report keeps
+ * every note.
+ */
+export function renderWithNotes(report: SimReport & { notes: string[] }, limit = SIM_TEXT_LIMIT): string {
+  const noteText = clampNotes(report.notes, Math.min(SIM_NOTES_LIMIT, Math.floor(limit / 4)));
+  if (!noteText) return renderReport(report, limit);
+  const lines = renderReport(report, limit - noteText.length - 1).split('\n');
+  lines.splice(2, 0, noteText);
+  return lines.join('\n');
+}
+
+/**
+ * "Note: …" lines in at most `max` characters: as many whole notes as fit (a
+ * single over-long one is cut with an ellipsis), then a line saying how many
+ * more the structured report holds.
+ */
+export function clampNotes(notes: string[], max: number): string {
+  const cut = (s: string) => (s.length <= max ? s : s.slice(0, Math.max(0, max - 1)) + '…');
+  const lines = notes.map((n) => cut(`Note: ${n}`));
+  for (let keep = lines.length; keep >= 0; keep--) {
+    const shown = lines.slice(0, keep);
+    if (keep < lines.length) shown.push(`Note: +${lines.length - keep} more in the structured report.`);
+    const text = shown.join('\n');
+    if (text.length <= max) return text;
   }
-  return { text, report };
+  return '';
 }
 
 export interface CompareResponse {
@@ -222,8 +358,10 @@ export interface CompareResponse {
  */
 export async function runComparison(a: DeckInput, b: DeckInput, opponents: DeckInput[], opts: RunMatchupsOptions): Promise<CompareResponse> {
   const now = opts.now ?? Date.now;
-  const started = now();
+  const started = opts.startedAt ?? now();
   const budget = opts.budgetMs ?? SIM_BUDGET_MS;
+  // The same hard wall-clock stop as runMatchups, inside games as well as between them.
+  const deadline = started + budget;
   const pilot = opts.pilot ?? pilotFactory();
   const results: [SimulationResult, SimulationResult][] = [];
   for (const [i, opponent] of opponents.entries()) {
@@ -237,7 +375,8 @@ export async function runComparison(a: DeckInput, b: DeckInput, opponents: DeckI
     }
     results.push(
       await simulatePairedAsync({
-        a, b, opponent, games: opts.games, seed: opts.seed, pilotFactory: pilot, timeBudgetMs: left / (opponents.length - i), now,
+        a, b, opponent, games: opts.games, seed: opts.seed, pilotFactory: pilot, timeBudgetMs: left / (opponents.length - i),
+        deadline, maxDecisions: opts.maxDecisions ?? SIM_MAX_DECISIONS, now,
       }),
     );
   }

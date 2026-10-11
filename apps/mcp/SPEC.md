@@ -541,7 +541,9 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
    name] (≤8; default up to 6 of the caller's other decks), games? = 24 (2..200, per opponent, rounded up to
    pairs), seed? = 1, speed? = strong|fast, compare_with? | compare_cards? | compare_ptcgl_text?, compare_name? }` → `POST /decks/simulate`. Plays the deck against each opponent in `@deckpal/sim` with
    a CPU pilot on both sides: paired games (seats swapped per seed, so each deck goes first half the time)
-   inside a 25 s budget, then returns per-opponent W/L/draws/time-outs, win rate with Wilson 95% interval
+   inside a 25 s budget that is also a hard deadline (a game still running at it is a time-out), on decks
+   of 40–70 cards (else `400`), one run per account at a time (else `429`, whose message the tool passes
+   through), then returns per-opponent W/L/draws/time-outs, win rate with Wilson 95% interval
    and n, going-first/second splits, game length, win/loss reasons, setup speed, Prize-takers and
    liabilities, loss patterns, early-card impact (an association), and a coverage block naming every
    card the engine only approximates or cannot play. The text says on its first and last line that

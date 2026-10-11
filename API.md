@@ -1123,15 +1123,23 @@ of `deck_id` (one of the caller's decks, by id or name; a name fragment must mat
 `name`; every line must resolve, else `400` naming the ones that did not), plus optional `opponents`
 (1..8 of the caller's deck ids or names; default up to 6 of their other decks, favourites and most
 recently updated first), `games` (per opponent, default 24, 2..200, rounded up to whole pairs),
-`speed` (`strong` default, or `fast`) and `seed` (default 1; the same seed, decks and pilot replay the same games). Each opponent is played in
-paired games — one seed, seats swapped, so each deck goes first half the time — by a CPU pilot on both
-sides, inside one 25 s budget shared across the opponents (under the 30 s RLS connection hold); the
-report says when the budget, not `games`, decided how many were played. Returns `{ text, report }`:
-`text` is at most 5,000 characters (Deck-E clamps tool results at 6,000) and `report` is the
-structured form (`kind: "deckpal.simulation"`, `simulated: true`, per-matchup stats with Wilson 95%
-intervals and n, card impact, per-deck coverage naming every approximated or unplayable card, the
-standing caveat, and `notes` for decks that are not 60 cards). Results are simulations, never real-game
-statistics, and nothing is written.
+`speed` (`strong` default, or `fast`) and `seed` (default 1; the same seed, decks and pilot replay the same games). Every deck played is 40–70
+cards: the subject or a named opponent outside that is a `400` naming the deck and its count; a
+default opponent outside it is skipped with a note. Each opponent is played in paired games — one
+seed, seats swapped, so each deck goes first half the time — by a CPU pilot on both sides, inside one
+25 s budget counted from the request's arrival and shared across the opponents. The budget is also a
+hard deadline: a game still running when it arrives ends as a time-out draw, and no game starts after
+it; a game is likewise abandoned as a time-out after 3,000 decisions. The report says when the budget,
+not `games`, decided how many were played. The decks are read first and the request's database
+connection is released before any game is played. Returns `{ text, report }`: `text` is at most 5,000
+characters (Deck-E clamps tool results at 6,000) and always ends with the caveat, notes clamped to
+fit; `report` is the structured form (`kind: "deckpal.simulation"`, `simulated: true`, per-matchup
+stats with Wilson 95% intervals and n, card impact, per-deck coverage naming every approximated or
+unplayable card, the standing caveat, and every note — decks that are not 60 cards, cards with no
+catalogue data, skipped opponents). Results are simulations, never real-game statistics, and nothing
+is written. Concurrency: one run per account and two per server instance at a time — beyond that,
+`429` `simulator_busy` with `Retry-After` (seconds until the run in the way should finish) and a
+message saying which.
 - **Paired comparison.** At most one of `compare_with` (another of the caller's decks, by id or name; `400`
   if it is the subject itself), `compare_cards` or `compare_ptcgl_text` (an unsaved whole list in the same
   shape as `cards` / `ptcgl_text`, resolved with the same `format`; every line must resolve), with optional
@@ -1143,7 +1151,8 @@ statistics, and nothing is written.
   draw/time-out ½, loss 0; `lo`/`hi` = 95% t-interval with each seed's two seat-swapped games as one
   cluster; `verdict` `"b"`/`"a"` only when the interval excludes 0 with ≥6 seeds, else `"none"`),
   `changes` (card counts that differ), `changedImpact`, `method`, both versions' full reports
-  (`reportA`, `reportB`) and `coverage`. The text leads with a `VERDICT:` line and keeps the caveat. Rate limit: 6 calls a minute per account (`429` with
+  (`reportA`, `reportB`) and `coverage`. The text leads with a `VERDICT:` line and keeps the caveat; the same bounds, deadline and run gate apply.
+Rate limit: 6 calls a minute per account (`429` `rate_limited` with
 `Retry-After` beyond that).
 
 ### POST /deckpal/api/decks/save
