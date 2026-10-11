@@ -43,8 +43,6 @@ import { CANONICAL_SIZE } from '../../../apps/web/src/scan/engine/frame'
 import { MODEL_SIZE, rgbaToBGRPlanar } from '../../../apps/web/src/scan/engine/preprocess'
 import { DEFAULT_ACQUIRE } from '../../../apps/web/src/scan/engine/gate'
 import {
-  DEFAULT_SECOND_LOOK_AGREE_IOU,
-  DEFAULT_SECOND_LOOK_SCALE,
   mergeSecondLook,
   secondLookCrop,
   secondLookRect,
@@ -57,6 +55,7 @@ import {
   sharp,
   type RawModelOut,
 } from '../../../apps/web/src/scan/engine/__tests__/offline-harness'
+import { parseLockTicks, parseSecondLookFlags } from './flags'
 import { aimedGeometry, cropToSource, phoneGeometry, probeVideo, streamSquares, type PhoneGeometry, type StreamFrame } from './phone'
 import {
   captureFromSquare,
@@ -266,19 +265,19 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
   const startS = Number(arg('start', '0')) || undefined
   const endS = Number(arg('end', '0')) || undefined
 
-  const lockTicks = arg('lock-ticks', '') === '' ? undefined : Number(arg('lock-ticks', ''))
+  const lockTicks = parseLockTicks(arg)
   const aimArg = arg('aim', '')
   const aim = aimArg ? aimArg.split(',').map(Number) : null
   if (aim && (aim.length !== 3 || aim.some((n) => !Number.isFinite(n)))) throw new Error(`--aim wants x,y,side in source px, got ${aimArg}`)
   const secondLook = process.argv.includes('--second-look')
-  const secondLookScale = Number(arg('second-look-scale', String(DEFAULT_SECOND_LOOK_SCALE)))
-  /** 'reticle' (second-look.ts secondLookCrop, as the engine runs it): only when
-   *  the first quad's centroid is in the reticle; 'any': every tick below acquire. */
-  const secondLookGate = arg('second-look-gate', 'reticle')
-  /** The two looks must find the same rectangle (mergeSecondLook agreeIoU); 0 disables. */
-  const secondLookAgree = Number(arg('second-look-agree', String(DEFAULT_SECOND_LOOK_AGREE_IOU)))
-  /** 'first' (shipping default): only the crop's presence counts; 'second': its quad replaces the first's too. */
-  const secondLookQuad = arg('second-look-quad', 'first')
+  // flags.ts checks every second-look flag (ranges, enum values) even when
+  // --second-look is off, so a typo stops the run instead of changing it.
+  const {
+    scale: secondLookScale,
+    gate: secondLookGate,
+    agree: secondLookAgree,
+    quad: secondLookQuad,
+  } = parseSecondLookFlags(arg)
   const knobs: PolicyKnobs & { lockTicks?: number; aim?: string; secondLook?: Record<string, unknown> } = {
     busyMs,
     lockTicks,
