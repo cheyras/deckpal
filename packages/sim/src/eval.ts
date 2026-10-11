@@ -56,6 +56,10 @@ export function defMatches(d: CardDef, f: Filter | undefined): boolean {
   }
   if (f.nameIncludes && !d.name.includes(f.nameIncludes)) return false;
   if (f.hasAbility && !d.abilities.some((a) => a.name === f.hasAbility)) return false;
+  if (f.hasAttack) {
+    const names = Array.isArray(f.hasAttack) ? f.hasAttack : [f.hasAttack];
+    if (d.kind !== 'pokemon' || !d.attacks.some((a) => names.includes(a.name))) return false;
+  }
   if (f.not && defMatches(d, f.not)) return false;
   if (f.any && !f.any.some((g) => defMatches(d, g))) return false;
   return true;
@@ -239,6 +243,14 @@ export function evalCond(env: Env, s: GameState, ec: EvalCtx, c: Cond): boolean 
   if ('slotIs' in c) {
     const sl = resolveSlot(s, ec, c.slotIs.ref);
     return !!sl && slotMatches(env, sl, c.slotIs.filter);
+  }
+  if ('movedToActiveThisTurn' in c) {
+    const sl = resolveSlot(s, ec, c.movedToActiveThisTurn);
+    return !!sl && sl.movedActiveTurn === s.turn && (s.p[0].active === sl || s.p[1].active === sl);
+  }
+  if ('healedThisTurn' in c) {
+    const sl = resolveSlot(s, ec, c.healedThisTurn);
+    return !!sl && sl.healedTurn === s.turn;
   }
   if ('inActive' in c) {
     const sl = resolveSlot(s, ec, c.inActive);

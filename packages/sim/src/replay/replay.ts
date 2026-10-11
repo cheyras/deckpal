@@ -40,7 +40,7 @@ import { def, type DeckEntry, type DeckInput, type Env } from '../context.js';
 import { legalActions } from '../flow.js';
 import { Game } from '../game.js';
 import { applyCondition } from '../interp.js';
-import { allSlots, findSlot, newSlot, opp, removeFrom, topCard } from '../state.js';
+import { allSlots, findSlot, healSlot, newSlot, opp, removeFrom, topCard } from '../state.js';
 import type { Action, CardFrame, Decision, GameEvent, GameState, Player, Slot } from '../types.js';
 import { scriptFor } from '../cards/registry.js';
 import { transcript } from '../transcript.js';
@@ -1033,6 +1033,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
           sw.bench = sw.bench.filter((x) => x !== inc);
           sw.bench.push(sw.active);
           sw.active = inc;
+          inc.movedActiveTurn = s.turn;
         }
       } else if (l.t === 'evolve') {
         // An evolution an unscripted card made (Salvatore: from the deck onto a Pokémon).
@@ -1060,7 +1061,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
         if (sl && s.p[lp].active === sl) applyCondition(sl, l.cond.toLowerCase() as Parameters<typeof applyCondition>[1], s.turn);
       } else if (l.t === 'heal') {
         const sl = slotNamed(lp, l.target.name);
-        if (sl) sl.damage = Math.max(0, sl.damage - l.amount);
+        if (sl) healSlot(s, sl, l.amount);
       } else if (l.t === 'counters') {
         const sl = slotNamed(l.target.player as Player, l.target.card.name);
         if (sl) sl.damage += 10 * l.count;
@@ -1087,6 +1088,11 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       const t = eventTarget(e);
       if (t) involved.add(norm(t[1]));
       if (e.t === 'attack') involved.add(norm(e.attacker.name));
+      // "(Ability) Sunny Day: 20 damage" in a damage breakdown: a card with that Ability the engine doesn't script is a gap too.
+      for (const b of (e as { breakdown?: { label: string }[] }).breakdown ?? []) {
+        const ab = /^\(Ability\) (.+)$/.exec(b.label)?.[1];
+        if (ab) for (const d of ctx.defs) if (partial(d.coverage) && d.abilities.some((x) => x.name === ab)) involved.add(norm(d.name));
+      }
       if (e.t === 'use') involved.add(norm(e.user.name));
       if (e.t === 'play_card' || e.t === 'play_stadium' || e.t === 'play_bench') involved.add(norm(e.card.name));
     }

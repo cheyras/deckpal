@@ -136,8 +136,9 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'seed2.tormentDefender': () =>
     "Choose 1 of your opponent's Active Pokémon's attacks. During your opponent's next turn, that Pokémon can't use that attack",
   'seed2.energyToHand': () => 'Put an Energy attached to this Pokémon into your hand',
+  // std-engine-customs.ts
+  'stdEngine.discardDefender': () => 'Discard the Defending Pokémon (the Pokémon this effect was set on) and all cards attached to it; it is not Knocked Out',
   // std-seed3-customs.ts
-  'seed3.countWithAttack': (a) => `Count ${slotZoneNoun(String(a.zone ?? 'myPokemon') as SlotZone)} that have the ${String(a.attack)} attack (into "${String(a.as ?? 'n')}")`,
   'seed3.healEach': (a) => `Heal ${Number(a.amount)} damage from each of ${slotZoneNoun(String(a.zone ?? 'allPokemon') as SlotZone)}`,
   'seed3.doubleCounters': (a) => `Put as many damage counters as it already has on each of ${slotZoneNoun(String(a.zone ?? 'oppPokemon') as SlotZone)} that has any`,
   // std-seed4-customs.ts
@@ -222,6 +223,7 @@ export function noun(f: Filter = {}, inPlay = false): Noun {
     !!f.tera ||
     f.hpMax !== undefined ||
     !!f.hasAbility ||
+    !!f.hasAttack ||
     !!f.damaged ||
     f.energy !== undefined ||
     f.tool !== undefined ||
@@ -247,6 +249,10 @@ export function noun(f: Filter = {}, inPlay = false): Noun {
   if (f.ruleBox === false) post.push(["that doesn't have a Rule Box", "that don't have a Rule Box"]);
   if (f.ruleBox === true) post.push(['that has a Rule Box', 'that have a Rule Box']);
   if (f.hasAbility) post.push([`that has the ${f.hasAbility} Ability`, `that have the ${f.hasAbility} Ability`]);
+  if (f.hasAttack) {
+    const an = (Array.isArray(f.hasAttack) ? f.hasAttack : [f.hasAttack]).join(' or ');
+    post.push([`that has the ${an} attack`, `that have the ${an} attack`]);
+  }
   if (f.nameIncludes) post.push([`that has "${f.nameIncludes}" in its name`, `that have "${f.nameIncludes}" in their names`]);
   if (f.name) {
     const ns = (Array.isArray(f.name) ? f.name : [f.name]).map((x) => `"${x}"`).join(' or ');
@@ -487,6 +493,11 @@ class Renderer {
       return pl ? `each of those cards is ${art(noun(c.cardIs.filter).sg)}` : `that card is ${art(noun(c.cardIs.filter).sg)}`;
     }
     if ('slotIs' in c) return `${this.ref(c.slotIs.ref)} is ${art(noun(c.slotIs.filter, true).sg)}`;
+    if ('movedToActiveThisTurn' in c) {
+      const r = c.movedToActiveThisTurn;
+      return `${this.ref(r)} moved from ${r === 'defender' || r === 'oppActive' ? "your opponent's" : 'your'} Bench to the Active Spot this turn`;
+    }
+    if ('healedThisTurn' in c) return `${this.ref(c.healedThisTurn)} was healed during this turn`;
     if ('inActive' in c) return `${this.ref(c.inActive)} is in the Active Spot`;
     if ('onBench' in c) return `${this.ref(c.onBench)} is on ${c.onBench === 'self' || c.onBench === 'myActive' ? 'your' : 'the'} Bench`;
     if ('koLastTurn' in c) {
@@ -795,6 +806,11 @@ class Renderer {
           out.push(`${DURATION[st.duration]} ${lc(this.clause(st.static, x, plural, false))}`);
           break;
         }
+        case 'delay': {
+          const when = { thisTurn: 'this turn', oppNextTurn: "your opponent's next turn", myNextTurn: 'your next turn' }[st.duration];
+          out.push(`At the end of ${when}, ${lc(this.program(st.program, base))}`);
+          break;
+        }
         case 'knockOut': {
           if (next?.op === 'knockOut' && [st.target, next.target].sort().join('+') === 'myActive+oppActive') {
             out.push('Both Active Pokémon are Knocked Out');
@@ -927,11 +943,14 @@ class Renderer {
         return `Prevent all effects of ${fromOpp ? "your opponent's Pokémon's " : ''}${what} done to ${x}`;
       }
       case 'preventDamage': {
+        const pk = e.attacker ? noun(e.attacker, true).pl : 'Pokémon';
         const from = fromOpp
-          ? `from your opponent's Pokémon${e.attackerMaxEnergy !== undefined ? ` that have ${e.attackerMaxEnergy} or fewer Energy attached` : ''}`
+          ? `from your opponent's ${pk}${e.attackerMaxEnergy !== undefined ? ` that have ${e.attackerMaxEnergy} or fewer Energy attached` : ''}`
           : e.attackerMaxEnergy !== undefined
-            ? `from Pokémon that have ${e.attackerMaxEnergy} or fewer Energy attached`
-            : '';
+            ? `from ${pk} that have ${e.attackerMaxEnergy} or fewer Energy attached`
+            : e.attacker
+              ? `from ${pk}`
+              : '';
         return e.andEffects
           ? `Prevent all damage from and effects of attacks ${from ? `${from} ` : ''}done to ${x}`
           : `Prevent all damage done to ${x} by attacks${from ? ` ${from}` : ''}`;
@@ -960,7 +979,14 @@ class Renderer {
         return `The attacks of ${x} do ${Math.abs(e.amount)} ${e.amount < 0 ? 'less' : 'more'} damage to your opponent's Active ${e.vs ? noun(e.vs, true).pl : 'Pokémon'} (before applying Weakness and Resistance)${e.noStack ? `. The effect of ${e.noStack} doesn't stack` : ''}`; // lane:trevenant
       case 'damageIn':
         // The engine applies damageIn to every attack unless `fromOpp` is set, so only the flag says whose.
-        return `${X} ${plural ? 'take' : 'takes'} ${Math.abs(e.amount)} ${e.amount < 0 ? 'less' : 'more'} damage from attacks${e.fromOpp ? " from your opponent's Pokémon" : ''} (after applying Weakness and Resistance)`;
+        return `${X} ${plural ? 'take' : 'takes'} ${Math.abs(e.amount)} ${e.amount < 0 ? 'less' : 'more'} damage from attacks${e.attacker ? ` from ${e.fromOpp ? "your opponent's " : ''}${noun(e.attacker, true).pl}` : e.fromOpp ? " from your opponent's Pokémon" : ''} (after applying Weakness and Resistance)`;
+      case 'attackCoinFlip':
+        return `If ${x} tries to use an attack, ${/^your opponent/.test(x) ? 'your opponent' : 'you'} flip${/^your opponent/.test(x) ? 's' : ''} a coin. If tails, that attack doesn't happen`;
+      case 'cantAttachFromHand': {
+        const opp = /^your opponent/.test(x);
+        const mine = x === 'you' || (!opp && /^your/.test(x));
+        return `Energy can't be attached from ${opp ? "your opponent's" : mine ? 'your' : 'their'} hand to ${x === 'you' ? 'your Pokémon' : x === 'your opponent' ? "your opponent's Pokémon" : x === 'each player' ? 'their Pokémon' : x}`;
+      }
       case 'hp':
         return `${X} ${plural ? 'get' : 'gets'} ${e.delta < 0 ? '-' : '+'}${Math.abs(e.delta)} HP`;
       case 'cantAttack':
@@ -1194,6 +1220,11 @@ export function renderCardText(s: CardScript, f: CardFrame | null, problems: str
   return join(out);
 }
 
+/** One static printed on a Pokémon card itself (CardScript.statics), as text. */
+export function renderStatic(d: StaticDef, problems: string[] = []): string {
+  return end(new Renderer('pokemon', problems).static(d));
+}
+
 /** Render any program on its own (debugging, the CLI). */
 export function renderProgram(p: Program, src: Source = 'pokemon'): string {
   return new Renderer(src, []).program(p);
@@ -1245,8 +1276,14 @@ export function renderCard(s: CardScript, f: CardFrame): Section[] {
     for (const fa of f.attacks ?? []) {
       const sa = s.attacks?.[normText(fa.name)];
       if (!fa.effect && !sa) continue;
-      mk(`attack:${normText(fa.name)}`, fa.effect ?? '', (p) => (sa ? renderAttack(sa, fa.damage, p) : (p.push(`no script for the attack "${fa.name}"`), '')));
+      // Statics printed on the card itself that name this attack ("this attack can be used for {D}") belong to its text.
+      const own = (s.statics ?? []).filter((x) => (x.effect as { attack?: string }).attack === normText(fa.name));
+      mk(`attack:${normText(fa.name)}`, fa.effect ?? '', (p) =>
+        sa ? join([renderAttack(sa, fa.damage, p), ...own.map((x) => renderStatic(x, p))]) : (p.push(`no script for the attack "${fa.name}"`), ''),
+      );
     }
+    const loose = (s.statics ?? []).filter((x) => !(f.attacks ?? []).some((a) => (x.effect as { attack?: string }).attack === normText(a.name)));
+    if (loose.length) mk('text', f.effect ?? '', (p) => join(loose.map((x) => renderStatic(x, p))));
     for (const [name, sa] of Object.entries(s.attacks ?? {})) {
       if (!(f.attacks ?? []).some((a) => normText(a.name) === name)) {
         mk(`attack:${name}`, '', (p) => {
