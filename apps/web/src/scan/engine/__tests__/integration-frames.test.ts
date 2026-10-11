@@ -43,6 +43,7 @@ import {
   CARD_RECT_WIDTH,
 } from '../rectify'
 import { inferenceTransform, REFINE_LONG_SIDE } from '../index'
+import { DEFAULT_ACQUIRE, DEFAULT_HOLD } from '../gate'
 import {
   engineInput,
   listFlagFrames,
@@ -381,5 +382,38 @@ describe('engine over real camera frames', { skip }, () => {
       if (polyIoU(shipped(s), s.gt) >= 0.7) good++
     }
     assert.ok(good >= 13, `only ${good}/${rows.length} engine captures overlap the labelled card by 70%`)
+  })
+})
+
+// THE PRESENCE HEAD on the owner's phone frames. A presence head refit on
+// pack-opening videos alone (#317's first attempt) dropped a sleeved card on a
+// wooden table, F028, from hasObj 1.0 to 0.085, and F030/F032/F055/F059 below
+// the acquire threshold too. Those frames would never lock. `lc050.onnx` is the
+// model this checkout ships (offline-harness MODEL_PATH), so a change to it
+// has to keep the gate opening on every hand-labelled card frame.
+describe('presence over real camera frames', { skip }, () => {
+  it('keeps every hand-labelled card frame in the gate, through the shipping preprocessing', async () => {
+    // The 19 frames with labelled corners, plus the tabletop frames the first
+    // refit lost (F030, F032 and F055 have no labelled corners, but each shows
+    // one whole card: triage.json's scene `card`).
+    const TABLETOP = ['F028', 'F030', 'F032', 'F055', 'F059']
+    const frames = listFlagFrames().filter((f) => f.gt || TABLETOP.includes(f.name))
+    const tensors: Float32Array[] = []
+    for (const f of frames) tensors.push(toTensor(await engineInput(f.png, inferenceTransform(f.width, f.height))))
+    const outs = runModel(tensors)
+    const h = new Map(frames.map((f, i) => [f.name, outs[i].hasObj]))
+    const all = [...h].map(([n, v]) => `${n}=${v.toFixed(3)}`).join(' ')
+    // None may fall out of the gate (below the hold threshold): a card the
+    // tracker was following would be dropped.
+    const out = [...h].filter(([, v]) => !(v >= DEFAULT_HOLD))
+    assert.deepEqual(out.map(([n]) => n), [], `card frames below the hold threshold ${DEFAULT_HOLD}: ${all}`)
+    // The tabletop frames the first refit lost must still OPEN it.
+    for (const name of TABLETOP) {
+      assert.ok((h.get(name) ?? 0) >= DEFAULT_ACQUIRE, `${name} no longer acquires: ${all}`)
+    }
+    // And no fewer open it than the original LC050 head did: all but two of
+    // these 22 (F082 and F083 sit at 0.57 and 0.62 under it).
+    const open = [...h].filter(([, v]) => v >= DEFAULT_ACQUIRE).length
+    assert.ok(open >= frames.length - 2, `only ${open}/${frames.length} card frames reach the acquire threshold: ${all}`)
   })
 })

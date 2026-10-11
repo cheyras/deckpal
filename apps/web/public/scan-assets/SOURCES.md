@@ -60,27 +60,35 @@ down — `rectify.ts` produces a portrait card from an oriented quad — so the
 
 | file | bytes | sha256 |
 |---|--:|---|
-| `lc050.onnx` | 4 911 217 | `fd0a320c756ca7f445fb58de108b71f6f6e8bf652bb2a5f4f5d852224edcd081` |
+| `lc050.onnx` | 4 912 743 | `fa421b4766977ec62fdab65aea8f9b7483d9b1eade328489348a27b870481d15` |
 
 The DocAligner LC050 checkpoint predates this file. Its provenance lives in
 `roadmap/plans/card-scanner-redesign/` phase-0a and in the header of
 `src/scan/engine/model.ts`. The checkpoint as first committed had sha256
-`32d186080ce16442674d4c0eaaaaac878eea289b56a8d1284f05fff1ff42e220`.
+`32d186080ce16442674d4c0eaaaaac878eea289b56a8d1284f05fff1ff42e220` and
+4 911 217 bytes.
 
-**The presence head was refit (2026-10-11).** Only the presence head
-changed, through two initializers: `head.has_obj.1.weight` (256 floats) and
-`head.has_obj.1.bias`. The backbone, the corner head and the graph are
-byte-identical, so the quad (corner) outputs are unchanged and only `hasObj`
-differs.
-`scripts/scan-bench/video/presence_head.py` refits it and reproduces this file
-byte for byte from its cached features (`collect`, then `export`). The decision
-file "Scanner detector: the presence head is refit on labelled video frames"
-says why, and how it was measured.
+**A second presence head was added (2026-10-11).** Every original node and
+initializer is kept byte for byte. A second 256->1 head, with initializers
+`head.has_obj_refit.weight` and `.bias`, reads the same pooled feature, and a
+`Max` node writes `has_obj = max(original, refit)`. The backbone and the corner
+head are untouched, so the quad (corner) outputs are bit-identical, and
+`hasObj` can only rise.
+`scripts/scan-bench/video/presence_head.py` builds it and reproduces this file
+byte for byte from its cached features (`collect`, `collect-phone`, then
+`export`). The decision file "Scanner detector: the presence head is refit on
+labelled video frames" says why, and how it was measured.
 
-**Training data, attributed under CC BY.** The refit weights are fitted to
-LC050's pooled features of frames from these Creative Commons Attribution
-YouTube videos (`youtube.com/watch?v=<id>`). The labels are our own
-ground-truth files, which say which frames show a card.
+**Training data.** The refit head is fitted to LC050's pooled features of
+two kinds of frame:
+
+1. Frames from the owner's own phone. These are phase 0b session 2 and the
+   owner's three scanning sessions; they are the owner's and stay outside the
+   repo.
+2. Frames from the Creative Commons Attribution YouTube videos below
+   (`youtube.com/watch?v=<id>`), attributed under CC BY.
+
+The labels are our own ground-truth files, which say which frames show a card.
 
 | video | channel |
 |---|---|

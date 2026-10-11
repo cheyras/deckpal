@@ -200,11 +200,13 @@ there is nothing to aim at. A user would back away; the footage cannot.
   (hasObj ≈ 0). If the card IS fully in view and hasObj is still low, look at
   what surrounds it: the presence head is a global average over the whole
   input, so a busy far background out-votes the card (`engine/second-look.ts`).
-  The shipped head was refit on these videos for that reason
-  (`presence_head.py`, 2026-10-11). So the shipped head has SEEN the 20 videos
-  it was fitted on: to measure one of those fairly, replay it with `LC050_MODEL`
-  set to a head refit without it (`export --exclude <id>`). A video added later
-  is unseen until the next refit.
+  For that reason, the shipped model has a second presence head fitted on
+  these videos and on the owner's phone frames, and takes the max of the two
+  (`presence_head.py`, 2026-10-11). So the shipped model has SEEN the 20 videos
+  it was fitted on. To measure one of those fairly, replay it with
+  `LC050_MODEL` set to a model whose refit never saw it
+  (`export --exclude <id>`). A video added later is unseen until the next
+  refit.
 - **A new card that never fired**: look in `contact-suppressed.png` for a
   `region` row. Then trace `frames.jsonl` around it. If the previous track died
   and the new one was born less than 1.5 s later on the same spot, that is the
