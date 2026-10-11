@@ -68,8 +68,11 @@ const VECTORS_OF: Readonly<Record<string, string>> = {
   'deckpal-card-b32-v1': 'deckpal-card-b32-v1.fp32-q_deckpal-card-b32-v1.int8',
   'deckpal-card-b32-v2': 'deckpal-card-b32-v2.fp32-q_deckpal-card-b32-v2.int8',
 }
-const VECTORS = arg('vectors', VECTORS_OF[MODEL_ID])
-if (!VECTORS) throw new Error(`no default vectors for --model-id ${MODEL_ID}: pass --vectors <embed tag>`)
+const VECTORS: string =
+  arg('vectors', VECTORS_OF[MODEL_ID]) ??
+  ((): never => {
+    throw new Error(`no default vectors for --model-id ${MODEL_ID}: pass --vectors <embed tag>`)
+  })()
 {
   const owner = Object.entries(VECTORS_OF).find(([, tag]) => VECTORS.startsWith(tag))?.[0]
   if (owner && owner !== MODEL_ID) {
