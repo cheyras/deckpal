@@ -182,6 +182,8 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c01.useSupporterEffect': (a) => `Use the effect of the Supporter card chosen as "${String(a.card ?? 'x')}" (it is not played, and it can't be declined)`,
   'c01.energyToHandFiltered': (a) => `Put ${Number(a.n ?? 1)} ${energyNoun(a.filter as Filter | undefined)} attached to this Pokémon into your hand (all of them if it has fewer)`,
   'c01.leastHpRemaining': (a) => `Choose the Pokémon in play (yours or your opponent's), other than this Pokémon, that has the least HP remaining (into "${String(a.as ?? 't')}")`,
+  // std-c12-customs.ts
+  'c12.endTurn': () => 'Your turn ends (as after an attack, without an attack happening)',
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -197,6 +199,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'c07.benchHasEnergyOfType': (a) => `one of your Benched Pokémon has an attached Energy card providing ${sym(a.type as PType)} Energy`,
   'c06.ownFirstTurn': () => "it is the first turn you take in the game (turn 1 if you went first, turn 2 if you went second)",
   'c06.usedLastTurn': (a) => `this Pokémon has the mark left by using ${String(a.attack)} during its controller's previous turn`,
+  'c12.remainingHpAtMost': (a) => `this Pokémon's HP (with any HP changes) minus its damage is ${Number(a.n ?? 50)} or less`,
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
@@ -1777,5 +1780,22 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me01-066|attack:Horrifying Bite': {
     problems: ['"each" is printed but not rendered', '"reveal" is printed but not rendered'],
     why: '"For each heads" is a repeat of the heads count, rendered "the number of heads times"; "reveals those cards" is information only (the cards are shuffled into the deck at once, and the engine tracks no memory of revealed cards leaving the hand), so the move to the deck has no reveal step.',
+  },
+  // std-c12
+  'me05-079|text': {
+    problems: ['"each" is printed but not rendered'],
+    why: '"A card for each of your opponent\'s Mega Evolution Pokémon ex in play" is a draw whose count is the number of those Pokémon; the renderer words a counted draw as "the number of ..." without "each", and the card test pins 1 and 2 cards.',
+  },
+  'mep-007|ability:Damp': {
+    problems: ['"Knocked Out" is printed but not rendered'],
+    why: 'loseSelfKoAbilities is rendered as "Abilities that Knock Out the Pokémon using them" (the Ability that requires the user to be Knocked Out); the card test pins that Cursed Blast (Dusclops) is switched off.',
+  },
+  'mep-008|ability:Damp': {
+    problems: ['"Knocked Out" is printed but not rendered'],
+    why: 'loseSelfKoAbilities is rendered as "Abilities that Knock Out the Pokémon using them" (the Ability that requires the user to be Knocked Out); same static as Psyduck, pinned in the Psyduck test.',
+  },
+  'mep-074|attack:Energized Storm': {
+    problems: ['the rendering involves the opponent; the printed text does not'],
+    why: '"All Pokémon" means every Pokémon in play, both players; seed2.sumAttached over the allPokemon zone says so in words ("both yours and your opponent\'s"), which the printed text leaves implicit.',
   },
 };
