@@ -12,11 +12,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { describeOptions } from '../describe.js';
-import type { CardScript, Program, TriggerOn } from '../dsl.js';
+import type { CardScript, Cond, Program, TriggerOn } from '../dsl.js';
 import type { Game } from '../game.js';
 import { scenario, type SideLayout } from '../scenario.js';
 import type { CardFrame, Decision } from '../types.js';
-import { POISONED } from '../types.js';
+import { ASLEEP, POISONED } from '../types.js';
+import { PolicyPilot } from '../pilot/policy.js';
 import { FIGHTING, PUP, deck, pokemon } from './fixtures.js';
 
 const labels = (g: Game): string[] => describeOptions(g.ctx, g.state, g.decision as Decision);
@@ -29,14 +30,14 @@ function choose(g: Game, text: string): void {
 const CARDS: CardFrame[] = [];
 const SCRIPTS: CardScript[] = [];
 let serial = 0;
-type Ability = [on: TriggerOn, program: Program];
+type Ability = [on: TriggerOn, program: Program, when?: Cond];
 /** A Pokémon whose Abilities each run a program on a trigger. */
 function mon(name: string, abilities: Ability[], hp = 200): string {
   const id = `t-o${++serial}`;
   const f = pokemon(id, name, { hp });
   f.abilities = abilities.map((_, i) => ({ kind: 'Ability', name: `${name} ${i + 1}`, effect: 'Synthetic.' }));
   CARDS.push(f);
-  SCRIPTS.push({ id, name, abilities: abilities.map(([on, program], i) => ({ name: `${name} ${i + 1}`, triggers: [{ on, program }] })) });
+  SCRIPTS.push({ id, name, abilities: abilities.map(([on, program, when], i) => ({ name: `${name} ${i + 1}`, triggers: [{ on, program, ...(when ? { when } : {}) }] })) });
   return name;
 }
 
@@ -56,7 +57,30 @@ mon('Checkup Mender', [['checkup', heal30('myActive')]]);
 mon('Checkup Hexer', [['checkup', counters3('oppActive')]]);
 mon('End Mender', [['endOfTurn', heal30('myActive')]]);
 mon('End Hexer', [['endOfTurn', counters3('myActive')]]);
-mon('End Twin', [['endOfTurn', heal30('myActive')]]);
+mon('Attach Healer', [['allyAttachFromHand', heal30({ v: '__target' })]]);
+mon('Sleeper', [['checkup', [{ op: 'heal', amount: 80, to: 'self' }], { slotIs: { ref: 'self', filter: { condition: 'asleep' } } }]]);
+mon('Checkup Drawer', [['checkup', [{ op: 'draw', n: 1 }]]]);
+mon('Mirror', [['checkup', [{ op: 'counters', n: { countersOn: 'self' }, to: 'oppActive' }]]]);
+mon('Attach Chainer', [['allyAttachFromHand', [{ op: 'chooseCards', from: 'hand', filter: { cat: 'energy' }, min: 0, max: 1, as: 'x' }, { op: 'attach', cards: 'x', to: { v: '__target' } }]]]);
+
+// An attack that leaves a timed effect on the Defending Pokémon, and another that does so before it damages it.
+const ZAPPER = pokemon('t-oz', 'Zapper', { hp: 100, attacks: [['Zap', 'Colorless', null], ['Hexed', 'Colorless', null]] });
+ZAPPER.attacks![0]!.effect = "During your opponent's next turn, whenever they attach an Energy card from their hand to the Defending Pokémon, put 3 damage counters on it.";
+ZAPPER.attacks![1]!.effect = 'If the Defending Pokémon is damaged by an attack this turn, put 3 damage counters on it. This attack does 20 damage to it.';
+CARDS.push(ZAPPER);
+SCRIPTS.push({
+  id: 't-oz',
+  name: 'Zapper',
+  attacks: {
+    Zap: { post: [{ op: 'effect', static: { k: 'react', event: 'attachFromHand', program: counters3({ v: '__target' }) }, on: 'defender', duration: 'oppNextTurn' }] },
+    Hexed: {
+      program: [
+        { op: 'effect', static: { k: 'react', event: 'damagedByAttack', program: counters3({ v: '__def' }) }, on: 'defender', duration: 'thisTurn' },
+        { op: 'damage', amount: 20, to: 'oppActive' },
+      ],
+    },
+  },
+});
 
 const BLASTER = pokemon('t-ob', 'Blaster', { hp: 100, attacks: [['Burst', 'Colorless', null]] });
 BLASTER.attacks![0]!.effect = "This attack does 100 damage to your opponent's Active Pokémon and 100 damage to 1 of their Benched Pokémon.";
@@ -195,8 +219,128 @@ test('the end of the turn: the player whose turn is ending orders the effects, a
   };
   assert.equal(dmg(run('End Mender'), 0), 30, 'heal first (20 -> 0), then 30');
   assert.equal(dmg(run('End Hexer'), 0), 20, 'counters first (50), then the heal');
-  const twins = at([{ active: 'Pup', damage: { active: 20 }, bench: ['End Mender', 'End Twin'] }, { active: 'Pup', bench: ['Pup'] }]);
+  const twins = at([{ active: 'Pup', damage: { active: 20 }, bench: ['End Mender', 'End Mender'] }, { active: 'Pup', bench: ['Pup'] }]);
   choose(twins, 'End turn');
   assert.equal(twins.decision!.kind, 'main', 'two heals: every order is the same, no question');
   assert.equal(dmg(twins, 0), 0);
+});
+
+// ------------------------------------------------------------------ the check made when an effect is applied
+
+test('Checkup: an effect that needs a condition is checked when it is applied, also when the player picked it explicitly', () => {
+  // P0's Sleeper (80 damage, Asleep) heals itself at Checkup only while still Asleep. The checks come first and the coin wakes it; picking
+  // Sleeper next (another effect remains, so it is a real pick) must not heal it.
+  const mk = (): Game => at([{ active: 'Sleeper', damage: { active: 80 }, cond: ASLEEP, bench: ['Pup'] }, { active: 'Pup', bench: ['Checkup Drawer'] }]);
+  const g = mk();
+  g.state.forcedCoins = [true]; // heads: wakes up
+  choose(g, 'End turn');
+  assert.deepEqual(labels(g).sort(), ['Check Special Conditions', 'Checkup Drawer', 'Sleeper']);
+  choose(g, 'Check Special Conditions');
+  assert.deepEqual(labels(g).sort(), ['Checkup Drawer', 'Sleeper'], 'the rest is asked again');
+  choose(g, 'Sleeper');
+  assert.equal(dmg(g, 0), 80, 'it woke up: not healed');
+  // Tails: it stays Asleep, and the same pick heals it.
+  const h = mk();
+  h.state.forcedCoins = [false];
+  choose(h, 'End turn');
+  choose(h, 'Check Special Conditions');
+  choose(h, 'Sleeper');
+  assert.equal(dmg(h, 0), 0);
+});
+
+// ------------------------------------------------------------------ timed effects of attacks join the ordering
+
+test('a timed effect of an attack that reacts to an Energy attach is ordered with the Abilities: the turn player chooses', () => {
+  const run = (first: string): Game => {
+    const g = at([
+      { active: 'Zapper', energy: { active: ['Fighting Energy'] }, bench: ['Pup'] },
+      { active: 'Attach Healer', damage: { active: 20 }, hand: ['Fighting Energy'], bench: ['Pup'] },
+    ]);
+    choose(g, 'Attack: Zap');
+    choose(g, 'Attach Fighting Energy');
+    assert.equal(g.decision!.kind, 'option');
+    assert.equal(g.decision!.player, 1, "the turn's player (the one attaching) orders");
+    assert.deepEqual(labels(g).sort(), ['Attach Healer', 'Zapper']);
+    choose(g, first);
+    return g;
+  };
+  assert.equal(dmg(run('Attach Healer'), 1), 30, "heal first (20 -> 0), then the 30 from the attack's effect");
+  assert.equal(dmg(run('Zapper'), 1), 20, "the attack's effect first (50), then the heal");
+});
+
+test("a timed effect of an attack that reacts to damage is ordered with the damaged Pokémon's Abilities: its player chooses", () => {
+  const run = (first: string): Game => {
+    const g = at([{ active: 'Zapper', energy: { active: ['Fighting Energy'] }, bench: ['Pup'] }, { active: 'Solo', bench: ['Pup'] }]);
+    choose(g, 'Attack: Hexed');
+    assert.equal(g.decision!.kind, 'option');
+    assert.equal(g.decision!.player, 1, "the damaged Pokémon's player orders");
+    assert.deepEqual(labels(g).sort(), ['Solo', 'Zapper']);
+    choose(g, first);
+    return g;
+  };
+  // The attack does 20: the heal of 30 first leaves 0 + 30; the counters first leave 20 + 30 - 30.
+  assert.equal(dmg(run('Solo'), 1), 30);
+  assert.equal(dmg(run('Zapper'), 1), 20);
+});
+
+// ------------------------------------------------------------------ the same program does not always commute
+
+test('the same program from different controllers is still asked (it can aim at different amounts)', () => {
+  const run = (first: number): Game => {
+    const g = at([{ active: 'Mirror', damage: { active: 20 }, bench: ['Pup'] }, { active: 'Mirror', damage: { active: 50 }, bench: ['Pup'] }]);
+    choose(g, 'End turn');
+    assert.equal(g.decision!.kind, 'option');
+    assert.equal(g.decision!.player, 1);
+    assert.deepEqual(labels(g), ['Mirror', 'Mirror']);
+    g.submit([first]);
+    return g;
+  };
+  // Each puts as many counters as it has on the other's Active: P0's first gives 20 + 50 = 70 to P1, which then puts 7 on P0 (90).
+  const a = run(0);
+  assert.deepEqual([dmg(a, 0), dmg(a, 1)], [90, 70]);
+  const b = run(1);
+  assert.deepEqual([dmg(b, 0), dmg(b, 1)], [70, 120]);
+});
+
+// ------------------------------------------------------------------ one moment is one batch
+
+test('an effect caused by a chosen effect is its own batch: it cannot be picked as part of the earlier one, and it resolves next', () => {
+  const g = at([
+    { active: 'Pup', damage: { active: 20 }, bench: ['Attach Mender', 'Attach Chainer'], hand: ['Fighting Energy', 'Fighting Energy'] },
+    { active: 'Pup', bench: ['Pup'] },
+  ]);
+  choose(g, 'Attach Fighting Energy');
+  assert.deepEqual(labels(g).sort(), ['Attach Chainer', 'Attach Mender']);
+  choose(g, 'Attach Chainer');
+  // Chainer attaches the second Energy (asking which card): a new event.
+  assert.equal(g.decision!.kind, 'cards');
+  g.submit([0]);
+  // The second attach's own effects are their own batch, ordered before the first batch's last effect: two names, not three.
+  assert.equal(g.decision!.kind, 'option');
+  assert.deepEqual(labels(g).sort(), ['Attach Chainer', 'Attach Mender'], "only the later event's effects are offered together");
+  choose(g, 'Attach Mender');
+  assert.equal(g.decision!.kind, 'main', "the later Chainer has no Energy left, and the earlier batch's Mender is the only one left");
+  assert.equal(g.state.p[0].active!.energy.length, 2);
+  assert.equal(dmg(g, 0), 0);
+});
+
+// ------------------------------------------------------------------ the policy pilot's stream
+
+test('the policy pilot answers an order question without drawing from its sample stream', () => {
+  const g = at([{ active: 'Pup', cond: POISONED, bench: ['Checkup Mender'] }, { active: 'Pup', bench: ['Checkup Hexer'] }]);
+  const pilot = new PolicyPilot();
+  const rng = (pilot as unknown as { rng: unknown }).rng;
+  let asked = 0;
+  for (let guard = 0; guard < 400 && !g.over; guard++) {
+    const d = g.decision as Decision;
+    const before = JSON.stringify(rng);
+    const choice = pilot.choose(g, d);
+    if (d.prompt === 'Which effect happens first?') {
+      asked++;
+      assert.deepEqual(choice, [0], "the engine's own order");
+      assert.equal(JSON.stringify(rng), before, 'no sample was drawn');
+    }
+    g.submit(choice);
+  }
+  assert.ok(asked > 0, 'the game reached an order question');
 });

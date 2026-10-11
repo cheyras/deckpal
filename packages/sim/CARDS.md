@@ -443,10 +443,14 @@ that Pokémon's player; Knock Out step 2 (`knockedOutByAttack`), an Energy attac
 an Evolution (`evolveFromHand`, `oppEvolveFromHand`; rulings 2146) and the end of the turn (`endOfTurn`, and `delay` programs due then; ruling
 2135): the player whose turn it is; Pokémon Checkup (`checkup`): the player whose turn is next, and the Special Condition checks are one of the
 things being ordered, so each effect goes before or after them (the default is the checks first; a `when` on a Checkup trigger is checked
-when it is applied). Nothing is asked when one effect is pending or the pending effects are the same program (every order gives the same
-result); in Checkup the checks only count while a Special Condition is on an Active Pokémon. A card needs no change to take part: any trigger on
+when it is applied, also for one the player picked). Timed effects of attacks that react to an attach or to damage (`react`) take part like
+Abilities. Only effects of one event instance are ordered together (`GameState.ev`, `beginEvent`): what a chosen effect causes is its own batch
+and resolves right after it, before the rest of the batch it came from (the rulebook is silent on this). Nothing is asked when one effect is
+pending or the pending ones are copies of one card's effect (same program, controller, event variables and card name: taken as additive); the
+same program from another controller or card is asked, as it can aim at different amounts. In Checkup the checks only count while a Special Condition is on an Active Pokémon. A card needs no change to take part: any trigger on
 one of those events is ordered. The CPU pilots take the first option (the engine's order) unless they branch on it (greedy and search look
-ahead over it like any small choice, ties go to the first); replay takes it too unless the log names an effect.
+ahead over it like any small choice, ties go to the first, and their sampling stream advances when they do; the policy pilot answers before
+any sampling, so its stream is untouched); replay takes it too unless the log names an effect.
 
 A **timed effect** is created by an attack or Ability with the `effect` step:
 `{ op: 'effect', static, on | onPlayer, duration, filter?, scope? }` (`onPlayer` + `scope` covers that

@@ -262,9 +262,11 @@ export interface Frame {
   /**
    * Queued effects that happen at the same time (damage to a Pokémon, Knock Out step 2, an Energy attach, an Evolution, Pokémon Checkup, the end
    * of the turn): `g` names the moment, `by` is the player the rulebook lets choose their order (Advanced Player's Rulebook v3.4, E-03/E-04/E-05,
-   * the Energy attach entry, the Checkup steps and the end-of-turn entry). Set when queued; removed once the frame has been picked.
+   * the Energy attach entry, the Checkup steps and the end-of-turn entry). `ev` is the event instance (`GameState.ev` when the moment began):
+   * only effects of the same moment, kind and chooser are ordered together. `picked`: the player has chosen this one to go next; the frame
+   * keeps the rest of its identity, so the checks made when it is applied still know it belongs to its moment.
    */
-  order?: { g: string; by: Player };
+  order?: { g: string; by: Player; ev: number; picked?: true };
 }
 
 export type Val = number | boolean | number[] | null;
@@ -333,6 +335,10 @@ export interface GameState {
   benchOwner?: Player;
   /** Triggered effects waiting for the stack to empty. */
   queued: Frame[];
+  /** The event instance being produced (see `beginEvent`): triggers queued by it share this id, and are ordered together. */
+  ev?: number;
+  /** Queue length when the effect now running was taken from it: what is queued beyond it was caused by that effect and resolves next. */
+  nest?: number;
   /** A Trainer card being played: out of the hand, not yet in the discard pile. */
   limbo: number[];
   /** Where the flow continues once Knock Outs and promotions are resolved. */

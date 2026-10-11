@@ -281,6 +281,8 @@ function dealDamage(
   to: SlotRef | { each: SlotZone; filter?: Filter } | { v: string },
   ignore?: DamageIgnore, // lane:fighting
 ): R {
+  // Everything this frame damages is one event (an attack's damage to several Pokémon, or in several steps, happens together).
+  s.ev = (f.vars.__dmgEv as number | undefined) ?? (f.vars.__dmgEv = beginEvent(s));
   const attacker = findSlot(s, f.slot)?.slot;
   const all = statics(env, s);
   const atkTypes = attacker ? slotTypes(env, attacker, s) : []; // "it is {F} and {P} type": both count against Weakness and Resistance
@@ -370,7 +372,18 @@ function dealDamage(
  * Evolving happens on its player's turn) and the end of the turn: the player whose turn it is (E-04, the Energy attach entry, the
  * end-of-turn entry); Pokémon Checkup: the player whose turn is next.
  */
-export function orderOf(s: GameState, on: TriggerOn, owner: Player): Frame['order'] {
+export function orderOf(s: GameState, on: TriggerOn | ReactEvent, owner: Player): Frame['order'] {
+  const o = orderKind(s, on, owner);
+  return o ? { ...o, ev: s.ev ?? 0 } : undefined;
+}
+
+/** A new event instance: the triggers queued from here until the next one are one "at the same time" batch (per moment, kind and chooser). */
+export function beginEvent(s: GameState): number {
+  s.ev = (s.ev ?? 0) + 1;
+  return s.ev;
+}
+
+function orderKind(s: GameState, on: TriggerOn | ReactEvent, owner: Player): { g: string; by: Player } | undefined {
   switch (on) {
     case 'damagedByAttack':
     case 'damagedByAttackActive':
@@ -509,10 +522,11 @@ function queueDeckDiscard(env: Env, s: GameState, f: Frame, card: number, owner:
  */
 export function queueReactions(env: Env, s: GameState, slot: Slot, event: ReactEvent, vars: Record<string, Val>, once = false): void {
   void env;
+  const order = orderOf(s, event, ownerOf(s, slot));
   for (const te of s.effects) {
     if (te.slot !== slot.id || te.until < s.turn || te.static.k !== 'react' || te.static.event !== event || !te.code) continue;
     if (once && s.queued.some((q) => q.code === te.code && q.vars.__def === slot.id)) continue;
-    s.queued.push({ code: te.code, pc: 0, vars: { ...vars }, player: te.by ?? te.player, src: te.src, slot: te.from ?? slot.id, kind: te.fromAttack ? 'attack' : 'trigger' });
+    s.queued.push({ code: te.code, pc: 0, vars: { ...vars }, player: te.by ?? te.player, src: te.src, slot: te.from ?? slot.id, kind: te.fromAttack ? 'attack' : 'trigger', ...(order ? { order } : {}) });
   }
 }
 
@@ -521,7 +535,8 @@ export function queueReactions(env: Env, s: GameState, slot: Slot, event: ReactE
  * opponent's "whenever your opponent attaches an Energy card from their hand" Abilities, and the timed effects on `target`
  * that wait for it.
  */
-export function queueOppAttachTriggers(env: Env, s: GameState, owner: Player, target: Slot): void {
+export function queueOppAttachTriggers(env: Env, s: GameState, owner: Player, target: Slot, newEvent = true): void {
+  if (newEvent) beginEvent(s);
   const watcher = opp(owner);
   for (const w of allSlots(s.p[watcher])) queueTriggers(env, s, w, watcher, 'oppAttachFromHand', { __target: target.id });
   // ...and the Abilities of the player's own Pokémon that watch for it (Magearna's Auto Heal).

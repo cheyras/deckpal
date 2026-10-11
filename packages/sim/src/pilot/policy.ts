@@ -602,6 +602,9 @@ export function policyChoose(env: Env, s: GameState, d: Decision, profile: Polic
  * Decisions that need no estimate (forced picks, the coin toss, yes/no) skip the copy.
  */
 export function publicPolicyChoose(env: Env, s: GameState, d: Decision, rng: Rng, profile: PolicyProfile = DEFAULT_PROFILE): number[] {
+  // Which of several simultaneous effects goes first: the engine's own order, decided before any sample is drawn, so that the pilot's stream
+  // of samples (and so every later answer of a seeded game) is the same whether or not this question was asked.
+  if (s.pending?.resume.k === 'triggerOrder') return [0];
   const n = count(d);
   if (n === 0 || (d.min === d.max && d.max === n && d.kind !== 'order')) return policyChoose(env, s, d, profile);
   if (d.kind === 'goFirst' || d.kind === 'mulliganDraws' || d.kind === 'yesno') return policyChoose(env, s, d, profile);

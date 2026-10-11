@@ -616,6 +616,21 @@ test('two end-of-turn effects waiting, one not tied to a Pokémon: the turn\'s p
   assert.equal(k.decision!.kind, 'main');
   assert.equal(k.state.p[0].hand.length, hand + 2, 'both ran');
   assert.equal(k.state.current, 1, 'and the turn moved on');
+  assert.equal(k.state.current, 1, 'and the turn moved on');
+  // Different effects at the end of the turn: the turn's player is asked, and both orders resolve.
+  const cape: CardScript = { id: 'sv05-152', name: "Hero's Cape", triggers: [{ on: 'endOfTurn', program: [{ op: 'draw', n: 2 }] }] };
+  const dk2 = deck('Dreepy', 'Potion', "Hero's Cape");
+  const two = scenario(dk2, dk2, [{ active: 'Dreepy', tools: { active: ["Hero's Cape"] }, hand: ['Potion'] }, { active: 'Dreepy' }], { scripts: [{ id: 'me03-083', name: 'Potion', play: draw1 }, cape] });
+  choose(two, 'Play Potion');
+  const before = two.state.p[0].hand.length;
+  choose(two, 'End turn');
+  assert.equal(two.decision!.kind, 'option');
+  assert.match(two.decision!.prompt, /Which effect happens first/);
+  assert.equal(two.decision!.player, 0, "the turn's player is asked");
+  assert.deepEqual(labels(two).sort(), ["Hero's Cape", 'Potion']);
+  choose(two, "Hero's Cape");
+  assert.equal(two.state.p[0].hand.length, before + 3, 'both ran');
+  assert.equal(two.state.current, 1);
   // One effect on its own: no question.
   const one = scenario(dk, dk, [{ active: 'Dreepy', hand: ['Potion'] }, { active: 'Dreepy' }], { scripts: [{ id: 'me03-083', name: 'Potion', play: draw1 }] });
   choose(one, 'Play Potion');

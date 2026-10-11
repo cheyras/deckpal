@@ -7,7 +7,7 @@
 import { evolveOnto } from '../../evolve.js';
 import { def, type Env } from '../../context.js';
 import { registerCustom, registerCustomCond } from '../../customs.js';
-import { queueTriggers } from '../../interp.js';
+import { beginEvent, queueTriggers } from '../../interp.js';
 import { weaknessOf } from '../../query.js';
 import { emit, findSlot, opp, removeFrom, topCard } from '../../state.js';
 import type { Decision, GameState, Player, Slot } from '../../types.js';
@@ -63,6 +63,7 @@ registerCustom('c10.evolveSelfFromHand', (env, s, f, _args, answer) => {
   removeFrom(ps.revealed, card);
   evolveOnto(env, s, sl, card);
   emit(env, { type: 'evolve', player: p, card, slot: sl.id });
+  beginEvent(s);
   queueTriggers(env, s, sl, p, 'evolveFromHand');
   f.vars.evolved = 1;
   return 'next';
