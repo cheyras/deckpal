@@ -149,6 +149,11 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'seed4.discardPicked': (a) => `Discard the Energy cards chosen as "${String(a.cards ?? 'd')}" from the Pokémon they are attached to`,
   'seed4.energyToOppHand': (a) => `Put ${Number(a.n ?? 2)} Energy attached to your opponent's Active Pokémon into their hand (all of them if it has fewer)`,
   'seed4.shuffleSlotIntoDeck': (a) => `Shuffle the Pokémon chosen as "${String(a.slot ?? 't')}" and all attached cards into their deck`,
+  // std-c06-customs.ts
+  'c06.rememberAttack': (a) => `Mark this Pokémon as having used ${String(a.attack)}, through the end of your next turn`,
+  'c06.pickDifferentEnergy': (a) => `Search your deck for up to ${Number(a.n ?? 3)} Basic Energy cards, choosing one at a time, each of a type none of the others provides (into "${String(a.as ?? 'found')}")`,
+  'c06.attachSplit': (a) =>
+    `Attach each of the cards chosen as "${String(a.cards)}" to ${a.slots ? `one of the Pokémon chosen as "${String(a.slots)}"` : `one of ${slotZoneNoun(String(a.zone ?? 'myPokemon') as SlotZone, a.filter as Filter | undefined)}`}, picking the Pokémon for each card separately${a.distinct ? ', no Pokémon getting more than one' : ''}`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -158,6 +163,8 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'std.attackKoLastTurn': () => "one of your Pokémon was Knocked Out by damage from an attack during your opponent's last turn",
   'seed3.defenderKnockedOutByThisAttack': () => "your opponent's Pokémon (the Defending Pokémon) was damaged by this attack and now has damage equal to or over its HP (it is Knocked Out)",
   rareCandyPlayable: () => "it isn't your first turn and you have a Basic Pokémon in play, not put into play this turn, that a Stage 2 card in your hand evolves from",
+  'c06.ownFirstTurn': () => "it is the first turn you take in the game (turn 1 if you went first, turn 2 if you went second)",
+  'c06.usedLastTurn': (a) => `this Pokémon has the mark left by using ${String(a.attack)} during its controller's previous turn`,
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
@@ -1595,5 +1602,22 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me05-067|attack:Fly': {
     problems: ['"tails" is printed but not rendered'],
     why: '"If tails, this attack does nothing" is the else branch of the heads test: the flip renders as "If heads, ... Otherwise, this effect ends here", so tails is the unnamed complement; the card test pins tails (no damage, no protection) and heads.',
+  },
+  // std-c06
+  'me02.5-127|attack:Rocket Feathers': {
+    problems: ['"may" is printed but not rendered'],
+    why: '"You may discard any number of Supporter cards" is a search of the hand with min 0 (discarding none is the option not to), which the renderer words "any number of" without "may".',
+  },
+  'me02.5-148|ability:Supreme Overlord': {
+    problems: ['"each" is printed', 'similarity'],
+    why: '"30 more damage for each Prize card your opponent has taken" has no per-count damage bonus in the vocabulary (damageOut takes a fixed number), so it is six effects of +30, the k-th applying once the opponent has taken k Prize cards; they add up to 30 per Prize card taken. The renderer prints all six, so the rendering is long and says "k or more" where the card says "for each".',
+  },
+  'me02.5-172|attack:Kaleidowaltz': {
+    problems: ['"each" is printed', '"up to'],
+    why: '"For each heads, search your deck for up to 2 Basic Energy cards and attach them … in any way you like" is a repeat (2 x the heads count) of an optional (min 0, max 1) search-and-attach, each pick choosing its own Pokémon; that covers every choice of 0 to 2 cards per heads and targets (the same shape as Altaria, Humming Charge).',
+  },
+  'me02.5-189|text': {
+    problems: ['"any number of" is rendered'],
+    why: '"attach a Basic Energy card … to each of them" is a pick of exactly as many Basic Energy cards as Pokémon chosen (min and max are both the smaller of the two counts); the renderer words a variable count "any number of" and does not name the variable.',
   },
 };
