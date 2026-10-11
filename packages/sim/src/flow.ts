@@ -8,11 +8,16 @@
  * callers clone first when they need the old state (search does).
  */
 import { def, type Env } from './context.js';
+import type { Op } from './compile.js';
+import type { Filter } from './dsl.js';
 import { evalCond } from './eval.js';
 import { applyCondition, queueOppAttachTriggers, queueStadiumBench, queueTriggers, run, swapActive } from './interp.js';
 import {
   abilityLost,
-  extraPrizeFor,
+  attackIsFrom,
+  extraPrizeEffects,
+  koPrizeEffects,
+  surviveKoCoinFlips,
   attackBlocked, // lane:fighting
   attackCoinFlips,
   attackCost,
@@ -53,6 +58,7 @@ import {
   type Frame,
   type GameState,
   type Player,
+  type PlayerState,
   type Slot,
 } from './types.js';
 
@@ -194,10 +200,11 @@ export function advance(env: Env, s: GameState): void {
       // Optional triggers ("you may") become a yes/no first.
       const f = s.queued.shift() as Frame;
       s.stack.push(f);
+      const once = f.vars.__once !== undefined;
       if (f.vars.__optional) {
         delete f.vars.__optional;
-        f.code = wrapOptional(env, f.code);
-      }
+        f.code = wrapOptional(env, f.code, once);
+      } else if (once) f.code = wrapOptional(env, f.code, true, false);
       continue;
     }
     if (s.phase === 'setup') setupStep(env, s);
@@ -205,17 +212,21 @@ export function advance(env: Env, s: GameState): void {
   }
 }
 
-/** "You may" around a trigger program: compile once per program. */
-function wrapOptional(env: Env, code: string): string {
-  const key = `${code}?`;
+/**
+ * "You may" around a trigger program: compile once per program. `once`: a once-per-turn trigger, noted as used (by an `used` op)
+ * only when it is accepted. `ask` false: no question, just the note.
+ */
+function wrapOptional(env: Env, code: string, once = false, ask = true): string {
+  const key = `${code}${ask ? '?' : '!'}${once ? 'u' : ''}`;
   if (!env.ctx.code.has(key)) {
     const inner = env.ctx.code.get(code) ?? [];
-    const shifted = inner.map((op) => ('to' in op ? { ...op, to: op.to + 2 } : op));
-    env.ctx.code.set(key, [
-      { o: 'ask', as: '__may', prompt: 'Use this effect?' },
-      { o: 'jfalse', v: '__may', to: inner.length + 2 },
-      ...shifted,
-    ]);
+    const head: Op[] = [];
+    if (ask) head.push({ o: 'ask', as: '__may', prompt: 'Use this effect?' }, { o: 'jfalse', v: '__may', to: -1 });
+    if (once) head.push({ o: 'used' });
+    const n = head.length;
+    for (const h of head) if (h.o === 'jfalse') h.to = inner.length + n;
+    const shifted = inner.map((op) => ('to' in op ? { ...op, to: op.to + n } : op));
+    env.ctx.code.set(key, [...head, ...shifted]);
   }
   return key;
 }
@@ -359,6 +370,8 @@ function turnStep(env: Env, s: GameState): void {
       ps.retreated = false;
       ps.stadiumAbilityUsed = false;
       ps.globalAbilitiesUsed = [];
+      ps.playedThisTurn = [];
+      ps.prizesAtTurnStart = ps.prizesTaken;
       for (const sl of allSlots(ps)) sl.usedAbilities = [];
       s.attacked = false;
       emit(env, { type: 'turn_start', player: p, turn: s.turn });
@@ -416,6 +429,9 @@ function turnStep(env: Env, s: GameState): void {
       s.step = 'ko';
       return;
     case 'nextTurn': {
+      // Prize cards the player whose turn this was took during it ("Prize cards your opponent took during their last turn").
+      const cp = s.p[s.current];
+      cp.prizesLastTurn = cp.prizesTaken - (cp.prizesAtTurnStart ?? cp.prizesTaken);
       s.effects = s.effects.filter((e) => e.until > s.turn);
       s.turn++;
       s.current = opp(s.current);
@@ -524,11 +540,13 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
     }
   }
 
-  // Attacks: not on the first player's first turn; not while Asleep/Paralyzed.
-  if (act && s.turn !== 1 && !(act.cond & (ASLEEP | PARALYZED)) && !cantAttack(env, s, act, all)) {
+  // Attacks: not on the first player's first turn (unless the attack says "if you go first, you can use this attack during your
+  // first turn"); not while Asleep/Paralyzed.
+  if (act && !(act.cond & (ASLEEP | PARALYZED)) && !cantAttack(env, s, act, all)) {
     const d = def(env.ctx, topCard(act));
     const units = energyUnits(env, act);
     d.attacks.forEach((_atk, i) => {
+      if (s.turn === 1 && !(d.coverage === 'full' && d.script?.attacks?.[_atk.name]?.firstTurn)) return;
       if (attackBlocked(env, s, act, _atk.name, all)) return; // lane:fighting
       if (canPay(attackCost(env, s, act, i, all), units)) out.push({ t: 'attack', idx: i });
     });
@@ -541,6 +559,11 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
 // ---------------------------------------------------------------------------
 // Doing an action
 // ---------------------------------------------------------------------------
+
+/** A card the player played from their hand by their own action (the `playedThisTurn` condition). */
+function played(ps: PlayerState, card: number): void {
+  (ps.playedThisTurn ??= []).push(card);
+}
 
 function pushFrame(s: GameState, f: Omit<Frame, 'pc'> & { pc?: number }): void {
   s.stack.push({ pc: 0, ...f });
@@ -558,6 +581,7 @@ function doAction(env: Env, s: GameState, a: Action): void {
       return;
     case 'bench': {
       leaveHand(ps, a.card);
+      played(ps, a.card);
       const sl = newSlot(s, a.card);
       ps.bench.push(sl);
       emit(env, { type: 'play_to_bench', player: p, card: a.card, slot: sl.id });
@@ -568,6 +592,7 @@ function doAction(env: Env, s: GameState, a: Action): void {
     case 'evolve': {
       const sl = allSlots(ps).find((x) => x.id === a.slot) as Slot;
       leaveHand(ps, a.card);
+      played(ps, a.card);
       // Once-per-turn use is per Ability: the Evolution's own Abilities are fresh even if the Basic used one this
       // turn (rules audit). A same-named Ability stays spent — see the todo in rules-audit.test.ts.
       const spent = sl.usedAbilities.map((i) => def(env.ctx, topCard(sl)).abilities[i]?.name);
@@ -585,6 +610,7 @@ function doAction(env: Env, s: GameState, a: Action): void {
     case 'attach': {
       const sl = allSlots(ps).find((x) => x.id === a.slot) as Slot;
       leaveHand(ps, a.card);
+      played(ps, a.card);
       sl.energy.push(a.card);
       ps.energyAttached = true;
       emit(env, { type: 'attach', player: p, card: a.card, slot: sl.id });
@@ -602,6 +628,7 @@ function doAction(env: Env, s: GameState, a: Action): void {
     case 'trainer': {
       const d = def(env.ctx, a.card);
       leaveHand(ps, a.card);
+      played(ps, a.card);
       emit(env, { type: 'play_trainer', player: p, card: a.card });
       if (d.ttype === 'supporter') ps.supporterPlayed = true;
       if (d.ttype === 'stadium') {
@@ -619,6 +646,7 @@ function doAction(env: Env, s: GameState, a: Action): void {
     case 'tool': {
       const sl = allSlots(ps).find((x) => x.id === a.slot) as Slot;
       leaveHand(ps, a.card);
+      played(ps, a.card);
       sl.tools.push(a.card);
       emit(env, { type: 'play_trainer', player: p, card: a.card });
       return;
@@ -657,6 +685,8 @@ function doAction(env: Env, s: GameState, a: Action): void {
       if (!atk) return;
       s.attacked = true;
       s.attackHits = []; // lane:fighting
+      s.attackBy = act.id;
+      s.attackByCard = topCard(act);
       emit(env, { type: 'attack', player: p, slot: act.id, name: atk.name });
       // "If the Defending Pokémon tries to use an attack, flip a coin. If tails, that attack doesn't happen." The flip for
       // such an effect comes first, before Confusion's (rulings 2326 and 2317); on tails the attack never happens.
@@ -694,6 +724,14 @@ function retreatCode(env: Env): string {
 // Knock Outs, Prize cards, promotion, winning (rulebook p.8, 14, 21, 23, 26)
 // ---------------------------------------------------------------------------
 
+/**
+ * Is this Pokémon (owned by `owner`) being Knocked Out by damage from an attack from the opponent's Pokémon: checked after an
+ * attack, for a Pokémon that attack damaged, owned by the non-attacking player -- not a Checkup Knock Out, not damage counters.
+ */
+function koByAttack(s: GameState, owner: Player, sl: Slot): boolean {
+  return s.attacked && s.afterKo !== 'nextTurn' && owner !== s.current && (s.attackHits ?? []).includes(sl.id);
+}
+
 function knockOut(env: Env, s: GameState, owner: Player, sl: Slot): void {
   const ps = s.p[owner];
   const card = topCard(sl);
@@ -705,9 +743,17 @@ function knockOut(env: Env, s: GameState, owner: Player, sl: Slot): void {
   if (s.delayed?.length) s.delayed = s.delayed.filter((d) => d.slot !== sl.id);
   if (ps.lastKoTurn !== s.turn) ps.prevKoTurn = ps.lastKoTurn; // lane:misc
   ps.lastKoTurn = s.turn;
+  // The card each Knocked Out Pokémon was, for this and the previous turn ("any of your Team Rocket's Pokémon were Knocked Out").
+  if (ps.koCardsTurn === s.turn) ps.koCards = [...(ps.koCards ?? []), card];
+  else {
+    ps.prevKoCards = ps.koCards;
+    ps.prevKoCardsTurn = ps.koCardsTurn;
+    ps.koCards = [card];
+    ps.koCardsTurn = s.turn;
+  }
   // lane:trevenant — "Knocked Out by damage from an attack during your opponent's last turn" (Hop's Trevenant): same test
   // as koPrizeDelta — after an attack, a Pokémon that attack damaged, of the non-attacking player, not a Checkup KO.
-  if (s.attacked && s.afterKo !== 'nextTurn' && owner !== s.current && (s.attackHits ?? []).includes(sl.id)) {
+  if (koByAttack(s, owner, sl)) {
     ps.attackKoCards = ps.attackKoTurn === s.turn ? [...(ps.attackKoCards ?? []), card] : [card];
     ps.attackKoTurn = s.turn;
   }
@@ -720,8 +766,7 @@ function knockOut(env: Env, s: GameState, owner: Player, sl: Slot): void {
  * Pokémon that attack damaged, owned by the non-attacking player -- not to Checkup Knock Outs or damage counters.
  */
 function koPrizeDelta(env: Env, s: GameState, owner: Player, sl: Slot): number {
-  if (!s.attacked || s.afterKo === 'nextTurn' || owner === s.current) return 0;
-  if (!(s.attackHits ?? []).includes(sl.id)) return 0;
+  if (!koByAttack(s, owner, sl)) return 0;
   let delta = 0;
   for (const c of sl.energy) {
     const d = def(env.ctx, c);
@@ -744,23 +789,57 @@ function resolveKOs(env: Env, s: GameState): void {
   // every action (it was ~50% of search time). Nothing changes between the checks, so it is the same answer.
   // (Undamaged Pokémon can't be Knocked Out: max HP is at least 10.)
   let all: ReturnType<typeof statics> | null = null;
+  const queuedBefore = s.queued.length;
   for (const p of [0, 1] as Player[]) {
     for (const sl of allSlots(s.p[p])) {
       if (sl.damage > 0 && sl.damage >= maxHp(env, s, sl, (all ??= statics(env, s)))) {
-        const prizes = Math.max(0, def(env.ctx, topCard(sl)).prizeValue + koPrizeDelta(env, s, p, sl)); // lane:fighting
-        ko.push({ owner: p, slot: sl, prizes });
-      }
+        if (koByAttack(s, p, sl) && !sl.koTriggered) {
+          // "If this Pokémon would be Knocked Out by damage from an attack, flip a coin. If heads, ... its remaining HP becomes 10."
+          // The attack's full damage was dealt; the flip comes now, after it (ruling 2287). Then, for a Pokémon that is Knocked Out:
+          // its "Knocked Out by damage from an attack" Abilities, while it is still in play (before it goes to the discard pile).
+          let survived = false;
+          for (let n = surviveKoCoinFlips(env, s, sl, all); n > 0 && !survived; n--) survived = flipCoin(env, s, p);
+          if (survived) {
+            sl.damage = Math.max(0, maxHp(env, s, sl, all) - 10);
+            continue;
+          }
+          sl.koTriggered = true;
+          queueTriggers(env, s, sl, p, 'knockedOutByAttack');
+        }
+        ko.push({ owner: p, slot: sl, prizes: 0 });
+      } else if (sl.koTriggered) delete sl.koTriggered; // a trigger saved it from the Knock Out
     }
   }
+  // Those Abilities resolve first; then Knock Outs are checked again (the flagged Pokémon are not asked twice).
+  if (s.queued.length > queuedBefore) return;
   if (ko.length) {
+    all = statics(env, s);
+    // Prize cards for each Knocked Out Pokémon: its value, changed by Energy (Legacy Energy) and by Abilities of Pokémon in play
+    // (Shadowy Concealment, Fragile Husk), checked while everything is still in play.
+    for (const k of ko) {
+      const m = koByAttack(s, k.owner, k.slot) ? koPrizeEffects(env, s, k.slot, all) : { delta: 0, none: false };
+      const energy = koPrizeDelta(env, s, k.owner, k.slot); // lane:fighting
+      k.prizes = m.none ? 0 : Math.max(0, def(env.ctx, topCard(k.slot)).prizeValue + energy + m.delta);
+    }
     // lane:misc — Wonder Kiss: "When your opponent's Active Pokémon is Knocked Out, flip a coin. If heads, take 1 more
-    // Prize card." Checked while the Pokémon are still in play; at most one per taker (it doesn't stack).
+    // Prize card." Checked while the Pokémon are still in play; at most one per taker (it doesn't stack). An effect with an
+    // `attacker` filter (Anthea & Concordia) needs the Knock Out to be by damage from an attack of a matching Pokémon.
     const extra: [number, number] = [0, 0];
-    const all = statics(env, s);
     for (const taker of [0, 1] as Player[]) {
-      if (!ko.some((k) => k.owner !== taker && s.p[k.owner].active === k.slot)) continue;
-      const x = extraPrizeFor(env, s, taker, all);
-      if (x && (!(x.effect as { flip?: boolean }).flip || flipCoin(env, s, taker))) extra[taker] = 1;
+      const kos = ko.filter((k) => k.owner !== taker && s.p[k.owner].active === k.slot);
+      if (!kos.length) continue;
+      const counted = new Set<string>();
+      for (const x of extraPrizeEffects(taker, all)) {
+        const e = x.effect as { flip?: boolean; amount?: number; attacker?: Filter; noStack?: string };
+        if (e.attacker && !(koByAttack(s, kos[0]!.owner, kos[0]!.slot) && attackIsFrom(env, s, e.attacker, all))) continue;
+        const key = e.noStack ?? (e.amount === undefined ? 'extraPrize' : undefined);
+        if (key) {
+          if (counted.has(key)) continue;
+          counted.add(key);
+        }
+        if (e.flip && !flipCoin(env, s, taker)) continue;
+        extra[taker] += e.amount ?? 1;
+      }
     }
     for (const k of ko) knockOut(env, s, k.owner, k.slot);
     // 2. Prize cards: the player whose turn is next takes first (Compendium, 2018).

@@ -60,9 +60,18 @@ export function defMatches(d: CardDef, f: Filter | undefined): boolean {
     const names = Array.isArray(f.hasAttack) ? f.hasAttack : [f.hasAttack];
     if (d.kind !== 'pokemon' || !d.attacks.some((a) => names.includes(a.name))) return false;
   }
+  if (f.anyAbility !== undefined && (d.kind === 'pokemon' && d.abilities.length > 0) !== f.anyAbility) return false;
   if (f.not && defMatches(d, f.not)) return false;
   if (f.any && !f.any.some((g) => defMatches(d, g))) return false;
   return true;
+}
+
+/** The types of a Pokémon in play: its printed types, or those an Ability or card text of its own makes it (StaticEffect `types`). */
+export function slotTypes(env: Env, slot: Slot): readonly PType[] {
+  const d = def(env.ctx, topCard(slot));
+  const fix = d.typeFix;
+  if (!fix) return d.types;
+  return fix.add ? [...new Set([...d.types, ...fix.types])] : fix.types;
 }
 
 /**
@@ -102,6 +111,7 @@ export function slotMatches(env: Env, slot: Slot, f: Filter | undefined): boolea
   let d = def(env.ctx, topCard(slot));
   // lane:ghost — a Trainer in play was played as a Pokémon (Antique fossils): match it as one.
   if (d.kind !== 'pokemon') d = { ...d, kind: 'pokemon', ttype: null };
+  if (d.typeFix) d = { ...d, types: slotTypes(env, slot) as PType[] };
   return defMatches(d, { ...f, damaged: undefined, energized: undefined, any: undefined });
 }
 
@@ -198,6 +208,11 @@ export function evalExpr(env: Env, s: GameState, ec: EvalCtx, e: Expr): number {
   }
   if ('prizesLeft' in e) return s.p[side(ec, e.prizesLeft)].prizes.length;
   if ('prizesTaken' in e) return s.p[side(ec, e.prizesTaken)].prizesTaken;
+  if ('prizesTakenLastTurn' in e) return s.p[side(ec, e.prizesTakenLastTurn)].prizesLastTurn ?? 0;
+  if ('damageTakenLastTurn' in e) {
+    const sl = resolveSlot(s, ec, e.damageTakenLastTurn);
+    return sl && sl.attackDmgTurn === s.turn - 1 ? (sl.attackDmg ?? 0) : 0;
+  }
   if ('energyOn' in e) {
     const sl = resolveSlot(s, ec, e.energyOn);
     if (!sl) return 0;
@@ -262,7 +277,17 @@ export function evalCond(env: Env, s: GameState, ec: EvalCtx, c: Cond): boolean 
   }
   if ('koLastTurn' in c) {
     const p = side(ec, c.koLastTurn);
+    if (c.filter) {
+      // The card each Pokémon was when Knocked Out, kept for the last two turns it happened in.
+      const ps = s.p[p];
+      const cards = ps.koCardsTurn === s.turn - 1 ? ps.koCards : ps.prevKoCardsTurn === s.turn - 1 ? ps.prevKoCards : undefined;
+      return !!cards?.some((x) => cardMatches(env, x, c.filter));
+    }
     return s.p[p].lastKoTurn === s.turn - 1 || s.p[p].prevKoTurn === s.turn - 1; // lane:misc — prevKoTurn
+  }
+  if ('playedThisTurn' in c) {
+    const ps = s.p[side(ec, c.playedThisTurn.who)];
+    return !!ps.playedThisTurn?.some((x) => cardMatches(env, x, c.playedThisTurn.filter));
   }
   if ('stadium' in c) {
     if (!s.stadium) return false;

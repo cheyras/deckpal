@@ -4,7 +4,7 @@
  * copies only the small mutable GameState.
  */
 import { compile, type Op } from './compile.js';
-import type { CardScript, Program, Step } from './dsl.js';
+import type { CardScript, Program, StaticDef, Step } from './dsl.js';
 import { buildDef, textKey } from './cards/frame.js';
 import { scriptFor } from './cards/registry.js';
 import type { CardDef, CardFrame, EngineOptions, GameEvent, Player } from './types.js';
@@ -123,7 +123,10 @@ function compileDef(d: CardDef, script: CardScript | null, code: Map<string, Op[
     const s = ab.script;
     if (!s) return;
     if (s.activated && ab.code) code.set(ab.code, compile(s.activated.program));
-    for (const st of s.statics ?? []) d.statics.push({ ...st });
+    for (const st of s.statics ?? []) {
+      d.statics.push({ ...st });
+      noteTypeFix(d, st);
+    }
     (s.triggers ?? []).forEach((t, j) => {
       const key = `${d.idx}:${ab.name}:t${j}`;
       code.set(key, compile(t.program));
@@ -141,12 +144,21 @@ function compileDef(d: CardDef, script: CardScript | null, code: Map<string, Op[
     code.set(key, compile(script.stadiumAbility.program));
     d.stadiumCode = key;
   }
-  for (const st of script.statics ?? []) d.statics.push({ ...st });
+  for (const st of script.statics ?? []) {
+    d.statics.push({ ...st });
+    noteTypeFix(d, st);
+  }
   (script.triggers ?? []).forEach((t, j) => {
     const key = `d${d.idx}#t${j}`;
     code.set(key, compile(t.program));
     d.triggers.push({ t, code: key });
   });
+}
+
+/** A Pokémon's own "it is {F} and {P} type" (StaticEffect `types`, scope 'self'): remembered on the definition, so type filters need no game state. */
+function noteTypeFix(d: CardDef, st: StaticDef): void {
+  const e = st.effect;
+  if (e.k === 'types' && st.scope === 'self' && !st.when && !st.filter) d.typeFix = { types: e.types.slice(), add: !!e.add };
 }
 
 /** Register an ad-hoc program (used by customs and tests). */

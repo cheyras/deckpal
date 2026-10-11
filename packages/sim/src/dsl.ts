@@ -54,6 +54,12 @@ export interface Filter {
   hasAbility?: string;
   /** Pokémon whose printed attacks include one with this name (any of these names), e.g. "Round". Matched on the top card. */
   hasAttack?: string | string[];
+  /**
+   * Pokémon that have any Ability printed on them ("attacks from your opponent's Pokémon that have an Ability"). Used as an
+   * `attacker` filter it also requires that the attacker's Abilities are not switched off right now (TPCi Rules Team
+   * 2025-11-13, ruling 2260: under Team Rocket's Watchtower a {C} Pokémon "has no Abilities").
+   */
+  anyAbility?: boolean;
   /** In-play only: the Pokémon has at least one damage counter. */
   damaged?: boolean;
   /** In-play only: at least one attached Energy card matches (e.g. `{ basicEnergy: false }` = has Special Energy). */ // lane:metal
@@ -100,6 +106,14 @@ export type Expr =
   | { pokemon: { zone: SlotZone; filter?: Filter } }
   | { prizesLeft: Who }
   | { prizesTaken: Who }
+  /** Prize cards that player took during their own most recent turn (0 if none). On your turn, `opp` is the opponent's last turn. */
+  | { prizesTakenLastTurn: Who }
+  /**
+   * Damage the referenced Pokémon took from attacks of the opponent's Pokémon during the opponent's last turn (0 if none).
+   * Damage counters placed by an effect are not damage (TPCi Rules Team 2025-11-13, ruling 2253); the record stays with the
+   * Pokémon through a swap of its cards (ruling 2372).
+   */
+  | { damageTakenLastTurn: SlotRef }
   /**
    * Energy attached to a Pokémon, counted in units provided ("for each Energy attached": a card
    * providing {C}{C}{C} counts 3; one providing every type counts for `type`). `cards: true` counts
@@ -142,8 +156,14 @@ export type Cond =
   | { healedThisTurn: SlotRef }
   | { inActive: SlotRef }
   | { onBench: SlotRef }
-  /** Any of this side's Pokémon were Knocked Out during the opponent's last turn. */
-  | { koLastTurn: Who }
+  /** Any of this side's Pokémon (matching `filter`, if given: the card it was when Knocked Out) were Knocked Out during the opponent's last turn. */
+  | { koLastTurn: Who; filter?: Filter }
+  /**
+   * That player played a card matching `filter` from their hand during the current turn (`who`: default the effect's controller).
+   * Cards put into play by the player's own actions count: Trainers (Items, Supporters, Stadiums, Tools), Pokémon (benched or
+   * evolved) and Energy attached from the hand. Cards moved by an effect do not.
+   */
+  | { playedThisTurn: { filter: Filter; who?: Who } }
   | { stadium: Filter | true }
   | { benchFull: Who }
   | { firstTurn: true }
@@ -180,7 +200,14 @@ export type StaticEffect =
       noStack?: string;
     }
   /** Damage the affected Pokémon takes from attacks (after W/R; negative = reduction). `fromOpp`: only from the opponent's attacks. */
-  | { k: 'damageIn'; amount: number; fromOpp?: boolean /* lane:metal */; attacker?: Filter }
+  | {
+      k: 'damageIn';
+      amount: number;
+      fromOpp?: boolean /* lane:metal */;
+      attacker?: Filter;
+      /** "The effect of <name> doesn't stack": damageIn statics sharing this key count once per attack (as `damageOut`'s). */
+      noStack?: string;
+    }
   /**
    * "If the affected Pokémon tries to use an attack, its owner's opponent flips a coin. If tails, that attack doesn't happen."
    * The flip comes before Confusion's (TPCi 2026-04-02 ruling 2326, 2026-03-26 ruling 2317).
@@ -199,7 +226,30 @@ export type StaticEffect =
   | { k: 'countersFixed' }
   // lane:misc — Togekiss, Wonder Kiss: "When your opponent's Active Pokémon is Knocked Out, (flip a coin. If heads,)
   // take 1 more Prize card." Player-level (scope 'me'); never stacks.
-  | { k: 'extraPrize'; flip?: boolean }
+  // Generalised: `amount` (default 1) more Prize cards; with `attacker`, only when the Knock Out is by damage from an attack of an
+  // attacking Pokémon matching it ("an attack used by your N's Pokémon"); `noStack`: effects sharing the key count once (a
+  // legacy effect with no `amount` and no key never stacks).
+  | { k: 'extraPrize'; flip?: boolean; amount?: number; attacker?: Filter; noStack?: string }
+  /**
+   * "If the affected Pokémon is Knocked Out by damage from an attack from your opponent's Pokémon (matching `attacker`), that
+   * player takes `delta` fewer/more Prize cards" (negative = fewer), or with `none`, "your opponent can't take any Prize cards
+   * for it". Checked before the Knock Out, so the source may be Knocked Out in the same moment (TPCi Rules Team 2025-11-13,
+   * ruling 2262). `noStack`: effects sharing the key count once. Never takes the total below 0.
+   */
+  | { k: 'koPrizes'; delta?: number; none?: boolean; attacker?: Filter; noStack?: string }
+  /**
+   * "If the affected Pokémon would be Knocked Out by damage from an attack, flip a coin. If heads, it is not Knocked Out, and
+   * its remaining HP becomes 10." The full damage is dealt first; the flip is made when Knock Outs are checked, after the
+   * attack (TPCi Rules Team 2026-01-22, ruling 2287). The owner flips.
+   */
+  | { k: 'surviveKoCoinFlip' }
+  /**
+   * The affected Pokémon is (only) these types, or with `add`, also these types ("it is {F} and {P} type"). Weakness and
+   * Resistance (as the attacker) and type filters see them. Only `scope: 'self'` with no `when`/`filter`, on the Pokémon's own
+   * Ability or card text, is supported; it is not switched off by "no Abilities" effects (the type filters such an effect uses
+   * would otherwise depend on it).
+   */
+  | { k: 'types'; types: PType[]; add?: boolean }
   // lane:misc — Psyduck, Damp: the affected Pokémon lose any Ability that Knocks Out the Pokémon using it
   // (AbilityScript.selfKo, else detected from the printed text "this Pokémon is Knocked Out").
   | { k: 'loseSelfKoAbilities' }
@@ -347,6 +397,8 @@ export type Program = Step[];
 
 /** How a card definition's damage number is computed (default: the printed number). */
 export interface AttackScript {
+  /** "If you go first, you can use this attack during your first turn": the attack is also usable on turn 1 (the first player's first turn). */
+  firstTurn?: boolean;
   /** Steps before damage (costs paid by the attack, coin flips that set damage). */
   pre?: Program;
   /** Base damage expression; defaults to the printed number (e.g. "30+" → 30). */
@@ -382,10 +434,27 @@ export type TriggerOn =
    * lane:ghost — the OPPONENT attached an Energy card from their hand to one of their Pokémon
    * (Gengar ex, Gnawing Curse). The program sees that Pokémon's slot id in `__target`.
    */
-  | 'oppAttachFromHand';
+  | 'oppAttachFromHand'
+  /**
+   * This Pokémon moved from the Active Spot to its owner's Bench (switch or retreat; not a Knock Out, not a shuffle into the
+   * deck). Fires when the move is done, with the Pokémon on the Bench; `turnOf` in `when` limits it to a turn.
+   */
+  | 'movedToBench'
+  /**
+   * The OPPONENT's Active Pokémon moved to their Bench during their own turn (switch or retreat; a Knock Out and its
+   * replacement is not one). Fires for every Pokémon of the other side with the trigger; the program sees the Pokémon that
+   * moved in `__target` and its replacement is the opponent's Active Pokémon. `when` is checked as the move happens, so a
+   * Pokémon that becomes Active in the same switch has not been Active when it moved (TPCi Rules Team 2026-04-16, ruling 2339).
+   */
+  | 'oppActiveMovedToBench';
 
 export interface TriggerScript {
   on: TriggerOn;
+  /**
+   * "Once during your turn, when ... you may use this Ability": a Pokémon's trigger that fires only during its controller's turn
+   * and can be used once per turn. A use counts when it is accepted, not when it is declined. A Pokémon's own triggers only.
+   */
+  oncePerTurn?: boolean;
   /** Must hold at the moment the trigger fires. */
   when?: Cond;
   /** "you may": the controller decides whether it resolves. */

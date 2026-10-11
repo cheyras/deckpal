@@ -296,6 +296,7 @@ export function noun(f: Filter = {}, inPlay = false): Noun {
     f.hpMax !== undefined ||
     !!f.hasAbility ||
     !!f.hasAttack ||
+    f.anyAbility !== undefined ||
     !!f.damaged ||
     f.energy !== undefined ||
     f.tool !== undefined ||
@@ -321,6 +322,8 @@ export function noun(f: Filter = {}, inPlay = false): Noun {
   if (f.ruleBox === false) post.push(["that doesn't have a Rule Box", "that don't have a Rule Box"]);
   if (f.ruleBox === true) post.push(['that has a Rule Box', 'that have a Rule Box']);
   if (f.hasAbility) post.push([`that has the ${f.hasAbility} Ability`, `that have the ${f.hasAbility} Ability`]);
+  if (f.anyAbility === true) post.push(['that has an Ability', 'that have an Ability']);
+  if (f.anyAbility === false) post.push(['that has no Abilities', 'that have no Abilities']);
   if (f.hasAttack) {
     const an = (Array.isArray(f.hasAttack) ? f.hasAttack : [f.hasAttack]).join(' or ');
     post.push([`that has the ${an} attack`, `that have the ${an} attack`]);
@@ -491,6 +494,8 @@ class Renderer {
     if ('pokemon' in e) return `the number of ${slotZoneNoun(e.pokemon.zone, e.pokemon.filter)}`;
     if ('prizesLeft' in e) return `the number of Prize cards ${e.prizesLeft === 'opp' ? 'your opponent has' : 'you have'} remaining`;
     if ('prizesTaken' in e) return `the number of Prize cards ${e.prizesTaken === 'opp' ? 'your opponent has' : 'you have'} taken`;
+    if ('prizesTakenLastTurn' in e) return `the number of Prize cards ${e.prizesTakenLastTurn === 'opp' ? 'your opponent took during their last turn' : 'you took during your last turn'}`;
+    if ('damageTakenLastTurn' in e) return `the damage ${this.ref(e.damageTakenLastTurn)} took from an attack during your opponent's last turn`;
     if ('energyOn' in e) return `the amount of ${e.type ? `${sym(e.type)} ` : ''}Energy attached to ${this.ref(e.energyOn)}`;
     if ('countersOn' in e) return `the number of damage counters on ${this.ref(e.countersOn)}`;
     if ('handSize' in e) return `the number of cards in ${owner(e.handSize)} hand`;
@@ -520,6 +525,7 @@ class Renderer {
     if ('countersOn' in e) return `damage counter on ${this.ref(e.countersOn)}`;
     if ('count' in e) return `${noun(e.count.filter).sg} in ${zoneOf(e.count.zone, e.count.who)}`;
     if ('prizesTaken' in e) return `Prize card ${e.prizesTaken === 'opp' ? 'your opponent has' : 'you have'} taken`;
+    if ('prizesTakenLastTurn' in e) return `Prize card ${e.prizesTakenLastTurn === 'opp' ? 'your opponent took during their last turn' : 'you took during your last turn'}`;
     if ('prizesLeft' in e) return `Prize card ${e.prizesLeft === 'opp' ? 'your opponent has' : 'you have'} remaining`;
     if ('handSize' in e) return `card in ${owner(e.handSize)} hand`;
     if ('deckSize' in e) return `card in ${owner(e.deckSize)} deck`;
@@ -573,9 +579,16 @@ class Renderer {
     if ('inActive' in c) return `${this.ref(c.inActive)} is in the Active Spot`;
     if ('onBench' in c) return `${this.ref(c.onBench)} is on ${c.onBench === 'self' || c.onBench === 'myActive' ? 'your' : 'the'} Bench`;
     if ('koLastTurn' in c) {
+      const pk = c.filter ? noun(c.filter, true).pl : 'Pokémon';
       return c.koLastTurn === 'opp'
-        ? "any of your opponent's Pokémon were Knocked Out during your last turn"
-        : "any of your Pokémon were Knocked Out during your opponent's last turn";
+        ? `any of your opponent's ${pk} were Knocked Out during your last turn`
+        : `any of your ${pk} were Knocked Out during your opponent's last turn`;
+    }
+    if ('playedThisTurn' in c) {
+      const w = c.playedThisTurn.who === 'opp' ? 'your opponent' : 'you';
+      const f = c.playedThisTurn.filter;
+      const what = f.name && !Array.isArray(f.name) && !f.ttype ? `${f.name}` : art(noun(f).sg);
+      return `${w} played ${what} from ${w === 'you' ? 'your' : 'their'} hand this turn`;
     }
     if ('stadium' in c) return c.stadium === true ? 'a Stadium is in play' : `${art(noun(c.stadium).sg)} is in play`;
     if ('benchFull' in c) return `${c.benchFull === 'opp' ? "your opponent's" : 'your'} Bench is full`;
@@ -1051,7 +1064,7 @@ class Renderer {
         return `The attacks of ${x} do ${Math.abs(e.amount)} ${e.amount < 0 ? 'less' : 'more'} damage to your opponent's Active ${e.vs ? noun(e.vs, true).pl : 'Pokémon'} (before applying Weakness and Resistance)${e.noStack ? `. The effect of ${e.noStack} doesn't stack` : ''}`; // lane:trevenant
       case 'damageIn':
         // The engine applies damageIn to every attack unless `fromOpp` is set, so only the flag says whose.
-        return `${X} ${plural ? 'take' : 'takes'} ${Math.abs(e.amount)} ${e.amount < 0 ? 'less' : 'more'} damage from attacks${e.attacker ? ` from ${e.fromOpp ? "your opponent's " : ''}${noun(e.attacker, true).pl}` : e.fromOpp ? " from your opponent's Pokémon" : ''} (after applying Weakness and Resistance)`;
+        return `${X} ${plural ? 'take' : 'takes'} ${Math.abs(e.amount)} ${e.amount < 0 ? 'less' : 'more'} damage from attacks${e.attacker ? ` from ${e.fromOpp ? "your opponent's " : ''}${noun(e.attacker, true).pl}` : e.fromOpp ? " from your opponent's Pokémon" : ''} (after applying Weakness and Resistance)${e.noStack ? `. The effect of ${e.noStack} doesn't stack` : ''}`;
       case 'attackCoinFlip':
         return `If ${x} tries to use an attack, ${/^your opponent/.test(x) ? 'your opponent' : 'you'} flip${/^your opponent/.test(x) ? 's' : ''} a coin. If tails, that attack doesn't happen`;
       case 'cantAttachFromHand': {
@@ -1075,8 +1088,31 @@ class Renderer {
       }
       case 'extraPrize': {
         const take = x === 'you' ? 'take' : `${x} takes`;
-        return `When your opponent's Active Pokémon is Knocked Out, ${e.flip ? `flip a coin. If heads, ${take}` : take} 1 more Prize card`;
+        const n = e.amount ?? 1;
+        const more = `${n} more Prize card${n === 1 ? '' : 's'}`;
+        const stack = e.noStack ? `. The effect of ${e.noStack} doesn't stack` : '';
+        const act = e.flip ? `flip a coin. If heads, ${take}` : take;
+        if (e.attacker) {
+          // "your N's Pokémon": a name fragment alone reads as the owner's possessive.
+          const a = e.attacker;
+          const by = a.nameIncludes && Object.keys(a).length === 1 ? `your ${a.nameIncludes} Pokémon` : noun(a, true).pl;
+          return `If your opponent's Active Pokémon is Knocked Out by damage from an attack used by ${by}, ${act} ${more}${stack}`;
+        }
+        return `When your opponent's Active Pokémon is Knocked Out, ${act} ${more}${stack}`;
       }
+      case 'koPrizes': {
+        const from = e.attacker ? noun(e.attacker, true).pl : 'Pokémon';
+        const subj = plural ? `1 of ${x} is` : `${x} is`;
+        const d = e.delta ?? 0;
+        const what = e.none
+          ? "your opponent can't take any Prize cards for it"
+          : `that player takes ${Math.abs(d)} ${d < 0 ? 'fewer' : 'more'} Prize card${Math.abs(d) === 1 ? '' : 's'}`;
+        return `If ${subj} Knocked Out by damage from an attack from your opponent's ${from}, ${what}${e.noStack ? `. The effect of ${e.noStack} doesn't stack` : ''}`;
+      }
+      case 'surviveKoCoinFlip':
+        return `If ${x} would be Knocked Out by damage from an attack, flip a coin. If heads, ${x} ${plural ? 'are' : 'is'} not Knocked Out, and ${plural ? 'their' : 'its'} remaining HP becomes 10`;
+      case 'types':
+        return `As long as ${x} ${plural ? 'are' : 'is'} in play, ${plural ? 'they are' : 'it is'} ${e.add ? 'also ' : ''}${e.types.map(sym).join(' and ')} type`;
       case 'loseSelfKoAbilities':
         return `${X} can't use any Abilities that Knock Out the Pokémon using them`;
       case 'cantUseAttack':
@@ -1150,6 +1186,17 @@ class Renderer {
       case 'oppAttachFromHand':
         lead = 'Whenever your opponent attaches an Energy card from their hand to 1 of their Pokémon';
         break;
+      case 'movedToBench':
+        lead = `${t.oncePerTurn ? 'Once during your turn, w' : 'W'}hen ${this.selfName} moves from the Active Spot to your Bench`;
+        break;
+      case 'oppActiveMovedToBench':
+        // The program sees the Pokémon that moved as '__target' ("that Pokémon").
+        lead = "Whenever your opponent's Active Pokémon moves to the Bench during their turn";
+        if (when && 'inActive' in when && when.inActive === 'self') {
+          lead = `As long as ${this.selfName} is in the Active Spot, w${lead.slice(1)}`;
+          when = undefined;
+        }
+        break;
     }
     if (when) lead += `, and if ${this.cond(when)}`;
     const body = this.program(t.program);
@@ -1191,7 +1238,7 @@ export function renderAttack(a: AttackScript, printedDamage: string | null | und
     if (base > 0 && !hasDamage) problems.push(`printed damage ${printedDamage} but the program has no damage step`);
     return r.program(a.program, base);
   }
-  const out = [...r.steps(a.pre ?? [], base)];
+  const out = [...(a.firstTurn ? ['If you go first, you can use this attack during your first turn'] : []), ...r.steps(a.pre ?? [], base)];
   if (a.damage !== undefined) {
     const b = firstNumber(a.damage);
     if (base > 0 && b !== null && b !== base) problems.push(`damage starts at ${b} but the printed damage is ${printedDamage}`);
@@ -1615,6 +1662,11 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me05-029|attack:All-You-Can-Yeet': {
     problems: ['"may" is printed but not rendered'],
     why: '"You may discard any number of cards": choosing min 0 IS the option to discard none, so a `may` wrapper would only add a redundant yes/no decision.',
+  },
+  // lane:std-engine2
+  'me02.5-143|attack:Mochi Rush': {
+    problems: ['involves the opponent'],
+    why: "\"this Pokémon's Mochi Rush attack does 50 more damage\" is a damageOut effect on this Pokémon (Pecharunt has no other attack), which the renderer words as damage \"to your opponent's Active Pokémon\", where the attack text leaves its target to the attack.",
   },
   // "up to N" built from a loop or an option, which the renderer can't fold back into a count.
   'me01-179|attack:Aura Jab': {
