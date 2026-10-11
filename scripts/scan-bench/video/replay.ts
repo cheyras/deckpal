@@ -224,6 +224,7 @@ interface TrackLog {
   firedMs: number | null
   regionTicks: number
   busyTicks: number
+  cardBackTicks: number
   refractoryTicks: number
   logged: Set<string>
 }
@@ -233,7 +234,7 @@ interface CaptureRow {
   t: number
   i: number
   file: string
-  suppressed: false | 'region' | 'busy'
+  suppressed: false | 'region' | 'busy' | 'cardback'
   /** 'look': a repeat the look re-arm let through. */
   why?: 'look'
   trackId: number
@@ -331,6 +332,7 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
     captureFailures: 0,
     regionSuppressedTicks: 0,
     busyTicks: 0,
+    cardBackTicks: 0,
     lookFires: 0,
     /** Second look (--second-look): ticks that ran it, ticks whose answer it
      *  replaced, and ticks it lifted from below the acquire threshold to above. */
@@ -354,7 +356,7 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
   async function writeCrop(
     s: TickState,
     f: StreamFrame,
-    kind: 'fire' | 'region' | 'busy',
+    kind: 'fire' | 'region' | 'busy' | 'cardback',
     motionPx: number | undefined,
     why?: 'look',
   ): Promise<CaptureRow | null> {
@@ -420,7 +422,7 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
     if (locked) {
       let log = tracks.get(locked.id)
       if (!log) {
-        log = { firstLockMs: f.tMs, firedMs: null, regionTicks: 0, busyTicks: 0, refractoryTicks: 0, logged: new Set() }
+        log = { firstLockMs: f.tMs, firedMs: null, regionTicks: 0, busyTicks: 0, cardBackTicks: 0, refractoryTicks: 0, logged: new Set() }
         tracks.set(locked.id, log)
       }
       if (outcome.kind === 'fire') {
@@ -436,10 +438,13 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
           if (outcome.why === 'look') stats.lookFires++
           log.firedMs = f.tMs
         }
-      } else if (outcome.kind === 'region' || outcome.kind === 'busy') {
+      } else if (outcome.kind === 'region' || outcome.kind === 'busy' || outcome.kind === 'cardback') {
         if (outcome.kind === 'region') {
           log.regionTicks++
           stats.regionSuppressedTicks++
+        } else if (outcome.kind === 'cardback') {
+          log.cardBackTicks++
+          stats.cardBackTicks++
         } else {
           log.busyTicks++
           stats.busyTicks++
@@ -501,7 +506,7 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
         .raw()
         .toBuffer()
       const fired = lastEvents.includes('fire')
-      const supp = lastEvents.includes('region') || lastEvents.includes('busy')
+      const supp = lastEvents.includes('region') || lastEvents.includes('busy') || lastEvents.includes('cardback')
       timeline.push({
         image: { data: small, width: 208, height: 208, channels: 3 },
         lines: [
@@ -574,6 +579,7 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
   const lockEpisodes = [...tracks.values()]
   const regionOnly = lockEpisodes.filter((l) => l.firedMs === null && l.regionTicks > 0)
   const busyDeferred = lockEpisodes.filter((l) => l.busyTicks > 0)
+  const cardBackOnly = lockEpisodes.filter((l) => l.firedMs === null && l.cardBackTicks > 0)
   const sharp_ = rows.filter((r) => !r.suppressed).map((r) => r.sharpness).sort((a, b) => a - b)
   const summary = {
     videoId,
@@ -591,6 +597,8 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
     regionSuppressedTracks: regionOnly.length,
     busyDeferredTracks: busyDeferred.length,
     busyDeferredThenFired: busyDeferred.filter((l) => l.firedMs !== null).length,
+    /** Locked tracks the card-back gate refused and that never fired. */
+    cardBackTracks: cardBackOnly.length,
     sharpness: sharp_.length
       ? { min: sharp_[0], median: sharp_[Math.floor(sharp_.length / 2)], max: sharp_[sharp_.length - 1] }
       : null,
@@ -636,11 +644,11 @@ async function main(): Promise<void> {
   } finally {
     await lc050.close()
   }
-  console.log('\nvideo            ticks  lockTicks  lockedTrk  captures  regionSupTrk  busyDefTrk  sharpness(med)  wall')
+  console.log('\nvideo            ticks  lockTicks  lockedTrk  captures  regionSupTrk  busyDefTrk  cardBackTrk  sharpness(med)  wall')
   for (const s of results as Array<Record<string, any>>) {
     console.log(
       `${String(s.videoId).padEnd(16)} ${String(s.ticks).padStart(5)}  ${String(s.lockTicks).padStart(9)}  ${String(s.lockedTracks).padStart(9)}  ` +
-        `${String(s.captures).padStart(8)}  ${String(s.regionSuppressedTracks).padStart(12)}  ${String(s.busyDeferredTracks).padStart(10)}  ` +
+        `${String(s.captures).padStart(8)}  ${String(s.regionSuppressedTracks).padStart(12)}  ${String(s.busyDeferredTracks).padStart(10)}  ${String(s.cardBackTracks).padStart(11)}  ` +
         `${String(s.sharpness?.median ?? '-').padStart(14)}  ${s.replay.wallS}s`,
     )
   }

@@ -11,6 +11,7 @@
 //   lock                 engine/index.ts       createLockPolicy
 //   reticle              engine/frame.ts       reticleForAspect
 //   duplicate regions    scan/ui/regions.ts    createCapturedRegions
+//   the fire decision    scan/ui/autoCapture.ts decideAutoCapture (re-arm, card back)
 //   rectification        engine/rectify.ts     expandQuad + rectifyImageData
 //
 // What IS mirrored is only the GLUE that wires them, because that glue lives
@@ -232,6 +233,8 @@ export type LockOutcome =
   /** A lock on a fresh track that overlaps a live captured region — the
    *  duplicate suppression (regions.ts), or its fast-swap cost. */
   | { kind: 'region' }
+  /** A lock the card-back gate refused (engine/cardBack.ts, autoCapture.ts). */
+  | { kind: 'cardback' }
   /** `why: 'look'`: a repeat the look re-arm let through (ui/rearm.ts). */
   | { kind: 'fire'; why?: 'look' }
 
@@ -263,16 +266,19 @@ const NEVER_NEW: LookRearm = { judge: () => false, note: () => {}, lookOfTrack: 
 
 export function createCapturePolicy(opts: PolicyKnobs = {}): CapturePolicy {
   const busyMs = opts.busyMs ?? DEFAULT_CAPTURE_BUSY_MS
-  // Scan.tsx: refractoryRef, regionsRef, rearmRef.
+  // Scan.tsx: refractoryRef, regionsRef, rearmRef, cardBackRef.
   const refractory = new Set<number>()
+  const cardBacks = new Set<number>()
   const regions = createCapturedRegions()
   const rearm = opts.rearm === false ? null : createLookRearm()
   let busyUntil = -Infinity
   return {
     decide(tMs, s, extras = {}) {
-      // Scan.tsx — a track that left `stable` loses its refractory hold.
+      // Scan.tsx — a track that left `stable` loses its refractory hold, and
+      // its card-back hold.
       const presentIds = new Set(s.stable.map((q) => q.id))
       for (const id of refractory) if (!presentIds.has(id)) refractory.delete(id)
+      for (const id of cardBacks) if (!presentIds.has(id)) cardBacks.delete(id)
       // Scan.tsx — ONCE PER DETECT TICK, stable and pending both. The app
       // passes Date.now(); the replay passes video time (README "Clock").
       regions.tick(tMs, [...s.stable, ...s.pending])
@@ -285,8 +291,13 @@ export function createCapturePolicy(opts: PolicyKnobs = {}): CapturePolicy {
         busy: tMs < busyUntil,
         regions,
         rearm: rearm ?? NEVER_NEW,
+        cardBacks,
       })
       if (!locked) return { kind: 'none' }
+      // Scan.tsx — the card-back hold follows the verdict.
+      if (v.cardBack) cardBacks.add(locked.id)
+      else cardBacks.delete(locked.id)
+      if (v.cardBack) return { kind: 'cardback' }
       if (v.fire) {
         refractory.add(locked.id)
         busyUntil = tMs + busyMs

@@ -258,13 +258,54 @@ test('decideAutoCapture: the shipping rule, clause by clause', async () => {
   const m = (busy = false) => ({ refractory, busy, regions, rearm })
   assert.equal(decideAutoCapture(null, null, m()).fire, false, 'no lock')
   assert.equal(decideAutoCapture(lock, one, m(true)).fire, false, 'busy')
-  assert.deepEqual(decideAutoCapture(lock, one, m()), { fire: true, repeat: false, newByLook: false }, 'a fresh lock fires')
+  assert.deepEqual(
+    decideAutoCapture(lock, one, m()),
+    { fire: true, repeat: false, newByLook: false, cardBack: false },
+    'a fresh lock fires',
+  )
   // ...it was captured:
   refractory.add(7)
   regions.note(lock.quad, 7, 0, one)
   rearm.note(one, 7)
   assert.equal(decideAutoCapture(lock, one, m()).fire, false, 'the same card, still there')
   assert.equal(decideAutoCapture(lock, two, m()).fire, false, 'a new card, not yet steady')
-  assert.deepEqual(decideAutoCapture(lock, two, m()), { fire: true, repeat: true, newByLook: true }, 'a new card, steady')
+  assert.deepEqual(
+    decideAutoCapture(lock, two, m()),
+    { fire: true, repeat: true, newByLook: true, cardBack: false },
+    'a new card, steady',
+  )
   assert.equal(decideAutoCapture(lock, two, m(true)).fire, false, 'busy still waits')
+})
+
+test('decideAutoCapture: a card back never fires, and its track is held until it turns into a card', async () => {
+  const { decideAutoCapture } = await import('../autoCapture')
+  const { createCapturedRegions } = await import('../regions')
+  const { CARD_BACK_LOOK, cardBackDistance, rotateLook180 } = await import('../../engine/cardBack')
+  const regions = createCapturedRegions()
+  const rearm = createLookRearm()
+  const refractory = new Set<number>()
+  const cardBacks = new Set<number>()
+  const lock = { id: 4, quad: scene(1).quad }
+  const face = lookOf(2)
+  assert.ok(cardBackDistance(face) > REARM_NEW_MIN, 'precondition: the face is nothing like a back')
+  // Scan.tsx's handling of the verdict, as the replay mirrors it.
+  const tick = (l: Uint8Array | null, busy = false) => {
+    const v = decideAutoCapture(lock, l, { refractory, busy, regions, rearm, cardBacks })
+    if (v.cardBack) cardBacks.add(lock.id)
+    else cardBacks.delete(lock.id)
+    if (v.fire) refractory.add(lock.id)
+    return v
+  }
+  assert.deepEqual(tick(CARD_BACK_LOOK), { fire: false, repeat: false, newByLook: false, cardBack: true }, 'a back locks but does not fire')
+  assert.equal(tick(rotateLook180(CARD_BACK_LOOK)).fire, false, 'nor upside down')
+  // A thumb slides over it for a tick: the look leaves the template, but the track is held.
+  assert.deepEqual(tick(lookOf(5)), { fire: false, repeat: false, newByLook: false, cardBack: true }, 'a one-tick change is not a card')
+  assert.equal(tick(CARD_BACK_LOOK).cardBack, true)
+  // Turned face up in place: the first tick of the face is not steady yet, the second is.
+  assert.equal(tick(face).fire, false, 'the face has only just appeared')
+  assert.deepEqual(tick(face), { fire: true, repeat: false, newByLook: true, cardBack: false }, 'the face has held: it fires')
+  assert.equal(cardBacks.has(lock.id), false, 'and the hold is gone')
+  // Fails open: a lock with no look is judged as before.
+  const other = { id: 9, quad: scene(3).quad }
+  assert.equal(decideAutoCapture(other, null, { refractory, busy: false, regions: createCapturedRegions(), rearm, cardBacks }).fire, true)
 })

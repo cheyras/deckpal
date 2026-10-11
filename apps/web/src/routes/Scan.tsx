@@ -370,6 +370,9 @@ export function Scan() {
   }
 
   const refractoryRef = useRef(new Set<number>())
+  /** Tracks whose lock showed a card back (scan/ui/autoCapture.ts): never
+   *  auto-captured until they turn into a different card or depart. */
+  const cardBackRef = useRef(new Set<number>())
 
   // ── THE ON-DEVICE OCR LANE (scan/ocr/**), STAGED BEHIND THE DETECTOR ──────
   //
@@ -1310,6 +1313,9 @@ export function Scan() {
     for (const id of refractoryRef.current) {
       if (!presentIds.has(id)) refractoryRef.current.delete(id)
     }
+    for (const id of cardBackRef.current) {
+      if (!presentIds.has(id)) cardBackRef.current.delete(id)
+    }
     // ONCE PER DETECT TICK, and this is what makes the presence signal dense
     // enough to be the refractory's clock: every remembered capture region is
     // refreshed against what is on screen right now, and retired only when
@@ -1318,15 +1324,19 @@ export function Scan() {
     ageRegions([...engineState.stable, ...engineState.pending])
     const locked = engineState.locked
     // THE DECISION (scan/ui/autoCapture.ts — the offline replay runs the same
-    // function): a lock fires unless it is busy, or a REPEAT (this track already
-    // captured, or this place) whose card looks like the capture behind it.
-    // Every tick, lock or not, so the look re-arm's steadiness is current.
+    // function): a lock fires unless it is busy, a card back, or a REPEAT (this
+    // track already captured, or this place) whose card looks like the capture
+    // behind it. Every tick, lock or not, so the look re-arm's steadiness is
+    // current.
     const verdict = decideAutoCapture(locked, engineState.look, {
       refractory: refractoryRef.current,
       busy: captureBusyRef.current,
       regions,
       rearm,
+      cardBacks: cardBackRef.current,
     })
+    if (locked && verdict.cardBack) cardBackRef.current.add(locked.id)
+    else if (locked) cardBackRef.current.delete(locked.id)
     if (locked) {
       // Every lock, not just the ones that become captures — a lock the
       // refractory set swallows is still the engine saying "I would fire at
@@ -1343,8 +1353,9 @@ export function Scan() {
         cameraBox: cameraBoxRef.current,
         perf: engineState.perf,
         // As before — not held by the refractory, not busy — plus a refractory
-        // hold the look re-arm saw through.
-        wouldCapture: (!refractoryRef.current.has(locked.id) || verdict.newByLook) && !captureBusyRef.current,
+        // hold the look re-arm saw through, minus a card back.
+        wouldCapture:
+          (!refractoryRef.current.has(locked.id) || verdict.newByLook) && !captureBusyRef.current && !verdict.cardBack,
         // So the NEXT drive can measure the refractory instead of inferring it:
         // how many regions are live, and whether this lock was one of them.
         regionCount: regions.count,
@@ -1372,13 +1383,19 @@ export function Scan() {
         // about one tick per re-arm, so this throttled stream undercounts them;
         // the capture-event's `rearmed` is the reliable count.
         newByLook: verdict.newByLook,
+        // Whether the card-back gate (engine/cardBack.ts) refused this lock —
+        // the field count of what it catches, and of any card it should not.
+        cardBack: verdict.cardBack,
       })
     }
     if (locked && verdict.fire) {
       refractoryRef.current.add(locked.id)
       void runCapture(locked.id, 'auto', verdict.repeat)
     }
-    if (locked) setHint((h) => (h.startsWith('Got it') ? h : 'Got it — hold on…'))
+    // A back is locked but never captured, so "Got it" would be a promise the
+    // scanner is not going to keep.
+    if (locked && verdict.cardBack) setHint('That’s the back of a card — turn it over')
+    else if (locked) setHint((h) => (h.startsWith('Got it') ? h : 'Got it — hold on…'))
     else if (engineState.stable.length > 0) setHint('Hold steady…')
     // THE STANDING NEEDS-YOU LINE. Only in the idle branch — while the reader is
     // aiming at something the hint belongs to that card, and interrupting a lock
