@@ -265,6 +265,15 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   // std-c26-customs.ts
   'c26.attachToOppPokemon': (a) => `Attach the cards chosen as "${String(a.cards ?? 'e')}" to their Pokémon in any way you like (you pick the Pokémon for each card; one protected from the effects of attacks is skipped)`,
   'c26.lookTopChoose': (a) => `Look at the top ${Number(a.n ?? 10)} cards of your deck and you may choose any number of the ${(a.filter as { cat?: string } | undefined)?.cat === 'pokemon' ? 'Pokémon' : ''} cards you find there, no more than the Bench has room for (into "${String(a.as ?? 'found')}"); nothing leaves the deck yet`,
+  // std-c25-customs.ts
+  'c25.devolveOpp': () =>
+    "Devolve 1 of your opponent's evolved Pokémon (one with an Evolution card on it) by putting the highest Stage Evolution card on it into your opponent's hand, face up; it recovers from all Special Conditions and attack effects. A Pokémon protected from the effects of attacks is left alone",
+  'c25.benchCountersUntilHp': (a) =>
+    `Put damage counters on each of your opponent's Benched Pokémon until its remaining HP is ${Number(a.hp ?? 100)} (HP with any changes, minus damage; none on a Pokémon already at or below that, or protected from the effects of attacks or from damage counters); not damage`,
+  'c25.shuffleSlotsIntoDeck': (a) =>
+    `Shuffle the Pokémon chosen as "${String(a.slot ?? 't')}" and all attached cards into their owner's deck (your opponent's deck, for their Pokémon), then shuffle that deck once; a Pokémon protected from the effects of attacks stays in play`,
+  'c25.rememberUsed': (a) =>
+    `Mark that this Pokémon used ${String(a.attack)}, through the end of your next turn (nothing is marked when the attack is only copied by another attack)`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -291,6 +300,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'c19.supporterPlayedThisTurn': () => 'the player played a Supporter card from their hand this turn',
   's01.hitWhileActive': () => 'it was marked as damaged in the Active Spot this turn',
   'c23.grandTreeUsable': () => 'one of your Basic Pokémon in play (not on your first turn, not one put into play or evolved this turn) can evolve into a Stage 1 Pokémon card that is in your deck',
+  'c25.usedLastTurn': (a) => `one of your Pokémon has the mark left by using ${String(a.attack)} during your previous turn`,
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
@@ -2141,5 +2151,14 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv08-141|attack:World Ender': {
     problems: ["\"can't\" is printed but not rendered", 'similarity'],
     why: "\"If you can't\" is the case of no Stadium in play: the discard and the 230 damage are both inside the 'if a Stadium is in play' branch, so with none nothing happens; the shared std.discardStadium gloss is short.",
+  },
+  // std-c25
+  'sv08-079|attack:Full Heart': {
+    problems: ['"up to', '"up to 2" is printed but not rendered'],
+    why: '"Attach up to 2 … in any way you like" is `repeat 2` of an optional (min 0, max 1) pick, each with its own chosen Pokémon, so the Energy can go to the same Pokémon or two; the renderer words each pick as "up to 1".',
+  },
+  'sv08-105|attack:Screech': {
+    problems: ['the rendering involves the opponent'],
+    why: '"the Defending Pokémon takes 50 more damage" is a damageIn effect on the Defending Pokémon, which the renderer words as "your opponent\'s Active Pokémon"; the Defending Pokémon is the opponent\'s Active Pokémon.',
   },
 };
