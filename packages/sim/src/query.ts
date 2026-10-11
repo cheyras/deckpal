@@ -30,6 +30,26 @@ export interface LiveStatic {
   since?: number;
 }
 
+/** Which static sources any card in this game has at all, decided once per game from the card definitions. */
+interface Sources {
+  card: boolean;
+  ability: boolean;
+}
+const sourcesOf = new WeakMap<object, Sources>();
+function sources(ctx: Env['ctx']): Sources {
+  let r = sourcesOf.get(ctx);
+  if (!r) {
+    r = { card: false, ability: false };
+    for (const d of ctx.defs) {
+      if (d.coverage !== 'full') continue;
+      if (d.kind === 'pokemon' && d.script?.statics?.length) r.card = true;
+      if (d.abilities.some((ab) => ab.script?.statics?.length)) r.ability = true;
+    }
+    sourcesOf.set(ctx, r);
+  }
+  return r;
+}
+
 /** Gather every live static. Ability statics of Pokémon under a no-Abilities effect are dropped. */
 export function statics(env: Env, s: GameState): LiveStatic[] {
   const out: LiveStatic[] = [];
@@ -39,9 +59,10 @@ export function statics(env: Env, s: GameState): LiveStatic[] {
     const d = def(ctx, s.stadium.card);
     for (const st of d.statics) out.push({ ...st, player: s.stadium.owner, slot: 0, bound: 0, src: s.stadium.card, kind: 'stadium' });
   }
+  const both: [Slot[], Slot[]] = [allSlots(s.p[0]), allSlots(s.p[1])]; // the Pokémon in play, gathered once for the passes below
   const toolsOff = toolsDisabled(env, s); // lane:fighting
   for (const p of [0, 1] as Player[]) {
-    for (const sl of allSlots(s.p[p])) {
+    for (const sl of both[p]) {
       for (const t of toolsOff ? [] : sl.tools) {
         for (const st of def(ctx, t).statics) out.push({ ...st, player: p, slot: sl.id, bound: 0, src: t, kind: 'tool' });
       }
@@ -51,8 +72,9 @@ export function statics(env: Env, s: GameState): LiveStatic[] {
     }
   }
   // Statics printed on a Pokémon card itself (not in an Ability): never switched off by "no Abilities" effects.
-  for (const p of [0, 1] as Player[]) {
-    for (const sl of allSlots(s.p[p])) {
+  const src = sources(ctx);
+  if (src.card) for (const p of [0, 1] as Player[]) {
+    for (const sl of both[p]) {
       const d = def(ctx, topCard(sl));
       if (d.coverage !== 'full' || d.kind !== 'pokemon') continue;
       for (const st of d.script?.statics ?? []) out.push({ ...st, player: p, slot: sl.id, bound: 0, src: topCard(sl), kind: 'card' });
@@ -73,8 +95,8 @@ export function statics(env: Env, s: GameState): LiveStatic[] {
     });
   }
   const pre = out.length;
-  for (const p of [0, 1] as Player[]) {
-    for (const sl of allSlots(s.p[p])) {
+  if (src.ability) for (const p of [0, 1] as Player[]) {
+    for (const sl of both[p]) {
       const d = def(ctx, topCard(sl));
       if (d.coverage !== 'full') continue;
       for (const ab of d.abilities) {
@@ -165,9 +187,20 @@ export function affectsPlayer(x: LiveStatic, p: Player): boolean {
   return false;
 }
 
+const NONE: LiveStatic[] = []; // shared: callers only read the result
+
 function onSlot(env: Env, s: GameState, all: LiveStatic[], slot: Slot, k: StaticEffect['k']): LiveStatic[] {
-  const owner = s.p[0].active === slot || s.p[0].bench.includes(slot) ? 0 : 1;
-  return all.filter((x) => x.effect.k === k && affectsSlot(env, s, x, slot, owner as Player));
+  // Most queries ask for a kind nothing in play has: find the first of the kind before working out whose Pokémon this is.
+  let i = 0;
+  while (i < all.length && (all[i] as LiveStatic).effect.k !== k) i++;
+  if (i === all.length) return NONE;
+  const owner = (s.p[0].active === slot || s.p[0].bench.includes(slot) ? 0 : 1) as Player;
+  const out: LiveStatic[] = [];
+  for (; i < all.length; i++) {
+    const x = all[i] as LiveStatic;
+    if (x.effect.k === k && affectsSlot(env, s, x, slot, owner)) out.push(x);
+  }
+  return out;
 }
 
 /** lane:zoroark — the live `surviveKoAtFullHp` effects on a Pokémon (Survival Brace). */

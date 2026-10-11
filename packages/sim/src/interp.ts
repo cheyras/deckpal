@@ -375,13 +375,14 @@ export function queueTriggers(
   seen?: Set<string>,
 ): void {
   const sources = [topCard(slot), ...(toolsDisabled(env, s) ? [] : slot.tools), ...slot.energy]; // lane:misc energy triggers; lane:fighting Jamming Tower
-  const noAb = hasNoAbilities(env, s, slot);
+  let noAb: boolean | undefined; // computed only when the Pokemon's own card has a trigger for this event (it walks every static)
   for (const c of sources) {
     if (only !== undefined && c !== only) continue;
     const d = def(env.ctx, c);
     if (d.coverage !== 'full') continue;
     const isPokemon = c === topCard(slot);
-    if (isPokemon && noAb) continue;
+    if (isPokemon && !d.triggers.some((t) => t.t.on === on)) continue;
+    if (isPokemon && (noAb ??= hasNoAbilities(env, s, slot))) continue;
     for (const [ti, t] of d.triggers.entries()) {
       if (t.t.on !== on) continue;
       // "Once during your turn": a Pokémon's trigger used already this turn (a negative key in usedAbilities) is not offered again.
