@@ -129,6 +129,8 @@ export type Expr =
   | { countersOn: SlotRef }
   | { handSize: Who }
   | { deckSize: Who }
+  /** Open spaces on that player's Bench: how many more Pokémon it can hold (5, or more under a `benchSize` effect, less those there). */
+  | { benchRoom: Who }
   | { add: Expr[] }
   | { sub: [Expr, Expr] }
   | { mul: [Expr, Expr] }
@@ -170,7 +172,8 @@ export type Cond =
    * evolved) and Energy attached from the hand. Cards moved by an effect do not.
    */
   | { playedThisTurn: { filter: Filter; who?: Who } }
-  | { stadium: Filter | true }
+  /** A Stadium is in play (matching `Filter`); with `of`, one that player played ("if your opponent has a Stadium in play"). */
+  | { stadium: Filter | true; of?: Who }
   | { benchFull: Who }
   | { firstTurn: true }
   /** lane:ghost — a named, tested predicate registered with `registerCustomCond` (customs.ts). */
@@ -195,6 +198,22 @@ export type StaticEffect =
   | { k: 'attackCostC'; delta: Expr; attack?: string }
   /** Replace one attack's whole cost on the affected Pokémon. */
   | { k: 'attackCostSet'; attack: string; cost: PType[] }
+  /** Attacks of the affected Pokémon cost this many Energy fewer, of any type: the player leaves out that many requirements. */
+  | { k: 'attackCostLess'; n: number; attack?: string }
+  /** The affected Pokémon has no Weakness. */
+  | { k: 'noWeakness' }
+  /**
+   * From a Tool: the Pokémon it is attached to can use the attack(s) printed on the Tool (Technical Machine, Core Memory). The
+   * Energy cost is the attack's own (and any cost effects apply); the program runs as if printed on the Pokémon. Use `filter` for
+   * "The Mega Zygarde ex this card is attached to can use...". Switched off with the Tool by Jamming Tower.
+   */
+  | { k: 'grantsAttacks' }
+  /**
+   * The affected Pokémon may attack twice each turn (Festival Lead): after its attack it may attack once more, with a printed
+   * attack, including after the first one Knocked Out the Active Pokémon and the opponent has chosen a new one. Put the condition
+   * in the static's `when` ("If Festival Grounds is in play").
+   */
+  | { k: 'attackTwice' }
   /** The affected Pokémon's Weakness becomes this type (×2). */
   | { k: 'weaknessType'; type: PType }
   /** Damage the affected Pokémon's attacks do to the opponent's Active Pokémon (before W/R). */
@@ -250,6 +269,24 @@ export type StaticEffect =
   | { k: 'noAbilities' }
   /** The affected player can't play Item cards. */
   | { k: 'itemLock' }
+  /**
+   * The affected player can't play these cards from their hand: Stadium cards, Supporter cards, ACE SPEC cards (any Trainer or
+   * Energy with the ACE SPEC rule), or Pokémon to evolve their Pokémon ('evolve': evolving from the hand by their turn action or by
+   * Rare Candy). Player-level, like `itemLock`: scope 'me' / 'opp' / 'both', or as a timed effect on a player.
+   */
+  | { k: 'playLock'; what: PlayLock }
+  /**
+   * Prevent all effects of Item and/or Supporter cards the OPPONENT plays from their hand that are done to the affected Pokémon
+   * ("Whenever your opponent plays a Supporter card from their hand, prevent all effects of that card done to this Pokémon").
+   */
+  | { k: 'preventTrainerEffects'; from: ('item' | 'supporter')[] }
+  /**
+   * Each player who has any Pokémon matching `withPokemon` in play (any player, without it) can have up to `size` Pokémon on their
+   * Bench instead of 5 (Area Zero Underdepths: "Each player who has any Tera Pokémon in play can have up to 8 Pokémon on their
+   * Bench"). Player-level (scope 'both' from a Stadium). The largest size that applies wins. When it stops applying, a player with
+   * too many Benched Pokémon discards down to the limit (see flow.ts `enforceBenchLimit`).
+   */
+  | { k: 'benchSize'; size: number; withPokemon?: Filter }
   /** Damage counters on Pokémon can't be moved (Watchful Eye). */
   | { k: 'countersFixed' }
   // lane:misc — Togekiss, Wonder Kiss: "When your opponent's Active Pokémon is Knocked Out, (flip a coin. If heads,)
@@ -328,6 +365,9 @@ export interface StaticDef {
   when?: Cond;
 }
 
+/** What a `playLock` stops a player playing from their hand. */
+export type PlayLock = 'stadium' | 'supporter' | 'aceSpec' | 'evolve';
+
 export type Duration = 'thisTurn' | 'oppNextTurn' | 'myNextTurn';
 
 /** What a `react` timed effect waits for. */
@@ -391,7 +431,7 @@ export type Step =
   | { op: 'damage'; amount: Expr; to?: SlotRef | { each: SlotZone; filter?: Filter } | { v: string }; ignore?: DamageIgnore /* lane:fighting */ }
   /** Place damage counters: no Weakness, Resistance or damage modifiers. */
   | { op: 'counters'; n: Expr; to: SlotRef | { each: SlotZone; filter?: Filter } }
-  | { op: 'heal'; amount: Expr; to: SlotRef }
+  | { op: 'heal'; amount: Expr; to: SlotRef | { each: SlotZone; filter?: Filter } }
   | {
       op: 'condition';
       cond: SpecialCondition;
@@ -449,6 +489,8 @@ export type Program = Step[];
 
 /** How a card definition's damage number is computed (default: the printed number). */
 export interface AttackScript {
+  /** "You can use this attack only if ...": the attack is not offered unless this holds (evaluated for the attacking Pokémon). */
+  usable?: Cond;
   /** "If you go first, you can use this attack during your first turn": the attack is also usable on turn 1 (the first player's first turn). */
   firstTurn?: boolean;
   /** Steps before damage (costs paid by the attack, coin flips that set damage). */
@@ -498,7 +540,19 @@ export type TriggerOn =
    * moved in `__target` and its replacement is the opponent's Active Pokémon. `when` is checked as the move happens, so a
    * Pokémon that becomes Active in the same switch has not been Active when it moved (TPCi Rules Team 2026-04-16, ruling 2339).
    */
-  | 'oppActiveMovedToBench';
+  | 'oppActiveMovedToBench'
+  /**
+   * This Pokémon was damaged by an attack from the opponent's Pokémon, wherever it is (Active or Benched), even if it is Knocked
+   * Out by it. The program runs once the attack has resolved; `{ v: '__attacker' }` is the Attacking Pokémon (Orthworm ex,
+   * Pummeling Payback). Not for damage that was prevented or reduced to 0 (that is `damageReduced`).
+   */
+  | 'damagedByAttack'
+  /**
+   * For a Tool: an effect of THIS card reduced damage from an attack done to the Pokémon it is attached to, Active or Benched, even
+   * to 0 (the Berries: "it takes 60 less damage..., and discard this card"). Fires for the card whose static (a `damageIn` with a
+   * negative amount) took effect, once per damage instance, when the attack has resolved.
+   */
+  | 'damageReduced';
 
 export interface TriggerScript {
   on: TriggerOn;

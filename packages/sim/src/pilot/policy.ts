@@ -506,7 +506,10 @@ function mainChoice(b: Board, d: Decision): number[] {
     let aDmg = -1;
     acts.forEach((a, i) => {
       if (a.t !== 'attack' || !ps.active || !them.active) return;
-      const dmg = attackDamageAt(env, s, ps.active, p, a.idx, them.active, all, b.viewer);
+      const dmg =
+        a.card === undefined
+          ? attackDamageAt(env, s, ps.active, p, a.idx, them.active, all, b.viewer)
+          : attackDamageWithDef(env, s, def(env.ctx, a.card), a.idx, ps.active, p, them.active, all, b.viewer);
       if (dmg > aDmg) {
         aDmg = dmg;
         ai = i;
@@ -559,6 +562,13 @@ export function policyChoose(env: Env, s: GameState, d: Decision, profile: Polic
     case 'cards':
       return chooseCards(b, d, askContext(env, s));
     case 'slots':
+      if (s.pending?.resume.k === 'benchDiscard') {
+        // A Bench that is too big: discard the Pokémon worth least.
+        const ids = d.values as number[];
+        const worth = ids.map((id, i) => ({ i, v: activeValue(b, allSlots(s.p[d.player]).find((x) => x.id === id) as Slot) }));
+        worth.sort((x, y) => x.v - y.v);
+        return worth.slice(0, d.min).map((x) => x.i);
+      }
       return chooseSlots(b, d, askContext(env, s));
     case 'option':
       return chooseOption(b, d, askContext(env, s));

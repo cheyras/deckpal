@@ -276,7 +276,17 @@ Ability, a Tool, a Stadium or an Energy, and it holds while its source is in pla
   Clefairy ex), `damageOut`, `damageIn`, `hp`, `cantAttack`, `cantRetreat`,
   `noAbilities`, `itemLock`, `countersFixed` (Patrat), `cantUseAttack` (Mega Lucario ex,
   Mega Brave), `extraPrize` (Togekiss, Wonder Kiss), `loseSelfKoAbilities` (Psyduck, Damp),
-  `noToolEffects` (Jamming Tower).
+  `noToolEffects` (Jamming Tower). Added with std-engine4: `benchSize` (Area Zero Underdepths: `size: 8,
+  withPokemon: { tera: true }`, scope `both`; the engine discards a Bench down to the limit when it stops
+  applying, the Stadium's player first), `noWeakness` (Archaludon ex, a timed effect), `attackCostLess`
+  ("costs 1 Energy less", any type: Sparkling Crystal; `canPayAttack` leaves a requirement out),
+  `grantsAttacks` (a Tool whose printed attack the holder can use: Technical Machine, Core Memory; the Tool's
+  `attacks` script is the attack's program, and `filter` limits it to a Pokémon), `attackTwice` (Festival
+  Lead, with the Stadium as the static's `when`; a second attack must be a printed one), `playLock`
+  (`what`: `stadium`, `supporter`, `aceSpec`, `evolve`; player-level like `itemLock`), and
+  `preventTrainerEffects` (Item / Supporter effects the opponent plays done to the Pokémon; Unnerve, Wide Wall).
+  An attack can carry `usable: Cond` ("You can use this attack only if ..."), `heal` takes
+  `{ each: zone, filter }`, the `stadium` condition takes `of` (whose Stadium) and `{ benchRoom: who }` counts open Bench spaces.
 - **Say whose attacks.** `damageIn` applies to damage from *every* attack unless `fromOpp: true`.
   If the card says "from attacks from your opponent's Pokémon", set it (Full Metal Lab, Iron
   Defender, Antique Armor Fossil). The round trip caught Protective Armor without it.
@@ -294,7 +304,9 @@ Ability, a Tool, a Stadium or an Energy, and it holds while its source is in pla
 A **trigger** is `TriggerScript { on, when?, optional?, program }`: `attachFromHand`
 (an Energy's own script; Telepathic gates on `slotIs self {type: Psychic}`),
 `playToBench` (Meowth ex), `evolveFromHand` (Kadabra), `damagedByAttackActive` (Lucky Helmet),
-`knockedOutByAttack`, `checkup` (Froslass), `endOfTurn` (Powerglass, Ignition Energy; only the
+`knockedOutByAttack`, `damagedByAttack` (the damaged Pokémon wherever it is, Knocked Out or not: Orthworm ex; the
+Attacking Pokémon is `{ v: '__attacker' }`), `damageReduced` (a Tool whose `damageIn` reduced the damage, even to 0, even
+on the Bench: the Berries; discards itself with `discardThisCard`), `checkup` (Froslass), `endOfTurn` (Powerglass, Ignition Energy; only the
 current player's Pokémon), `pokemonBenched` (a Stadium: Risky Ruins; `self` is the benched
 Pokémon), `oppAttachFromHand` (Gengar ex, Gnawing Curse; the Pokémon is in `{ v: '__target' }`).
 `optional: true` is "you may".

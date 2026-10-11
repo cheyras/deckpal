@@ -15,14 +15,17 @@ import { applyCondition, queueOppAttachTriggers, queueStadiumBench, queueTrigger
 import {
   abilityLost,
   attackIsFrom,
+  attackOptions,
+  benchLimit,
+  canAttackTwice,
+  canPayAttack,
+  playLocked,
   extraPrizeEffects,
   koPrizeEffects,
   surviveKoCoinFlips,
   attackBlocked, // lane:fighting
   attackCoinFlips,
-  attackCost,
   canAttachFromHand,
-  canPay,
   conditionImmune,
   cantAttack,
   cantRetreat,
@@ -157,6 +160,21 @@ export function submit(env: Env, s: GameState, choice: number[]): void {
         emit(env, { type: 'play_to_bench', player: r.p, card, slot: sl.id });
       }
       s.step = r.p === 0 ? 'place1' : 'prizes';
+      break;
+    }
+    case 'benchDiscard': {
+      // Pokémon put in the discard pile from the Bench with everything attached: not Knocked Out, no Prize cards.
+      const ps = s.p[r.p];
+      for (const i of choice) {
+        const sl = ps.bench.find((b) => b.id === (d.values as number[])[i]);
+        if (!sl) continue;
+        ps.bench = ps.bench.filter((b) => b !== sl);
+        const cards = slotCards(sl);
+        ps.discard.push(...cards);
+        s.effects = s.effects.filter((x) => x.slot !== sl.id);
+        if (s.delayed?.length) s.delayed = s.delayed.filter((x) => x.slot !== sl.id);
+        emit(env, { type: 'discard', player: r.p, cards });
+      }
       break;
     }
     case 'promote': {
@@ -373,6 +391,9 @@ function turnStep(env: Env, s: GameState): void {
       ps.stadiumAbilityUsed = false;
       ps.globalAbilitiesUsed = [];
       ps.playedThisTurn = [];
+      delete s.attackUses; // attack bookkeeping of the turn before (absent = none yet)
+      delete s.attackedViaTool;
+      delete s.noMoreAttacks;
       ps.prizesAtTurnStart = ps.prizesTaken;
       for (const sl of allSlots(ps)) sl.usedAbilities = [];
       s.attacked = false;
@@ -392,9 +413,14 @@ function turnStep(env: Env, s: GameState): void {
     }
     case 'main': {
       if (s.attacked) {
-        s.afterKo = 'endTurn';
-        s.step = 'ko';
-        return;
+        // An attack ends the turn, unless the Pokémon may attack again (Festival Lead) and can: Knock Outs and the new Active
+        // Pokémon are settled by now, so "after your opponent chooses a new Active Pokémon" is this decision.
+        if (attackAgainAvailable(env, s)) s.attacked = false;
+        else {
+          s.afterKo = 'endTurn';
+          s.step = 'ko';
+          return;
+        }
       }
       const actions = legalActions(env, s, s.current);
       s.pending = {
@@ -466,13 +492,45 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
     return true;
   };
   const locked = itemLocked(env, s, p, all);
+  const room = benchLimit(env, s, p, all);
+  const act = ps.active;
+
+  // Attacks: not on the first player's first turn (unless the attack says "if you go first, you can use this attack during your
+  // first turn"); not while Asleep/Paralyzed. Attacks printed on an attached Tool count (a Technical Machine). After an attack, a
+  // Pokémon that may attack twice has only a second attack (a printed one: Festival Lead doesn't work with a Technical Machine,
+  // TPCi Rules Team 2024-05-23, ruling 1974) or ending the turn.
+  const attacked = (s.attackUses ?? 0) > 0;
+  const attacks = (): void => {
+    if (!act || act.cond & (ASLEEP | PARALYZED) || cantAttack(env, s, act, all)) return;
+    if (attacked && !secondAttackOpen(env, s, act, all)) return;
+    const units = energyUnits(env, act);
+    for (const o of attackOptions(env, s, act, all)) {
+      if (attacked && o.card !== undefined) continue;
+      const sc = o.d.coverage === 'full' ? o.d.script?.attacks?.[o.atk.name] : undefined;
+      if (s.turn === 1 && !sc?.firstTurn) continue;
+      if (sc?.usable && !evalCond(env, s, { player: p, slot: act.id, vars: {} }, sc.usable)) continue;
+      if (attackBlocked(env, s, act, o.atk.name, all)) continue; // lane:fighting
+      if (canPayAttack(env, s, act, o.idx, units, all, o.card)) out.push(o.card === undefined ? { t: 'attack', idx: o.idx } : { t: 'attack', idx: o.idx, card: o.card });
+    }
+  };
+  if (attacked) {
+    attacks();
+    out.push({ t: 'end' });
+    return out;
+  }
+
+  const noStadium = playLocked(env, s, p, 'stadium', all);
+  const noSupporter = playLocked(env, s, p, 'supporter', all);
+  const noAce = playLocked(env, s, p, 'aceSpec', all);
+  const noEvolve = playLocked(env, s, p, 'evolve', all);
 
   for (const c of ps.hand) {
     const d = def(env.ctx, c);
+    if (d.aceSpec && noAce && d.kind !== 'pokemon') continue; // "your opponent can't play any ACE SPEC cards from their hand"
     if (d.kind === 'pokemon') {
       if (d.stage === 0) {
-        if (ps.bench.length < 5 && once(`b${d.idx}`)) out.push({ t: 'bench', card: c });
-      } else if (!ownFirstTurn(s, p)) {
+        if (ps.bench.length < room && once(`b${d.idx}`)) out.push({ t: 'bench', card: c });
+      } else if (!ownFirstTurn(s, p) && !noEvolve) {
         for (const sl of slots) {
           const top = def(env.ctx, topCard(sl));
           if (top.name !== d.evolvesFrom) continue;
@@ -489,16 +547,17 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
       if (d.playable && !evalCond(env, s, { player: p, slot: 0, vars: { __src: c } }, d.playable)) continue;
       if (d.script?.fix?.playAsBasic) {
         // lane:ghost — played onto the Bench as a Basic Pokémon; still an Item, so Item locks stop it.
-        if (!locked && ps.bench.length < 5 && once(`b${d.idx}`)) out.push({ t: 'bench', card: c });
+        if (!locked && ps.bench.length < room && once(`b${d.idx}`)) out.push({ t: 'bench', card: c });
         continue;
       }
       if (d.ttype === 'item') {
-        if (!locked && once(`t${d.idx}`)) out.push({ t: 'trainer', card: c });
+        // Rare Candy plays a Stage 2 from the hand to evolve: stopped by a lock on evolving from the hand too.
+        if (!locked && !(noEvolve && evolvesFromHand(d)) && once(`t${d.idx}`)) out.push({ t: 'trainer', card: c });
       } else if (d.ttype === 'supporter') {
         // lane:metal: `firstTurnSupporter` (Carmine) lifts the first player's turn-1 ban.
-        if (!ps.supporterPlayed && (s.turn !== 1 || d.script?.firstTurnSupporter) && once(`t${d.idx}`)) out.push({ t: 'trainer', card: c });
+        if (!noSupporter && !ps.supporterPlayed && (s.turn !== 1 || d.script?.firstTurnSupporter) && once(`t${d.idx}`)) out.push({ t: 'trainer', card: c });
       } else if (d.ttype === 'stadium') {
-        if (ps.stadiumPlayed) continue;
+        if (ps.stadiumPlayed || noStadium) continue;
         if (s.stadium && def(env.ctx, s.stadium.card).name === d.name) continue;
         if (once(`t${d.idx}`)) out.push({ t: 'trainer', card: c });
       } else if (d.ttype === 'tool') {
@@ -512,7 +571,6 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
   }
 
   // Retreat: once a turn; not while Asleep or Paralyzed; pay the cost in Energy.
-  const act = ps.active;
   if (act && ps.bench.length && !ps.retreated && !(act.cond & (ASLEEP | PARALYZED)) && !cantRetreat(env, s, act, all)) {
     if (energyUnits(env, act).length >= retreatCost(env, s, act, all)) out.push({ t: 'retreat' });
   }
@@ -542,20 +600,32 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
     }
   }
 
-  // Attacks: not on the first player's first turn (unless the attack says "if you go first, you can use this attack during your
-  // first turn"); not while Asleep/Paralyzed.
-  if (act && !(act.cond & (ASLEEP | PARALYZED)) && !cantAttack(env, s, act, all)) {
-    const d = def(env.ctx, topCard(act));
-    const units = energyUnits(env, act);
-    d.attacks.forEach((_atk, i) => {
-      if (s.turn === 1 && !(d.coverage === 'full' && d.script?.attacks?.[_atk.name]?.firstTurn)) return;
-      if (attackBlocked(env, s, act, _atk.name, all)) return; // lane:fighting
-      if (canPay(attackCost(env, s, act, i, all), units)) out.push({ t: 'attack', idx: i });
-    });
-  }
+  attacks();
 
   out.push({ t: 'end' });
   return out;
+}
+
+/** A Trainer that plays a Pokémon from the hand to evolve one (Rare Candy), found from its script. */
+const EVOLVES_FROM_HAND = new WeakMap<object, boolean>();
+function evolvesFromHand(d: { script: { play?: unknown } | null }): boolean {
+  let v = EVOLVES_FROM_HAND.get(d);
+  if (v === undefined) EVOLVES_FROM_HAND.set(d, (v = JSON.stringify(d.script?.play ?? []).includes('"fn":"rareCandy"')));
+  return v;
+}
+
+/**
+ * May the Pokémon in the Active Spot attack a second time this turn: it attacked once (with a printed attack), it is still the
+ * Active Pokémon that attacked, no effect ended the turn, and an `attackTwice` effect is in force right now.
+ */
+function secondAttackOpen(env: Env, s: GameState, act: Slot, all: ReturnType<typeof statics>): boolean {
+  return (s.attackUses ?? 0) === 1 && !s.noMoreAttacks && !s.attackedViaTool && s.attackBy === act.id && canAttackTwice(env, s, act, all);
+}
+
+/** After an attack: is a second attack on offer to the current player? */
+function attackAgainAvailable(env: Env, s: GameState): boolean {
+  if ((s.attackUses ?? 0) !== 1 || s.noMoreAttacks) return false;
+  return legalActions(env, s, s.current).some((a) => a.t === 'attack');
 }
 
 // ---------------------------------------------------------------------------
@@ -635,7 +705,11 @@ function doAction(env: Env, s: GameState, a: Action): void {
       if (d.ttype === 'supporter') ps.supporterPlayed = true;
       if (d.ttype === 'stadium') {
         ps.stadiumPlayed = true;
-        if (s.stadium) s.p[s.stadium.owner].discard.push(s.stadium.card);
+        if (s.stadium) {
+          // A Stadium that changes Bench sizes leaves: its player is the one who discards first (enforceBenchLimit).
+          if (def(env.ctx, s.stadium.card).statics.some((x) => x.effect.k === 'benchSize')) s.benchOwner = s.stadium.owner;
+          s.p[s.stadium.owner].discard.push(s.stadium.card);
+        }
         s.stadium = { card: a.card, owner: p };
         emit(env, { type: 'play_stadium', player: p, card: a.card });
         if (d.playCode) pushFrame(s, { code: d.playCode, vars: {}, player: p, src: a.card, slot: 0, kind: 'stadium' });
@@ -682,10 +756,13 @@ function doAction(env: Env, s: GameState, a: Action): void {
     }
     case 'attack': {
       const act = ps.active as Slot;
-      const d = def(env.ctx, topCard(act));
+      // An attack printed on an attached Tool (`card`) runs as if printed on the Pokémon.
+      const d = def(env.ctx, a.card ?? topCard(act));
       const atk = d.attacks[a.idx];
       if (!atk) return;
       s.attacked = true;
+      s.attackUses = (s.attackUses ?? 0) + 1;
+      s.attackedViaTool = a.card !== undefined;
       s.attackHits = []; // lane:fighting
       s.attackBy = act.id;
       s.attackByCard = topCard(act);
@@ -811,8 +888,47 @@ function stripImmuneConditions(env: Env, s: GameState): void {
   }
 }
 
+/**
+ * A player with more Benched Pokémon than their Bench allows (a Stadium that raised the limit left, or the Pokémon that made them
+ * eligible did) discards Benched Pokémon of their choice down to it (Area Zero Underdepths: "If a player no longer has any Tera
+ * Pokémon in play, that player discards Pokémon from their Bench until they have 5. When this card leaves play, both players
+ * discard ..., and the player who played this card discards first"). Returns true when a decision is pending.
+ */
+function enforceBenchLimit(env: Env, s: GameState): boolean {
+  const owner = s.stadium && def(env.ctx, s.stadium.card).statics.some((x) => x.effect.k === 'benchSize') ? s.stadium.owner : undefined;
+  if (owner !== undefined) s.benchOwner = owner;
+  if (s.p[0].bench.length <= 5 && s.p[1].bench.length <= 5) {
+    if (owner === undefined) delete s.benchOwner;
+    return false;
+  }
+  const all = statics(env, s);
+  const first = owner ?? s.benchOwner ?? s.current;
+  for (const p of [first, opp(first)] as Player[]) {
+    const ps = s.p[p];
+    const excess = ps.bench.length - benchLimit(env, s, p, all);
+    if (excess <= 0) continue;
+    s.pending = {
+      decision: {
+        player: p,
+        kind: 'slots',
+        prompt: `Discard ${excess} Benched Pokémon`,
+        min: excess,
+        max: excess,
+        values: ps.bench.map((b) => b.id),
+      },
+      resume: { k: 'benchDiscard', p },
+    };
+    return true;
+  }
+  if (owner === undefined) delete s.benchOwner;
+  return false;
+}
+
 function resolveKOs(env: Env, s: GameState): void {
   stripImmuneConditions(env, s);
+  // A Bench that is too big is dealt with first, before Knock Outs: a Pokémon with lethal damage may be the one discarded (TPCi Rules
+  // Team 2026-03-12, ruling 2305).
+  if (enforceBenchLimit(env, s)) return;
   // 1. Every Pokémon with damage ≥ its HP is Knocked Out (simultaneously).
   const ko: { owner: Player; slot: Slot; prizes: number }[] = [];
   // Gather the live statics once: maxHp's default recomputes them per Pokémon, and this runs after
@@ -892,6 +1008,9 @@ function resolveKOs(env: Env, s: GameState): void {
   }
   // A Pokémon can also leave play without a Knock Out (shuffled into the deck): same win check.
   if (!ko.length && [0, 1].some((p) => !s.p[p as Player].active && !s.p[p as Player].bench.length) && checkWin(env, s)) return;
+  // A Bench left too big by the Knock Outs (the only Tera Pokémon was Knocked Out) is cut down before the new Active Pokémon is
+  // chosen (TPCi Rules Team 2024-09-12, ruling 2026; 2025-04-03, rulings 2131 and 2132).
+  if (enforceBenchLimit(env, s)) return;
   // 3. Promote: a player with no Active and a Bench must promote.
   for (const p of [opp(s.current), s.current] as Player[]) {
     const ps = s.p[p];

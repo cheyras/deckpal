@@ -217,6 +217,13 @@ test('every static effect, scope and trigger renders', () => {
     noToolEffects: { k: 'noToolEffects' },
     preventCounters: { k: 'preventCounters', from: ['attack', 'ability'] }, // lane:darkrai
     surviveKoAtFullHp: { k: 'surviveKoAtFullHp' }, // lane:zoroark
+    benchSize: { k: 'benchSize', size: 8, withPokemon: { tera: true } },
+    noWeakness: { k: 'noWeakness' },
+    attackCostLess: { k: 'attackCostLess', n: 1 },
+    grantsAttacks: { k: 'grantsAttacks' },
+    attackTwice: { k: 'attackTwice' },
+    playLock: { k: 'playLock', what: 'stadium' },
+    preventTrainerEffects: { k: 'preventTrainerEffects', from: ['item', 'supporter'] },
   };
   const SCOPES: Scope[] = ['self', 'myActive', 'myBench', 'myPokemon', 'oppActive', 'oppBench', 'oppPokemon', 'allPokemon', 'me', 'opp', 'both'];
   for (const [k, effect] of Object.entries(EFFECTS)) {
@@ -239,6 +246,8 @@ test('every static effect, scope and trigger renders', () => {
     oppAttachFromHand: true,
     movedToBench: true,
     oppActiveMovedToBench: true,
+    damagedByAttack: true,
+    damageReduced: true,
   };
   for (const on of Object.keys(ON) as TriggerOn[]) {
     const t: TriggerScript = { on, optional: on === 'playToBench', when: { firstTurn: true }, program: [{ op: 'draw', n: 1 }] };
@@ -286,6 +295,7 @@ test('every expression and condition renders', () => {
     { countersOn: 'defender' },
     { handSize: 'opp' },
     { deckSize: 'self' },
+    { benchRoom: 'opp' },
     { add: [1, { v: 'h' }] },
     { sub: [5, { pokemon: { zone: 'myBench' } }] },
     { mul: [2, { handSize: 'self' }] },
@@ -312,6 +322,8 @@ test('every expression and condition renders', () => {
     { cardIs: { v: 'x', filter: { stage: 'stage2', type: ['Fire', 'Water'] } } },
     { slotIs: { ref: 'defender', filter: { mega: true } } },
     { onBench: 'self' },
+    { stadium: true, of: 'opp' },
+    { stadium: { name: 'Festival Grounds' }, of: 'self' },
     { gte: [{ deckSize: 'opp' }, 1] },
     { custom: 'countersMovable' },
     { gte: [{ pokemon: { zone: 'myPokemon', filter: { energy: { basicEnergy: false }, tool: true, condition: 'burned', energized: true } } }, 1] },
