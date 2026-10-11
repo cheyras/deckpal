@@ -438,6 +438,16 @@ No collection or account records are attached. Its spend is recorded under the a
 - it is read only on continuation legs;
 - it can never select Claude Opus 5.5.
 
+The deck widget's Save is the reader's own click, not a model write, so it has no
+approval card — which makes WHICH deck it writes over the thing to guard. When
+`showDeck` names a `deck_id`, the server resolves it among the reader's own decks
+with their token (RLS) before the widget may offer "Save as new version", and the
+button names the stored deck, never a model-written label. That target (`base`) is
+server-only: `showScreen`'s schema has no field for it and `sanitizeScreen` strips
+it from any deck block. `POST /decks/save` checks ownership again (`404` for any
+deck that is not the caller's), and the version save always lands as a new
+version, so the list it replaced stays in the deck's history and can be reverted.
+
 **Jev is a data processor under Vercel's zero-retention agreement with TypeSafe** (verified 2026-09-27).
 With `DECKE_JEV=on`, each reader message is judged by `typesafe-ai/jev` (TypeSafe
 AI, San Francisco) through the Vercel AI Gateway before Deck-E answers

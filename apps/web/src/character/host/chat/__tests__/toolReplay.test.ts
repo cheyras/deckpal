@@ -164,3 +164,12 @@ test('nothing else is settled: no output yet, a decline, another tool, an earlie
   assert.deepEqual(settleApprovedCalls(older, outputs), older)
   assert.deepEqual([...RESULT_REPLAYED_APPROVALS], ['deep_think'])
 })
+
+test('a version saved from the widget tells him which version it landed on, or that nothing changed', () => {
+  assert.deepEqual(savedDeckRecord({ name: 'Dragapult ex', total: 60, id: 'deck-9', version: { number: 3, changed: true } }), {
+    type: 'text',
+    text: '[the reader saved this list from the deck widget as v3 of their deck "Dragapult ex" — 60 cards, deck id deck-9]',
+  })
+  assert.match(savedDeckRecord({ name: 'Dragapult ex', total: 60, id: 'deck-9', version: { number: 2, changed: false } }).text,
+    /already matched v2, so nothing changed — deck id deck-9/)
+})
