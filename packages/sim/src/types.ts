@@ -108,6 +108,8 @@ export interface CardDef {
   triggers: { t: TriggerScript; code: string }[];
   /** An Ability or card text that makes this Pokémon other types ("it is {F} and {P} type"): see StaticEffect `types`. */
   typeFix?: { types: PType[]; add: boolean };
+  /** The printed "Ancient" / "Future" tag of this PRINTING (src/cards/tags.ts), or null. See Filter `tag`. */
+  tag: 'Ancient' | 'Future' | null;
   /** Printed text, joined, for the round-trip check and the debug view. */
   text: string;
   script: CardScript | null;
@@ -152,6 +154,10 @@ export interface Slot {
   /** Damage from opposing attacks this Pokémon took in turn `attackDmgTurn` (a running total for that turn). */
   attackDmgTurn?: number;
   attackDmg?: number;
+  /** Damage counters Poison places at each Checkup, when not 1 (while Poisoned; every application of Poison sets or clears it). */
+  poisonCounters?: number;
+  /** Damage counters a failed Confusion flip places, when not 3 (while Confused; every application of Confusion sets or clears it). */
+  confusionCounters?: number;
 }
 
 /** A program scheduled for the end of a turn (the `delay` step). */
@@ -248,6 +254,10 @@ export interface TimedEffect {
   filter?: import('./dsl.js').Filter;
   /** Player-level effect that covers that player's Pokémon (see the `effect` step's `scope`). */ // lane:metal
   scope?: import('./dsl.js').Scope;
+  /** A `react` effect: its compiled program (key in GameContext.code), the player who controls it and the Pokémon slot it came from. */
+  code?: string;
+  by?: Player;
+  from?: number;
 }
 
 export type Phase = 'setup' | 'main' | 'over';

@@ -40,6 +40,7 @@ export function defMatches(d: CardDef, f: Filter | undefined): boolean {
     if (f.stage === 'evolution' && d.stage === 0) return false;
   }
   if (f.ruleBox !== undefined && (d.kind !== 'pokemon' || d.ruleBox !== f.ruleBox)) return false;
+  if (f.tag && d.tag !== f.tag) return false;
   if (f.ex !== undefined && d.ex !== f.ex) return false;
   if (f.mega !== undefined && d.mega !== f.mega) return false;
   if (f.tera !== undefined && d.tera !== f.tera) return false;

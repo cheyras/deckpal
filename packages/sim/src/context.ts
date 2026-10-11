@@ -5,7 +5,7 @@
  */
 import { compile, type Op } from './compile.js';
 import type { CardScript, Program, StaticDef, Step } from './dsl.js';
-import { buildDef, textKey } from './cards/frame.js';
+import { buildDef, defKey } from './cards/frame.js';
 import { scriptFor } from './cards/registry.js';
 import type { CardDef, CardFrame, EngineOptions, GameEvent, Player } from './types.js';
 
@@ -66,7 +66,7 @@ export function createContext(a: DeckInput, b: DeckInput, opts: EngineOptions = 
   const decks: [DeckInput, DeckInput] = [a, b];
   decks.forEach((deck, p) => {
     for (const e of deck.cards) {
-      const key = textKey(e.frame);
+      const key = defKey(e.frame);
       let di = byKey.get(key);
       if (di === undefined) {
         di = defs.length;

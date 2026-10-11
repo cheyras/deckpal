@@ -136,6 +136,9 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'seed2.tormentDefender': () =>
     "Choose 1 of your opponent's Active Pokémon's attacks. During your opponent's next turn, that Pokémon can't use that attack",
   'seed2.energyToHand': () => 'Put an Energy attached to this Pokémon into your hand',
+  // std-engine3-customs.ts
+  'engine3.discardOppToolsAndSpecial': () =>
+    "Discard all Pokémon Tools and all Special Energy attached to all of your opponent's Pokémon, Active and Benched, each card to its owner's discard pile (Basic Energy stays; a Pokémon protected from the effects of attacks is left alone)",
   // std-engine-customs.ts
   'stdEngine.discardDefender': () => 'Discard the Defending Pokémon (the Pokémon this effect was set on) and all cards attached to it; it is not Knocked Out',
   // std-seed3-customs.ts
@@ -367,7 +370,7 @@ export function noun(f: Filter = {}, inPlay = false): Noun {
     const ps = f.any.map((x) => noun(x, inPlay));
     return { sg: ps.map((p, i) => (i ? art(p.sg) : p.sg)).join(' or '), pl: ps.map((p) => p.pl).join(' or ') };
   }
-  const pre: string[] = [];
+  const pre: string[] = f.tag ? [f.tag] : []; // "Ancient Pokémon", "Future Supporter card"
   const types = f.type ? (Array.isArray(f.type) ? f.type : [f.type]).map(sym).join(' or ') : '';
   let head: Noun;
   const pokemonish =
@@ -738,6 +741,7 @@ class Renderer {
       return v.plural ? 'those Pokémon' : 'that Pokémon';
     }
     if (r.v === '__target') return 'that Pokémon'; // the Pokémon a trigger fired for (oppAttachFromHand)
+    if (r.v === '__attacker') return 'the Attacking Pokémon'; // the Pokémon whose attack damaged it (a damagedByAttack react effect)
     return `the Pokémon in "${r.v}"`;
   }
 
@@ -914,7 +918,7 @@ class Renderer {
           break;
         }
         case 'damage':
-          out.push(...this.damage(st.amount, base, st.to), ...ignoreSentence(st.ignore));
+          out.push(...this.damage(st.amount, base, st.to), ...ignoreSentence(st.ignore, this.many(st.to)));
           break;
         case 'counters': {
           const where = typeof st.to === 'object' && 'each' in st.to ? `each of ${slotZoneNoun(st.to.each, st.to.filter)}` : this.ref(st.to as SlotRef);
@@ -927,9 +931,18 @@ class Renderer {
         case 'heal':
           out.push(`Heal ${this.num(st.amount)} damage from ${this.ref(st.to)}`);
           break;
-        case 'condition':
-          out.push(`${cap(this.ref(st.to))} is now ${CONDITION[st.cond]}`);
+        case 'condition': {
+          let t = `${cap(this.ref(st.to))} is now ${CONDITION[st.cond]}`;
+          // The amount the condition comes with: Poison's per Checkup (usually 1), a failed Confusion flip's (usually 3).
+          if (st.counters !== undefined) {
+            t +=
+              st.cond === 'poisoned'
+                ? `. During Pokémon Checkup, place ${st.counters} damage counters on that Pokémon instead of 1`
+                : `. Put ${st.counters} damage counters instead of 3 on that Pokémon for this Special Condition`;
+          }
+          out.push(t);
           break;
+        }
         case 'switch':
           out.push(this.switch(st));
           break;
@@ -999,6 +1012,15 @@ class Renderer {
         case 'end':
           out.push('This effect ends here');
           break;
+        case 'look': {
+          const what = st.n === 1 ? `the top card of ${zoneOf('deck', st.who)}` : `the top ${this.num(st.n)} cards of ${zoneOf('deck', st.who)}`;
+          out.push(`${st.reveal ? 'Reveal' : 'Look at'} ${what}${st.filter ? `. Find ${noun(st.filter).pl} among them` : ''}`);
+          this.vars.set(st.as, { k: 'cards', text: 'those cards', plural: st.n !== 1, zone: 'top', who: st.who, reveal: !!st.reveal, mentioned: true, done: st.filter ? 'found' : 'looked at' });
+          break;
+        }
+        case 'endTurn':
+          out.push('The turn ends');
+          break;
         default: {
           // A new clause in dsl.ts must get a rendering here: this line stops compiling until it does.
           const unrendered: never = st;
@@ -1007,6 +1029,11 @@ class Renderer {
       }
     }
     return eachPlayer(out);
+  }
+
+  /** Is this damage target several Pokémon chosen earlier ("2 of your opponent's Pokémon")? */
+  many(to: AttackScript['target']): boolean {
+    return !!to && typeof to === 'object' && 'v' in to && !!(this.vars.get(to.v) as { plural?: boolean } | undefined)?.plural;
   }
 
   private draw(n: Expr, who?: Who): string {
@@ -1149,8 +1176,22 @@ class Renderer {
       case 'damageIn':
         // The engine applies damageIn to every attack unless `fromOpp` is set, so only the flag says whose.
         return `${X} ${plural ? 'take' : 'takes'} ${Math.abs(e.amount)} ${e.amount < 0 ? 'less' : 'more'} damage from attacks${e.attacker ? ` from ${e.fromOpp ? "your opponent's " : ''}${noun(e.attacker, true).pl}` : e.fromOpp ? " from your opponent's Pokémon" : ''} (after applying Weakness and Resistance)${e.noStack ? `. The effect of ${e.noStack} doesn't stack` : ''}`;
-      case 'attackCoinFlip':
-        return `If ${x} tries to use an attack, ${/^your opponent/.test(x) ? 'your opponent' : 'you'} flip${/^your opponent/.test(x) ? 's' : ''} a coin. If tails, that attack doesn't happen`;
+      case 'attackCoinFlip': {
+        const n = e.coins ?? 1;
+        const them = /^your opponent/.test(x);
+        return `If ${x} tries to use an attack, ${them ? 'your opponent' : 'you'} flip${them ? 's' : ''} ${n === 1 ? 'a coin' : `${n} coins`}. If ${n === 1 ? '' : 'either of them is '}tails, that attack doesn't happen`;
+      }
+      case 'conditionImmunity':
+        return e.conditions
+          ? `${X} can't be ${e.conditions.map((c) => CONDITION[c]).join(' or ')}`
+          : `${X} ${plural ? 'recover' : 'recovers'} from all Special Conditions and can't be affected by any Special Conditions`;
+      case 'react': {
+        const who = x === "your opponent's Active Pokémon" ? 'the Defending Pokémon' : x;
+        const prog = lc(this.program(e.program));
+        return e.event === 'damagedByAttack'
+          ? `If ${who} is damaged by an attack (even if ${plural ? 'they are' : 'it is'} Knocked Out), ${prog}`
+          : `Whenever they attach an Energy card from their hand to ${who}, ${prog}`;
+      }
       case 'cantAttachFromHand': {
         const opp = /^your opponent/.test(x);
         const mine = x === 'you' || (!opp && /^your/.test(x));
@@ -1329,7 +1370,7 @@ export function renderAttack(a: AttackScript, printedDamage: string | null | und
     if (suffix && b === null && !(typeof a.damage === 'object' && 'mul' in a.damage)) problems.push(`printed "${printedDamage}" but the damage expression has no base number`);
     out.push(...r.damage(a.damage, base, a.target));
   } else if (a.target) out.push(...r.damage(base, base, a.target));
-  out.push(...ignoreSentence(a.ignore));
+  out.push(...ignoreSentence(a.ignore, r.many(a.target)));
   out.push(...r.steps(a.post ?? [], base));
   return join(out);
 }
@@ -1357,13 +1398,13 @@ function eachPlayer(out: string[]): string[] {
 }
 
 /** "This attack's damage isn't affected by Weakness or Resistance, or by any effects on your opponent's Active Pokémon." */
-function ignoreSentence(ig: DamageIgnore | undefined): string[] {
+function ignoreSentence(ig: DamageIgnore | undefined, many = false): string[] {
   if (!ig) return [];
   const parts: string[] = [];
   if (ig.weakness && ig.resistance) parts.push('Weakness or Resistance');
   else if (ig.weakness) parts.push('Weakness');
   else if (ig.resistance) parts.push('Resistance');
-  if (ig.defenderEffects) parts.push("any effects on your opponent's Active Pokémon");
+  if (ig.defenderEffects) parts.push(many ? 'any effects on those Pokémon' : "any effects on your opponent's Active Pokémon");
   return parts.length ? [`This attack's damage isn't affected by ${parts.join(', or by ')}`] : [];
 }
 
@@ -1806,6 +1847,15 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv08-025|attack:Leech Life': {
     problems: ['similarity'],
     why: '"The same amount of damage you did" is measured as the change in the Defending Pokémon\'s damage counters across the attack (snapshot before, difference after), so the renderer spells out the arithmetic instead of the printed phrase; the card test checks it heals exactly the damage dealt, after Weakness.',
+  },
+  // std-engine3
+  'sv06.5-009|attack:Suction': {
+    problems: ['similarity'],
+    why: 'The same arithmetic as Trevenant, Giga Drain (above): "the same amount of damage you did" is the change in the damage counters on the Defending Pokémon across the attack, so the renderer spells it out; the card test checks it heals exactly the damage dealt, after Weakness.',
+  },
+  'sv05-141|text': {
+    problems: ['"each" is printed but not rendered'],
+    why: '"Draw a card for each of your Ancient Pokémon in play" is a draw whose count is the number of those Pokémon; the renderer words a counted draw as "the number of ..." without "each", and the card test pins 1 and 2 cards (as for Mega Audino ex).',
   },
   // std-seed2
   'sv08-134|attack:Humming Charge': {

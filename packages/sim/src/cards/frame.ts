@@ -4,6 +4,7 @@
  */
 import type { CardScript, PType, Step } from '../dsl.js';
 import type { AbilityDef, AttackDef, CardDef, CardFrame, Coverage } from '../types.js';
+import { CARD_TAGS } from './tags.js';
 
 const TYPES: Record<string, PType> = {
   Grass: 'Grass',
@@ -84,6 +85,20 @@ export function textKey(f: CardFrame): string {
     ...(f.resistances ?? []).map((r) => `R:${r.type}${normModifier(r.value)}`),
   ];
   return parts.join('\u0001');
+}
+
+/** The tag a printing carries ("Ancient" / "Future"), or null. Per printing, not per text: see CARD_TAGS. */
+export function tagOf(f: CardFrame): 'Ancient' | 'Future' | null {
+  return CARD_TAGS[f.cardId] ?? null;
+}
+
+/**
+ * What makes two copies the same card DEFINITION in a game: the same game text (`textKey`) and the same tag. A script still
+ * serves every printing of a text, but a tagged printing and an untagged reprint of it are different definitions.
+ */
+export function defKey(f: CardFrame): string {
+  const t = tagOf(f);
+  return t ? `${textKey(f)}\u0002${t}` : textKey(f);
 }
 
 const BASIC_ENERGY = /^Basic (\w+) Energy$|^(\w+) Energy$/;
@@ -209,6 +224,7 @@ export function buildDef(idx: number, f: CardFrame, script: CardScript | null, c
     mega,
     tera: !!script?.fix?.tera,
     prizeValue,
+    tag: tagOf(f),
     attacks,
     abilities,
     ttype,

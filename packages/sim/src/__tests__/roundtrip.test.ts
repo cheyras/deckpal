@@ -166,7 +166,7 @@ test('every DSL step renders', () => {
     damage: { op: 'damage', amount: 30, to: { each: 'oppBench' }, ignore: { weakness: true, resistance: true, defenderEffects: true } },
     counters: { op: 'counters', n: 2, to: 'defender' },
     heal: { op: 'heal', amount: 30, to: 'self' },
-    condition: { op: 'condition', cond: 'poisoned', to: 'oppActive' },
+    condition: { op: 'condition', cond: 'poisoned', to: 'oppActive', counters: 16 },
     switch: { op: 'switch', who: 'self', chooser: 'opp' },
     flip: { op: 'flip', n: 2, as: 'h' },
     set: { op: 'set', v: 'k', value: { v: 'h' } },
@@ -179,6 +179,8 @@ test('every DSL step renders', () => {
     custom: { op: 'custom', fn: 'returnSelfToHand' },
     end: { op: 'end' },
     delay: { op: 'delay', duration: 'oppNextTurn', program: [{ op: 'counters', n: 9, to: 'defender' }] },
+    look: { op: 'look', n: 5, filter: { tag: 'Future' }, as: 'f', reveal: true },
+    endTurn: { op: 'endTurn' },
   };
   for (const [op, st] of Object.entries(STEPS)) {
     const text = renderProgram([{ op: 'flip', n: 1, as: 'h' }, { op: 'chooseCards', from: 'hand', min: 1, max: 1, as: 'x' }, st as Step]);
@@ -190,7 +192,9 @@ test('every static effect, scope and trigger renders', () => {
   const EFFECTS: { [K in StaticEffect['k']]: Extract<StaticEffect, { k: K }> } = {
     preventEffects: { k: 'preventEffects', from: ['attack'] },
     preventDamage: { k: 'preventDamage', attackerMaxEnergy: 2, attacker: { stage: 'basic' } },
-    attackCoinFlip: { k: 'attackCoinFlip' },
+    attackCoinFlip: { k: 'attackCoinFlip', coins: 2 },
+    conditionImmunity: { k: 'conditionImmunity' },
+    react: { k: 'react', event: 'damagedByAttack', program: [{ op: 'counters', n: 12, to: { v: '__attacker' } }] },
     cantAttachFromHand: { k: 'cantAttachFromHand' },
     retreatCost: { k: 'retreatCost', delta: 1 },
     attackCostC: { k: 'attackCostC', delta: -1 },
@@ -300,6 +304,9 @@ test('every expression and condition renders', () => {
     { playedThisTurn: { filter: { name: 'Canari' } } },
     { playedThisTurn: { filter: { ttype: 'supporter', nameIncludes: 'Team Rocket' }, who: 'opp' } },
     { slotIs: { ref: 'defender', filter: { anyAbility: true } } },
+    { playedThisTurn: { filter: { ttype: 'supporter', tag: 'Future' } } },
+    { gte: [{ pokemon: { zone: 'oppPokemon', filter: { tag: 'Ancient' } } }, 1] },
+    { gte: [{ count: { zone: 'discard', filter: { tag: 'Ancient' } } }, 4] },
     { not: { stadium: true } },
     { not: { inActive: 'self' } },
     { cardIs: { v: 'x', filter: { stage: 'stage2', type: ['Fire', 'Water'] } } },

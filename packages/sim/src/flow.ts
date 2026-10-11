@@ -9,7 +9,7 @@
  */
 import { def, type Env } from './context.js';
 import type { Op } from './compile.js';
-import type { Filter } from './dsl.js';
+import type { Filter, SpecialCondition } from './dsl.js';
 import { evalCond } from './eval.js';
 import { applyCondition, queueOppAttachTriggers, queueStadiumBench, queueTriggers, run, swapActive } from './interp.js';
 import {
@@ -23,6 +23,7 @@ import {
   attackCost,
   canAttachFromHand,
   canPay,
+  conditionImmune,
   cantAttack,
   cantRetreat,
   effectsPrevented,
@@ -51,6 +52,7 @@ import { leaveHand,
 import {
   ASLEEP,
   BURNED,
+  CONFUSED,
   PARALYZED,
   POISONED,
   type Action,
@@ -690,7 +692,12 @@ function doAction(env: Env, s: GameState, a: Action): void {
       emit(env, { type: 'attack', player: p, slot: act.id, name: atk.name });
       // "If the Defending Pokémon tries to use an attack, flip a coin. If tails, that attack doesn't happen." The flip for
       // such an effect comes first, before Confusion's (rulings 2326 and 2317); on tails the attack never happens.
-      for (let n = attackCoinFlips(env, s, act); n > 0; n--) if (!flipCoin(env, s, p)) return;
+      // A "flips N coins, if either of them is tails" effect flips all N, then stops the attack if any was tails.
+      for (const coins of attackCoinFlips(env, s, act)) {
+        let tails = false;
+        for (let i = 0; i < coins; i++) if (!flipCoin(env, s, p)) tails = true;
+        if (tails) return;
+      }
       const defender = s.p[opp(p)].active;
       pushFrame(s, {
         code: atk.code,
@@ -782,7 +789,30 @@ function koPrizeDelta(env: Env, s: GameState, owner: Player, sl: Slot): number {
   return delta;
 }
 
+/**
+ * A Pokémon that can't be affected by a Special Condition (Bubbly Water Energy, Dopey Face) recovers from it as soon as the
+ * immunity applies: an Energy attached, an Ability back on. Run after every action and at Checkup.
+ */
+const CONDITION_BITS: [SpecialCondition, number][] = [
+  ['asleep', ASLEEP],
+  ['confused', CONFUSED],
+  ['paralyzed', PARALYZED],
+  ['poisoned', POISONED],
+  ['burned', BURNED],
+];
+function stripImmuneConditions(env: Env, s: GameState): void {
+  let all: ReturnType<typeof statics> | null = null;
+  for (const p of [0, 1] as Player[]) {
+    const sl = s.p[p].active;
+    if (!sl || !sl.cond) continue;
+    for (const [c, bit] of CONDITION_BITS) {
+      if (sl.cond & bit && conditionImmune(env, s, sl, c, (all ??= statics(env, s)))) sl.cond &= ~bit;
+    }
+  }
+}
+
 function resolveKOs(env: Env, s: GameState): void {
+  stripImmuneConditions(env, s);
   // 1. Every Pokémon with damage ≥ its HP is Knocked Out (simultaneously).
   const ko: { owner: Player; slot: Slot; prizes: number }[] = [];
   // Gather the live statics once: maxHp's default recomputes them per Pokémon, and this runs after
@@ -923,12 +953,15 @@ export function endGame(env: Env, s: GameState, winner: Player | null, reason: s
 // ---------------------------------------------------------------------------
 
 function checkup(env: Env, s: GameState): void {
+  stripImmuneConditions(env, s);
   for (const p of [s.current, opp(s.current)] as Player[]) {
     const sl = s.p[p].active;
     if (!sl) continue;
     if (sl.cond & POISONED) {
-      sl.damage += 10;
-      emit(env, { type: 'counters', player: p, slot: sl.id, n: 1, checkup: true });
+      // 1 damage counter, or the amount the Poison came with ("place 16 damage counters instead of 1"), at every Checkup.
+      const n = sl.poisonCounters ?? 1;
+      sl.damage += 10 * n;
+      emit(env, { type: 'counters', player: p, slot: sl.id, n, checkup: true });
     }
     if (sl.cond & BURNED) {
       sl.damage += 20;
