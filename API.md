@@ -1097,7 +1097,7 @@ plus optional `queries` (≤12), `trials` (1000..200000, default 50000), `seed`
 (uint32, default a fixed 60 so a repeat call agrees) and `format` (which format's
 printings an unsaved list's bare names resolve to, as in `/decks/check`; default
 `standard`). The list may hold at most 120 cards. A list that mulligans a lot has
-its games cut so the call deals at most 2,000,000 opening hands (`trials` is then
+its games cut so the call deals an expected 2,000,000 opening hands at most (`trials` is then
 below `trials_requested`, and a note says why). A query is
 `{ "label"?, "all_of": [Group, …1..6], "by_turn"? 0..10 = 0, "prized"? = false }`
 and a Group is `{ "cards"?: [card name in the deck], "kinds"?: ["basic" |
@@ -1125,6 +1125,45 @@ deck's names), a list name the catalog cannot resolve, a list with no Basic
 Pokémon, fewer than 7 or more than 120 cards, or a malformed body. A list that is not 60 cards,
 or has more than 4 of a non-basic-Energy card, is still computed and listed in
 `warnings`. Nothing is written.
+
+### POST /deckpal/api/decks/simulate
+Read-only battle simulation (`@deckpal/sim`; the `simulate_battles` agent tool). Body has exactly one
+of `deck_id` (one of the caller's decks, by id or name; a name fragment must match exactly one deck),
+`cards` or `ptcgl_text` (an unsaved list in `POST /decks/check`'s shape, with optional `format` and
+`name`; every line must resolve, else `400` naming the ones that did not), plus optional `opponents`
+(1..8 of the caller's deck ids or names; default up to 6 of their other decks, favourites and most
+recently updated first), `games` (per opponent, default 24, 2..200, rounded up to whole pairs),
+`speed` (`strong` default, or `fast`) and `seed` (default 1; the same seed, decks and pilot replay the same games). Every deck played is 40–70
+cards: the subject or a named opponent outside that is a `400` naming the deck and its count; a
+default opponent outside it is skipped with a note. Each opponent is played in paired games — one
+seed, seats swapped, so each deck goes first half the time — by a CPU pilot on both sides, inside one
+25 s budget counted from the request's arrival and shared across the opponents. The budget is also a
+hard deadline: a game still running when it arrives ends as a time-out draw, and no game starts after
+it; a game is likewise abandoned as a time-out after 3,000 decisions. The report says when the budget,
+not `games`, decided how many were played. The decks are read first and the request's database
+connection is released before any game is played. Returns `{ text, report }`: `text` is at most 5,000
+characters (Deck-E clamps tool results at 6,000) and always ends with the caveat, notes clamped to
+fit; `report` is the structured form (`kind: "deckpal.simulation"`, `simulated: true`, per-matchup
+stats with Wilson 95% intervals and n, card impact, per-deck coverage naming every approximated or
+unplayable card, the standing caveat, and every note — decks that are not 60 cards, cards with no
+catalogue data, skipped opponents). Results are simulations, never real-game statistics, and nothing
+is written. Concurrency: one run per account and two per server instance at a time — beyond that,
+`429` `simulator_busy` with `Retry-After` (seconds until the run in the way should finish) and a
+message saying which.
+- **Paired comparison.** At most one of `compare_with` (another of the caller's decks, by id or name; `400`
+  if it is the subject itself), `compare_cards` or `compare_ptcgl_text` (an unsaved whole list in the same
+  shape as `cards` / `ptcgl_text`, resolved with the same `format`; every line must resolve), with optional
+  `compare_name` (label for an unsaved list, default "Version B"; `400` without a compare list). The subject
+  is version A, the compare list version B; neither is a default opponent. Each opponent is played by both
+  versions on the same seeds and seats, inside the same 25 s budget (so each version gets about half the
+  games), stopping both after the same seed pair. `report` is then `kind: "deckpal.simulation.comparison"`:
+  `overall` and per-`matchups` paired differences (`diff` = mean B − A game score per game, win 1,
+  draw/time-out ½, loss 0; `lo`/`hi` = 95% t-interval with each seed's two seat-swapped games as one
+  cluster; `verdict` `"b"`/`"a"` only when the interval excludes 0 with ≥6 seeds, else `"none"`),
+  `changes` (card counts that differ), `changedImpact`, `method`, both versions' full reports
+  (`reportA`, `reportB`) and `coverage`. The text leads with a `VERDICT:` line and keeps the caveat; the same bounds, deadline and run gate apply.
+Rate limit: 6 calls a minute per account (`429` `rate_limited` with
+`Retry-After` beyond that).
 
 ### POST /deckpal/api/decks/save
 Create a deck, or set an existing deck's card list, in ONE transaction. This is what
@@ -1542,7 +1581,17 @@ so an indexer run takes effect immediately and the endpoint works identically on
 a long-lived server and a serverless function. Measured: 22.6k rows × 34 probes
 in ~69 ms of server time. `matched` is `true` only when the best distance is
 within the confidence threshold (9 — re-measured over 389 degraded scans, so
-96.9% of correct scans fire and every tested junk frame is rejected). Read-only.
+96.9% of correct scans fire and every tested junk frame is rejected) **and**
+the best card has no same-art printing (`apps/api/src/scan/artFamilies.ts` —
+e.g. Base Set and its Base Set 2 reprint, which a whole-card hash cannot tell
+apart). When the distance is within the threshold and only that same-art guard
+said no, the response is `matched: false` **with `printingOpen: true`**: the
+card is likely right, its printing is for the reader to choose from `matches`.
+`printingOpen` is absent in every other response. Separately, the hash never
+names a **WotC-era card** (Base Set through the e-Card sets) on its own —
+`matched: false` without `printingOpen` — because their shared yellow frame
+dominates a whole-card hash (`hashMayNameAlone`); the resolve leg still can.
+Read-only.
 ```json
 { "query": { "algo": "dhash8v3", "hash": "f0e1…08" },
   "matched": true, "threshold": 9, "indexSize": 23104,
@@ -1655,7 +1704,7 @@ same ordering.
 
 Response: `{ "matched", "confident", "resolvedBy":
 "badge+number"|"number+denominator"|"name+number"|"family-text"|"vector"|"corroborated"|"prior-only",
-"matches": [...same card shape as /scan...] }`. Contract deviations from
+"printingOpen"?: true, "matches": [...same card shape as /scan...] }`. Contract deviations from
 /scan: `distance`/`confidence` are `number|null` (a card resolved by its
 printed key was never nominated by phash — null means "no phash opinion",
 where 0 would claim an identical hash); a `similarity` field (`number|null`)
@@ -1676,9 +1725,41 @@ rung that read something printed. `"corroborated"` means two independent
 signals named one card while neither was sufficient alone — the `014/198`
 Steenee-or-Floragato case, where the printed key genuinely cannot choose and the
 vector's own top-1 is one of the two. A confident OCR rung is never reviewed by
-the vector: where they disagree, the printed key wins and the response is
-identical to the flag being off. A phash distance <= 2 can CONFIRM the vector
-and can never substitute for it.
+the vector alone: where they disagree, the printed key wins and the response is
+identical to the flag being off. The one exception (2026-10-10) is a key
+resolved on the printed NUMBER (`badge+number`, `number+denominator`) whose
+card the printed NAME does not agree with. If the name agrees with the
+vector's decisive top-1 and that card carries the number read, is in the
+badge's set, or (for `number+denominator` only) is in a set of the denominator
+read, the answer is `"corroborated"` on that card. If it fits none of them, the
+answer becomes unconfident and lists both cards. If the name together with the
+denominator names other cards (for `badge+number`: other cards in the badge's
+own set), the answer becomes unconfident and lists the keyed card with them, and
+a vector top-1 inside that list still corroborates it, exactly as on any other
+key-narrowed list. That is how a dropped digit (`23/197` read off `223/197`)
+that lands on a real card stops being a confident wrong answer. The key stands
+unchanged when no name was read, when the name agrees with the keyed card, when
+the read is a whole-word piece of the keyed card's own name (`Charizard EX` off
+`M Charizard EX`), when the vector's own top-1 (showable or better) or a
+near-exact phash is the keyed card, and when a garbled name agrees with nothing.
+A phash distance <= 2 can CONFIRM the vector and can never substitute for it.
+
+**The printing guard (`printingOpen`).** When the top card shares its picture
+with another printing (`apps/api/src/scan/artFamilies.ts`), a confident answer
+that no printed key decided — `vector`, `corroborated`, `name-family`,
+`family-text` — comes back `matched: true`, `confident: false`, with the
+same-art printings listed right after the top match and `"printingOpen": true`.
+So `confident: false` on a `vector` or `corroborated` answer can now mean
+"right card, printing open", not only "unsure". The printed-key rungs
+(`badge+number`, `number+denominator`, `name+number`, `name+denominator`) are
+never reopened, nor is a `corroborated` tie-break inside such a key's
+candidates when the key already excluded every same-art printing (`87/114`
+names bw1-87 or xy11-87; a same-art 2011bw-12 prints another number) —
+except for a **printed twin**: a Celebrations Classic Collection reprint prints
+its original's number (CC002 Charizard reads `4/102`) under a `CCnnn` catalogue
+number, so a number key cannot tell them apart and the printing stays open.
+`printingOpen` is absent whenever the guard did not fire, so those responses
+are byte-identical to before it.
 
 Note: `setCode` here is the code PRINTED on 2023+ cards (SVI, DRI, ...) — a
 different namespace from PTCGL codes (`PR-SV` vs `SVP`), see

@@ -1435,6 +1435,39 @@ body {
   box-shadow: var(--shadow-elevated);
 }
 
+/* THE ASK CARD shares the docked cards' silhouette, but never the composer's
+ * class. Premium makes composer fields transparent and removes their inner
+ * focus rings; these are real choices and a real text input, so each control
+ * must keep its own edge and visible keyboard focus. */
+.decke-ask-card {
+  border-radius: 14px;
+  background: var(--color-surface-secondary);
+  border: 1px solid var(--color-surface-tertiary);
+  box-shadow: var(--shadow-elevated);
+}
+
+.decke-ask-header {
+  color: var(--color-action-primary);
+  background: color-mix(in oklab, var(--color-action-primary) 13%, transparent);
+}
+
+.decke-ask-choice {
+  color: var(--color-text-secondary);
+  background: var(--color-surface-primary);
+  border-color: var(--color-border-default);
+}
+
+.decke-ask-choice:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-action-primary);
+}
+
+.decke-ask-choice[aria-pressed='true'] {
+  color: var(--color-action-primary);
+  border-color: var(--color-action-primary);
+  background: color-mix(in oklab, var(--color-action-primary) 10%, var(--color-surface-primary));
+}
+
 .decke-composer-card:focus-within {
   border-color: color-mix(in oklab, var(--color-action-primary-strong) 55%, transparent);
   box-shadow: var(--shadow-elevated),

@@ -125,6 +125,9 @@ function matcherOutcomeFor(raw: ScanResponse | null): Record<string, unknown> {
   return {
     match: {
       matchedRaw: raw.matched,
+      // The server's same-art guard (2026-10-10) is what made `matchedRaw`
+      // false on this capture: within the bar, picture shared by a reprint.
+      printingOpen: raw.printingOpen === true,
       // The TIE gate alone, as this column has always meant (soloMax 64 turns the
       // 2026-10-09 distance gate off), so sessions either side stay comparable;
       // the distance gate's effect is its own column.

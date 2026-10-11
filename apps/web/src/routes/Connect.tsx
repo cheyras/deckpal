@@ -1,7 +1,7 @@
 /* ─────────────────────────────────────────────────────────────────────────────
  * /connect: how to connect an AI app to DeckPal. The landing's Connect section
  * stays short and links here for the detail: the connector URL, per-app steps,
- * Claude Code, what Read only means, the 26 tools, and the full compatibility
+ * Claude Code, what Read only means, the 27 tools, and the full compatibility
  * table with its notes and the date it was checked.
  *
  * Chrome-free and public (lib/landingRoute.ts), like /privacy: it is read by

@@ -7,8 +7,25 @@ import { isMetered, type CreditPolicy } from '../credits/policy.js';
 import { buildStamp } from './build.js';
 import { decimalUsd, extractUsage, safeUsageCode, usageCategory, type UsageCategory } from './usageMetadata.js';
 export interface AiRequest {id:string;db:Queryable;pending:Set<Promise<unknown>>;failed:boolean;metered:boolean;meteredStarted:boolean;capReached:boolean;signal?:AbortSignal;spendId?:string}
-const context=new AsyncLocalStorage<{request:AiRequest;tool:string;operationKey:string}>();
+const context=new AsyncLocalStorage<{request:AiRequest;tool:string;operationKey:string;advisory?:boolean}>();
 export function runAiUsage<T>(request:AiRequest,fn:()=>T):T {return context.run({request,tool:'chat_turn',operationKey:'chat_turn'},fn)}
+/**
+ * An ADVISORY model call on the request — triage, the front-door classifier.
+ *
+ * Recorded and charged like any provider call, under its own operation key so
+ * the usage report shows it apart from the reply. The tool stays `chat_turn`
+ * on purpose: `decke_usage_operation_begin` binds a chat request's credit spend
+ * only to `chat_turn` operations (any other tool must carry a `:deep:` spend
+ * key), so a new tool label would need a migration. The operation key is free
+ * text and already the report's grouping column.
+ *
+ * Its failure is recorded on the OPERATION and never marks the REQUEST failed:
+ * the caller falls back to a deterministic heuristic by design, so a provider
+ * error here must not settle a reply that went on to succeed as `failed`.
+ */
+export function runAdvisoryUsage<T>(request:AiRequest,operationKey:string,fn:()=>T):T {
+ return context.run({request,tool:'chat_turn',operationKey,advisory:true},fn);
+}
 export function runUsageOperation<T>(tool:string,fn:()=>T,operationKey?:string):T {
   const c=context.getStore();return c?context.run({...c,tool,operationKey:operationKey??tool},fn):fn();
 }
@@ -108,7 +125,7 @@ export function observeUsageModel(model:LanguageModel,credit?:ProviderCreditWork
   };
   return wrapLanguageModel({model,middleware:admissionOnly});
  }
- const {request,tool,operationKey}=ctx; const category=usageCategory(tool);
+ const {request,tool,operationKey,advisory}=ctx; const category=usageCategory(tool);
  const cancelled=(signal?:AbortSignal)=>signal?.aborted||request.signal?.aborted;
  const start=async(modelId:string,provider:string,signal?:AbortSignal)=>{
   if(cancelled(signal)) throw new DOMException('Cancelled','AbortError');
@@ -122,7 +139,7 @@ export function observeUsageModel(model:LanguageModel,credit?:ProviderCreditWork
  };
  const end=async(id:string,status:string,usage:unknown,metadata:unknown)=>{
   const data=extractUsage(usage,metadata);
-  if(status==='failed') request.failed=true;
+  if(status==='failed'&&!advisory) request.failed=true;
   try {
    await tracked(request,request.db.query("UPDATE public.decke_ai_operation SET status=$2,finished_at=now(),input_tokens=$3,output_tokens=$4,cache_read_tokens=$5,cache_write_tokens=$6,reasoning_tokens=$7,cost_usd=$8,cost_source=$9,generation_id=$10,error_code=$11 WHERE id=$1 AND status='started'",
     [id,status,data.tokens.inputTokens,data.tokens.outputTokens,data.tokens.cacheReadTokens,data.tokens.cacheWriteTokens,data.tokens.reasoningTokens,data.cost.usd,data.cost.source,data.generationId,status==='failed'?'provider_error':null]));

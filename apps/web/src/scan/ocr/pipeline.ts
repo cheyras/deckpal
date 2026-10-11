@@ -12,14 +12,32 @@
 // 1.8-3.4 s on the owner's iPhone. §6.3 is explicit that this is the second
 // argument for the cheap config: at ~2-3 s the result arrives while the reader
 // is still on the match sheet; at ~4-7 s it does not.
+//
+// ── AND ONE CONDITIONAL RUNG FOR CARDS THE STRIP CANNOT SEE (2026-10-10) ────
+//
+//   corner ROI  4x, then 6x   ->  the bottom-right collector number of a
+//                                 pre-2017 card, believed only when both agree
+//
+// Runs ONLY when the strip found no number, so it is not a third pass on the
+// cards the recipe was measured on; it is what a Base Set `93/102` — printed
+// bottom RIGHT, where `strip` never looks — gets instead of silence. See
+// `readCorner` and `rois.CORNER_SCALES`.
 
 import { decodeCtc, MIN_LINE_CONFIDENCE } from './ctc'
 import { detectBoxes, groupIntoLines } from './db'
 import { extractFullCropFields, normaliseBodyLines, shouldEscalate } from './escalate'
-import { extractFields, type OcrFields, type RoiRead } from './fields'
+import {
+  extractFields,
+  readCornerPair,
+  sameCornerPair,
+  type Glyph,
+  type NumberPair,
+  type OcrFields,
+  type RoiRead,
+} from './fields'
 import { cropRotated, resample, rgbaToBGRPlanar, type Box, type Raster } from './raster'
 import type { OcrSession } from './session'
-import type { RoiName } from './rois'
+import { CORNER_SCALES, type RoiName } from './rois'
 
 /** The recogniser resizes every line it is given to this height. Fixed by the
  *  model, not a tuning knob: REPORT.md §2.2 traces the flat accuracy curve above
@@ -33,10 +51,12 @@ const REC_HEIGHT = 48
 const MIN_REC_WIDTH = 8
 
 /** Which rungs ran. `roi` is the shipped two-pass recipe and the only value the
- *  happy path can produce; `escalated` means the full-crop pass ran too, which
- *  by the 2026-09-06 ruling can only have happened after the two bands came back
- *  with no name and no number. */
-export type OcrPass = 'roi' | 'escalated'
+ *  happy path can produce; `corner` means the two bands found no number and the
+ *  bottom-right corner supplied it (a pre-2017 card — see `rois.CORNER_SCALES`);
+ *  `escalated` means the full-crop pass ran too, which by the 2026-09-06 ruling
+ *  can only have happened after the bands AND the corner came back with no name
+ *  and no number. */
+export type OcrPass = 'roi' | 'corner' | 'escalated'
 
 /** The product contract. `ms` is wall-clock for the whole read — every pass,
  *  detection and recognition — measured by the caller of `readFields`. */
@@ -84,6 +104,17 @@ export interface FullCropInput {
  *  recipe reads, this is never called. */
 export type FullCropSource = () => FullCropInput | null
 
+/**
+ * How the corner rung gets its rasters — the bottom-right ROI (`ROIS.corner`)
+ * at the scale asked for, letterboxed to the detector's multiple of 32 exactly
+ * as a band is. A THUNK for the same reason `FullCropSource` is: a card whose
+ * strip band read its number (every modern card the recipe can read at all)
+ * never prepares either corner raster. Called with `CORNER_SCALES[0]` first and
+ * with `CORNER_SCALES[1]` only if that read found a pair. Null, or a throw, means
+ * "no corner" and the read stands without it.
+ */
+export type CornerSource = (scale: number) => Raster | null
+
 /** One recognised line, as the recogniser and the grouper leave it. */
 export interface OcrLine {
   text: string
@@ -92,12 +123,39 @@ export interface OcrLine {
   y: number
 }
 
+/** One recognised fragment, before grouping: its box, and the decode of it. */
+interface Recognised {
+  box: Box
+  text: string
+  mean: number
+  chars: string[]
+  confs: number[]
+}
+
 /**
  * Run detection + recognition over one prepared raster and return its lines in
  * reading order, grouped the way the extractor expects (see `db.groupIntoLines`
  * for why the grouping is not cosmetic).
  */
 export async function readLines(session: OcrSession, raster: Raster): Promise<OcrLine[]> {
+  return groupIntoLines(await recognise(session, raster)).map(({ text, mean, y }) => ({ text, mean, y }))
+}
+
+/**
+ * The same read, each line as GLYPHS — every character with the confidence it
+ * was emitted at, and a fully-confident space where `groupIntoLines` joined two
+ * fragments. What the corner rung judges a pair by (`fields.readCornerPair`).
+ */
+export async function readGlyphLines(session: OcrSession, raster: Raster): Promise<Glyph[][]> {
+  return groupIntoLines(await recognise(session, raster)).map((line) =>
+    line.parts.flatMap((part, i) => [
+      ...(i > 0 ? [{ ch: ' ', conf: 1 }] : []),
+      ...part.chars.map((ch, j) => ({ ch, conf: part.confs[j] ?? 0 })),
+    ]),
+  )
+}
+
+async function recognise(session: OcrSession, raster: Raster): Promise<Recognised[]> {
   const det = await session.det.run(rgbaToBGRPlanar(raster), [1, 3, raster.height, raster.width])
   // DB's head emits [1, 1, H, W] at the input's own resolution. Read H and W
   // back off the tensor rather than assuming: an export with a different stride
@@ -107,7 +165,7 @@ export async function readLines(session: OcrSession, raster: Raster): Promise<Oc
   const w = det.dims[det.dims.length - 1] ?? raster.width
   const boxes = detectBoxes(det.data, w, h)
 
-  const recognised: { box: Box; text: string; mean: number }[] = []
+  const recognised: Recognised[] = []
   for (const { box } of boxes) {
     const crop = cropRotated(raster, box)
     const width = Math.max(1, Math.round((crop.width * REC_HEIGHT) / crop.height))
@@ -122,9 +180,9 @@ export async function readLines(session: OcrSession, raster: Raster): Promise<Oc
     // The reference's own line filter, and one of the guards that make the
     // failure mode silence rather than lies.
     if (decoded.mean < MIN_LINE_CONFIDENCE) continue
-    recognised.push({ box, text: decoded.text, mean: decoded.mean })
+    recognised.push({ box, ...decoded })
   }
-  return groupIntoLines(recognised)
+  return recognised
 }
 
 /**
@@ -135,9 +193,41 @@ export async function readRoi(session: OcrSession, input: RoiInput): Promise<str
   return (await readLines(session, input.raster)).map((l) => l.text)
 }
 
+/** Prepare one corner raster, treating a throw as "no corner" — the same
+ *  courtesy `readFields` extends the full crop. */
+function cornerRaster(corner: CornerSource, scale: number): Raster | null {
+  try {
+    return corner(scale)
+  } catch {
+    return null
+  }
+}
+
 /**
- * The whole read: both ROIs through the model, then the field extractor — and
- * then, ONLY IF THOSE READ NOTHING, the escalation rung.
+ * THE CORNER RUNG: the bottom-right collector number of a pre-2017 card, read
+ * at `CORNER_SCALES[0]`, then — only if that found a plausible pair — again at
+ * `CORNER_SCALES[1]`, and believed only when the two agree. See
+ * `rois.CORNER_SCALES` for the measurement and `fields.readCornerPair` for the
+ * plausibility gates.
+ */
+export async function readCorner(session: OcrSession, corner: CornerSource): Promise<NumberPair | null> {
+  const first = cornerRaster(corner, CORNER_SCALES[0])
+  if (!first) return null
+  const a = readCornerPair(await readGlyphLines(session, first))
+  if (!a) return null
+  const second = cornerRaster(corner, CORNER_SCALES[1])
+  if (!second) return null
+  return sameCornerPair(a, readCornerPair(await readGlyphLines(session, second)))
+}
+
+/**
+ * The whole read: both ROIs through the model, then the field extractor — then,
+ * ONLY IF THE STRIP READ NO NUMBER, the corner rung (`corner`) — and then, ONLY
+ * IF ALL OF THAT READ NOTHING, the escalation rung.
+ *
+ * The corner rung is a thunk on the same terms as the escalation below: a read
+ * whose strip found its number never prepares a corner raster and never runs a
+ * corner detection, and `__tests__/corner.test.ts` asserts it.
  *
  * Passes run SEQUENTIALLY on purpose. They are inferences on one WASM runtime
  * with `numThreads` clamped to 1 (no COOP/COEP headers, so ORT never starts a
@@ -167,15 +257,41 @@ export async function readFields(
   session: OcrSession,
   inputs: readonly RoiInput[],
   fullCrop?: FullCropSource,
+  corner?: CornerSource,
 ): Promise<OcrRead> {
   const t0 = performance.now()
   const reads: RoiRead[] = []
   for (const input of inputs) {
+    // The bands only. A `corner` input handed in here is not a band and has no
+    // place in `extractFields`'s two-pass merge — the corner rung below is its
+    // only reader, and it takes its rasters from `corner`.
+    if (input.roi === 'corner') continue
     reads.push({ roi: input.roi, lines: await readRoi(session, input) })
   }
-  const fields = extractFields(reads)
+  let fields = extractFields(reads)
+  let pass: OcrPass = 'roi'
+
+  // ── THE CORNER RUNG (2026-10-10) ────────────────────────────────────────
+  // Only when the strip found no number — so the modern card the shipped recipe
+  // reads pays nothing — and BEFORE the escalation check, because a corner
+  // number is a key and a read with a key does not escalate.
+  //
+  // The corner's pair REPLACES the badge with null rather than keeping whatever
+  // `extractFields` resolved from the strip's first line. A printed set badge
+  // exists only on Scarlet & Violet-era cards, which print their number
+  // bottom-left; a card whose number is in the corner has no badge, so any code
+  // resolved here is flavour text — and badge + number is the server's one rung
+  // that is confident without consulting the picture.
+  if (corner && fields.number === null) {
+    const pair = await readCorner(session, corner)
+    if (pair) {
+      fields = { ...fields, number: pair.number, denominator: pair.denominator, setCode: null }
+      pass = 'corner'
+    }
+  }
+
   if (!fullCrop || !shouldEscalate(fields)) {
-    return { ...fields, pass: 'roi', ms: performance.now() - t0 }
+    return { ...fields, pass, ms: performance.now() - t0 }
   }
   // A browser that cannot give us a canvas is not a reason to lose the read we
   // already have — `capture.ts` throws there, and the ROI answer stands.
@@ -185,7 +301,7 @@ export async function readFields(
   } catch {
     full = null
   }
-  if (!full) return { ...fields, pass: 'roi', ms: performance.now() - t0 }
+  if (!full) return { ...fields, pass, ms: performance.now() - t0 }
   const { raster, drawn } = full
 
   const lines = await readLines(session, raster)

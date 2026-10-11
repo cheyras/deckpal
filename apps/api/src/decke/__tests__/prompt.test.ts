@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
+import { pathwayText } from '../pathways/index.js'
 import { test } from 'node:test'
-import { ALLOWED_STATES, ROUTE_SHAPE_LINES, buildSystemPrompt } from '../prompt.js'
+import { dataToolSummary } from '../adapters/aisdk.js'
+import {
+  ALLOWED_STATES,
+  buildCorePrompt,
+  buildSystemPrompt,
+  buildVolatileContext,
+} from '../prompt.js'
 
 const flat = (s: string) => s.replace(/\s+/g, ' ')
 const TOOLS = [
@@ -23,15 +30,16 @@ test('the no-tools branch remains honest about unavailable reads', () => {
   assert.doesNotMatch(p, /offer to look/i)
 })
 
-test('the new conversation, memory, deck, and failure contracts are present', () => {
+test('the conversation, memory, progress, asking, and failure contracts are present', () => {
   const p = buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS })
   for (const phrase of [
     'Read the moment before you reach for a tool',
     'Full tool results from your recent turns are',
     'Never ask them for something you can look up',
-    'Check it with `check_deck`',
-    'Show it with `showDeck`',
-    'Odds come from `deck_odds`, never from your head.',
+    'Progress while you work',
+    'one `ask_user` card that turn',
+    'Keep working until everything they asked for is done',
+    'Odds come from `deck_odds` and matchups from `simulate_battles`',
     'Never say you were blocked, refused or declined unless the reader actually',
   ]) {
     assert.ok(p.includes(phrase), `missing: ${phrase}`)
@@ -78,19 +86,59 @@ test('retained body state list and automatic lifecycle states are still named', 
   assert.match(p, /These are driven automatically and are not yours to set: boot, listening, thinking, talk, loading, sleep, alert_error/)
 })
 
-test('retained route shapes and landmarks stay interpolated', () => {
+test('volatile landmarks stay interpolated while the core keeps a compact navigation fallback', () => {
   const p = buildSystemPrompt({
     route: '/series',
     signedIn: true,
     dataTools: TOOLS,
     landmarks: [{ selector: '[data-decke-nav="/decks"]', label: 'the Decks link', clickable: true }],
   })
-  for (const route of ROUTE_SHAPE_LINES) {
-    const [shape, what] = route.split(' — ')
-    assert.ok(p.includes(`\`${shape}\` — ${what}`), `missing route: ${route}`)
-  }
   assert.match(p, /the Decks link \(pressable\)/)
   assert.match(buildSystemPrompt({ route: '/series', signedIn: true }), /nothing on this page is registered as a landmark/)
+  const core = buildCorePrompt({ signedIn: true, dataTools: TOOLS })
+  for (const tool of ['goTo', 'escort', 'journey', 'flyTo', 'highlight', 'click', 'scrollToMe']) {
+    assert.ok(core.includes(`\`${tool}\``), `missing navigation fallback: ${tool}`)
+  }
+})
+
+test('core is stable, request-local context is volatile, and compatibility is exact', () => {
+  const core = buildCorePrompt({
+    signedIn: false,
+    today: '1999-12-31',
+    dataTools: TOOLS,
+  })
+  assert.equal(core.includes('1999-12-31'), false)
+  assert.equal(core.includes('/decks'), false)
+  assert.equal(core.includes('NOT signed in'), false)
+
+  const volatile = buildVolatileContext({
+    route: '/decks',
+    signedIn: false,
+    now: new Date('2026-10-10T12:00:00.000Z'),
+  })
+  assert.match(volatile, /2026-10-10/)
+  assert.match(volatile, /\/decks/)
+  assert.match(volatile, /NOT signed in/)
+
+  const opts = {
+    route: '/decks',
+    signedIn: true,
+    today: '2026-10-10',
+    dataTools: TOOLS,
+  } as const
+  assert.equal(
+    buildSystemPrompt(opts),
+    `${buildCorePrompt(opts)}\n\n${buildVolatileContext(opts)}`,
+  )
+})
+
+test('the stable core stays below the cacheable-prefix budget', () => {
+  const currentTools = dataToolSummary({ include: () => true, conversationalLogging: true })
+  const core = buildCorePrompt({ signedIn: true, dataTools: currentTools })
+  // 16,000 when the core shipped at 15.8k (was 29.6k); 16,500 once deck_odds
+  // and simulate_battles joined the data-tool list, which grows a line per
+  // tool. Job-specific guidance belongs in a pathway, not here.
+  assert.ok(core.length <= 16_500, `core is ${core.length} characters`)
 })
 
 test('signed-out readers are not promised collection access', () => {
@@ -118,4 +166,22 @@ test('the natural share ask keeps its load-bearing limits', () => {
     'Never ask when things are going fine, never ask twice',
     '"No thanks" is a fine answer',
   ]) assert.ok(p.includes(phrase), `missing: ${phrase}`)
+})
+
+test('simulated matchups are run, paired, and reported as a bot\'s with their uncertainty', () => {
+  // The rule lives in the core; how to run and report a matchup lives in the
+  // deck_iterate pathway, with the rest of "is v4 better than v3".
+  const core = flat(buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS }))
+  assert.match(core, /matchups from `simulate_battles` \(a bot's: give n and the interval\), never from your head/)
+  const p = flat(pathwayText('deck_iterate'))
+  assert.match(p, /Matchups come from `simulate_battles`, and they are a bot's/)
+  assert.match(p, /is v4 better than v3/)
+  assert.match(p, /both versions against the same opponents and seed/)
+  assert.match(p, /saved lists of decks they really face/)
+  assert.match(p, /Every rate is a CPU simulation: give n and the interval/)
+  assert.match(p, /intervals overlap heavily is noise, not an improvement/)
+  assert.match(p, /Name approximated or unplayable cards/)
+  assert.match(p, /"strong" by default, "fast" when they want more games/)
+  assert.match(p, /A `table` of opponent, W–L, win % \[interval\]/)
+  assert.match(flat(pathwayText('deck_build')), /simulate_battles/)
 })

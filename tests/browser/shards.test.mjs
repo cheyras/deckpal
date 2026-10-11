@@ -9,6 +9,7 @@ import { browserSuites as bugReportSuites } from './bugReport.mjs'
 import { browserSuites as profileOwnedCardsSuites } from './profileOwnedCardsSuite.mjs'
 import { browserSuites as labelerFormatSuites } from './labelerFormats.mjs'
 import { browserSuites as privacySuites } from './privacy.mjs'
+import { browserSuites as askCardSuites } from './askCard.mjs'
 import { parseShard, shardSuites } from '../../scripts/browser-shards.mjs'
 
 const names = [
@@ -18,8 +19,9 @@ const names = [
   'cloud-feedback-primary-1280', 'cloud-feedback-primary-390', 'cloud-feedback-primary-428', 'cloud-feedback-lifecycle', 'cloud-a11y', 'cloud-writes', 'cloud-queue',
   'authreturn', 'chat', 'payment-history', 'decke-show', 'decke-chat-phone', 'error-boundary', 'list-table-virtualization', 'bug-report-selfhost', 'bug-report-cloud', 'profile-owned-cards',
   'payment-history-proof', 'scanner-voice-proof', 'cloud-labeler-formats', 'privacy',
+  'ask-card',
 ]
-const suites = [...browserSuites({}), ...deckeShowSuites({}), ...errorBoundarySuites({}), ...listTableSuites({}), ...bugReportSuites({}), ...profileOwnedCardsSuites({}), ...standaloneProofSuites({}), ...labelerFormatSuites({}), ...privacySuites({})]
+const suites = [...browserSuites({}), ...deckeShowSuites({}), ...errorBoundarySuites({}), ...listTableSuites({}), ...bugReportSuites({}), ...profileOwnedCardsSuites({}), ...standaloneProofSuites({}), ...labelerFormatSuites({}), ...privacySuites({}), ...askCardSuites({})]
 
 test('all existing journeys remain named suites', () => {
   assert.deepEqual(suites.map(suite => suite.name), names)

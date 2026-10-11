@@ -64,8 +64,13 @@
  * inside THIS resolver, not a second endpoint with a competing opinion. Three
  * rules, all in `fuse.ts`, all consulted from here:
  *
- *   1. A key that resolved is never reviewed. OCR wins a disagreement, because
- *      a printed set code and a cosine are not the same kind of claim.
+ *   1. A key that resolved is never reviewed by the vector alone. OCR wins a
+ *      disagreement, because a printed set code and a cosine are not the same
+ *      kind of claim. (Since 2026-10-10 a key resolved on the NUMBER is
+ *      reviewed when the printed NAME agrees with a different card that the
+ *      vector, or the name together with the denominator, also names. That is
+ *      printed evidence against printed evidence, and a misread digit can land
+ *      on a real card. See `letTheNameQuestionTheKey`.)
  *   2. Corroboration: where a key narrowed the world to a handful it cannot
  *      choose between — `014/198` is Steenee or Floragato — and the vector's
  *      own top-1 is one of them, the agreement is the answer. `resolvedBy`
@@ -76,9 +81,12 @@
  * The perceptual hash is demoted by the same ruling: inside the near-exact band
  * it may confirm somebody else's answer and it may no longer produce one.
  *
- * ALL OF THIS IS SKIPPED unless `opts.fusion` is present, which `router.ts`
- * populates only when `SCAN_EMBED_MATCH=true`. With it absent the ladder is,
- * byte for byte, the one that shipped before the vector existed.
+ * EVERY IMAGE RULE IS SKIPPED unless `opts.fusion` is present, which
+ * `router.ts` populates only when `SCAN_EMBED_MATCH=true`. With it absent no
+ * vector is consulted anywhere and nothing is corroborated. One post-climb
+ * step still runs with the flag off, because it reads only print: branch 2 of
+ * `letTheNameQuestionTheKey`, where the printed name and the denominator name
+ * another card and a confident number becomes a question.
  *
  * ── WHAT THE PRE-2023 77% GETS ─────────────────────────────────────────────
  *
@@ -292,6 +300,31 @@ export interface ResolveOutcome {
   matches: RankedCard[];
   /** Not part of the wire response; kept for logging and tests. */
   badge: BadgeResolution;
+  /**
+   * Not part of the wire response either. Set only on a 'corroborated' answer
+   * that `done`/`familyDone` reached over a KEYED list: the rung whose key built
+   * the list the vector chose from — and only when that whole list is in
+   * `matches`, so a reader of this field can see every card the key allowed.
+   * The printing guard (`openThePrinting`) reads it: a printed key that already
+   * left every same-art sibling out has decided the printing by itself.
+   * Never set by `letDecisiveVectorSpeak`, whose list was not keyed.
+   */
+  keyedBy?: ResolvedBy;
+  /**
+   * THE PRINTING GUARD FIRED (`openThePrinting`): a confident answer was handed
+   * back unconfident because its card shares its picture with another printing
+   * that no printed key ruled out. ABSENT otherwise — never `false` — so a
+   * response the guard did not touch is byte-identical to one from before it.
+   * `router.ts` puts it on the wire as `printingOpen: true`.
+   */
+  printingOpen?: true;
+  /**
+   * Not part of the wire response. The card `done` was told the `MAX_MATCHES`
+   * cut may not drop (`capKeeping`): the reading a printed number gave, when
+   * the name's review turned it into a question. A later step that re-cuts
+   * `matches` (the printing guard) must carry it through too.
+   */
+  pinned?: string;
 }
 
 export interface ResolveOptions {
@@ -307,8 +340,9 @@ export interface ResolveOptions {
    *
    * Present only when `SCAN_EMBED_MATCH=true`. Absent — the default, and every
    * caller that predates the embedding matcher — and every rule in `fuse.ts` is
-   * skipped, no similarity map is built, no `similarity` is reported, and this
-   * module produces exactly the bytes it produced before the vector existed.
+   * skipped, no similarity map is built, no `similarity` is reported, and no
+   * answer this module gives depends on an image signal. (The print-only steps,
+   * including the name's review of a confident number, run either way.)
    *
    * The flag is expressed as the PRESENCE OF EVIDENCE rather than as a boolean
    * beside it on purpose: there is then no state in which the ladder believes
@@ -316,7 +350,36 @@ export interface ResolveOptions {
    * write. `router.ts` reads the environment; this module never does.
    */
   fusion?: FusionInput;
+  /**
+   * THE PRINTING GUARD. The other printings that show the same picture as a
+   * card (artFamilies.ts), or none. When given, a CONFIDENT answer that no
+   * printed key decided — the vector, the hash, a name that every printing
+   * shares — on a card that has such siblings is handed back as a question,
+   * with the siblings at the top of the list: the picture is right, the
+   * printing is the reader's to say. A printed key (badge+number,
+   * number+denominator, name+number, name+denominator) names one printing by
+   * itself and is left alone — and so is a 'corroborated' answer whose keyed
+   * list (`keyedBy`) came from one of those rungs and holds none of the
+   * siblings: the key already ruled them out, and the vector only chose among
+   * cards with different pictures. Absent, the ladder behaves exactly as before.
+   */
+  artSiblings?: (cardId: string) => readonly string[];
+  /**
+   * Reprints that print THIS card's collector number but are catalogued under
+   * another (Celebrations Classic Collection: CC002 prints 4/102), so no
+   * printed key can separate them. Kept open even after a printed-key rung.
+   */
+  printedTwins?: (cardId: string) => readonly string[];
 }
+
+/** The rungs whose key is PRINTED on one printing only: the set badge or the
+ *  number, which differ between two printings of one picture. */
+const PRINTED_KEYS: ReadonlySet<ResolvedBy> = new Set<ResolvedBy>([
+  'badge+number',
+  'number+denominator',
+  'name+number',
+  'name+denominator',
+]);
 
 export interface FusionInput {
   /** The pgvector search's scored candidates, descending by similarity. */
@@ -524,6 +587,35 @@ export function nameAgrees(read: string, candidateName: string): boolean {
   return /\p{L}$/u.test(lost); // `oice band` off `Hop's Choice Band`: cut mid-word
 }
 
+/**
+ * Is `read` a whole-word piece of `candidateName`: what is left of that name
+ * when OCR loses a word at either end?
+ *
+ * The guard on `letTheNameQuestionTheKey`, and deliberately NOT part of
+ * `nameAgrees`. Sets print a card and its variant side by side (`M Charizard
+ * EX` and `Charizard EX`, `Primal Kyogre EX` and `Kyogre EX`, `Radiant
+ * Charizard`, the Alolan and Galarian forms, `Heat Rotom` and `Rotom`, `Energy
+ * Switch` and `Switch`, `Hyper Potion` and `Potion`, `Dialga G` and `Dialga`),
+ * and the word OCR loses is usually the stylised one: the `M`, the `Primal`,
+ * the `G`. So `Charizard EX` read off a card keyed `108/106` (xy2-108, M
+ * Charizard EX) is the keyed card's own title with a word missing. It is not
+ * evidence against the key, even though it is exactly another card's name.
+ * `nameAgrees` must still say no (`Potion` does not SUPPORT `Super Potion` as an
+ * answer), but a piece of the keyed card's name cannot argue the key down.
+ *
+ * Whole words only: `Charizare` is no piece of `Capsakid`, `Mew` no piece of
+ * `Mewtwo`. And one direction only. The reverse, a read holding the WHOLE keyed
+ * name plus a word (`Rotom` keyed, `Rotom Dex` read), is not a fragment: OCR
+ * loses words and keeps junk, it does not add a real word, so a read that is
+ * exactly a longer card's name names that card. (A whole-word PREFIX of the
+ * keyed name, `Dialga` off `Dialga G`, is a piece and is covered here.)
+ */
+export function readIsFragmentOf(read: string, candidateName: string): boolean {
+  const r = stripOptionalSuffix(normalizeCardName(read));
+  const c = normalizeCardName(candidateName);
+  return r.length > 0 && r !== c && ` ${c} `.includes(` ${r} `);
+}
+
 /** Is `candidateName` exactly `read` with an owner's possessive in front? */
 export function ownerPrefixed(read: string, candidateName: string): boolean {
   const r = stripOptionalSuffix(normalizeCardName(read));
@@ -644,6 +736,25 @@ function capNameFamilies<T extends CatalogCard>(ranked: readonly T[]): T[] {
   return out;
 }
 
+/**
+ * The first `MAX_MATCHES` of a ranked list, with `keep` still in it: when the
+ * cut would drop that card it takes the last slot instead.
+ *
+ * For a list that must carry one particular card whatever its rank. The name's
+ * review of a confident number (`letTheNameQuestionTheKey`, branch 2) hands the
+ * reader the keyed card AND the cards the name names, and the second group can
+ * outgrow the cut on its own: Pikachu in 128-card sets is 34 cards, Lightning
+ * Energy in 30-card sets 31, Unown in 28-card sets 28. A question that has lost
+ * one of its two readings is not the question.
+ */
+function capKeeping(ranked: readonly RankedCard[], keep?: string): RankedCard[] {
+  const out = ranked.slice(0, MAX_MATCHES);
+  if (keep == null || out.some((m) => m.cardId === keep)) return out;
+  const pinned = ranked.find((m) => m.cardId === keep);
+  if (pinned) out[out.length - 1] = pinned;
+  return out;
+}
+
 // ── Field parsing ───────────────────────────────────────────────────────────
 
 /**
@@ -719,6 +830,12 @@ export async function resolveCard(
         : null,
   };
 
+  /** `keyedBy` for a corroboration over `cards` — only when the whole keyed
+   *  list survived the `MAX_MATCHES` cut, so the printing guard can see every
+   *  card the key allowed (no printed-key rung comes near 25 in practice). */
+  const keyedFrom = (resolvedBy: ResolvedBy, cards: readonly CatalogCard[]): { keyedBy?: ResolvedBy } =>
+    cards.length <= MAX_MATCHES ? { keyedBy: resolvedBy } : {};
+
   /**
    * Finish a rung.
    *
@@ -727,17 +844,23 @@ export async function resolveCard(
    * worth an independent signal's agreement: "the vector's top-1 is one of the
    * two cards this printed number allows" is a coincidence, and "the vector's
    * top-1 is one of the twenty-five cards the hash liked" is not.
+   *
+   * `keep` is a card id the `MAX_MATCHES` cut may not drop (see `capKeeping`).
    */
   const done = (
     resolvedBy: ResolvedBy,
     cards: readonly CatalogCard[],
     confident: boolean,
     corroboratable = true,
+    keep?: string,
   ): ResolveOutcome => {
-    const matches = rank(cards, priors.distance, evidence.similarity).slice(0, MAX_MATCHES);
+    const matches = capKeeping(rank(cards, priors.distance, evidence.similarity), keep);
     if (matches.length === 0) return { matched: false, confident: false, resolvedBy, matches, badge };
-    // RULE 1: a key that resolved is not up for review. Nothing below can
-    // demote it, and the vector is not consulted about it at all.
+    const pin = keep != null && matches.some((m) => m.cardId === keep) ? { pinned: keep } : {};
+    // RULE 1: a key that resolved is not up for review here. Nothing below can
+    // demote it, and the vector is not consulted about it at all. (The one
+    // review a confident key gets is after the climb, and it needs the printed
+    // NAME to point elsewhere: `letTheNameQuestionTheKey`.)
     if (confident) return { matched: true, confident: true, resolvedBy, matches, badge };
     // RULE 2: corroboration. Two insufficient signals naming one card.
     const winner = corroboratable ? corroborate(matches.map((m) => m.cardId), signals) : null;
@@ -752,9 +875,11 @@ export async function resolveCard(
         // go, and that is the same list they would have been shown a moment ago.
         matches: [lead, ...matches.filter((m) => m.cardId !== winner)],
         badge,
+        ...keyedFrom(resolvedBy, cards),
+        ...pin,
       };
     }
-    return { matched: true, confident: false, resolvedBy, matches, badge };
+    return { matched: true, confident: false, resolvedBy, matches, badge, ...pin };
   };
 
   /**
@@ -797,6 +922,7 @@ export async function resolveCard(
         resolvedBy: 'corroborated',
         matches: [lead, ...matches.filter((m) => m.cardId !== winner)],
         badge,
+        ...keyedFrom(resolvedBy, cards),
       };
     }
     return { matched: sole != null && matches.length > 0, confident: false, resolvedBy, matches, badge };
@@ -806,6 +932,9 @@ export async function resolveCard(
   // all of them (rung 4 below): held back rather than returned, so the name
   // rungs get to try, and handed out at the end only if nothing better turned up.
   let keyedButUnnamed: CatalogCard[] | null = null;
+  // `lookupName`'s memo: rung 5b and the post-climb reviews may each ask the
+  // catalogue for the read name, and the production query scans `card`.
+  let nameLookup: Promise<CatalogCard[]> | null = null;
 
   const climb = async (): Promise<ResolveOutcome> => {
   // ── Rung 1 — badge + number. 20,444 keys, zero collisions. ────────────────
@@ -918,31 +1047,31 @@ export async function resolveCard(
   // answer confident; a vector that likes something else is a disagreement, and
   // §7.4's rule for a disagreement is silence — the candidates go to the reader
   // unclaimed.
-  if (nameRead && port.byName) {
-    const probe = planNameProbe(nameRead);
-    if (probe) {
-      const narrowed = narrowByName(await port.byName(probe), nameRead);
-      if (narrowed.length > 0) {
-        // Every survivor is at the same tier — that is `narrowByName`'s
-        // contract — so any of them reports it.
-        const tier = nameTier(nameRead, narrowed[0]!.name);
-        // THE DROPPED-DIGIT RUNG. A denominator read beside a name the
-        // catalogue knows: the printings of that name in sets of exactly that
-        // size. One is a card; several are a short family; none means the
-        // denominator was the bad read, and the family below stands as before.
-        if (denominator != null && port.officialCounts && tier != null && tier <= 1) {
-          const counts = await port.officialCounts([...new Set(narrowed.map((c) => c.setId))]);
-          const inDen = narrowed.filter((c) => counts.get(c.setId) === denominator);
-          if (inDen.length === 1 && !priorsContradict(inDen[0]!, priors, opts)) {
-            return done('name+denominator', inDen, true);
-          }
-          if (inDen.length > 1) return familyDone('name+denominator', rank(inDen, priors.distance, evidence.similarity), null);
+  // (`lookupName` is the one memoised `byName` call per request, shared with
+  // the post-climb reviews; it returns nothing for a port without `byName` or
+  // a read shorter than `MIN_NAME_PROBE`, and the rung then declines.)
+  if (nameRead) {
+    const narrowed = narrowByName(await lookupName(), nameRead);
+    if (narrowed.length > 0) {
+      // Every survivor is at the same tier — that is `narrowByName`'s
+      // contract — so any of them reports it.
+      const tier = nameTier(nameRead, narrowed[0]!.name);
+      // THE DROPPED-DIGIT RUNG. A denominator read beside a name the
+      // catalogue knows: the printings of that name in sets of exactly that
+      // size. One is a card; several are a short family; none means the
+      // denominator was the bad read, and the family below stands as before.
+      if (denominator != null && port.officialCounts && tier != null && tier <= 1) {
+        const counts = await port.officialCounts([...new Set(narrowed.map((c) => c.setId))]);
+        const inDen = narrowed.filter((c) => counts.get(c.setId) === denominator);
+        if (inDen.length === 1 && !priorsContradict(inDen[0]!, priors, opts)) {
+          return done('name+denominator', inDen, true);
         }
-        const families = new Set(narrowed.map((c) => c.name)).size;
-        const ranked = rank(narrowed, priors.distance, evidence.similarity);
-        const sole = families === 1 && narrowed.length === 1 && tier != null && tier <= 1 ? narrowed[0]! : null;
-        return familyDone('name-family', families > 1 ? capNameFamilies(ranked) : ranked, sole);
+        if (inDen.length > 1) return familyDone('name+denominator', rank(inDen, priors.distance, evidence.similarity), null);
       }
+      const families = new Set(narrowed.map((c) => c.name)).size;
+      const ranked = rank(narrowed, priors.distance, evidence.similarity);
+      const sole = families === 1 && narrowed.length === 1 && tier != null && tier <= 1 ? narrowed[0]! : null;
+      return familyDone('name-family', families > 1 ? capNameFamilies(ranked) : ranked, sole);
     }
   }
 
@@ -1033,7 +1162,226 @@ export async function resolveCard(
   };
 
   const out = await climb();
-  return opts.fusion ? await letDecisiveVectorSpeak(out) : out;
+  // The two reviews below never both apply: one looks only at a CONFIDENT key,
+  // the other only at an unconfident climb. One expression and no early
+  // return, so a step that must see EVERY answer after the reviews (the
+  // printing guard of PR #294, `openThePrinting(reviewed, …)`) goes between
+  // these two lines and cannot be bypassed by a confident one.
+  const reviewed = out.confident
+    ? await letTheNameQuestionTheKey(out)
+    : opts.fusion
+      ? await letDecisiveVectorSpeak(out)
+      : out;
+  return opts.artSiblings ? await openThePrinting(reviewed, opts.artSiblings) : reviewed;
+
+  /**
+   * A CONFIDENT PICTURE IS NOT A CONFIDENT PRINTING (artFamilies.ts). On the
+   * owner's verified photos (2026-10-10) this is the difference between 24 and
+   * 5 confident-wrong answers out of ~160: 19 of them were the right card in
+   * the wrong printing — Base Set named as Base Set 2 or Legendary Collection —
+   * decided by the vector, the hash, or a name every printing carries. The
+   * answer stays `matched` (the card IS identified); it stops being
+   * `confident`, says so (`printingOpen`), and the printings the reader
+   * chooses between go first.
+   */
+  async function openThePrinting(
+    prev: ResolveOutcome,
+    siblingsOf: (cardId: string) => readonly string[],
+  ): Promise<ResolveOutcome> {
+    if (!prev.confident) return prev;
+    const top = prev.matches[0];
+    if (!top) return prev;
+    // A PRINTED NUMBER SHARED WITH A REPRINT. Celebrations Classic Collection
+    // prints its originals' numbers (its Charizard says 4/102, like Base Set's)
+    // while the catalogue numbers it CC002 — so a number lookup can only ever
+    // find the original, and a printed key "decides" between cards it cannot
+    // tell apart. Those twins stay open even after a printed key.
+    const twins = opts.printedTwins?.(top.cardId) ?? [];
+    const keyed = PRINTED_KEYS.has(prev.resolvedBy);
+    if (keyed && !twins.length) return prev;
+    const siblings = keyed ? twins : siblingsOf(top.cardId);
+    if (!siblings.length) return prev;
+    const have = new Set(prev.matches.map((m) => m.cardId));
+    // THE KEY ALREADY RULED THE SIBLINGS OUT. A vector that broke a tie inside
+    // a printed key's list — `87/114` is bw1-87 or xy11-87, two different
+    // pictures — chose between cards the key allowed, and a same-art sibling
+    // the key did NOT allow (2011bw-12 prints another number) is no rival.
+    // `keyedBy` guarantees `matches` is that whole keyed list. A sibling IN
+    // the list means the key could not tell the two printings apart, and the
+    // vector cannot either: that one stays open.
+    if (
+      !keyed &&
+      prev.keyedBy &&
+      PRINTED_KEYS.has(prev.keyedBy) &&
+      !siblings.some((id) => have.has(id)) &&
+      !twins.length
+    )
+      return prev;
+    const missing = siblings.filter((id) => !have.has(id));
+    const hydratedRows = missing.length ? await port.byIds(missing) : [];
+    const family = new Set(siblings);
+    const listed = prev.matches.slice(1).filter((m) => family.has(m.cardId));
+    const rest = prev.matches.slice(1).filter((m) => !family.has(m.cardId));
+    // Listed and hydrated siblings ranked together, so the reader's choice is
+    // in evidence order whichever of the two lists a sibling came from.
+    const open = rank([...listed, ...hydratedRows], priors.distance, evidence.similarity);
+    return {
+      ...prev,
+      confident: false,
+      printingOpen: true,
+      // The same cut `done` makes, keeping the card it pinned: a number's
+      // reading the name questioned, on a list the siblings now lengthen
+      // (Astra's review of the #297 merge).
+      matches: capKeeping([top, ...open, ...rest], prev.pinned),
+    };
+  }
+
+  /**
+   * A CONFIDENT PRINTED NUMBER THAT THE PRINTED NAME ARGUES WITH.
+   *
+   * The owner's verified photos, 2026-10-10: a Charizard ex secret rare,
+   * sv03-223, printed `223/197`. OCR read the title `Charizare` and the strip
+   * `23/197`, with the leading digit dropped, and `23/197` is a real card.
+   * sv03 is the only 197-card set, so rung 3 found exactly one card, sv03-023
+   * Capsakid, and returned it CONFIDENT. Meanwhile the vector was decisive for
+   * sv03-223 and the title agreed with Charizard ex, not with Capsakid. The
+   * dropped-digit fixes (`name+denominator`, `letDecisiveVectorSpeak`) both
+   * assume the bad number names nothing or several cards. When it lands on
+   * exactly one real card, the climb ends confident and neither is reached.
+   *
+   * So a confident answer keyed on the NUMBER (rung 1 or rung 3, one card) is
+   * reviewed when the read name does not agree with that card AND something
+   * shows the name pointing at a DIFFERENT card:
+   *
+   *   1. The picture. The vector is decisive for another card V, and the read
+   *      name agrees with V's name. The title and the picture name V, against
+   *      the number. If V also fits a field of the key that was not in doubt,
+   *      then only one printed field is contradicted and V is the answer:
+   *      'corroborated', the claim `letDecisiveVectorSpeak` makes. "Fits" means
+   *      V carries the number read, or V is in the badge's set, or (for a
+   *      number+denominator key only) V's set prints the denominator read. If V
+   *      fits none of them, that would mean two printed fields were both
+   *      misread, so the reader is asked, with both cards.
+   *   2. The title alone. The read is a catalogue name, exactly or without its
+   *      rule-box suffix (tier 0 or 1), of a card in a set of the denominator
+   *      read (for a badge+number key: in the badge's own set). Name and
+   *      denominator then name another card, against number and denominator.
+   *      The shared denominator cannot settle that, so the answer becomes a
+   *      question carrying both readings. (A vector top-1 inside that list
+   *      still corroborates, as on any key-narrowed list.)
+   *
+   * A BADGE NAMES ONE SET. For a badge+number key, a card from another set of
+   * the same size fits nothing the badge did not already pin: `PAR 161/182`
+   * read with the title `Team Rocket's Giovanni` (a card only sv10 prints, also
+   * 182 cards) must not demote sv04-161, and with a decisive picture of
+   * sv10-174 must not overrule the badge AND the number on the strength of the
+   * denominator they share. So such a card is neither a rival in branch 2 nor
+   * a fit in branch 1.
+   *
+   * DISAGREEMENT ALONE CHANGES NOTHING. OCR garbles titles all the time
+   * (`Polcemon`, `sic Pokemot`, `Erobvtfrom Yudg rNilena`), and a garbled title
+   * must never cost a correct number its confidence. Every branch therefore
+   * needs the name to AGREE with some other card, which garbage does not. Nor
+   * is a piece of the keyed card's OWN name a disagreement: `Charizard EX` off
+   * `M Charizard EX` (`readIsFragmentOf`). Nor does the vector review a key by
+   * itself (fuse.ts rule 1): with no name read, or a name that agrees with the
+   * keyed card, the key stands exactly as before.
+   */
+  async function letTheNameQuestionTheKey(prev: ResolveOutcome): Promise<ResolveOutcome> {
+    if (!nameRead || (prev.resolvedBy !== 'number+denominator' && prev.resolvedBy !== 'badge+number')) return prev;
+    const keyed = prev.matches.length === 1 ? prev.matches[0]! : null;
+    if (!keyed || nameAgrees(nameRead, keyed.name)) return prev;
+    // The keyed card's own title with a word lost (`Charizard EX` off `M
+    // Charizard EX`, `Kyogre` off `Primal Kyogre`) is not a different card.
+    if (readIsFragmentOf(nameRead, keyed.name)) return prev;
+    // An image signal agreeing with the keyed card is the picture siding with
+    // the number. The title is then the odd one out. SHOWABLE is enough: it is
+    // the bar `corroborate` uses for agreement, and a vector whose own top-1
+    // IS the keyed card is agreement, not a vote to be outweighed. (Otherwise
+    // branch 2 below would demote the key, or relabel it 'corroborated' when the
+    // vector was also separated, for the very card the number named.)
+    if (signals.phashNearExact === keyed.cardId) return prev;
+    if (vector?.showable && vector.cardId === keyed.cardId) return prev;
+    // For a badge+number key, the one set every reading must be in.
+    const badgeSet = prev.resolvedBy === 'badge+number' ? (badge.code?.setId ?? null) : null;
+
+    // 1. The picture and the title, on one other card.
+    const lead =
+      vector?.decisive && vector.cardId ? evidence.vectorCards.find((c) => c.cardId === vector.cardId) : undefined;
+    if (lead && nameAgrees(nameRead, lead.name) && !(await readIsAnotherCardsName(lead))) {
+      const hashAllows = signals.phashNearExact == null || signals.phashNearExact === lead.cardId;
+      const [ledBy] = rank([lead], priors.distance, evidence.similarity);
+      const [kept] = rank([keyed], priors.distance, evidence.similarity);
+      if (hashAllows && (await fitsTheKey(lead, badgeSet))) {
+        return { matched: true, confident: true, resolvedBy: 'corroborated', matches: [ledBy!, kept!], badge };
+      }
+      return {
+        matched: true,
+        confident: false,
+        resolvedBy: prev.resolvedBy,
+        matches: rank([keyed, lead], priors.distance, evidence.similarity),
+        badge,
+      };
+    }
+
+    // 2. The title and the denominator, naming another card.
+    if (denominator != null && port.officialCounts) {
+      // Tier 0 OR 1, not just the best tier `narrowByName` keeps: a read of
+      // `Charizard` reaches the base-set Charizard at tier 0 and Charizard ex at
+      // tier 1, and the denominator decides between them, not the suffix OCR
+      // so often drops.
+      const named = (await lookupName()).filter((c) => {
+        const tier = nameTier(nameRead, c.name);
+        return tier != null && tier <= 1 && c.cardId !== keyed.cardId && (badgeSet == null || c.setId === badgeSet);
+      });
+      if (named.length > 0) {
+        // The badge's set already passed the denominator cross-check in
+        // `resolveBadge`, so its cards need no second look at the count.
+        const counts = badgeSet == null ? await port.officialCounts([...new Set(named.map((c) => c.setId))]) : null;
+        const rivals = counts ? named.filter((c) => counts.get(c.setId) === denominator) : named;
+        // The keyed card is pinned through the `MAX_MATCHES` cut: a big name
+        // family (Pikachu in 128-card sets is 34 cards) must not crowd out the
+        // reading the number gave.
+        if (rivals.length > 0) return done(prev.resolvedBy, [keyed, ...rivals], false, true, keyed.cardId);
+      }
+    }
+    return prev;
+  }
+
+  /**
+   * Does `card` fit a printed field of the key other than the one in doubt?
+   * `badgeSet` is set for a badge+number key, whose badge already names the
+   * set: there, sharing only the denominator with it fits nothing.
+   */
+  async function fitsTheKey(card: CatalogCard, badgeSet: string | null): Promise<boolean> {
+    if (numeric != null && card.numberNumeric === numeric) return true;
+    if (badge.code && card.setId === badge.code.setId) return true;
+    if (badgeSet != null) return false;
+    if (denominator == null || !port.officialCounts) return false;
+    return (await port.officialCounts([card.setId])).get(card.setId) === denominator;
+  }
+
+  /**
+   * Is the read, exactly, the name of some catalogue card, while not `lead`'s
+   * name? If so it was very likely read right, and is not a damaged `lead`. The
+   * one damage still forgiven is a lost owner prefix (`Quilava` off `Ethan's
+   * Quilava`). `Marill` is a card, so a picture of Azumarill does not make the
+   * read a clipped `Azumarill`, and `Nidorina` is not a misread `Nidorino`.
+   */
+  async function readIsAnotherCardsName(lead: CatalogCard): Promise<boolean> {
+    if (!nameRead || nameTier(nameRead, lead.name) === 0) return false;
+    const exact = (await lookupName()).some((c) => nameTier(nameRead, c.name) === 0);
+    return exact && !ownerPrefixed(nameRead, lead.name);
+  }
+
+  /** The catalogue's cards for the read name, fetched at most once per request
+   *  however many of rung 5b and the two reviews ask. Empty when the port has
+   *  no name lookup or the read is too short to look up. */
+  function lookupName(): Promise<CatalogCard[]> {
+    const probe = nameRead ? planNameProbe(nameRead) : null;
+    if (!probe || !port.byName) return Promise.resolve([]);
+    return (nameLookup ??= port.byName(probe));
+  }
 
   /**
    * A DECISIVE IMAGE MATCH IS NOT SILENCED BY AN UNSURE READ.
@@ -1072,14 +1420,8 @@ export async function resolveCard(
     const lead = evidence.vectorCards.find((c) => c.cardId === vector.cardId);
     if (!lead || !nameAgrees(nameRead, lead.name)) return prev;
     // A read that is ITSELF a real card name was very likely read right, so
-    // the only damage forgiven is a lost owner prefix (`Quilava` off `Ethan's
-    // Quilava`). `Marill` is a card; a picture of Azumarill does not make the
-    // read a clipped `Azumarill`, and `Nidorina` is not a misread `Nidorino`.
-    if (nameTier(nameRead, lead.name) !== 0 && port.byName) {
-      const probe = planNameProbe(nameRead);
-      const exact = probe ? (await port.byName(probe)).some((c) => nameTier(nameRead, c.name) === 0) : false;
-      if (exact && !ownerPrefixed(nameRead, lead.name)) return prev;
-    }
+    // the only damage forgiven is a lost owner prefix. See the helper.
+    if (await readIsAnotherCardsName(lead)) return prev;
     // And not when a PRINTED NUMBER named a card the printed name also agrees
     // with: `Barraskewda 049/198` keyed sv01-049 and only the hash's veto kept
     // it unconfident, so a decisive picture of the OTHER Barraskewda is a
