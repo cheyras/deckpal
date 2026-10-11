@@ -2041,13 +2041,22 @@ export function DeckeChat({
   // The dropdown's own Escape runs BEFORE this one — it listens in the capture
   // phase and stops propagation — so the three layers unwind in the order they
   // were opened.
+  // ── ON OPEN, NOT ON EVERY RENDER ─────────────────────────────────────────
+  //
+  // Callers pass `onClose` inline (DeckeHost does), so with it in this
+  // effect's deps every parent re-render re-ran the effect — and re-armed the
+  // desktop composer focus below, pulling focus off whatever the reader had
+  // reached by keyboard (the deck widget's Save, an approval card) 260 ms later.
+  // The Escape handler reads the latest `onClose` through a ref instead.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       e.stopPropagation()
       if (viewingRef.current) setViewingId(null)
-      else onClose()
+      else onCloseRef.current()
     }
     window.addEventListener('keydown', onKey)
     // ── DESKTOP ONLY, AND THE PHONE CASE IS NOT AN OVERSIGHT ──────────────────
@@ -2072,7 +2081,7 @@ export function DeckeChat({
       window.removeEventListener('keydown', onKey)
       window.clearTimeout(t)
     }
-  }, [open, onClose, desktop])
+  }, [open, desktop])
 
   // ── Who is standing behind whom ───────────────────────────────────────────
   //
