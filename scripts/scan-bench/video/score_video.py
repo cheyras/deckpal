@@ -52,7 +52,7 @@ def main():
     g = np.load(E.BENCH / "embed" / "deckpal-card-b32-v1.fp32" / "gallery.npz")
     gids, gv = g["ids"], g["vecs"]
     emb = E.Embedder("x", str(EXP / "deckpal-card-b32-v1.int8.onnx"))
-    tot = dict(cap=0, capt=0, auto=0, dup=0, stray=0, wrong=0, captures=0)
+    tot = dict(cap=0, capt=0, auto=0, dup=0, stray=0, wrong=0, transition=0, captures=0)
     rows_out = []
     for vid in vids:
         cj = root / vid / "captures.jsonl"
@@ -72,6 +72,7 @@ def main():
                 c["confident"] = (s0 >= GATE[0] and s0 - s1 >= GATE[1]) or (not a.no_wide and s0 >= WIDE[0] and s0 - s1 >= WIDE[1])
                 c["sim"] = round(s0, 3)
         apps = gt["appearances"]
+        ok_of = lambda i: set(([apps[i]["cardId"]] if apps[i].get("cardId") else []) + (apps[i].get("candidates") or []))
         hits = {i: [] for i in range(len(apps))}
         stray = []
         for c in caps:
@@ -79,17 +80,21 @@ def main():
             if not idx:
                 stray.append(c)
                 continue
-            # The card being shown: one the capture was identified AS if its window
-            # holds the capture (the slack windows overlap at a fast flip, so the
-            # next card's first frames sit in the previous card's lag), else one
-            # whose own window holds it, else the nearest.
-            ok_of = lambda i: set(([apps[i]["cardId"]] if apps[i].get("cardId") else []) + (apps[i].get("candidates") or []))
-            named = [i for i in idx if c.get("pred") in ok_of(i)]
-            inside = [i for i in idx if apps[i]["start"] <= c["t"] <= apps[i]["end"]]
-            pool = named or inside or idx
-            i = min(pool, key=lambda i: abs((apps[i]["start"] + apps[i]["end"]) / 2 - c["t"]))
+            # The card being shown, decided by TIME ALONE — never by what the
+            # capture was identified as, which would let an adjacent card's slack
+            # window absorb (and excuse) a confident mistake: the appearance whose
+            # own window holds the capture (the nearest midpoint if several),
+            # else the one whose window edge is nearest.
+            def edge_gap(i):
+                s, e = apps[i]["start"], apps[i]["end"]
+                return 0.0 if s <= c["t"] <= e else min(abs(c["t"] - s), abs(c["t"] - e))
+            i = min(idx, key=lambda i: (edge_gap(i), abs((apps[i]["start"] + apps[i]["end"]) / 2 - c["t"])))
+            # A TRANSITION: another appearance's slack window holds this capture
+            # too, and the capture was identified as THAT card. Still counted
+            # wrong below; flagged so it can be adjudicated by eye (--show-wrong).
+            c["transition"] = any(j != i and c.get("pred") in ok_of(j) for j in idx)
             hits[i].append(c)
-        v = dict(cap=0, capt=0, auto=0, dup=0, stray=len(stray), wrong=0, captures=len(caps))
+        v = dict(cap=0, capt=0, auto=0, dup=0, stray=len(stray), wrong=0, transition=0, captures=len(caps))
         for i, ap_ in enumerate(apps):
             ok_ids = set(([ap_["cardId"]] if ap_.get("cardId") else []) + (ap_.get("candidates") or []))
             hs = hits[i]
@@ -102,21 +107,23 @@ def main():
             v["dup"] += max(0, len(hs) - 1)
             bad = [h for h in hs if h.get("confident") and ok_ids and h["pred"] not in ok_ids]
             v["wrong"] += len(bad)
+            v["transition"] += sum(1 for h in bad if h.get("transition"))
             if a.show_wrong:
                 near = {x.get("cardId") or "/".join(x.get("candidates") or []) for x in apps if abs(x["start"] - ap_["start"]) < 4}
                 for h in bad:
                     print(f"  WRONG {vid} t={h['t']} {h['file']} pred {h['pred']} sim {h['sim']} | scored against {sorted(ok_ids)} "
-                          f"[{ap_['start']}-{ap_['end']}] | pred among nearby cards: {h['pred'] in near}")
+                          f"[{ap_['start']}-{ap_['end']}] | transition (pred is the adjacent card): {bool(h.get('transition'))} "
+                          f"| pred among nearby cards: {h['pred'] in near}")
         v["wrong"] += sum(1 for c in stray if c.get("confident"))
         for k in tot:
             tot[k] += v[k]
         rows_out.append((vid, v))
         print(f"{vid:13s} capturable {v['cap']:3d} | captured {v['capt']:3d} ({v['capt'] / max(1, v['cap']):.0%}) "
               f"| auto-ID {v['auto']:3d} ({v['auto'] / max(1, v['cap']):.0%}) | captures {v['captures']:3d} "
-              f"dup {v['dup']:2d} stray {v['stray']:2d} | confident-wrong {v['wrong']}")
+              f"dup {v['dup']:2d} stray {v['stray']:2d} | confident-wrong {v['wrong']} (transition {v['transition']})")
     print(f"{'ALL':13s} capturable {tot['cap']:3d} | captured {tot['capt']:3d} ({tot['capt'] / max(1, tot['cap']):.0%}) "
           f"| auto-ID {tot['auto']:3d} ({tot['auto'] / max(1, tot['cap']):.0%}) | captures {tot['captures']:3d} "
-          f"dup {tot['dup']:2d} stray {tot['stray']:2d} | confident-wrong {tot['wrong']}")
+          f"dup {tot['dup']:2d} stray {tot['stray']:2d} | confident-wrong {tot['wrong']} (transition {tot['transition']})")
 
 
 if __name__ == "__main__":

@@ -71,10 +71,14 @@ function arg(name: string, dflt: string): string {
   const i = process.argv.indexOf(`--${name}`)
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : dflt
 }
+/** Flags that take no value: they must not swallow the argument after them. */
+const BOOLEAN_FLAGS = new Set(['--no-rearm'])
+
 function positional(): string[] {
   const out: string[] = []
   const argv = process.argv.slice(2)
   for (let i = 0; i < argv.length; i++) {
+    if (BOOLEAN_FLAGS.has(argv[i])) continue
     if (argv[i].startsWith('--')) i++
     else out.push(argv[i])
   }
