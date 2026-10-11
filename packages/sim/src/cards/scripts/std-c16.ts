@@ -52,7 +52,7 @@ export const STD_C16: CardScript[] = [
       },
       { op: 'move', cards: 'x', to: 'discard', who: 'opp' },
     ],
-    notes: 'Ruling 2376: as a Supporter at least 1 Item must be discarded when any is found; used as an attack (copied by another card) zero is allowed (not reachable here).',
+    notes: 'Ruling 2376: as a Supporter at least 1 Item must be discarded when any is found; used through an attack (Ninetales, Supernatural Shapeshifter) zero is allowed: rul07.useSupporterEffect lowers this "up to" minimum to 0 for that use.',
   },
   {
     id: 'sv05-147',
