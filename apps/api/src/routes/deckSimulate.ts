@@ -3,7 +3,7 @@ import { metaLabel, type DeckInput, type MetaDeck } from '@deckpal/sim'
 import { dbHandle, q, rlsStore } from '../db.js'
 import type { FormatCode } from '../deck/index.js'
 import {
-  SIM_RUN_GATE, assertDeckSize, buildDeckInput, busyMessage, cardTotal, deckSizeOk, metaCounts, metaNote, parseSimulateBody, pickOpponentsWithMeta,
+  SIM_RUN_GATE, assertDeckSize, buildDeckInput, busyMessage, cardTotal, deckSizeOk, metaNote, playableMeta, parseSimulateBody, pickOpponentsWithMeta,
   pilotFactory, resolveDeckRef, runComparison, runMatchups, SIM_DECK_MAX, SIM_DECK_MIN, type CardCount, type OwnedDeck,
 } from '../deck/simulate.js'
 import { asyncHandler, badRequest, oneOf, userCache } from '../http.js'
@@ -152,15 +152,15 @@ deckSimulateRouter.post('/', asyncHandler(async (req, res) => {
     if (metaSlots.length) {
       const catalog = await cardsByTcgdexId(dbHandle(), metaSlots.flatMap((m) => m.deck.list.map(([id]) => id)))
       for (const { slot, deck } of metaSlots) {
-        const found = metaCounts(deck, catalog)
-        if (found.mismatched.length) {
-          // A pool id that is a different card in the catalogue: skip the deck rather than play the wrong list.
+        const can = playableMeta(slot.name, deck, catalog)
+        if (!can.ok) {
+          // A wrong card under a pool id, or too few cards left once the catalogue's gaps are dropped: skip, never play a distorted list.
           played.splice(played.indexOf(slot), 1)
-          notes.push(`${slot.name} skipped — the catalogue disagrees with the pool on ${found.mismatched.slice(0, 3).join('; ')}.`)
+          notes.push(can.note)
           continue
         }
-        slot.counts = found.counts
-        if (found.missing.length) notes.push(`${slot.name}: not in the catalogue yet: ${found.missing.join(', ')} — left out of the simulated deck.`)
+        slot.counts = can.counts
+        notes.push(...can.notes)
       }
       notes.push(metaNote())
     }

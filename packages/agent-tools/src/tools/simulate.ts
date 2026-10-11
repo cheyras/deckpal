@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { Ctx } from '../ctx.js'
-import { needDeck } from '../entities.js'
+import { needDeck, resolveDeck } from '../entities.js'
 import { defineTool, type ToolDefinition } from '../registry.js'
 import { fail, ok, type ToolResult } from '../result.js'
 import { errText } from '../shared.js'
@@ -88,7 +88,7 @@ interface SimulateResponse {
 }
 
 /** 'meta' or 'meta:<archetype>': the built-in meta pool, passed through to the API as written. */
-export const isMetaRef = (ref: string): boolean => /^metas*(:|$)/i.test(ref.trim())
+export const isMetaRef = (ref: string): boolean => /^meta\s*(:|$)/i.test(ref.trim())
 
 /** A reference that is a name, not a deck id: the API may still find it in the meta pool. */
 const looksLikeName = (ref: string): boolean => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref.trim())
@@ -114,10 +114,18 @@ export async function simulateBattles(ctx: Ctx, input: SimulateBattlesInput): Pr
         ids.push(ref)
         continue
       }
-      const picked = await needDeck(ctx, ref)
-      if (picked.ok) ids.push(picked.value.id)
-      else if (looksLikeName(ref)) ids.push(ref)
-      else return fail(`Opponent ${picked.message}`)
+      const found = await resolveDeck(ctx, ref)
+      if (found.kind === 'found') {
+        ids.push(found.value.id)
+        continue
+      }
+      // Only a name that matches NO saved deck may be a pool archetype; an ambiguous one keeps the usual candidate list.
+      if (found.kind === 'not-found' && looksLikeName(ref)) {
+        ids.push(ref)
+        continue
+      }
+      const missed = await needDeck(ctx, ref)
+      return fail(`Opponent ${missed.ok ? 'is ambiguous' : missed.message}`)
     }
     body.opponents = ids
   }

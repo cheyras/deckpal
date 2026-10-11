@@ -19,6 +19,11 @@
  *    (ties count half; at least MIN_ROUNDS played), then the better placing,
  *    then the larger event, then the later date. If that list does not map or
  *    is not legal the next candidate is tried, and each failure is reported.
+ *  - FALLBACK: the candidates are ordered with the largest events' lists first and
+ *    then ALL the archetype's other eligible lists (same ordering). So when the
+ *    largest events' lists fail, a list from a smaller event can be chosen. The
+ *    attempt allowance (maxTries, 5) counts failures and the success together
+ *    across both groups, not per group.
  */
 import type { CardFrame } from '../types.js';
 import type { MetaDeck, MetaPool } from './types.js';

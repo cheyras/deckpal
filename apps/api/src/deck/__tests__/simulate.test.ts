@@ -10,7 +10,7 @@ import { ApiError } from '../../http.js';
 import {
   SIM_DECK_MAX, SIM_DECK_MIN, SIM_GAMES_DEFAULT, SIM_NOTES_LIMIT, SIM_OPPONENTS_DEFAULT, SIM_RUN_GATE, SIM_TEXT_LIMIT,
   assertDeckSize, buildDeckInput, busyMessage, cardTotal, clampNotes, createRunGate, deckNotes, deckSizeOk,
-  metaCounts, metaNote, parseSimulateBody, pickOpponents, pickOpponentsWithMeta, pilotFactory, resolveDeckRef, runComparison, runMatchups, type OwnedDeck,
+  metaCounts, metaNote, playableMeta, parseSimulateBody, pickOpponents, pickOpponentsWithMeta, pilotFactory, resolveDeckRef, runComparison, runMatchups, type OwnedDeck,
 } from '../simulate.js';
 
 const ID = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -345,4 +345,27 @@ test('a pool deck is a labelled opponent in the report, with the pool\'s source,
 
 test('every pool deck is within the simulator\'s deck bounds (so a pool opponent is never rejected on size)', () => {
   for (const d of META_POOL.decks) assert.ok(deckSizeOk(d.list.reduce((n, [, c]) => n + c, 0)), d.name);
+});
+
+test('playableMeta: a pool list the catalogue leaves under 40 cards is skipped with a specific note; a small gap is kept and noted', () => {
+  const d = META_POOL.decks[0]!;
+  const full = new Map(d.list.map(([id], i) => [id, { id: 1000 + i, name: d.names[id]! }] as const));
+  const ok = playableMeta('Meta: X', d, full);
+  assert.ok(ok.ok && ok.notes.length === 0 && cardTotal(ok.counts) === 60);
+  // Drop one line: still inside the bound, noted.
+  const one = new Map(full);
+  one.delete(d.list[0]![0]);
+  const small = playableMeta('Meta: X', d, one);
+  assert.ok(small.ok && small.notes[0]!.includes('not in the catalogue yet'));
+  // A catalogue holding only a handful of the cards: skipped, not simulated.
+  const few = new Map([...full].slice(0, 5));
+  const bad = playableMeta('Meta: X', d, few);
+  assert.ok(!bad.ok);
+  assert.match(bad.note, /^Meta: X skipped — only \d+ of its cards are in the catalogue, outside the simulator's 40–70/);
+  // An empty catalogue (nothing known) is the same.
+  assert.ok(!playableMeta('Meta: X', d, new Map()).ok);
+  // A different card under a pool id is still refused.
+  const wrong = new Map(full).set(d.list[0]![0], { id: 1, name: 'Some Other Card' });
+  const w = playableMeta('Meta: X', d, wrong);
+  assert.ok(!w.ok && /disagrees with the pool/.test(w.note));
 });

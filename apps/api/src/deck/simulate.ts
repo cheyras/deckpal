@@ -260,6 +260,21 @@ export function metaCounts(deck: MetaDeck, catalog: Map<string, MetaCatalogCard>
   return { counts, missing, mismatched };
 }
 
+/**
+ * Whether a pool deck can be played, given the catalogue rows found for it: its
+ * counts and any notes, or the note saying why it is skipped. A different card
+ * under a pool id, or a list the catalogue leaves outside the 40–70 bound once
+ * its missing cards are dropped, is skipped (a saved opponent gets the same bound).
+ */
+export function playableMeta(label: string, deck: MetaDeck, catalog: Map<string, MetaCatalogCard>): { ok: true; counts: CardCount[]; notes: string[] } | { ok: false; note: string } {
+  const found = metaCounts(deck, catalog);
+  if (found.mismatched.length) return { ok: false, note: `${label} skipped — the catalogue disagrees with the pool on ${found.mismatched.slice(0, 3).join('; ')}.` };
+  const total = cardTotal(found.counts);
+  const missing = found.missing.length ? `${label}: not in the catalogue yet: ${found.missing.join(', ')} — left out of the simulated deck.` : null;
+  if (!deckSizeOk(total)) return { ok: false, note: `${label} skipped — only ${total} of its cards are in the catalogue, outside the simulator's ${SIM_DECK_MIN}–${SIM_DECK_MAX}${missing ? ` (${found.missing.length} missing)` : ''}.` };
+  return { ok: true, counts: found.counts, notes: missing ? [missing] : [] };
+}
+
 /** The note every meta-pool run carries: what these opponents are, and how old. */
 export function metaNote(): string {
   const w = META_POOL.window;

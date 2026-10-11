@@ -60,3 +60,35 @@ test('simulateBattles passes meta and meta:<archetype> to the API as written, wi
   await simulateBattles(ctx, { cards, opponents: ['meta', ' Meta : Dragapult Dusknoir'] })
   assert.deepEqual((calls[0]![2] as { opponents: string[] }).opponents, ['meta', ' Meta : Dragapult Dusknoir'])
 })
+
+test('simulateBattles: a spaced meta reference never queries the deck index, even with a colliding saved name', async () => {
+  const gets: unknown[] = []
+  const calls: unknown[][] = []
+  const ctx = { userId: 'u', db: {} as never, api: {
+    base: 'test',
+    get: async (...a: unknown[]) => { gets.push(a); return { decks: [{ id: '00000000-0000-4000-8000-000000000001', name: 'Meta Dragapult' }] } },
+    send: async (...args: unknown[]) => { calls.push(args); return { text: 'SIMULATED', report: {} } },
+  } } as never
+  await simulateBattles(ctx, { cards, opponents: ['meta : Dragapult', 'META\t:Slowking', 'meta'] })
+  assert.equal(gets.length, 0, 'the deck index was not read')
+  assert.deepEqual((calls[0]![2] as { opponents: string[] }).opponents, ['meta : Dragapult', 'META\t:Slowking', 'meta'])
+})
+
+test('simulateBattles: an ambiguous saved name is reported, not handed to the pool; an absent one is', async () => {
+  const calls: unknown[][] = []
+  const decks = [
+    { id: '00000000-0000-4000-8000-000000000001', name: 'N s Zoroark' },
+    { id: '00000000-0000-4000-8000-000000000002', name: 'N-s Zoroark' },
+  ]
+  const ctx = { userId: 'u', db: {} as never, api: {
+    base: 'test',
+    get: async () => ({ decks }),
+    send: async (...args: unknown[]) => { calls.push(args); return { text: 'SIMULATED', report: {} } },
+  } } as never
+  const amb = await simulateBattles(ctx, { cards, opponents: ["N's Zoroark"] })
+  assert.equal(calls.length, 0, 'nothing was sent to the API')
+  assert.match(JSON.stringify(amb), /Opponent/)
+  assert.match(JSON.stringify(amb), /00000000-0000-4000-8000-000000000001/)
+  await simulateBattles(ctx, { cards, opponents: ['Slowking'] })
+  assert.deepEqual((calls[0]![2] as { opponents: string[] }).opponents, ['Slowking'], 'a name no saved deck matches is left to the pool')
+})

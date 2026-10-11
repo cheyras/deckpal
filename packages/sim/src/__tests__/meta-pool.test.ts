@@ -210,3 +210,23 @@ test('buildPool: top archetypes in share order, each with its best usable list; 
   const again = mapList(limitlessFrom(x.list), ALIASES, FRAMES);
   assert.ok(again.ok && JSON.stringify(again.list) === JSON.stringify(x.list));
 });
+
+test('buildPool: when every list from the largest events fails, selection falls back to smaller events; the attempt allowance spans both', () => {
+  const bad: LimitlessList = { ...limitlessFrom(BASE), trainer: [{ count: 1, set: 'ZZZ', number: '1', name: 'Mystery' }] };
+  const all: EventStandings[] = [
+    { event: ev('e1', 300, '2026-10-09T00:00:00Z'), standings: [standing('x', 9, 0, 1, bad)] },
+    { event: ev('e2', 200, '2026-10-08T00:00:00Z'), standings: [standing('x', 8, 1, 2, bad)] },
+    { event: ev('e3', 100, '2026-10-07T00:00:00Z'), standings: [standing('x', 8, 1, 3, bad)] },
+    { event: ev('e4', 50, '2026-10-06T00:00:00Z'), standings: [standing('x', 7, 2, 4)] },
+    { event: ev('e5', 40, '2026-10-05T00:00:00Z'), standings: [standing('x', 9, 0, 1)] },
+  ];
+  const now = new Date('2026-10-11T00:00:00Z');
+  const { pool, skipped } = buildPool({ all, aliases: ALIASES, frames: FRAMES, aceSpecNames: ACE_NAMES, now });
+  assert.equal(pool.decks.length, 1);
+  assert.equal(pool.decks[0]!.from.event, 'Event e5', 'e1-e3 (the largest) all failed; the best of the rest (9-0 in e5) is used');
+  assert.equal(skipped.filter((s) => /set code ZZZ/.test(s)).length, 3);
+  // Three failures in the largest events plus the one that works are within the five attempts; with maxTries 3 the fallback is never reached.
+  const capped = buildPool({ all, aliases: ALIASES, frames: FRAMES, aceSpecNames: ACE_NAMES, now, maxTries: 3 });
+  assert.equal(capped.pool.decks.length, 0);
+  assert.ok(capped.skipped.some((s) => /ARCHETYPE SKIPPED/.test(s)));
+});
