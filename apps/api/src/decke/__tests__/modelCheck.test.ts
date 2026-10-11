@@ -28,8 +28,9 @@ test('every configured id is checked — primary, fallback AND escalate', () => 
   const ids = configuredModelIds();
   // A fallback nobody verified is a fallback that fails exactly when needed,
   // which is the failure mode of the row this file was written for.
-  assert.ok(ids.includes('perplexity/sonar-pro'), 'the research primary');
-  assert.ok(ids.includes('perplexity/sonar'), 'the research fallback');
+  assert.ok(ids.includes('perplexity/sonar'), 'the research primary');
+  // sonar-pro left the Gateway catalogue (2026-10-10); research has no fallback.
+  assert.ok(!ids.includes('perplexity/sonar-pro'), 'a model the Gateway no longer lists');
   assert.ok(ids.includes('anthropic/claude-opus-5'), 'an escalate target');
   assert.ok(ids.includes('typesafe-ai/jev'), 'the judgment model, which fails open and so fails silently');
   assert.ok(ids.includes('anthropic/claude-sonnet-5.5'), 'the chat primary');
@@ -67,14 +68,14 @@ test('chat has room to plan and emit a complete deck', () => {
 });
 
 test('the phantom id is caught', async () => {
-  const real = configuredModelIds().filter((i) => i !== 'perplexity/sonar-pro');
+  const real = configuredModelIds().filter((i) => i !== 'perplexity/sonar');
   const c = await checkModels('k', gatewayWith(real));
-  assert.deepEqual(c.missing, ['perplexity/sonar-pro']);
+  assert.deepEqual(c.missing, ['perplexity/sonar']);
   assert.equal(modelCheckStatus(c).status, 'missing');
   const w = modelCheckWarning(c);
   assert.ok(w);
   // NAMES IT. "One model is wrong" without saying which is a puzzle.
-  assert.match(w, /perplexity\/sonar-pro/);
+  assert.match(w, /perplexity\/sonar/);
   assert.match(w, /DO NOT EXIST/);
 });
 
