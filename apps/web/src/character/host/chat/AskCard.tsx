@@ -59,12 +59,15 @@ export function AskCard({ questions, onSubmit, onSkip }: {
             <fieldset key={index} className="min-w-0" aria-describedby={cueId}>
               <legend className="sr-only">{question.header}: {question.question}</legend>
               {/* The legend names the group with header AND question, so the
-                  visible copy below is for sight only — read once, not twice. */}
-              <div className="flex items-start gap-[9px]">
-                <span aria-hidden="true" className="decke-ask-header mt-[1px] shrink-0 rounded-full px-[8px] py-[2px] text-[10.5px] font-bold leading-[16px] uppercase tracking-[0.06em]">
+                  visible copy below is for sight only — read once, not twice.
+                  Headers run to 24 characters: the question keeps at least 11rem
+                  beside the chip and otherwise wraps under it, so a long header
+                  never squeezes the question into a sliver on a phone. */}
+              <div className="flex flex-wrap items-start gap-x-[9px] gap-y-[5px]">
+                <span aria-hidden="true" className="decke-ask-header mt-[1px] max-w-full shrink-0 rounded-full px-[8px] py-[2px] text-[10.5px] font-bold leading-[16px] uppercase tracking-[0.06em]">
                   {question.header}
                 </span>
-                <p aria-hidden="true" className="min-w-0 text-[14.5px] font-semibold leading-[21px] text-text-primary">
+                <p aria-hidden="true" className="min-w-0 flex-1 basis-[11rem] text-[14.5px] font-semibold leading-[21px] text-text-primary">
                   {question.question}
                 </p>
               </div>

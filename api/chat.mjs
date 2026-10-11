@@ -136,8 +136,8 @@ const SERVER_SET = new Set(SERVER_TOOLS)
  * trimming without reporting is the silent correction `decke/tools.ts` refuses
  * to make. `showScreen` draws a panel and says what it shortened. `ask_user`
  * draws a question card from the model's own captions (never the reader's
- * words) and reports every trim in its `trimmed` result field, so a 13-character
- * header lands as a 12-character one instead of failing the card.
+ * words) and reports every trim in its `trimmed` result field, so a 25-character
+ * header lands as a 24-character one instead of failing the card.
  */
 const REPAIRABLE = new Set(['showScreen', 'ask_user'])
 
