@@ -56,7 +56,7 @@ export const STD_ENGINE6: CardScript[] = [
     abilities: [
       {
         // "As long as this Pokémon is in the Active Spot, your opponent can't play any Pokémon that has an Ability from their hand, except for Team Rocket's Pokémon."
-        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2147/): "No, you cannot.  Team Rocket's Watchtower only affects {C} Pokemon in play, so Arven's Greedent still has an Ability while in your hand and cannot be played due to Potent Glare."
+        // Ruling #2147 (TPCi 2025-05-29, https://compendium.pokegym.net/ruling/2147/): Team Rocket's Watchtower only switches off Abilities of {C} Pokémon in play, so Arven's Greedent in the hand still has its Ability and is still stopped.
         // The Ability is the one printed on the card in hand, so Watchtower (no Abilities on {C} Pokémon in play) doesn't lift the lock.
         name: 'Potent Glare',
         statics: [
@@ -112,7 +112,7 @@ export const STD_ENGINE6: CardScript[] = [
     abilities: [
       {
         // "During Pokémon Checkup, put 3 more damage counters on your opponent's Burned Pokémon."
-        // Ruling (TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2112/): "No, this is an additive effect, so during Pokemon Checkup each Burned Pokemon takes two damage counters for Burn and three more damage counters for Magmortar's "Magma Surge". For example, if there is a second Magmortar, Burn would do 2+3+3 for a total of 8 damage counters."
+        // Ruling #2112 (TPCi 2025-03-27, https://compendium.pokegym.net/ruling/2112/): additive with Burn's own 2 counters, and every Magmortar adds its own 3 (two Magmortar: 2 + 3 + 3 = 8 counters).
         // The 3 are part of Burn's own counters, placed before the Burn flip; each Magmortar adds its own.
         name: 'Magma Surge',
         statics: [{ effect: { k: 'checkupCounters', cond: 'burned', n: 3 }, scope: 'oppPokemon', filter: { condition: 'burned' } }],

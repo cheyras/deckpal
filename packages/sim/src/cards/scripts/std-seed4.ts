@@ -134,7 +134,7 @@ export const STD_SEED4: CardScript[] = [
     attacks: {
       // "Look at the top 8 cards of your deck. You may put any number of Pokémon you find there onto your Bench. Shuffle the other cards back into your deck."
       // Ruling (TPCi Rules Team 2024-03-21, https://compendium.pokegym.net/ruling/1962/): "No, Summoning Gate does not allow you to exceed the normal limits of the game. You can put any number of Pokemon you find onto your Bench up to the maximum size of the Bench. In fact, if you use this attack when your Bench is full, the attack does nothing; you can't even look at the top 8 cards of your deck."
-      // Ruling (TPCi Rules Team 2024-03-21, https://compendium.pokegym.net/ruling/1959/): "Yes, you can do that." (non-Basic Pokémon too)
+      // Ruling #1959 (TPCi 2024-03-21, https://compendium.pokegym.net/ruling/1959/): non-Basic Pokémon found there may go straight onto the Bench.
       'Summoning Gate': { program: [{ op: 'custom', fn: 'seed4.summoningGate', args: { n: 8 } }] },
       // "Your opponent's Active Pokémon is now Confused."
       'Brain Shake': { post: [{ op: 'condition', cond: 'confused', to: 'oppActive' }] },
