@@ -92,6 +92,12 @@ export interface CardDef {
   aceSpec: boolean;
   playCode: string | null;
   playable: Cond | null;
+  /**
+   * A Trainer whose every effect needs its player's deck (draw, search it, take its top cards): with an
+   * empty deck it would do nothing, so it can't be played (TPCi rulings 2014-11-13 and, for Ultra Ball's
+   * discard being a cost rather than an effect, 2017-04-27).
+   */
+  needsDeck: boolean;
   stadiumCode: string | null;
   stadiumWhen: Cond | null;
   // Energy

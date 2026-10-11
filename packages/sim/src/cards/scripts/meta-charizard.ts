@@ -98,7 +98,8 @@ export const META_CHARIZARD: CardScript[] = [
     // "Put up to 2 Basic Energy cards from your discard pile into your hand."
     playable: { gte: [{ count: { zone: 'discard', filter: { cat: 'energy', basicEnergy: true } } }, 1] },
     play: [
-      { op: 'chooseCards', from: 'discard', filter: { cat: 'energy', basicEnergy: true }, min: 0, max: 2, as: 'x' },
+      // "up to 2" on a Trainer is 1-2 (TPCi 2026-02-19)
+      { op: 'chooseCards', from: 'discard', filter: { cat: 'energy', basicEnergy: true }, min: 1, max: 2, as: 'x' },
       { op: 'move', cards: 'x', to: 'hand' },
     ],
   },

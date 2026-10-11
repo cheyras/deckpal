@@ -37,6 +37,8 @@ const BAND = trainer('t-202', 'Band', 'Pokémon Tool', 'Nothing happens.');
 const ARENA = trainer('t-203', 'Arena', 'Stadium', 'Nothing happens.');
 const SEER = withAbility(pokemon('t-210', 'Seer', { hp: 60 }), 'Peek', 'Once during your turn, you may draw a card.');
 const SAGE = withAbility(pokemon('t-211', 'Sage', { hp: 100, stage: 'Stage1', from: 'Seer' }), 'Ponder', 'Once during your turn, you may draw a card.');
+// An Evolution with the SAME Ability name as its Basic.
+const ORACLE = withAbility(pokemon('t-214', 'Oracle', { hp: 100, stage: 'Stage1', from: 'Seer' }), 'Peek', 'Once during your turn, you may draw a card.');
 const SPORE = pokemon('t-212', 'Spore', {
   hp: 100,
   attacks: [
@@ -55,6 +57,7 @@ const SCRIPTS: CardScript[] = [
   { id: 't-203', name: 'Arena' },
   { id: 't-210', name: 'Seer', abilities: [{ name: 'Peek', activated: { program: [{ op: 'draw', n: 1 }] } }] },
   { id: 't-211', name: 'Sage', abilities: [{ name: 'Ponder', activated: { program: [{ op: 'draw', n: 1 }] } }] },
+  { id: 't-214', name: 'Oracle', abilities: [{ name: 'Peek', activated: { program: [{ op: 'draw', n: 1 }] } }] },
   {
     id: 't-212',
     name: 'Spore',
@@ -76,6 +79,7 @@ const A = deck('Audit A', [
   [DOG, 4],
   [SEER, 4],
   [SAGE, 4],
+  [ORACLE, 4],
   [SPORE, 4],
   [FATED, 4],
   [COACH, 4],
@@ -200,10 +204,14 @@ test('Destined Fight with the last Prize: both players win one way each → tieb
   assert.equal(h.state.winner, 0);
 });
 
-test('an effect that draws from an empty deck does not lose the game; only the start-of-turn draw does', () => {
-  const g = at([{ active: 'Pup', hand: ['Coach'], emptyDeck: true }, { active: 'Pup' }]);
+test('an effect that draws more than the deck holds draws what it can and does not lose; only the start-of-turn draw does', () => {
+  const g = at([{ active: 'Pup', hand: ['Coach'] }, { active: 'Pup' }]);
+  // One card left: Coach ("draw 2") is still playable, draws the one, and the game goes on.
+  const ps = g.state.p[0];
+  ps.discard.push(...ps.deck.splice(0, ps.deck.length - 1));
   choose(g, 'Play Coach');
-  assert.notEqual(g.state.phase, 'over', 'drawing from an empty deck mid-turn ended the game');
+  assert.equal(ps.deck.length, 0);
+  assert.notEqual(g.state.phase, 'over', 'drawing past the end of the deck mid-turn ended the game');
   choose(g, 'End turn');
   choose(g, 'End turn'); // P2's turn ends; P1 can't draw at the start of turn 5
   assert.equal(g.state.winner, 1);
@@ -230,17 +238,37 @@ test('a Stadium cannot be played onto a same-name Stadium, whoever played it', (
 });
 
 // Settled since: mulligan extra-draw order (rulebook p.18, rules.test.ts) and own-turn Paralysis
-// (Compendium, rules.test.ts).
-test.todo(
-  'playing an Item or Supporter whose effect can do nothing (draw with an empty deck, search an empty deck): the engine ' +
-    'offers it unless the card script has a `playable` guard. Is a no-effect Trainer legal to play (thinning, triggering ' +
-    '"when you play" effects), or is "you can\'t play a card that would do nothing" a general rule?',
-);
-test.todo(
-  'an Ability with the SAME name on the Basic and its Evolution (both "once during your turn"): after the Basic uses it ' +
-    'and evolves, may the Evolution use it again? The fix for the evolution probe carries the used flag by Ability name.',
-);
-test.todo(
-  'evolving clears effects of attacks; does it also clear effects from Trainers/Abilities applied to that Pokémon ' +
-    '(e.g. "this Pokémon takes 30 less damage during your opponent\'s next turn" from an Item)? Engine: only fromAttack.',
-);
+// (Compendium, rules.test.ts); and the three below, from the rulebook and official rulings.
+
+test("a Trainer that would do nothing can't be played: a draw or search card with an empty deck (TPCi 2014-11-13, 2017-04-27)", () => {
+  // "No, you cannot play a Trainer when it is known that it will have no effect" (Professor Juniper with no
+  // cards in deck, TPCi Rules Team 2014-11-13); Ultra Ball's discard is "a cost not the effect" (2017-04-27).
+  // With cards in the deck a search may still find nothing (deck contents are hidden), so it stays playable.
+  const empty = at([{ active: 'Pup', hand: ['Coach'], emptyDeck: true }, { active: 'Pup' }]);
+  assert.ok(!has(empty, 'Coach'), 'a draw Supporter was offered with an empty deck');
+  const full = at([{ active: 'Pup', hand: ['Coach'] }, { active: 'Pup' }]);
+  assert.ok(has(full, 'Coach'), 'a draw Supporter was not offered with cards in the deck');
+});
+
+test('an Ability used this turn stays used when its Pokémon evolves into one with the same Ability (TPCi 2016-02-11)', () => {
+  // Greninja's Water Shuriken, then evolving to Greninja BREAK: "it still remembers that it has already used
+  // up its once-per-turn Water Shuriken ability for that turn" (TPCi Rules Team 2016-02-11).
+  const g = at([{ active: 'Seer', hand: ['Oracle'] }, { active: 'Pup' }]);
+  choose(g, 'Use Peek');
+  choose(g, 'Evolve Seer (Active) into Oracle');
+  assert.ok(!has(g, 'Use Peek'), 'the same-named Ability was usable again after evolving');
+});
+
+test('evolving ends effects of attacks and Special Conditions, not effects from Trainers or Abilities (rulebook)', () => {
+  // Rulebook, "Evolve Pokémon": "Any effects of attacks or Special Conditions affecting the Pokémon ... end
+  // when it evolves." A Trainer's or an Ability's effect on it runs its own course.
+  const g = at([{ active: 'Seer', hand: ['Sage'], cond: POISONED }, { active: 'Pup' }]);
+  const sl = g.state.p[0].active!;
+  const shield = { k: 'damageIn', amount: -30 } as const;
+  g.state.effects.push({ static: shield, slot: sl.id, player: 0, until: g.state.turn + 1, fromAttack: true, src: 0 });
+  g.state.effects.push({ static: shield, slot: sl.id, player: 0, until: g.state.turn + 1, fromAttack: false, src: 0 });
+  choose(g, 'Evolve Seer (Active) into Sage');
+  const left = g.state.effects.filter((x) => x.slot === sl.id);
+  assert.deepEqual(left.map((x) => x.fromAttack), [false], 'evolving must drop the attack effect and keep the other');
+  assert.equal(sl.cond, 0, 'evolving must end Special Conditions');
+});

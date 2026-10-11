@@ -75,7 +75,8 @@ export const ME: CardScript[] = [
             op: 'may',
             prompt: 'Discard 3 Metal Energy for +150 damage?',
             body: [
-              { op: 'discardEnergy', from: 'self', count: 3, filter: { energyType: 'Metal' } },
+              // "{M} Energy": any Energy providing {M} here, Special or Basic (Wash Out ruling, TPCi 2026-03-26).
+              { op: 'discardEnergy', from: 'self', count: 3, filter: { providesType: 'Metal' } },
               { op: 'set', v: 'bonus', value: 150 },
             ],
           },
@@ -209,8 +210,10 @@ export const ME: CardScript[] = [
     id: 'me04-080',
     name: 'Prism Tower',
     // "Once during each player's turn, that player may discard 2 cards from their hand in order to draw a card."
+    // Rulings (TPCi 2026-05-21): "You must be able to discard 2 cards in order to use Prism Tower's effect";
+    // with no cards in the deck "you cannot simply discard 2 cards for no effect."
     stadiumAbility: {
-      when: { gte: [{ handSize: 'self' }, 2] },
+      when: { and: [{ gte: [{ handSize: 'self' }, 2] }, { gte: [{ deckSize: 'self' }, 1] }] },
       program: [
         { op: 'chooseCards', from: 'hand', min: 2, max: 2, as: 'x', prompt: 'Discard 2 cards' },
         { op: 'move', cards: 'x', to: 'discard' },
@@ -223,7 +226,8 @@ export const ME: CardScript[] = [
     name: 'Special Red Card',
     // "You can use this card only if your opponent has 3 or fewer Prize cards remaining.
     //  Your opponent shuffles their hand and puts it on the bottom of their deck. If they put any cards on the bottom of their deck in this way, they draw 3 cards."
-    playable: { lte: [{ prizesLeft: 'opp' }, 3] },
+    // Ruling (TPCi 2026-05-21): "If your opponent has no cards in their hand, you can't play Special Red Card."
+    playable: { and: [{ lte: [{ prizesLeft: 'opp' }, 3] }, { gte: [{ handSize: 'opp' }, 1] }] },
     play: [
       { op: 'custom', fn: 'shuffleHandToBottom', args: { who: 'opp' } },
       { op: 'if', cond: { gt: [{ v: 'moved' }, 0] }, then: [{ op: 'draw', n: 3, who: 'opp' }] },
@@ -233,8 +237,11 @@ export const ME: CardScript[] = [
     id: 'me05-078',
     name: 'Gwynn',
     // "Discard up to 2 Pokémon that don't have a Rule Box from your hand, and draw 3 cards for each card you discarded in this way."
+    // "Up to 2" on a Trainer is 1-2 (TPCi 2026-02-19), so it needs such a Pokémon in hand; with an empty deck it
+    // can still be played just to discard (TPCi 2026-07-16: "You can do as much as you can").
+    playable: { gte: [{ count: { zone: 'hand', filter: { cat: 'pokemon', ...NO_RULE_BOX } } }, 1] },
     play: [
-      { op: 'chooseCards', from: 'hand', filter: NO_RULE_BOX, min: 0, max: 2, as: 'x', prompt: 'Discard up to 2 Pokémon without a Rule Box' },
+      { op: 'chooseCards', from: 'hand', filter: NO_RULE_BOX, min: 1, max: 2, as: 'x', prompt: 'Discard up to 2 Pokémon without a Rule Box' },
       { op: 'move', cards: 'x', to: 'discard' },
       { op: 'draw', n: { mul: [3, { len: 'x' }] } },
     ],

@@ -41,6 +41,12 @@ export interface Filter {
   basicEnergy?: boolean;
   /** Basic Energy of this type (or the Energy type a Basic Energy card provides). */
   energyType?: PType;
+  /**
+   * An Energy card that provides this type where it is attached: Basic or Special, including one that
+   * provides every type (Legacy Energy). "{M} Energy" on a card means this, not only Basic {M} Energy
+   * (Dewgong's Wash Out ruling, TPCi 2026-03-26: "as long as the Energy card is providing {W} Energy").
+   */
+  providesType?: PType;
   name?: string | string[];
   /** Card name contains this text (e.g. "Colress"). */
   nameIncludes?: string;

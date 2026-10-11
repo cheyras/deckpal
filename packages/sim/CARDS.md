@@ -129,6 +129,24 @@ fewer than 3 Energy). If you can't find a ruling, implement the most literal
 reading, set `status: 'needs_ruling'`, and write the open question in `notes`.
 Never guess silently.
 
+Three general rulings every script follows (each pinned in
+`src/__tests__/rulings.test.ts` or `rules-audit.test.ts`):
+
+- **"Up to X"**: on an attack it is 0 to X; on a Trainer or an Ability it is
+  1 to X (TPCi 2026-02-19). A search of the deck for cards with a property can
+  still find nothing. Write `min: 1` for a Trainer's or Ability's "up to", and
+  a `playable` guard so the card isn't offered when nothing qualifies.
+- **No effect, no play**: a Trainer can't be played if it would do nothing
+  (TPCi 2014-11-13). A discard the card calls a cost ("You can use this card
+  only if you discard ...") isn't an effect, so Ultra Ball needs a deck
+  (2017-04-27); any other discard is one, so Gwynn can be played with an empty
+  deck (2026-07-16). The engine's `needsDeck` check covers draw/search-only
+  Trainers; write a `playable` guard for anything else (Special Red Card
+  against an empty hand, Dark Bell with no valid target).
+- **"{X} Energy"** means any Energy card providing {X} where it is attached,
+  Basic or Special (Wash Out, 2026-03-26): use `providesType`, not
+  `energyType` (which is Basic {X} Energy only).
+
 ---
 
 ## Clause catalogue

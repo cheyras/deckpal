@@ -682,6 +682,15 @@ per instance (429 `simulator_busy`), since the engine is synchronous CPU on a sh
 the read-only `simulate_battles` tool in `packages/agent-tools` calls it for both front-ends
 (DECISIONS 2026-10-10, "Battle simulator: simulate_battles for both assistants").
 
+Its accuracy is checked against real games, not only against itself. `replay/replay.ts` plays a whole
+PTCG Live battle log through the engine: every logged action must be one the engine offers, every
+choice inside it comes from the log's detail lines, and the engine's damage, counters, Knock Outs,
+Prizes and conditions are compared with the log's. What the log hides (the opponent's hand, deck
+order, Prize cards) is filled with fillers that become the cards the log later shows; a card the
+engine doesn't script has its logged effect applied and any difference on it is tagged a coverage
+gap. The owner's fixture logs replay under a ratchet test that allows no rule mismatch. Official
+rulings for scripted cards are pinned one test each (`rulings.test.ts`, citing the TPCi Rules Team).
+
 ## 11. Correctness traps that shape the design
 
 These are verified findings that a reasonable implementation would otherwise get
@@ -690,6 +699,8 @@ wrong. They are listed here because each one is silent when wrong.
 | Trap | Consequence if missed |
 |---|---|
 | TCGdex Cardmarket `*-holo` fields mean **reverse holo**, not holo finish | Wrong prices sitewide, no visible error |
+| PTCG Live log detail lines can name the **wrong player** (Judge's draws, a Stadium's effect, a Hammer's discard) | A log replay or parser credits cards to the wrong deck |
+| Live card codes pad the set number only for Scarlet & Violet / Mega Evolution sets (`sv6`→`sv06`, but `swsh1`, `sm2`; `mebsp`→`mep`) | Older-set printings map to ids that don't exist |
 | `legal.standard` is per-print; reprints confer legality | Deck validator rejects most real decks |
 | `dexId[0]` does not follow the card name on multi-species cards | Wrong species captured |
 | 4 **Trainer** cards carry `dexId` | Trainers silently capture Pokemon; gate on `category='Pokemon'` |

@@ -35,6 +35,17 @@ export interface GameContext {
 export interface Env {
   ctx: GameContext;
   emit: ((e: GameEvent) => void) | null;
+  /**
+   * Log replay only (src/replay/replay.ts): name the card a draw or a Prize take produces, from
+   * the real game's log. Unset in simulation, and never copied into search clones.
+   */
+  replay?: {
+    /** The card (instance id, in `zone`) the next draw / Prize take produces; undefined = the top one. */
+    draw?: (p: Player, zone: readonly number[]) => number | undefined;
+    prize?: (p: Player, zone: readonly number[]) => number | undefined;
+    /** A coin flip's result (`why` names a rule's own flip, e.g. Confusion's); undefined = random. */
+    coin?: (p: Player, why?: 'confusion') => boolean | undefined;
+  };
 }
 
 export function def(ctx: GameContext, iid: number): CardDef {

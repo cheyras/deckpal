@@ -2,7 +2,7 @@
  * Printed frame (catalog data) → compiled CardDef, plus the text key that lets
  * one script serve every printing whose game text is identical.
  */
-import type { CardScript, PType } from '../dsl.js';
+import type { CardScript, PType, Step } from '../dsl.js';
 import type { AbilityDef, AttackDef, CardDef, CardFrame, Coverage } from '../types.js';
 
 const TYPES: Record<string, PType> = {
@@ -59,6 +59,10 @@ export function normText(s: string | null | undefined): string {
  * text, Weakness/Resistance, Retreat. Reprints resolve to one script; a
  * reworded printing gets its own key and is never silently treated as the same.
  */
+function normModifier(v: string | null | undefined): string {
+  return (v ?? '').trim().replace(/^[x×]/i, '×').replace(/[−–—]/g, '-');
+}
+
 export function textKey(f: CardFrame): string {
   const parts = [
     normText(f.name),
@@ -75,8 +79,9 @@ export function textKey(f: CardFrame): string {
       (a) => `A:${normText(a.name)}|${a.cost ?? ''}|${a.damage ?? ''}|${normText(a.effect)}`,
     ),
     ...(f.abilities ?? []).map((a) => `B:${normText(a.name)}|${normText(a.effect)}`),
-    ...(f.weaknesses ?? []).map((w) => `W:${w.type}${w.value}`),
-    ...(f.resistances ?? []).map((r) => `R:${r.type}${r.value}`),
+    // Catalog noise in the modifier: "x2" and "×2" are the same Weakness (mep-012 Mega Lucario ex).
+    ...(f.weaknesses ?? []).map((w) => `W:${w.type}${normModifier(w.value)}`),
+    ...(f.resistances ?? []).map((r) => `R:${r.type}${normModifier(r.value)}`),
   ];
   return parts.join('\u0001');
 }
@@ -210,6 +215,7 @@ export function buildDef(idx: number, f: CardFrame, script: CardScript | null, c
     aceSpec: !!script?.fix?.aceSpec,
     playCode: null,
     playable: script?.playable ?? null,
+    needsDeck: kind === 'trainer' && !!script?.play && needsOnlyDeck(script.play, /only if you discard/i.test(f.effect ?? '')),
     stadiumCode: null,
     stadiumWhen: script?.stadiumAbility?.when ?? null,
     basicEnergy,
@@ -219,4 +225,49 @@ export function buildDef(idx: number, f: CardFrame, script: CardScript | null, c
     text,
     script,
   };
+}
+
+/**
+ * True when a play program does something only through its player's deck: it draws, searches the
+ * deck or takes cards off its top, and does nothing else that counts as an effect. A discard from the
+ * hand is a COST only when the card says so ("You can use this card only if you discard ..." — Ultra
+ * Ball, TPCi 2017-04-27); otherwise it is an effect and the card stays playable with an empty deck
+ * (Gwynn, TPCi 2026-07-16: "Yes. You can do as much as you can."). Anything the analysis doesn't
+ * recognise counts as an effect, so a card is never wrongly made unplayable.
+ */
+export function needsOnlyDeck(program: Step[], handDiscardIsCost = false): boolean {
+  let deck = false;
+  const walk = (steps: Step[]): boolean => {
+    for (const st of steps) {
+      switch (st.op) {
+        case 'draw':
+          if (st.who === 'opp') return false;
+          deck = true;
+          break;
+        case 'chooseCards':
+          if (st.from === 'deck' && st.who !== 'opp') deck = true;
+          else if (st.from !== 'hand' || !handDiscardIsCost) return false;
+          break;
+        case 'move':
+          if (typeof st.cards === 'object' && 'top' in st.cards && st.cards.who !== 'opp') deck = true;
+          else if (typeof st.cards === 'object') return false;
+          break;
+        case 'shuffle':
+        case 'set':
+        case 'end':
+          break;
+        case 'may':
+        case 'repeat':
+          if (!walk(st.body)) return false;
+          break;
+        case 'if':
+          if (!walk(st.then) || !walk(st.else ?? [])) return false;
+          break;
+        default:
+          return false;
+      }
+    }
+    return true;
+  };
+  return walk(program) && deck;
 }

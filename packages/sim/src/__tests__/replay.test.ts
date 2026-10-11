@@ -38,7 +38,12 @@ test('card codes map to TCGdex ids', () => {
   // A code names one printing: an absent printing does NOT fall back to a same-named card.
   assert.equal(resolveFrame('Riolu', 'sv08.5-050').frame?.hp, 70);
   assert.equal(resolveFrame('Riolu', 'me01-076').frame?.hp, 80);
-  assert.equal(resolveFrame('Pecharunt ex', 'sv08.5-163').frame, null);
+  assert.equal(resolveFrame('Pecharunt ex', 'sv08.5-999').frame, null);
+  // Only Scarlet & Violet / Mega Evolution pad the set number; older sets and the Mega promos do not.
+  assert.equal(codeToCardId('swsh1_213'), 'swsh1-213');
+  assert.equal(codeToCardId('sm2_124'), 'sm2-124');
+  assert.equal(codeToCardId('swsh12-5_141'), 'swsh12.5-141');
+  assert.equal(codeToCardId('mebsp_12'), 'mep-012');
   // Without a code, a name resolves only when every printing shares one game text.
   assert.equal(resolveFrame('Riolu').frame, null);
   assert.equal(resolveFrame('Mega Kangaskhan ex').frame?.hp, 300);
@@ -223,4 +228,40 @@ test('audit catches a log the rules cannot produce', () => {
   );
   assert.equal(ko.totals.damage.mismatch, 1); // the engine applies the Weakness Live "forgot"
   assert.equal(ko.totals.kos.mismatch, 1);
+});
+
+// Full replay (replay/replay.ts): every logged action must be one the engine offers, with the log's
+// choices, and the engine's damage / counters / Knock Outs / Prizes / conditions compared with the log's.
+// A RULE mismatch (one on cards the engine fully scripts) must never appear. A gap (a difference on a
+// card the engine doesn't script, or a deck-size artefact) is counted and capped. A ratchet: each log
+// replays at least this far, and a complete one stays complete. Raise floors / lower caps as coverage
+// grows; never loosen one without a written reason. Where a log stops today:
+//   hns-05  the opponent's Lurantis ex (Leaf Guard: 50 less damage next turn) is unscripted, so the
+//           engine Knocks it Out a turn early and the log's next lines can't happen.
+const REPLAY_FLOOR: Record<string, { replayed: number; complete?: boolean; maxGaps: number }> = {
+  'hns-05.txt': { replayed: 45, maxGaps: 5 },
+  'hns-10.txt': { replayed: 26, complete: true, maxGaps: 0 },
+  'hns-11.txt': { replayed: 43, complete: true, maxGaps: 0 },
+  'hns-12.txt': { replayed: 50, complete: true, maxGaps: 0 },
+  'hns-34.txt': { replayed: 71, complete: true, maxGaps: 1 },
+  'hns-36.txt': { replayed: 65, complete: true, maxGaps: 0 },
+  'tbs-57.txt': { replayed: 50, complete: true, maxGaps: 0 },
+  'tbs-58.txt': { replayed: 28, complete: true, maxGaps: 0 },
+  'tbs-62.txt': { replayed: 28, complete: true, maxGaps: 1 },
+  'tbs-65.txt': { replayed: 49, complete: true, maxGaps: 0 },
+};
+
+test("full replay: the owner's logged games play through the engine with no rule mismatch (ratchet per log)", async () => {
+  const { replayLog, replaySummary } = await import('../replay/replay.js');
+  for (const f of FILES) {
+    const floor = REPLAY_FLOOR[f];
+    assert.ok(floor, `${f}: add a REPLAY_FLOOR entry`);
+    const r = replayLog(read(f));
+    const why = `${f}\n${replaySummary(r)}`;
+    assert.ok(r.replayed >= floor.replayed, `replayed ${r.replayed} < floor ${floor.replayed}: ${why}`);
+    if (floor.complete) assert.ok(r.completed, `no longer complete: ${why}`);
+    assert.equal(r.mismatches.filter((m) => !m.unscripted).length, 0, `a rule mismatch: ${why}`);
+    const gaps = r.mismatches.filter((m) => m.unscripted).length;
+    assert.ok(gaps <= floor.maxGaps, `${gaps} gaps > ${floor.maxGaps}: ${why}`);
+  }
 });

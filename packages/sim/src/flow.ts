@@ -36,6 +36,7 @@ import { leaveHand,
   removeFrom,
   shuffleDeck,
   slotCards,
+  takePicked,
   topCard,
 } from './state.js';
 import {
@@ -450,6 +451,7 @@ export function legalActions(env: Env, s: GameState, p: Player): Action[] {
       for (const sl of slots) if (once(`a${d.idx}:${sl.id}`)) out.push({ t: 'attach', card: c, slot: sl.id });
     } else if (d.kind === 'trainer') {
       if (d.coverage === 'none') continue;
+      if (d.needsDeck && !ps.deck.length) continue; // it would do nothing (see CardDef.needsDeck)
       if (d.playable && !evalCond(env, s, { player: p, slot: 0, vars: { __src: c } }, d.playable)) continue;
       if (d.script?.fix?.playAsBasic) {
         // lane:ghost — played onto the Bench as a Basic Pokémon; still an Item, so Item locks stop it.
@@ -627,6 +629,7 @@ function doAction(env: Env, s: GameState, a: Action): void {
       if (!st) return;
       ps.stadiumAbilityUsed = true;
       const d = def(env.ctx, st.card);
+      emit(env, { type: 'use_ability', player: p, slot: 0, name: d.name });
       pushFrame(s, { code: d.stadiumCode as string, vars: {}, player: p, src: st.card, slot: 0, kind: 'stadium' });
       return;
     }
@@ -747,7 +750,7 @@ function resolveKOs(env: Env, s: GameState): void {
       const tp = s.p[taker];
       let took = 0;
       for (let i = 0; i < n && tp.prizes.length; i++) {
-        const pc = tp.prizes.pop() as number;
+        const pc = takePicked(tp.prizes, env.replay?.prize?.(taker, tp.prizes)) ?? (tp.prizes.pop() as number);
         tp.hand.push(pc);
         removeFrom(tp.revealed, pc); // Prize cards are taken face down
         took++;
@@ -822,9 +825,13 @@ function checkup(env: Env, s: GameState): void {
   for (const p of [s.current, opp(s.current)] as Player[]) {
     const sl = s.p[p].active;
     if (!sl) continue;
-    if (sl.cond & POISONED) sl.damage += 10;
+    if (sl.cond & POISONED) {
+      sl.damage += 10;
+      emit(env, { type: 'counters', player: p, slot: sl.id, n: 1 });
+    }
     if (sl.cond & BURNED) {
       sl.damage += 20;
+      emit(env, { type: 'counters', player: p, slot: sl.id, n: 2 });
       if (flipCoin(env, s, p)) sl.cond &= ~BURNED;
     }
     if (sl.cond & ASLEEP) {
