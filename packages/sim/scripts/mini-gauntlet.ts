@@ -1,6 +1,6 @@
 /**
  * Quick sanity gauntlet with the search pilot on both sides (not CI):
- *   node --import tsx scripts/mini-gauntlet.ts [deck="Hide 'n' Sneak"] [pairsPerOpponent=2]
+ *   node --import tsx scripts/mini-gauntlet.ts [hns|slowking] [pairsPerOpponent=2] [account|meta]
  */
 import { createContext } from '../src/context.js';
 import { Game } from '../src/game.js';
@@ -8,13 +8,15 @@ import { playOut } from '../src/play.js';
 import { makePilot } from '../src/pilot/index.js';
 import { HIDE_N_SNEAK, TOOLBOX_SLOWKING } from '../src/__tests__/decks.js';
 import { GAUNTLET_LISTS, gauntletDeck } from '../src/__tests__/gauntlet.js';
+import { META_LISTS } from '../src/__tests__/meta/index.js';
+import { fromIds } from '../src/__tests__/decks.js';
 
 const subject = process.argv[2] === 'slowking' ? TOOLBOX_SLOWKING : HIDE_N_SNEAK;
 const pairs = Number(process.argv[3] ?? 2);
 const t0 = Date.now();
 let total = 0;
-for (const name of Object.keys(GAUNTLET_LISTS)) {
-  const opp = gauntletDeck(name);
+const pool = process.argv[4] === 'meta' ? Object.entries(META_LISTS).map(([n, l]) => [n, fromIds(n, l)] as const) : Object.keys(GAUNTLET_LISTS).map((n) => [n, gauntletDeck(n)] as const);
+for (const [name, opp] of pool) {
   let w = 0;
   let l = 0;
   let d = 0;

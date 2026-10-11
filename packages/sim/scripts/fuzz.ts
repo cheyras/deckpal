@@ -1,5 +1,5 @@
 /**
- * Heavy random-play fuzz across every pair of account decks (not part of CI).
+ * Heavy random-play fuzz across every pair of account and meta decks (not part of CI).
  *   node --import tsx scripts/fuzz.ts [seedsPerPair=10]
  * Prints failures (deck pair, seed, decision index, error) and engine throughput.
  */
@@ -8,9 +8,11 @@ import { RandomPilot } from '../src/pilot/random.js';
 import { allSlots, slotCards } from '../src/state.js';
 import { HIDE_N_SNEAK, TOOLBOX_SLOWKING } from '../src/__tests__/decks.js';
 import { GAUNTLET_LISTS, gauntletDeck } from '../src/__tests__/gauntlet.js';
+import { META_LISTS } from '../src/__tests__/meta/index.js';
+import { fromIds } from '../src/__tests__/decks.js';
 
 const per = Number(process.argv[2] ?? 10);
-const decks = [HIDE_N_SNEAK, TOOLBOX_SLOWKING, ...Object.keys(GAUNTLET_LISTS).map(gauntletDeck)];
+const decks = [HIDE_N_SNEAK, TOOLBOX_SLOWKING, ...Object.keys(GAUNTLET_LISTS).map(gauntletDeck), ...Object.entries(META_LISTS).map(([n, l]) => fromIds(n, l))];
 
 function zonesOk(g: Game): string | null {
   const s = g.state;
