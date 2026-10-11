@@ -305,6 +305,11 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c29.attackingPokemon': (a) => `Choose the Pokémon that used the attack that Knocked Out this Pokémon (into "${String(a.as ?? 'a')}"); none when it is no longer in play`,
   'c29.lookTopTakeAny': (a) => `Look at the top ${Number(a.n ?? 4)} cards of your deck. You may reveal any number of ${noun(a.filter as Filter | undefined).pl} you find there and put them into your hand. Shuffle the other cards back into your deck (the deck is shuffled even when none are left)`,
   'c29.countEnergyOnPokemon': (a) => `Count the ${sym(a.type as PType)} Energy attached to all of your ${String((a.slotFilter as Filter | undefined)?.nameIncludes ?? '')} Pokémon (an Energy that provides every type counts once) (into "${String(a.as ?? 'n')}")`,
+  // std-c33-customs.ts
+  'c33.reorderOppTop': (a) => `Look at the top ${Number(a.n ?? 5)} cards of your opponent's deck (fewer if the deck is short) and put them back on top in any order you choose`,
+  'c33.moveOneCounter': () => `Move 1 damage counter from the Pokémon chosen as "from" to another of your Pokémon (your choice; nothing under a Watchful Eye-style lock)`,
+  'c33.selfToHandDiscardAttached': () => 'Put this Pokémon into your hand (every Pokémon card of its stack) and discard the Energy and Tool cards attached to it',
+  'c33.evolveChosen': (a) => `For each Pokémon chosen as "${String(a.slots ?? 't')}", in turn: search your deck for a card that evolves from that Pokémon and put it onto that Pokémon to evolve it (picking none is allowed; not on your first turn; not a Pokémon that evolved this turn)`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -2325,5 +2330,21 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv09-004|attack:Leech Life': {
     problems: ['similarity'],
     why: '"The same amount of damage you did" is measured as the change in the Defending Pokémon\'s damage counters across the attack (snapshot before, difference after), so the renderer spells out the arithmetic instead of the printed phrase; the card test checks it heals exactly the damage dealt, after Weakness.',
+  },
+  'sv10-080|attack:Bench Manipulation': {
+    problems: ['"Active" is printed but not rendered', '"tails" is printed but not rendered', '"opponent\'s active" is printed but not rendered'],
+    why: 'The coins are flipped once per Benched Pokémon and the damage is 80 times (Benched Pokémon minus heads), i.e. 80 per tails, which the rendering spells as that subtraction; the damage goes to the Defending Pokémon (the default target), which is the opponent\'s Active Pokémon.',
+  },
+  'sv10-089|ability:Rocket Brain': {
+    problems: ['similarity'],
+    why: 'The printed sentence is the effect; the rendering adds the usability gate (a damaged Team Rocket\'s Pokémon, a second Pokémon to receive the counter, counters not locked in place) and the two choices, all implied by "move 1 damage counter from 1 of ... to another of ...". The card test covers each.',
+  },
+  'sv10-122|ability:Biting Spree': {
+    problems: ['"each" is printed but not rendered'],
+    why: 'The 2 damage counters are placed on every one of the 2 chosen Pokémon (the counters step targets the whole choice), which renders as "on 2 of your opponent\'s Pokémon"; the test checks both get them.',
+  },
+  'sv10-124|attack:Hazardous Venom': {
+    problems: ['similarity'],
+    why: 'The number of Special Conditions is the sum of five "1 if the Defending Pokémon has this condition, else 0" terms (one per condition), which renders as that sum; the test checks 1, 2 and 3 conditions.',
   },
 };
