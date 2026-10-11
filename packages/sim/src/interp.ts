@@ -379,7 +379,8 @@ export function orderOf(s: GameState, on: TriggerOn | ReactEvent, owner: Player)
 
 /** A new event instance: the triggers queued from here until the next one are one "at the same time" batch (per moment, kind and chooser). */
 export function beginEvent(s: GameState): number {
-  s.ev = (s.ev ?? 0) + 1;
+  s.evNext = (s.evNext ?? 0) + 1;
+  s.ev = s.evNext;
   return s.ev;
 }
 
@@ -522,10 +523,10 @@ function queueDeckDiscard(env: Env, s: GameState, f: Frame, card: number, owner:
  */
 export function queueReactions(env: Env, s: GameState, slot: Slot, event: ReactEvent, vars: Record<string, Val>, once = false): void {
   void env;
-  const order = orderOf(s, event, ownerOf(s, slot));
   for (const te of s.effects) {
     if (te.slot !== slot.id || te.until < s.turn || te.static.k !== 'react' || te.static.event !== event || !te.code) continue;
     if (once && s.queued.some((q) => q.code === te.code && q.vars.__def === slot.id)) continue;
+    const order = orderOf(s, event, ownerOf(s, slot)); // its own object per frame: picking one must not mark the others
     s.queued.push({ code: te.code, pc: 0, vars: { ...vars }, player: te.by ?? te.player, src: te.src, slot: te.from ?? slot.id, kind: te.fromAttack ? 'attack' : 'trigger', ...(order ? { order } : {}) });
   }
 }

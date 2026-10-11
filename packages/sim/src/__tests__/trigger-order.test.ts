@@ -17,6 +17,7 @@ import type { Game } from '../game.js';
 import { scenario, type SideLayout } from '../scenario.js';
 import type { CardFrame, Decision } from '../types.js';
 import { ASLEEP, POISONED } from '../types.js';
+import { beginEvent } from '../interp.js';
 import { PolicyPilot } from '../pilot/policy.js';
 import { FIGHTING, PUP, deck, pokemon } from './fixtures.js';
 
@@ -60,11 +61,13 @@ mon('End Hexer', [['endOfTurn', counters3('myActive')]]);
 mon('Attach Healer', [['allyAttachFromHand', heal30({ v: '__target' })]]);
 mon('Sleeper', [['checkup', [{ op: 'heal', amount: 80, to: 'self' }], { slotIs: { ref: 'self', filter: { condition: 'asleep' } } }]]);
 mon('Checkup Drawer', [['checkup', [{ op: 'draw', n: 1 }]]]);
+mon('Pair', [['checkup', [{ op: 'counters', n: { countersOn: 'self' }, to: 'myActive' }]]]);
 mon('Mirror', [['checkup', [{ op: 'counters', n: { countersOn: 'self' }, to: 'oppActive' }]]]);
 mon('Attach Chainer', [['allyAttachFromHand', [{ op: 'chooseCards', from: 'hand', filter: { cat: 'energy' }, min: 0, max: 1, as: 'x' }, { op: 'attach', cards: 'x', to: { v: '__target' } }]]]);
 
 // An attack that leaves a timed effect on the Defending Pokémon, and another that does so before it damages it.
-const ZAPPER = pokemon('t-oz', 'Zapper', { hp: 100, attacks: [['Zap', 'Colorless', null], ['Hexed', 'Colorless', null]] });
+const ZAPPER = pokemon('t-oz', 'Zapper', { hp: 100, attacks: [['Zap', 'Colorless', null], ['Hexed', 'Colorless', null], ['Double', 'Colorless', null]] });
+ZAPPER.attacks![2]!.effect = "During your opponent's next turn, whenever they attach an Energy card from their hand to the Defending Pokémon, put 3 damage counters on it, then 4 more.";
 ZAPPER.attacks![0]!.effect = "During your opponent's next turn, whenever they attach an Energy card from their hand to the Defending Pokémon, put 3 damage counters on it.";
 ZAPPER.attacks![1]!.effect = 'If the Defending Pokémon is damaged by an attack this turn, put 3 damage counters on it. This attack does 20 damage to it.';
 CARDS.push(ZAPPER);
@@ -73,6 +76,12 @@ SCRIPTS.push({
   name: 'Zapper',
   attacks: {
     Zap: { post: [{ op: 'effect', static: { k: 'react', event: 'attachFromHand', program: counters3({ v: '__target' }) }, on: 'defender', duration: 'oppNextTurn' }] },
+    Double: {
+      post: [
+        { op: 'effect', static: { k: 'react', event: 'attachFromHand', program: counters3({ v: '__target' }) }, on: 'defender', duration: 'oppNextTurn' },
+        { op: 'effect', static: { k: 'react', event: 'attachFromHand', program: [{ op: 'counters', n: 4, to: { v: '__target' } }] }, on: 'defender', duration: 'oppNextTurn' },
+      ],
+    },
     Hexed: {
       program: [
         { op: 'effect', static: { k: 'react', event: 'damagedByAttack', program: counters3({ v: '__def' }) }, on: 'defender', duration: 'thisTurn' },
@@ -300,6 +309,50 @@ test('the same program from different controllers is still asked (it can aim at 
   assert.deepEqual([dmg(a, 0), dmg(a, 1)], [90, 70]);
   const b = run(1);
   assert.deepEqual([dmg(b, 0), dmg(b, 1)], [70, 120]);
+});
+
+test('same-name copies on different Pokémon of one controller are still asked when the program reads its own Pokémon', () => {
+  const run = (first: number): Game => {
+    const g = at([{ active: 'Pup', bench: ['Pup'] }, { active: 'Pair', damage: { active: 10, 0: 20 }, bench: ['Pair'] }]);
+    choose(g, 'End turn');
+    assert.equal(g.decision!.kind, 'option');
+    assert.equal(g.decision!.player, 1);
+    assert.deepEqual(labels(g), ['Pair', 'Pair']);
+    g.submit([first]);
+    return g;
+  };
+  assert.equal(dmg(run(0), 1), 40, 'the Active first: 10 + 10, then the Bench copy adds its 20');
+  assert.equal(dmg(run(1), 1), 60, 'the Bench copy first: 10 + 20, then the Active copy adds all 30');
+});
+
+test('several timed reactions and an Ability on one attach: every order is reachable', () => {
+  const run = (path: string[]): Game => {
+    const g = at([
+      { active: 'Zapper', energy: { active: ['Fighting Energy'] }, bench: ['Pup'] },
+      { active: 'Attach Healer', damage: { active: 10 }, hand: ['Fighting Energy'], bench: ['Pup'] },
+    ]);
+    choose(g, 'Attack: Double');
+    choose(g, 'Attach Fighting Energy');
+    for (const [i, p] of path.entries()) {
+      assert.equal(labels(g).length, 3 - i, `still ${3 - i} to order`);
+      choose(g, p);
+    }
+    return g;
+  };
+  // 10 damage; the heal takes off at most 30, the reactions add 30 and 40.
+  assert.equal(dmg(run(['Attach Healer', 'Zapper']), 1), 70, 'heal first (10 -> 0), then 70');
+  assert.equal(dmg(run(['Zapper', 'Zapper']), 1), 50, 'both reactions, then the heal: 80 - 30');
+  assert.equal(dmg(run(['Zapper', 'Attach Healer']), 1), 50, 'reaction, heal, reaction: 40 - 30 + 40');
+});
+
+test('event ids only grow: an event is new even after the current id was set back', () => {
+  const g = at([attacker, { active: 'Solo', bench: ['Pup'] }]);
+  const s = g.state;
+  const ids = [beginEvent(s), beginEvent(s), beginEvent(s)];
+  s.ev = ids[0]; // a frame restoring its earlier event id
+  assert.equal(beginEvent(s), 4, 'the next event is new');
+  assert.equal(beginEvent(s), 5);
+  assert.deepEqual(ids, [1, 2, 3]);
 });
 
 // ------------------------------------------------------------------ one moment is one batch

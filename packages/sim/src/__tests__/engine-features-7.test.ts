@@ -629,8 +629,15 @@ test('two end-of-turn effects waiting, one not tied to a Pokémon: the turn\'s p
   assert.equal(two.decision!.player, 0, "the turn's player is asked");
   assert.deepEqual(labels(two).sort(), ["Hero's Cape", 'Potion']);
   choose(two, "Hero's Cape");
-  assert.equal(two.state.p[0].hand.length, before + 3, 'both ran');
+  assert.equal(two.state.p[0].hand.length, before + 3, 'both ran, Cape first');
   assert.equal(two.state.current, 1);
+  const rev = scenario(dk2, dk2, [{ active: 'Dreepy', tools: { active: ["Hero's Cape"] }, hand: ['Potion'] }, { active: 'Dreepy' }], { scripts: [{ id: 'me03-083', name: 'Potion', play: draw1 }, cape] });
+  choose(rev, 'Play Potion');
+  const before2 = rev.state.p[0].hand.length;
+  choose(rev, 'End turn');
+  choose(rev, 'Potion');
+  assert.equal(rev.state.p[0].hand.length, before2 + 3, 'both ran, Potion first');
+  assert.equal(rev.state.current, 1);
   // One effect on its own: no question.
   const one = scenario(dk, dk, [{ active: 'Dreepy', hand: ['Potion'] }, { active: 'Dreepy' }], { scripts: [{ id: 'me03-083', name: 'Potion', play: draw1 }] });
   choose(one, 'Play Potion');

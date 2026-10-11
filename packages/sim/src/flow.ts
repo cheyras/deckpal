@@ -310,11 +310,15 @@ const CHECKUP_CONDITIONS = '$checkupConditions';
  * Two bound effects are taken to be interchangeable only when they are copies of the same card's effect: the same program, for the same
  * controller, with the same variables set by the event. The same program from another controller (or from a different card) can aim at
  * different targets or amounts ("put counters on the opponent's Active Pokémon for each counter on this Pokémon"), so those are asked.
- * Copies of one card on different Pokémon are treated as additive: the order of two like effects is not asked.
+ * Copies of one card on different Pokémon are merged only for a program that does not depend on its source.
  */
 function effectKey(env: Env, f: Frame): string {
   if (f.code === CHECKUP_CONDITIONS) return f.code;
-  return [JSON.stringify(env.ctx.code.get(f.code)), f.player, JSON.stringify(f.vars), def(env.ctx, f.src).name].join('|');
+  const prog = JSON.stringify(env.ctx.code.get(f.code));
+  // A program that may read or change something about the Pokémon or card it comes from (self, the defender, a custom function, a use
+  // note) is bound to that source: copies on different Pokémon are different effects. Only a program with none of those may be merged.
+  const bound = /"self"|"defender"|"custom"|"used"|"attacker"|"this"/.test(prog);
+  return [prog, f.player, JSON.stringify(f.vars), def(env.ctx, f.src).name, bound ? `${f.slot}:${f.src}` : ''].join('|');
 }
 
 /**

@@ -337,6 +337,8 @@ export interface GameState {
   queued: Frame[];
   /** The event instance being produced (see `beginEvent`): triggers queued by it share this id, and are ordered together. */
   ev?: number;
+  /** The last event id handed out: ids only ever grow, whatever `ev` is set back to. */
+  evNext?: number;
   /** Queue length when the effect now running was taken from it: what is queued beyond it was caused by that effect and resolves next. */
   nest?: number;
   /** A Trainer card being played: out of the hand, not yet in the discard pile. */
