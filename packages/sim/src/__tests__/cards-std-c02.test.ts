@@ -468,6 +468,17 @@ test("Wally's Compassion: heal all damage from 1 of your Mega Evolution Pokémon
   assert.ok(!has(n, "Play Wally's Compassion"));
 });
 
+test("Wally's Compassion: a Mega Evolution Pokémon ex that can't be healed loses no damage, so its Energy stay", () => {
+  const dk = deck('me01-132', 'me02-004', 'me01-086', URSA);
+  const g = scenario(dk, dk, [{ active: 'Mega Heracross ex', bench: ['Mega Absol ex'], hand: ["Wally's Compassion"], energy: { active: [G, G, P] }, damage: { active: 130, 0: 50 } }, { active: 'Bloodmoon Ursaluna ex' }]);
+  g.state.effects.push({ static: { k: 'noHeal' }, slot: g.state.p[0].active!.id, player: 0, until: g.state.turn + 1, fromAttack: false, src: 0 }); // Life-Locked (Yveltal), as a timed effect
+  choose(g, "Play Wally's Compassion");
+  choose(g, 'Mega Heracross ex');
+  assert.equal(g.state.p[0].active!.damage, 130, 'nothing was healed');
+  assert.equal(g.state.p[0].active!.energy.length, 3, 'so the Energy stay');
+  assert.ok(!names(g, g.state.p[0].hand).some((n) => n.includes('Energy')), 'and none went to the hand');
+});
+
 // ------------------------------------------------------------------ Ludicolo
 
 test('Ludicolo, Excited Heal: with a {G} Mega Evolution Pokémon ex in play (even a Basic one, #2241), heal 60 from 1 of your Pokémon', () => {

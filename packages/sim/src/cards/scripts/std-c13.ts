@@ -126,8 +126,8 @@ export const STD_C13: CardScript[] = [
             optional: true,
             when: { slotIs: { ref: 'myActive', filter: { type: 'Grass', damaged: true } } },
             program: [
-              { op: 'heal', amount: { mul: [10, { countersOn: 'myActive' }] }, to: 'myActive' },
-              { op: 'discardEnergy', from: 'myActive', count: 'all' },
+              { op: 'heal', amount: { mul: [10, { countersOn: 'myActive' }] }, to: 'myActive', as: 'healed' },
+              { op: 'if', cond: { gte: [{ v: 'healed' }, 1] }, then: [{ op: 'discardEnergy', from: 'myActive', count: 'all' }] },
             ],
           },
         ],

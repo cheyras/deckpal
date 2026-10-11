@@ -1410,6 +1410,7 @@ class Renderer {
         const more = `${n} more Prize card${n === 1 ? '' : 's'}`;
         const stack = e.noStack ? `. The effect of ${e.noStack} doesn't stack` : '';
         const act = e.flip ? `flip a coin. If heads, ${take}` : take;
+        if (e.thisAttack && !e.ko) return `If your opponent's Pokémon is Knocked Out by damage from this attack, ${act} ${more}${stack}`;
         if (e.ko || e.byThis) {
           // A Knocked Out Pokémon of a kind, wherever it was, by an attack of this Pokémon.
           const by = e.byThis ? this.selfName : e.attacker ? noun(e.attacker, true).pl : 'Pokémon of yours';
@@ -2759,10 +2760,6 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   '30th-071|attack:Colorful Harmony': {
     problems: ['"your pokemon" is printed', 'similarity'],
     why: '"Each type of Basic Energy attached to all of your Pokémon" is a sum over the 8 Basic Energy types (there is no Basic Colorless Energy) of 1 when any of your Pokémon has a Basic Energy of that type attached, so the one sentence renders as eight clauses.',
-  },
-  '30th-072|attack:Mysterious Signal': {
-    problems: ["\"opponent's pokemon\" is printed"],
-    why: "The attack only damages the Defending (Active) Pokémon, so \"your opponent's Pokémon Knocked Out by damage from this attack\" is the Active one; the script is a this-turn extra Prize effect for Knock Outs by an attack of a Pokémon named Unown, which only this attack can cause here.",
   },
   // std-30d
   '30th-110|attack:Screech': {

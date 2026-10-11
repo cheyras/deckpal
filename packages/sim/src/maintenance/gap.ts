@@ -7,6 +7,7 @@
  */
 import { isVanilla, textKey } from '../cards/frame.js';
 import { withPrintedWR } from '../cards/printed-wr.js';
+import { withEvolvesFrom } from '../cards/evolves-from.js';
 import { withCleanText } from '../cards/clean-text.js';
 import { scriptFor } from '../cards/registry.js';
 import type { CardFrame } from '../types.js';
@@ -28,7 +29,7 @@ export function isStandardFrame(f: CardFrame, marks: readonly string[]): boolean
 
 /** Group the Standard-mark frames by text and classify each group. `frames` may hold more than Standard (they are filtered). */
 export function standardGap(frames: Iterable<CardFrame>, marks: readonly string[]): GapResult {
-  const standard = [...frames].filter((f) => isStandardFrame(f, marks)).map((f) => withPrintedWR(withCleanText(f))).sort((a, b) => a.cardId.localeCompare(b.cardId));
+  const standard = [...frames].filter((f) => isStandardFrame(f, marks)).map((f) => withPrintedWR(withEvolvesFrom(withCleanText(f)))).sort((a, b) => a.cardId.localeCompare(b.cardId));
   const byKey = new Map<string, CardFrame[]>();
   for (const f of standard) {
     const k = textKey(f);

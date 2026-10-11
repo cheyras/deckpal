@@ -494,6 +494,17 @@ test('Celebratory Fanfare: once during each player\'s turn, heal 10 from each of
   assert.ok(!has(h, 'Use the Stadium'));
 });
 
+test("Celebratory Fanfare: when none of the damaged Pokémon can be healed, nothing is healed and the turn does not end", () => {
+  const dk = deck('mep-028', SLO, URSA);
+  const g = scenario(dk, dk, [{ active: 'Slowpoke', bench: ['Slowpoke'], hand: ['Celebratory Fanfare'], damage: { active: 30 } }, { active: 'Slowpoke', damage: { active: 20 } }]);
+  g.state.effects.push({ static: { k: 'noHeal' }, slot: g.state.p[0].active!.id, player: 0, until: g.state.turn + 1, fromAttack: false, src: 0 }); // Life-Locked (Yveltal), as a timed effect
+  choose(g, 'Play Celebratory Fanfare');
+  const turn = g.state.turn;
+  choose(g, 'Use the Stadium');
+  assert.equal(g.state.p[0].active!.damage, 30, 'the locked Pokémon is not healed');
+  assert.equal(g.state.turn, turn, '"if a player healed any damage in this way": none was, so the turn goes on');
+});
+
 // ------------------------------------------------------------------ Delphox
 
 test('Delphox, Flaring Magic: discard a Basic {R} Energy from your hand, draw until you have 7; not with 8 or more cards (Compendium #2343)', () => {

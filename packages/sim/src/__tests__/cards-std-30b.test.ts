@@ -482,6 +482,26 @@ test('Unown, Mysterious Signal: the extra Prize card is for this attack only (a 
   assert.equal(dmg(g, 1), 140);
 });
 
+test("Unown, Mysterious Signal borrowed by Mew ex (Memory Helix): \"by damage from this attack\" is the attack, not the card: the extra Prize card still comes", () => {
+  const mew = '30th-066';
+  const ko = game([{ active: 'Mew ex', energy: { active: [P, P] }, bench: ['Unown'] }, { active: 'Marill', damage: { active: 30 }, bench: ['Eevee'] }], {}, [mew]);
+  choose(ko, 'Attack: Mysterious Signal');
+  assert.equal(ko.state.p[0].prizesTaken, 2, "Mew ex's borrowed attack Knocked Out the Pokémon: 1 Prize card and 1 more");
+  const survive = game([{ active: 'Mew ex', energy: { active: [P, P] }, bench: ['Unown'] }, { active: 'Marill', damage: { active: 20 }, bench: ['Eevee'] }], {}, [mew]);
+  choose(survive, 'Attack: Mysterious Signal');
+  assert.equal(dmg(survive, 1), 60);
+  assert.equal(survive.state.p[0].prizesTaken, 0, 'nothing was Knocked Out: no Prize cards');
+  // Mew ex using one of its own attacks the same turn-state gets no extra Prize card (the effect belongs to the borrowed attack only).
+  const other = game([{ active: 'Mew ex', energy: { active: [P] } }, { active: 'Marill', damage: { active: 50 }, bench: ['Eevee'] }], {}, [mew]);
+  other.state.effects.push({ static: { k: 'extraPrize', amount: 1, thisAttack: true }, slot: -1, player: 0, until: other.state.turn, fromAttack: true, src: 0, atk: { by: other.state.p[0].active!.id, use: 7 } });
+  choose(other, 'Attack: Teleportation Burst');
+  assert.equal(other.state.p[0].prizesTaken, 1, 'a "this attack" effect from some other attack does not apply to this one');
+  // Unown itself still gets it.
+  const own = game([{ active: 'Unown', energy: { active: [P, P] } }, { active: 'Marill', damage: { active: 30 }, bench: ['Eevee'] }]);
+  choose(own, 'Attack: Mysterious Signal');
+  assert.equal(own.state.p[0].prizesTaken, 2);
+});
+
 // ------------------------------------------------------------------ Chandelure
 
 test("Chandelure, Eerie Glow: 130 damage; your opponent's Active Pokémon is now Burned and Confused", () => {

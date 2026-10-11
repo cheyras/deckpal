@@ -65,8 +65,7 @@ registerCustom('c22.healEvolutions', (env, s, f) => {
   const healed: Slot[] = [];
   for (const sl of slotsIn(s, f.player, 'myPokemon')) {
     if (sl.damage > 0 && slotMatches(env, sl, { stage: 'evolution' }, true, s)) {
-      healSlot(s, sl, sl.damage, env);
-      healed.push(sl);
+      if (healSlot(s, sl, sl.damage, env) > 0) healed.push(sl); // a Pokémon that can't be healed lost no damage: it keeps its Energy
     }
   }
   for (const sl of healed) {

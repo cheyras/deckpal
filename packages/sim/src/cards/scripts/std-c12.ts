@@ -315,8 +315,8 @@ export const STD_C12: CardScript[] = [
     stadiumAbility: {
       when: { gte: [{ pokemon: { zone: 'myPokemon', filter: { damaged: true } } }, 1] },
       program: [
-        { op: 'custom', fn: 'seed2.healEach', args: { amount: 10, zone: 'myPokemon' } },
-        { op: 'custom', fn: 'c12.endTurn' },
+        { op: 'custom', fn: 'seed2.healEach', args: { amount: 10, zone: 'myPokemon', as: 'healed' } },
+        { op: 'if', cond: { gte: [{ v: 'healed' }, 1] }, then: [{ op: 'custom', fn: 'c12.endTurn' }] },
       ],
     },
   },

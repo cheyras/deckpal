@@ -213,7 +213,7 @@ export const STD_30B: CardScript[] = [
     attacks: {
       // "If your opponent's Pokémon is Knocked Out by damage from this attack, take 1 more Prize card."
       'Mysterious Signal': {
-        pre: [{ op: 'effect', static: { k: 'extraPrize', amount: 1, attacker: { name: 'Unown' } }, onPlayer: 'self', duration: 'thisTurn' }],
+        pre: [{ op: 'effect', static: { k: 'extraPrize', amount: 1, thisAttack: true }, onPlayer: 'self', duration: 'thisTurn' }],
       },
     },
   },

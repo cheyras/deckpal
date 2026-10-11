@@ -5,7 +5,6 @@
  * scripted in std-30e.ts, with the `trainerCoinFlip` and `noHeal` statics they need.
  */
 import type { CardScript, Cond, Expr, Program } from '../../dsl.js';
-import { damageOneOf } from './helpers.js';
 import './std-c29-customs.js'; // c29.attackingPokemon (Fainting Spell)
 import './std-seed1-customs.js'; // std.attackKoLastTurn (Retaliate), std.discardOppActiveTools (Fend Off)
 
@@ -27,14 +26,8 @@ export const STD_30C: CardScript[] = [
       'Break Ground': { post: [{ op: 'damage', amount: 20, to: { each: 'myBench' } }] },
     },
   },
-  {
-    id: '30th-083',
-    name: 'Lucario',
-    attacks: {
-      // "This attack also does 60 damage to 1 of your opponent's Benched Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)"
-      'Aura Sphere': { post: damageOneOf('oppBench', 60) },
-    },
-  },
+  // 30th-083 Lucario has no script of its own: with its evolution parent filled in (cards/evolves-from.ts) it is the same card text as
+  // mep-095 Lucario (std-gen-30th.ts), which scripts it.
   {
     id: '30th-085',
     name: 'Lycanroc',
@@ -62,24 +55,8 @@ export const STD_30C: CardScript[] = [
       Growl: { program: [{ op: 'effect', static: { k: 'damageOut', amount: -30 }, on: 'defender', duration: 'oppNextTurn' }] },
     },
   },
-  {
-    id: '30th-088',
-    name: 'Nidorina',
-    abilities: [
-      {
-        // "Once during your turn, you may use this Ability. Heal 30 damage from 1 of your Pokémon."
-        // Not offered when none of your Pokémon is damaged (it would do nothing).
-        name: 'Share Happiness',
-        activated: {
-          when: { gte: [{ pokemon: { zone: 'myPokemon', filter: { damaged: true } } }, 1] },
-          program: [
-            { op: 'chooseSlots', from: 'myPokemon', filter: { damaged: true }, min: 1, max: 1, as: 't', prompt: 'Heal 30 damage from which Pokémon?' },
-            { op: 'heal', amount: 30, to: { v: 't' } },
-          ],
-        },
-      },
-    ],
-  },
+  // 30th-088 Nidorina has no script of its own: with its evolution parent filled in (cards/evolves-from.ts) it is the same card text as
+  // mep-101 Nidorina (std-30d.ts), which scripts it.
   {
     id: '30th-089',
     name: 'Alolan Meowth',

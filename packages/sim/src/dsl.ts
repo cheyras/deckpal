@@ -360,7 +360,9 @@ export type StaticEffect =
   // from an attack; each such Pokémon gives the extra Prize cards ("If your opponent's Basic Pokémon is Knocked Out by damage from
   // an attack used by this Pokémon, take 1 more Prize card"). `byThis`: the attack must be one used by the Pokémon this effect comes
   // from (an Ability of the Pokémon), not just any matching Pokémon of yours.
-  | { k: 'extraPrize'; flip?: boolean; amount?: number; attacker?: Filter; noStack?: string; ko?: Filter; byThis?: boolean }
+  // `thisAttack`: only the attack that set this (timed) effect, whoever uses it - the Pokémon and the attack of that turn, not a
+  // printed card name (a Pokémon borrowing the attack counts: Mew ex using Unown's Mysterious Signal).
+  | { k: 'extraPrize'; flip?: boolean; amount?: number; attacker?: Filter; noStack?: string; ko?: Filter; byThis?: boolean; thisAttack?: boolean }
   /**
    * "If the affected Pokémon is Knocked Out by damage from an attack from your opponent's Pokémon (matching `attacker`), that
    * player takes `delta` fewer/more Prize cards" (negative = fewer), or with `none`, "your opponent can't take any Prize cards
@@ -572,7 +574,8 @@ export type Step =
   | { op: 'damage'; amount: Expr; to?: SlotRef | { each: SlotZone; filter?: Filter } | { v: string }; ignore?: DamageIgnore /* lane:fighting */ }
   /** Place damage counters: no Weakness, Resistance or damage modifiers. */
   | { op: 'counters'; n: Expr; to: SlotRef | { each: SlotZone; filter?: Filter } }
-  | { op: 'heal'; amount: Expr; to: SlotRef | { each: SlotZone; filter?: Filter } }
+  /** Heal damage. `as` keeps the damage actually removed (0 when the Pokémon had none or can't be healed), for "if you healed any damage in this way". */
+  | { op: 'heal'; amount: Expr; to: SlotRef | { each: SlotZone; filter?: Filter }; as?: string }
   | {
       op: 'condition';
       cond: SpecialCondition;

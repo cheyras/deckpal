@@ -20,7 +20,7 @@ import { scriptFor } from '../cards/registry.js';
 import type { CardScript, StaticEffect } from '../dsl.js';
 import { advance, legalActions } from '../flow.js';
 import type { Game } from '../game.js';
-import { attackBlocked, attackOptions, healLocked, weaknessMultiplier } from '../query.js';
+import { attackBlocked, attackOptions, healLocked, staticMayExist, weaknessMultiplier } from '../query.js';
 import { scenario } from '../scenario.js';
 import { findSlot, healSlot } from '../state.js';
 import { ASLEEP, type CardFrame, type Decision } from '../types.js';
@@ -447,4 +447,77 @@ test('borrowAttacks: attackOptions lists printed attacks, then the Benched Poké
 
 test('borrowAttacks renders', () => {
   assert.match(renderAbility({ name: 'X', statics: [{ effect: { k: 'borrowAttacks' }, scope: 'self' }] }), /^This Pokémon can use the attacks of any of your Benched Pokémon\. \(You still need the necessary Energy to use each attack\.\)/);
+});
+
+// ------------------------------------------------------------------ 3b. A heal lock that is an opposing Ability vs protection from such Abilities
+
+const CLEFABLE = 'Mega Clefable ex'; // me03-031: Luminous Wing, "Prevent all effects of your opponent's Pokémon's Abilities done to this Pokémon."
+const YVELTAL = 'Yveltal'; // 30th-100: Life-Locked, "Your opponent's Active Pokémon can't be healed."
+
+test("noHeal from an opposing Ability: Mega Clefable ex's Luminous Wing protects it; a Pokémon without it is still locked", () => {
+  const dk = deck('Dreepy', 'me03-031', '30th-100', 'Potion');
+  const mk = (target: string, foe: 'bench' | 'active' = 'bench'): Game => {
+    const g = scenario(dk, dk, [
+      { active: target, damage: { active: 50 }, hand: ['Potion'] },
+      foe === 'bench' ? { active: 'Dreepy', bench: [YVELTAL] } : { active: YVELTAL },
+    ]);
+    refresh(g);
+    return g;
+  };
+  // Protected: Yveltal's Ability does nothing to Mega Clefable ex, so it heals (by a Trainer and by the shared helper).
+  const prot = mk(CLEFABLE);
+  assert.ok(!healLocked(prot.env, prot.state, prot.state.p[0].active!), 'Luminous Wing: the lock does nothing to it');
+  choose(prot, 'Play Potion');
+  assert.equal(dmg(prot, 0), 20, 'the Potion healed 30');
+  assert.equal(healSlot(prot.state, prot.state.p[0].active!, 30, prot.env), 20);
+  // Unprotected: the same position with another Pokémon is locked.
+  const bare = mk('Dreepy');
+  assert.ok(healLocked(bare.env, bare.state, bare.state.p[0].active!));
+  assert.equal(healSlot(bare.state, bare.state.p[0].active!, 30, bare.env), 0);
+  assert.equal(dmg(bare, 0), 50);
+  // The same from the Active Spot (the lock works from there too).
+  const act = mk(CLEFABLE, 'active');
+  assert.ok(!healLocked(act.env, act.state, act.state.p[0].active!));
+  // The protection is only against the opponent's Abilities: a lock that is not an Ability (a timed effect) still holds.
+  const timed = mk(CLEFABLE, 'active');
+  inject(timed, timed.state.p[0].active!.id, { k: 'noHeal' });
+  assert.ok(healLocked(timed.env, timed.state, timed.state.p[0].active!), "a timed lock is not an opposing Ability's effect");
+});
+
+test('noHeal from an opposing Ability: when the protection is itself switched off (no Abilities), the lock holds; and a switched-off Yveltal locks nothing', () => {
+  const dk = deck('Dreepy', 'me03-031', '30th-100');
+  const mk = (): Game => {
+    const g = scenario(dk, dk, [{ active: CLEFABLE, damage: { active: 50 } }, { active: 'Dreepy', bench: [YVELTAL] }]);
+    refresh(g);
+    return g;
+  };
+  const g = mk();
+  assert.ok(!healLocked(g.env, g.state, g.state.p[0].active!), 'protected while Luminous Wing is on');
+  inject(g, g.state.p[0].active!.id, { k: 'noAbilities' }); // a stand-in for an effect that turns its Abilities off
+  assert.ok(healLocked(g.env, g.state, g.state.p[0].active!), 'Luminous Wing is off: Life-Locked bites');
+  assert.equal(healSlot(g.state, g.state.p[0].active!, 30, g.env), 0);
+  // And the other way round: Yveltal without its Ability locks nothing (unchanged).
+  const h = mk();
+  inject(h, h.state.p[1].bench[0]!.id, { k: 'noAbilities' });
+  const dreepy = scenario(dk, dk, [{ active: 'Dreepy', damage: { active: 50 } }, { active: 'Dreepy', bench: [YVELTAL] }]);
+  inject(dreepy, dreepy.state.p[1].bench[0]!.id, { k: 'noAbilities' });
+  assert.ok(!healLocked(dreepy.env, dreepy.state, dreepy.state.p[0].active!));
+});
+
+test('the cheap path: with no heal lock anywhere in the game, healLocked and weaknessMultiplier answer without gathering statics', () => {
+  const dk2 = deck('Dreepy', 'Chikorita');
+  const g = scenario(dk2, dk2, [{ active: 'Dreepy', damage: { active: 20 } }, { active: 'Dreepy' }]);
+  assert.ok(!staticMayExist(g.env, g.state, 'noHeal'));
+  assert.ok(!staticMayExist(g.env, g.state, 'weaknessMultiplier'));
+  assert.ok(!staticMayExist(g.env, g.state, 'trainerCoinFlip'));
+  assert.ok(!healLocked(g.env, g.state, g.state.p[0].active!));
+  assert.equal(weaknessMultiplier(g.env, g.state, g.state.p[1].active!), 2);
+  // A timed effect brings the kind into the game even though no card has it.
+  inject(g, g.state.p[0].active!.id, { k: 'noHeal' });
+  assert.ok(staticMayExist(g.env, g.state, 'noHeal'));
+  assert.ok(healLocked(g.env, g.state, g.state.p[0].active!));
+  // And a deck that has the card does.
+  const withIt = deck('Dreepy', '30th-100');
+  const h = scenario(withIt, withIt, [{ active: 'Dreepy' }, { active: 'Dreepy' }]);
+  assert.ok(staticMayExist(h.env, h.state, 'noHeal'));
 });
