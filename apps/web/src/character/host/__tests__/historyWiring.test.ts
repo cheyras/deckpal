@@ -120,7 +120,7 @@ test('there is exactly one way the archive can be entered, and it clears on clos
 test('Escape unwinds one layer at a time', () => {
   // Closing the whole panel from inside a transcript throws away the LIVE
   // conversation to dismiss a thing the reader opened two seconds ago.
-  assert.match(code(PANEL), /if \(viewingRef\.current\) setViewingId\(null\)\s*\n\s*else onClose\(\)/,
+  assert.match(code(PANEL), /if \(viewingRef\.current\) setViewingId\(null\)\s*\n\s*else onCloseRef\.current\(\)/,
     'Escape inside a record closes the whole chat again')
   // A ref, not the value: the listener is registered once per `open` and would
   // otherwise close over `viewing === false` forever.

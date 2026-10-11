@@ -31,8 +31,14 @@ test('a mixed pathway block includes each useful pathway once', () => {
 test('battle logging preserves paste, ranking, depth, debrief, and hidden-info rules', () => {
   const text = flat(pathwayText('battle_log'))
   assert.match(text, /add_battle_log.*log: "@pasted"/)
+  assert.match(text, /omit `log`, set `origin: "in_person"`/)
+  assert.match(text, /reader said.*in `notes`.*markdown analysis in `review`/)
+  assert.match(text, /Set `opponent_archetype`/)
+  assert.match(text, /absent means “new archetype”.*`games >= 3`/)
   assert.match(text, /without `deck_id` so it ranks their decks/)
-  assert.match(text, /Light.*Standard.*Deep/)
+  // One game, one depth (2026-10-10). The old list let a familiar mirror be
+  // Light and "met at least three times" Deep at once; the order now decides.
+  assert.match(text, /One game gets one depth\. \*\*Light\*\* is checked first.*even against a deck they meet every week.*\*\*Deep\*\* is .*\*\*Standard\*\* is every other real game/)
   for (const detail of [
     'main attacker', 'who went first', 'first Knock Out', 'final prize score',
     'play that frustrated', 'turn they would replay', 'whiffed a Supporter',
@@ -41,6 +47,109 @@ test('battle logging preserves paste, ranking, depth, debrief, and hidden-info r
   assert.match(text, /Only a bare result with no story.*logged immediately/)
   assert.match(text, /hidden information are \*\*unknown\*\*, never guessed/)
   assert.match(text, /battle number, version and deck record/)
+  assert.match(text, /offer Deep Think with `deep_think` and give one sentence saying why/)
+})
+
+// 2026-10-10, from the pathway audit: an in-person game used to dead-end with
+// no deck (ranking reads a Live log's card lines, and add_battle_log refuses an
+// in-person call without deck_id), the card had no options, a named attack sent
+// Haiku to paid research, and a guessed screen name logged a win as a loss.
+test('in-person logging asks for the deck, offers ready options, and never guesses a player', () => {
+  const text = flat(pathwayText('battle_log'))
+  assert.match(text, /which deck, unless they named it or are on its `\/decks\/<id>` page \(their decks from `decks` as options\)/)
+  assert.match(text, /each with two to four short options/)
+  assert.match(text, /First \/ Second \/ First, after a mulligan \/ Second, after a mulligan/)
+  assert.match(text, /`search_cards` \(`text` for an attack, `query` for a card\).*do not research before the card/)
+  assert.match(text, /never `"@pasted"`/)
+  assert.match(text, /Set `played_at` when they said when/)
+  assert.match(text, /Several rounds at an event are several games: one call per round/)
+  assert.match(text, /never guess `player_name`.*only when the reader told you their screen name, or when the tool says it cannot tell/)
+})
+
+test('a review has a shape and four defined causes', () => {
+  const text = flat(pathwayText('battle_log'))
+  assert.match(text, /\*\*Read:\*\* <cause> — <turning point: turn and event>.*\*\*Prizes:\*\*.*\*\*Lesson:\*\*.*\*\*Watch:\*\*/)
+  for (const cause of ['Variance', 'Misplay', 'List', 'Matchup']) {
+    assert.match(text, new RegExp(`\\*\\*${cause}\\*\\* is `), `cause ${cause} is named but not defined`)
+  }
+})
+
+// Deep Think is not wired (39c5ab9f). A pathway that offers it promises the
+// reader a feature that does not exist; one that sends Deep games to it leaves
+// them with no analysis at all. And `dry_run` stays out: a "preview first"
+// line once took write calls to 0/15 (aisdk.ts), and the tool results already
+// say how to apply.
+test('Deep Think is only ever a conditional offer, and the battle texts say nothing about dry_run', () => {
+  // `deep_think` exists only on a signed, metered deployment: every sentence
+  // that names Deep Think must make the offer conditional on holding the tool.
+  for (const name of PATHWAY_NAMES as readonly PathwayName[]) {
+    for (const sentence of pathwayText(name).split(/(?<=[.!?;])\s+/).filter((s) => /Deep Think/.test(s))) {
+      assert.match(sentence, /if you hold `deep_think`/i, `${name} offers Deep Think unconditionally: ${sentence}`)
+    }
+  }
+  for (const name of ['battle_log', 'battle_review'] as const) {
+    assert.doesNotMatch(pathwayText(name), /dry_run|dry run|preview first/i, `${name} talks about dry runs`)
+    // Code picks the tier; a sentence naming it is one the model cannot act on.
+    assert.doesNotMatch(pathwayText(name), /This is (Quick|Standard|Deep) work|Standard floor/, `${name} carries a tier sentence`)
+  }
+})
+
+// Live probe, 2026-10-10: a lopsided paste was logged with no `notes` at all,
+// and its reply ran past 800 characters.
+test('every logging call carries notes, and a Light game stays a couple of lines', () => {
+  const text = flat(pathwayText('battle_log'))
+  assert.match(text, /Every logging call sets `notes` — when the reader said nothing beyond the paste, one plain line on what happened/)
+  assert.match(text, /\*\*Light\*\* skips the digest and the consult: one or two lines in `review` on the logging call and a reply of a couple of lines are the whole job/)
+})
+
+// 2026-10-10: the digest and the consult. The ORDER is the contract — the
+// digest needs a battle number, so it can only come after the approval lands;
+// the consult needs the digest; the review is written last, on its own card.
+test('battle logging: after the approval, Standard games digest, consult when available, and save the review', () => {
+  const text = flat(pathwayText('battle_log'))
+  assert.match(
+    text,
+    /approval lands.*`add_battle_log` returns the battle number.*\*\*Standard\*\*: call `battle_digest`.*When the `consult` tool is available, call it once.*`review` with `edit_battle_log`/,
+  )
+  assert.match(text, /\*\*Light\*\* skips the digest and the consult/)
+  // A Deep game gets the fuller treatment on THIS turn: the same digest and
+  // consult, with the archetype's history in the brief.
+  assert.match(text, /\*\*Deep\*\* is the same with more in the brief — the record against this archetype and the notes and reviews of earlier games against it \(`battle_logs` with `log_id`/)
+  assert.match(text, /the one change worth testing/)
+  // The colleague sees only the brief, so the brief must carry the reader's words.
+  assert.match(text, /brief is the digest plus the reader's own words.*because it sees nothing else/)
+  // Haiku without the tool (a raised tier never holds it) still owes the review.
+  assert.match(text, /Without `consult`, write that review yourself from the digest and those games/)
+  assert.match(text, /in-person game has no log to digest/)
+  // The stale line that named a digest before one existed is gone.
+  assert.doesNotMatch(text, /Use the digest for prize gap and end reason/)
+})
+
+test('battle review uses stored archetype records and preserves reader notes', () => {
+  const text = flat(pathwayText('battle_review'))
+  assert.match(text, /per-archetype record.*absent key is a new archetype.*`games >= 3`/)
+  assert.match(text, /write it to `review`, never over the reader's `notes`/)
+  assert.match(text, /set `opponent_archetype`/)
+})
+
+// From the pathway audit (#7): list rows cut notes to 40 characters
+// (deckIntel.ts logRow), the record counts each archetype key apart and skips
+// unclassified games, and thin logs invite invented causes.
+test('battle review opens the full notes, merges archetype keys, and asks when the logs are thin', () => {
+  const text = flat(pathwayText('battle_review'))
+  assert.match(text, /`battle_logs` `log_id`: list rows cut notes to 40 characters/)
+  assert.match(text, /merge keys that name the same deck \(`gardevoir` and `gardevoir-ex`\).*say you did/)
+  assert.match(text, /too thin to classify.*ask what felt wrong on an `ask_user` card.*instead of inventing causes/)
+})
+
+test('battle review digests the games that matter before it concludes — not every game', () => {
+  const text = flat(pathwayText('battle_review'))
+  assert.match(text, /Before concluding, call `battle_digest` on the logs that matter most — the losses to the archetype this deck meets most/)
+  assert.match(text, /not on every log/)
+  assert.ok(
+    text.indexOf('battle_digest') < text.indexOf('classify losses as variance, misplay, list or matchup'),
+    'the digests are evidence for the classification, so they come first',
+  )
 })
 
 test('deck building checks a grounded legal 60 before showing it', () => {
@@ -51,6 +160,16 @@ test('deck building checks a grounded legal 60 before showing it', () => {
   assert.match(text, /Never make the reader type the list/)
   assert.match(text, /total 60 cards/)
   assert.match(text, /Run `check_deck`.*run `check_deck` again.*show it with `showDeck`/)
+  assert.match(text, /offer Deep Think with `deep_think` and give one sentence saying why/)
+})
+
+test('season and tournament review offers Deep Think through the consent tool', () => {
+  const text = flat(pathwayText('battle_review'))
+  assert.match(text, /whole-season review or tournament preparation/)
+  assert.match(text, /offer Deep Think with `deep_think` and give one sentence saying why/)
+  for (const name of ['battle_log', 'battle_review', 'deck_build'] as const) {
+    assert.doesNotMatch(pathwayText(name), /suggest the reader asks for Deep Think/)
+  }
 })
 
 test('deck iteration records evidence and sample-size limits in version history', () => {
@@ -60,6 +179,96 @@ test('deck iteration records evidence and sample-size limits in version history'
   assert.match(text, /Keep observations separate from proposals.*END with at most two concrete next steps, one line each/)
   assert.match(text, /`version_note`.*evidence/)
   assert.match(text, /what to watch in the next games/)
+})
+
+test('deck iteration saves the whole list as an edit, and builds off an old version without a revert', () => {
+  const text = flat(pathwayText('deck_iterate'))
+  // `save_deck.cards` RECONCILES the deck to exactly the list given
+  // (packages/agent-tools/src/tools/decks.ts): a "-1/+1" call deletes the rest.
+  assert.match(text, /`save_deck` with `mode: "edit"`, its `deck_id` and the \*\*complete\*\* list/)
+  assert.match(text, /not a diff/)
+  // The widget's Save is a PTCGL import, so it always creates a NEW deck
+  // (apps/web/src/character/host/chat/deckSave.ts).
+  // The widget saves a revision as the next version once it carries the deck_id (#305).
+  assert.match(text, /use `showDeck` with this deck's `deck_id` and a one-line `version_note`: its Save then makes the next version of this deck, not a separate one/)
+  // The timeline has no card list; a snapshot or `decks include:["cards"]` does.
+  assert.match(text, /it holds no cards/)
+  assert.match(text, /`decks` with `include: \["cards"\]`/)
+  assert.match(text, /build off v1, read it with `deck_history` \(`version: 1`\), edit that list and save it the same way/)
+  assert.doesNotMatch(text, /`revert_to: 1` first/)
+  // revert_to also restores that version's strategy guide by default.
+  assert.match(text, /`include_strategy: false`/)
+})
+
+test('collection planning uses DeckPal goal names and looks before it asks', () => {
+  const text = flat(pathwayText('collection_plan'))
+  for (const goal of ['**complete**', '**master**', '**grandmaster**']) assert.ok(text.includes(goal), `missing goal: ${goal}`)
+  assert.match(text, /one `set_progress` call.*ask with one short `ask_user` choice/)
+  // No tool goal means "numbered set"; rarity_exclude filters the missing rows
+  // and cost but not the owned-of-total line (catalog.ts set_progress).
+  assert.match(text, /There is no “numbered set” goal/)
+  assert.match(text, /`rarity_exclude`/)
+  assert.match(text, /the owned-of-total line still counts the whole set/)
+  // Every rarity numbered past the printed total in the catalog's vocabulary (apps/api/src/rarity.ts).
+  for (const rarity of ['Illustration rare', 'Special illustration rare', 'Ultra Rare', 'Hyper rare',
+    'Mega Hyper Rare', 'Shiny rare', 'Shiny Ultra Rare', 'Black White Rare']) assert.ok(text.includes(rarity), `missing rarity: ${rarity}`)
+  // Missing rows sort by card number (catalog.ts), so page 1 often holds no chase card.
+  assert.match(text, /`page_size: 200`/)
+  assert.match(text, /no goal lines yet/)
+  assert.match(text, /`card_price_history` for at most the three priciest/)
+})
+
+test('lists lead with add_missing, mode and kind, and never promise a condition', () => {
+  const text = flat(pathwayText('lists'))
+  assert.match(text, /Pick the operation first\. \*\*Missing from a set\*\*.*`add_missing`/)
+  // edit_list refuses add_missing on a list being created in the same call
+  // (packages/agent-tools/src/__tests__/lists-mutations.test.ts).
+  assert.match(text, /It cannot fill a list in the call that creates it: create the list, then add to it by its `list_id`/)
+  assert.match(text, /`mode: "create"`.*`mode: "edit"`/)
+  assert.match(text, /`kind: "dynamic"`.*`static`/)
+  assert.doesNotMatch(text, /condition/i)
+  // Only log_cards gets a printing picker on its approval card (adapters/aisdk.ts);
+  // an omitted variant_kind takes the card's primary printing (resolve.ts).
+  assert.match(text, /leave `variant_kind` out — the list takes the card's main printing, which the approval card names/)
+  assert.doesNotMatch(text, /approval flow can show the choice|printing choice belongs in approval/)
+})
+
+test('price questions send collection movement to collection_value and never invent a condition', () => {
+  const text = flat(pathwayText('price_value'))
+  assert.match(text, /what moved in it come from `collection_value`/)
+  assert.match(text, /never attach a condition/)
+  assert.doesNotMatch(text, /condition distinctions/)
+})
+
+test('deck building intake fits one ask card and cost comes only from the check', () => {
+  const text = flat(pathwayText('deck_build'))
+  // ask_user takes at most four questions (tools.ts), so the directions are one of them.
+  assert.match(text, /one `ask_user` card with up to four questions/)
+  assert.match(text, /budget and ownership apply only to paper/)
+  assert.match(text, /make one of those questions the two directions.*end the turn there/)
+  assert.match(text, /go through its flex slots with them/)
+  // check_deck resolves names: owned printing, then legal, then newest
+  // (apps/api/src/routes/deckCheck.ts chooseName).
+  assert.match(text, /Trainers and Energy can go in by exact name, and `check_deck` resolves them/)
+  assert.match(text, /Quote missing-card cost only from `check_deck`/)
+  assert.match(text, /12–20 Pokémon, 30–38 Trainers and 6–14 Energy/)
+})
+
+test('pathways do not name tiers, offer Deep Think unconditionally, or name tools that do not exist', () => {
+  // battle_log and battle_review are rewritten in their own pass; they still
+  // carry a tier sentence and "digests" until then.
+  const OWN_PASS = new Set<PathwayName>(['battle_log', 'battle_review'])
+  for (const name of SPECIFIC) {
+    const text = flat(pathwayText(name))
+    // `deep_think` is only offered where it is wired (signed, metered); every
+    // sentence that names Deep Think must make the offer conditional on holding it.
+    for (const sentence of text.split(/(?<=[.!?])\s+/).filter((s) => /Deep Think/.test(s))) {
+      assert.match(sentence, /if you hold `deep_think`/i, `${name} offers Deep Think without checking it holds the tool: ${sentence}`)
+    }
+    if (OWN_PASS.has(name)) continue
+    assert.doesNotMatch(text, /\bdigests?\b/i, `${name} names a digest, which no tool returns`)
+    assert.doesNotMatch(text, /This is (?:Quick|Standard)|Standard floor|Move to Standard/, `${name} names a tier the model cannot act on`)
+  }
 })
 
 test('card rules and research keep mutable facts in the right sources', () => {

@@ -11,7 +11,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { buildTools, CLIENT_TOOLS, COSMETIC_TOOLS, SERVER_TOOLS, isAllowedRoute } from '../tools.js'
+import { buildTools, CLIENT_TOOLS, COSMETIC_TOOLS, SERVER_TOOLS, isAllowedRoute, toolsForTier } from '../tools.js'
 import { ROUTE_SHAPE_LINES } from '../prompt.js'
 import { createGrounding } from '../grounding.js'
 import type { Queryable } from '@deckpal/db'
@@ -72,7 +72,10 @@ test('ask_user is a bounded strict server tool and returns the stop-turn result'
   assert.equal(typeof ask.execute, 'function', 'ask_user must execute on the server')
   assert.equal(ask.inputSchema.safeParse({ about: 'deck_build', questions: [question] }).success, true)
   assert.equal(ask.inputSchema.safeParse({ questions: Array.from({ length: 5 }, () => question) }).success, false)
-  assert.equal(ask.inputSchema.safeParse({ questions: [{ ...question, header: 'thirteen chars' }] }).success, false)
+  assert.equal(ask.inputSchema.safeParse({ questions: [{ ...question, header: 'Twenty-five characters!!!' }] }).success, false)
+  // Ordinary two-word headers fit whole; a 12-character cap clipped "Turning point".
+  for (const header of ['Turning point', 'Who went first and mulls'])
+    assert.equal(ask.inputSchema.safeParse({ questions: [{ ...question, header }] }).success, true, header)
   assert.equal(ask.inputSchema.safeParse({ questions: [{ ...question, options: [{ label: 'Only one' }] }] }).success, false)
   assert.equal(ask.inputSchema.safeParse({ questions: [{ ...question, options: Array.from({ length: 5 }, (_, i) => ({ label: `Choice ${i}` })) }] }).success, false)
   assert.equal(ask.inputSchema.safeParse({ about: 'invented', questions: [question] }).success, false)
@@ -107,7 +110,7 @@ test('a near-miss ask is trimmed to its own schema, lands, and says what was cut
       question: 'q'.repeat(210),
       options: [{ label: 'Under $50' }, { label: 'No limit' }],
     }, {
-      header: 'Owned cards?!', // 13 — the measured failure shape
+      header: 'Only the cards I own now?', // 25 — one past the cap
       question: 'Only cards you own?',
       options: [{ label: 'Yes' }, { label: 'No' }],
     }],
@@ -120,7 +123,7 @@ test('a near-miss ask is trimmed to its own schema, lands, and says what was cut
     ['questions.0.options.0.description', 120],
     ['questions.0.options.0.label', 40],
     ['questions.1.question', 200],
-    ['questions.2.header', 12],
+    ['questions.2.header', 24],
   ])
   const parsed = ask.inputSchema.safeParse(value)
   assert.equal(parsed.success, true, 'the repaired ask must pass the schema it failed')
@@ -129,8 +132,42 @@ test('a near-miss ask is trimmed to its own schema, lands, and says what was cut
   const result = await ask.execute(parsed.data, { toolCallId: 'ask-1' }) as { status: string; trimmed?: string[] }
   assert.equal(result.status, 'shown')
   assert.equal(result.trimmed?.length, 4, 'every trim is reported to the model in the tool result')
-  assert.ok(result.trimmed!.some((line) => line.startsWith('questions.2.header was 13 characters')))
+  assert.ok(result.trimmed!.some((line) => line.startsWith('questions.2.header was 25 characters')))
   assert.equal(repairs.size, 0, 'the log is drained so the next call does not inherit it')
+})
+
+test('deep_think is a bounded Deck-E server tool held for signed approval', async () => {
+  type Deep = {
+    description?: string
+    inputSchema: z.ZodTypeAny
+    needsApproval?: boolean
+    execute?: (input: unknown, options: { toolCallId: string }) => Promise<{ status: string; grant?: string; note: string }>
+  }
+  const events: Array<{ phase: string; name: string; id: string }> = []
+  type DeepContext = NonNullable<NonNullable<Parameters<typeof buildTools>[4]>['deepThink']>
+  const build = (deepThink?: DeepContext) =>
+    (buildTools(noopWriter, undefined, undefined, (e) => events.push(e), deepThink ? { deepThink } : undefined) as unknown as Record<string, Deep>).deep_think!
+  const deep = build()
+  assert.equal(deep.needsApproval, true)
+  assert.equal(typeof deep.execute, 'function')
+  assert.equal(deep.inputSchema.safeParse({ why: 'x'.repeat(200), plan: 'y'.repeat(300) }).success, true)
+  assert.equal(deep.inputSchema.safeParse({ why: 'x'.repeat(201), plan: 'enough' }).success, false)
+  assert.equal(deep.inputSchema.safeParse({ why: 'Worth it.', plan: 'y'.repeat(301) }).success, false)
+  assert.equal(deep.inputSchema.safeParse({ why: 'Worth it.', plan: 'Replay it.', cost: 999 }).success, false)
+  assert.match(deep.description ?? '', /only when this request truly benefits/i)
+  assert.match(deep.description ?? '', /never for routine work/i)
+
+  const input = { why: 'Worth it.', plan: 'Replay it.' }
+  // No request context (tests, previews): unavailable, no grant, no row.
+  const off = await deep.execute!(input, { toolCallId: 'd0' })
+  assert.equal(off.status, 'off')
+  assert.equal('grant' in off, false)
+  assert.equal(events.length, 0, 'a Deep Think that did not start drew a row')
+  // On a real Deep approval leg the request hands it a grant, and it shows a row.
+  const on = await build({ result: () => ({ status: 'on', grant: 'dt1.grant', note: 'Deep Think is on for this request' }) })
+    .execute!(input, { toolCallId: 'd1' })
+  assert.deepEqual(on, { status: 'on', grant: 'dt1.grant', note: 'Deep Think is on for this request' })
+  assert.deepEqual(events.map((e) => [e.id, e.name, e.phase]), [['d1', 'deep_think', 'start'], ['d1', 'deep_think', 'ok']])
 })
 
 test('ask_to_share_chat draws one transient choice only when SQL allows it', async () => {
@@ -239,6 +276,91 @@ test('showDeck writes no screen and reports ids omitted by its check', async () 
   assert.equal(events.at(-1)?.summary, "Couldn't show that deck — some cards weren't verified")
 })
 
+/**
+ * A revision of the reader's own deck: Save becomes "the next version of it".
+ *
+ * The audit: "make a v2 of my Dragapult deck" got a Save that could only make
+ * a NEW deck, so the version history and battle logs stayed on the old one.
+ */
+const SIXTY = {
+  format: 'standard', total: 60, legal: true, issues: [], evolution_gaps: [], owned: 60,
+  missing_cost_usd: 0, ptcgl: 'Pokémon: 1\n60 Pikachu SVI 1\n',
+  lines: [{ card_id: 'sv01-1', name: 'Pikachu', supertype: 'Pokémon' as const, quantity: 60, owned: 60, unit_price_usd: 1, resolved: true }],
+}
+type DeckScreenWrite = { data: { screen: { blocks: Array<Record<string, unknown>> } } }
+type ShowDeck = { execute: (input: unknown, opts: { toolCallId: string }) => Promise<string> }
+
+test('showDeck with a deck_id the reader owns offers its next version, named from the reader\'s deck', async () => {
+  const writes: DeckScreenWrite[] = []
+  const events: Array<{ phase: string; summary?: string }> = []
+  const asked: string[] = []
+  const tools = buildTools(
+    { write: (part) => writes.push(part as DeckScreenWrite) }, undefined, undefined, (event) => events.push(event),
+    {
+      checkDeck: async () => SIXTY,
+      ownedDeck: async (ref) => { asked.push(ref); return { deck: { id: 'deck-uuid-1', name: 'Dragapult ex' } } },
+    },
+  ) as unknown as Record<string, ShowDeck>
+  const output = await tools.showDeck!.execute({
+    // The model's NAME for the list is not the deck's name; the button says the stored one.
+    name: 'Dragapult v2', format: 'standard', cards: [{ card_id: 'sv01-1', quantity: 60 }],
+    deck_id: 'deck-uuid-1', version_note: '  Cut Switch for Jet Energy after Gardevoir losses  ',
+  }, { toolCallId: 'deck-rev' })
+  assert.deepEqual(asked, ['deck-uuid-1'])
+  const block = writes[0]!.data.screen.blocks[0]!
+  assert.deepEqual(block.base, { id: 'deck-uuid-1', name: 'Dragapult ex' })
+  assert.equal(block.versionNote, 'Cut Switch for Jet Energy after Gardevoir losses')
+  assert.equal(block.name, 'Dragapult v2')
+  assert.match(output, /Save button that saves it as the next version of "Dragapult ex".*Do not list its cards again/)
+  assert.equal(events.at(-1)?.summary, 'Showed "Dragapult v2" · 60 cards · a new version of "Dragapult ex"')
+})
+
+test('showDeck with a deck_id that is not the reader\'s still shows the deck, as a new one, and says why', async () => {
+  const writes: DeckScreenWrite[] = []
+  const tools = buildTools(
+    { write: (part) => writes.push(part as DeckScreenWrite) }, undefined, undefined, undefined,
+    { checkDeck: async () => SIXTY, ownedDeck: async () => ({ miss: "No deck 'someone-elses' — your decks are listed by `decks`." }) },
+  ) as unknown as Record<string, ShowDeck>
+  const output = await tools.showDeck!.execute({
+    name: 'Copy', cards: [{ card_id: 'sv01-1', quantity: 60 }], deck_id: 'someone-elses', version_note: 'ignored',
+  }, { toolCallId: 'deck-miss' })
+  const block = writes[0]!.data.screen.blocks[0]!
+  assert.equal(block.base, undefined, 'a deck the reader does not own is never offered as a version')
+  assert.equal(block.versionNote, undefined)
+  assert.match(output, /with a Save button\. Do not list/)
+  assert.match(output, /deck_id "someone-elses" is not one of the reader's decks, so its Save makes a separate deck: No deck 'someone-elses'/)
+})
+
+test('showDeck with a deck_id but no way to check it offers no version', async () => {
+  const writes: DeckScreenWrite[] = []
+  const throwing = buildTools(
+    { write: (part) => writes.push(part as DeckScreenWrite) }, undefined, undefined, undefined,
+    { checkDeck: async () => SIXTY, ownedDeck: async () => { throw new Error('offline') } },
+  ) as unknown as Record<string, ShowDeck>
+  const out1 = await throwing.showDeck!.execute({ name: 'A', cards: [{ card_id: 'sv01-1', quantity: 60 }], deck_id: 'd' }, { toolCallId: 'a' })
+  assert.match(out1, /could not check deck_id "d" \(offline\), so its Save makes a separate deck/)
+  const unwired = buildTools(
+    { write: (part) => writes.push(part as DeckScreenWrite) }, undefined, undefined, undefined, { checkDeck: async () => SIXTY },
+  ) as unknown as Record<string, ShowDeck>
+  const out2 = await unwired.showDeck!.execute({ name: 'B', cards: [{ card_id: 'sv01-1', quantity: 60 }], deck_id: 'd' }, { toolCallId: 'b' })
+  assert.match(out2, /could not be checked here/)
+  assert.deepEqual(writes.map((w) => w.data.screen.blocks[0]!.base), [undefined, undefined])
+})
+
+test('showDeck without a deck_id never looks one up and draws exactly what it always drew', async () => {
+  const writes: DeckScreenWrite[] = []
+  let lookups = 0
+  const tools = buildTools(
+    { write: (part) => writes.push(part as DeckScreenWrite) }, undefined, undefined, undefined,
+    { checkDeck: async () => SIXTY, ownedDeck: async () => { lookups++; return { deck: { id: 'x', name: 'x' } } } },
+  ) as unknown as Record<string, ShowDeck>
+  const output = await tools.showDeck!.execute({ name: 'Fresh', cards: [{ card_id: 'sv01-1', quantity: 60 }] }, { toolCallId: 'fresh' })
+  assert.equal(lookups, 0)
+  assert.deepEqual(Object.keys(writes[0]!.data.screen.blocks[0]!).sort(),
+    ['format', 'issues', 'kind', 'legal', 'missingCostUsd', 'name', 'owned', 'ptcgl', 'sections', 'total'])
+  assert.match(output, /The deck is on screen with a Save button\. Do not list its cards again in words\.$/)
+})
+
 test('showDeck rejects a checked result whose displayed quantities do not equal total', async () => {
   const writes: unknown[] = []
   const tools = buildTools(
@@ -284,6 +406,117 @@ test('COSMETIC_TOOLS is every tool buildTools exposes — the list the leak filt
     COSMETIC_TOOLS.length,
     'a duplicate would be harmless in the regex and confusing everywhere else',
   )
+})
+
+// ── THE CONSULT (2026-10-10) ────────────────────────────────────────────────
+//
+// Haiku asks Sonnet one question. consult.test.ts pins the model call; these
+// pin the tool around it: who may hold it, what it emits, and what it refuses.
+
+type ConsultTool = {
+  inputSchema: z.ZodTypeAny
+  execute: (input: unknown, opts: { toolCallId: string }) => Promise<string>
+}
+
+test('consult is held only on the Quick tier, and taking it changes nothing else', () => {
+  const all = buildTools(noopWriter)
+  const names = Object.keys(all)
+  assert.ok(names.includes('consult'))
+  assert.equal(names.at(-1), 'consult', 'last, so removing it leaves every other position as it was')
+  assert.deepEqual(Object.keys(toolsForTier(all, 'quick')), names)
+  for (const tier of ['standard', 'deep'] as const) {
+    assert.deepEqual(
+      Object.keys(toolsForTier(all, tier)),
+      names.filter((n) => n !== 'consult'),
+      `${tier}: a consult would ask the same model, or a weaker one`,
+    )
+  }
+  // A pure filter: the set it was handed is not mutated.
+  assert.ok('consult' in all)
+})
+
+test('consult input is one bounded question and one bounded brief', () => {
+  const consult = (buildTools(noopWriter) as unknown as Record<string, ConsultTool>).consult!
+  const ok = (input: unknown) => consult.inputSchema.safeParse(input).success
+  assert.equal(ok({ question: 'What decided it?', brief: 'Digest…' }), true)
+  assert.equal(ok({ question: 'q'.repeat(500), brief: 'b'.repeat(8_000) }), true)
+  assert.equal(ok({ question: 'q'.repeat(501), brief: 'b' }), false)
+  assert.equal(ok({ question: 'q', brief: 'b'.repeat(8_001) }), false)
+  assert.equal(ok({ question: '   ', brief: 'b' }), false)
+  assert.equal(ok({ question: 'q' }), false)
+})
+
+test('consult asks the injected colleague, chips "Thinking it through", and hands the answer back', async () => {
+  const asked: Array<{ question: string; brief: string }> = []
+  const events: Array<{ phase: string; name: string; title: string; label?: string; summary?: string; args?: unknown }> = []
+  const grounding = createGrounding()
+  const tools = buildTools(noopWriter, grounding, undefined, (event) => events.push(event), {
+    consult: async (input) => {
+      asked.push(input)
+      return 'Turn 7 decided it: Fezandipiti ex (sv06.5-038) was benched into a two-prize Knock Out.'
+    },
+  }) as unknown as Record<string, ConsultTool>
+
+  const out = await tools.consult!.execute({ question: 'What decided it?', brief: 'Lost 4-6.' }, { toolCallId: 'c1' })
+
+  assert.deepEqual(asked, [{ question: 'What decided it?', brief: 'Lost 4-6.' }])
+  assert.match(out, /^Turn 7 decided it/)
+  assert.match(out, /reader has not seen it/)
+  assert.deepEqual(events.map((e) => e.phase), ['start', 'ok'])
+  assert.equal(events[0]!.title, 'Thinking it through')
+  assert.equal(events[0]!.label, 'Thinking it through')
+  assert.deepEqual(events[0]!.args, { question: 'What decided it?' }, 'the brief stays off the chip')
+  assert.equal(events[1]!.label, 'Thought it through')
+  assert.match(events[1]!.summary ?? '', /^analysis ready · \d+ words$/)
+  // An id in the colleague's answer came from Deck-E's own brief: never evidence.
+  assert.equal(grounding.seen('sv06.5-038'), false)
+})
+
+test('a failed consult is NO_WORK with a safe reason — never the provider\'s own words', async () => {
+  const events: Array<{ phase: string; summary?: string }> = []
+  const tools = buildTools(noopWriter, undefined, undefined, (event) => events.push(event), {
+    consult: async () => {
+      throw Object.assign(new Error('upstream said: internal-host-7 key sk-abc'), { statusCode: 500 })
+    },
+  }) as unknown as Record<string, ConsultTool>
+  const out = await tools.consult!.execute({ question: 'q', brief: 'b' }, { toolCallId: 'c2' })
+  assert.match(out, /^\[\[NO_WORK\]\] NOT RUN — the consult did not finish: the model request failed/)
+  assert.match(out, /Write the analysis yourself/)
+  assert.doesNotMatch(out, /internal-host|sk-abc/)
+  assert.deepEqual(events.map((e) => e.phase), ['start', 'error'])
+  assert.equal(events[1]!.summary, "Couldn't think it through")
+
+  const capped = buildTools(noopWriter, undefined, undefined, undefined, {
+    consult: async () => {
+      throw Object.assign(new Error('cap'), { code: 'DKCAP' })
+    },
+  }) as unknown as Record<string, ConsultTool>
+  assert.match(
+    await capped.consult!.execute({ question: 'q', brief: 'b' }, { toolCallId: 'c3' }),
+    /credit limit for this request was reached/,
+  )
+})
+
+test('without an injected colleague, consult says so and does nothing', async () => {
+  const tools = buildTools(noopWriter) as unknown as Record<string, ConsultTool>
+  const out = await tools.consult!.execute({ question: 'q', brief: 'b' }, { toolCallId: 'c4' })
+  assert.match(out, /^\[\[NO_WORK\]\] NOT RUN — a consult is not available/)
+})
+
+test('two consults per request, then a refusal — a loop is not billed', async () => {
+  let calls = 0
+  const tools = buildTools(noopWriter, undefined, undefined, undefined, {
+    consult: async () => {
+      calls += 1
+      return 'Analysis.'
+    },
+  }) as unknown as Record<string, ConsultTool>
+  for (const id of ['a', 'b']) {
+    assert.match(await tools.consult!.execute({ question: 'q', brief: 'b' }, { toolCallId: id }), /^Analysis\./)
+  }
+  const third = await tools.consult!.execute({ question: 'q', brief: 'b' }, { toolCallId: 'c' })
+  assert.match(third, /^\[\[NO_WORK\]\] NOT RUN — 2 consults is the limit for one request/)
+  assert.equal(calls, 2)
 })
 
 test('the route allowlist keeps /profile out, by both spellings', () => {
@@ -338,7 +571,7 @@ test('the browser mirror normalises with the same rule and the same list', () =>
     new URL('../../../../web/src/character/host/uiTools.ts', import.meta.url),
     'utf8',
   )
-  const rule = (src: string) => src.match(/function isNormalPath[\s\S]*?\n\}/)?.[0].split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
+  const rule = (src: string) => src.replaceAll('\r\n', '\n').match(/function isNormalPath[\s\S]*?\n\}/)?.[0].split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
   assert.ok(rule(own), 'isNormalPath is gone from tools.ts')
   assert.equal(rule(web), rule(own), 'the browser and the server normalise routes differently')
   assert.match(web, /routeAllowed[\s\S]{0,400}isNormalPath\(clean\) &&/, 'routeAllowed no longer normalises')

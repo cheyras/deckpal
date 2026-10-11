@@ -92,16 +92,24 @@ function chatProviderOptions(choice, effort) {
  * newest message. With cached core + optional pathway this is at most three of
  * Anthropic's four allowed breakpoints while making all earlier tool results a
  * reusable prefix on the next step.
+ *
+ * The newest NON-SYSTEM message (2026-10-10). The progress nudge
+ * (`decke/progressNudge.ts`) is a system message appended after the newest
+ * tool result, and a system message mid-conversation is the one message whose
+ * translation the Gateway owns — so the breakpoint stays on the tool result
+ * before it, a position that is certain, and the nudge does not move the
+ * cached prefix. Callers append the nudge AFTER this runs.
  */
 function cacheConversation(choice, messages) {
   if (!isAnthropic(choice) || messages.length === 0) return messages
+  const newest = messages.findLastIndex((message) => message.role !== 'system')
   return messages.map((message, index) => {
     const providerOptions = { ...(message.providerOptions ?? {}) }
     const anthropic = { ...(providerOptions.anthropic ?? {}) }
     delete anthropic.cacheControl
     if (Object.keys(anthropic).length === 0) delete providerOptions.anthropic
     else providerOptions.anthropic = anthropic
-    if (index === messages.length - 1) {
+    if (index === newest) {
       providerOptions.anthropic = { ...(providerOptions.anthropic ?? {}), ...ANTHROPIC_CACHE.anthropic }
     }
     return {
@@ -124,8 +132,13 @@ const CLIENT_SET = new Set(CLIENT_TOOLS)
  * and produced no text is NOT an empty-answer defect — the panel IS the answer.
  * Built from the real `SERVER_TOOLS` export so it cannot go stale. See
  * `decke/turnGuards.ts`.
+ *
+ * EXCEPT `consult` (2026-10-10). Its result goes to HIM, not to the reader —
+ * the reader sees only the chip. A turn that consulted and then said nothing
+ * left an empty bubble, which is precisely the defect the guard exists to
+ * catch, so it must not count as "the answer was on screen".
  */
-const SERVER_SET = new Set(SERVER_TOOLS)
+const SERVER_SET = new Set(SERVER_TOOLS.filter((name) => name !== 'consult'))
 
 /**
  * Tools whose over-long arguments may be trimmed by `repairToolCall`.
@@ -136,8 +149,8 @@ const SERVER_SET = new Set(SERVER_TOOLS)
  * trimming without reporting is the silent correction `decke/tools.ts` refuses
  * to make. `showScreen` draws a panel and says what it shortened. `ask_user`
  * draws a question card from the model's own captions (never the reader's
- * words) and reports every trim in its `trimmed` result field, so a 13-character
- * header lands as a 12-character one instead of failing the card.
+ * words) and reports every trim in its `trimmed` result field, so a 25-character
+ * header lands as a 24-character one instead of failing the card.
  */
 const REPAIRABLE = new Set(['showScreen', 'ask_user'])
 
@@ -152,11 +165,29 @@ import { createGateway } from '@ai-sdk/gateway'
 import { verifySupabaseJwt, createSupabaseJwksProvider } from '../apps/api/dist/auth.js'
 import { buildCorePrompt, buildVolatileContext } from '../apps/api/dist/decke/prompt.js'
 import { pathwayBlock } from '../apps/api/dist/decke/pathways/index.js'
-import { buildTools, CLIENT_TOOLS, SERVER_TOOLS } from '../apps/api/dist/decke/tools.js'
+import { buildTools, CLIENT_TOOLS, SERVER_TOOLS, toolsForTier } from '../apps/api/dist/decke/tools.js'
+import { runConsult } from '../apps/api/dist/decke/consult.js'
 import { TIERS, TRIAGE, budgetFor } from '../apps/api/dist/decke/models.js'
 import { runTriage } from '../apps/api/dist/decke/triage.js'
-import { answeringAsk, carriedFromHistory, continuationFloor, decideTier, quickRefusalRetry, raisedToStandard, resumesApproval } from '../apps/api/dist/decke/tiers.js'
-import { ROUTE_ECHO_PART, decisionFromEcho, readRouteEcho, routeEchoFor } from '../apps/api/dist/decke/routeEcho.js'
+import { answeringAsk, carriedFromHistory, decideTier, quickRefusalRetry, raisedToStandard, resumesApproval } from '../apps/api/dist/decke/tiers.js'
+import { ROUTE_ECHO_PART, readRouteEcho, routeEchoFor } from '../apps/api/dist/decke/routeEcho.js'
+import {
+  DEEP_HOLD_MULTIPLIER,
+  DEEP_THINK_TOOL,
+  approvedDeepPart,
+  deepRoute,
+  deepThinkAnsweredThisTurn,
+  deepThinkNote,
+  deepThinkPricing,
+  deepThinkResult,
+  deepThinkScope,
+  estimateCredits,
+  mintDeepGrant,
+  mintDeepOffer,
+  settleDeepDecision,
+  turnDecision,
+} from '../apps/api/dist/decke/deepThink.js'
+import { deckeApprovalSigning } from '../apps/api/dist/decke/gate.js'
 import { creditWork } from '../apps/api/dist/credits/work.js'
 import { ensureAdminBootstrap } from '../apps/api/dist/admin/access.js'
 import { beginAiRequest, runAiUsage, runAdvisoryUsage, observeUsageModel, finishAiRequest, meteredCapReached, safeUsageCode } from '../apps/api/dist/decke/usage.js'
@@ -165,7 +196,7 @@ import { isMetered } from '../apps/api/dist/credits/policy.js'
 import { capFor, chargeSql, refusalText, verdictFrom } from '../apps/api/dist/decke/meter.js'
 import { readerNamedPrinting } from '../apps/api/dist/decke/printingSaid.js'
 import { declinedCalls } from '../apps/api/dist/decke/declined.js'
-import { extractPastedLog } from '../apps/api/dist/decke/pastedLog.js'
+import { extractPastedLog, pastedLogCount } from '../apps/api/dist/decke/pastedLog.js'
 import {
   pasteBackstopNeeded,
   PASTE_BACKSTOP_LINE,
@@ -176,13 +207,14 @@ import { meteredCapText, outOfCreditsText } from '../apps/api/dist/decke/credits
 import { buildDataTools, correctiveApplyTools, dataToolSummary } from '../apps/api/dist/decke/adapters/aisdk.js'
 import { apiBaseFor, selfHopHeadersFor, withToolCtx } from '../apps/api/dist/decke/ctx.js'
 import { buildDeepTools } from '../apps/api/dist/decke/deep.js'
-import { checkDeck } from '../apps/api/dist/decke/deckCheck.js'
+import { checkDeck, ownedDeck } from '../apps/api/dist/decke/deckCheck.js'
 import { seedMeteredRefusals } from '../apps/api/dist/decke/meteredRefusals.js'
 import { createNarrationFilter, stripToolSyntax as stripToolSyntaxImpl } from '../apps/api/dist/decke/narration.js'
 import { autoShareAndRecordLeg } from '../apps/api/dist/decke/improvement.js'
 import { focusedTools } from '../apps/api/dist/decke/focus.js'
-import { askedThisStep, askedThisTurn, askPendingInstruction, spokeAndSettled } from '../apps/api/dist/decke/stopRule.js'
+import { askedThisStep, askedThisTurn, askPendingInstruction, spokeAndSettled, textAfterLastLookup } from '../apps/api/dist/decke/stopRule.js'
 import { followUpMessages } from '../apps/api/dist/decke/legMessages.js'
+import { createProgressNudges, progressNudgeMessage } from '../apps/api/dist/decke/progressNudge.js'
 import { createGrounding } from '../apps/api/dist/decke/grounding.js'
 import { RepairLog, clampStrings } from '../apps/api/dist/decke/repair.js'
 import {
@@ -574,6 +606,16 @@ async function serve(request) {
   // costs up to four. Migration 039's header explains why that is the honest
   // unit even though it reads stingier than it is.
   let quote, reference, meter, usage
+  // ── DEEP THINK: WHO MAY HAVE IT, AND WHETHER THIS REQUEST IS ONE ──────────
+  //
+  // Read before admission because it sizes the hold. Only a SIGNED deployment
+  // (the consent is a signed approval plus tokens keyed by the same secret) and
+  // only metered credits — a paid wallet or an unlimited account — get Deep
+  // Think at all; `deepScope` is null everywhere else, and then the tool is not
+  // in the set, the offer is never made and nothing routes to Opus. A request
+  // is Deep only on the approval leg of a card this server raised in this turn,
+  // or on a later leg carrying the grant that leg minted. See `deepThink.ts`.
+  let deepSecret, deepPricing = null, deepScope = null, deepRouted = null
   const meterTurn = async (userId, { tier, reason, toolCallId, args }) => {
     await assertDeckeAccess(userId)
     if (isMetered(quote.policy)) {
@@ -585,7 +627,16 @@ async function serve(request) {
         return { allowed: true, credits: quote.policy.enabled && !quote.unlimited,
           balance: meter?.balance, ...creditWork(async () => {}, request.signal) }
       }
-      const result = await beginMeteredCredits(chatPool(), userId, usage.id)
+      // A Deep route deterministically makes `decideTier` choose Deep below, so
+      // the larger reservation is made before paid triage without moving that
+      // Gateway call ahead of admission. Every other leg keeps the one-argument
+      // call, which remains compatible while migration 083 rolls out.
+      const result = await beginMeteredCredits(
+        chatPool(),
+        userId,
+        usage.id,
+        deepRouted ? { holdMultiplier: DEEP_HOLD_MULTIPLIER } : undefined,
+      )
       usage.meteredStarted = result.allowed
       // Every metered refusal is a credit refusal (the balance, a debt or a payment
       // hold), never the daily allowance, so it must offer the wallet, not "tomorrow".
@@ -610,6 +661,10 @@ async function serve(request) {
     quote = await readPolicy(chatPool(), user.id)
     reference = chatChargeReference(conversationId, messages, route, landmarks, { exchangeId, seq }, echoed)
     usage = await beginAiRequest(chatPool(), { userId: user.id, conversationId, exchangeId, seq, requestKey: reference.key, payloadHash: reference.hash, quote, messages, signal: request.signal })
+    deepSecret = deckeApprovalSigning() === 'signed' ? process.env.DECKE_APPROVAL_SECRET : undefined
+    deepPricing = deepSecret ? deepThinkPricing(quote) : null
+    deepScope = deepPricing ? deepThinkScope({ userId: user.id, conversationId, exchangeId, messages }) : null
+    deepRouted = deepScope ? deepRoute(messages, deepScope, deepSecret) : null
     meter = await meterTurn(user.id, { tier: 'chat_turns', reason: 'chat_turn' })
   } catch (error) {
     if (usage) await finishAiRequest(usage, 'failed')
@@ -691,21 +746,49 @@ async function serve(request) {
       return value
     }),
   ])
-  // Deep Think approval will plug in here in its own phase, behind a signed
-  // reader choice; the echo can never carry it. Until then, even a
-  // requested/beneficial deep analysis is Standard.
-  let decision
-  if (echoed) {
-    decision = decisionFromEcho(echoed)
-  } else {
-    // `pastedLog`: a paste in the reader's latest message — or one they are
-    // answering questions about — always brings the battle_log guidance, where
-    // the `@pasted` rule now lives.
-    decision = decideTier({ triage, carried: carriedFromHistory(messages), deepApproved: false, pastedLog: pastedNow || pasteAwaitingAnswer })
-    if (!firstLeg) decision = continuationFloor(decision)
-  }
+  // ── THIS REQUEST'S TIER: DEEP FIRST, THEN THE ECHO, THEN TRIAGE ──────────
+  //
+  // The approval leg and every grant leg are CONTINUATIONS, so the browser
+  // sends the first leg's Quick/Standard echo on them; a verified Deep route
+  // outranks it, or the turn would run Standard while holding 8× credits. The
+  // echo itself can never carry Deep. Below Deep this is the harness rule: a
+  // valid echo is reused (triage was skipped), and a continuation without one
+  // is re-triaged at a Standard floor. See `turnDecision`.
+  //
+  // Without a Deep route even a requested or beneficial deep analysis is
+  // Standard. The approval leg is still revalidated by the SDK's HMAC before
+  // its tool executes or any model is called. Admission must agree with the
+  // pricing the route was read under, and a paid reader must hold the HIGH end
+  // of the estimate, or the request answers on Standard and says why
+  // (`settleDeepDecision`, `deepThinkNote`).
+  const deepAdmitted = deepRouted !== null && meter.mode === deepPricing
+  const deepSettled = settleDeepDecision({
+    decision: turnDecision({
+      deep: deepAdmitted,
+      echo: echoed,
+      firstLeg,
+      // `pastedLog`: a paste in the reader's latest message — or one they are
+      // answering questions about — always brings the battle_log guidance,
+      // where the `@pasted` rule now lives.
+      decide: (deepApproved) => decideTier({ triage, carried: carriedFromHistory(messages), deepApproved, pastedLog: pastedNow || pasteAwaitingAnswer }),
+    }),
+    pricing: deepPricing,
+    admission: meter,
+    answeredYes: deepPricing !== null && approvedDeepPart(messages) !== null,
+  })
+  const decision = deepSettled.decision
+  // Never Deep: a first leg is never a Deep route, and `routeEchoFor` refuses one.
   const routeEcho = firstLeg ? routeEchoFor(decision) : null
   const choice = TIERS[decision.tier]
+  // Constant for the whole request, so the tool prefix never changes between
+  // its steps: once the reader has answered a Deep Think card (yes or no), and
+  // throughout a Deep run, the offer is gone; and a Deep run cannot ask the
+  // reader anything, because their answer would arrive as a new turn without
+  // the grant.
+  const requestHidden = new Set([
+    ...(deepThinkAnsweredThisTurn(messages) || decision.tier === 'deep' ? [DEEP_THINK_TOOL] : []),
+    ...(decision.tier === 'deep' ? ['ask_user'] : []),
+  ])
   console.log('[deck-e] route', JSON.stringify({
     tier: decision.tier,
     pathways: decision.pathways,
@@ -714,6 +797,7 @@ async function serve(request) {
     triage: echoed ? 'echo' : triage.source,
     leg: firstLeg ? 'first' : 'continuation',
     triageMs,
+    deep: deepRouted?.via ?? null,
   }))
   let capReached = await meteredCapReached(usage)
   let capLineWritten = false
@@ -939,17 +1023,49 @@ async function serve(request) {
         // compacted evidence the client replays into the next leg, so a turn
         // that drew a panel and then flew somewhere came back not knowing the
         // panel existed and narrated its contents a second time.
-        ...buildTools(writer, groundingForTools, repairs, emitToolEvent(writer), {
+        //
+        // ── AND, ON THE QUICK TIER ONLY, A CONSULT (2026-10-10) ─────────────
+        //
+        // Haiku asks Sonnet one question with a brief he writes — the owner's
+        // "Haiku prompting into Sonnet internally" — so a game worth learning
+        // from gets a real analysis without raising the whole request to
+        // Standard. `toolsForTier` removes it on Standard and Deep, where a
+        // consult would ask the same model or a weaker one. Decided once from
+        // `decision.tier`, never per step, so the tool set is constant across
+        // the request's steps and Anthropic's cached tools prefix holds. (The
+        // textless-refusal retry below reuses this set on Standard; it is rare
+        // and keeps the set constant, which matters more.)
+        //
+        // The model is built INSIDE the call, so `observeUsageModel` reads the
+        // usage context of the step that called it: the consult is metered on
+        // this request like every other model call, and credits stay
+        // actual-cost. Same abort as the turn: a reader who stops the turn
+        // stops the consult.
+        ...offerableTools(toolsForTier(buildTools(writer, groundingForTools, repairs, emitToolEvent(writer), {
           // THROUGH `withToolCtx`, LIKE EVERY DATA TOOL. `toolCtx` is the
           // options a `Ctx` is built from, not a `Ctx`: it has no `api`, and
           // passing it straight to `checkDeck` failed every showDeck since #267
           // with "Cannot read properties of undefined (reading 'send')". Driven
           // end to end by `decke/__tests__/deckCheckWiring.test.ts`.
           checkDeck: (input) => withToolCtx(toolCtx, (ctx) => checkDeck(ctx, input)),
+          consult: (input) => runConsult({
+            ...input,
+            model: observeUsageModel(gateway(TIERS.standard.id), meter),
+            signal: abortSignal,
+          }),
+          ownedDeck: (ref) => withToolCtx(toolCtx, (ctx) => ownedDeck(ctx, ref)),
           db: chatPool(),
           userId: user.id,
           conversationId,
-        }),
+          // Called by `deep_think`'s execute, which the SDK runs only after it
+          // accepted the signed approval. The grant is minted there and only
+          // for a request that really runs on Deep.
+          deepThink: {
+            result: () => decision.tier === 'deep' && deepRouted?.via === 'approval'
+              ? deepThinkResult({ grant: mintDeepGrant(deepSecret, deepScope) })
+              : deepThinkResult({ off: deepSettled.off ?? 'unavailable' }),
+          },
+        }), decision.tier), deepScope !== null),
         // READS AND WRITES, because the approval round-trip now exists.
         //
         // `include: () => true` is not "no filter" — every write is still
@@ -985,6 +1101,10 @@ async function serve(request) {
           // substitutes it for a `@pasted` sentinel or a truncated prefix. See
           // `decke/pastedLog.ts` for the heuristic and its bounds.
           pastedLog: () => extractPastedLog(messages),
+          // How many games that same message held. Only one is logged per
+          // call, so a two-game paste is disclosed on the card and the result
+          // rather than silently halved — and without this line it never is.
+          pastedLogCount: () => pastedLogCount(messages),
           // ── AND WHAT THEY HAVE ALREADY SAID NO TO ────────────────────────
           //
           // Read from the replayed history, the only place it can come from:
@@ -1043,12 +1163,64 @@ async function serve(request) {
       })
       const requestPathway = pathwayBlock(decision.pathways)
       const volatileContext = buildVolatileContext({ route, signedIn: true, landmarks })
+      const requestedDeepOffer = decision.reasons.includes('deep:requested') &&
+        deepScope !== null && !requestHidden.has(DEEP_THINK_TOOL)
+      const deepEstimate = estimateCredits(decision.pathways)
       const instructionsFor = (choice, extra) => [
         systemMessage(choice, corePrompt, true),
         ...(requestPathway ? [systemMessage(choice, requestPathway, true)] : []),
         systemMessage(choice, volatileContext),
+        ...(requestedDeepOffer && choice === TIERS.standard
+          ? [systemMessage(choice, 'The reader asked for depth. Before heavy work, offer Deep Think with deep_think and one sentence saying why; the approval card shows the cost.')]
+          : []),
         ...(extra ? [systemMessage(choice, extra)] : []),
       ]
+
+      // An approved Deep Think that did not start says so, in his voice, ahead
+      // of the answer — never a silent Standard reply to a reader who agreed
+      // to pay for Opus.
+      if (deepSettled.off) {
+        writer.write({ type: 'text-delta', id: 'deep-think-note', delta: deepThinkNote(deepSettled.off, deepSettled.credits) })
+      }
+
+      // ── PROGRESS BETWEEN BATCHES ────────────────────────────────────────────
+      //
+      // "A solid minute of tool calls then one response" (the owner,
+      // 2026-10-10). After three silent lookup steps in a row, `prepareStep`
+      // appends one system message asking for a line of progress — at most
+      // two per HTTP REQUEST (not per reader turn: a turn that pauses for an
+      // approval card or a browser tool resumes in a new request with a new
+      // ledger), never after a step that already spoke. The decision is
+      // `decke/progressNudge.ts`; one ledger per request, so the Quick tier's
+      // one Standard retry shares its limit.
+      //
+      // THE LINE IT ASKS FOR IS NOT THE ANSWER. The ledger's `landings` go to
+      // the stop rule below, so the step that answered a nudge cannot settle
+      // the turn — "two losses to Dragapult so far, checking your list next"
+      // plus a face used to be the whole reply. See `stopRule.ts`.
+      //
+      // CALL-SCOPED, AND STICKY WITHIN THE CALL. ai@7 carries a `prepareStep`
+      // messages override forward to every later step of the same call, so
+      // once a call is nudged, every remaining step of it carries the system
+      // message — the nudge stays where it landed and the cached prefix behind
+      // it stays byte-stable. It is never part of a step's response messages,
+      // so the browser's history, the next HTTP leg and the corrective leg
+      // (built from `step.response.messages`) never see it.
+      //
+      // ANTHROPIC ONLY, and `allowSystemInMessages` with it. The remedy is
+      // Anthropic's. But because the message is sticky, a Gateway failover on
+      // ANY later step of a nudged call sends it to the fallback model too —
+      // for Standard, Gemini. Measured live 2026-10-10: the Gateway accepts a
+      // mid-conversation system message for `google/gemini-2.5-flash` (the
+      // nudged Alice/Bob loop ran on to its second lookup, and the nudged
+      // step's input grew by the message), so the failover does not choke and
+      // is not lost for the rest of the request. `scripts/decke-gateway-probe.mjs`
+      // re-checks both: `mid_conversation_system_message` (carried to Claude)
+      // and `mid_conversation_system_message_fallback` (accepted by Standard's
+      // fallback). The flag lifts the SDK's guard against system messages in
+      // `messages`; the reader cannot use it, because `validateWire` admits
+      // only user and assistant roles from the browser.
+      const progressNudges = createProgressNudges()
 
       const startConversation = (choice, effort) => streamText({
         model: observeUsageModel(gateway(choice.id), meter),
@@ -1064,6 +1236,8 @@ async function serve(request) {
         // `standardizePrompt` as "messages.some is not a function" — which
         // names neither this call nor the missing await.
         messages: preparedMessages,
+        // Only so `prepareStep` can append the progress nudge; see above.
+        allowSystemInMessages: isAnthropic(choice),
         // THE BODY AND THE DATA, in one set.
         //
         // `buildTools` is the cosmetic ones — express, showScreen, and the
@@ -1109,7 +1283,9 @@ async function serve(request) {
           // The ask is still open from an earlier leg of this turn: one step,
           // then the reader. `prepareStep` already withholds new tool calls.
           () => askedEarlierThisTurn,
-          ({ steps }) => spokeAndSettled(steps),
+          // Never on the step that answered a progress nudge: that line is
+          // progress, not the answer (PROGRESS BETWEEN BATCHES above).
+          ({ steps }) => spokeAndSettled(steps, progressNudges.landings),
           // ── THE CIRCUIT BREAKER (c) ──────────────────────────────────────────
           //
           // The flailing guard used to be a POST-MORTEM only: it summarised the
@@ -1155,15 +1331,25 @@ async function serve(request) {
         // the SDK executes it before step 0, and that approval is the reader's
         // consent — but the model can only say what happened and stop. The
         // tools stay in view so the cached tools prefix does not change.
-        prepareStep: ({ stepNumber, messages }) => ({
-          messages: cacheConversation(choice, messages),
-          activeTools: focusedTools(allDeckeTools, stepNumber, (n) => deepRefusals.unavailable(n) || reflex.hide.includes(n)),
-          ...(askedEarlierThisTurn
-            ? { toolChoice: 'none' }
-            : stepNumber === 0 && reflex.force
-              ? { toolChoice: isAnthropic(choice) ? 'auto' : { type: 'tool', toolName: reflex.force } }
-              : {}),
-        }),
+        //
+        // AND, AFTER A LONG SILENCE, ONE LINE ASKING HIM TO SPEAK — appended
+        // after the cache breakpoint is placed, so it lands behind it. See
+        // PROGRESS BETWEEN BATCHES above.
+        prepareStep: ({ stepNumber, steps, messages }) => {
+          const cached = cacheConversation(choice, messages)
+          const nudge = !askedEarlierThisTurn && isAnthropic(choice) && progressNudges.next(steps)
+          // Counts only, so the logs can say how often it fires in production.
+          if (nudge) console.log('[deck-e] progress nudge', JSON.stringify({ step: steps.length, nth: progressNudges.count }))
+          return {
+            messages: nudge ? [...cached, progressNudgeMessage()] : cached,
+            activeTools: focusedTools(allDeckeTools, stepNumber, (n) => deepRefusals.unavailable(n) || reflex.hide.includes(n) || requestHidden.has(n)),
+            ...(askedEarlierThisTurn
+              ? { toolChoice: 'none' }
+              : stepNumber === 0 && reflex.force
+                ? { toolChoice: isAnthropic(choice) ? 'auto' : { type: 'tool', toolName: reflex.force } }
+                : {}),
+          }
+        },
         // ── A CAPTION THAT IS TOO LONG IS NOT A LOST TURN ─────────────────
         //
         // Measured on a real gate run against production: `showScreen` failed
@@ -1260,6 +1446,34 @@ async function serve(request) {
         ...(process.env.DECKE_APPROVAL_SECRET
           ? { experimental_toolApprovalSecret: process.env.DECKE_APPROVAL_SECRET }
           : {}),
+        // THE OFFER, code-owned and emitted from the real approval chunk, keyed
+        // to the call. `token` binds this exact card (call id and approval id)
+        // to this reader's turn; the browser replays it with the answer, and
+        // without it a yes never reaches Opus. The cost is the server's
+        // estimate, and only a paid wallet is shown one: model prose can never
+        // choose a number or make a non-held call look held.
+        onChunk: ({ chunk }) => {
+          if (
+            chunk.type !== 'tool-approval-request' ||
+            chunk.toolCall.toolName !== DEEP_THINK_TOOL ||
+            deepScope === null
+          ) return
+          try {
+            const call = { toolCallId: chunk.toolCall.toolCallId, approvalId: chunk.approvalId }
+            writer.write({
+              type: 'data-decke-deep-offer',
+              data: {
+                toolCallId: call.toolCallId,
+                token: mintDeepOffer(deepSecret, deepScope, call),
+                estimate: deepPricing === 'paid' ? deepEstimate : null,
+              },
+              transient: true,
+            })
+          } catch {
+            // A closed stream is an ordinary abort. The card can still be
+            // declined; without its offer it cannot be approved into Opus.
+          }
+        },
         maxOutputTokens: budgetFor(choice),
         // A sub-agent that ignores the signal bills for up to five minutes
         // after the user gave up. This is the same signal every tool call and
@@ -1454,7 +1668,11 @@ async function serve(request) {
           capLineWritten = true
           guardFired = true
         }
-        const spoke = steps.some((s) => (s.text ?? '').trim().length > 0)
+        // ANSWERED means words AFTER the last lookup — `stopRule.ts`'s rule.
+        // Any text in any step used to count, so one interim line ("found
+        // these, checking prices…") switched this guard off for a turn that
+        // then ran out of room without ever replying.
+        const spoke = textAfterLastLookup(steps).trim().length > 0
         if (!capReached && !spoke && steps.length >= MAX_STEPS) {
           console.warn(
             `[deck-e] turn exhausted its ${MAX_STEPS}-step budget without answering; ` +
@@ -1519,6 +1737,12 @@ async function serve(request) {
         } else {
           const steps = await result.steps
           const answerText = steps.map((s) => (s.text ?? '')).join('\n')
+          // What he said after his last lookup. The empty-answer guard reads
+          // this, not `answerText`: an interim or nudged progress line is text,
+          // and counting it let "found three, now checking the list" stand in
+          // for an answer that never came. The phantom, promise and flailing
+          // checks still read everything he said.
+          const answerAfterLookups = textAfterLastLookup(steps)
           const calledToolNames = []
           for (const s of steps) for (const c of (s.toolCalls ?? [])) calledToolNames.push(c.toolName)
           const phases = guardEvents.map((e) => e.phase)
@@ -1597,7 +1821,7 @@ async function serve(request) {
               `\n\nI kept hitting walls there. ${summarizeFailures(chips)} ` +
               'I need to take a different route from here.'
           } else if (
-            needsAnswerNudge(answerText, calledToolNames, CLIENT_SET, completedToolNames, SERVER_SET)
+            needsAnswerNudge(answerAfterLookups, calledToolNames, CLIENT_SET, completedToolNames, SERVER_SET)
           ) {
             // (a) EMPTY ANSWER — tools ran, no client tool, nothing said.
             // ALL FIVE ARGUMENTS. The held-write and panel carve-outs are the
@@ -1732,6 +1956,9 @@ async function serve(request) {
               // tool_result. `result.responseMessages` is both. See `legMessages.ts`.
               messages: await followUpMessages(preparedMessages, result),
               tools: correctiveApplyTools(allDeckeTools, corrective),
+              // A correction never raises a Deep Think card (this leg has no
+              // offer to give it) and keeps the request's hidden set.
+              activeTools: Object.keys(allDeckeTools).filter((n) => n !== DEEP_THINK_TOOL && !requestHidden.has(n)),
               toolChoice: isAnthropic(TIERS.standard) ? 'auto' : { type: 'tool', toolName: corrective },
               stopWhen: pasteRecovery ? stepCountIs(3) : stepCountIs(1),
               prepareStep: ({ messages }) => ({
@@ -2004,6 +2231,18 @@ function replayedToolOutputs(messages) {
     }
   }
   return out
+}
+
+/**
+ * `deep_think` is in the tool set only where Deep Think can be had at all — a
+ * signed deployment, metered credits and a bindable turn (`deepScope`). It
+ * stays in the set (hidden from view) for the rest of an eligible turn, so the
+ * SDK can still execute the approved call it replays.
+ */
+function offerableTools(tools, deepThinkAvailable) {
+  if (deepThinkAvailable) return tools
+  const { [DEEP_THINK_TOOL]: _unavailable, ...rest } = tools
+  return rest
 }
 
 /**

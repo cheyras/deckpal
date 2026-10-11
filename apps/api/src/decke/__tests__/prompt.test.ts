@@ -45,6 +45,12 @@ test('the conversation, memory, progress, asking, and failure contracts are pres
     assert.ok(p.includes(phrase), `missing: ${phrase}`)
   }
   assert.ok(p.includes('`web_research`'))
+  // One core line instead of one per pathway: the competitive mode keeps to
+  // results sites and dates against rotation (researchSources.ts), research is
+  // metered, and the query leaves the product.
+  assert.match(flat(p), /`topic: "competitive"` when it is about play rather than collecting/)
+  assert.match(flat(p), /none of their data \(name, list, opponents\)/)
+  assert.match(flat(p), /One search usually does it/)
   assert.match(flat(p), /older work may survive only as a one-line record/)
   assert.match(flat(p), /correction to what they want.*is not a request for data/)
   assert.match(flat(p), /If they correct a FACT.*verify it before you repeat/)
@@ -67,6 +73,9 @@ test('saving survives widget failure and a finished deck gets a strategy-guide o
   assert.match(p, /Save button.*convenience, not the only way to save/)
   assert.match(p, /If the widget fails, or the reader simply says "save it", call `save_deck`/)
   assert.match(p, /Never tell the reader you have no save tool/)
+  // A revision goes in the widget with its deck_id, so Save makes the next
+  // version of that deck rather than a separate one (#305).
+  assert.match(p, /Use `showDeck` for every complete proposed or revised deck \(a revision passes its `deck_id`\)/)
   assert.match(p, /After a deck is saved.*offer to write its strategy guide/)
   assert.match(p, /call `deck_strategy` with the saved deck id/)
   assert.match(p, /game plan and win condition.*opening\/setup priorities.*key cards and why/)
@@ -78,6 +87,17 @@ test('an announced action must happen in the same turn', () => {
   assert.match(p, /Never announce work and then stop/)
   assert.match(p, /look something up, open it, compare it or save it.*same turn/)
   assert.match(p, /ending on an unperformed promise/)
+})
+
+test('Deep Think is a costed approval offer, not a claim the model may invent', () => {
+  const p = flat(buildSystemPrompt({ route: '/', signedIn: true, dataTools: TOOLS }))
+  assert.match(p, /Deep Think is approved Opus/)
+  // Conditional on HOLDING the tool: it is absent where Deep Think is not
+  // available (unsigned, unmetered) and hidden once a turn has answered it.
+  assert.match(p, /If you hold `deep_think`, call it once per chat unless asked; never routine work/)
+  assert.match(p, /battle deep-dive.*season review.*tournament meta prep/)
+  assert.match(p, /One-line why; card shows cost/)
+  assert.match(p, /never fake it/)
 })
 
 test('retained body state list and automatic lifecycle states are still named', () => {

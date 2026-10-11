@@ -56,6 +56,10 @@ export function deckeGateStatus(): DeckeGateStatus {
  * with Deck-E being down. But it is a security control that is OFF, and B11
  * exists precisely because a control that is off silently is the expensive
  * kind.
+ *
+ * Deep Think (Opus) is the one feature that DOES fail closed here: its consent
+ * is a signed approval plus server-minted tokens keyed by the same secret
+ * (`deepThink.ts`), so an unsigned deployment never offers or routes it.
  */
 export function deckeApprovalSigning(): 'signed' | 'unsigned' {
   return process.env.DECKE_APPROVAL_SECRET ? 'signed' : 'unsigned'
@@ -76,7 +80,9 @@ export function deckeApprovalWarning(): string | null {
     'NOT signed. The SDK still holds every write for a human, but nothing proves ' +
     'the approval it receives came from a request this server issued, so a ' +
     'crafted client could approve a write it was never offered or change the ' +
-    'arguments after approval. Set it to a long random string and redeploy.'
+    'arguments after approval. Deep Think (Claude Opus) is also OFF until it is ' +
+    'set, because its consent is a signed approval. Set it to a long random ' +
+    'string and redeploy.'
   )
 }
 

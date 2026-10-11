@@ -87,6 +87,12 @@ omit the host.
   accept a free-text `note`/`versionNote` (trimmed, length-capped). The one
   exception is `POST /decks/import`, where `source` was already the decklist syntax,
   so attribution rides as `writeSource`.
+- **Idempotency-Key.** The deck, list, battle-log and revert writes Deck-E makes
+  accept an optional `Idempotency-Key` header (≤200 characters, else `400`). The
+  write runs at most once per key for the requesting user, and a repeat answers
+  with the first run's result plus `"replayed": true`. Without the header, a
+  route behaves and responds exactly as it did before the header existed. Routes
+  and rules: "`Idempotency-Key` — at most once per approved write", below.
 - **Errors.** `{ "error": { "code", "message" } }` with status 400 (bad request),
   404 (not found), 500/503 (server/DB). Success bodies are documented per route.
 - **Rate limiting.** A pre-auth ingress guard applies to all requests on the
@@ -1161,10 +1167,12 @@ Rate limit: 6 calls a minute per account (`429` `rate_limited` with
 
 ### POST /deckpal/api/decks/save
 Create a deck, or set an existing deck's card list, in ONE transaction. This is what
-`save_deck` (Deck-E and MCP) writes through. Body `{ "deckId"? (edit when present),
+`save_deck` (Deck-E and MCP) writes through, and what Deck-E's deck widget uses to save
+a revision as a new version. Body `{ "deckId"? (edit when present),
 "name"? (required to create), "formatCode"|"format"?, "glcType"?, "cards"?:
 [{ "cardId", "quantity" 1..60 }] (≤60 distinct; the whole intended list when present),
-"versionNote"?, "source"?, "idempotencyKey"? (≤200) }`. Every `cardId` (a TCGdex id or a
+"versionNote"?, "newVersion"? (boolean, edits only), "source"?, "idempotencyKey"? (≤200) }`.
+`deckId` must be one of the caller's own live decks (`404` otherwise). Every `cardId` (a TCGdex id or a
 catalogue id; two refs to one card are summed) is resolved before anything is written;
 one that does not resolve fails the whole request with `400` naming every bad id, and
 nothing is saved.
@@ -1180,8 +1188,20 @@ nothing is saved.
   `"replayed": true`) only while the deck it made is alive and unchanged since; once it
   was deleted or edited the key moves to its next generation, so a later identical save
   writes normally and a retry of THAT save replays it.
+- **Versions.** An ordinary edit follows the auto-bump rule: a new version only when the
+  current one has battle logs, otherwise the current snapshot is amended. `"newVersion":
+  true` (2026-10-10, the deck widget's "Save as new version") always lands a CHANGED list
+  as the next version, so the list it replaces stays in the history; a list the deck
+  already matches writes nothing (no version, `updated_at` untouched). Without `deckId` it
+  is a `400` — a new deck starts at v1. `newVersion` joins the derived retry key only when
+  it is `true`, so keys derived without it are unchanged.
+- **An `Idempotency-Key` header wins over both** and is exact: it replays its own
+  result whatever happened to the deck since, and never moves to a new generation.
+  That is the key Deck-E sends for an approved `save_deck`.
 
-`201` (create) or `200` returns the detail payload plus `replayed`.
+`201` (create) or `200` returns the detail payload plus `replayed` and `bumped` (whether
+this write created a new version; a replay repeats the stored answer, `false` for results
+stored before 2026-10-10).
 
 ### POST /deckpal/api/decks/import
 Paste a decklist and create a new deck from it. Body `{ "text" (required, ≤20000),
@@ -1194,7 +1214,8 @@ writes nothing and returns `400` naming those lines (2026-09-29: they used to be
 dropped silently); the dry run below still reports them for the dialog to fix or
 remove; the web dialog removes the lines the reader chose to skip before it
 imports. The write is one transaction. With an `idempotencyKey` a retry returns the deck
-it already made (`"replayed": true`, same rule as `/decks/save`); without one — the web
+it already made (`"replayed": true`, same rule as `/decks/save`, including the exact
+`Idempotency-Key` header winning over the body key); without one — the web
 dialog — importing the same list twice on purpose still makes two decks.
 `201` returns the detail payload plus an `import` summary:
 ```json
@@ -1327,20 +1348,36 @@ Summaries only — never `rawLog`. `totals` covers the same filter scope.
 { "version": null,
   "logs": [ { "id": 7, "deckVersion": 1, "result": "win", "opponent": "Robni16",
               "opponentDeck": "Dragapult ex / Dusknoir", "turns": 14,
+              "opponentArchetype": "dragapult-ex", "origin": "ptcgl",
               "prizes": { "me": 6, "opponent": 5 }, "notes": null,
+              "reviewMd": "## Turning point\n…",
               "playedAt": "2026-07-30T…", "source": "web" } ],
   "totals": { "total": 4, "wins": 3, "losses": 1, "ties": 0 },
+  "archetypes": [ { "opponentArchetype": "dragapult-ex", "games": 3,
+                     "wins": 2, "losses": 1, "ties": 0, "lastPlayedAt": "…" } ],
   "pagination": { "page": 1, "pageSize": 50, "total": 4, "pageCount": 1 } }
 ```
+`archetypes` is the all-versions record for the deck (not only the current page
+or optional version filter), newest encounter first. Logs without a classified
+`opponentArchetype` are omitted from that summary.
 
 ### POST /deckpal/api/decks/:id/logs
-Body `{ "rawLog" (required, ≤50000), "result"?, "opponent"?, "opponentDeck"?,
-"notes"? (≤2000), "playedAt"? (ISO), "playerName"?, "source"?, "dryRun"? }`.
-Runs the PTCG Live parser; parser-derived `result` / `opponent` /
+Body `{ "rawLog"?, "origin"?: "ptcgl"|"in_person"|"other",
+"result"?, "opponent"?, "opponentDeck"?, "opponentArchetype"?,
+"notes"? (≤2000), "reviewMd"? (≤12000), "playedAt"? (ISO),
+"playerName"?, "source"?, "dryRun"? }`.
+`origin` defaults to `ptcgl`. PTCG Live requires a non-empty `rawLog` (≤50000)
+and runs the parser; `in_person` and `other` may omit `rawLog` but require an
+explicit `result` because there is no game log from which to infer it.
+Parser-derived `result` / `opponent` /
 `opponentDeck` (deck guess)
 fill any fields the caller omitted — **explicit caller values always win over
 the parser** (2026-08-29, `mergeLogFields`). Attaches to the deck's **current**
 version.
+`opponentArchetype` is normalized server-side to a lowercase ASCII word key
+(apostrophes removed, other separators collapsed to hyphens, ≤64 characters),
+for example `N's Zoroark ex` → `ns-zoroark-ex`. `notes` are the reader's own
+words; `reviewMd` is the assistant's markdown analysis (Deck-E's, or a connector client's).
 `400` when the parser cannot tell which player owns the deck **and** neither
 `playerName` nor an explicit `result` was given (the message says which to pass).
 `"dryRun": true` performs that same validation, current-version resolution,
@@ -1353,8 +1390,10 @@ omitted, the preview reports its own clock and a later write uses its own `now()
                    "result": "win", "opponent": "Robni16",
                    "opponentDeck": "Dragapult ex / Dusknoir",
                    "opponentDeckGuess": "Dragapult ex / Dusknoir",
+                   "opponentArchetype": "dragapult-ex", "origin": "ptcgl",
                    "prizes": { "me": 6, "opponent": 5 }, "turns": 14,
-                   "notes": null, "playedAt": "…", "confidence": "high" },
+                   "notes": null, "reviewMd": "## Turning point\n…",
+                   "playedAt": "…", "confidence": "high" },
       "parsed": { "players": { "me": "cheyras", "opponent": "Robni16" }, "…": "…" } }
 ```
 The non-dry-run response remains:
@@ -1362,7 +1401,9 @@ The non-dry-run response remains:
 201 { "attachedToVersion": 2,
       "log": { "id": 7, "deckVersion": 2, "result": "win", "opponent": "Robni16",
                "opponentDeck": "Dragapult ex / Dusknoir", "turns": 14,
+               "opponentArchetype": "dragapult-ex", "origin": "ptcgl",
                "prizes": { "me": 6, "opponent": 5 }, "notes": null,
+               "reviewMd": null,
                "playedAt": "…", "source": "web", "createdAt": "…", "rawLog": "Setup…",
                "parsed": { "players": { "me": "cheyras", "opponent": "Robni16" },
                            "confidence": "high", "result": "win", "wentFirst": "opponent",
@@ -1399,13 +1440,64 @@ re-pasting the log. Consumed by the agent tool `add_battle_log` when `deck_id`
 is omitted.
 
 ### GET /deckpal/api/decks/:id/logs/:logId
-The full row — same `log` shape as the 201 above (summary fields + `rawLog` +
+The full row — same `log` shape as the 201 above (summary fields + nullable `rawLog` +
 `parsed` + `createdAt`).
 
+### GET /deckpal/api/decks/:id/logs/:logId/digest
+Added 2026-10-10. `?playerName=` (optional). Reads the log's **stored raw PTCG
+Live log** into a compact, model-sized digest (`digestBattleLog` in
+`apps/api/src/deck/battlelog.ts`) — read-only, same ownership rules as the
+detail route above. The side is the owner the row was stored with
+(`parsed.players.me`) unless `playerName` names another; the deck's current
+card list is only used when the row has no stored owner.
+```json
+200 { "logId": 7, "deckVersion": 2, "origin": "ptcgl", "result": "win",
+      "digest": {
+        "players": { "me": "PlayerA", "opponent": "PlayerB" },
+        "playerNames": ["PlayerB", "PlayerA"], "confidence": "high",
+        "result": "win", "wentFirst": "opponent", "totalTurns": 14,
+        "turns": { "me": 7, "opponent": 7 },
+        "mulligans": { "me": 0, "opponent": 1 },
+        "firstAttackTurn": { "me": 4, "opponent": 3 },
+        "finalPrizes": { "me": 6, "opponent": 5 },
+        "prizeTimeline": [ { "turn": 3, "side": "opponent", "prizes": 1,
+                             "knockedOut": "Poltchageist", "score": { "me": 0, "opponent": 1 } }, "…" ],
+        "opponentCards": [ { "name": "Dragapult ex", "count": 16 }, { "name": "Judge", "count": 2 }, "…" ],
+        "myPokemonUsed": ["Poltchageist", "Shuppet", "…"],
+        "opponentArchetypeGuess": "Dragapult ex / Dusknoir",
+        "endReason": "prizes", "leadChanged": true, "closeGame": true,
+        "unknowns": ["the opponent's hand, and any card of theirs that was never shown",
+                     "which cards were prized, on either side"] } }
+```
+`turn` is the game's turn number counting both players (1 = the first
+player's first turn, 0 = setup). `firstAttackTurn` is the first turn that side
+dealt attack damage. `opponentCards` is every card the opponent showed —
+played, attached, evolved into, attacked or used an Ability with, Knocked Out,
+promoted, drawn or added to hand face-up, discarded face-up, or listed in a
+revealed group (mulligans, searches, discards) — deduped, most-seen first;
+using the Stadium already in play does not count as running it. `endReason` is
+`prizes` | `concede` | `deck-out` | `other` (timeouts and anything unrecognised).
+`closeGame` is true when the lead in prizes changed hands, or when the final
+prize gap is two or less once someone has taken at least three (so an early
+concession at 0–0 is not "close"). When the owner cannot be identified,
+`players` is null/null and the per-side fields (`turns`, `mulligans`,
+`firstAttackTurn`, `finalPrizes`) are `null`, never a guessed split;
+`unknowns` then names the players to choose between. `result` at the top level
+is the STORED result (explicit corrections win); `digest.result` is what the log
+text alone says.
+```json
+404 { "error": { "code": "not_found",
+                 "message": "no game log to digest — this game was reported in person" } }
+```
+Logs stored without raw text (`origin: in_person` or `other`) have nothing to
+digest. Consumed by the agent tool `battle_digest`.
+
 ### PATCH /deckpal/api/decks/:id/logs/:logId
-Body: any of `{ "result", "opponent", "opponentDeck", "notes", "playedAt" }`.
+Body: any of `{ "result", "opponent", "opponentDeck", "opponentArchetype",
+"notes", "reviewMd", "playedAt" }`.
 Metadata only — the raw log and its version attachment are immutable. Explicit
-`null` clears everything except `playedAt`. Returns `{ "log": … }` (full shape).
+`null` clears everything except `playedAt`; archetypes are normalized when set.
+Returns `{ "log": … }` (full shape).
 
 ### DELETE /deckpal/api/decks/:id/logs/:logId
 `{ "deleted": 7 }`.
@@ -1867,7 +1959,9 @@ accumulate, an absolute `quantity` discards everything before it for that
 variant, and a delta after an absolute adjusts that value — identical to applying
 the items one at a time. `folded` reports which input indices merged.
 
-**Idempotency.** A caller-supplied `idempotencyKey` is honoured indefinitely.
+**Idempotency.** A caller-supplied `idempotencyKey` is honoured indefinitely, and
+an `Idempotency-Key` header means the same when the body has none (the body key
+wins when both are sent).
 Otherwise the server derives one from the batch's resolved contents plus a
 15-minute time bucket. Either way a duplicate returns the ORIGINAL response with
 `replayed: true` and writes nothing. An identical batch outside the window is
@@ -1917,6 +2011,45 @@ for quantities, a `conflicts` array, and `exact`. Items with conflicts are
 skipped unless `force`. Conflicts are raised when the original change clamped,
 when the inverse would clamp, or when a later event asserted an absolute quantity
 on the same entity. The revert is itself a logged batch.
+
+## `Idempotency-Key` — at most once per approved write (added 2026-10-10)
+
+Deck-E sends this header on every write of a tool call the reader approved. It
+derives the value from the SDK-signed tool call, the requesting user and the
+signed input. A tool call that makes several writes sends one key per write
+request. Any client may send its own. A key names one write, scoped to the
+requesting user, and is honoured indefinitely. It is never bucketed and never
+reinterpreted.
+
+| Route | Notes |
+|---|---|
+| `POST /decks/save`, `POST /decks/import` | Wins over the body `idempotencyKey` and never moves to a new generation. |
+| `PUT /decks/:id/strategy` | A replay leaves a guide written since then alone. |
+| `POST /decks/:id/revert` | A replay makes no further version. Keyed requests record a `deck.revert` batch. |
+| `POST /decks/:id/logs` | Ignored on `dryRun`. A replay re-reads the stored log; `410 gone` if it has been deleted since. |
+| `PATCH /decks/:id/logs/:logId`, `DELETE /decks/:id/logs/:logId` | Keyed requests record a `battle_log.*` batch. Its events never hold the raw log. |
+| `DELETE /decks/:id`, `POST /decks/:id/restore` | |
+| `POST /lists`, `PATCH /lists/:id`, `DELETE /lists/:id`, `POST /lists/:id/restore` | `POST /lists` answers `410 gone` on a replay whose list has been deleted since. |
+| `POST /lists/:id/items/bulk`, `DELETE /lists/:id/items/:itemId` | Ignored on `dryRun`. A static list is a bag, so this is what stops a replay doubling it. |
+| `POST /mutations/revert` | Ignored on `dryRun`. |
+| `POST /collection/batch` | Used only when the body has no `idempotencyKey`. |
+
+- **First run.** The key is claimed in the write's own transaction, on its
+  `mutation_batch` row, before anything changes. It commits only if the write
+  commits. A keyed request that changes nothing ("already deleted", "nothing to
+  restore") still records its key. A replay of an approved restore must not undo
+  a delete the reader made afterwards.
+- **Replay.** A repeat answers with the first run's result plus
+  `"replayed": true` (status `200` where the first run returned `201`) and writes
+  nothing. The new body does not matter. Where the original response is a live
+  view (a deck or list payload), it is rebuilt from the current state.
+- **Concurrent duplicates.** The second request waits on the unique index, then
+  replays the first's committed result. If the first rolls back, the second
+  runs. `409 batch_in_flight` is the answer only when the result cannot be read
+  yet.
+- **Without the header,** nothing changes: the same transaction, the same
+  unkeyed batches (or none), and no `replayed` field. The keyed batch is visible
+  in `GET /mutations?idempotency_key=…` like any other.
 
 ## Cart routes
 

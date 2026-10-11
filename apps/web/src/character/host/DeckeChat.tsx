@@ -44,6 +44,7 @@ import { Icon } from '../../components/Icon'
 import { api } from '../../lib/api'
 import type { DeckEInstance } from './runtime'
 import { DeckeScreen, type ScreenSpec } from './DeckeScreen'
+import type { DeckSaved } from './chat/deckSave'
 import { ChatMarkdown } from './chat/ChatMarkdown'
 import { ActivityLine } from './chat/ActivityLine'
 import { SourcesList } from './chat/SourcesList'
@@ -54,7 +55,7 @@ import { KbDiag, kbDiagMode } from './KbDiag'
 import { parkFloor } from './parkFloor'
 import { CreditChip, DeckeNotice, type NoticeTone } from './chat/DeckeNotice'
 import type { NoticeAction } from './chat/httpNotice'
-import { deepCost, type DeepQuote } from './chat/deepRequest'
+import type { DeepQuote } from './chat/deepRequest'
 import { HistoryMenu } from './chat/HistoryMenu'
 import { TranscriptExit, TranscriptPane } from './chat/TranscriptView'
 import { ShareChoice } from './chat/ShareChoice'
@@ -74,6 +75,7 @@ import {
 } from './chat/creditState'
 import { ApprovalCard } from './chat/ApprovalCard'
 import type { ApprovalPreview, Choices, RowChoice } from './chat/approvalCardState'
+import type { DeepThinkOffer } from './chat/deepThinkCard'
 import type { PendingApproval, ToolChip } from './useDeckeChat'
 import {
   openersFor,
@@ -1072,6 +1074,7 @@ export function DeckeChat({
   onApprove,
   onDeny,
   approvalPreview,
+  deepThinkOffer,
   approvalChoices,
   onApprovalChoice,
   approvalBusy,
@@ -1119,6 +1122,8 @@ export function DeckeChat({
   onDeny: () => void
   /** The dry run's real rows for a held call, or null for the plain dialog. */
   approvalPreview: (toolCallId: string) => ApprovalPreview | null
+  /** The server's Deep Think offer (turn token, price) for a held call, or null. */
+  deepThinkOffer: (toolCallId: string) => DeepThinkOffer | null
   approvalChoices: Choices
   onApprovalChoice: (index: number, choice: RowChoice) => void
   /** True from the tick Accept is pressed until the write has answered. */
@@ -1177,7 +1182,7 @@ export function DeckeChat({
   /** Where "Top up" goes. Absent means no route yet, and the chip is not a button. */
   onTopUp?: () => void
   /** Records a one-tap widget save in the next conversational wire. */
-  onDeckSaved?: (deck: { id: string; name: string; total: number }) => void
+  onDeckSaved?: (deck: DeckSaved) => void
   /** Opens a saved widget deck through the host's router-neutral navigator. */
   onOpenDeck?: (id: string) => void
   /** Lets the character react to typing without coupling the composer to the hook. */
@@ -2040,13 +2045,22 @@ export function DeckeChat({
   // The dropdown's own Escape runs BEFORE this one — it listens in the capture
   // phase and stops propagation — so the three layers unwind in the order they
   // were opened.
+  // ── ON OPEN, NOT ON EVERY RENDER ─────────────────────────────────────────
+  //
+  // Callers pass `onClose` inline (DeckeHost does), so with it in this
+  // effect's deps every parent re-render re-ran the effect — and re-armed the
+  // desktop composer focus below, pulling focus off whatever the reader had
+  // reached by keyboard (the deck widget's Save, an approval card) 260 ms later.
+  // The Escape handler reads the latest `onClose` through a ref instead.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       e.stopPropagation()
       if (viewingRef.current) setViewingId(null)
-      else onClose()
+      else onCloseRef.current()
     }
     window.addEventListener('keydown', onKey)
     // ── DESKTOP ONLY, AND THE PHONE CASE IS NOT AN OVERSIGHT ──────────────────
@@ -2071,7 +2085,7 @@ export function DeckeChat({
       window.removeEventListener('keydown', onKey)
       window.clearTimeout(t)
     }
-  }, [open, onClose, desktop])
+  }, [open, desktop])
 
   // ── Who is standing behind whom ───────────────────────────────────────────
   //
@@ -2373,6 +2387,9 @@ export function DeckeChat({
 
   const lastAskedMsg = [...messages].reverse().find((m) => m.role === 'user')
   const lastAsked = lastAskedMsg ? messageText(lastAskedMsg) : undefined
+  const heldDeepOffer = asking?.[0]
+    ? deepThinkOffer(asking[0].toolCallId)
+    : null
 
   return (
     <>
@@ -3292,12 +3309,16 @@ export function DeckeChat({
             // finishing after the dry run displaced it, and a consent dialog
             // showing another call's result is worse than one showing nothing.
             preview={approvalPreview(asking[0].toolCallId)}
+            approval={asking[0]}
+            deepOffer={heldDeepOffer}
+            // The wallet balance read AFTER the card went up (see `quote`), or
+            // null while unknown: a priced Deep Think waits for it.
+            balance={quote?.balance ?? null}
             choices={approvalChoices}
             onChoice={onApprovalChoice}
             onAccept={onApprove}
             onDeny={onDeny}
             busy={approvalBusy}
-            cost={deepCost(asking[0].name, quote)}
             onTopUp={onTopUp}
           />
           </div>

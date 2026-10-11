@@ -22,6 +22,8 @@ import { Sheet } from '../../apps/web/src/components/ui/Sheet'
 import type { PendingApproval } from '../../apps/web/src/character/host/approval'
 import type { ApprovalPreview } from '../../apps/web/src/character/host/chat/approvalCardState'
 import type { DeepQuote } from '../../apps/web/src/character/host/chat/deepRequest'
+import { BattlesTab } from '../../apps/web/src/routes/deck/BattlesTab'
+import type { DeckSaved } from '../../apps/web/src/character/host/chat/deckSave'
 
 // Test-only entry: actual components, no host/WebGL/model or production route.
 const events = {
@@ -32,7 +34,8 @@ const events = {
   approves: 0,
   denies: 0,
   composerActivity: [] as boolean[],
-  savedDecks: [] as { id: string; name: string; total: number }[],
+  savedDecks: [] as DeckSaved[],
+  openedDecks: [] as string[],
   feedback: [] as { seq: number; vote: number | null; comment: string; share: boolean }[],
 }
 type FixtureState = { open: boolean; busy: boolean; messages: ChatMessage[]; credits: { remaining: number; allowance: number }
@@ -47,6 +50,8 @@ declare global {
     meterChat: { send: (text: string) => void; busy: boolean }
     /** `?ask` only — a fresh real-hook surface for the ask-card browser journey. */
     askChat: { send: (text: string) => void; busy: boolean }
+    /** `?deep-think` only — the real hook and approval replay wire. */
+    deepThinkChat: { send: (text: string) => void; busy: boolean; setBalance: (balance: number | null) => void }
     /** `?errorboundary` only — see `ErrorBoundaryFixture` below. */
     errorBoundaryFixture: { disarmCrash: () => void; disarmLoaderCrash: () => void; crashOutsideRouter: () => void }
     /** `?offline` only — offline.mjs drives the real Sheet/PwaUi collision + connectivity check through this. */
@@ -64,6 +69,8 @@ function Fixture() {
     <DeckeScreen spec={{ title: 'Browser screen', blocks: Array.from({ length: 6 }, (_, i) =>
       ({ kind: 'text', text: 'Section ' + (i + 1) })) }} />
   </main>
+  if (location.search.includes('deep-think')) return <DeepThinkFixture />
+  if (location.search.includes('battles')) return <BattlesFixture />
   if (location.search.includes('ask')) return <AskFixture />
   if (location.search.includes('meter')) return <MeterFixture />
   if (location.search.includes('errorboundary')) return <ErrorBoundaryFixture />
@@ -75,10 +82,12 @@ function Fixture() {
     onSend={text => events.sends.push(text)} onStop={() => setState(s => ({ ...s, busy: false }))}
     onApprove={() => { events.approves++ }} onDeny={() => { events.denies++ }}
     approvalPreview={id => preview?.toolCallId === id ? preview : null}
+    deepThinkOffer={() => null}
     approvalChoices={new Map()} onApprovalChoice={() => {}} approvalBusy={false}
     onRetryTool={id => events.retries.push(id)} desktop={innerWidth >= 1068} characterPx={fixtureCharacterPx()}
     onComposerActivity={typing => events.composerActivity.push(typing)}
     onDeckSaved={deck => events.savedDecks.push(deck)}
+    onOpenDeck={id => events.openedDecks.push(id)}
     onFeedback={async (seq, value) => { events.feedback.push({ seq, ...value }) }}
     onTopUp={() => { events.topUps++ }} />
 }
@@ -155,10 +164,44 @@ function MeterFixture() {
     messages={chat.messages} busy={chat.busy} onSend={chat.send} onStop={chat.stop}
     asking={chat.asking} onApprove={chat.approve} onDeny={chat.deny}
     approvalPreview={chat.approvalPreview} approvalChoices={chat.approvalChoices}
+    deepThinkOffer={chat.deepThinkOffer}
     onApprovalChoice={chat.onApprovalChoice} approvalBusy={chat.approvalBusy}
     onRetryTool={chat.retry} desktop={innerWidth >= 1068} characterPx={160}
     onComposerActivity={chat.composerActivity} onDeckSaved={chat.recordDeckSaved}
     credits={{ remaining: 2, allowance: 100 }} onTopUp={() => { events.topUps++ }} />
+}
+
+/** The Deep Think consent card over the production stream reader and replay. */
+function DeepThinkFixture() {
+  const decke = useMemo(
+    () => new Proxy({}, { get: () => () => undefined }) as unknown as DeckEInstance,
+    [],
+  )
+  const chat = useDeckeChat(decke, () => {})
+  // As in the host: null until the wallet read taken after the card went up.
+  const [balance, setBalance] = useState<number | null>(null)
+  window.deepThinkChat = { send: text => { void chat.send(text) }, busy: chat.busy, setBalance }
+  return <DeckeChat open minimised={false} onExpand={() => {}} onClose={() => {}} decke={null}
+    messages={chat.messages} busy={chat.busy} onSend={chat.send} onStop={chat.stop}
+    asking={chat.asking} onApprove={chat.approve} onDeny={chat.deny}
+    approvalPreview={chat.approvalPreview} deepThinkOffer={chat.deepThinkOffer}
+    approvalChoices={chat.approvalChoices} onApprovalChoice={chat.onApprovalChoice}
+    approvalBusy={chat.approvalBusy} onRetryTool={chat.retry}
+    desktop={innerWidth >= 1068} characterPx={fixtureCharacterPx()}
+    onComposerActivity={chat.composerActivity} onDeckSaved={chat.recordDeckSaved}
+    credits={{ remaining: 200, allowance: 200 }} quote={{ balance }} onTopUp={() => {}} />
+}
+
+/**
+ * `?battles` — the deck page's real Battles tab over real `fetch`, its API
+ * answered by `battlesV2.mjs`. Self-host build (no Supabase URL), so the client
+ * asks for `/deckpal/api/…`. The wrapper approximates the deck page's left
+ * column: a 16px gutter on a phone, a bounded column on desktop.
+ */
+function BattlesFixture() {
+  return <main style={{ maxWidth: 840, margin: '0 auto', padding: '24px 16px' }}>
+    <BattlesTab deckId="battles-deck" currentVersion={2} />
+  </main>
 }
 
 /** The real chat hook, isolated from the other transport-driven fixture cases. */
@@ -173,6 +216,7 @@ function AskFixture() {
     messages={chat.messages} busy={chat.busy} onSend={chat.send} onStop={chat.stop}
     asking={chat.asking} onApprove={chat.approve} onDeny={chat.deny}
     approvalPreview={chat.approvalPreview} approvalChoices={chat.approvalChoices}
+    deepThinkOffer={chat.deepThinkOffer}
     onApprovalChoice={chat.onApprovalChoice} approvalBusy={chat.approvalBusy}
     onRetryTool={chat.retry} desktop={innerWidth >= 1068} characterPx={fixtureCharacterPx()}
     onComposerActivity={chat.composerActivity} onDeckSaved={chat.recordDeckSaved}
@@ -288,6 +332,7 @@ function RefreshFixture() {
       messages={chat.messages} busy={chat.busy} onSend={chat.send} onStop={chat.stop}
       asking={chat.asking} onApprove={chat.approve} onDeny={chat.deny}
       approvalPreview={chat.approvalPreview} approvalChoices={chat.approvalChoices}
+      deepThinkOffer={chat.deepThinkOffer}
       onApprovalChoice={chat.onApprovalChoice} approvalBusy={chat.approvalBusy}
       onRetryTool={() => {}} desktop={innerWidth >= 1068} characterPx={160}
       onComposerActivity={chat.composerActivity} onDeckSaved={chat.recordDeckSaved}

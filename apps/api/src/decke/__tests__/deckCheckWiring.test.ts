@@ -63,8 +63,10 @@ function toolCtxSource(): string {
 
 /** The value of `checkDeck:` in the options `api/chat.mjs` gives `buildTools`. */
 function checkDeckSource(): string {
-  const call = SRC.indexOf('...buildTools(writer')
-  assert.ok(call >= 0, 'api/chat.mjs no longer spreads buildTools(writer, …)')
+  // Not `...buildTools(`: the call may sit inside a filter (Deep Think's
+  // `offerableTools`, the consult's `toolsForTier`) and still be the one.
+  const call = SRC.indexOf('buildTools(writer')
+  assert.ok(call >= 0, 'api/chat.mjs no longer calls buildTools(writer, …)')
   const key = /\bcheckDeck:\s*/g
   key.lastIndex = call
   const m = key.exec(SRC)

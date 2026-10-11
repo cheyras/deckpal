@@ -35,7 +35,9 @@ import { briefArgs } from './toolArgs.js'
 import { NO_WORK } from './deepOutcome.js'
 import type { Queryable } from '@deckpal/db'
 import { canAskToShare } from './improvement.js'
-import { PATHWAY_NAMES } from './pathways/names.js'
+import { PATHWAY_NAMES, type TierName } from './pathways/names.js'
+import { DEEP_THINK_TOOL, deepThinkResult, type DeepThinkResult } from './deepThink.js'
+import { CONSULT_BRIEF_MAX, CONSULT_MAX_PER_REQUEST, CONSULT_QUESTION_MAX, consultFailure } from './consult.js'
 
 /**
  * Routes Deck-E may navigate to.
@@ -578,9 +580,30 @@ export function buildTools(
   onEvent?: (e: ToolEvent) => void,
   opts?: {
     checkDeck?: (input: { format?: string; cards: { card_id: string; quantity: number }[] }) => Promise<DeckCheckResult>
+    /**
+     * One question to the Standard-tier model, returning its analysis
+     * (`runConsult` in consult.ts, wrapped by api/chat.mjs in the request's
+     * usage observer). Injected like `checkDeck`, so this module never holds
+     * a Gateway handle and the tests never reach one.
+     */
+    consult?: (input: { question: string; brief: string }) => Promise<string>
+    /**
+     * Find a deck among the READER'S OWN, as the reader — `showDeck`'s
+     * `deck_id`. A miss comes back as the sentence saying why (with the
+     * reader's real deck ids when there are near misses), never as a guess.
+     * Absent in the dev preview and the tests, where nobody owns anything.
+     */
+    ownedDeck?: (ref: string) => Promise<{ deck: { id: string; name: string } } | { miss: string }>
     db?: Queryable
     userId?: string
     conversationId?: string
+    /**
+     * This request's Deep Think answer, decided by `api/chat.mjs` before the
+     * stream: a freshly minted grant when the approval leg really runs on
+     * Opus, otherwise why it did not start. Absent (tests, previews) means
+     * Deep Think is unavailable, which is the safe reading.
+     */
+    deepThink?: { result: () => DeepThinkResult }
   },
 ): ToolSet {
   /** `start` now, and the matching `ok` when the work is done. */
@@ -591,6 +614,26 @@ export function buildTools(
   }
   const ended = (id: string, name: string, title: string, summary: string): void => {
     onEvent?.({ phase: 'ok', id, name, title, summary })
+  }
+  /** Consults run so far in this request — `buildTools` is called once per request. */
+  let consults = 0
+  /**
+   * The reader's own deck a shown list revises — or, when there is none to
+   * offer, the reason, for the model. Never a failure of the show itself: a
+   * deck that cannot be versioned can still be shown and saved as a new one.
+   */
+  const revisionOf = async (deckId: string | undefined): Promise<{ base?: { id: string; name: string }; problem?: string }> => {
+    if (!deckId) return {}
+    const fallback = 'so its Save makes a separate deck'
+    if (!opts?.ownedDeck) return { problem: `deck_id "${deckId}" could not be checked here, ${fallback}` }
+    try {
+      const found = await opts.ownedDeck(deckId)
+      if ('deck' in found) return { base: found.deck }
+      return { problem: `deck_id "${deckId}" is not one of the reader's decks, ${fallback}: ${found.miss}` }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      return { problem: `could not check deck_id "${deckId}" (${reason}), ${fallback}` }
+    }
   }
   return {
     express: tool({
@@ -938,7 +981,8 @@ export function buildTools(
 
     showDeck: tool({
       description:
-        'Show a complete proposed or revised deck as a card widget with Save and builder actions. Use this whenever proposing or revising a whole deck, and only after check_deck has checked the list.',
+        'Show a complete proposed or revised deck as a card widget with Save and builder actions. Use this whenever proposing or revising a whole deck, and only after check_deck has checked the list. ' +
+        "When the list is a revision of one of the reader's existing decks, pass that deck's deck_id: the widget then offers to save it as the next version of that deck, keeping its history and battle logs, instead of as a separate deck.",
       inputSchema: z.object({
         name: z.string().trim().min(1).max(80),
         format: z.string().trim().min(1).max(24).default('standard'),
@@ -947,8 +991,34 @@ export function buildTools(
           quantity: z.number().int().min(1).max(60),
         })).min(1).max(60),
         note: z.string().trim().max(500).optional(),
+        // ── OPTIONAL, AND ABSENT MEANS EXACTLY WHAT IT ALWAYS DID ───────────
+        //
+        // Without it the widget's Save makes a NEW deck, which was the only
+        // thing it could do — so "make a v2 of my Dragapult deck" saved a twin,
+        // and the version history and battle logs stayed on the old one. With
+        // it, and only once the server has found that deck among the reader's
+        // own, Save writes the list as that deck's next version.
+        deck_id: z
+          .string()
+          .trim()
+          .min(1)
+          .max(120)
+          .optional()
+          .describe(
+            "Only for a revision of a deck the reader already has: that deck's id, as `decks` returned it. " +
+              'Leave it out for a brand-new deck.',
+          ),
+        version_note: z
+          .string()
+          .trim()
+          .max(500)
+          .optional()
+          .describe(
+            'With deck_id: one short line saying what changed and why (e.g. "cut Switch for Jet Energy after losses to Gardevoir"). ' +
+              'The reader sees it, can edit it, and it is saved on the version.',
+          ),
       }),
-      execute: async ({ name, format, cards }, { toolCallId }) => {
+      execute: async ({ name, format, cards, deck_id, version_note }, { toolCallId }) => {
         began(toolCallId, 'showDeck', 'Show a deck', { name, format, cards })
         let checked: DeckCheckResult | null = null
         try {
@@ -1022,14 +1092,60 @@ export function buildTools(
             `Ids to verify again: ${cards.map((card) => card.card_id).join(', ')}. ` +
             'Run check_deck for them before trying showDeck again.'
         }
-        writer.write({ type: 'data-decke-screen', data: { screen }, transient: true })
-        const summary = `Showed "${name}" · ${total} cards`
+        // ── THE DECK IT REVISES, FOUND AMONG THE READER'S OWN ───────────────
+        //
+        // The id is the model's; the deck is not. `ownedDeck` resolves it
+        // through the API as the reader (their token, under RLS), so an id
+        // from another account, a deleted deck or a guess finds nothing, and
+        // the widget falls back to saving a new deck — it never offers a
+        // version of a deck the reader does not own. The name shown is the
+        // stored one, never the model's. `/decks/save` checks ownership again
+        // when the reader presses Save; neither check trusts the other.
+        const revision = await revisionOf(deck_id)
+        const versionNote = revision.base ? version_note?.trim().slice(0, 500) || undefined : undefined
+        const shown = revision.base
+          ? { ...screen, blocks: [{ ...cleanDeck, base: revision.base, ...(versionNote ? { versionNote } : {}) }] }
+          : screen
+        writer.write({ type: 'data-decke-screen', data: { screen: shown }, transient: true })
+        const summary = revision.base
+          ? `Showed "${name}" · ${total} cards · a new version of "${revision.base.name}"`
+          : `Showed "${name}" · ${total} cards`
         ended(toolCallId, 'showDeck', 'Show a deck', summary)
         const legality = checked ? checked.legal === true ? 'legal' : checked.legal === false ? 'not legal' : 'legality unknown' : 'could not be checked'
         const cost = checked?.missing_cost_usd == null ? 'missing cost unavailable' : `missing cost about $${checked.missing_cost_usd.toFixed(2)}`
+        const save = revision.base
+          ? `a Save button that saves it as the next version of "${revision.base.name}" (or as a separate deck)`
+          : 'a Save button'
         const line = `${total} cards · ${legality} · own ${checked?.owned ?? 0}/${total} · ${cost}. ` +
-          'The deck is on screen with a Save button. Do not list its cards again in words.'
-        return dropped.length ? `${line} (${dropped.join('; ')})` : line
+          `The deck is on screen with ${save}. Do not list its cards again in words.`
+        const notes = [...dropped, ...(revision.problem ? [revision.problem] : [])]
+        return notes.length ? `${line} (${notes.join('; ')})` : line
+      },
+    }),
+
+    [DEEP_THINK_TOOL]: tool({
+      description:
+        'Offer Deep Think only when this request truly benefits — a deep battle analysis worth learning from, a season review, or tournament prep with a meta read — never for routine work; use it at most once per conversation unless the reader asks, with one sentence explaining why.',
+      inputSchema: z.object({
+        why: z.string().trim().min(1).max(200)
+          .describe('One reader-facing sentence: what Deep Think would add beyond a normal answer.'),
+        plan: z.string().trim().min(1).max(300)
+          .describe('What you will do, such as research the archetype, replay turning points and compare lines.'),
+      }).strict(),
+      needsApproval: true,
+      // RUNS ONLY AFTER THE SDK ACCEPTED THE SIGNED APPROVAL, which is why a
+      // grant is minted here and nowhere else (`deepThink.ts`). The output is
+      // the call's result, and the browser replays it on the turn's later
+      // legs: that pairs the call with a result and carries the grant there.
+      execute: async ({ why, plan }, { toolCallId }) => {
+        const result = opts?.deepThink?.result() ?? deepThinkResult({ off: 'unavailable' })
+        // A row only for a run that started. One that did not start is said
+        // in words ahead of the answer instead (`deepThinkNote`).
+        if (result.status === 'on') {
+          began(toolCallId, DEEP_THINK_TOOL, 'Deep Think', { why, plan })
+          ended(toolCallId, DEEP_THINK_TOOL, 'Deep Think', 'Deep Think is on for this request')
+        }
+        return result
       },
     }),
 
@@ -1061,7 +1177,11 @@ export function buildTools(
       inputSchema: z.object({
         about: z.enum(PATHWAY_NAMES).optional(),
         questions: z.array(z.object({
-          header: z.string().trim().min(1).max(12),
+          // 24, not 12: a 12-character cap clipped ordinary two-word headers
+          // ("Turning point" landed as "Turning poin"), and the clipped header
+          // is what the reader's formatted answer repeats back. The AskCard
+          // chip wraps under the question on a narrow screen, so 24 fits at 390px.
+          header: z.string().trim().min(1).max(24),
           question: z.string().trim().min(1).max(200),
           options: z.array(z.object({
             label: z.string().trim().min(1).max(40),
@@ -1070,7 +1190,7 @@ export function buildTools(
           multi: z.boolean().default(false),
         }).strict()).min(1).max(4),
       }).strict(),
-      // A near-miss ask (a 13-character header, a 41-character label) is
+      // A near-miss ask (a 25-character header, a 41-character label) is
       // trimmed by `repairToolCall` in `api/chat.mjs` rather than failing the
       // card. Trimmed text is the model's own caption, not the reader's words,
       // so it qualifies for that allowlist — on the condition, stated there,
@@ -1084,7 +1204,92 @@ export function buildTools(
         }
       },
     }),
+
+    /**
+     * ── A SECOND OPINION, BOUGHT ONLY WHERE IT PAYS (2026-10-10) ────────────
+     *
+     * The cheap tier does the work and buys judgement for the one part that
+     * needs it: Haiku writes a brief, Sonnet answers one question about it, and
+     * Haiku writes the result in his own voice. See consult.ts for why this is
+     * cheaper and better than raising the whole request to Standard.
+     *
+     * LAST IN THIS FACTORY, and only present on the Quick tier
+     * (`toolsForTier` below): on Standard or Deep a consult is the same model
+     * or a weaker one. Last, so the tools ahead of it keep their positions
+     * whichever tier holds the set — and since the tier also picks the model,
+     * each model always sees one stable list.
+     *
+     * THE ANSWER IS NOT GROUNDED EVIDENCE. Nothing it returns is passed to
+     * `grounding.observe`: every card id in it came from the brief, which Deck-E
+     * wrote, so observing it would let an id he invented launder itself into
+     * one `showScreen` may draw.
+     */
+    consult: tool({
+      description:
+        'Ask a stronger model (Claude Sonnet) ONE question when part of the job deserves deeper judgement than a quick read — ' +
+        'above all a Standard-depth review of a game worth learning from. It sees ONLY your brief: not the conversation, ' +
+        'not DeckPal, and it cannot call tools. So put everything it may use in the brief — the battle_digest text, the ' +
+        "reader's own words quoted, the record against that archetype — and ask one specific question. The answer comes " +
+        'back to you, not the reader: keep what the brief supports and write it in your own words. It costs the reader ' +
+        'credits — never use it for lookups, small talk, a Light game, or to ask the same thing twice.',
+      inputSchema: z.object({
+        question: z
+          .string()
+          .trim()
+          .min(1)
+          .max(CONSULT_QUESTION_MAX)
+          .describe('One focused question, e.g. "What decided this game, and what is the one lesson for next time?"'),
+        brief: z
+          .string()
+          .trim()
+          .min(1)
+          .max(CONSULT_BRIEF_MAX)
+          .describe("Everything the colleague may use: the digest, the reader's words, relevant records. Nothing else reaches it."),
+      }),
+      execute: async ({ question, brief }, { toolCallId }) => {
+        const title = 'Thinking it through'
+        // The question is the chip's argument; the brief is long and is the
+        // reader's own game, which the transcript already holds.
+        onEvent?.({ phase: 'start', id: toolCallId, name: 'consult', title, label: title, args: { question } })
+        const notRun = (summary: string, reason: string): string => {
+          onEvent?.({ phase: 'error', id: toolCallId, name: 'consult', title, label: title, summary })
+          return `${NO_WORK} NOT RUN — ${reason}. Write the analysis yourself from what you already have, ` +
+            'keep it short, and do not say that anyone else reviewed it.'
+        }
+        if (!opts?.consult) return notRun('No deeper analysis here', 'a consult is not available in this conversation')
+        if (consults >= CONSULT_MAX_PER_REQUEST) {
+          return notRun('Already thought it through', `${CONSULT_MAX_PER_REQUEST} consults is the limit for one request`)
+        }
+        consults += 1
+        let analysis: string
+        try {
+          analysis = await opts.consult({ question, brief })
+        } catch (error) {
+          return notRun("Couldn't think it through", `the consult did not finish: ${consultFailure(error)}`)
+        }
+        const words = analysis.split(/\s+/).filter(Boolean).length
+        onEvent?.({ phase: 'ok', id: toolCallId, name: 'consult', title, label: 'Thought it through', summary: `analysis ready · ${words} words` })
+        return `${analysis}\n\n` +
+          '(From the consult, for you — the reader has not seen it. Keep what the brief supports and write it in your own words.)'
+      },
+    }),
   }
+}
+
+/**
+ * The tool set a request at this tier holds.
+ *
+ * DECIDED ONCE PER REQUEST, from the tier code chose before the first step,
+ * and never per step: Anthropic caches the tool list as part of the prompt
+ * prefix, and a set that changed between steps would re-bill it (focus.ts).
+ * `consult` is the only tier-bound tool: on Standard or Deep it would ask the
+ * same model, or a weaker one, for a second opinion it can already give.
+ */
+export function toolsForTier(tools: ToolSet, tier: TierName): ToolSet {
+  if (tier === 'quick') return tools
+  const { consult: _consult, ...rest } = tools
+  void _consult
+  return rest
 }
 
 /** Tools the BROWSER fulfils. The server must not try to execute these. */
@@ -1106,7 +1311,15 @@ export const CLIENT_TOOLS = [
  * half is not a union. `tools.test.ts` pins both halves against the structural
  * property that actually decides it — whether the tool has an `execute`.
  */
-export const SERVER_TOOLS = ['express', 'showScreen', 'showDeck', 'ask_to_share_chat', 'ask_user'] as const
+export const SERVER_TOOLS = [
+  'express',
+  'showScreen',
+  'showDeck',
+  DEEP_THINK_TOOL,
+  'ask_to_share_chat',
+  'ask_user',
+  'consult',
+] as const
 
 /**
  * EVERY tool `buildTools` exposes: the character's own vocabulary.
@@ -1114,7 +1327,9 @@ export const SERVER_TOOLS = ['express', 'showScreen', 'showDeck', 'ask_to_share_
  * This began as the nine cosmetic/navigation tools counted in `focus.ts`.
  * `ask_user` now lives in the same factory because it is Deck-E-only and
  * server-executed, even though its effect is a conversation card rather than
- * scenery. The name is historical; the contract is structural: this is every
+ * scenery; `consult` (2026-10-10) is here for the same reason, and is the one
+ * entry a request may not hold — see `toolsForTier`. The name is historical;
+ * the contract is structural: this is every
  * tool returned above, whoever runs it. Two places need that WHOLE set:
  *
  *   - `narration.ts` strips these names when the model writes one as prose

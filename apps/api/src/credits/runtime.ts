@@ -61,9 +61,20 @@ export async function reserveCredits(db: Queryable, userId: string, tool: string
     throw error;
   }
 }
-export async function beginMeteredCredits(db: Queryable, userId: string, requestId: string): Promise<MeteredBeginResult> {
+export async function beginMeteredCredits(
+  db: Queryable,
+  userId: string,
+  requestId: string,
+  opts?: { holdMultiplier?: number },
+): Promise<MeteredBeginResult> {
   await assertDeckeAccess(userId);
-  const { rows } = await db.query('SELECT public.decke_metered_begin($1) AS data', [requestId]);
+  const multiplied = opts?.holdMultiplier !== undefined;
+  const { rows } = await db.query(
+    multiplied
+      ? 'SELECT public.decke_metered_begin($1,$2) AS data'
+      : 'SELECT public.decke_metered_begin($1) AS data',
+    multiplied ? [requestId, opts.holdMultiplier] : [requestId],
+  );
   const result = rows[0]?.data as MeteredBeginResult | undefined;
   if (!result) throw new Error('Missing metered accounting result');
   return result;

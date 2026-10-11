@@ -17,6 +17,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { spokeAndSettled, textAfterLastLookup } from '../stopRule.js';
+import { needsAnswerNudge } from '../turnGuards.js';
 
 const SRC = readFileSync(fileURLToPath(new URL('../../../../../api/chat.mjs', import.meta.url)), 'utf8');
 
@@ -69,7 +71,7 @@ test('the empty-answer guard is called with ALL FIVE arguments', () => {
   // reachable path. Its own unit tests pass all five and stayed green.
   assert.match(
     CODE,
-    /needsAnswerNudge\(\s*answerText,\s*calledToolNames,\s*CLIENT_SET,\s*completedToolNames,\s*SERVER_SET\s*\)/,
+    /needsAnswerNudge\(\s*answerAfterLookups,\s*calledToolNames,\s*CLIENT_SET,\s*completedToolNames,\s*SERVER_SET\s*\)/,
     'the empty-answer guard lost an argument again — it cannot fire without all five',
   );
   // And `completedToolNames` must be DERIVED from the turn's real events, not
@@ -129,10 +131,94 @@ test('chat sends correlation into the server acceptance boundary before metering
 test('the frozen policy version is the only flat-versus-metered chat gate', () => {
   assert.match(SRC, /import \{ isMetered \} from '\.\.\/apps\/api\/dist\/credits\/policy\.js'/);
   assert.match(CODE, /if \(isMetered\(quote\.policy\)\)/);
-  assert.match(CODE, /beginMeteredCredits\(chatPool\(\), userId, usage\.id\)/);
+  assert.match(CODE, /beginMeteredCredits\(\s*chatPool\(\),\s*userId,\s*usage\.id,/);
   assert.match(CODE, /const result = await reserveCredits\(chatPool\(\), userId, tool, quote, spendKey, hash\)/);
   assert.ok(CODE.indexOf('if (isMetered(quote.policy))') < CODE.indexOf('const result = await reserveCredits('));
   assert.doesNotMatch(CODE, /DECKE_METERED|METERED_CREDITS_ENABLED/);
+});
+
+// ── DEEP THINK ──────────────────────────────────────────────────────────────
+//
+// `deepThink.test.ts` and `deepThinkSdk.test.ts` prove the reads; these pin
+// that chat actually makes them, in the right order, from the right inputs.
+// Each one a mutation would otherwise leave the whole api suite green on.
+
+test('Deep Think exists only on a signed deployment with metered credits and a bindable turn', () => {
+  assert.match(SRC, /import \{ deckeApprovalSigning \} from '\.\.\/apps\/api\/dist\/decke\/gate\.js'/);
+  assert.match(CODE, /deepSecret = deckeApprovalSigning\(\) === 'signed' \? process\.env\.DECKE_APPROVAL_SECRET : undefined/);
+  assert.match(CODE, /deepPricing = deepSecret \? deepThinkPricing\(quote\) : null/);
+  assert.match(CODE, /deepScope = deepPricing \? deepThinkScope\(\{ userId: user\.id, conversationId, exchangeId, messages \}\) : null/);
+  assert.match(CODE, /deepRouted = deepScope \? deepRoute\(messages, deepScope, deepSecret\) : null/);
+  // Read before admission: it sizes the hold.
+  assert.ok(CODE.indexOf('deepRouted = deepScope ?') < CODE.indexOf("meter = await meterTurn(user.id, { tier: 'chat_turns'"));
+  // Not in the tool set at all where it cannot be had.
+  assert.match(CODE, /\.\.\.offerableTools\(toolsForTier\(buildTools\(writer, groundingForTools, repairs, emitToolEvent\(writer\), \{[\s\S]*?\}\), decision\.tier\), deepScope !== null\)/);
+  assert.doesNotMatch(CODE, /deepApprovedThisTurn/, 'the unvalidated any-part-after-the-reader read is back');
+});
+
+test('only a Deep route expands the hold and selects Deep, and admission must agree', () => {
+  assert.match(
+    CODE,
+    /deepRouted \? \{ holdMultiplier: DEEP_HOLD_MULTIPLIER \} : undefined/,
+    'something other than a validated Deep route controls the larger reservation',
+  );
+  assert.match(CODE, /const deepAdmitted = deepRouted !== null && meter\.mode === deepPricing/);
+  // Deep FIRST, over the echo every Deep leg carries (`turnDecision`, whose
+  // precedence `deepThink.test.ts` and `deepThinkSdk.test.ts` exercise).
+  assert.match(CODE, /decision: turnDecision\(\{\s*deep: deepAdmitted,\s*echo: echoed,\s*firstLeg,/);
+  assert.match(CODE, /decide: \(deepApproved\) => decideTier\(\{ triage, carried: carriedFromHistory\(messages\), deepApproved, pastedLog: pastedNow \|\| pasteAwaitingAnswer \}\)/);
+  assert.doesNotMatch(CODE, /decisionFromEcho\(/, 'an echo is decided outside turnDecision, where Deep cannot outrank it');
+  assert.match(CODE, /pricing: deepPricing,\s*admission: meter,/, 'the balance floor is not read from the admission');
+  assert.match(CODE, /const decision = deepSettled\.decision/);
+  assert.match(CODE, /const choice = TIERS\[decision\.tier\]/);
+  assert.match(CODE, /result = startConversation\(choice, decision\.effort\)/);
+  // An approved Deep Think that did not start is said, not silent.
+  assert.match(CODE, /if \(deepSettled\.off\) \{\s*writer\.write\(\{ type: 'text-delta', id: 'deep-think-note', delta: deepThinkNote\(deepSettled\.off, deepSettled\.credits\) \}\)/);
+});
+
+test('the grant is minted only by deep_think on a Deep approval leg', () => {
+  assert.match(
+    CODE,
+    /result: \(\) => decision\.tier === 'deep' && deepRouted\?\.via === 'approval'\s*\? deepThinkResult\(\{ grant: mintDeepGrant\(deepSecret, deepScope\) \}\)\s*: deepThinkResult\(\{ off: deepSettled\.off \?\? 'unavailable' \}\)/,
+  );
+  assert.equal(CODE.match(/mintDeepGrant\(/g)?.length, 1, 'a grant is minted somewhere else too');
+});
+
+test('once answered, and on the Deep tier, the offer and its tool leave view for the whole request', () => {
+  assert.match(
+    CODE,
+    /const requestHidden = new Set\(\[\s*\.\.\.\(deepThinkAnsweredThisTurn\(messages\) \|\| decision\.tier === 'deep' \? \[DEEP_THINK_TOOL\] : \[\]\),\s*\.\.\.\(decision\.tier === 'deep' \? \['ask_user'\] : \[\]\),\s*\]\)/,
+  );
+  assert.match(
+    CODE,
+    /const requestedDeepOffer = decision\.reasons\.includes\('deep:requested'\) &&\s*deepScope !== null && !requestHidden\.has\(DEEP_THINK_TOOL\)/,
+  );
+  // The corrective leg never raises a card it has no offer for.
+  const leg = CODE.slice(CODE.indexOf('if (corrective) {'));
+  assert.match(leg, /activeTools: Object\.keys\(allDeckeTools\)\.filter\(\(n\) => n !== DEEP_THINK_TOOL && !requestHidden\.has\(n\)\)/);
+});
+
+test('requested depth gets an uncached Standard instruction before model work', () => {
+  assert.match(
+    CODE,
+    /requestedDeepOffer && choice === TIERS\.standard[\s\S]{0,240}systemMessage\(choice, 'The reader asked for depth\./,
+  );
+  assert.doesNotMatch(
+    CODE,
+    /systemMessage\(choice, 'The reader asked for depth\.[^\n]*, true\)/,
+    'the request-specific Deep Think offer must not enter the cached prompt prefix',
+  );
+});
+
+test('the Deep Think approval chunk emits the server offer keyed to its call, priced only for a paid wallet', () => {
+  assert.match(CODE, /const deepEstimate = estimateCredits\(decision\.pathways\)/);
+  assert.match(CODE, /chunk\.type !== 'tool-approval-request'/);
+  assert.match(CODE, /chunk\.toolCall\.toolName !== DEEP_THINK_TOOL/);
+  assert.match(CODE, /const call = \{ toolCallId: chunk\.toolCall\.toolCallId, approvalId: chunk\.approvalId \}/);
+  assert.match(
+    CODE,
+    /type: 'data-decke-deep-offer',[\s\S]{0,80}toolCallId: call\.toolCallId,\s*token: mintDeepOffer\(deepSecret, deepScope, call\),\s*estimate: deepPricing === 'paid' \? deepEstimate : null,[\s\S]{0,40}transient: true/,
+  );
 });
 
 test('metered research uses the leg hold and never starts another reservation', () => {
@@ -189,7 +275,7 @@ test('the deep tier is given the turn\'s meter refusals, seeded from the replaye
 test('the same ledger narrows activeTools, so a spent tier leaves the model\'s view', () => {
   assert.match(
     SRC,
-    /activeTools: focusedTools\(allDeckeTools, stepNumber, \(n\) => deepRefusals\.unavailable\(n\) \|\| reflex\.hide\.includes\(n\)\)/,
+    /activeTools: focusedTools\(allDeckeTools, stepNumber, \(n\) => deepRefusals\.unavailable\(n\) \|\| reflex\.hide\.includes\(n\) \|\| requestHidden\.has\(n\)\)/,
     'prepareStep no longer removes a spent deep tier from activeTools',
   );
 });
@@ -197,16 +283,59 @@ test('the same ledger narrows activeTools, so a spent tier leaves the model\'s v
 test('the model loop uses the post-lookup settling rule from the built module', () => {
   assert.match(
     SRC,
-    /import \{ askedThisStep, askedThisTurn, askPendingInstruction, spokeAndSettled \} from '\.\.\/apps\/api\/dist\/decke\/stopRule\.js'/,
+    /import \{ askedThisStep, askedThisTurn, askPendingInstruction, spokeAndSettled, textAfterLastLookup \} from '\.\.\/apps\/api\/dist\/decke\/stopRule\.js'/,
     'the shared stop rule is no longer imported',
   );
-  assert.match(CODE, /\(\{ steps \}\) => spokeAndSettled\(steps\)/);
+  // WITH the nudge ledger's landings: the step that answered a progress nudge
+  // must never settle the turn (review, 2026-10-10 — a nudged "checking your
+  // list next" plus a face was the whole reply).
+  assert.match(CODE, /\(\{ steps \}\) => spokeAndSettled\(steps, progressNudges\.landings\)/);
+  assert.doesNotMatch(CODE, /spokeAndSettled\(steps\)/, 'the stop rule lost the nudge landings');
+});
+
+// ── AN INTERIM LINE IS NOT AN ANSWER ────────────────────────────────────────
+//
+// The step-budget ("circles") and empty-answer guards used to treat text in
+// ANY step as an answer, so one nudged or interim progress line switched both
+// off. They now read only what was said after the last lookup — the rule the
+// stop rule already used.
+
+test('the circles and empty-answer guards read text after the last lookup, not every step', () => {
+  assert.match(CODE, /const spoke = textAfterLastLookup\(steps\)\.trim\(\)\.length > 0\s*\n\s*if \(!capReached && !spoke && steps\.length >= MAX_STEPS\)/);
+  assert.doesNotMatch(CODE, /const spoke = steps\.some\(/, 'the circles guard went back to counting any text');
+  assert.match(CODE, /const answerAfterLookups = textAfterLastLookup\(steps\)/);
+  assert.doesNotMatch(CODE, /needsAnswerNudge\(\s*answerText\b/, 'the empty-answer guard went back to counting interim lines');
+});
+
+test('composed as chat.mjs composes them: a progress line then silence is an unanswered turn', () => {
+  const calls = (...names: string[]) => names.map((toolName) => ({ toolName }));
+  // Three lookups, the nudged line with a fourth, then nothing.
+  const line = 'Two losses to Dragapult so far — checking your list next.';
+  const steps = [
+    { text: '', toolCalls: calls('battle_logs') },
+    { text: '', toolCalls: calls('deck_history') },
+    { text: '', toolCalls: calls('decks') },
+    { text: line, toolCalls: calls('decks') },
+    { text: '', toolCalls: [] },
+  ];
+  const called = ['battle_logs', 'deck_history', 'decks', 'decks'];
+  const none = new Set<string>();
+  const everyText = steps.map((step) => step.text).join('\n');
+  // The old reading: any text at all, so the guard stayed quiet.
+  assert.equal(needsAnswerNudge(everyText, called, none, called, none), false);
+  // The new one: nothing was said after the last lookup.
+  assert.equal(needsAnswerNudge(textAfterLastLookup(steps), called, none, called, none), true);
+  // And an answer after the last lookup still satisfies it.
+  const answered = [...steps.slice(0, 4), { text: 'Cut one Iono for a Counter Catcher.', toolCalls: [] }];
+  assert.equal(needsAnswerNudge(textAfterLastLookup(answered), called, none, called, none), false);
+  // The stop rule agrees on what an answer is, and exempts the nudged step.
+  assert.equal(spokeAndSettled([...steps.slice(0, 3), { text: line, toolCalls: calls('express') }], [3]), false);
 });
 
 test('prepareStep still delegates visibility and hard impossibilities to focusedTools', () => {
   assert.match(
     CODE,
-    /activeTools: focusedTools\(allDeckeTools, stepNumber, \(n\) => deepRefusals\.unavailable\(n\) \|\| reflex\.hide\.includes\(n\)\)/,
+    /activeTools: focusedTools\(allDeckeTools, stepNumber, \(n\) => deepRefusals\.unavailable\(n\) \|\| reflex\.hide\.includes\(n\) \|\| requestHidden\.has\(n\)\)/,
   );
 });
 
@@ -267,7 +396,7 @@ test('a leg after an ask in the same turn finishes the approved work and ends (S
   // The browser replays the ask beside a held write or a browser tool; the
   // reader's approval is consent for that write only, never an answer.
   assert.match(CODE, /const askedEarlierThisTurn = turnToolNames\(messages\)\.includes\('ask_user'\)/);
-  assert.match(SRC, /import \{ askedThisStep, askedThisTurn, askPendingInstruction, spokeAndSettled \}/);
+  assert.match(SRC, /import \{ askedThisStep, askedThisTurn, askPendingInstruction, spokeAndSettled, textAfterLastLookup \}/);
   // No new tool calls (the approved write itself runs before step 0)...
   assert.match(CODE, /\.\.\.\(askedEarlierThisTurn\s*\? \{ toolChoice: 'none' \}\s*: stepNumber === 0 && reflex\.force/);
   // ...one step, and told why.
@@ -362,12 +491,10 @@ test('the reflex read runs after the meter, from the built module, with the turn
 
 test('triage is metered beside reflex and code chooses the conversation tier', () => {
   assert.match(SRC, /import \{ runTriage \} from '\.\.\/apps\/api\/dist\/decke\/triage\.js'/);
-  assert.match(SRC, /import \{ answeringAsk, carriedFromHistory, continuationFloor, decideTier, quickRefusalRetry, raisedToStandard, resumesApproval \} from '\.\.\/apps\/api\/dist\/decke\/tiers\.js'/);
+  assert.match(SRC, /import \{ answeringAsk, carriedFromHistory, decideTier, quickRefusalRetry, raisedToStandard, resumesApproval \} from '\.\.\/apps\/api\/dist\/decke\/tiers\.js'/);
   assert.match(CODE, /runTriage\(\{[\s\S]*message: latestUserText\(messages\)[\s\S]*model: observeUsageModel\(gateway\(TRIAGE\.id\), meter\)/);
   assert.match(CODE, /answering: answeringAsk\(messages\)/);
-  assert.match(CODE, /decision = decideTier\(\{ triage, carried: carriedFromHistory\(messages\), deepApproved: false, pastedLog: pastedNow \|\| pasteAwaitingAnswer \}\)/);
-  // Deep stays behind a signed reader choice that does not exist on this branch.
-  assert.doesNotMatch(CODE, /deepApproved: (?!false\b)/);
+  assert.match(CODE, /decide: \(deepApproved\) => decideTier\(\{ triage, carried: carriedFromHistory\(messages\), deepApproved, pastedLog: pastedNow \|\| pasteAwaitingAnswer \}\)/);
   assert.match(CODE, /const choice = TIERS\[decision\.tier\]/);
   assert.match(CODE, /console\.log\('\[deck-e\] route', JSON\.stringify\(\{/);
 });
@@ -390,7 +517,7 @@ test('a pasted log in the latest message reaches decideTier (S6), read from that
 // run on the model and guidance its first leg chose.
 
 test('the echo is read from `tierRoute`, never from `route` (the page)', () => {
-  assert.match(SRC, /import \{ ROUTE_ECHO_PART, decisionFromEcho, readRouteEcho, routeEchoFor \} from '\.\.\/apps\/api\/dist\/decke\/routeEcho\.js'/);
+  assert.match(SRC, /import \{ ROUTE_ECHO_PART, readRouteEcho, routeEchoFor \} from '\.\.\/apps\/api\/dist\/decke\/routeEcho\.js'/);
   assert.match(CODE, /readRouteEcho\(body\?\.tierRoute\)/);
   assert.doesNotMatch(CODE, /readRouteEcho\(body\?\.route\)/);
   assert.match(CODE, /const route = boundedRoute\(body\?\.route\)/, 'the page pathname must stay `route`');
@@ -402,9 +529,10 @@ test('a first leg triages and writes the transient route part; a continuation re
   assert.match(CODE, /const echoed = firstLeg \? null : readRouteEcho\(body\?\.tierRoute\)/);
   // Triage is SKIPPED, not merely overridden, when the echo is reused.
   assert.match(CODE, /echoed \? null : runAdvisoryUsage\(usage, 'triage'/);
-  assert.match(CODE, /if \(echoed\) \{\s*decision = decisionFromEcho\(echoed\)/);
-  // No echo on a continuation: re-triage, never below Standard.
-  assert.match(CODE, /if \(!firstLeg\) decision = continuationFloor\(decision\)/);
+  // The echo is reused, and a continuation without one is re-triaged never
+  // below Standard — both inside `turnDecision` (deepThink.ts), where a
+  // verified Deep route outranks the echo; its unit tests pin each branch.
+  assert.match(CODE, /decision: turnDecision\(\{\s*deep: deepAdmitted,\s*echo: echoed,\s*firstLeg,/);
   // Only a first leg emits, through the same transient writer pattern as the
   // other data-decke-* parts, before anything else on the stream.
   assert.match(CODE, /const routeEcho = firstLeg \? routeEchoFor\(decision\) : null/);
@@ -428,7 +556,70 @@ test('the selected pathway prompt is an instructions array with only stable regi
   assert.match(CODE, /systemMessage\(choice, requestPathway, true\)/);
   assert.match(CODE, /systemMessage\(choice, volatileContext\)/);
   assert.match(CODE, /instructions: instructionsFor\(choice, askedEarlierThisTurn \? askPendingInstruction\(\) : undefined\)/);
-  assert.match(CODE, /messages: cacheConversation\(choice, messages\)/);
+  assert.match(CODE, /const cached = cacheConversation\(choice, messages\)/);
+});
+
+// ── PROGRESS BETWEEN BATCHES ────────────────────────────────────────────────
+//
+// `progressNudge.ts` can decide perfectly and change nothing: the nudge is a
+// handful of expressions in this file — build the ledger, ask it, append the
+// message, lift the SDK's system-message guard — and dropping any one of them
+// leaves its unit tests green while Deck-E goes back to a silent minute.
+
+test('the progress nudge is decided by the built module, per request, for Anthropic only', () => {
+  assert.match(
+    SRC,
+    /import \{ createProgressNudges, progressNudgeMessage \} from '\.\.\/apps\/api\/dist\/decke\/progressNudge\.js'/,
+  );
+  // ONE ledger per request, created before the call that may be retried — a
+  // ledger built inside `startConversation` would give the Standard retry its
+  // own two nudges.
+  const ledger = CODE.indexOf('const progressNudges = createProgressNudges()');
+  assert.ok(ledger > 0, 'the per-request nudge ledger is gone');
+  assert.ok(ledger < CODE.indexOf('const startConversation = (choice, effort) => streamText({'));
+  assert.equal(CODE.match(/createProgressNudges\(\)/g)?.length, 1);
+  // Asked with the call's REAL steps, and only for Anthropic.
+  assert.match(CODE, /const nudge = !askedEarlierThisTurn && isAnthropic\(choice\) && progressNudges\.next\(steps\)/);
+  assert.match(CODE, /prepareStep: \(\{ stepNumber, steps, messages \}\) => \{/);
+  // And the SAME ledger tells the stop rule which step answered it, inside the
+  // same streamText call.
+  const start = CODE.slice(
+    CODE.indexOf('const startConversation = (choice, effort) => streamText({'),
+    CODE.indexOf('result = startConversation(choice, decision.effort)'),
+  );
+  assert.match(start, /stopWhen: \[[\s\S]*spokeAndSettled\(steps, progressNudges\.landings\)[\s\S]*prepareStep:/);
+});
+
+test('the nudge is appended AFTER the cache breakpoint, which stays on the newest non-system message', () => {
+  // The order is the property: cache first, then append. Appending first would
+  // either mark the nudge or — before cacheConversation learned to skip system
+  // messages — move the breakpoint onto it.
+  assert.match(CODE, /messages: nudge \? \[\.\.\.cached, progressNudgeMessage\(\)\] : cached/);
+  const fn = CODE.slice(CODE.indexOf('function cacheConversation'), CODE.indexOf('const CLIENT_SET'));
+  assert.match(fn, /const newest = messages\.findLastIndex\(\(message\) => message\.role !== 'system'\)/);
+  assert.match(fn, /if \(index === newest\)/);
+  assert.doesNotMatch(fn, /index === messages\.length - 1/, 'the breakpoint went back to the last message, nudge or not');
+});
+
+test('system messages are allowed in the conversation call only for Anthropic, and never in the corrective leg', () => {
+  const start = CODE.slice(
+    CODE.indexOf('const startConversation = (choice, effort) => streamText({'),
+    CODE.indexOf('result = startConversation(choice, decision.effort)'),
+  );
+  assert.match(start, /allowSystemInMessages: isAnthropic\(choice\)/);
+  assert.doesNotMatch(CODE, /allowSystemInMessages: true/);
+  assert.equal(CODE.match(/allowSystemInMessages/g)?.length, 1);
+  // The leg is built from step RESPONSE messages, which never hold the nudge.
+  const leg = CODE.slice(CODE.indexOf('if (corrective) {'));
+  assert.doesNotMatch(leg, /allowSystemInMessages|progressNudge/);
+});
+
+test('lifting the SDK guard does not hand the system role to the browser', () => {
+  // `allowSystemInMessages` turns off ai@7's refusal of system messages in
+  // `messages`. What stands between a reader and that role is the wire schema.
+  const wire = readFileSync(fileURLToPath(new URL('../wireBounds.ts', import.meta.url)), 'utf8');
+  assert.match(wire, /role: z\.enum\(\['user', 'assistant'\]\)/);
+  assert.match(CODE, /convertToModelMessages\(stripPriorCommands\(windowForModel\(messages\)\.messages\)\)/);
 });
 
 test('only a VALID ask_user stops the loop, and a Quick refusal before any data tool retries once on Standard', () => {
@@ -528,14 +719,62 @@ test('Anthropic prompt caching, deck checks and the expanded step budget are wir
   assert.match(CODE, /cacheControl: \{ type: 'ephemeral' \}/);
   // Through apps/api/dist, never '@deckpal/agent-tools' directly: the root
   // package does not declare it, so the deployed function could not load it.
-  assert.match(CODE, /import \{ checkDeck \} from '\.\.\/apps\/api\/dist\/decke\/deckCheck\.js'/);
+  assert.match(CODE, /import \{ checkDeck, ownedDeck \} from '\.\.\/apps\/api\/dist\/decke\/deckCheck\.js'/);
   assert.doesNotMatch(CODE, /from '@deckpal\/agent-tools'/);
   // This pin used to bless `checkDeck(toolCtx, input)` — the bug itself:
   // `toolCtx` is a Ctx's OPTIONS and has no `api`. The behaviour is now driven
   // end to end by deckCheckWiring.test.ts; this only keeps the raw shape out.
   assert.match(CODE, /checkDeck: \(input\) => withToolCtx\(toolCtx, \(ctx\) => checkDeck\(ctx, input\)\)/);
+  assert.match(CODE, /ownedDeck: \(ref\) => withToolCtx\(toolCtx, \(ctx\) => ownedDeck\(ctx, ref\)\)/);
   assert.doesNotMatch(CODE, /checkDeck\(toolCtx\b/);
+  assert.doesNotMatch(CODE, /ownedDeck\(toolCtx\b/);
   assert.match(CODE, /for \(const output of replayedToolOutputs\(messages\)\) grounding\.observe\(output\)/);
+});
+
+// ── THE CONSULT (2026-10-10) ────────────────────────────────────────────────
+//
+// `consult.ts` and `tools.ts` can be perfect and change nothing: the model it
+// asks, the meter it bills, the abort it obeys and the tier that may hold it
+// are four expressions in this file, each one easy to drop in an edit.
+
+test('the consult runs Sonnet through the request meter, with the turn\'s abort', () => {
+  assert.match(SRC, /import \{ runConsult \} from '\.\.\/apps\/api\/dist\/decke\/consult\.js'/);
+  assert.match(
+    CODE,
+    /consult: \(input\) => runConsult\(\{\s*\.\.\.input,\s*model: observeUsageModel\(gateway\(TIERS\.standard\.id\), meter\),\s*signal: abortSignal,\s*\}\)/,
+    'an unmetered consult is a Sonnet call the reader is never charged for — or one that ignores their stop',
+  );
+  // Built inside the call, never hoisted: observeUsageModel reads the usage
+  // context of the step that runs it.
+  assert.doesNotMatch(CODE, /const \w+ = observeUsageModel\(gateway\(TIERS\.standard\.id\)/);
+});
+
+test('the consult is held only on the Quick tier, decided once for the whole request', () => {
+  assert.match(SRC, /import \{ buildTools, CLIENT_TOOLS, SERVER_TOOLS, toolsForTier \} from '\.\.\/apps\/api\/dist\/decke\/tools\.js'/);
+  assert.match(
+    CODE,
+    /\.\.\.offerableTools\(toolsForTier\(buildTools\(writer, groundingForTools, repairs, emitToolEvent\(writer\), \{[\s\S]*?\}\), decision\.tier\)/,
+    'without toolsForTier a Standard request would hold a consult that asks itself',
+  );
+  // Not per step: the set handed to streamText is the one built above.
+  assert.match(CODE, /tools: allDeckeTools,/);
+  assert.doesNotMatch(CODE, /prepareStep:[\s\S]{0,400}toolsForTier/);
+});
+
+test('a consult is not an answer: the empty-answer guard does not excuse it', () => {
+  assert.match(CODE, /const SERVER_SET = new Set\(SERVER_TOOLS\.filter\(\(name\) => name !== 'consult'\)\)/);
+});
+
+// The adapter's "your message held N games" line reads `pastedLogCount` from
+// its options and falls back to 1 when it is absent — so the notice is dead
+// unless this file hands it over, and every adapter test still passes.
+test('the multi-game paste count reaches the data tools beside the paste itself', () => {
+  assert.match(SRC, /import \{ extractPastedLog, pastedLogCount \} from '\.\.\/apps\/api\/dist\/decke\/pastedLog\.js'/);
+  assert.match(
+    CODE,
+    /pastedLog: \(\) => extractPastedLog\(messages\),\s*pastedLogCount: \(\) => pastedLogCount\(messages\),/,
+    'without it a two-game paste logs one game and never says so',
+  );
 });
 
 test('improvement capture receives identity, correlation and runs after usage finalization', () => {

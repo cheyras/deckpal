@@ -74,3 +74,24 @@ export function nextSaveState(state: SaveState, event: SaveEvent): SaveState {
   if (state === 'error' && event === 'retry') return 'idle'
   return state
 }
+
+/** `version`: onto the deck the list revises. `new`: a deck of its own. */
+export type SaveTarget = 'version' | 'new'
+export type SaveAction = { target: SaveTarget; label: string; primary: boolean }
+
+/**
+ * The save buttons, in order, and what each says right now.
+ *
+ * One save at a time, across both buttons: `state` is the widget's, and only
+ * the button that was pressed (`active`) says "Saving…" or "Try saving again".
+ * A brand-new deck keeps exactly the one button it always had.
+ */
+export function saveActions(kind: 'new' | 'version', state: SaveState, active: SaveTarget | null): SaveAction[] {
+  const label = (target: SaveTarget, idle: string): string =>
+    active !== target ? idle : state === 'saving' ? 'Saving…' : state === 'error' ? 'Try saving again' : idle
+  if (kind === 'new') return [{ target: 'new', label: label('new', 'Save to my decks'), primary: true }]
+  return [
+    { target: 'version', label: label('version', 'Save as new version'), primary: true },
+    { target: 'new', label: label('new', 'Save as a separate deck'), primary: false },
+  ]
+}
