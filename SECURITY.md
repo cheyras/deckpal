@@ -456,8 +456,8 @@ AI, San Francisco) through the Vercel AI Gateway before Deck-E answers
 path — and, for the after-turn audit (`audit.ts`), the reply he just gave (last
 2,000). The route read (`jevRoute.ts`) is a second call with the same three
 fields, the message clipped as triage clips it (its opening and its end), plus
-two flags code already holds: a log was pasted, and which pathway an ask card
-being answered belongs to. Its answer can only choose Quick or Standard for the
+three facts code already holds: a log was pasted, the message answers an ask
+card, and which pathway that card belongs to. Its answer can only choose Quick or Standard for the
 caller's own turn; Deep still needs the reader's signed consent. No separate collection or account records, or photos, are attached, but
 those text fields and the path are not redacted: a reader can include ownership
 counts, card IDs or account details in their message, Deck-E can repeat them,

@@ -2,18 +2,18 @@
  * Jev names the route when it is sure; Haiku triage when it is not.
  *
  * ══════════════════════════════════════════════════════════════════════════════
- * WHY (measured 2026-10-11, `scripts/decke-jev-route-eval.mjs`)
+ * WHY (measured 2026-10-11, `scripts/decke-jev-route-eval.mjs`, 148 cases × 3)
  * ══════════════════════════════════════════════════════════════════════════════
  *
  * Haiku triage (`triage.ts`) answers at p50 ~1.1 s, and the first reply waits for
  * it. Jev (`typesafe-ai/jev`, the evaluation model the reflex already asks about
- * every message) answers at p50 ~0.26 s. On the triage eval's 145 cases × 3:
+ * every message) answers at p50 ~0.27 s. On the triage eval:
  *
  *   router                     tier accuracy (all / held-out)   p50     p95
  *   Haiku triage               97.5% / 96.7%,  1 under-routed   1181ms  1520ms
  *   Jev alone                  92.8% / 95.1%,  3 under-routed    266ms   346ms
  *   Jev at confidence ≥ 0.9,   96.6% / 96.7%,  1 under-routed    294ms  1333ms
- *     else Haiku (this file)   (Jev decided 62% of messages; 148 cases × 3)
+ *     else Haiku (this file)   (Jev decided 62% of messages)
  *
  * So the hybrid matches Haiku where it matters — the same under-routes, the
  * same held-out accuracy — and starts most first replies ~0.9 s sooner; its
@@ -49,7 +49,8 @@ import { clipForTriage, isDecline, type Triage, type TriageSignal } from './tria
 export const JEV_ROUTE_VAR = 'DECKE_JEV_ROUTE'
 let warnedInvalid = false
 export function jevRouteEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  const v = env[JEV_ROUTE_VAR]
+  // Normalised as `DECKE_JEV` is (jev.ts): " On " is on.
+  const v = env[JEV_ROUTE_VAR]?.trim().toLowerCase()
   if (v === undefined || v === '' || v === 'on') return true
   if (v === 'off') return false
   if (!warnedInvalid) {

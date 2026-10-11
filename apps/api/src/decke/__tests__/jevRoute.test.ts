@@ -122,4 +122,6 @@ test('DECKE_JEV_ROUTE: unset or on routes, off does not, anything else is off', 
   assert.equal(jevRouteEnabled({ DECKE_JEV_ROUTE: 'on' }), true)
   assert.equal(jevRouteEnabled({ DECKE_JEV_ROUTE: 'off' }), false)
   assert.equal(jevRouteEnabled({ DECKE_JEV_ROUTE: 'yes' }), false)
+  assert.equal(jevRouteEnabled({ DECKE_JEV_ROUTE: ' On ' }), true)
+  assert.equal(jevRouteEnabled({ DECKE_JEV_ROUTE: 'OFF' }), false)
 })
