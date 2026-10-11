@@ -270,3 +270,15 @@ test('every carried guard substring is pinned to the reader-facing server note',
     assert.ok(src.includes(note), `api/chat.mjs no longer contains carried guard note: ${note}`);
   }
 });
+
+test('small talk never escalates on a signal; the same signal on a job still does', () => {
+  const vent = decideTier({ triage: triage('small_talk', { signals: ['dissatisfied'] }), carried: clear, deepApproved: false });
+  assert.equal(vent.tier, 'quick');
+  assert.ok(!vent.reasons.includes('signal:dissatisfied'));
+  const complaint = decideTier({ triage: triage('price_value', { signals: ['dissatisfied'] }), carried: clear, deepApproved: false });
+  assert.equal(complaint.tier, 'standard');
+  assert.ok(complaint.reasons.includes('signal:dissatisfied'));
+  // Small talk beside a real job is not "small talk alone".
+  const mixed = decideTier({ triage: triage('small_talk', { also: 'lists', signals: ['correction'] }), carried: clear, deepApproved: false });
+  assert.equal(mixed.tier, 'standard');
+});
