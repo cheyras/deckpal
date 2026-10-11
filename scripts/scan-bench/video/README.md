@@ -25,6 +25,11 @@ It prints capture recall, auto-ID recall (confident and right), duplicate
 captures inside one appearance, stray captures outside every appearance, and
 confident-wrong captures (the number that must stay 0).
 
+Only captures inside the ground truth's `window` are scored. A replay usually
+runs the whole video, and nobody has looked at what a capture outside the
+labelled stretch shows. A capture taken while two cards are on screen at once,
+so that both appearances' own windows hold it, is right if it names either card.
+
 ## Running
 
 ```bash
