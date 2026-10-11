@@ -668,9 +668,10 @@ test('Voltorb ex, Hundred-Hitting Ball: 100, and 100 more for each heads before 
 test('Eelektrik, Dynamotor: attaches a Basic {L} Energy card from your discard pile to 1 of your Benched Pokémon', () => {
   const g = G([{ active: 'Eelektrik', bench: ['Numel', 'Golduck'], discard: [F, L, L] }, { active: LATIAS }]);
   choose(g, 'Dynamotor');
-  choose(g, 'Golduck');
+  // The script shared with the Black Bolt printing (std-c35) asks for the Energy first, then the Benched Pokémon.
   assert.deepEqual([...new Set(labels(g))], [L], 'only Basic {L} Energy is offered');
   pick(g, [L]);
+  choose(g, 'Golduck');
   assert.deepEqual(energyOf(g, 0, 1), [L]);
   assert.deepEqual(energyOf(g, 0, 'active'), [], 'not the Active Pokémon');
   assert.deepEqual(names(g, g.state.p[0].discard), [F, L].sort());

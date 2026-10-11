@@ -216,14 +216,6 @@ export const STD_GEN: CardScript[] = [
     },
   },
   {
-    id: 'me02.5-059',
-    name: "Tynamo",
-    attacks: {
-      // "Heal 10 damage from this Pokémon."
-      "Hold Still": {"post":[{"op":"heal","amount":10,"to":"self"}]},
-    },
-  },
-  {
     id: 'me02.5-071',
     name: "Iono's Wattrel",
     attacks: {
@@ -2998,16 +2990,6 @@ export const STD_GEN: CardScript[] = [
     },
   },
   {
-    id: 'svp-181',
-    name: "N's Darmanitan",
-    attacks: {
-      // "This attack does 30 damage for each Basic Energy card in your opponent's discard pile."
-      "Back Draft": {"damage":{"mul":[30,{"count":{"zone":"discard","who":"opp","filter":{"basicEnergy":true}}}]}},
-      // "Discard all Energy from this Pokémon, and this attack also does 90 damage to 1 of your opponent's Benched Pokémon. (Don't apply Weakness and Resistance for Benched Pokémon.)"
-      "Flamebody Cannon": {"post":[{"op":"discardEnergy","from":"self","count":"all"},{"op":"chooseSlots","from":"oppBench","min":1,"max":1,"as":"t","prompt":"Choose a Benched Pokémon to damage"},{"op":"damage","amount":90,"to":{"v":"t"}}]},
-    },
-  },
-  {
     id: 'svp-186',
     name: "Scraggy",
     attacks: {
@@ -3037,24 +3019,6 @@ export const STD_GEN: CardScript[] = [
     attacks: {
       // "Search your deck for a Basic Pokémon and put it onto your Bench. Then, shuffle your deck."
       "Call for Family": {"program":[{"op":"chooseCards","from":"deck","filter":{"stage":"basic"},"min":0,"max":{"min":[1,{"sub":[5,{"pokemon":{"zone":"myBench"}}]}]},"as":"found"},{"op":"move","cards":"found","to":"bench"},{"op":"shuffle"}]},
-    },
-  },
-  {
-    id: 'svp-206',
-    name: "Marnie's Morpeko",
-    attacks: {
-      // "This attack does 40 more damage for each {D} Energy attached to this Pokémon."
-      "Spiky Wheel": {"damage":{"add":[20,{"mul":[40,{"energyOn":"self","type":"Darkness"}]}]}},
-    },
-  },
-  {
-    id: 'svp-209',
-    name: "Thundurus",
-    attacks: {
-      // "Search your deck for a Basic {L} Energy card and attach it to this Pokémon. Then, shuffle your deck."
-      "Charge": {"program":[{"op":"chooseCards","from":"deck","filter":{"energyType":"Lightning"},"min":0,"max":1,"as":"e"},{"op":"attach","cards":"e","to":"self"},{"op":"shuffle"}]},
-      // "Discard an Energy from this Pokémon."
-      "Disaster Volt": {"post":[{"op":"discardEnergy","from":"self","count":1}]},
     },
   },
   {

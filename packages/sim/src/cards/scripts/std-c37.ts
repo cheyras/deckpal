@@ -10,7 +10,7 @@
  *  - sv10.5w-046 Roggenrola (Harden): "prevent all damage done to this Pokémon by attacks if that damage is 40 or less."
  *    Damage prevention up to an amount.
  */
-import type { CardScript, Cond, Expr, Filter, Program } from '../../dsl.js';
+import type { CardScript, Cond, Filter, Program } from '../../dsl.js';
 import './fighting-customs.js'; // sumCounters
 import { searchToHand } from './helpers.js';
 import './std-c17-customs.js'; // c17.lookTopMayDiscard
@@ -289,30 +289,6 @@ export const STD_C37: CardScript[] = [
     attacks: {
       // "Look at the top 5 cards of your opponent's deck and put them back in any order."
       'Fortunate Eye': { program: [{ op: 'custom', fn: 'c33.reorderOppTop', args: { n: 5 } }] },
-    },
-  },
-  {
-    id: 'sv10.5w-043',
-    name: 'Gothitelle',
-    abilities: [
-      {
-        // "Once during your turn, if this Pokémon is in the Active Spot, you may have your opponent shuffle their hand into their deck and draw 3 cards."
-        name: 'Distorted Future',
-        activated: {
-          activeOnly: true,
-          program: [
-            { op: 'move', cards: { all: 'hand', who: 'opp' }, to: 'deck', who: 'opp' },
-            { op: 'shuffle', who: 'opp' },
-            { op: 'draw', n: 3, who: 'opp' },
-          ],
-        },
-      },
-    ],
-    attacks: {
-      // "If you have the same number of cards in your hand as your opponent, this attack does 90 more damage."
-      'Synchro Shot': {
-        damage: { add: [90, { cond: { eq: [{ handSize: 'self' }, { handSize: 'opp' }] }, then: 90, else: 0 } as Expr] },
-      },
     },
   },
   {

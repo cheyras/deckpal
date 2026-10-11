@@ -9,6 +9,7 @@ import { SCRIPTS } from './scripts/index.js';
 import type { CardScript } from '../dsl.js';
 import type { CardFrame } from '../types.js';
 import { textKey } from './frame.js';
+import { withPrintedWR } from './printed-wr.js';
 
 export { FRAMES };
 
@@ -41,7 +42,7 @@ function build(): void {
 /** The script for this printing, or null when none exists. */
 export function scriptFor(f: CardFrame): CardScript | null {
   if (!byKey) build();
-  return byKey!.get(textKey(f)) ?? null;
+  return byKey!.get(textKey(withPrintedWR(f))) ?? null;
 }
 
 export function scriptById(id: string): CardScript | null {

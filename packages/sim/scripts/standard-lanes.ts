@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { isVanilla, normText, textKey } from '../src/cards/frame.js';
 import { scriptFor } from '../src/cards/registry.js';
 import type { CardFrame } from '../src/types.js';
+import { withPrintedWR } from '../src/cards/printed-wr.js';
 
 const [framesPath, rulingsPath, outDir, sizeArg] = process.argv.slice(2);
 const size = Number(sizeArg ?? 40);
@@ -18,7 +19,7 @@ const norm = (s: string) => normText(s).toLowerCase().replace(/[’']/g, "'");
 // One canonical printing per distinct game text: the lowest card id (earliest set) wins.
 const byKey = new Map<string, CardFrame[]>();
 for (const f of Object.values(frames).sort((a, b) => a.cardId.localeCompare(b.cardId))) {
-  const k = textKey(f);
+  const k = textKey(withPrintedWR(f));
   byKey.set(k, [...(byKey.get(k) ?? []), f]);
 }
 const todo: { frame: CardFrame; printings: string[] }[] = [];
