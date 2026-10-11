@@ -345,6 +345,16 @@ export function rectifyImageData(
 ): RectifiedImage | null {
   const ordered = orderQuadForCard(quad)
   if (!ordered) return null
+  return warpQuad(src, ordered, outW, outH)
+}
+
+/**
+ * The warp alone, with the corner order taken AS GIVEN: `ordered[0]` lands on
+ * the output's top-left, then top-right, bottom-right, bottom-left. No
+ * repair, no orderQuadForCard — for a caller that wants a specific corner as
+ * the card's top-left (look.ts's quarter turns of a capture).
+ */
+export function warpQuad(src: ImageDataLike, ordered: Quad, outW: number, outH: number): RectifiedImage | null {
   const dst: Quad = [
     [0, 0],
     [outW, 0],
