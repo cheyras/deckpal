@@ -102,3 +102,12 @@ test('the result is always JSON-serialisable, because it goes in a jsonb column'
   assert.doesNotThrow(() => JSON.stringify(out));
   assert.deepEqual(JSON.parse(JSON.stringify(out)), out);
 });
+
+test('a simulator continue_token never reaches the diagnostic: only that it was there, and how long', () => {
+  const token = 'sc1.' + 'A'.repeat(900) + '.' + 'B'.repeat(22);
+  const out = briefArgs({ deck_id: 'x', continue_token: token, games: 24 })!;
+  assert.equal(out.continue_token, `(token, ${token.length} chars)`);
+  assert.ok(!JSON.stringify(out).includes('sc1.'), 'no prefix of the token is kept');
+  assert.equal(out.deck_id, 'x');
+  assert.equal(out.games, 24);
+});

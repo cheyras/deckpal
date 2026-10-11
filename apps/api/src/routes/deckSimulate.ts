@@ -222,7 +222,7 @@ deckSimulateRouter.post('/', asyncHandler(async (req, res) => {
       const why = identityMismatch(prior, { speed, seed, identity, names: opponentNames, subjectName, bName: second ? compareName : null })
       if (why) throw badRequest(why)
     }
-    const mint = (state: { calls: number; run: MatchupTotals[] | null; cmp: CompareTotals[] | null }): string | null =>
+    const mint = (state: { calls: number; odd: number; run: MatchupTotals[] | null; cmp: CompareTotals[] | null }): string | null =>
       secret && state.calls < CONTINUE_MAX_CALLS ? mintContinueToken(secret, userId, { ...state, speed, seed, identity }) : null
 
     // The database work is done. Give the connection back before the CPU work, so
@@ -231,8 +231,8 @@ deckSimulateRouter.post('/', asyncHandler(async (req, res) => {
     const run = { games: params.games, seed, notes, pilot: pilotFactory(speed), startedAt, mint }
     const out = await rlsStore.exit(() =>
       second
-        ? runComparison(subject.deck, second.deck, opponentDecks, { ...run, ...(prior?.cmp ? { priorCompare: { calls: prior.calls, totals: prior.cmp } } : {}) })
-        : runMatchups(subject.deck, opponentDecks, { ...run, ...(prior?.run ? { prior: { calls: prior.calls, totals: prior.run } } : {}) }),
+        ? runComparison(subject.deck, second.deck, opponentDecks, { ...run, ...(prior?.cmp ? { priorCompare: { calls: prior.calls, odd: prior.odd, totals: prior.cmp } } : {}) })
+        : runMatchups(subject.deck, opponentDecks, { ...run, ...(prior?.run ? { prior: { calls: prior.calls, odd: prior.odd, totals: prior.run } } : {}) }),
     )
     if (res.destroyed) return
     userCache(res)

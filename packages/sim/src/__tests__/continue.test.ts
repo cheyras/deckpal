@@ -151,3 +151,51 @@ test('paired: the cumulative comparison leads with the verdict and says it is cu
   assert.match(text, /Δ \+\d+ pts \[\+\d+, \+\d+\], 24 seeds/);
   assert.match(text, /Caveat:/);
 });
+
+// ---------------------------------------------------------------------------
+// A deadline that ends a call between the seatings of a pair, or cuts a game
+// ---------------------------------------------------------------------------
+
+/** A deterministic clock: every read is one tick. */
+function ticking(): () => number {
+  let c = 0;
+  return () => ++c;
+}
+
+test('plain: a call the deadline interrupts mid-pair, then continued, equals one uninterrupted run', () => {
+  const PAIRS = 6;
+  const long = simulate({ a: PUPS, b: CATS, games: PAIRS * 2, seed: 11, pilotFactory: GREEDY });
+  let interrupted = 0;
+  // Sweep deadlines: some end between a pair's seats, some cut a game, some land on a boundary.
+  for (let deadline = 3; deadline < 400; deadline += 17) {
+    const r1 = simulate({ a: PUPS, b: CATS, games: PAIRS * 2, seed: 11, deadline, now: ticking(), pilotFactory: GREEDY });
+    const partial = r1.games.length % 2 === 1 || r1.games.some((g) => g.reason === 'time limit');
+    if (partial) interrupted++;
+    const t1 = totalsOf(r1, 0);
+    assert.ok(t1.played % 2 === 0, 'only whole pairs are counted');
+    assert.equal(t1.next * 2, t1.played, 'next is the first pair not fully played');
+    const r2 = simulate({ a: PUPS, b: CATS, games: (PAIRS - t1.next) * 2, seed: 11, firstPair: t1.next, pilotFactory: GREEDY });
+    const merged = addTotals(t1, totalsOf(r2, t1.next));
+    assert.deepEqual(sans(merged), sans(totalsOf(long, 0)), `deadline ${deadline}`);
+  }
+  assert.ok(interrupted > 3, `the sweep must actually interrupt pairs (${interrupted})`);
+});
+
+test('paired: a deadline between the versions or between the seats loses nothing — continued totals equal one long comparison', () => {
+  const PAIRS = 5;
+  const long = simulatePaired({ a: PUPS, b: BIG, opponent: CATS, games: PAIRS * 2, seed: 12, pilotFactory: GREEDY });
+  let interrupted = 0;
+  for (let deadline = 3; deadline < 600; deadline += 29) {
+    const r1 = simulatePaired({ a: PUPS, b: BIG, opponent: CATS, games: PAIRS * 2, seed: 12, deadline, now: ticking(), pilotFactory: GREEDY });
+    if (r1[0].games.length !== r1[1].games.length || r1[0].games.length % 2 || r1.some((r) => r.games.some((g) => g.reason === 'time limit'))) interrupted++;
+    const t1 = compareTotalsOf(r1, 0);
+    assert.equal(t1.a.next, t1.b.next);
+    assert.equal(t1.a.played, t1.b.played);
+    const r2 = simulatePaired({ a: PUPS, b: BIG, opponent: CATS, games: (PAIRS - t1.a.next) * 2, seed: 12, firstPair: t1.a.next, pilotFactory: GREEDY });
+    const merged = addCompareTotals(t1, compareTotalsOf(r2, t1.a.next));
+    const ref = compareTotalsOf(long, 0);
+    assert.deepEqual({ ...merged, a: sans(merged.a), b: sans(merged.b) }, { ...ref, a: sans(ref.a), b: sans(ref.b) }, `deadline ${deadline}`);
+    assert.deepEqual(diffFromStats(merged.paired), pairedDiff(long[0], long[1]), `interval, deadline ${deadline}`);
+  }
+  assert.ok(interrupted > 3, `the sweep must actually interrupt pairs (${interrupted})`);
+});

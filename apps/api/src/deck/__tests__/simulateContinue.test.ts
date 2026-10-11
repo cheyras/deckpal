@@ -13,7 +13,7 @@ import {
   CONTINUE_MAX_CALLS, CONTINUE_TTL_MS, continueSecret, fingerprintCounts, identityMismatch, macOf, mintContinueToken, openContinueToken,
   type ContinueIdentity, type ContinueState,
 } from '../simulateContinue.js';
-import { SIM_TEXT_LIMIT, parseSimulateBody, pilotFactory, runComparison, runMatchups, type RunMatchupsOptions } from '../simulate.js';
+import { SIM_TEXT_LIMIT, callPairs, parseSimulateBody, pilotFactory, runComparison, runMatchups, type RunMatchupsOptions } from '../simulate.js';
 
 const SECRET = 'a-long-random-test-secret-of-some-length';
 const USER = '00000000-0000-4000-8000-0000000000aa';
@@ -45,7 +45,7 @@ async function realState(): Promise<{ state: ContinueState; totals: MatchupTotal
     games: 4, seed: 1, budgetMs: 60_000, pilot: pilotFactory('fast'),
     mint: (s) => { kept = s.run!; return null; },
   });
-  return { totals: kept, state: { calls: 1, speed: 'fast', seed: 1, identity: IDENTITY, run: kept, cmp: null } };
+  return { totals: kept, state: { calls: 1, odd: 0, speed: 'fast', seed: 1, identity: IDENTITY, run: kept, cmp: null } };
 }
 
 function rejects(fn: () => unknown, re: RegExp): void {
@@ -65,7 +65,7 @@ test('the token round-trips: identity, speed, seed, calls and every total come b
 test('a paired comparison token round-trips its paired statistics', async () => {
   let kept: CompareTotals[] = [];
   await runComparison(PUPS, BIG, OPPS, { games: 8, seed: 3, budgetMs: 60_000, pilot: pilotFactory('fast'), mint: (s) => { kept = s.cmp!; return null; } });
-  const state: ContinueState = { calls: 2, speed: 'fast', seed: 3, identity: { ...IDENTITY, b: 'bbbb' }, run: null, cmp: kept };
+  const state: ContinueState = { calls: 2, odd: 0, speed: 'fast', seed: 3, identity: { ...IDENTITY, b: 'bbbb' }, run: null, cmp: kept };
   const back = openContinueToken(SECRET, USER, mintContinueToken(SECRET, USER, state, Date.now(), ENV), Date.now(), ENV);
   assert.deepEqual(back, state);
   assert.ok(back.cmp![0]!.paired.m > 0);
@@ -111,7 +111,7 @@ test('a token the server signed but cannot use is refused with what to do: versi
 });
 
 test('identity: the same inputs match; an edited deck, another opponent, a changed speed or seed or kind do not', () => {
-  const token: ContinueState = { calls: 1, speed: 'fast', seed: 1, identity: IDENTITY, run: [], cmp: null };
+  const token: ContinueState = { calls: 1, odd: 0, speed: 'fast', seed: 1, identity: IDENTITY, run: [], cmp: null };
   const now = { speed: 'fast' as const, seed: 1, identity: IDENTITY, names: ['Cats', 'Birds'], subjectName: 'Pups', bName: null };
   assert.equal(identityMismatch(token, now), null);
   assert.match(identityMismatch(token, { ...now, identity: { ...IDENTITY, subject: fingerprintCounts([{ card_id: '1', quantity: 59 }, { card_id: '2', quantity: 1 }]) } })!, /deck being tested \(Pups\) has a different card list/);
@@ -157,7 +157,7 @@ async function chain(calls: number, perCall: number, identity: ContinueIdentity,
     const prior = token ? openContinueToken(SECRET, USER, token, Date.now(), ENV) : null;
     last = await runMatchups(PUPS, OPPS, {
       games: perCall, seed: 7, budgetMs: 60_000, pilot: pilotFactory('fast'), ...opts,
-      ...(prior?.run ? { prior: { calls: prior.calls, totals: prior.run } } : {}),
+      ...(prior?.run ? { prior: { calls: prior.calls, odd: prior.odd, totals: prior.run } } : {}),
       mint: (s) => mintContinueToken(SECRET, USER, { ...s, speed: 'fast', seed: 7, identity }, Date.now(), ENV),
     });
     token = last.continue_token ?? null;
@@ -208,7 +208,7 @@ test('paired: continued comparison calls give the interval and verdict of one lo
     const prior = token ? openContinueToken(SECRET, USER, token, Date.now(), ENV) : null;
     last = await runComparison(PUPS, BIG, OPPS, {
       games: 8, seed: 5, budgetMs: 60_000, pilot: pilotFactory('fast'),
-      ...(prior?.cmp ? { priorCompare: { calls: prior.calls, totals: prior.cmp } } : {}),
+      ...(prior?.cmp ? { priorCompare: { calls: prior.calls, odd: prior.odd, totals: prior.cmp } } : {}),
       mint: (s) => mintContinueToken(SECRET, USER, { ...s, speed: 'fast', seed: 5, identity: ident }, Date.now(), ENV),
     });
     token = last.continue_token ?? null;
@@ -257,4 +257,30 @@ test('token size: six opponents plain, eight opponents paired — small enough t
   assert.match(cmp.text, /VERDICT:/);
   assert.match(cmp.text, /Caveat:/);
   assert.ok(cmp.text.includes(cmp.continue_token!), 'the whole token is in the text, uncut');
+});
+
+test('odd games: calls of 3 add up to one run of 6 (the pair rounding is carried, not repeated)', async () => {
+  const two = await chain(2, 3, { ...IDENTITY });
+  const long = await runMatchups(PUPS, OPPS, { games: 6, seed: 7, budgetMs: 60_000, pilot: pilotFactory('fast') });
+  assert.equal(two.report.gamesPlayed, long.report.gamesPlayed);
+  assert.equal(two.report.gamesPlayed, 12, '6 games per opponent, two opponents');
+  assert.deepEqual(two.report.overall, long.report.overall);
+  for (const [i, m] of two.report.matchups.entries()) assert.deepEqual(m.record, long.report.matchups[i]!.record);
+  const three = await chain(3, 3, { ...IDENTITY });
+  const nine = await runMatchups(PUPS, OPPS, { games: 9, seed: 7, budgetMs: 60_000, pilot: pilotFactory('fast') });
+  assert.equal(three.report.gamesPlayed, 20, '9 games rounds up to 10 per opponent, as one run of 9 does');
+  assert.deepEqual(three.report.overall, nine.report.overall);
+});
+
+test('the parity rides in the signed token', async () => {
+  const { state } = await realState();
+  const back = openContinueToken(SECRET, USER, mintContinueToken(SECRET, USER, { ...state, odd: 1 }, Date.now(), ENV), Date.now(), ENV);
+  assert.equal(back.odd, 1);
+});
+
+test('callPairs: the pairs the total needs', () => {
+  assert.deepEqual(callPairs(3, 0), { pairs: 2, odd: 1 });
+  assert.deepEqual(callPairs(3, 1), { pairs: 1, odd: 0 });
+  assert.deepEqual(callPairs(24, 0), { pairs: 12, odd: 0 });
+  assert.deepEqual(callPairs(2, 1), { pairs: 1, odd: 1 });
 });

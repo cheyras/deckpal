@@ -89,10 +89,44 @@ function bumpAll(into: Record<string, number>, from: Record<string, number>): vo
   for (const [k, v] of Object.entries(from)) into[k] = (into[k] ?? 0) + v;
 }
 
-/** The totals of one batch of games that started at pair `firstPair`. */
-export function totalsOf(r: SimulationResult, firstPair = 0): MatchupTotals {
+/** The deadline cut this game: it is a stop, not an outcome. */
+const cut = (g: GameSummary): boolean => g.reason === 'time limit';
+
+/**
+ * The pair indexes whose games are ALL there: both seats played, none cut by the
+ * deadline. Only the last pair of a call can be missing a seat or have one cut.
+ */
+function completePairs(games: GameSummary[]): Set<number> {
+  const seats = new Map<number, { n: number; cut: boolean }>();
+  for (const g of games) {
+    const e = seats.get(g.pair) ?? { n: 0, cut: false };
+    e.n++;
+    e.cut ||= cut(g);
+    seats.set(g.pair, e);
+  }
+  return new Set([...seats].filter(([, e]) => e.n === 2 && !e.cut).map(([p]) => p));
+}
+
+/**
+ * INTERRUPTED PAIRS ARE REPLAYED, NOT RESUMED. A hard deadline can end a call
+ * between the two seatings of a pair, or cut a game short. Such a pair is left
+ * out of the totals (the call's own first-time report still shows it) and `next`
+ * stays at it, so the next call plays that pair again from the top — the games
+ * are deterministic, so it plays exactly what one uninterrupted run would have.
+ * That keeps equality with a single long run unconditional and each deck going
+ * first in exactly half of the counted games, with nothing extra in the token.
+ * The price is at most one pair's compute per interrupted call.
+ */
+function keepComplete(r: SimulationResult, pairs: Set<number>): SimulationResult {
+  const games = r.games.filter((g) => pairs.has(g.pair));
+  return games.length === r.games.length ? r : { ...r, games, played: games.length };
+}
+
+/** The totals of one batch of games that started at pair `firstPair` (interrupted pairs left out, see above). */
+export function totalsOf(r0: SimulationResult, firstPair = 0): MatchupTotals {
+  const r = keepComplete(r0, completePairs(r0.games));
   const games = r.games;
-  const t = emptyTotals(games.length ? Math.max(firstPair, ...games.map((g) => g.pair + 1)) : firstPair);
+  const t = emptyTotals(firstPair + new Set(games.map((g) => g.pair)).size);
   t.played = games.length;
   t.record = recordOf(games);
   t.elapsedMs = Math.round(r.elapsedMs);
@@ -280,13 +314,13 @@ export function emptyCompareTotals(next = 0): CompareTotals {
 }
 
 export function compareTotalsOf(r: [SimulationResult, SimulationResult], firstPair = 0): CompareTotals {
-  const a = totalsOf(r[0], firstPair);
-  const b = totalsOf(r[1], firstPair);
-  // Both versions play the same pairs; keep the one next so they never drift apart.
-  const next = Math.max(a.next, b.next);
-  a.next = next;
-  b.next = next;
-  return { a, b, paired: pairedStatsOf(pairClusters(r[0], r[1])) };
+  // Only pairs both versions finished count, for both (interrupted pairs are replayed: see keepComplete).
+  const pa = completePairs(r[0].games);
+  const pb = completePairs(r[1].games);
+  const both = new Set([...pa].filter((p) => pb.has(p)));
+  const ka = keepComplete(r[0], both);
+  const kb = keepComplete(r[1], both);
+  return { a: totalsOf(ka, firstPair), b: totalsOf(kb, firstPair), paired: pairedStatsOf(pairClusters(ka, kb)) };
 }
 
 export function addCompareTotals(x: CompareTotals, y: CompareTotals): CompareTotals {

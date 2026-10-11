@@ -76,6 +76,8 @@ export interface ContinueIdentity {
 export interface ContinueState {
   /** Calls so far, including the one that issued the token. */
   calls: number;
+  /** Parity of the games requested over the chain (0 or 1): see callPairs in simulate.ts. */
+  odd: number;
   speed: 'strong' | 'fast';
   seed: number;
   identity: ContinueIdentity;
@@ -126,6 +128,7 @@ interface Payload {
   v: number;
   t: number;
   c: number;
+  q?: number;
   s: 's' | 'f';
   d: number;
   k: 'r' | 'c';
@@ -140,6 +143,7 @@ export function mintContinueToken(secret: string, userId: string, state: Continu
     v: CONTINUE_VERSION,
     t: Math.floor(now),
     c: state.calls,
+    q: state.odd,
     s: state.speed === 'fast' ? 'f' : 's',
     d: state.seed,
     k: state.cmp ? 'c' : 'r',
@@ -188,8 +192,10 @@ export function openContinueToken(secret: string, userId: string, token: unknown
     if (!Array.isArray(payload.a) || payload.a.length !== id.o.length || id.o.length > 16) throw new Error('totals');
     const cmp = payload.k === 'c';
     if (cmp !== (id.b !== null)) throw new Error('kind');
+    if (payload.q !== undefined && payload.q !== 0 && payload.q !== 1) throw new Error('parity');
     return {
       calls: payload.c,
+      odd: payload.q ?? 0,
       speed: payload.s === 'f' ? 'fast' : 'strong',
       seed: payload.d,
       identity: { subject: id.s, b: id.b, opponents: id.o, format: id.f },

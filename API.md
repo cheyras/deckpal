@@ -1173,7 +1173,7 @@ message saying which.
   Send it back as `continue_token` with the SAME inputs (the same deck, opponents, compare list, `speed`, `seed`; an omitted
   `speed`/`seed` is taken from the token) and `games` = games to ADD per opponent on this call. The new games are on new
   seeds — opponent i continues at its next seed pair, so N calls of g games play exactly the games one run of N·g would have —
-  and the response is CUMULATIVE: the text starts "Cumulative over 3 calls: 92 games (30 added by this call)…" and every rate
+  and the response is CUMULATIVE (a call the deadline ends mid-pair leaves that pair out of the totals and the next call replays it, so equality with one uninterrupted run is unconditional; an odd `games` is carried as a parity in the token so three calls of 3 equal one run of 9): the text starts "Cumulative over 3 calls: 92 games (30 added by this call)…" and every rate
   carries the interval at the cumulative n. For a paired comparison the token keeps the sums the paired interval needs, so the
   cumulative `overall`/`matchups` difference, interval and verdict are exactly what one long run gives. Cumulative reports leave out
   per-call detail that does not add up (card impact, changed-card impact, Prize-taker and liability rows, median first attack);

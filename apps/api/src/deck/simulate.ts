@@ -406,14 +406,14 @@ export interface RunMatchupsOptions {
    * they took: each opponent's games start at the seed pair its totals say is next, and the report is
    * the cumulative one (@deckpal/sim continue.ts). Absent: a fresh run.
    */
-  prior?: { calls: number; totals: MatchupTotals[] };
+  prior?: { calls: number; odd?: number; totals: MatchupTotals[] };
   /** Same, for a paired comparison. */
-  priorCompare?: { calls: number; totals: CompareTotals[] };
+  priorCompare?: { calls: number; odd?: number; totals: CompareTotals[] };
   /**
    * Mints the token for the totals this call ends with (null: continuation is off, or the chain is at
    * its last call). Given `calls` (this one included) and the cumulative totals.
    */
-  mint?: (state: { calls: number; run: MatchupTotals[] | null; cmp: CompareTotals[] | null }) => string | null;
+  mint?: (state: { calls: number; odd: number; run: MatchupTotals[] | null; cmp: CompareTotals[] | null }) => string | null;
 }
 
 /** What a response says about continuing it. */
@@ -429,6 +429,15 @@ export interface SimulateResponse {
   report: SimReport & { notes: string[]; continuation?: Continuation };
   /** The token, also in the text's last line; absent when continuation is off or this was the last allowed call. */
   continue_token?: string;
+}
+
+/**
+ * Games are played in pairs, so `games` is rounded up to an even number. Across calls that would add up
+ * differently from one run (two calls of 3 play 8, one run of 6 plays 6), so the chain carries the parity
+ * of the games requested so far: a call asks for the pairs the TOTAL needs, ceil((odd + games) / 2) - odd.
+ */
+export function callPairs(games: number, odd = 0): { pairs: number; odd: number } {
+  return { pairs: Math.max(1, Math.ceil((odd + games) / 2) - odd), odd: (odd + games) % 2 };
 }
 
 /** The line a response ends with when it can be continued. */
@@ -458,6 +467,7 @@ export async function runMatchups(subject: DeckInput, opponents: DeckInput[], op
   if (prior && prior.totals.length !== opponents.length) throw new Error('continuation totals do not match the opponents');
   const results: SimulationResult[] = [];
   const firstPairs: number[] = [];
+  const plan = callPairs(opts.games, prior?.odd ?? 0);
   for (const [i, opponent] of opponents.entries()) {
     const left = Math.max(0, budget - (now() - started));
     // A continued call starts each opponent at its own next seed pair: the games one longer run would have played.
@@ -468,7 +478,7 @@ export async function runMatchups(subject: DeckInput, opponents: DeckInput[], op
       await simulateAsync({
         a: subject,
         b: opponent,
-        games: opts.games,
+        games: plan.pairs * 2,
         seed: opts.seed,
         firstPair,
         pilotFactory: pilot,
@@ -482,7 +492,7 @@ export async function runMatchups(subject: DeckInput, opponents: DeckInput[], op
   const calls = (prior?.calls ?? 0) + 1;
   const thisCall = results.map((r, i) => totalsOf(r, firstPairs[i]));
   const totals = prior ? thisCall.map((t, i) => addTotals(prior.totals[i]!, t)) : thisCall;
-  const token = opts.mint?.({ calls, run: totals, cmp: null }) ?? null;
+  const token = opts.mint?.({ calls, odd: plan.odd, run: totals, cmp: null }) ?? null;
   const base: SimReport = prior
     ? buildCumulativeReport({
         subject, opponents, totals, calls, thisCall: thisCall.reduce((n, t) => n + t.played, 0),
@@ -551,6 +561,7 @@ export async function runComparison(a: DeckInput, b: DeckInput, opponents: DeckI
   if (prior && prior.totals.length !== opponents.length) throw new Error('continuation totals do not match the opponents');
   const results: [SimulationResult, SimulationResult][] = [];
   const firstPairs: number[] = [];
+  const plan = callPairs(opts.games, prior?.odd ?? 0);
   for (const [i, opponent] of opponents.entries()) {
     const left = Math.max(0, budget - (now() - started));
     const firstPair = prior?.totals[i]?.a.next ?? 0;
@@ -564,7 +575,7 @@ export async function runComparison(a: DeckInput, b: DeckInput, opponents: DeckI
     }
     results.push(
       await simulatePairedAsync({
-        a, b, opponent, games: opts.games, seed: opts.seed, firstPair, pilotFactory: pilot, timeBudgetMs: left / (opponents.length - i),
+        a, b, opponent, games: plan.pairs * 2, seed: opts.seed, firstPair, pilotFactory: pilot, timeBudgetMs: left / (opponents.length - i),
         deadline, maxDecisions: opts.maxDecisions ?? SIM_MAX_DECISIONS, now,
       }),
     );
@@ -572,7 +583,7 @@ export async function runComparison(a: DeckInput, b: DeckInput, opponents: DeckI
   const calls = (prior?.calls ?? 0) + 1;
   const thisCall = results.map((r, i) => compareTotalsOf(r, firstPairs[i]));
   const totals = prior ? thisCall.map((t, i) => addCompareTotals(prior.totals[i]!, t)) : thisCall;
-  const token = opts.mint?.({ calls, run: null, cmp: totals }) ?? null;
+  const token = opts.mint?.({ calls, odd: plan.odd, run: null, cmp: totals }) ?? null;
   const base: ComparisonReport = prior
     ? buildCumulativeComparison({
         a, b, opponents, totals, calls, thisCall: thisCall.reduce((n, t) => n + t.a.played, 0),
