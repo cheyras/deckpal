@@ -67,6 +67,16 @@ import { captureLook, cardLook } from './look'
 import { gradientField, quadMeanSaturation, refineQuadChecked } from './refine'
 import { CAPTURE_MARGIN, cardRectSize, CAPTURE_QUALITY, rectifyToCapture } from './rectify'
 import { createTracker } from './tracker'
+import { mergeSecondLook, secondLookCrop } from './second-look'
+
+/**
+ * EngineOptions.secondLook's default: OFF. second-look.ts has the measurement
+ * (video bench, 192 card appearances: auto-ID 47 -> 57 with the bench's one
+ * low-held video aimed, confident-wrong 0, 3 more stray captures, 4 more
+ * duplicates). It costs a second LC050 run on ~76% of ticks, which nobody has
+ * timed on a phone yet; turning it on is that measurement's decision.
+ */
+export const DEFAULT_SECOND_LOOK = false
 
 /** Detect-tick floor. ~8 Hz: fast enough that a tracked quad reads as
  *  continuous, slow enough to leave the thermal budget alone. */
@@ -456,6 +466,7 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
   const acquire = opts.acquire ?? DEFAULT_ACQUIRE
   const hold = opts.hold ?? DEFAULT_HOLD
   const minSaturation = opts.minSaturation ?? DEFAULT_LOCK_MIN_SATURATION
+  const secondLook = opts.secondLook ?? DEFAULT_SECOND_LOOK
   const gate = createPresenceGate(acquire, hold)
   const tracker = createTracker()
 
@@ -659,7 +670,24 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
     const workImg = grabWork(v, c)
     grabCaptureFrame(v, c)
 
-    const { points, hasObj } = await session.run(input)
+    const first = await session.run(input)
+    let points: ArrayLike<number> = first.points
+    let hasObj = first.hasObj
+    // THE SECOND LOOK (EngineOptions.secondLook, off by default; second-look.ts).
+    // The crop is cut from `capWrite` — the full-res square grabbed above, at
+    // tick start — never from the live video, which has moved on during the
+    // first inference; both looks and the refiner then describe one instant.
+    if (secondLook && capWrite) {
+      const crop = secondLookCrop(first, { acquire, reticle: rect })
+      if (crop) {
+        const side = capWrite.width
+        ctx.drawImage(capWrite, crop.x * side, crop.y * side, crop.w * side, crop.h * side, 0, 0, MODEL_SIZE, MODEL_SIZE)
+        const second = await session.run(rgbaToBGRPlanar(ctx.getImageData(0, 0, MODEL_SIZE, MODEL_SIZE)))
+        const merged = mergeSecondLook(first, second, crop)
+        points = merged.points
+        hasObj = merged.hasObj
+      }
+    }
 
     const quads: Quad[] = []
     /** This tick's card signature for the detected quad, if there was one. */

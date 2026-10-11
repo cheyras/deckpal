@@ -11,6 +11,11 @@
  *        --no-rearm (replay the policy without the look re-arm, ui/rearm.ts)
  *        --batch 16 (LC050 frames per sidecar call)  --timeline-every 8 (ticks)
  *        --out <dir> (default ~/deckpal-data/video-bench)
+ *        --aim x,y,side (point the phone: the engine square's SOURCE rect; phone.ts aimedGeometry)
+ *        --second-look (engine/second-look.ts, EngineOptions.secondLook: re-infer on a crop
+ *          around the quad when has_obj < acquire; the crop's presence, the first look's quad)
+ *        --second-look-scale 1.3  --second-look-gate reticle|any  --second-look-agree 0.5
+ *        --second-look-quad first|second (defaults: the engine's)
  *
  * Per video, under <out>/<videoId>/:
  *   captures/<t>.jpg      the 480x670 crops the device would have POSTed
@@ -33,9 +38,15 @@ import readline from 'node:readline'
 import { fileURLToPath } from 'node:url'
 
 import type { Quad } from '../../../apps/web/src/scan/engine/contract'
-import { oppositeSideRatio, quadAspectRatio, type ImageDataLike } from '../../../apps/web/src/scan/engine/geometry'
+import { oppositeSideRatio, quadAspectRatio, type ImageDataLike, type Rect } from '../../../apps/web/src/scan/engine/geometry'
 import { CANONICAL_SIZE } from '../../../apps/web/src/scan/engine/frame'
 import { MODEL_SIZE, rgbaToBGRPlanar } from '../../../apps/web/src/scan/engine/preprocess'
+import { DEFAULT_ACQUIRE } from '../../../apps/web/src/scan/engine/gate'
+import {
+  mergeSecondLook,
+  secondLookCrop,
+  secondLookRect,
+} from '../../../apps/web/src/scan/engine/second-look'
 import { CAPTURE_QUALITY, type RectifiedImage } from '../../../apps/web/src/scan/engine/rectify'
 import {
   copyRGBA,
@@ -44,7 +55,8 @@ import {
   sharp,
   type RawModelOut,
 } from '../../../apps/web/src/scan/engine/__tests__/offline-harness'
-import { cropToSource, phoneGeometry, probeVideo, streamSquares, type PhoneGeometry, type StreamFrame } from './phone'
+import { parseLockTicks, parseSecondLookFlags } from './flags'
+import { aimedGeometry, cropToSource, phoneGeometry, probeVideo, streamSquares, type PhoneGeometry, type StreamFrame } from './phone'
 import {
   captureFromSquare,
   createCapturePolicy,
@@ -72,7 +84,7 @@ function arg(name: string, dflt: string): string {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : dflt
 }
 /** Flags that take no value: they must not swallow the argument after them. */
-const BOOLEAN_FLAGS = new Set(['--no-rearm'])
+const BOOLEAN_FLAGS = new Set(['--no-rearm', '--second-look'])
 
 function positional(): string[] {
   const out: string[] = []
@@ -161,6 +173,28 @@ async function prepare(sq: StreamFrame['square']): Promise<{ tensor: Float32Arra
   return { tensor: rgbaToBGRPlanar(rgba(m, MODEL_SIZE, MODEL_SIZE)), work: rgba(w, CANONICAL_SIZE, CANONICAL_SIZE) }
 }
 
+/**
+ * The second look's model input: the crop of the FULL-RES square this tick read
+ * (on the device: the capture buffer grabbed at tick start, never the live
+ * video, which has moved on by the time the first inference returns), resized to
+ * MODEL_SIZE the same way prepare() makes the first.
+ */
+async function prepareCrop(sq: StreamFrame['square'], r: Rect): Promise<Float32Array> {
+  const S = await sharp()
+  const left = Math.round(r.x * sq.width)
+  const top = Math.round(r.y * sq.height)
+  const side = Math.max(1, Math.min(Math.round(r.w * sq.width), sq.width - left, sq.height - top))
+  const m = await S(Buffer.from(sq.data.buffer, sq.data.byteOffset, sq.data.byteLength), {
+    raw: { width: sq.width, height: sq.height, channels: 4 },
+  })
+    .extract({ left, top, width: side, height: side })
+    .resize({ width: MODEL_SIZE, height: MODEL_SIZE, fit: 'fill', kernel: 'lanczos3' })
+    .ensureAlpha()
+    .raw()
+    .toBuffer()
+  return rgbaToBGRPlanar(rgba(m, MODEL_SIZE, MODEL_SIZE))
+}
+
 /** CAPTURE_QUALITY 0.85; sharp's libjpeg stands in for the browser encoder
  *  (check-a.ts jpegRoundTrip makes the same substitution). */
 async function encodeJpeg(px: { width: number; height: number; data: Uint8ClampedArray }): Promise<Buffer> {
@@ -231,10 +265,32 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
   const startS = Number(arg('start', '0')) || undefined
   const endS = Number(arg('end', '0')) || undefined
 
-  const lockTicks = arg('lock-ticks', '') === '' ? undefined : Number(arg('lock-ticks', ''))
-  const knobs: PolicyKnobs & { lockTicks?: number } = { busyMs, lockTicks, rearm: !process.argv.includes('--no-rearm') }
+  const lockTicks = parseLockTicks(arg)
+  const aimArg = arg('aim', '')
+  const aim = aimArg ? aimArg.split(',').map(Number) : null
+  if (aim && (aim.length !== 3 || aim.some((n) => !Number.isFinite(n)))) throw new Error(`--aim wants x,y,side in source px, got ${aimArg}`)
+  const secondLook = process.argv.includes('--second-look')
+  // flags.ts checks every second-look flag (ranges, enum values) even when
+  // --second-look is off, so a typo stops the run instead of changing it.
+  const {
+    scale: secondLookScale,
+    gate: secondLookGate,
+    agree: secondLookAgree,
+    quad: secondLookQuad,
+  } = parseSecondLookFlags(arg)
+  const knobs: PolicyKnobs & { lockTicks?: number; aim?: string; secondLook?: Record<string, unknown> } = {
+    busyMs,
+    lockTicks,
+    rearm: !process.argv.includes('--no-rearm'),
+    ...(aim ? { aim: aimArg } : {}),
+    ...(secondLook
+      ? { secondLook: { scale: secondLookScale, gate: secondLookGate, agree: secondLookAgree, quad: secondLookQuad } }
+      : {}),
+  }
   const probe = await probeVideo(file)
-  const geo: PhoneGeometry = phoneGeometry(probe.width, probe.height)
+  const geo: PhoneGeometry = aim
+    ? aimedGeometry(probe.width, probe.height, { x: aim[0], y: aim[1], side: aim[2] })
+    : phoneGeometry(probe.width, probe.height)
   const outDir = path.join(outRoot, videoId)
   for (const d of ['captures', 'suppressed']) fs.rmSync(path.join(outDir, d), { recursive: true, force: true })
   fs.mkdirSync(path.join(outDir, 'captures'), { recursive: true })
@@ -243,9 +299,10 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
   const rows: CaptureRow[] = []
 
   console.log(
-    `${videoId}: ${probe.width}x${probe.height} ${probe.durationS.toFixed(1)}s -> viewport ` +
+    `${videoId}: ${probe.width}x${probe.height} ${probe.durationS.toFixed(1)}s -> ${geo.aim ? `AIMED square ${geo.aim.side}@${geo.aim.x},${geo.aim.y} (` : ''}viewport ` +
       `${geo.viewport.w}x${geo.viewport.h}@${geo.viewport.x},${geo.viewport.y} -> stream 960x1280 -> ` +
-      `square ${geo.square.size} (native ${geo.nativeSquarePx}px)  @${fps} Hz, busy ${busyMs} ms`,
+      `square ${geo.square.size} (native ${geo.nativeSquarePx}px)${geo.aim ? ')' : ''}  @${fps} Hz, busy ${busyMs} ms` +
+      (secondLook ? `, second look ${JSON.stringify(knobs.secondLook)}` : ''),
   )
 
   const engine = createReplayEngine({ lockTicks: knobs.lockTicks })
@@ -272,6 +329,11 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
     regionSuppressedTicks: 0,
     busyTicks: 0,
     lookFires: 0,
+    /** Second look (--second-look): ticks that ran it, ticks whose answer it
+     *  replaced, and ticks it lifted from below the acquire threshold to above. */
+    secondLookTicks: 0,
+    secondLookUsed: 0,
+    secondLookAcquired: 0,
   }
   /** Blocker histograms keyed by the reason's first word (`inside 0.52` ->
    *  `inside`): why observed quads missed the tracker, why stable tracks
@@ -334,7 +396,7 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
     return row
   }
 
-  async function onTick(f: StreamFrame, out: RawModelOut, work: ImageDataLike): Promise<void> {
+  async function onTick(f: StreamFrame, out: RawModelOut & { h1?: number }, work: ImageDataLike): Promise<void> {
     const s = engine.tick(out.points, out.hasObj, work)
     const motionBy = motion.update([...s.stable, ...s.pending])
     const outcome = policy.decide(f.tMs, s, { look: s.look })
@@ -396,6 +458,8 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
         i: f.index,
         t: r3(f.tMs / 1000),
         hasObj: r3(s.hasObj),
+        // The first look's has_obj, when the second look replaced it.
+        ...(out.h1 !== undefined ? { h1: r3(out.h1) } : {}),
         gate: s.gateOpen ? 1 : 0,
         obs: rq(s.observed),
         ...(obsWhy.length ? { obsWhy } : {}),
@@ -454,7 +518,39 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
   const flush = async () => {
     if (!batch.length) return
     const prepared = await Promise.all(batch.map((f) => prepare(f.square)))
-    const outs = await lc050.run(prepared.map((p) => p.tensor))
+    const outs: Array<RawModelOut & { h1?: number }> = await lc050.run(prepared.map((p) => p.tensor))
+    if (secondLook) {
+      // engine/second-look.ts, called as index.ts tick() calls it under
+      // EngineOptions.secondLook: which ticks look again and at what
+      // (secondLookCrop), and which answer the tick keeps (mergeSecondLook).
+      // Both looks are batched here; the device runs them back to back.
+      const want: Array<{ k: number; crop: Rect }> = []
+      for (let k = 0; k < batch.length; k++) {
+        const o = outs[k]
+        const crop =
+          secondLookGate === 'any'
+            ? o.hasObj < DEFAULT_ACQUIRE
+              ? secondLookRect(o.points, secondLookScale)
+              : null
+            : secondLookCrop(o, { acquire: DEFAULT_ACQUIRE, reticle: engine.reticle, scale: secondLookScale })
+        if (crop) want.push({ k, crop })
+      }
+      if (want.length) {
+        const tensors = await Promise.all(want.map(({ k, crop }) => prepareCrop(batch[k].square, crop)))
+        const outs2 = await lc050.run(tensors)
+        want.forEach(({ k, crop }, j) => {
+          stats.secondLookTicks++
+          const m = mergeSecondLook(outs[k], outs2[j], crop, {
+            agreeIoU: secondLookAgree,
+            keepFirstQuad: secondLookQuad !== 'second',
+          })
+          if (!m.used) return
+          stats.secondLookUsed++
+          if (m.hasObj >= DEFAULT_ACQUIRE) stats.secondLookAcquired++
+          outs[k] = { points: m.points, hasObj: m.hasObj, h1: outs[k].hasObj }
+        })
+      }
+    }
     for (let k = 0; k < batch.length; k++) await onTick(batch[k], outs[k], prepared[k].work)
     batch = []
   }
