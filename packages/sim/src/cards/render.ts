@@ -217,6 +217,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'c12.remainingHpAtMost': (a) => `this Pokémon's HP (with any HP changes) minus its damage is ${Number(a.n ?? 50)} or less`,
   'c10.handEvolvesSelf': () => 'you have a card in your hand that evolves from this Pokémon, and this Pokémon has not evolved this turn',
   'c10.weakToOppActive': () => "the Pokémon this card is attached to has a Weakness (as changed by effects) of a type that your opponent's Active Pokémon is",
+  'c14.abilitiesOn': () => "no effect has turned this Pokémon's Abilities off",
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
@@ -1849,5 +1850,18 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv05-043|attack:Chew Off': {
     problems: ['"each" is printed but not rendered'],
     why: '"For each heads, discard a random card" is a repeat of the heads count, rendered "the number of heads times"; the card test pins 0 to 3 heads.',
+  },
+  // std-c14
+  'sv05-050|ability:Azure Seas': {
+    problems: ['"Active" is printed but not rendered', '"opponent\'s active" is printed but not rendered', 'similarity'],
+    why: 'Azure Seas has no script of its own: its effect (damage from this Pokémon\'s attacks skips effects on the opponent\'s Active Pokémon) is the `ignore: { defenderEffects: true }` on Catharsis Roar, this card\'s only attack that does damage, guarded by c14.abilitiesOn so it stops when the Ability is turned off. The Ability section therefore renders nothing; the card test pins both the ignore and the guard.',
+  },
+  'sv05-050|attack:Catharsis Roar': {
+    problems: ['similarity'],
+    why: 'The damage is computed once (120, plus 120 for a Special Condition) and then dealt twice over in an if/else: with the Ability on, ignoring effects on the Defending Pokémon (Azure Seas), otherwise normally. The if/else wording repeats the number and the condition renders as a long list, so the token overlap with the short printed sentence is low; every number and noun the check looks for is present.',
+  },
+  'sv05-092|attack:Mud Stock': {
+    problems: ['"any number of" is rendered but not printed', 'similarity'],
+    why: '"Attach a Basic Energy card … to each of your Benched Pokémon" is a pick of exactly as many Basic {F} Energy cards, and as many Benched Pokémon, as the smaller of the two counts (min and max are both that count); the renderer words a variable count "any number of" and does not name the variable.',
   },
 };
