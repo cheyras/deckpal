@@ -1511,6 +1511,10 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
     problems: ['number 2'],
     why: '"At least 2 extra Energy (in addition to this attack\'s cost)": the cost is {M}{M}{M}, so the script tests 5 or more Energy attached.',
   },
+  'me01-007|attack:Pumped-Up Whip': {
+    problems: ['number 2 is printed 1× but rendered 0×'],
+    why: '"At least 2 extra Energy (in addition to this attack\'s cost)": the cost is {G}{G}{C}{C}, so the script tests 6 or more Energy attached.',
+  },
   'me05-062|ability:Ancient Bulwark': {
     problems: ['"each" is printed'],
     why: '"each of your Pokémon" is scope myPokemon, which the renderer words as "your Pokémon in play".',
