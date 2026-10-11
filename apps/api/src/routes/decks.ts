@@ -616,13 +616,11 @@ function saveDeckKey(input: {
 }
 
 /**
- * newVersion: true means "this whole list is a new version of the deck".
- * (No backticks in this comment: the soft-delete guard pairs them across
- * lines and reads the prose between as an unguarded statement.)
+ * `newVersion: true` — "this whole list is a new version of the deck".
  *
  * An ordinary edit follows the auto-bump rule (deck/versions.ts): it amends an
  * unplayed version in place, so a burst of stepper taps stays one version. A
- * revision the reader saves from Deck-E's deck widget is not stepper noise. It
+ * revision the reader saves in Deck-E's deck widget is not stepper noise. It
  * is one deliberate act, like a revert, and amending would erase the only copy
  * of the list it replaces (DECISIONS 2026-09-26). So it always lands as the next
  * version — unless it changes nothing, and then it writes nothing.
