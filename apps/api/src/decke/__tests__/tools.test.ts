@@ -72,7 +72,10 @@ test('ask_user is a bounded strict server tool and returns the stop-turn result'
   assert.equal(typeof ask.execute, 'function', 'ask_user must execute on the server')
   assert.equal(ask.inputSchema.safeParse({ about: 'deck_build', questions: [question] }).success, true)
   assert.equal(ask.inputSchema.safeParse({ questions: Array.from({ length: 5 }, () => question) }).success, false)
-  assert.equal(ask.inputSchema.safeParse({ questions: [{ ...question, header: 'thirteen chars' }] }).success, false)
+  assert.equal(ask.inputSchema.safeParse({ questions: [{ ...question, header: 'Twenty-five characters!!!' }] }).success, false)
+  // Ordinary two-word headers fit whole; a 12-character cap clipped "Turning point".
+  for (const header of ['Turning point', 'Who went first and mulls'])
+    assert.equal(ask.inputSchema.safeParse({ questions: [{ ...question, header }] }).success, true, header)
   assert.equal(ask.inputSchema.safeParse({ questions: [{ ...question, options: [{ label: 'Only one' }] }] }).success, false)
   assert.equal(ask.inputSchema.safeParse({ questions: [{ ...question, options: Array.from({ length: 5 }, (_, i) => ({ label: `Choice ${i}` })) }] }).success, false)
   assert.equal(ask.inputSchema.safeParse({ about: 'invented', questions: [question] }).success, false)
@@ -107,7 +110,7 @@ test('a near-miss ask is trimmed to its own schema, lands, and says what was cut
       question: 'q'.repeat(210),
       options: [{ label: 'Under $50' }, { label: 'No limit' }],
     }, {
-      header: 'Owned cards?!', // 13 — the measured failure shape
+      header: 'Only the cards I own now?', // 25 — one past the cap
       question: 'Only cards you own?',
       options: [{ label: 'Yes' }, { label: 'No' }],
     }],
@@ -120,7 +123,7 @@ test('a near-miss ask is trimmed to its own schema, lands, and says what was cut
     ['questions.0.options.0.description', 120],
     ['questions.0.options.0.label', 40],
     ['questions.1.question', 200],
-    ['questions.2.header', 12],
+    ['questions.2.header', 24],
   ])
   const parsed = ask.inputSchema.safeParse(value)
   assert.equal(parsed.success, true, 'the repaired ask must pass the schema it failed')
@@ -129,7 +132,7 @@ test('a near-miss ask is trimmed to its own schema, lands, and says what was cut
   const result = await ask.execute(parsed.data, { toolCallId: 'ask-1' }) as { status: string; trimmed?: string[] }
   assert.equal(result.status, 'shown')
   assert.equal(result.trimmed?.length, 4, 'every trim is reported to the model in the tool result')
-  assert.ok(result.trimmed!.some((line) => line.startsWith('questions.2.header was 13 characters')))
+  assert.ok(result.trimmed!.some((line) => line.startsWith('questions.2.header was 25 characters')))
   assert.equal(repairs.size, 0, 'the log is drained so the next call does not inherit it')
 })
 

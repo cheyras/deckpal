@@ -938,7 +938,7 @@ export function buildTools(
 
     showDeck: tool({
       description:
-        'Show a complete proposed or revised deck as a card widget with Save and builder actions. Use this whenever proposing or revising a whole deck, and only after check_deck has checked the list.',
+        'Show a complete proposed deck as a card widget with Save and builder actions. Use this whenever proposing a whole deck, and only after check_deck has checked the list. Its Save always creates a new deck.',
       inputSchema: z.object({
         name: z.string().trim().min(1).max(80),
         format: z.string().trim().min(1).max(24).default('standard'),
@@ -1061,7 +1061,11 @@ export function buildTools(
       inputSchema: z.object({
         about: z.enum(PATHWAY_NAMES).optional(),
         questions: z.array(z.object({
-          header: z.string().trim().min(1).max(12),
+          // 24, not 12: a 12-character cap clipped ordinary two-word headers
+          // ("Turning point" landed as "Turning poin"), and the clipped header
+          // is what the reader's formatted answer repeats back. The AskCard
+          // chip wraps under the question on a narrow screen, so 24 fits at 390px.
+          header: z.string().trim().min(1).max(24),
           question: z.string().trim().min(1).max(200),
           options: z.array(z.object({
             label: z.string().trim().min(1).max(40),
@@ -1070,7 +1074,7 @@ export function buildTools(
           multi: z.boolean().default(false),
         }).strict()).min(1).max(4),
       }).strict(),
-      // A near-miss ask (a 13-character header, a 41-character label) is
+      // A near-miss ask (a 25-character header, a 41-character label) is
       // trimmed by `repairToolCall` in `api/chat.mjs` rather than failing the
       // card. Trimmed text is the model's own caption, not the reader's words,
       // so it qualifies for that allowlist — on the condition, stated there,

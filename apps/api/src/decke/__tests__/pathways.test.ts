@@ -66,7 +66,7 @@ test('deck iteration saves the whole list as an edit, and builds off an old vers
   const text = flat(pathwayText('deck_iterate'))
   // `save_deck.cards` RECONCILES the deck to exactly the list given
   // (packages/agent-tools/src/tools/decks.ts): a "-1/+1" call deletes the rest.
-  assert.match(text, /`save_deck` with `mode: "edit"` and the \*\*complete\*\* list/)
+  assert.match(text, /`save_deck` with `mode: "edit"`, its `deck_id` and the \*\*complete\*\* list/)
   assert.match(text, /not a diff/)
   // The widget's Save is a PTCGL import, so it always creates a NEW deck
   // (apps/web/src/character/host/chat/deckSave.ts).
@@ -89,7 +89,12 @@ test('collection planning uses DeckPal goal names and looks before it asks', () 
   assert.match(text, /There is no “numbered set” goal/)
   assert.match(text, /`rarity_exclude`/)
   assert.match(text, /the owned-of-total line still counts the whole set/)
-  assert.match(text, /do not page through the rest/)
+  // Every rarity numbered past the printed total in the catalog's vocabulary (apps/api/src/rarity.ts).
+  for (const rarity of ['Illustration rare', 'Special illustration rare', 'Ultra Rare', 'Hyper rare',
+    'Mega Hyper Rare', 'Shiny rare', 'Shiny Ultra Rare', 'Black White Rare']) assert.ok(text.includes(rarity), `missing rarity: ${rarity}`)
+  // Missing rows sort by card number (catalog.ts), so page 1 often holds no chase card.
+  assert.match(text, /`page_size: 200`/)
+  assert.match(text, /no goal lines yet/)
   assert.match(text, /`card_price_history` for at most the three priciest/)
 })
 
@@ -102,6 +107,10 @@ test('lists lead with add_missing, mode and kind, and never promise a condition'
   assert.match(text, /`mode: "create"`.*`mode: "edit"`/)
   assert.match(text, /`kind: "dynamic"`.*`static`/)
   assert.doesNotMatch(text, /condition/i)
+  // Only log_cards gets a printing picker on its approval card (adapters/aisdk.ts);
+  // an omitted variant_kind takes the card's primary printing (resolve.ts).
+  assert.match(text, /leave `variant_kind` out — the list takes the card's main printing, which the approval card names/)
+  assert.doesNotMatch(text, /approval flow can show the choice|printing choice belongs in approval/)
 })
 
 test('price questions send collection movement to collection_value and never invent a condition', () => {
@@ -113,14 +122,15 @@ test('price questions send collection movement to collection_value and never inv
 
 test('deck building intake fits one ask card and cost comes only from the check', () => {
   const text = flat(pathwayText('deck_build'))
-  assert.match(text, /one `ask_user` card with the four choices/)
-  assert.match(text, /Live-only deck skip budget and ownership/)
-  assert.match(text, /offer two directions on that card.*end the turn there/)
+  // ask_user takes at most four questions (tools.ts), so the directions are one of them.
+  assert.match(text, /one `ask_user` card with up to four questions/)
+  assert.match(text, /budget and ownership apply only to paper/)
+  assert.match(text, /make one of those questions the two directions.*end the turn there/)
   assert.match(text, /go through its flex slots with them/)
   // check_deck resolves names: owned printing, then legal, then newest
   // (apps/api/src/routes/deckCheck.ts chooseName).
   assert.match(text, /Trainers and Energy can go in by exact name, and `check_deck` resolves them/)
-  assert.match(text, /Quote cost only from `check_deck`/)
+  assert.match(text, /Quote missing-card cost only from `check_deck`/)
   assert.match(text, /12–20 Pokémon, 30–38 Trainers and 6–14 Energy/)
 })
 
