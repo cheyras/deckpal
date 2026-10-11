@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { MockLanguageModelV3 } from 'ai/test';
-import { clipForTriage, heuristicTriage, runTriage, TRIAGE_MESSAGE_CHARS } from '../triage.js';
+import { clipForTriage, heuristicTriage, isDecline, runTriage, TRIAGE_MESSAGE_CHARS } from '../triage.js';
 
 const USAGE = {
   inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
@@ -245,4 +245,34 @@ test('triage reads at most 2,000 characters of a long paste: the opening and the
   assert.equal(clipped.length, TRIAGE_MESSAGE_CHARS);
   assert.ok(clipped.startsWith('here is my game'));
   assert.ok(clipped.endsWith('why did I lose?'));
+});
+
+test('a decline is not a correction: the matcher takes withdrawals and leaves corrections alone', () => {
+  for (const message of [
+    "Never mind, don't save it", "actually cancel that, I'll do it later", 'nah skip it',
+    "wait no, don't log that one", 'leave it for now, thanks', 'forget it, not worth it',
+    'no thanks, not right now', 'scratch that, keep it on there', "don't bother, I'll find it myself",
+  ]) assert.equal(isDecline(message), true, message);
+  for (const message of [
+    "no that's the wrong deck, it was my Dragapult", "no, that's wrong, I said Pitch Black",
+    'I said want list, not trade list', 'wrong set, I meant Shrouded Fable', 'it was a win, not a loss',
+    "that's useless, I obviously meant the special illustration rare",
+    "nah no worries, what's Iono going for these days?", 'skipped my draw, is that legal?',
+  ]) assert.equal(isDecline(message), false, message);
+});
+
+test("the model's correction signal is dropped on a decline, kept on a correction", async () => {
+  const modelWith = (signals: string[]) => new MockLanguageModelV3({
+    doGenerate: async () => ({
+      content: [{ type: 'tool-call' as const, toolCallId: 't1', toolName: 'triage',
+        input: JSON.stringify({ pathway: 'battle_log', also: null, signals, missing: [], wantsDeep: 'no' }) }],
+      finishReason: { unified: 'tool-calls' as const, raw: 'tool_use' },
+      usage: { inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 8, text: 0, reasoning: 0 } },
+      warnings: [],
+    }),
+  });
+  const declined = await runTriage({ message: "wait no, don't log that one", previousReply: '', page: '/', pasted: false, model: modelWith(['correction']) });
+  assert.deepEqual(declined.signals, []);
+  const corrected = await runTriage({ message: 'it was a win, not a loss', previousReply: '', page: '/', pasted: false, model: modelWith(['correction']) });
+  assert.deepEqual(corrected.signals, ['correction']);
 });

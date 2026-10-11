@@ -343,6 +343,24 @@ export function clipForTriage(message: string): string {
 }
 
 /**
+ * A message that withdraws or declines — "never mind, don't save it", "wait no,
+ * don't log that one", "scratch that", "no thanks" — is not a correction of
+ * Deck-E, but Haiku 5.5 tags it `correction` 2–3 times in 3 even with the
+ * signal defined to exclude it (triage eval, 2026-10-10). The signal raises the
+ * turn to Standard, which a one-line "OK, left it" does not need. Anchored at
+ * the start, so "no, that's the wrong deck" and "I said want list" still count.
+ */
+const DECLINE =
+  /^\W*(?:(?:wait|ok(?:ay)?|oh|ah|hmm|actually|no|nah)\b[\s,.!]*)*(?:never\s*mind|nvm\b|cancel\b|skip\b|forget (?:it|that|about it)\b|leave it\b|no thanks\b|scratch that\b|don'?t bother\b|don'?t (?:log|save|add|do) (?:it|that|this)\b)/i;
+export function isDecline(message: string): boolean {
+  return DECLINE.test(message);
+}
+function withoutDeclineCorrection(message: string, triage: Triage): Triage {
+  if (!triage.signals.includes('correction') || !isDecline(message)) return triage;
+  return { ...triage, signals: triage.signals.filter((signal) => signal !== 'correction') };
+}
+
+/**
  * Ask Haiku for one typed call. Every exit other than a valid `triage` call is
  * the heuristic result—including aborts, provider errors and refusals—because
  * classification must never be able to fail the reader's actual turn.
@@ -400,7 +418,7 @@ export async function runTriage(input: TriageInput): Promise<Triage> {
         typeof issue.path[0] === 'string' ? issue.path[0] : issue.code));
       return fallback(`invalid_args:${[...fields].join(',').slice(0, 80)}`);
     }
-    return { ...parsed.data, source: 'model' };
+    return withoutDeclineCorrection(input.message, { ...parsed.data, source: 'model' });
   } catch (error) {
     // AI SDK 7 THROWS when a forced tool is not called (a refusal included)
     // rather than returning an empty `toolCalls`.
