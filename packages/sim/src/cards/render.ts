@@ -342,6 +342,9 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'n30d.benchWithMaxHp': (a) => `Count your Benched Pokémon that have a maximum HP of ${Number(a.hp)} (into "${String(a.as ?? 'n')}")`,
   // rul-r07-customs.ts
   'rul07.useSupporterEffect': (a) => `Use the effect of the Supporter card chosen as "${String(a.card ?? 'x')}" (it is not played and cannot be declined; a choice of a number of cards in it can be lowered to none)`,
+  // rul-r12-customs.ts
+  'rul12.moveCountersLossy': (a) =>
+    `Move up to ${Number(a.max ?? 3)} damage counters from the Pokémon chosen as "${String(a.from)}" to the Pokémon chosen as "${String(a.to)}" (lost if they cannot be placed there)`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */

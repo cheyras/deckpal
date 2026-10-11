@@ -78,5 +78,6 @@ import { STD_SEED3 } from './std-seed3.js';
 import { STD_SEED4 } from './std-seed4.js';
 import './rul-r04-customs.js'; // rulings audit, lane 04 (rul04.*)
 import './rul-r07-customs.js'; // rul07.useSupporterEffect (Ninetales, Supernatural Shapeshifter)
+import './rul-r12-customs.js';
 
 export const SCRIPTS: CardScript[] = [...SV, ...ME, ...GHOST, ...FIGHTING, ...METAL, ...MISC, ...META_BLAZIKEN, ...META_CHARIZARD, ...META_DARKRAI, ...META_EXCADRILL, ...META_GRIMMSNARL, ...META_TREVENANT, ...META_ZOROARK, ...OPP, ...STD_30A, ...STD_30B, ...STD_30C, ...STD_30D, ...STD_30E, ...STD_C01, ...STD_C02, ...STD_C03, ...STD_C04, ...STD_C05, ...STD_C06, ...STD_C07, ...STD_C08, ...STD_C09, ...STD_C10, ...STD_C11, ...STD_C12, ...STD_C13, ...STD_C14, ...STD_C15, ...STD_C16, ...STD_C17, ...STD_C18, ...STD_C19, ...STD_C20, ...STD_C21, ...STD_C22, ...STD_C23, ...STD_C24, ...STD_C25, ...STD_C26, ...STD_C27, ...STD_C28, ...STD_C29, ...STD_C30, ...STD_C31, ...STD_C32, ...STD_C33, ...STD_C34, ...STD_C35, ...STD_C36, ...STD_C37, ...STD_C38, ...STD_C39, ...STD_C40, ...STD_ENGINE, ...STD_ENGINE2, ...STD_ENGINE3, ...STD_ENGINE4, ...STD_ENGINE5, ...STD_ENGINE6, ...STD_ENGINE7, ...STD_GEN, ...STD_GEN_30TH, ...STD_H01, ...STD_S01, ...STD_S02, ...STD_S03, ...STD_SEED1, ...STD_SEED2, ...STD_SEED3, ...STD_SEED4];
