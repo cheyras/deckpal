@@ -1039,6 +1039,50 @@ interface MissingAggRow {
 const pctTxt = (owned: number, total: number): string =>
   total > 0 ? `${((owned / total) * 100).toFixed(1)}%` : '—';
 
+// ── THE NUMBERED SET ────────────────────────────────────────────────────────
+//
+// "What am I missing for the regular numbered Pitch Black set" had no answer.
+// The three stored goals all count secret rares — that is deliberate (SCHEMA
+// §9.2, BEHAVIOR-SPEC §2.1: "secret rares ARE part of the 'main set' for
+// progress purposes") — so the only way to ask for the cards inside the
+// printed total was `rarity_exclude`, which needs the exact secret-rare
+// rarity names of that one set and was got wrong.
+//
+// `numbered` is a fourth goal for this tool only: every card whose collector
+// number is a plain integer from 1 to the set's printed total (the 165 in
+// "006/165", `card_set.card_count_official`), one of any variant each — the
+// `complete` rule over a smaller card list. It is computed live, never stored:
+// `user_set_progress.goal` CHECKs the three stored goals, and the web app has
+// no bar for it. `GOALS` in shared.ts stays the three stored goals, so the
+// lists/shopping tools and `default_goal` are untouched.
+//
+// The printed total decides MEMBERSHIP only. The denominator is still a
+// COUNT(*) over real card rows (SCHEMA §9.2's rule): a catalog missing a card
+// says so rather than inflating the total. A set with no printed total gets
+// "not available", never a guess — there is no other honest boundary.
+const SET_PROGRESS_GOALS = [...GOALS, 'numbered'] as const;
+type SetProgressGoal = (typeof SET_PROGRESS_GOALS)[number];
+
+/** Membership in the numbered set. `printed` is an SQL expression for the set's printed total. */
+const numberedCard = (card: string, printed: string): string =>
+  `${card}.local_id_numeric BETWEEN 1 AND ${printed}`;
+
+/** A printed total the numbered goal can use: present and positive. */
+const hasPrintedTotal = (printed: number | string | null | undefined): printed is number | string =>
+  printed !== null && printed !== undefined && Number(printed) > 0;
+
+interface NumberedOverviewRow extends OverviewRow {
+  printed_total: number | null;
+  n_owned: string | null;
+  n_total: string | null;
+}
+interface NumberedSummaryRow {
+  printed_total: number | null;
+  all_cards: string;
+  n_total: string;
+  n_owned: string;
+}
+
 const setProgressTool = defineTool({
   name: 'set_progress',
   // A NOUN PHRASE THAT READ AS AN IMPERATIVE. This is a read tool — it
@@ -1052,7 +1096,11 @@ const setProgressTool = defineTool({
   title: 'Check set completion',
   description:
     'Completion progress toward the three goals (complete = one of any variant per card, ' +
-    'master = every standard-tier variant, grandmaster = every variant). Without set_id: ' +
+    'master = every standard-tier variant, grandmaster = every variant), plus goal ' +
+    "'numbered' = the regular numbered set only: one of any variant of each card numbered 1 " +
+    'up to the printed set total (the 165 in "006/165"), leaving out secret rares numbered ' +
+    'above it and unnumbered subset cards (TG01, GG01). Numbered is computed live and ' +
+    'reported as not available for a set with no printed total. Without set_id: ' +
     // "EVERY SET WITH ANY PROGRESS" — SAID PLAINLY, BECAUSE IT USED TO BE SOLD
     // AS "EVERY SET". The overview reads `FROM user_set_progress WHERE user_id
     // = $1 … HAVING max(owned_required) > 0`: a set the reader owns nothing
@@ -1097,9 +1145,13 @@ const setProgressTool = defineTool({
           '"what sets exist" questions.',
       ),
     goal: z
-      .enum(GOALS)
+      .enum(SET_PROGRESS_GOALS)
       .optional()
-      .describe('Which goal to rank by / list missing cards for. Defaults to user_settings.default_goal.'),
+      .describe(
+        'Which goal to rank by / list missing cards for. Defaults to user_settings.default_goal. ' +
+          "'numbered' answers questions about the regular, main or numbered set without secret " +
+          "rares (cards 1 to the printed total, one of any variant each); it is never the default.",
+      ),
     rarity: z
       .array(z.string())
       .optional()
@@ -1113,7 +1165,7 @@ const setProgressTool = defineTool({
       .describe(
         "With set_id: leave these rarities OUT, e.g. ['Special illustration rare']. Rarity is NOT variant tier — " +
           "an Illustration Rare and a Special Illustration Rare are both tier 'standard', so a tier filter cannot " +
-          'express this.',
+          "express this. To leave out the secret rares above the printed total, use goal 'numbered' instead.",
       ),
     page: pageArg,
     page_size: pageSizeArg,
@@ -1121,7 +1173,7 @@ const setProgressTool = defineTool({
   annotations: { readOnlyHint: true, idempotentHint: true },
   handler: async (args, ctx) => {
     try {
-      const goal: Goal = args.goal ?? (await defaultGoal(ctx));
+      const goal: SetProgressGoal = args.goal ?? (await defaultGoal(ctx));
       const offset = (args.page - 1) * args.page_size;
 
       // Rarity filters. Bound as $5/$6 for every branch of the query below,
@@ -1219,6 +1271,78 @@ const setProgressTool = defineTool({
           [ctx.userId],
         );
         const total = Number(totalRow?.total ?? 0);
+        if (goal === 'numbered') {
+          // The same sets as the stored-goal overview (any progress at all),
+          // ranked by numbered completion computed live. Not stored, so it is
+          // derived here from card rows: numbered cards per set, and how many
+          // of them the reader owns in any variant.
+          if (total === 0) return ok('No sets have any progress yet.');
+          const rows = await q<NumberedOverviewRow>(
+            ctx.db,
+            `WITH progressed AS (
+               SELECT p.set_id FROM user_set_progress p
+                WHERE p.user_id = $1 GROUP BY p.set_id ${having}),
+             owned AS (
+               SELECT DISTINCT cv.card_id
+                 FROM collection_item ci
+                 JOIN card_variant cv ON cv.id = ci.card_variant_id
+                WHERE ci.user_id = $1 AND ci.quantity > 0),
+             numbered AS (
+               SELECT c.set_id, count(*) AS n_total, count(o.card_id) AS n_owned
+                 FROM card c
+                 JOIN card_set cs ON cs.id = c.set_id
+                 LEFT JOIN owned o ON o.card_id = c.id
+                WHERE c.set_id IN (SELECT set_id FROM progressed)
+                  AND ${numberedCard('c', 'cs.card_count_official')}
+                GROUP BY c.set_id)
+             SELECT cs.tcgdex_id AS set_tid, cs.name AS set_name, se.slug AS series_slug,
+                    cs.card_count_official AS printed_total, n.n_owned, n.n_total,
+                    max(p.owned_required) FILTER (WHERE p.goal = 'complete')    AS c_owned,
+                    max(p.total_required) FILTER (WHERE p.goal = 'complete')    AS c_total,
+                    max(p.owned_required) FILTER (WHERE p.goal = 'master')      AS m_owned,
+                    max(p.total_required) FILTER (WHERE p.goal = 'master')      AS m_total,
+                    max(p.owned_required) FILTER (WHERE p.goal = 'grandmaster') AS g_owned,
+                    max(p.total_required) FILTER (WHERE p.goal = 'grandmaster') AS g_total
+               FROM user_set_progress p
+               JOIN progressed pr ON pr.set_id = p.set_id
+               JOIN card_set cs   ON cs.id = p.set_id
+               JOIN series se     ON se.id = cs.series_id
+               LEFT JOIN numbered n ON n.set_id = cs.id
+              WHERE p.user_id = $1
+              GROUP BY cs.id, cs.tcgdex_id, cs.name, se.slug, cs.card_count_official, n.n_owned, n.n_total
+              ORDER BY (CASE WHEN cs.card_count_official > 0 THEN n.n_owned::float / NULLIF(n.n_total, 0) END)
+                       DESC NULLS LAST, cs.tcgdex_id
+              LIMIT $2 OFFSET $3`,
+            [ctx.userId, args.page_size, offset],
+          );
+          let unavailable = false;
+          const lines = rows.map((r) => {
+            const known = hasPrintedTotal(r.printed_total);
+            if (!known) unavailable = true;
+            const nOwned = Number(r.n_owned ?? 0);
+            const nTotal = Number(r.n_total ?? 0);
+            return row(
+              `${r.set_name} (${r.set_tid})`,
+              `complete ${r.c_owned ?? 0}/${r.c_total ?? 0}`,
+              `master ${r.m_owned ?? 0}/${r.m_total ?? 0}`,
+              `grandmaster ${r.g_owned ?? 0}/${r.g_total ?? 0}`,
+              known ? `numbered ${nOwned}/${nTotal} (cards 1–${r.printed_total})` : 'numbered n/a',
+              known ? `${pctTxt(nOwned, nTotal)} numbered` : null,
+              `series ${r.series_slug}`,
+            );
+          });
+          return ok(
+            [
+              'Sets with progress, sorted by numbered completion (one of any variant of each card numbered 1 to the printed set total):',
+              ...lines,
+              pagingFooter(args.page, args.page_size, total),
+              ...(unavailable
+                ? ['numbered n/a = the catalog has no printed set total for that set, so its numbered set is not computed (not guessed).']
+                : []),
+            ].join('\n'),
+            { total, goal },
+          );
+        }
         const rows = await q<OverviewRow>(
           ctx.db,
           `SELECT cs.tcgdex_id AS set_tid, cs.name AS set_name, se.slug AS series_slug,
@@ -1310,16 +1434,74 @@ const setProgressTool = defineTool({
         [ctx.userId, setId],
       );
       const byGoal = new Map(goalRows.map((g) => [g.goal, g]));
+      const header = `${set.name} (${set.tid})${set.released_on ? ` — released ${set.released_on}` : ''} · series ${set.series_slug}`;
+      const storedGoalsLine = (): string =>
+        GOALS.map((g) => {
+          const r = byGoal.get(g);
+          return r
+            ? `${g} ${r.owned_required}/${r.total_required} (${pctTxt(Number(r.owned_required), Number(r.total_required))})`
+            : `${g} —`;
+        }).join(' · ');
+      const untouchedLine = 'no progress rows yet (set untouched — counts below are computed live)';
+
+      // `numbered`: the set's printed total decides which cards are in it. No
+      // printed total, no numbered set — said plainly, not approximated.
+      let numbered: { printed: number; owned: number; total: number; outside: number } | null = null;
+      if (goal === 'numbered') {
+        const summary = await q1<NumberedSummaryRow>(
+          ctx.db,
+          `WITH owned AS (
+             SELECT DISTINCT cv.card_id
+               FROM collection_item ci
+               JOIN card_variant cv ON cv.id = ci.card_variant_id
+               JOIN card oc         ON oc.id = cv.card_id
+              WHERE ci.user_id = $2 AND ci.quantity > 0 AND oc.set_id = $1)
+           SELECT cs.card_count_official AS printed_total,
+                  count(c.id) AS all_cards,
+                  count(c.id) FILTER (WHERE ${numberedCard('c', 'cs.card_count_official')}) AS n_total,
+                  count(o.card_id) FILTER (WHERE ${numberedCard('c', 'cs.card_count_official')}) AS n_owned
+             FROM card_set cs
+             LEFT JOIN card c  ON c.set_id = cs.id
+             LEFT JOIN owned o ON o.card_id = c.id
+            WHERE cs.id = $1
+            GROUP BY cs.id, cs.card_count_official`,
+          [setId, ctx.userId],
+        );
+        if (!summary || !hasPrintedTotal(summary.printed_total)) {
+          const lines = [
+            header,
+            ...(goalRows.length > 0 ? [storedGoalsLine()] : []),
+            `numbered: not available — ${set.name} has no printed set total in the catalog, so the cards ` +
+              'inside its numbered set cannot be told apart from cards numbered above it (secret rares). ' +
+              "Nothing was guessed; goal 'complete' covers every card in the set.",
+          ];
+          if (setNote) lines.push(setNote);
+          return ok(lines.join('\n'), { set: set.tid, goal, printed_total: null, missing: null });
+        }
+        const total = Number(summary.n_total);
+        numbered = {
+          printed: Number(summary.printed_total),
+          owned: Number(summary.n_owned),
+          total,
+          outside: Number(summary.all_cards) - total,
+        };
+      }
 
       // Missing required items for the goal. complete = card-level (no owned
       // variant); master = master_required_variant minus owned; grandmaster =
       // ALL variants minus owned (mirrors recomputeSetProgress: grand_total
       // counts every variant, so the numbers reconcile with user_set_progress).
+      // numbered = complete's card-level rule, over the numbered cards only.
       const notOwnedVariant = `NOT EXISTS (
         SELECT 1 FROM collection_item ci
          WHERE ci.card_variant_id = req.card_variant_id AND ci.user_id = $2 AND ci.quantity > 0)`;
       let missingCore: string;
-      if (goal === 'complete') {
+      if (goal === 'complete' || goal === 'numbered') {
+        const numberedOnly =
+          goal === 'numbered'
+            ? `
+               AND ${numberedCard('c', '(SELECT card_count_official FROM card_set WHERE id = $1)')}`
+            : '';
         missingCore = `
           missing AS (
             SELECT c.id AS card_id, c.name, c.local_id, c.number_sort, c.rarity
@@ -1329,7 +1511,7 @@ const setProgressTool = defineTool({
                  SELECT 1 FROM collection_item ci
                  JOIN card_variant cv ON cv.id = ci.card_variant_id
                 WHERE cv.card_id = c.id AND ci.user_id = $2 AND ci.quantity > 0)
-               ${rarityWhere('c.rarity')}),
+               ${rarityWhere('c.rarity')}${numberedOnly}),
           cheapest AS (
             SELECT DISTINCT ON (cv.card_id) cv.card_id, cv.variant_kind_code, pc.market_minor AS cheap_minor
               FROM card_variant cv
@@ -1382,20 +1564,30 @@ const setProgressTool = defineTool({
         [setId, ctx.userId, rarityIn, rarityOut, args.page_size, offset],
       );
 
-      const lines: string[] = [
-        `${set.name} (${set.tid})${set.released_on ? ` — released ${set.released_on}` : ''} · series ${set.series_slug}`,
-      ];
+      const lines: string[] = [header];
       if (goalRows.length > 0) {
         lines.push(
-          GOALS.map((g) => {
-            const r = byGoal.get(g);
-            return r
-              ? `${g} ${r.owned_required}/${r.total_required} (${pctTxt(Number(r.owned_required), Number(r.total_required))})`
-              : `${g} —`;
-          }).join(' · ') + ` · ${byGoal.get(goal)?.total_quantity ?? 0} copies held (${goal})`,
+          goal === 'numbered'
+            ? storedGoalsLine()
+            : storedGoalsLine() + ` · ${byGoal.get(goal)?.total_quantity ?? 0} copies held (${goal})`,
         );
       } else {
-        lines.push('no progress rows yet (set untouched — counts below are computed live)');
+        lines.push(untouchedLine);
+      }
+      if (numbered) {
+        const n = numbered;
+        const notes = [
+          `numbered ${n.owned}/${n.total} (${pctTxt(n.owned, n.total)}) — cards numbered 1–${n.printed}, ` +
+            'the printed set total; one of any variant each',
+        ];
+        if (n.total !== n.printed) notes.push(`the catalog holds ${n.total} cards in that range, not ${n.printed}`);
+        if (n.outside > 0) {
+          notes.push(
+            `${n.outside} other card${n.outside === 1 ? '' : 's'} in the set (secret rares above ${n.printed}, ` +
+              'unnumbered subset cards) not counted',
+          );
+        }
+        lines.push(notes.join('; '));
       }
 
       const missingTotal = Number(agg?.missing ?? 0);
@@ -1416,7 +1608,19 @@ const setProgressTool = defineTool({
       }
       // The by-name footnote goes LAST, so it never pushes the answer down.
       if (setNote) lines.push(setNote);
-      return ok(lines.join('\n'), { set: set.tid, goal, missing: missingTotal });
+      return ok(
+        lines.join('\n'),
+        numbered
+          ? {
+              set: set.tid,
+              goal,
+              missing: missingTotal,
+              printed_total: numbered.printed,
+              numbered_owned: numbered.owned,
+              numbered_total: numbered.total,
+            }
+          : { set: set.tid, goal, missing: missingTotal },
+      );
     } catch (err) {
       return fail(`set_progress failed: ${errText(err)}`);
     }

@@ -13,6 +13,7 @@ import assert from 'node:assert/strict'
 import http from 'node:http'
 import type pg from 'pg'
 import { checkDeck, ownedDeck } from '../deckCheck.js'
+import { withToolCtx } from '../ctx.js'
 
 const MINE = '11111111-1111-4111-8111-111111111111'
 const THEIRS = '22222222-2222-4222-8222-222222222222'
@@ -60,11 +61,13 @@ async function fakeApi(): Promise<{
 
 /** Exactly what `chat.mjs` builds: no `api`, no `db` — those are this module's job. */
 const toolCtx = (base: string) => ({ pool: {} as pg.Pool, userId: 'reader', jwt: 'reader-token', apiBase: base })
+// The way chat.mjs calls both: inside withToolCtx, which builds the Ctx (and its api).
+const asReader = <T>(base: string, fn: (ctx: Parameters<typeof checkDeck>[0]) => Promise<T>) => withToolCtx(toolCtx(base), fn)
 
 test('checkDeck takes the chat turn\'s tool options and reaches the API as the reader', async () => {
   const api = await fakeApi()
   try {
-    const result = await checkDeck(toolCtx(api.base), { format: 'standard', cards: [{ card_id: 'sv01-1', quantity: 4 }] })
+    const result = await asReader(api.base, (ctx) => checkDeck(ctx, { format: 'standard', cards: [{ card_id: 'sv01-1', quantity: 4 }] }))
     assert.equal(result.total, 4)
     assert.deepEqual(api.seen.map((r) => [r.method, r.path, r.auth]), [['POST', '/api/decks/check', 'Bearer reader-token']])
     assert.deepEqual(api.seen[0]!.body, { format: 'standard', cards: [{ card_id: 'sv01-1', quantity: 4 }] })
@@ -76,12 +79,12 @@ test('checkDeck takes the chat turn\'s tool options and reaches the API as the r
 test('ownedDeck finds a deck among the reader\'s own and nowhere else', async () => {
   const api = await fakeApi()
   try {
-    assert.deepEqual(await ownedDeck(toolCtx(api.base), MINE), { deck: { id: MINE, name: 'Dragapult ex' } })
-    assert.deepEqual(await ownedDeck(toolCtx(api.base), 'Dragapult ex'), { deck: { id: MINE, name: 'Dragapult ex' } },
+    assert.deepEqual(await asReader(api.base, (ctx) => ownedDeck(ctx, MINE)), { deck: { id: MINE, name: 'Dragapult ex' } })
+    assert.deepEqual(await asReader(api.base, (ctx) => ownedDeck(ctx, 'Dragapult ex')), { deck: { id: MINE, name: 'Dragapult ex' } },
       'an exact name is the deck it names')
-    const theirs = await ownedDeck(toolCtx(api.base), THEIRS)
+    const theirs = await asReader(api.base, (ctx) => ownedDeck(ctx, THEIRS))
     assert.ok('miss' in theirs, 'another account\'s deck id must not resolve')
-    const near = await ownedDeck(toolCtx(api.base), 'Dragapult')
+    const near = await asReader(api.base, (ctx) => ownedDeck(ctx, 'Dragapult'))
     assert.ok('miss' in near, 'a near name is a choice, never a pick')
     assert.ok(api.seen.every((r) => r.auth === 'Bearer reader-token'), 'every lookup goes as the reader')
   } finally {

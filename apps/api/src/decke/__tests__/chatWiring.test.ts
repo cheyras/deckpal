@@ -388,11 +388,13 @@ test('Anthropic prompt caching, deck checks and the expanded step budget are wir
   // package does not declare it, so the deployed function could not load it.
   assert.match(CODE, /import \{ checkDeck, ownedDeck \} from '\.\.\/apps\/api\/dist\/decke\/deckCheck\.js'/);
   assert.doesNotMatch(CODE, /from '@deckpal\/agent-tools'/);
-  // Both take the turn's tool OPTIONS and build the tool Ctx themselves
-  // (deckCheck.ts). `toolCtx` has no `api`; handing it to the shared
-  // `checkDeck(ctx, …)` directly is what made every showDeck throw.
-  assert.match(CODE, /checkDeck: \(input\) => checkDeck\(toolCtx, input\)/);
-  assert.match(CODE, /ownedDeck: \(ref\) => ownedDeck\(toolCtx, ref\)/);
+  // This pin used to bless `checkDeck(toolCtx, input)` — the bug itself:
+  // `toolCtx` is a Ctx's OPTIONS and has no `api`. The behaviour is now driven
+  // end to end by deckCheckWiring.test.ts; this only keeps the raw shape out.
+  assert.match(CODE, /checkDeck: \(input\) => withToolCtx\(toolCtx, \(ctx\) => checkDeck\(ctx, input\)\)/);
+  assert.match(CODE, /ownedDeck: \(ref\) => withToolCtx\(toolCtx, \(ctx\) => ownedDeck\(ctx, ref\)\)/);
+  assert.doesNotMatch(CODE, /checkDeck\(toolCtx\b/);
+  assert.doesNotMatch(CODE, /ownedDeck\(toolCtx\b/);
   assert.match(CODE, /for \(const output of replayedToolOutputs\(messages\)\) grounding\.observe\(output\)/);
 });
 
