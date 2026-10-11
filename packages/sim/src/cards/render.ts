@@ -315,6 +315,7 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c35.moveOppEnergy': () => "Move an Energy from 1 of your opponent's Pokémon to another of their Pokémon: choose one Energy card attached to an opposing Pokémon, then another opposing Pokémon to receive it; a Pokémon protected from the effects of attacks can neither give nor receive it",
   // std-c37-customs.ts
   'c37.moveAllCounters': () => `Move all damage counters from your Benched Pokémon chosen as "from" to your opponent's Pokémon chosen as "to" (lost if it is protected; none move under a lock on moving counters)`,
+  'c36.benchEnergyToActive': (a) => `Choose up to ${Number(a.max ?? 2)} (at least 1) of the Energy cards attached to your Benched Pokémon and move them to your Active Pokémon (nothing without Energy on the Bench)`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -2406,5 +2407,22 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv10.5w-010|attack:Giga Drain': {
     problems: ['similarity'],
     why: 'The same arithmetic as Volcarona, Leech Life (above): "the same amount of damage you did" is the change in the damage counters on the Defending Pokémon across the attack, so the renderer spells it out; the card test checks it heals exactly the damage dealt, after Weakness.',
+  },
+  // std-c36
+  'sv10.5b-049|ability:Craftsmanship': {
+    problems: ['"each" is printed but not rendered', 'similarity'],
+    why: '"+40 HP for each {F} Energy attached" is ten statics, one per count of {F} Energy (the HP delta of a static is a fixed number): each adds 40 once the Pokémon has at least n {F} Energy provided, n = 1 to 10; the renderer words each one out, and the card test pins the HP at 0, 1, 2 and 3 Energy, with Legacy Energy (counts) and Prism Energy (does not, on a Stage 2).',
+  },
+  'sv10.5b-052|ability:Sturdy': {
+    problems: ['the rendering involves the opponent'],
+    why: "surviveKoAtFullHp is the one engine clause for 'would be Knocked Out by damage from an attack at full HP' and it only reacts to damage from an opponent's attack; damage from an attack of the controller's own Pokémon is not covered. The renderer's trailing 'discard this card' is the Tool half of the clause and does not apply to an Ability source (same as Pikachu ex, Resolute Heart).",
+  },
+  'sv10.5b-072|attack:Fly': {
+    problems: ['"heads" is printed but not rendered'],
+    why: '"Flip a coin. If tails, this attack does nothing. If heads, ...": one coin; the tails branch ends the attack and everything after it (the damage and the prevention) is the heads branch, so there is no separate "heads" check to render.',
+  },
+  'sv10.5w-003|attack:Healing Wrapping': {
+    problems: ['"Basic" is printed but not rendered'],
+    why: 'c27.healEach takes a Pokémon filter ({ stage: basic }); its gloss only words a type filter, so "Basic" is not rendered. The card test pins that a Basic is healed and an Evolution on the Bench is not.',
   },
 };

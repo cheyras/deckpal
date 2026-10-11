@@ -49,6 +49,7 @@ import { STD_C32 } from './std-c32.js';
 import { STD_C33 } from './std-c33.js';
 import { STD_C34 } from './std-c34.js';
 import { STD_C35 } from './std-c35.js';
+import { STD_C36 } from './std-c36.js';
 import { STD_C37 } from './std-c37.js';
 import { STD_C39 } from './std-c39.js';
 import { STD_C40 } from './std-c40.js';
@@ -63,4 +64,4 @@ import { STD_SEED2 } from './std-seed2.js';
 import { STD_SEED3 } from './std-seed3.js';
 import { STD_SEED4 } from './std-seed4.js';
 
-export const SCRIPTS: CardScript[] = [...SV, ...ME, ...GHOST, ...FIGHTING, ...METAL, ...MISC, ...META_BLAZIKEN, ...META_CHARIZARD, ...META_DARKRAI, ...META_EXCADRILL, ...META_GRIMMSNARL, ...META_TREVENANT, ...META_ZOROARK, ...OPP, ...STD_C01, ...STD_C02, ...STD_C03, ...STD_C04, ...STD_C05, ...STD_C06, ...STD_C07, ...STD_C08, ...STD_C09, ...STD_C10, ...STD_C11, ...STD_C12, ...STD_C13, ...STD_C14, ...STD_C15, ...STD_C16, ...STD_C17, ...STD_C18, ...STD_C19, ...STD_C20, ...STD_C21, ...STD_C22, ...STD_C23, ...STD_C24, ...STD_C25, ...STD_C26, ...STD_C27, ...STD_C28, ...STD_C29, ...STD_C30, ...STD_C31, ...STD_C32, ...STD_C33, ...STD_C34, ...STD_C35, ...STD_C37, ...STD_C39, ...STD_C40, ...STD_ENGINE, ...STD_ENGINE2, ...STD_ENGINE3, ...STD_GEN, ...STD_H01, ...STD_S01, ...STD_SEED1, ...STD_SEED2, ...STD_SEED3, ...STD_SEED4];
+export const SCRIPTS: CardScript[] = [...SV, ...ME, ...GHOST, ...FIGHTING, ...METAL, ...MISC, ...META_BLAZIKEN, ...META_CHARIZARD, ...META_DARKRAI, ...META_EXCADRILL, ...META_GRIMMSNARL, ...META_TREVENANT, ...META_ZOROARK, ...OPP, ...STD_C01, ...STD_C02, ...STD_C03, ...STD_C04, ...STD_C05, ...STD_C06, ...STD_C07, ...STD_C08, ...STD_C09, ...STD_C10, ...STD_C11, ...STD_C12, ...STD_C13, ...STD_C14, ...STD_C15, ...STD_C16, ...STD_C17, ...STD_C18, ...STD_C19, ...STD_C20, ...STD_C21, ...STD_C22, ...STD_C23, ...STD_C24, ...STD_C25, ...STD_C26, ...STD_C27, ...STD_C28, ...STD_C29, ...STD_C30, ...STD_C31, ...STD_C32, ...STD_C33, ...STD_C34, ...STD_C35, ...STD_C36, ...STD_C37, ...STD_C39, ...STD_C40, ...STD_ENGINE, ...STD_ENGINE2, ...STD_ENGINE3, ...STD_GEN, ...STD_H01, ...STD_S01, ...STD_SEED1, ...STD_SEED2, ...STD_SEED3, ...STD_SEED4];
