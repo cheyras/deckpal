@@ -317,8 +317,11 @@ function effectKey(env: Env, f: Frame): string {
   const prog = JSON.stringify(env.ctx.code.get(f.code));
   // A program that may read or change something about the Pokémon or card it comes from (self, the defender, a custom function, a use
   // note) is bound to that source: copies on different Pokémon are different effects. Only a program with none of those may be merged.
-  const bound = /"self"|"defender"|"custom"|"used"|"attacker"|"this"/.test(prog);
-  return [prog, f.player, JSON.stringify(f.vars), def(env.ctx, f.src).name, bound ? `${f.slot}:${f.src}` : ''].join('|');
+  // A card that only discards itself (Ignition Energy) does not depend on anything else about its source.
+  const rest = prog.replace(/{[^{}]*"fn":"discardThisCard"[^{}]*}/g, '');
+  const onPokemon = /"self"|"defender"|"attacker"|"this"/.test(rest);
+  const onCard = /"custom"|"used"/.test(rest);
+  return [prog, f.player, JSON.stringify(f.vars), def(env.ctx, f.src).name, onPokemon || onCard ? f.slot : '', onCard ? f.src : ''].join('|');
 }
 
 /**
