@@ -282,11 +282,18 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c27.lookDeckPick': (a) => `Look at the ${a.from === 'bottom' ? 'bottom' : 'top'} ${Number(a.n ?? 7)} cards of your deck. You may reveal ${((a.picks as Filter[]) ?? []).map((p) => (p.cat === 'trainer' ? 'a Trainer card' : p.cat === 'pokemon' ? 'a Pokémon' : 'a card')).join(' and ')} you find there and put ${((a.picks as Filter[]) ?? []).length > 1 ? 'them' : 'it'} into your hand. Shuffle the other cards back into your deck`,
   'c27.discardOppToolsAndSpecialEnergy': () => "Discard all Pokémon Tools and Special Energy from all of your opponent's Pokémon (Active and Benched)",
   'c27.moveEnergyBetween': (a) => `You may choose 1 or more of the Energy attached to the Pokémon "${String(a.from ?? 'old')}" and move them to the Pokémon "${String(a.to ?? 't')}"`,
+  // std-c31-customs.ts
+  'c31.redeemableTicket': () => 'Count your Prize cards, shuffle them and put them on the bottom of your deck, then take that many cards from the top of your deck and put them face down as your Prize cards',
+  'c31.drawFromBottom': (a) => `Draw ${Number(a.n ?? 1)} cards from the bottom of your deck`,
+  'c31.countersOnAttacker': (a) => `Put ${Number(a.n ?? 1)} damage counters on the Attacking Pokémon (the Pokémon that used the attack), wherever it is now`,
+  'c31.lookAtOppPrize': () => "Look at 1 of your opponent's face-down Prize cards (it stays where it is, and your opponent does not see it)",
+  'c31.tallyChoices': (a) => `Total the ${Number(a.n ?? 6)} choices made as "${String(a.from ?? 'a')}1" onwards per Pokémon: each distinct Pokémon chosen gets ${Number(a.per ?? 20)} damage for each time it was chosen (into "${String(a.into ?? 't')}" and "${String(a.amounts ?? 'k')}")`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
 export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) => string> = {
   countersMovable: () => 'damage counters can be moved (no effect on either side stops it)',
+  'c31.koByAttackLastTurn': (a) => `one of your Pokémon with "${String(a.nameIncludes)}" in its name was Knocked Out by damage from an attack during your opponent's last turn`,
   'trevenant.hopsKoByAttackLastTurn': () => "one of your Pokémon with \"Hop's\" in its name was Knocked Out by damage from an attack during your opponent's last turn", // lane:trevenant
   'std.attackKoLastTurn': () => "one of your Pokémon was Knocked Out by damage from an attack during your opponent's last turn",
   'seed3.defenderKnockedOutByThisAttack': () => "your opponent's Pokémon (the Defending Pokémon) was damaged by this attack and now has damage equal to or over its HP (it is Knocked Out)",
@@ -2185,5 +2192,18 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'sv08-176|text': {
     problems: ['"any number of" is printed but not rendered'],
     why: 'Any number of Basic Energy of different types is one card of each of the 8 types at most (oneEach, 0 to 8 cards), which renders as the list of types; the ruling (#2063) that a type can be taken only once is what the list says.',
+  },
+  // std-c31
+  'sv10-014|attack:Petal Blade Dance': {
+    problems: ["\"can't\" is printed but not rendered"],
+    why: "\"If you can't discard 2 cards\" is the case of fewer than 2 Basic {G} Energy cards in hand: the choice comes back with fewer than 2 cards, and the discard and the damage are inside the \"if you chose 2 or more cards\" branch, so nothing happens and nothing is discarded.",
+  },
+  'sv10-018|attack:Hydra Breath': {
+    problems: ["\"can't\" is printed but not rendered"],
+    why: "\"If you can't discard 6 cards\" is the case of fewer than 6 Basic {G} Energy cards in hand: the choice comes back with fewer than 6 cards, and the discard and the Knock Out are inside the \"if you chose 6 or more cards\" branch, so nothing happens and nothing is discarded (ruling 2158).",
+  },
+  'sv10-023|attack:Oil Salvo': {
+    problems: ['similarity'],
+    why: 'The six choices are six separate choose steps, totalled per Pokémon by one custom and then damaged once each (up to six distinct Pokémon, each with its total, so that damage modifiers apply to the total, ruling 2161); the rendering repeats the choice and the damage clause six times, which the printed text says once.',
   },
 };
