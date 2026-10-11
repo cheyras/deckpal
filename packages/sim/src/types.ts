@@ -290,6 +290,14 @@ export interface GameState {
   attackByCard?: number;
   /** Slot ids the current attack has damaged (opposing Pokémon only). Replace, never mutate: clones share it. */ // lane:fighting
   attackHits?: number[]; // lane:fighting
+  /** Attacks used this turn (the current player's), reset at turn start: "may attack twice" (attackTwice). */
+  attackUses?: number;
+  /** The first attack of this turn was one printed on an attached Tool (a Technical Machine): Festival Lead doesn't work with it. */
+  attackedViaTool?: boolean;
+  /** An effect ended the turn (the `endTurn` step): no further attack this turn. */
+  noMoreAttacks?: boolean;
+  /** The player who played the Stadium that last changed Bench sizes, kept so that when it leaves play that player discards first. */
+  benchOwner?: Player;
   /** Triggered effects waiting for the stack to empty. */
   queued: Frame[];
   /** A Trainer card being played: out of the hand, not yet in the discard pile. */
@@ -317,7 +325,8 @@ export type Action =
   | { t: 'retreat' }
   | { t: 'ability'; slot: number; idx: number }
   | { t: 'stadium' }
-  | { t: 'attack'; idx: number };
+  /** `card`: an attack printed on an attached Tool (instance id of that card) that the Pokémon can use; `idx` indexes the attacks of that card. */
+  | { t: 'attack'; idx: number; card?: number };
 
 export type DecisionKind =
   | 'main'
@@ -361,7 +370,9 @@ export interface Pending {
     | { k: 'setupBench'; p: Player }
     | { k: 'mulliganDraws'; p: Player }
     | { k: 'extraBench'; p: Player }
-    | { k: 'promote'; p: Player };
+    | { k: 'promote'; p: Player }
+    /** A player with more Benched Pokémon than their Bench allows chooses which to discard. */
+    | { k: 'benchDiscard'; p: Player };
 }
 
 // ---------------------------------------------------------------------------

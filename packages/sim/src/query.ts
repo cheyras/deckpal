@@ -8,10 +8,10 @@
  * controller. `statics()` gathers every live one; the queries filter it.
  */
 import { def, type Env } from './context.js';
-import type { Filter, PType, Scope, SpecialCondition, StaticEffect } from './dsl.js';
+import type { Filter, PlayLock, PType, Scope, SpecialCondition, StaticEffect } from './dsl.js';
 import { cardMatches, defMatches, evalCond, evalExpr, providesOn, pushUnits, slotMatches, type EnergyUnit, type EvalCtx } from './eval.js';
 import { allSlots, findSlot, opp, topCard } from './state.js';
-import type { GameState, Player, Slot } from './types.js';
+import type { AttackDef, CardDef, GameState, Player, Slot } from './types.js';
 
 export interface LiveStatic {
   effect: StaticEffect;
@@ -194,11 +194,37 @@ export function retreatCost(env: Env, s: GameState, slot: Slot, all = statics(en
   return Math.max(0, cost);
 }
 
-export function attackCost(env: Env, s: GameState, slot: Slot, idx: number, all = statics(env, s)): PType[] {
+/** One attack the active Pokémon can use: a printed one (`card` unset) or one printed on an attached Tool that grants it (`card` = that Tool). */
+export interface AttackOption {
+  idx: number;
+  card?: number;
+  /** The card the attack is printed on (the Pokémon's top card, or the Tool). */
+  d: CardDef;
+  atk: AttackDef;
+}
+
+/** The attacks a Pokémon can use: its printed ones, then those of attached Tools that grant them (`grantsAttacks`). */
+export function attackOptions(env: Env, s: GameState, slot: Slot, all = statics(env, s)): AttackOption[] {
   const d = def(env.ctx, topCard(slot));
+  const out: AttackOption[] = d.attacks.map((atk, idx) => ({ idx, d, atk }));
+  for (const x of onSlot(env, s, all, slot, 'grantsAttacks')) {
+    if (x.kind !== 'tool') continue;
+    const td = def(env.ctx, x.src);
+    td.attacks.forEach((atk, idx) => out.push({ idx, card: x.src, d: td, atk }));
+  }
+  return out;
+}
+
+/**
+ * An attack's cost after the effects that set or change it, and how many requirements of any type the player may leave out
+ * (`attackCostLess`). `card`: the attack is printed on that attached Tool (see `attackOptions`).
+ */
+export function attackCostParts(env: Env, s: GameState, slot: Slot, idx: number, all = statics(env, s), card?: number): { cost: PType[]; waive: number } {
+  const d = def(env.ctx, card ?? topCard(slot));
   const atk = d.attacks[idx];
-  if (!atk) return [];
+  if (!atk) return { cost: [], waive: 0 };
   let cost = atk.cost.slice();
+  let waive = 0;
   for (const x of onSlot(env, s, all, slot, 'attackCostSet')) {
     const e = x.effect as { attack: string; cost: PType[] };
     if (e.attack === atk.name) cost = e.cost.slice();
@@ -215,7 +241,31 @@ export function attackCost(env: Env, s: GameState, slot: Slot, idx: number, all 
       }
     } else for (let i = 0; i < delta; i++) cost.push('Colorless');
   }
+  for (const x of onSlot(env, s, all, slot, 'attackCostLess')) {
+    const e = x.effect as { n: number; attack?: string };
+    if (e.attack && e.attack !== atk.name) continue;
+    waive += e.n;
+  }
+  return { cost, waive: Math.min(waive, cost.length) };
+}
+
+/**
+ * The Energy an attack needs, with "costs N Energy less (of any type)" taken off: {C} first, then the last typed requirement. An
+ * estimate for heuristics when the reduction is not all {C}; whether a Pokémon can really pay is `canPayAttack`.
+ */
+export function attackCost(env: Env, s: GameState, slot: Slot, idx: number, all = statics(env, s), card?: number): PType[] {
+  const { cost, waive } = attackCostParts(env, s, slot, idx, all, card);
+  for (let i = 0; i < waive; i++) {
+    const j = cost.lastIndexOf('Colorless');
+    cost.splice(j >= 0 ? j : cost.length - 1, 1);
+  }
   return cost;
+}
+
+/** Can the Pokémon pay this attack with the Energy it has (units), leaving out any requirements the attack's cost effects waive? */
+export function canPayAttack(env: Env, s: GameState, slot: Slot, idx: number, units: readonly EnergyUnit[], all = statics(env, s), card?: number): boolean {
+  const { cost, waive } = attackCostParts(env, s, slot, idx, all, card);
+  return canPay(cost, units, waive);
 }
 
 /** Energy units a Pokémon has: one entry per unit, each a type (Colorless = only Colorless). */
@@ -233,7 +283,20 @@ export function cardUnits(env: Env, slot: Slot, card: number): EnergyUnit[] {
 }
 
 /** Can these units pay this cost? Typed requirements first (exact type, then an 'Any' unit), Colorless from anything left. */
-export function canPay(cost: readonly PType[], units: readonly EnergyUnit[]): boolean {
+export function canPay(cost: readonly PType[], units: readonly EnergyUnit[], waive = 0): boolean {
+  if (waive > 0) {
+    if (waive >= cost.length) return true; // every requirement is left out
+    // "Costs N Energy less, of any type": leave out N requirements, whichever helps. Leaving out a typed one is never worse than
+    // leaving out a {C} (anything that pays the typed one pays a {C} too), so try each distinct type, then {C}.
+    const tried = new Set<PType>();
+    for (let i = 0; i < cost.length; i++) {
+      const t = cost[i] as PType;
+      if (tried.has(t)) continue;
+      tried.add(t);
+      if (canPay(cost.filter((_, j) => j !== i), units, waive - 1)) return true;
+    }
+    return false;
+  }
   if (cost.length > units.length) return false;
   const pool = units.slice();
   for (const t of cost) {
@@ -248,6 +311,7 @@ export function canPay(cost: readonly PType[], units: readonly EnergyUnit[]): bo
 }
 
 export function weaknessOf(env: Env, s: GameState, slot: Slot, all = statics(env, s)): PType | null {
+  if (onSlot(env, s, all, slot, 'noWeakness').length) return null;
   const over = onSlot(env, s, all, slot, 'weaknessType');
   if (over.length) return (over[over.length - 1]!.effect as { type: PType }).type;
   return def(env.ctx, topCard(slot)).weakness;
@@ -338,7 +402,16 @@ export function damageOut(env: Env, s: GameState, attacker: Slot, target: Slot, 
 }
 
 /** `fromPlayer`: whose attack it is (lane:metal) — a `fromOpp` reduction skips the target owner's own attacks. */
-export function damageIn(env: Env, s: GameState, target: Slot, all = statics(env, s), fromPlayer?: Player, attacker?: Slot): number {
+export function damageIn(
+  env: Env,
+  s: GameState,
+  target: Slot,
+  all = statics(env, s),
+  fromPlayer?: Player,
+  attacker?: Slot,
+  /** Out: the cards (Tools) whose reducing effect applied, for the `damageReduced` trigger. */
+  reducers?: number[],
+): number {
   let n = 0;
   const once = new Set<string>(); // noStack keys already counted
   for (const x of onSlot(env, s, all, target, 'damageIn')) {
@@ -350,6 +423,7 @@ export function damageIn(env: Env, s: GameState, target: Slot, all = statics(env
       once.add(e.noStack);
     }
     n += e.amount;
+    if (reducers && e.amount < 0 && x.kind === 'tool') reducers.push(x.src);
   }
   return n;
 }
@@ -461,8 +535,35 @@ export function itemLocked(env: Env, s: GameState, p: Player, all = statics(env,
   return all.some((x) => x.effect.k === 'itemLock' && affectsPlayer(x, p));
 }
 
-export function benchLimit(_env: Env, _s: GameState, _p: Player): number {
-  return 5;
+/** Is this player stopped from playing these cards from their hand right now (a `playLock` of that kind applies to them)? */
+export function playLocked(env: Env, s: GameState, p: Player, what: PlayLock, all = statics(env, s)): boolean {
+  return all.some((x) => x.effect.k === 'playLock' && x.effect.what === what && affectsPlayer(x, p));
+}
+
+/**
+ * Are the effects of an Item / Supporter card that `fromPlayer` plays from their hand, done to this Pokémon, prevented
+ * (`preventTrainerEffects`)? Never for the player's own Pokémon.
+ */
+export function trainerEffectsPrevented(env: Env, s: GameState, slot: Slot, fromPlayer: Player, ttype: 'item' | 'supporter', all = statics(env, s)): boolean {
+  if (ownerOf(s, slot) === fromPlayer) return false;
+  return onSlot(env, s, all, slot, 'preventTrainerEffects').some((x) => (x.effect as { from: string[] }).from.includes(ttype));
+}
+
+/** May this Pokémon attack twice each turn right now (an `attackTwice` static that is in force)? */
+export function canAttackTwice(env: Env, s: GameState, slot: Slot, all = statics(env, s)): boolean {
+  return onSlot(env, s, all, slot, 'attackTwice').length > 0;
+}
+
+/** How many Pokémon this player can have on their Bench: 5, or more under a `benchSize` effect whose condition they meet. */
+export function benchLimit(env: Env, s: GameState, p: Player, all = statics(env, s)): number {
+  let n = 5;
+  for (const x of all) {
+    if (x.effect.k !== 'benchSize' || !affectsPlayer(x, p) || x.effect.size <= n) continue;
+    const need = x.effect.withPokemon;
+    if (need && !allSlots(s.p[p]).some((sl) => slotMatches(env, sl, need))) continue;
+    n = x.effect.size;
+  }
+  return n;
 }
 
 /** Defs of a player's Pokémon in play, for filters like "if you have X in play". */

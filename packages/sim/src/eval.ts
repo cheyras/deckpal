@@ -6,6 +6,7 @@ import { def, type Env, type GameContext } from './context.js';
 import type { Cond, Expr, Filter, PType, SlotRef, SlotZone, SpecialCondition, Who } from './dsl.js';
 import { allSlots, findSlot, opp, topCard } from './state.js';
 import { CUSTOM_CONDS } from './customs.js'; // lane:ghost
+import { benchLimit } from './query.js';
 import type { CardDef, GameState, Player, Slot, Val } from './types.js';
 import { ASLEEP, BURNED, CONFUSED, PARALYZED, POISONED } from './types.js'; // lane:metal
 
@@ -233,6 +234,10 @@ export function evalExpr(env: Env, s: GameState, ec: EvalCtx, e: Expr): number {
   }
   if ('handSize' in e) return s.p[side(ec, e.handSize)].hand.length;
   if ('deckSize' in e) return s.p[side(ec, e.deckSize)].deck.length;
+  if ('benchRoom' in e) {
+    const p = side(ec, e.benchRoom);
+    return Math.max(0, benchLimit(env, s, p) - s.p[p].bench.length);
+  }
   if ('add' in e) return e.add.reduce((a: number, x: Expr) => a + evalExpr(env, s, ec, x), 0);
   if ('sub' in e) return evalExpr(env, s, ec, e.sub[0]) - evalExpr(env, s, ec, e.sub[1]);
   if ('mul' in e) return evalExpr(env, s, ec, e.mul[0]) * evalExpr(env, s, ec, e.mul[1]);
@@ -292,11 +297,12 @@ export function evalCond(env: Env, s: GameState, ec: EvalCtx, c: Cond): boolean 
   }
   if ('stadium' in c) {
     if (!s.stadium) return false;
+    if (c.of && s.stadium.owner !== side(ec, c.of)) return false;
     return c.stadium === true || defMatches(def(env.ctx, s.stadium.card), c.stadium);
   }
   if ('benchFull' in c) {
     const p = side(ec, c.benchFull);
-    return s.p[p].bench.length >= 5;
+    return s.p[p].bench.length >= benchLimit(env, s, p);
   }
   if ('firstTurn' in c) return s.turn === 1;
   if ('custom' in c) {

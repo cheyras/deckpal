@@ -12,6 +12,7 @@ import type { CardZone, DamageIgnore, Dest, Filter, ReactEvent, SlotRef, SlotZon
 import { cardMatches, evalCond, evalExpr, resolveSlot, side, slotMatches, slotsIn, slotTypes, type EvalCtx } from './eval.js';
 import {
   attackCost,
+  benchLimit,
   cardUnits,
   conditionImmune,
   damageIn,
@@ -26,6 +27,7 @@ import {
   statics,
   surviveKoSources, // lane:zoroark
   toolsDisabled, // lane:fighting
+  trainerEffectsPrevented,
   weaknessOf,
 } from './query.js';
 import {
@@ -211,6 +213,16 @@ function attackDamage(env: Env, s: GameState, f: Frame): R {
   return dealDamage(env, s, f, amount, to, script?.ignore); // lane:fighting (ignore)
 }
 
+/**
+ * Are the effects of the Item or Supporter card this frame belongs to stopped on this Pokémon (an Ability or card text that says
+ * "whenever your opponent plays a Supporter card from their hand, prevent all effects of that card done to this Pokémon")?
+ */
+function trainerBlocked(env: Env, s: GameState, f: Frame, t: Slot, all?: ReturnType<typeof statics>): boolean {
+  if (f.kind !== 'trainer') return false;
+  const ttype = def(env.ctx, f.src).ttype;
+  return (ttype === 'item' || ttype === 'supporter') && trainerEffectsPrevented(env, s, t, f.player, ttype, all);
+}
+
 function targetsOf(env: Env, s: GameState, f: Frame, to: SlotRef | { each: SlotZone; filter?: Filter } | { v: string }): Slot[] {
   if (typeof to === 'object' && 'each' in to) {
     return slotsIn(s, f.player, to.each).filter((sl) => slotMatches(env, sl, to.filter));
@@ -239,6 +251,7 @@ function dealDamage(
   for (const target of targetsOf(env, s, f, to)) {
     const owner = ownerOf(s, target);
     const isActive = s.p[owner].active === target;
+    if (trainerBlocked(env, s, f, target, all)) continue; // an Item or Supporter's damage to a Pokémon that is protected from it
     // lane:fighting — "isn't affected by any effects on your opponent's Active Pokémon" (or "on those Pokémon": Benched ones too)
     const noDefEffects = !!ignore?.defenderEffects && owner !== f.player;
     let dmg = base;
@@ -251,9 +264,18 @@ function dealDamage(
       const r = def(env.ctx, topCard(target)).resistance;
       if (!ignore?.resistance && r && atkTypes.includes(r.type)) dmg -= r.amount;
     }
-    if (dmg > 0 && !noDefEffects) dmg += damageIn(env, s, target, all, f.player, attacker ?? undefined); // lane:metal (fromOpp) + lane:fighting (ignore)
+    const preIn = dmg; // before the "takes N less damage" effects, for the Berries
+    const reducers: number[] = [];
+    if (dmg > 0 && !noDefEffects) dmg += damageIn(env, s, target, all, f.player, attacker ?? undefined, reducers); // lane:metal (fromOpp) + lane:fighting (ignore)
     if (dmg < 0) dmg = 0;
-    if (dmg > 0 && !noDefEffects && damagePrevented(env, s, target, f.player, all, attacker ?? undefined)) dmg = 0; // lane:ghost (attacker)
+    // lane:ghost (attacker). A reduction that left nothing is still checked: prevented damage is not "damaged by an attack" for the Berries.
+    const prevented = (dmg > 0 || reducers.length > 0) && !noDefEffects && damagePrevented(env, s, target, f.player, all, attacker ?? undefined);
+    if (prevented) dmg = 0;
+    // "If the Pokémon this card is attached to is damaged by an attack ..., it takes N less damage, and discard this card": the Tool
+    // whose effect reduced the damage reacts, even when the reduction took it to 0 and wherever the Pokémon is.
+    if (reducers.length && preIn > 0 && !prevented && f.kind === 'attack' && owner !== f.player) {
+      for (const card of new Set(reducers)) queueTriggers(env, s, target, owner, 'damageReduced', { __attacker: f.slot }, card);
+    }
     if (dmg <= 0) continue;
     // lane:zoroark — Survival Brace: at full HP, damage from an opponent's attack that would Knock the Pokémon
     // Out leaves it at 10 HP instead, then the Tool is discarded.
@@ -280,7 +302,11 @@ function dealDamage(
     emit(env, { type: 'damage', player: owner, slot: target.id, amount: dmg, bySlot: f.slot });
     if (owner !== f.player && isActive) queueTriggers(env, s, target, owner, 'damagedByAttackActive');
     // Timed effects an attack left on this Pokémon: "if this Pokémon is damaged by an attack (even if it is Knocked Out), ..."
-    if (f.kind === 'attack' && owner !== f.player) queueReactions(env, s, target, 'damagedByAttack', { __attacker: f.slot, __def: target.id }, true);
+    if (f.kind === 'attack' && owner !== f.player) {
+      queueReactions(env, s, target, 'damagedByAttack', { __attacker: f.slot, __def: target.id }, true);
+      // Abilities and Tools of the damaged Pokémon, Active or Benched: once per attack, not once per damage instance.
+      queueTriggers(env, s, target, owner, 'damagedByAttack', { __attacker: f.slot }, undefined, true);
+    }
   }
   return 'next';
 }
@@ -295,10 +321,15 @@ export function queueTriggers(
   on: TriggerOn,
   /** lane:ghost — initial frame variables (e.g. `__target` for oppAttachFromHand). */
   vars?: Record<string, Val>,
+  /** Only the triggers of this card (a Tool whose effect is the reason). */
+  only?: number,
+  /** Skip a trigger already waiting for this Pokémon (the event can repeat within one action). */
+  dedupe?: boolean,
 ): void {
   const sources = [topCard(slot), ...(toolsDisabled(env, s) ? [] : slot.tools), ...slot.energy]; // lane:misc energy triggers; lane:fighting Jamming Tower
   const noAb = hasNoAbilities(env, s, slot);
   for (const c of sources) {
+    if (only !== undefined && c !== only) continue;
     const d = def(env.ctx, c);
     if (d.coverage !== 'full') continue;
     const isPokemon = c === topCard(slot);
@@ -318,6 +349,7 @@ export function queueTriggers(
         kind: isPokemon ? 'ability' : slot.tools.includes(c) ? 'tool' : 'energy',
       };
       if (t.t.when && !evalCond(env, s, ec(frame), t.t.when)) continue;
+      if (dedupe && s.queued.some((q) => q.code === frame.code && q.slot === frame.slot && q.src === frame.src)) continue;
       if (t.t.optional) frame.vars.__optional = true;
       s.queued.push(frame);
     }
@@ -379,13 +411,16 @@ function moveCards(env: Env, s: GameState, f: Frame, cards: number[], to: Dest, 
   const ps = s.p[who];
   const moved: number[] = [];
   const revealed = (f.vars.__revealed as number[] | undefined) ?? [];
+  // How many Pokémon each Bench holds is decided when the effect starts: a Tera Pokémon put onto the Bench by it doesn't make room
+  // for the next one (Area Zero Underdepths, TPCi Rules Team 2024-09-12, ruling 2024).
+  const room: (number | undefined)[] = [];
   for (const c of cards) {
     const owner = env.ctx.owner[c] as Player;
     const ops = s.p[owner];
     if (to === 'bench') {
       const d = def(env.ctx, c);
       const asBasic = d.kind === 'trainer' && !!d.script?.fix?.playAsBasic; // lane:ghost (Antique fossils)
-      if ((d.kind !== 'pokemon' && !asBasic) || d.stage !== 0 || ops.bench.length >= 5) continue;
+      if ((d.kind !== 'pokemon' && !asBasic) || d.stage !== 0 || ops.bench.length >= (room[owner] ??= benchLimit(env, s, owner))) continue;
       if (!takeFromZones(ops, c)) continue;
       const sl = newSlot(s, c);
       ops.bench.push(sl);
@@ -541,6 +576,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
       const kind = f.kind === 'ability' ? 'ability' : 'attack';
       const all = statics(env, s);
       for (const t of targetsOf(env, s, f, st.to)) {
+        if (trainerBlocked(env, s, f, t, all)) continue;
         if ((f.kind === 'attack' || f.kind === 'ability') && effectsPrevented(env, s, t, f.player, kind, all)) continue;
         if ((f.kind === 'attack' || f.kind === 'ability') && countersPrevented(env, s, t, f.player, kind, all)) continue; // lane:darkrai
         t.damage += n * 10;
@@ -549,8 +585,19 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
       return 'next';
     }
     case 'heal': {
+      const amount = evalExpr(env, s, e, st.amount);
+      if (typeof st.to === 'object' && 'each' in st.to) {
+        // "heal all damage from each of your Tera Pokémon": every Pokémon in the zone that matches. Healing the opponent's is an
+        // effect of the attack or Ability (Hide 'n' Sneak protects it).
+        const all = statics(env, s);
+        for (const t of targetsOf(env, s, f, st.to)) {
+          if ((f.kind === 'attack' || f.kind === 'ability') && ownerOf(s, t) !== f.player && effectsPrevented(env, s, t, f.player, f.kind, all)) continue;
+          healSlot(s, t, amount);
+        }
+        return 'next';
+      }
       const t = resolveSlot(s, e, st.to);
-      if (t) healSlot(s, t, evalExpr(env, s, e, st.amount));
+      if (t) healSlot(s, t, amount);
       return 'next';
     }
     case 'condition': {
@@ -558,6 +605,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
       if (!t) return 'next';
       // Rulebook p.15: Special Conditions affect only Active Pokémon; a Benched Pokémon can't be given one.
       if (!findSlot(s, t.id)?.active) return 'next';
+      if (trainerBlocked(env, s, f, t)) return 'next';
       if ((f.kind === 'attack' || f.kind === 'ability') && effectsPrevented(env, s, t, f.player, f.kind)) return 'next';
       if (def(env.ctx, topCard(t)).script?.fix?.playAsBasic?.noConditions) return 'next'; // lane:ghost
       if (conditionImmune(env, s, t, st.cond)) return 'next'; // "can't be affected by any Special Conditions" / "can't be Confused"
@@ -623,6 +671,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
     case 'knockOut': {
       const t = resolveSlot(s, e, st.target);
       if (!t) return 'next';
+      if (trainerBlocked(env, s, f, t)) return 'next';
       if (f.kind === 'attack' && ownerOf(s, t) !== f.player && effectsPrevented(env, s, t, f.player, 'attack')) return 'next';
       t.damage = Math.max(t.damage, maxHp(env, s, t));
       return 'next';
@@ -654,6 +703,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
         s.attacked = true;
         s.attackHits = [];
       }
+      s.noMoreAttacks = true; // not even a second attack (Festival Lead)
       return 'next';
     default:
       throw new Error(`step ${(st as Step).op} must be compiled`);
@@ -742,6 +792,7 @@ function discardEnergy(env: Env, s: GameState, f: Frame, st: Extract<Step, { op:
   const t = resolveSlot(s, e, st.from);
   if (!t) return 'next';
   const owner = ownerOf(s, t);
+  if (trainerBlocked(env, s, f, t)) return 'next';
   if (f.kind === 'attack' && owner !== f.player && effectsPrevented(env, s, t, f.player, 'attack')) return 'next';
   // "{M} Energy" attached: what each card provides on THIS Pokémon (Neo Upper Energy only on a Stage 2).
   const pt = st.filter?.providesType;
@@ -836,6 +887,7 @@ function switchStep(env: Env, s: GameState, f: Frame, st: Extract<Step, { op: 's
   if ((f.kind === 'attack' || f.kind === 'ability') && who !== f.player && effectsPrevented(env, s, ps.active, f.player, f.kind)) {
     return 'next';
   }
+  if (trainerBlocked(env, s, f, ps.active)) return 'next'; // Boss's Orders on a player whose Active Pokémon is protected from Supporters
   let target: Slot | undefined;
   if (st.with) {
     target = resolveSlot(s, e, st.with) ?? undefined;
@@ -854,6 +906,7 @@ function switchStep(env: Env, s: GameState, f: Frame, st: Extract<Step, { op: 's
     }
   }
   if (!target || !ps.bench.includes(target)) return 'next';
+  if (trainerBlocked(env, s, f, target)) return 'next'; // ...or the Pokémon that would come up is
   swapActive(env, s, who, target, f.code === '__retreat');
   return 'next';
 }

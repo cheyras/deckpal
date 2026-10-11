@@ -15,6 +15,7 @@ import type { Cond, Expr, Filter, PType, Program, Step } from '../dsl.js';
 import { defMatches, evalCond, evalExpr, type EvalCtx } from '../eval.js';
 import {
   attackCost,
+  attackOptions,
   damageIn,
   damageOut,
   damagePrevented,
@@ -329,10 +330,11 @@ export function bestAttack(env: Env, s: GameState, attacker: Slot, owner: Player
   let dmg = 0;
   let bestMissing = 99;
   let bestAny = 0;
-  for (let i = 0; i < d.attacks.length; i++) {
-    const cost = attackCost(env, s, attacker, i, all);
+  // Attacks printed on an attached Tool count too (a Technical Machine).
+  for (const o of attackOptions(env, s, attacker, all)) {
+    const cost = attackCost(env, s, attacker, o.idx, all, o.card);
     const miss = missingUnits(cost, units);
-    const dd = attackDamage(env, s, attacker, owner, i, target, all, viewer);
+    const dd = o.card === undefined ? attackDamage(env, s, attacker, owner, o.idx, target, all, viewer) : attackDamageWithDef(env, s, o.d, o.idx, attacker, owner, target, all, viewer);
     if (miss <= extra && dd > dmg) dmg = dd;
     if (dd > bestAny || (dd === bestAny && miss < bestMissing)) {
       bestAny = dd;

@@ -34,7 +34,7 @@ export function describeAction(ctx: GameContext, s: GameState, a: Action): strin
       return `Use the Stadium (${s.stadium ? def(ctx, s.stadium.card).name : '?'})`;
     case 'attack': {
       const act = s.p[s.current].active;
-      return `Attack: ${act ? (def(ctx, topCard(act)).attacks[a.idx]?.name ?? '?') : '?'}`;
+      return `Attack: ${act ? (def(ctx, a.card ?? topCard(act)).attacks[a.idx]?.name ?? '?') : '?'}`;
     }
   }
 }

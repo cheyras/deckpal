@@ -624,6 +624,7 @@ class Renderer {
     if ('countersOn' in e) return `the number of damage counters on ${this.ref(e.countersOn)}`;
     if ('handSize' in e) return `the number of cards in ${owner(e.handSize)} hand`;
     if ('deckSize' in e) return `the number of cards in ${owner(e.deckSize)} deck`;
+    if ('benchRoom' in e) return `the number of open spaces on ${e.benchRoom === 'opp' ? "your opponent's" : 'your'} Bench`;
     if ('add' in e) return e.add.map((x) => this.num(x)).join(' plus ');
     if ('sub' in e) return `${this.num(e.sub[0])} minus ${this.num(e.sub[1])}`;
     if ('mul' in e) return `${this.num(e.mul[0])} times ${this.num(e.mul[1])}`;
@@ -714,7 +715,11 @@ class Renderer {
       const what = f.name && !Array.isArray(f.name) && !f.ttype ? `${f.name}` : art(noun(f).sg);
       return `${w} played ${what} from ${w === 'you' ? 'your' : 'their'} hand this turn`;
     }
-    if ('stadium' in c) return c.stadium === true ? 'a Stadium is in play' : `${art(noun(c.stadium).sg)} is in play`;
+    if ('stadium' in c) {
+      const what = c.stadium === true ? 'a Stadium' : art(noun(c.stadium).sg);
+      if (c.of) return `${c.of === 'opp' ? 'your opponent has' : 'you have'} ${what} in play`;
+      return c.stadium === true ? 'a Stadium is in play' : `${art(noun(c.stadium).sg)} is in play`;
+    }
     if ('benchFull' in c) return `${c.benchFull === 'opp' ? "your opponent's" : 'your'} Bench is full`;
     if ('firstTurn' in c) return 'it is your first turn';
     if ('custom' in c) {
@@ -965,9 +970,11 @@ class Renderer {
           } else out.push(`Place ${this.num(k)} damage counter${k === 1 ? '' : 's'} on ${where}`);
           break;
         }
-        case 'heal':
-          out.push(`Heal ${this.num(st.amount)} damage from ${this.ref(st.to)}`);
+        case 'heal': {
+          const amt = typeof st.amount === 'number' && st.amount >= 900 ? 'all' : this.num(st.amount);
+          out.push(`Heal ${amt} damage from ${typeof st.to === 'object' && 'each' in st.to ? `each of ${slotZoneNoun(st.to.each, st.to.filter)}` : this.ref(st.to)}`);
           break;
+        }
         case 'condition': {
           let t = `${cap(this.ref(st.to))} is now ${CONDITION[st.cond]}`;
           // The amount the condition comes with: Poison's per Checkup (usually 1), a failed Confusion flip's (usually 3).
@@ -1242,6 +1249,35 @@ class Renderer {
         return `${X} can't retreat`;
       case 'noAbilities':
         return `${X} ${has} no Abilities`;
+      case 'playLock': {
+        const them = x === 'you' ? 'your' : 'their';
+        const what = { stadium: 'Stadium cards', supporter: 'Supporter cards', aceSpec: 'ACE SPEC cards' }[e.what as string];
+        return e.what === 'evolve'
+          ? `${X} can't play any Pokémon from ${them} hand to evolve ${them} Pokémon`
+          : `${X} can't play any ${what} from ${them} hand`;
+      }
+      case 'preventTrainerEffects': {
+        const cards = e.from.length === 2 ? 'an Item or Supporter card' : e.from[0] === 'item' ? 'an Item card' : 'a Supporter card';
+        return `Whenever your opponent plays ${cards} from their hand, prevent all effects of that card done to ${plural ? `all of ${x}` : x}`;
+      }
+      case 'benchSize': {
+        const need = e.withPokemon ? ` who has any ${noun(e.withPokemon, true).pl} in play` : '';
+        if (x === 'each player') {
+          // The engine's Bench rule that goes with it (flow.ts enforceBenchLimit), in the Stadium's words.
+          const lose = e.withPokemon ? ` If a player no longer has any ${noun(e.withPokemon, true).pl} in play, that player discards Pokémon from their Bench until they have 5.` : '';
+          return `Each player${need} can have up to ${e.size} Pokémon on their Bench.${lose} When this card leaves play, both players discard Pokémon from their Bench until they have 5, and the player who played this card discards first`;
+        }
+        const me = x === 'you';
+        return `${X}${need} ${me ? 'can have' : 'can have'} up to ${e.size} Pokémon on ${me ? 'your' : 'their'} Bench`;
+      }
+      case 'attackCostLess':
+        return `${e.attack ? `${e.attack} used by ${x} costs` : `The attacks of ${x} cost`} ${e.n === 1 ? '1 Energy' : `${e.n} Energy`} less. (The Energy can be of any type.)`;
+      case 'noWeakness':
+        return `${X} ${has} no Weakness`;
+      case 'grantsAttacks':
+        return `${X} can use the attack on this card. (You still need the necessary Energy to use this attack.)`;
+      case 'attackTwice':
+        return `${X} may use an attack it has twice. If the first attack Knocks Out your opponent's Active Pokémon, you may attack again after your opponent chooses a new Active Pokémon`;
       case 'itemLock':
         return x === 'each player' ? "Each player can't play any Item cards from their hand" : `${X} can't play any Item cards from ${x === 'you' ? 'your' : 'their'} hand`;
       case 'countersFixed': {
@@ -1297,6 +1333,11 @@ class Renderer {
   }
 
   static(d: StaticDef): string {
+    if (d.effect.k === 'grantsAttacks') {
+      // "The Pokémon this card is attached to can use the attack on this card" / "The Mega Zygarde ex this card is attached to ...".
+      const who = d.filter ? noun(d.filter, true).sg : 'Pokémon';
+      return `The ${who} this card is attached to can use the attack on this card. (You still need the necessary Energy to use this attack.)`;
+    }
     const { x, plural } = this.scope(d.scope, d.filter);
     const s = this.clause(d.effect, x, plural, true);
     return d.when ? `If ${this.cond(d.when)}, ${lc(s)}` : s;
@@ -1351,6 +1392,12 @@ class Renderer {
       case 'movedToBench':
         lead = `${t.oncePerTurn ? 'Once during your turn, w' : 'W'}hen ${this.selfName} moves from the Active Spot to your Bench`;
         break;
+      case 'damagedByAttack':
+        lead = `If ${this.selfName} is damaged by an attack from your opponent's Pokémon (even if this Pokémon is Knocked Out)`;
+        break;
+      case 'damageReduced':
+        lead = 'If an effect of this card reduced damage from an attack done to the Pokémon it is attached to';
+        break;
       case 'oppActiveMovedToBench':
         // The program sees the Pokémon that moved as '__target' ("that Pokémon").
         lead = "Whenever your opponent's Active Pokémon moves to the Bench during their turn";
@@ -1398,9 +1445,13 @@ export function renderAttack(a: AttackScript, printedDamage: string | null | und
   if (a.program) {
     const hasDamage = JSON.stringify(a.program).includes('"op":"damage"');
     if (base > 0 && !hasDamage) problems.push(`printed damage ${printedDamage} but the program has no damage step`);
-    return r.program(a.program, base);
+    return join([...(a.usable ? [`You can use this attack only if ${r.cond(a.usable)}`] : []), r.program(a.program, base)]);
   }
-  const out = [...(a.firstTurn ? ['If you go first, you can use this attack during your first turn'] : []), ...r.steps(a.pre ?? [], base)];
+  const out = [
+    ...(a.usable ? [`You can use this attack only if ${r.cond(a.usable)}`] : []),
+    ...(a.firstTurn ? ['If you go first, you can use this attack during your first turn'] : []),
+    ...r.steps(a.pre ?? [], base),
+  ];
   if (a.damage !== undefined) {
     const b = firstNumber(a.damage);
     if (base > 0 && b !== null && b !== base) problems.push(`damage starts at ${b} but the printed damage is ${printedDamage}`);
