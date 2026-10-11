@@ -8,7 +8,10 @@ import test from 'node:test';
 import { FRAMES } from '../cards/frames-all.js';
 import type { DeckInput } from '../context.js';
 import { buildReport, deckCoverage, renderReport } from '../report.js';
-import { ownTurn, runSimulation, simulate, simulateAsync, type SimulationResult } from '../runner.js';
+import { isTimeout, ownTurn, runSimulation, simulate, simulateAsync, type SimulationResult } from '../runner.js';
+import { createContext } from '../context.js';
+import { Game } from '../game.js';
+import { playOut } from '../play.js';
 import { matchupStats, wilson } from '../stats.js';
 import type { CardFrame } from '../types.js';
 import { HIDE_N_SNEAK, TOOLBOX_SLOWKING } from './decks.js';
@@ -104,6 +107,44 @@ test('the time budget stops between whole pairs and says so', () => {
   assert.equal(r.played % 2, 0, 'never half a pair');
   const text = renderReport(buildReport({ subject: HIDE_N_SNEAK, opponents: [TOOLBOX_SLOWKING], results: [r] }));
   assert.match(text, new RegExp(`${r.played} of ${r.requested} games played \\(time budget reached`));
+});
+
+test('playOut: a passed deadline ends the game as a time-limit draw before the next decision', () => {
+  const ctx = createContext(HIDE_N_SNEAK, TOOLBOX_SLOWKING, { events: false, first: 0, maxTurns: 60 });
+  const game = new Game(ctx, null, 7);
+  let clock = 0;
+  let decisions = 0;
+  const counting = (seed: number) => {
+    const p = new RandomPilot(seed);
+    return { name: p.name, choose: (g: Game, d: Parameters<typeof p.choose>[1]) => (decisions++, p.choose(g, d)) };
+  };
+  // The clock moves 1 per read; the deadline is 5 reads away.
+  playOut(game, [counting(1), counting(2)], { deadline: 5, now: () => ++clock });
+  assert.equal(game.over, true);
+  assert.equal(game.state.winReason, 'time limit');
+  assert.equal(game.state.winner, null);
+  assert.equal(decisions, 4, 'one clock read per decision, and none after the deadline');
+  assert.equal(isTimeout('time limit'), true);
+});
+
+test('the deadline is a hard stop: it cuts the first pair, inside a game and between its games', () => {
+  // A deadline already behind the clock: no pair starts, not even the first.
+  const none = simulate({ pilotFactory: RANDOM, a: HIDE_N_SNEAK, b: TOOLBOX_SLOWKING, games: 40, seed: 3, deadline: 0, now: () => 10 });
+  assert.equal(none.played, 0);
+  assert.equal(none.stoppedEarly, true);
+
+  // A deadline that lands mid-game: that game is a time-limit draw, its pair's second game never starts.
+  let clock = 0;
+  const cut = simulate({ pilotFactory: RANDOM, a: HIDE_N_SNEAK, b: TOOLBOX_SLOWKING, games: 40, seed: 3, deadline: 30, now: () => ++clock });
+  assert.equal(cut.played, 1, 'the first game of the first pair, and nothing after it');
+  assert.equal(cut.stoppedEarly, true);
+  assert.equal(cut.games[0]!.reason, 'time limit');
+  assert.equal(cut.games[0]!.winner, null);
+  const m = matchupStats(cut);
+  assert.equal(m.record.timeouts, 1, 'reported as a time-out');
+  assert.equal(m.winRate.n, 0, 'and kept out of the win rate');
+  const text = renderReport(buildReport({ subject: HIDE_N_SNEAK, opponents: [TOOLBOX_SLOWKING], results: [cut] }));
+  assert.match(text, /1 of 40 games played \(time budget reached/);
 });
 
 test('stats keep draws and time-outs out of the win rate, and carry n', () => {

@@ -505,7 +505,7 @@ export function createApp(): express.Express {
           // Run the rest of the middleware chain inside the RLS store context
           // so q()/q1()/withTx() pick up the client transparently.
           res.locals.commitAndReleaseRls = async () => {
-            if (!await cleanup('commit')) throw new Error('Request connection closed before Deck-E started');
+            if (!await cleanup('commit')) throw new Error('Request connection closed before its long-running work started');
           };
           rlsStore.run(client, () => requestAccessStore.run(new Map(), () => next()));
         } catch (err) {

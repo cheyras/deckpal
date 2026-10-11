@@ -14,7 +14,13 @@
  *
  * TIME BUDGET. Pairs are played whole (a lone half-pair would unbalance going
  * first) until the budget is spent; the result says how many were played, and
- * the report says it again. The engine is synchronous and CPU-bound, so
+ * the report says it again. The budget is a soft stop — it is only consulted
+ * between pairs, so the first pair always starts. A DEADLINE is the hard one:
+ * checked before every pair, between the two games of a pair, and before every
+ * decision inside a game (play.ts), where reaching it ends the game as a
+ * 'time limit' draw — a time-out in the stats, never a win or a loss. A pair
+ * the deadline cuts in half keeps the game it played and says it stopped early.
+ * The engine is synchronous and CPU-bound, so
  * `runSimulation` hands back a stepper that the API drives with an await
  * between pairs — a long batch must not hold the event loop of a server that
  * may be serving other requests.
@@ -50,6 +56,11 @@ export interface SimulateOptions {
   maxTurns?: number;
   /** Decision cap per game (a stuck pilot); hitting it is a time-out. Default 20,000. */
   maxDecisions?: number;
+  /**
+   * Hard stop, in `now()` time: no pair or game starts once it has passed, and a
+   * game still running when it arrives ends as a 'time limit' draw. Default: none.
+   */
+  deadline?: number;
   /** Clock, injectable for tests. Default Date.now. */
   now?: () => number;
 }
@@ -77,7 +88,7 @@ export interface GameSummary {
   /** Deck A went first. */
   aFirst: boolean;
   winner: Side | null;
-  /** Engine reason: 'prizes', 'no Pokémon in play', 'deck out', 'no Basic Pokémon', 'turn limit', 'decision limit', 'simultaneous win', or 'engine error'. */
+  /** Engine reason: 'prizes', 'no Pokémon in play', 'deck out', 'no Basic Pokémon', 'turn limit', 'decision limit', 'time limit', 'simultaneous win', or 'engine error'. */
   reason: string;
   /** Turns played, both players counted (turn 1 is the first player's first turn). */
   turns: number;
@@ -100,7 +111,7 @@ export interface SimulationResult {
   b: string;
   requested: number;
   played: number;
-  /** True when the time budget ended the batch before every requested game ran. */
+  /** True when the time budget or the deadline ended the batch before every requested game ran. */
   stoppedEarly: boolean;
   seed: number;
   pilot: string;
@@ -116,7 +127,8 @@ export interface Simulation {
   result(): SimulationResult;
 }
 
-const TIMEOUT_REASONS = new Set(['turn limit', 'decision limit']);
+/** Games stopped rather than finished: the turn cap, the decision cap, or the wall-clock deadline. */
+const TIMEOUT_REASONS = new Set(['turn limit', 'decision limit', 'time limit']);
 export function isTimeout(reason: string): boolean {
   return TIMEOUT_REASONS.has(reason);
 }
@@ -139,6 +151,8 @@ export function runSimulation(opts: SimulateOptions): Simulation {
   const maxTurns = opts.maxTurns ?? 60;
   const factory = opts.pilotFactory ?? defaultPilotFactory;
   const budget = opts.timeBudgetMs ?? Infinity;
+  const deadline = opts.deadline ?? Infinity;
+  const pastDeadline = () => deadline !== Infinity && now() >= deadline;
   // One context per seating, reused by every game in it: it holds only the
   // immutable side (definitions, compiled programs), and seat 0 always goes first.
   const ctxAB = createContext(opts.a, opts.b, { events: true, first: 0, maxTurns });
@@ -161,7 +175,7 @@ export function runSimulation(opts: SimulateOptions): Simulation {
     const game = new Game(ctx, null, gameSeed);
     let error: string | undefined;
     try {
-      playOut(game, pilots, { maxDecisions: opts.maxDecisions });
+      playOut(game, pilots, { maxDecisions: opts.maxDecisions, deadline, now });
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }
@@ -180,14 +194,22 @@ export function runSimulation(opts: SimulateOptions): Simulation {
       }
       const elapsed = now() - started;
       // Don't start a pair the budget can't finish: the slowest pair so far is the estimate.
-      if (next > 0 && elapsed + slowestPair > budget) {
+      // Nor any pair at all once the deadline has passed, the first one included.
+      if ((next > 0 && elapsed + slowestPair > budget) || pastDeadline()) {
         stoppedEarly = true;
         done = true;
         return false;
       }
       const t0 = now();
       const gameSeed = deriveSeed(seed, next);
-      games.push(play(next, gameSeed, true), play(next, gameSeed, false));
+      games.push(play(next, gameSeed, true));
+      if (pastDeadline()) {
+        // The deadline arrived during the pair's first game: keep that game, play no more.
+        stoppedEarly = true;
+        done = true;
+        return false;
+      }
+      games.push(play(next, gameSeed, false));
       slowestPair = Math.max(slowestPair, now() - t0);
       next++;
       if (next >= pairs) done = true;

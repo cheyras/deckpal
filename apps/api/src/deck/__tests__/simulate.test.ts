@@ -8,8 +8,9 @@ import test from 'node:test';
 import type { CardFrame, DeckInput } from '@deckpal/sim';
 import { ApiError } from '../../http.js';
 import {
-  SIM_GAMES_DEFAULT, SIM_OPPONENTS_DEFAULT, SIM_TEXT_LIMIT,
-  deckNotes, parseSimulateBody, pickOpponents, resolveDeckRef, runMatchups, type OwnedDeck,
+  SIM_DECK_MAX, SIM_DECK_MIN, SIM_GAMES_DEFAULT, SIM_NOTES_LIMIT, SIM_OPPONENTS_DEFAULT, SIM_RUN_GATE, SIM_TEXT_LIMIT,
+  assertDeckSize, buildDeckInput, busyMessage, cardTotal, clampNotes, createRunGate, deckNotes, deckSizeOk,
+  parseSimulateBody, pickOpponents, pilotFactory, resolveDeckRef, runMatchups, type OwnedDeck,
 } from '../simulate.js';
 
 const ID = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -94,15 +95,86 @@ test('runMatchups: one report across opponents, inside the text limit, notes on 
   assert.deepEqual(again.report.matchups.map((m) => m.record), out.report.matchups.map((m) => m.record));
 });
 
-test('runMatchups: a spent budget plays one pair for the first opponent, skips the rest, and says so', async () => {
+test('runMatchups: the budget is a hard deadline from the request start — even the first pair stops at it', async () => {
   let t = 0;
   const subject = deck('Pups', mon('t-1', 'Pup', 70, '30'));
-  const out = await runMatchups(subject, [deck('Cats', mon('t-2', 'Cat', 60, '20')), deck('Birds', mon('t-3', 'Bird', 90, '20'))], {
-    games: 40, seed: 1, budgetMs: 10, now: () => (t += 50),
-  });
-  assert.equal(out.report.gamesPlayed, 2, 'one pair for the first opponent, none after the budget is gone');
-  assert.equal(out.report.matchups[1]!.played, 0);
-  assert.equal(out.report.stoppedEarly, true);
-  assert.match(out.text, /2 of 80 games played \(time budget reached/);
-  assert.match(out.text, /2\. vs Birds — 0 of 40 played/);
+  const opponents = [deck('Cats', mon('t-2', 'Cat', 60, '20')), deck('Birds', mon('t-3', 'Bird', 90, '20'))];
+  // The DB reads already spent the budget: nothing is played, and the report says so.
+  const spent = await runMatchups(subject, opponents, { games: 40, seed: 1, budgetMs: 10, startedAt: 0, now: () => (t += 50) });
+  assert.equal(spent.report.gamesPlayed, 0);
+  assert.equal(spent.report.stoppedEarly, true);
+  assert.match(spent.text, /0 of 80 games played \(time budget reached/);
+  assert.match(spent.text, /2\. vs Birds — 0 of 40 played/);
+
+  // The deadline lands inside the first game: it ends as a time-out, and nothing after it starts.
+  let c = 0;
+  const cut = await runMatchups(subject, opponents, { games: 40, seed: 1, budgetMs: 40, startedAt: 0, now: () => ++c });
+  assert.equal(cut.report.gamesPlayed, 1);
+  assert.equal(cut.report.matchups[0]!.record.timeouts, 1);
+  assert.equal(cut.report.matchups[1]!.played, 0);
+  assert.match(cut.text, /time-out/);
+});
+
+test('deck size bounds: 40–70 cards, inclusive; the message names the deck and the count', () => {
+  assert.equal(SIM_DECK_MIN, 40);
+  assert.equal(SIM_DECK_MAX, 70);
+  for (const ok of [40, 60, 70]) assert.doesNotThrow(() => assertDeckSize('Pups', ok));
+  rejects(() => assertDeckSize('Pups', 39), /Pups has 39 cards; the simulator plays decks of 40–70 cards/);
+  rejects(() => assertDeckSize('Huge', 3_600), /Huge has 3600 cards/);
+  assert.equal(deckSizeOk(70), true);
+  assert.equal(deckSizeOk(71), false);
+  assert.equal(cardTotal([{ quantity: 4 }, { quantity: 56 }]), 60);
+});
+
+test('buildDeckInput: catalogue order, missing frames left out and noted', () => {
+  const frames = new Map<number, CardFrame>([[2, mon('t-2', 'Cat', 60, '20')], [10, ENERGY]]);
+  const { deck: d, notes } = buildDeckInput('Cats', [{ card_id: '10', quantity: 40 }, { card_id: '7', quantity: 4 }, { card_id: '2', quantity: 16 }], frames);
+  assert.deepEqual(d.cards.map((c) => [c.frame.name, c.count]), [['Cat', 16], ['Psychic Energy', 40]]);
+  assert.deepEqual(notes, ['Cats has 56 cards, not 60 — simulated as listed.', 'Cats: no card data for card 7 — left out of the simulated deck.']);
+});
+
+test('run gate: one run per account, two per instance, a 429-ready answer when full, release frees the slot', () => {
+  let t = 1_000;
+  const gate = createRunGate(1, 2, 27_000, () => t);
+  const a = gate.tryAcquire('alice');
+  assert.ok(a.ok);
+  const again = gate.tryAcquire('alice');
+  assert.deepEqual(again, { ok: false, scope: 'user', retryAfterSec: 27 });
+  t += 10_000;
+  const b = gate.tryAcquire('bob');
+  assert.ok(b.ok);
+  const c = gate.tryAcquire('carol');
+  assert.ok(!c.ok && c.scope === 'instance' && c.retryAfterSec === 17, JSON.stringify(c));
+  assert.equal(gate.active, 2);
+  if (a.ok) {
+    a.release();
+    a.release(); // idempotent
+  }
+  assert.equal(gate.active, 1);
+  assert.ok(gate.tryAcquire('alice').ok, 'alice may run again once hers is done');
+  assert.match(busyMessage('user', 12), /already running .* one run at a time per account\. Try again in about 12s/);
+  assert.match(busyMessage('instance', 5), /busy with other runs .* about 5s/);
+  assert.equal(SIM_RUN_GATE.active, 0, 'the shared gate starts empty');
+  // A run long past its expected end still asks for at least a second.
+  t += 1_000_000;
+  const d = gate.tryAcquire('bob');
+  assert.ok(!d.ok && d.retryAfterSec === 1);
+});
+
+test('notes are clamped: the text stays within the limit and keeps the caveat, however many notes', async () => {
+  const subject = deck('Pups', mon('t-1', 'Pup', 70, '30'));
+  const opponents = [deck('Cats', mon('t-2', 'Cat', 60, '20'))];
+  const notes = Array.from({ length: 200 }, (_, i) => `Deck number ${i} has no card data for ${'card 123456, '.repeat(20)}— left out.`);
+  const out = await runMatchups(subject, opponents, { games: 2, seed: 1, notes, budgetMs: 60_000, pilot: pilotFactory('fast') });
+  assert.ok(out.text.length <= SIM_TEXT_LIMIT, `${out.text.length} chars`);
+  assert.match(out.text, /Caveat: These are SIMULATED games/);
+  assert.match(out.text, /^SIMULATED BATTLES/);
+  assert.match(out.text, /Note: \+\d+ more in the structured report\./);
+  assert.equal(out.report.notes.length, 200, 'the structured report keeps every note');
+  const clamped = clampNotes(notes, SIM_NOTES_LIMIT);
+  assert.ok(clamped.length <= SIM_NOTES_LIMIT);
+  assert.equal(clampNotes(['short'], 100), 'Note: short');
+  const one = clampNotes(['x'.repeat(500)], 100);
+  assert.equal(one.length, 100);
+  assert.ok(one.endsWith('…'));
 });
