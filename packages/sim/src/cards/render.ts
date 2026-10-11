@@ -212,6 +212,13 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c11.multiplyCounters': (a) => `Put on each Pokémon chosen as "${String(a.slots ?? 't')}" ${Number(a.factor ?? 2) - 1} times the number of damage counters already on it (so each Pokémon has ${Number(a.factor ?? 2)} times as many damage counters); a Pokémon with none gets none`,
   'c11.retreatCostOf': (a) => `Count the {C} in the Retreat Cost your opponent's Active Pokémon has right now, after every effect (into "${String(a.as ?? 'n')}"); an Antique fossil has none`,
   'c11.discardOppActiveEnergy': () => "Discard an Energy of your choice from your opponent's Active Pokémon, unless it is protected from the effects of Abilities (or attacks)",
+  // std-c19-customs.ts
+  'c19.attachToolFromDeck': () => 'Search your deck for a Pokémon Tool card and attach it to this Pokémon (a Pokémon with a Tool already attached gets none)',
+  'c19.revealTopPick': (a) => `Reveal the top ${Number(a.n ?? 5)} cards of your opponent's deck and you may choose any number of the Basic Pokémon you find there, as many as fit on their Bench (into "${String(a.as ?? 'x')}")`,
+  'c19.searchSameNameAsOpp': () => "Search your deck for a Pokémon with the same name as 1 of your opponent's Pokémon in play, reveal it, and put it into your hand",
+  'c19.shuffleSelfIntoDeck': () => 'Shuffle this card into your deck instead of discarding it',
+  'c19.coinDraw': (a) => `Each player flips a coin. If heads, that player draws ${Number(a.heads ?? 6)} cards. If tails, they draw ${Number(a.tails ?? 3)} cards`,
+  'c19.scoopUp': (a) => `Put the Pokémon chosen as "${String(a.slot ?? 't')}" and all attached cards into your hand`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -231,6 +238,7 @@ export const CUSTOM_COND_GLOSS: Record<string, (args: Record<string, unknown>) =
   'c10.handEvolvesSelf': () => 'you have a card in your hand that evolves from this Pokémon, and this Pokémon has not evolved this turn',
   'c10.weakToOppActive': () => "the Pokémon this card is attached to has a Weakness (as changed by effects) of a type that your opponent's Active Pokémon is",
   'c14.abilitiesOn': () => "no effect has turned this Pokémon's Abilities off",
+  'c19.supporterPlayedThisTurn': () => 'the player played a Supporter card from their hand this turn',
 };
 
 /** An attached-Energy filter as a noun: "Special Energy", "Basic {M} Energy". */
@@ -1890,5 +1898,22 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me05-020|attack:Aqua Return': {
     problems: ['"your deck" is printed but not rendered'],
     why: 'The shuffle is the shared seed4.shuffleSlotIntoDeck, glossed for any Pokémon ("into their deck"); the Pokémon chosen here is always the attacking player own Active Pokémon (Primarina itself), so its owner is the attacker and the deck is "your deck".',
+  },
+  // std-c19
+  "sv06-138|ability:Wicked Tail": {
+    problems: ["\"each\" is printed but not rendered", "\"reveal\" is printed but not rendered"],
+    why: "\"For each heads\" is a repeat of the heads count, rendered \"the number of heads times\"; the cards are revealed and immediately shuffled into the deck, so the reveal has no later effect and nothing in the script keeps it (as Team Rocket Meowth, Paw-cket Pilfer).",
+  },
+  "sv06-150|text": {
+    problems: ["\"Bench\" is printed but not rendered", "\"opponent's bench\" is printed but not rendered"],
+    why: "The Energy moves from the Attacking Pokémon (the opponent's Active Pokémon) to one of the other Pokémon of that same side, all Benched, which is what metal.moveEnergy does when its source is the Active Pokémon; its gloss is worded from the mover's side, so it names no Bench.",
+  },
+  "sv06-157|text": {
+    problems: ["the rendering involves the opponent; the printed text does not"],
+    why: "\"Each player\" is two calls of shuffleHandToBottom (one per side), and the shared gloss words the opponent's call \"Your opponent shuffles their hand\"; the coin flips and draws are one c19.coinDraw for both players.",
+  },
+  "sv06.5-005|attack:Power Shot": {
+    problems: ["\"can't\" is printed but not rendered"],
+    why: "\"If you can't\" is the case of having no Basic {G} Energy card in hand: the choice comes back empty, and the discard and the damage are inside the \"if you chose 1 or more cards\" branch, so nothing happens.",
   },
 };
