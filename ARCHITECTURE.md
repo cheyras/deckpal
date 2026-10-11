@@ -872,9 +872,13 @@ The shape, and the four places it is enforced rather than intended:
   ruling — *"ensure that the image vector match is still a point of data in the
   match"* — means the embedding is a rung of the OCR ladder
   (`apps/api/src/scan/resolve.ts`) and not a rival endpoint's verdict. Three
-  rules, in `fuse.ts`: a printed key that resolved is never reviewed (OCR wins a
-  disagreement, because `(setCode, number)` is unique across 20,444 cards with
-  zero collisions and a cosine is not that kind of claim); where a key narrowed
+  rules, in `fuse.ts`: a printed key that resolved is never reviewed by the
+  vector alone (OCR wins a disagreement, because `(setCode, number)` is unique
+  across 20,444 cards with zero collisions and a cosine is not that kind of
+  claim). Since 2026-10-10 a key resolved on the NUMBER is questioned when the
+  printed NAME agrees with a different card that the vector, or the name plus
+  the denominator, also names, because a dropped digit can land on a real card
+  (`letTheNameQuestionTheKey` in `resolve.ts`). Where a key narrowed
   the world to candidates it cannot choose between — `014/198` is Steenee or
   Floragato — the vector's own top-1 agreeing with one of them makes the answer
   confident and `resolvedBy: 'corroborated'`; and alone, the vector needs the
