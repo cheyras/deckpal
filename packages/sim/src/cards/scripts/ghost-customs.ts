@@ -9,7 +9,7 @@
 import { def, type Env, type GameContext } from '../../context.js';
 import { registerCustom, registerCustomCond } from '../../customs.js';
 import { queueTriggers } from '../../interp.js';
-import { countersFixed, effectsPrevented, ownerOf, statics } from '../../query.js';
+import { countersFixed, countersPrevented, effectsPrevented, ownerOf, statics } from '../../query.js';
 import { allSlots, emit, findSlot, opp, removeFrom, slotCards, topCard } from '../../state.js';
 import type { CardDef, Decision, Frame, GameState, Player, Slot, Val } from '../../types.js';
 import { normText } from '../frame.js';
@@ -66,6 +66,7 @@ registerCustom('moveCounters', (env, s, f, args, answer) => {
   if (countersFixed(env, s, ownerOf(s, from), all) || countersFixed(env, s, ownerOf(s, to), all)) return 'next';
   // Moving counters onto a Pokémon is an effect of the Ability/attack (Hide 'n' Sneak stops it).
   if ((f.kind === 'ability' || f.kind === 'attack') && effectsPrevented(env, s, to, f.player, f.kind, all)) return 'next';
+  if ((f.kind === 'ability' || f.kind === 'attack') && countersPrevented(env, s, to, f.player, f.kind, all)) return 'next'; // lane:charizard (Battle Cage)
   const n = Math.min(Number(args.max ?? 3), Math.floor(from.damage / 10));
   if (n <= 0) return 'next';
   let k: number;

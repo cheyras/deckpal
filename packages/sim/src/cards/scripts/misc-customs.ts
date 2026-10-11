@@ -5,7 +5,7 @@
  */
 import { def } from '../../context.js';
 import { registerCustom } from '../../customs.js';
-import { abilityLost, effectsPrevented, hasNoAbilities, maxHp, statics } from '../../query.js';
+import { abilityLost, countersPrevented, effectsPrevented, hasNoAbilities, maxHp, statics } from '../../query.js';
 import { allSlots, emit, opp, removeFrom, topCard } from '../../state.js';
 import type { Player } from '../../types.js';
 
@@ -24,6 +24,7 @@ registerCustom('freezingShroud', (env, s, f) => {
       if (hasNoAbilities(env, s, sl, all)) continue;
       if (!d.abilities.some((ab) => !abilityLost(env, s, sl, ab, all))) continue;
       if (effectsPrevented(env, s, sl, f.player, 'ability', all)) continue;
+      if (countersPrevented(env, s, sl, f.player, 'ability', all)) continue; // lane:charizard (Battle Cage)
       sl.damage += 10;
       emit(env, { type: 'counters', player: p, slot: sl.id, n: 1 });
     }
