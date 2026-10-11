@@ -1097,6 +1097,11 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       if (a.join('|') !== b.join('|')) result.mismatches.push({ line, turn, what, log: a, engine: b, ...(gaps.length ? { unscripted: gaps } : {}) });
     };
     const sideName = (p: Player | Side | null, n: string) => `P${(p ?? 9) as number}:${canonicalName(n)}`;
+    // Live can name the wrong player for a target ("PlayerA put a damage counter on PlayerA's Petilil" when the
+    // Petilil is PlayerB's): a side that never had a Pokémon of that name, while the other did, is the other side.
+    const hadSlot = (p: Player, n: string) => [...slotName].some(([id, nm]) => same(nm, n) && slotOwner.get(id) === p);
+    const boardSide = (p: Player | Side | null, n: string): Player | Side | null =>
+      p === null || hadSlot(p as Player, n) || !hadSlot(opp(p as Player), n) ? p : opp(p as Player);
     const eName = (slot: number) => slotName.get(slot) ?? `#${slot}`;
     const engineOwner = (slot: number): Player | null => {
       const f = findSlot(s, slot);
@@ -1115,7 +1120,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
     };
     check(
       'counters',
-      sumBy(all.flatMap((e) => (e.t === 'counters' ? [[sideName(e.target.player, e.target.card.name), e.count] as [string, number]] : []))),
+      sumBy(all.flatMap((e) => (e.t === 'counters' ? [[sideName(boardSide(e.target.player, e.target.card.name), e.target.card.name), e.count] as [string, number]] : []))),
       sumBy(engine.flatMap((e) => (e.type === 'counters' ? [[sideName(engineOwner(e.slot), eName(e.slot)), e.n] as [string, number]] : []))),
     );
     check(
