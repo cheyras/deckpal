@@ -5,7 +5,7 @@ import test from 'node:test';
 import { PRINTED_WR } from '../cards/printed-wr.js';
 import { CARD_TAGS } from '../cards/tags.js';
 import { TERA_PRINTINGS } from '../cards/tera.js';
-import { citedRulingIds, parseRulingsHtml, rulingMatch, rulingsNamingCard, sourceDate, type Ruling } from '../maintenance/rulings.js';
+import { citedRulingIds, parseRulingsHtml, rulingHash, rulingMatch, rulingsNamingCard, sourceDate, toIndexEntry, type Ruling, type RulingIndexEntry } from '../maintenance/rulings.js';
 import { diffTables, normName, ptcgCardToOurs, ptcgSetToOurs, renderPrintedWR, renderTags, renderTera, type WRTable } from '../maintenance/tables.js';
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
@@ -98,13 +98,25 @@ test('cited ruling ids are found in every citation style', () => {
   assert.deepEqual([...citedRulingIds(text)].sort((x, y) => x - y), [5, 6, 7, 8, 12, 994, 2352]);
 });
 
-test('the committed rulings snapshot is well formed and attributed', () => {
-  const snap = JSON.parse(read('../../data/rulings-compendium.json')) as { source: string; _comment: string; count: number; rulings: Ruling[] };
+test('an index entry carries no ruling text and a hash that follows the text', () => {
+  const [a] = parseRulingsHtml(PAGE) as [Ruling, Ruling];
+  const e = toIndexEntry(a);
+  assert.deepEqual(Object.keys(e).sort(), ['categories', 'date', 'hash', 'id', 'source']);
+  assert.match(e.hash, /^[0-9a-f]{16}$/);
+  assert.equal(e.hash, rulingHash(a.q, a.a));
+  assert.notEqual(e.hash, rulingHash(a.q, a.a + ' edited'));
+  assert.notEqual(rulingHash(null, 'x'), rulingHash('x', ''));
+});
+
+test('the committed rulings index is well formed and holds no ruling text', () => {
+  const raw = read('../../data/rulings-compendium.json');
+  const snap = JSON.parse(raw) as { source: string; _comment: string; count: number; rulings: RulingIndexEntry[] };
   assert.equal(snap.source, 'https://compendium.pokegym.net/all-rulings-by-date/');
-  assert.match(snap._comment, /TPCi Rules Team/);
+  assert.match(snap._comment, /holds no ruling text/);
   assert.equal(snap.count, snap.rulings.length);
   assert.ok(snap.rulings.length > 1900);
   assert.equal(new Set(snap.rulings.map((r) => r.id)).size, snap.rulings.length, 'ids are unique');
   assert.ok(snap.rulings.every((r, i, all) => i === 0 || all[i - 1]!.id > r.id), 'newest id first');
-  assert.ok(snap.rulings.every((r) => r.a && r.source));
+  assert.ok(snap.rulings.every((r) => Object.keys(r).sort().join() === 'categories,date,hash,id,source' && /^[0-9a-f]{16}$/.test(r.hash) && r.source));
+  assert.ok(raw.length < 600_000, 'an index, not the Compendium text');
 });

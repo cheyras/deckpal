@@ -1,8 +1,8 @@
 /**
  * Pokémon Rulings Compendium (https://compendium.pokegym.net/): parsing its "all rulings by date" page, matching rulings
  * to card names, and finding which rulings the simulator's source already cites. Pure (no I/O); the I/O is in
- * scripts/rulings-sync.ts. The Compendium's rulings are TPCi Rules Team / Japanese Q&A text republished by the
- * Compendium with attribution; the snapshot we keep (data/rulings-compendium.json) says so in its header.
+ * scripts/rulings-sync.ts. The Compendium's question and answer text is its own (TPCi Rules Team / Japanese Q&A as it publishes
+ * them): this repo keeps only an index of it (RulingIndexEntry: id, date, filing names, source label, hash), never the text.
  */
 
 export interface Ruling {
@@ -120,6 +120,35 @@ export function rulingMatch(r: Ruling, names: readonly string[]): { by: 'categor
 export function rulingsNamingCard(rulings: readonly Ruling[], name: string): Ruling[] {
   const n = norm(name);
   return rulings.filter((r) => r.categories.some((c) => norm(c) === n) || norm(r.q ?? '').includes(n));
+}
+
+/** What the repo keeps of a ruling: no question or answer text (that stays on the Compendium), only enough to find and re-check it. */
+export interface RulingIndexEntry {
+  id: number;
+  date: string | null;
+  /** The card / attack / Ability names it is filed under. */
+  categories: string[];
+  source: string;
+  /** 16 hex chars of a hash of question + answer: a changed hash means the ruling was edited. */
+  hash: string;
+}
+
+/** Two 32-bit FNV-1a passes (different seeds) over question + answer, as 16 hex chars. Not cryptographic; change detection only. */
+export function rulingHash(q: string | null, a: string): string {
+  const text = `${q ?? ''}
+${a}`;
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ c, 0x85ebca6b) >>> 0;
+  }
+  return h1.toString(16).padStart(8, '0') + h2.toString(16).padStart(8, '0');
+}
+
+export function toIndexEntry(r: Ruling): RulingIndexEntry {
+  return { id: r.id, date: r.date, categories: r.categories, source: r.source, hash: rulingHash(r.q, r.a) };
 }
 
 /** Compendium ruling ids cited in some source text: `compendium.pokegym.net/ruling/<id>` (with or without the trailing slash) and `Compendium #<id>`. */
