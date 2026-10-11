@@ -102,3 +102,49 @@ test('"up to 2" on a Trainer means 1 or 2, never 0 (TPCi 2026-02-19)', () => {
   assert.equal(g.decision?.kind, 'cards');
   assert.equal(g.decision?.min, 1);
 });
+
+const STADIUMS = fromIds('Rulings: Stadiums', [
+  ['me01-127', 2], // Risky Ruins
+  ['sv10-180', 2], // Team Rocket's Watchtower
+  ['me02-085', 2], // Battle Cage
+  ['me03-062', 4], // Meowth ex
+  ['me05-072', 4], // Antique Armor Fossil
+  ['sv08.5-035', 4], // Duskull
+  ['sv06.5-019', 2], // Dusclops
+  ['sv06.5-020', 2], // Dusknoir
+  ['me05-039', 8], // Dhelmise
+  ['sve-005', 20], // Psychic Energy
+]);
+function atS(sides: [SideLayout, SideLayout]): Game {
+  return scenario(STADIUMS, STADIUMS, sides);
+}
+
+test('Risky Ruins puts 2 counters on an Antique Fossil played to the Bench (TPCi 2026-07-16)', () => {
+  // "Yes, damage counters are placed. It counts as a Pokemon when it is put into play."
+  const g = atS([{ active: 'Dhelmise', hand: ['Antique Armor Fossil', 'Risky Ruins'] }, { active: 'Dhelmise' }]);
+  choose(g, 'Play Risky Ruins');
+  choose(g, 'Antique Armor Fossil');
+  assert.equal(g.state.p[0].bench[0]?.damage, 20);
+});
+
+test("Team Rocket's Watchtower: a Meowth ex benched under it has no Last-Ditch Catch (TPCi 2026-04-16)", () => {
+  // "Yes, Meowth ex will have no Ability when it comes into play."
+  const g = atS([{ active: 'Dhelmise', hand: ["Team Rocket's Watchtower", 'Meowth ex'] }, { active: 'Dhelmise' }]);
+  choose(g, "Play Team Rocket's Watchtower");
+  choose(g, 'Bench Meowth ex');
+  assert.equal(g.decision?.kind, 'main', 'Last-Ditch Catch offered its search under Watchtower');
+});
+
+test('Cursed Blast into Battle Cage: the counters on the Benched target are blocked, Dusknoir is Knocked Out anyway (TPCi)', () => {
+  // "Dusknoir is KO'd even if damage counter placement is blocked."
+  const g = atS([
+    { active: 'Dhelmise', bench: ['Duskull'], evolve: { 0: ['Dusclops', 'Dusknoir'] }, hand: ['Battle Cage'] },
+    { active: 'Dhelmise', bench: ['Dhelmise'] },
+  ]);
+  choose(g, 'Play Battle Cage');
+  choose(g, 'Cursed Blast');
+  const ls = labels(g);
+  g.submit([ls.length - 1]); // the Benched Dhelmise
+  assert.equal(g.state.p[1].bench[0]!.damage, 0, 'Battle Cage let the counters onto the Bench');
+  assert.ok(!g.state.p[0].bench.some((sl) => g.ctx.defs[g.ctx.cardDef[sl.cards[sl.cards.length - 1]!]!]!.name === 'Dusknoir'), 'Dusknoir stayed in play');
+});
