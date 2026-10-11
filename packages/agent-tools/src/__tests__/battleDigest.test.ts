@@ -208,7 +208,7 @@ test('an unidentified owner is SAID, with the names to choose from — never a g
   });
   const res = await tool().handler({ deck_id: 'Toolbox Banette', log_id: 7 }, makeCtx(apiFor(unidentified)));
   assert.equal(res.isError, undefined);
-  assert.match(res.text, /could not tell which one is the reader — the log names Alice and Bob/);
+  assert.match(res.text, /could not tell which one owns this deck — the log names Alice and Bob/);
   assert.match(res.text, /player_name/);
   assert.doesNotMatch(res.text, /players: me /);
   assert.doesNotMatch(res.text, /prizes taken/);

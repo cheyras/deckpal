@@ -36,6 +36,7 @@ const KIND: Record<string, ToolKind> = {
   lists: 'lists',
   mutation_history: 'logs',
   battle_logs: 'logs',
+  battle_digest: 'logs',
   card_price_history: 'prices',
   log_cards: 'write',
   save_deck: 'write',
@@ -58,6 +59,9 @@ const KIND: Record<string, ToolKind> = {
   journey: 'move',
   escort: 'move',
   scrollToMe: 'move',
+  // Deck-E asking a stronger model one question: thinking, not a DeckPal read
+  // or a move, so the sparkle. Its chip carries its own label from the server.
+  consult: 'other',
 }
 
 const ICONS: Record<ToolKind, IconName> = {
@@ -132,6 +136,7 @@ function completedLabel(label: string): string {
     [/^Showing\b/u, 'Showed'],
     [/^Laying\b/u, 'Laid'],
     [/^Simulating\b/u, 'Simulated'],
+    [/^Thinking\b/u, 'Thought'],
   ]
   for (const [pattern, replacement] of verbs) {
     if (pattern.test(label)) return label.replace(pattern, replacement)
@@ -182,6 +187,10 @@ export function labelFor(chip: Chip): string {
     case 'battle_logs':
     case 'mutation_history':
       return pair('Reading your history', 'Read your history')
+    case 'battle_digest':
+      return pair('Reading the game', 'Read the game')
+    case 'consult':
+      return pair('Thinking it through', 'Thought it through')
     case 'card_price_history':
       return pair('Checking prices', 'Checked prices')
     case 'set_cart':

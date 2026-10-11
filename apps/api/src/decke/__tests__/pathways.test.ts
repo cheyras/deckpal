@@ -36,7 +36,9 @@ test('battle logging preserves paste, ranking, depth, debrief, and hidden-info r
   assert.match(text, /Set `opponent_archetype`/)
   assert.match(text, /absent means “new archetype”.*`games >= 3`/)
   assert.match(text, /without `deck_id` so it ranks their decks/)
-  assert.match(text, /Light.*Standard.*Deep/)
+  // One game, one depth (2026-10-10). The old list let a familiar mirror be
+  // Light and "met at least three times" Deep at once; the order now decides.
+  assert.match(text, /One game gets one depth\. \*\*Light\*\* is checked first.*even against a deck they meet every week.*\*\*Deep\*\* is .*\*\*Standard\*\* is every other real game/)
   for (const detail of [
     'main attacker', 'who went first', 'first Knock Out', 'final prize score',
     'play that frustrated', 'turn they would replay', 'whiffed a Supporter',
@@ -45,6 +47,54 @@ test('battle logging preserves paste, ranking, depth, debrief, and hidden-info r
   assert.match(text, /Only a bare result with no story.*logged immediately/)
   assert.match(text, /hidden information are \*\*unknown\*\*, never guessed/)
   assert.match(text, /battle number, version and deck record/)
+})
+
+// 2026-10-10, from the pathway audit: an in-person game used to dead-end with
+// no deck (ranking reads a Live log's card lines, and add_battle_log refuses an
+// in-person call without deck_id), the card had no options, a named attack sent
+// Haiku to paid research, and a guessed screen name logged a win as a loss.
+test('in-person logging asks for the deck, offers ready options, and never guesses a player', () => {
+  const text = flat(pathwayText('battle_log'))
+  assert.match(text, /which deck, unless they named it or are on its `\/decks\/<id>` page \(their decks from `decks` as options\)/)
+  assert.match(text, /each with two to four short options/)
+  assert.match(text, /First \/ Second \/ First, after a mulligan \/ Second, after a mulligan/)
+  assert.match(text, /`search_cards` \(`text` for an attack, `query` for a card\).*do not research before the card/)
+  assert.match(text, /never `"@pasted"`/)
+  assert.match(text, /Set `played_at` when they said when/)
+  assert.match(text, /Several rounds at an event are several games: one call per round/)
+  assert.match(text, /never guess `player_name`.*only when the reader told you their screen name, or when the tool says it cannot tell/)
+})
+
+test('a review has a shape and four defined causes', () => {
+  const text = flat(pathwayText('battle_log'))
+  assert.match(text, /\*\*Read:\*\* <cause> — <turning point: turn and event>.*\*\*Prizes:\*\*.*\*\*Lesson:\*\*.*\*\*Watch:\*\*/)
+  for (const cause of ['Variance', 'Misplay', 'List', 'Matchup']) {
+    assert.match(text, new RegExp(`\\*\\*${cause}\\*\\* is `), `cause ${cause} is named but not defined`)
+  }
+})
+
+// Deep Think is not wired (39c5ab9f). A pathway that offers it promises the
+// reader a feature that does not exist; one that sends Deep games to it leaves
+// them with no analysis at all. And `dry_run` stays out: a "preview first"
+// line once took write calls to 0/15 (aisdk.ts), and the tool results already
+// say how to apply.
+test('no pathway mentions Deep Think, and the battle texts say nothing about dry_run', () => {
+  for (const name of PATHWAY_NAMES as readonly PathwayName[]) {
+    assert.doesNotMatch(pathwayText(name), /Deep Think/i, `${name} mentions Deep Think`)
+  }
+  for (const name of ['battle_log', 'battle_review'] as const) {
+    assert.doesNotMatch(pathwayText(name), /dry_run|dry run|preview first/i, `${name} talks about dry runs`)
+    // Code picks the tier; a sentence naming it is one the model cannot act on.
+    assert.doesNotMatch(pathwayText(name), /This is (Quick|Standard|Deep) work|Standard floor/, `${name} carries a tier sentence`)
+  }
+})
+
+// Live probe, 2026-10-10: a lopsided paste was logged with no `notes` at all,
+// and its reply ran past 800 characters.
+test('every logging call carries notes, and a Light game stays a couple of lines', () => {
+  const text = flat(pathwayText('battle_log'))
+  assert.match(text, /Every logging call sets `notes` — when the reader said nothing beyond the paste, one plain line on what happened/)
+  assert.match(text, /\*\*Light\*\* skips the digest and the consult: one or two lines in `review` on the logging call and a reply of a couple of lines are the whole job/)
 })
 
 // 2026-10-10: the digest and the consult. The ORDER is the contract — the
@@ -57,11 +107,14 @@ test('battle logging: after the approval, Standard games digest, consult when av
     /approval lands.*`add_battle_log` returns the battle number.*\*\*Standard\*\*: call `battle_digest`.*When the `consult` tool is available, call it once.*`review` with `edit_battle_log`/,
   )
   assert.match(text, /\*\*Light\*\* skips the digest and the consult/)
-  assert.match(text, /\*\*Deep\*\* games never consult: they go to the \*\*Deep Think\*\* offer/)
+  // A Deep game gets the fuller treatment on THIS turn: the same digest and
+  // consult, with the archetype's history in the brief.
+  assert.match(text, /\*\*Deep\*\* is the same with more in the brief — the record against this archetype and the notes and reviews of earlier games against it \(`battle_logs` with `log_id`/)
+  assert.match(text, /the one change worth testing/)
   // The colleague sees only the brief, so the brief must carry the reader's words.
   assert.match(text, /brief is the digest plus the reader's own words.*because it sees nothing else/)
   // Haiku without the tool (a raised tier never holds it) still owes the review.
-  assert.match(text, /Without `consult`, write that Standard review yourself from the digest/)
+  assert.match(text, /Without `consult`, write that review yourself from the digest and those games/)
   assert.match(text, /in-person game has no log to digest/)
   // The stale line that named a digest before one existed is gone.
   assert.doesNotMatch(text, /Use the digest for prize gap and end reason/)
@@ -72,7 +125,16 @@ test('battle review uses stored archetype records and preserves reader notes', (
   assert.match(text, /per-archetype record.*absent key is a new archetype.*`games >= 3`/)
   assert.match(text, /write it to `review`, never over the reader's `notes`/)
   assert.match(text, /set `opponent_archetype`/)
-  assert.match(text, /Deep Think.*cost card.*roughly how many credits/)
+})
+
+// From the pathway audit (#7): list rows cut notes to 40 characters
+// (deckIntel.ts logRow), the record counts each archetype key apart and skips
+// unclassified games, and thin logs invite invented causes.
+test('battle review opens the full notes, merges archetype keys, and asks when the logs are thin', () => {
+  const text = flat(pathwayText('battle_review'))
+  assert.match(text, /`battle_logs` `log_id`: list rows cut notes to 40 characters/)
+  assert.match(text, /merge keys that name the same deck \(`gardevoir` and `gardevoir-ex`\).*say you did/)
+  assert.match(text, /too thin to classify.*ask what felt wrong on an `ask_user` card.*instead of inventing causes/)
 })
 
 test('battle review digests the games that matter before it concludes — not every game', () => {

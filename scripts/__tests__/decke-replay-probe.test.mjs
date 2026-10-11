@@ -8,6 +8,7 @@ import {
   gradeExpectation,
   hasFalseRefusal,
   hasTextDeckList,
+  loadRuntime,
   main,
   parseArgs,
   parseArms,
@@ -246,4 +247,40 @@ test('a routed mock run classifies and records every turn without network access
   assert.equal(result.arm_results[0].arm, 'routed')
   assert.equal(result.spent_usd, 0)
   assert.equal(result.stopped, null)
+})
+
+// 2026-10-10: the battle_log pathway now runs log -> battle number ->
+// battle_digest -> consult -> edit_battle_log. These pin that the fixture world
+// answers that path from the scenario's real log, with the real parser and
+// digest, rather than with a canned "recorded" or "no matching rows".
+test('the battle fixtures log the real paste, count archetypes, digest the stored game and hold consult on Quick only', async () => {
+  const fixtures = new URL('../fixtures/decke-replay/', import.meta.url)
+  const world = JSON.parse(readFileSync(new URL('world.json', fixtures), 'utf8'))
+  const close = JSON.parse(readFileSync(new URL('scenarios.json', fixtures), 'utf8')).find((s) => s.id === 'battle-log-close')
+  const writes = []
+  const runtime = await loadRuntime(world, writes)
+  runtime.state.messages = [{ role: 'user', parts: [{ type: 'text', text: close.turns[0].user }] }]
+  const quick = runtime.toolsFor('quick', async ({ question }) => `analysis of: ${question}`)
+  assert.ok(quick.consult, 'Quick holds consult')
+  assert.equal(runtime.toolsFor('standard', async () => 'x').consult, undefined, 'Standard never holds consult')
+  const call = { toolCallId: 'fixture', messages: [] }
+
+  const logged = await quick.add_battle_log.execute({ deck_id: 'deck-slowking-v3', log: '@pasted', player_name: 'HarborKite', dry_run: false }, call)
+  assert.match(logged, /^Logged battle #101 → attached to v3/)
+  assert.match(logged, /LOSS vs QuartzFox/, 'the result and opponent come from the real parser, not the fixture')
+  assert.equal(writes.length, 1)
+
+  const digest = await quick.battle_digest.execute({ deck_id: 'deck-slowking-v3', log_id: 101 }, call)
+  assert.match(digest, /^battle digest #101 \| v3/)
+  assert.match(digest, /players: me HarborKite vs QuartzFox/)
+  assert.match(digest, /prize timeline .*T3 opp \+2 Slowking/)
+  assert.match(await quick.battle_digest.execute({ deck_id: 'deck-slowking-v3', log_id: 3 }, call), /no game log to digest/)
+
+  const list = await quick.battle_logs.execute({ deck_id: 'deck-slowking-v3', page: 1 }, call)
+  assert.match(list, /archetype record: .*dragapult-ex 1W–2L–0T \(3\)/)
+  assert.match(list, /note: Rare Candy was dead while Drakloak spre…/, 'list rows cut notes at 40 characters, as the real tool does')
+  assert.match(await quick.battle_logs.execute({ deck_id: 'deck-slowking-v3', log_id: 3, page: 1 }, call), /notes: Rare Candy was dead while Drakloak spread damage across two Slowpoke\./)
+
+  assert.match(await quick.add_battle_log.execute({ origin: 'in_person', result: 'loss', opponent_deck: 'Zoroark', dry_run: false }, call), /deck_id is required for an in-person/)
+  assert.match(await quick.consult.execute({ question: 'What decided it?', brief: digest }, call), /^analysis of: What decided it\?/)
 })

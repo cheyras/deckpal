@@ -1086,7 +1086,7 @@ function digestInner(rawLog: string, parsed: ParsedBattleLog): BattleDigest {
   // ── No owner: the perspective-free half only ───────────────────────────────
   if (meName === null || !state.has(meName)) {
     unknowns.push(
-      `which player is the deck owner (the log names ${names.join(' and ')}) — pass the reader's screen name to read it from their side`,
+      `which player is the deck owner (the log names ${names.join(' and ')}) — pass the owner's screen name to read it from their side`,
     );
     return {
       ...emptyDigest(parsed),
