@@ -252,14 +252,24 @@ export const MISC: CardScript[] = [
     id: 'me01-122',
     name: 'Mystery Garden',
     // "Once during each player's turn, that player may discard an Energy card from their hand in order to draw cards until they have as many cards in their hand as they have {P} Pokémon in play."
+    // Rulings (TPCi Rules Team 2025-09-25, https://compendium.pokegym.net/ruling/2232/ and /2231/): the Energy can't be discarded for no draw, so the
+    //  Stadium can't be used unless at least 1 card can be drawn (not with an empty deck, not when the hand is already big enough).
     stadiumAbility: {
-      when: { gte: [{ count: { zone: 'hand', filter: { cat: 'energy' } } }, 1] },
+      when: {
+        and: [
+          { gte: [{ count: { zone: 'hand', filter: { cat: 'energy' } } }, 1] },
+          { gte: [{ deckSize: 'self' }, 1] },
+          // The discard shrinks the hand by 1, so a card is drawn only when the {P} Pokémon count is at least the hand size now.
+          { gte: [{ pokemon: { zone: 'myPokemon', filter: { type: 'Psychic' } } }, { handSize: 'self' }] },
+        ],
+      },
       program: [
         { op: 'chooseCards', from: 'hand', filter: { cat: 'energy' }, min: 1, max: 1, as: 'x', prompt: 'Discard an Energy card' },
         { op: 'move', cards: 'x', to: 'discard' },
         { op: 'draw', n: { max: [0, { sub: [{ pokemon: { zone: 'myPokemon', filter: { type: 'Psychic' } } }, { handSize: 'self' }] }] } },
       ],
     },
+    notes: 'Rulings 2231/2232: usable only when it would draw at least 1 card.',
   },
   {
     id: 'sv06.5-063',
