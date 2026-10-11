@@ -431,10 +431,10 @@ function turnStep(env: Env, s: GameState): void {
       ps.stadiumAbilityUsed = false;
       ps.globalAbilitiesUsed = [];
       ps.playedThisTurn = [];
-      delete ps.toolUsed;
-      delete s.attackUses; // attack bookkeeping of the turn before (absent = none yet)
-      delete s.attackedViaTool;
-      delete s.noMoreAttacks;
+      ps.toolUsed = undefined; // (assigned, not deleted: a delete turns the object into a slow dictionary)
+      s.attackUses = undefined; // attack bookkeeping of the turn before (absent = none yet)
+      s.attackedViaTool = undefined;
+      s.noMoreAttacks = undefined;
       ps.prizesAtTurnStart = ps.prizesTaken;
       for (const sl of allSlots(ps)) sl.usedAbilities = [];
       s.attacked = false;
@@ -990,7 +990,7 @@ function enforceBenchLimit(env: Env, s: GameState): boolean {
   const owner = s.stadium && def(env.ctx, s.stadium.card).statics.some((x) => x.effect.k === 'benchSize') ? s.stadium.owner : undefined;
   if (owner !== undefined) s.benchOwner = owner;
   if (s.p[0].bench.length <= 5 && s.p[1].bench.length <= 5) {
-    if (owner === undefined) delete s.benchOwner;
+    if (owner === undefined && s.benchOwner !== undefined) s.benchOwner = undefined;
     return false;
   }
   const all = statics(env, s);
@@ -1012,7 +1012,7 @@ function enforceBenchLimit(env: Env, s: GameState): boolean {
     };
     return true;
   }
-  if (owner === undefined) delete s.benchOwner;
+  if (owner === undefined && s.benchOwner !== undefined) s.benchOwner = undefined;
   return false;
 }
 

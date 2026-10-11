@@ -60,7 +60,7 @@ export function newState(ctx: GameContext, seed: number): GameState {
 }
 
 function cloneSlot(s: Slot): Slot {
-  return {
+  const out: Slot = {
     id: s.id,
     cards: s.cards.slice(),
     energy: s.energy.slice(),
@@ -70,21 +70,43 @@ function cloneSlot(s: Slot): Slot {
     enteredTurn: s.enteredTurn,
     evolvedTurn: s.evolvedTurn,
     usedAbilities: s.usedAbilities.slice(),
-    ...(s.paralyzedTurn !== undefined ? { paralyzedTurn: s.paralyzedTurn } : {}),
-    ...(s.movedActiveTurn !== undefined ? { movedActiveTurn: s.movedActiveTurn } : {}),
-    ...(s.healedTurn !== undefined ? { healedTurn: s.healedTurn } : {}),
-    ...(s.koTriggered ? { koTriggered: true } : {}),
-    ...(s.koHandAnswer !== undefined ? { koHandAnswer: s.koHandAnswer } : {}),
-    ...(s.attackDmgTurn !== undefined ? { attackDmgTurn: s.attackDmgTurn, attackDmg: s.attackDmg } : {}),
-    ...(s.poisonCounters !== undefined ? { poisonCounters: s.poisonCounters } : {}),
-    ...(s.burnCounters !== undefined ? { burnCounters: s.burnCounters } : {}),
-    ...(s.confusionCounters !== undefined ? { confusionCounters: s.confusionCounters } : {}),
   };
+  // Optional fields are copied only when set (no temporary objects: this runs for every Pokémon of every search clone).
+  if (s.paralyzedTurn !== undefined) out.paralyzedTurn = s.paralyzedTurn;
+  if (s.movedActiveTurn !== undefined) out.movedActiveTurn = s.movedActiveTurn;
+  if (s.healedTurn !== undefined) out.healedTurn = s.healedTurn;
+  if (s.koTriggered) out.koTriggered = true;
+  if (s.koHandAnswer !== undefined) out.koHandAnswer = s.koHandAnswer;
+  if (s.attackDmgTurn !== undefined) {
+    out.attackDmgTurn = s.attackDmgTurn;
+    out.attackDmg = s.attackDmg;
+  }
+  if (s.poisonCounters !== undefined) out.poisonCounters = s.poisonCounters;
+  if (s.burnCounters !== undefined) out.burnCounters = s.burnCounters;
+  if (s.confusionCounters !== undefined) out.confusionCounters = s.confusionCounters;
+  return out;
 }
 
+const OPTIONAL_PLAYER_FIELDS = [
+  'prevKoTurn',
+  'attackKoTurn',
+  'attackKoCards',
+  'prizesAtTurnStart',
+  'prizesLastTurn',
+  'koCards',
+  'koCardsTurn',
+  'prevKoCards',
+  'prevKoCardsTurn',
+  'prizesUp',
+  'attackRec',
+  'prevAttackRec',
+  'toolUsed',
+  'oncePerGame',
+] as const;
+
+// Written out field by field (a `...p` spread over a shape with this many optional fields is slow, and a clone is made per search node).
 function clonePlayer(p: PlayerState): PlayerState {
-  return {
-    ...p,
+  const out: PlayerState = {
     deck: p.deck.slice(),
     hand: p.hand.slice(),
     discard: p.discard.slice(),
@@ -92,10 +114,23 @@ function clonePlayer(p: PlayerState): PlayerState {
     lost: p.lost.slice(),
     active: p.active ? cloneSlot(p.active) : null,
     bench: p.bench.map(cloneSlot),
+    mulligans: p.mulligans,
+    prizesTaken: p.prizesTaken,
+    supporterPlayed: p.supporterPlayed,
+    stadiumPlayed: p.stadiumPlayed,
+    energyAttached: p.energyAttached,
+    retreated: p.retreated,
+    stadiumAbilityUsed: p.stadiumAbilityUsed,
     globalAbilitiesUsed: p.globalAbilitiesUsed.slice(),
+    lastKoTurn: p.lastKoTurn,
+    prizesKnown: p.prizesKnown,
+    knownTop: p.knownTop,
     revealed: p.revealed.slice(),
-    ...(p.playedThisTurn ? { playedThisTurn: p.playedThisTurn.slice() } : {}),
   };
+  if (p.playedThisTurn) out.playedThisTurn = p.playedThisTurn.slice();
+  // Replaced, never mutated: shared with the original.
+  for (const k of OPTIONAL_PLAYER_FIELDS) if (k in p) (out as unknown as Record<string, unknown>)[k] = p[k];
+  return out;
 }
 
 function cloneDecision(d: Decision): Decision {
