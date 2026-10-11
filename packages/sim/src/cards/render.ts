@@ -182,6 +182,13 @@ export const CUSTOM_GLOSS: Record<string, (args: Record<string, unknown>) => str
   'c01.useSupporterEffect': (a) => `Use the effect of the Supporter card chosen as "${String(a.card ?? 'x')}" (it is not played, and it can't be declined)`,
   'c01.energyToHandFiltered': (a) => `Put ${Number(a.n ?? 1)} ${energyNoun(a.filter as Filter | undefined)} attached to this Pokémon into your hand (all of them if it has fewer)`,
   'c01.leastHpRemaining': (a) => `Choose the Pokémon in play (yours or your opponent's), other than this Pokémon, that has the least HP remaining (into "${String(a.as ?? 't')}")`,
+  // std-c09-customs.ts
+  'c09.energyToHand': (a) => `Put ${Number(a.n ?? 1)} Energy card attached to this Pokémon that provides ${sym(a.type as PType)} Energy where it is attached (Basic or Special) into your hand (all of them if it has fewer)`,
+  'c09.endTurn': () => 'Your turn ends, as it does after using an attack (no attack is used)',
+  'c09.removeCondition': () => 'Remove 1 Special Condition (your choice when there are several) from your Active Pokémon',
+  'c09.discardTopCount': (a) => `Discard the top ${Number(a.n ?? 1)} cards of your deck and count the ${energyNoun(a.filter as Filter | undefined)} cards among them (into "${String(a.as ?? 'n')}")`,
+  'c09.pleasingPresent': (a) =>
+    `Your opponent first, then you, may choose up to ${Number(a.max ?? 3)} Basic Energy cards from your hand and attach each to a Pokémon of yours (Energy put on a Pokémon protected from this effect is discarded instead); the attach triggers fire afterwards, for both players`,
 };
 
 /** What a custom CONDITION (`{ custom: name }` in a Cond) checks, written from its code. */
@@ -1777,5 +1784,14 @@ export const ROUNDTRIP_ALLOW: Record<string, { problems: string[]; why: string }
   'me01-066|attack:Horrifying Bite': {
     problems: ['"each" is printed but not rendered', '"reveal" is printed but not rendered'],
     why: '"For each heads" is a repeat of the heads count, rendered "the number of heads times"; "reveals those cards" is information only (the cards are shuffled into the deck at once, and the engine tracks no memory of revealed cards leaving the hand), so the move to the deck has no reveal step.',
+  },
+  // std-c09
+  'me03-079|text': {
+    problems: ["\"can't\" is printed but not rendered", '"may" is printed but not rendered'],
+    why: 'The discard is `chooseCards` with `min: 0` ("you may discard any number" is already the option to discard none), and the parenthesis "(If you cannot draw any cards in this way, you cannot use this card.)" is the `playable` guard (a deck to draw from), which renders as "You can use this card only if ...".',
+  },
+  'me04-013|attack:Energized Storm': {
+    problems: ['the rendering involves the opponent; the printed text does not'],
+    why: "\"all Pokémon\" is every Pokémon in play, both players' Pokémon; the sum custom renders its zone as \"all of Pokémon in play (both yours and your opponent's)\".",
   },
 };
