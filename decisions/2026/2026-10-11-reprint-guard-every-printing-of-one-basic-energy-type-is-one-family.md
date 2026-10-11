@@ -8,13 +8,25 @@ supersedes: []
 ## 2026-10-11 — Reprint guard: every printing of one basic energy type is one family
 **Decided by:** Chey (via Claude Opus 5.5)
 
-**Decision:** The printing guard's family table (`art-families.json`, built by
-`scripts/scan-bench/art_families.py`) treats every printing of one basic energy
-type as one family. That covers basic Grass, Fire, Water, Lightning, Psychic,
-Fighting, Darkness, Metal and Fairy Energy, 321 joins in all.
+**Decision:** The printing guard opens the printing for every basic energy.
+That covers basic Grass, Fire, Water, Lightning, Psychic, Fighting, Darkness,
+Metal and Fairy Energy. So an image signal can name the energy type but not the
+printing: the printed key decides it, where OCR reads one, or the reader
+chooses.
 
-So an image signal can name the energy type but not the printing. The printed
-key decides the printing, where OCR reads one, or the reader chooses.
+- **How the data is kept:** `art-families.json` (built by
+  `scripts/scan-bench/art_families.py`) gains `energyTypes`, every printing of
+  each basic type (330 in 9 types). It sits BESIDE the same-picture families,
+  which are unchanged.
+- **How the guard uses it:** `artFamilies.ts` `typeMatesOf` gives a basic
+  energy's other printings outside its own family. `resolve.ts` treats them
+  like same-picture siblings for opening the printing.
+- **Type mates only add choices.** The reader's list is exactly what it would
+  have been, and the type mates fill the slots left under 25.
+- **Why not merge them into the families:** the first version did, which
+  made families of 28 to 50. Those crowded a card's own same-picture printings
+  out of the 25 choices: Base Set Fighting Energy lost Evolutions' xy12-96,
+  and the picker has no search to bring it back (Astra, review of this PR).
 
 "Basic" means the catalogue's `card.energy_type = 'Normal'`, saved as
 `scripts/scan-bench/energy-types.json`, not the card's name. Before Diamond &
@@ -57,9 +69,11 @@ Keying on `energy_type` restored it.
   a question costs less than a wrong collection entry.
 - `energy-types.json` is a snapshot of the catalogue. When new sets add basic
   energies, re-read it before rebuilding the table, or the new printings will
-  be outside their family.
-- Regression: `printing-guard.test.ts` covers four things:
-  - Psychic and Fighting printings join across eras;
-  - each type is its own family;
-  - the special Metal and Darkness energies are excluded;
-  - the guard opens for sm1-168.
+  be missing from `energyTypes`.
+- Regression: `printing-guard.test.ts` covers five things:
+  - Psychic and Fighting printings are type mates across eras;
+  - each type is its own list, and excludes the card's own family;
+  - the special Metal and Darkness energies have none;
+  - the guard opens for sm1-168;
+  - Base Set Fighting Energy's whole same-picture family, xy12-96 included,
+    is still among the choices with ~40 type mates appended (Astra's case).
