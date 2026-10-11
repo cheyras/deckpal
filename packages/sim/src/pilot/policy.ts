@@ -25,6 +25,7 @@ import { attackCost, benchLimit, energyUnits, retreatCost, statics, type LiveSta
 import type { Game } from '../game.js';
 import { opp } from '../state.js';
 import type { Pilot } from './types.js';
+import { DEFAULT_TUNING, type Tuning } from './tuning.js';
 import type { Action, CardDef, Decision, Frame, GameState, Player, Slot } from '../types.js';
 import {
   allSlots,
@@ -42,9 +43,11 @@ import {
 export interface PolicyProfile {
   /** Go first when winning the coin toss (default true). */
   goFirst: boolean;
+  /** Behaviour switches (see tuning.ts). */
+  tuning?: Tuning;
 }
 
-export const DEFAULT_PROFILE: PolicyProfile = { goFirst: true };
+export const DEFAULT_PROFILE: PolicyProfile = { goFirst: true, tuning: DEFAULT_TUNING };
 
 const MISSING_DISCOUNT = [1, 0.55, 0.3, 0.15, 0.08];
 
@@ -130,7 +133,29 @@ function trainerKind(d: CardDef): { draws: boolean; searches: boolean; gust: boo
   return { draws, searches, gust };
 }
 
+/** Does this Pokémon have an activated Ability that draws or searches (an engine worth having on the Bench)? */
+const ENGINE = new WeakMap<CardDef, boolean>();
+function isEngine(d: CardDef): boolean {
+  let r = ENGINE.get(d);
+  if (r !== undefined) return r;
+  r = false;
+  const walk = (p: Step[] | undefined) => {
+    for (const st of p ?? []) {
+      if (st.op === 'draw' || (st.op === 'chooseCards' && st.from === 'deck')) r = true;
+      if (st.op === 'if') {
+        walk(st.then);
+        walk(st.else);
+      } else if (st.op === 'repeat' || st.op === 'may') walk(st.body);
+    }
+  };
+  if (d.coverage === 'full') for (const ab of d.script?.abilities ?? []) walk(ab.activated?.program);
+  ENGINE.set(d, r);
+  return r;
+}
+
 interface Board {
+  /** Behaviour switches. */
+  tune: Tuning;
   env: Env;
   s: GameState;
   p: Player;
@@ -145,7 +170,7 @@ interface Board {
   copier: boolean;
 }
 
-function board(env: Env, s: GameState, p: Player): Board {
+function board(env: Env, s: GameState, p: Player, tune: Tuning = DEFAULT_TUNING): Board {
   const ps = s.p[p];
   const all = statics(env, s);
   const inPlay = new Map<string, number>();
@@ -166,7 +191,7 @@ function board(env: Env, s: GameState, p: Player): Board {
     const n = def(env.ctx, c).name;
     handNames.set(n, (handNames.get(n) ?? 0) + 1);
   }
-  return { env, s, p, viewer: p, all, inPlay, handNames, needEnergy, pokemonCount: allSlots(ps).length, copier };
+  return { tune, env, s, p, viewer: p, all, inPlay, handNames, needEnergy, pokemonCount: allSlots(ps).length, copier };
 }
 
 /** How much this card is worth to `p` right now (higher = keep / fetch). */
@@ -175,10 +200,12 @@ function cardValue(b: Board, c: number): number {
   const ps = b.s.p[b.p];
   const fx = facts(b.env.ctx);
   if (d.kind === 'pokemon') {
+    // A draw or search Ability (Fezandipiti ex, Dudunsparce ex) pays for its place on the Bench every turn.
+    const eng = b.tune.engine && isEngine(d) ? 14 : 0;
     if (d.stage > 0) {
-      if (d.evolvesFrom && b.inPlay.has(d.evolvesFrom)) return 75 + 10 * d.stage;
-      if (d.evolvesFrom && b.handNames.has(d.evolvesFrom)) return 45;
-      return 22;
+      if (d.evolvesFrom && b.inPlay.has(d.evolvesFrom)) return 75 + 10 * d.stage + eng;
+      if (d.evolvesFrom && b.handNames.has(d.evolvesFrom)) return 45 + eng;
+      return 22 + eng;
     }
     let v = b.pokemonCount < 3 ? 62 : b.pokemonCount < 5 ? 40 : 18;
     if (ps.bench.length >= benchLimit(b.env, b.s, b.p, b.all)) v = 12; // a full Bench (5, or more under Area Zero Underdepths)
@@ -187,7 +214,7 @@ function cardValue(b: Board, c: number): number {
     if (evolves) v += 8;
     if (d.idx === fx.mainAttacker[b.p]) v += 10;
     if (d.prizeValue > 1) v -= 6;
-    return v + (fx.power[d.idx] ?? 0) / 40;
+    return v + eng + (fx.power[d.idx] ?? 0) / 40;
   }
   if (d.kind === 'energy') return b.needEnergy ? 52 : 26;
   // Trainers
@@ -539,7 +566,7 @@ export function policyChoose(env: Env, s: GameState, d: Decision, profile: Polic
     default:
       break;
   }
-  const b = board(env, s, d.player);
+  const b = board(env, s, d.player, profile.tuning ?? DEFAULT_TUNING);
   switch (d.kind) {
     case 'main':
       return mainChoice(b, d);

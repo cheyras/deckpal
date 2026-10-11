@@ -119,6 +119,19 @@ export interface ReplayResult {
   transcript?: string[];
   /** Reruns the backtracking over ambiguous same-named Pokémon took. */
   reruns?: number;
+  /** What `ReplayOptions.observe` collected in this run. */
+  observed?: unknown;
+  /** Errors the observer threw (it never affects the replay; they are reported here, not as a divergence). */
+  observerErrors?: string[];
+}
+
+/** Whatever was thrown, as text (a thrown null or string has no message). */
+function thrownText(err: unknown): string {
+  try {
+    return err instanceof Error ? err.message : String(err);
+  } catch {
+    return 'unprintable error';
+  }
 }
 
 const ACTIONS = new Set(['play_bench', 'play_stadium', 'play_card', 'evolve', 'attach', 'use', 'attack', 'retreat', 'end_turn']);
@@ -222,6 +235,31 @@ export interface ReplayOptions extends ParseOptions {
   transcript?: boolean;
   /** Reruns allowed when backtracking over ambiguous choices (default 48). */
   maxRuns?: number;
+  /**
+   * Watch the replay's decisions (pilot-agreement measurement). Called once per run (reruns included); the observer
+   * sees each decision the LOG answered, just before the engine takes the logged answer, and its `finish()` value is
+   * returned as `ReplayResult.observed` of the run that is kept.
+   */
+  observe?: () => ReplayObserver;
+}
+
+/** One decision as the log answered it. `choice` is the logged answer; `known` is false when the replay had to guess it. */
+export interface ReplayObservation {
+  game: Game;
+  decision: Decision;
+  choice: number[];
+  known: boolean;
+  /** The logged action (main-phase decisions). */
+  event: { line: number; turn: number; text: string } | null;
+  /** The text of each option of the decision. */
+  options: string[];
+  /** Hidden filler cards in the deciding player's hand (the log never showed those cards). */
+  fillersInHand: number;
+}
+
+export interface ReplayObserver {
+  decision(o: ReplayObservation): void;
+  finish(): unknown;
 }
 
 interface Ambiguity {
@@ -1312,6 +1350,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
     return null;
   };
 
+  let usedFallback = false;
   const answerOrder = (d: Decision): number[] => {
     const labels = (d.labels ?? []).map((l) => l.toLowerCase());
     for (const e of scope) {
@@ -1326,12 +1365,22 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
   };
 
   const fallback = (d: Decision): number[] => {
+    usedFallback = true;
     unlogged(d);
     const n = d.kind === 'option' || d.kind === 'yesno' ? 1 : Math.max(d.min, 0);
     if (d.kind === 'order') return Array.from({ length: d.values?.length ?? 0 }, (_, i) => i);
     return Array.from({ length: Math.min(n, (d.values ?? d.labels ?? []).length) }, (_, i) => i);
   };
 
+  const observer = o.observe?.();
+  const optionTexts = (d: Decision): string[] =>
+    d.actions
+      ? d.actions.map(actionLabel)
+      : d.kind === 'slots' || d.kind === 'promote'
+        ? (d.values ?? []).map((v) => slotSig(v))
+        : d.values
+          ? d.values.map((v) => name(v))
+          : (d.labels ?? []);
   const maxDecisions = o.maxDecisions ?? 20000;
   let decisions = 0;
   let lastAction: LiveEvent | null = null;
@@ -1342,6 +1391,8 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       const d = g.decision;
       if (!d) break;
       let choice: number[] | null = null;
+      usedFallback = false;
+      let implicitEnd = false;
       switch (d.kind) {
         case 'setupActive':
         case 'setupBench': {
@@ -1390,6 +1441,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
               break;
             }
             choice = [endIdx];
+            implicitEnd = true;
             break;
           }
           let i = findAction(d, next);
@@ -1467,6 +1519,27 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       }
       if (result.divergence || !choice) break;
       if (DEBUG) console.error(`[replay] T${s.turn} P${d.player} ${d.kind} "${d.prompt}" [${(d.values ?? []).map((v) => (d.kind === 'slots' || d.kind === 'promote' ? `@${slotSig(v)}` : name(v))).join(', ') || (d.labels ?? []).join(', ') || (d.actions ?? []).map(actionLabel).join('; ')}] → ${choice.join(',')}`);
+      if (observer && (d.kind === 'main' || d.kind === 'cards' || d.kind === 'slots' || d.kind === 'promote' || d.kind === 'option')) {
+        const nextAct = acts[ai - 1];
+        // The observer gets copies (a cloned game, a copied decision and answer): whatever it does to them, or throws,
+        // cannot reach the replay. Its errors are reported in `observerErrors`, not counted as the engine diverging.
+        try {
+          // A game over a deep copy of the state (`clone` shares the action objects and optional records), and its own decision.
+          const seen = g.clone();
+          seen.state = structuredClone(g.state);
+          observer.decision({
+            game: seen,
+            decision: seen.decision as Decision,
+            choice: [...choice],
+            known: !usedFallback && !implicitEnd,
+            event: d.kind === 'main' && nextAct ? { line: nextAct.line, turn: nextAct.turn, text: describe(nextAct) } : null,
+            options: optionTexts(d),
+            fillersInHand: s.p[d.player].hand.filter((c) => name(c) === HIDDEN).length,
+          });
+        } catch (err) {
+          (result.observerErrors ??= []).push(`T${s.turn} ${d.kind}: ${thrownText(err)}`);
+        }
+      }
       g.submit(choice);
       trackSlots();
       }
@@ -1479,6 +1552,13 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
     diverge(acts[ai - 1] ?? null, acts[ai - 1] ? describe(acts[ai - 1]!) : '', `engine error: ${(err as Error).message}`);
   }
   result.engineTurns = s.turn;
+  if (observer) {
+    try {
+      result.observed = observer.finish();
+    } catch (err) {
+      (result.observerErrors ??= []).push(`finish: ${thrownText(err)}`);
+    }
+  }
   if (o.transcript) result.transcript = transcript(ctx, g.events);
   result.winner.engine = s.winner;
   result.winner.engineReason = s.winReason;

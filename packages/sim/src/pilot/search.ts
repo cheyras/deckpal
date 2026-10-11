@@ -25,7 +25,8 @@ import type { Game } from '../game.js';
 import { Rng } from '../rng.js';
 import { cloneState, opp } from '../state.js';
 import type { Action, Decision, GameState, Player } from '../types.js';
-import { branchable, hashState, optionCount, settle } from './lookahead.js';
+import { branchable, hashState, optionCount, publicKey, settle } from './lookahead.js';
+import { DEFAULT_TUNING } from './tuning.js';
 import { DEFAULT_WEIGHTS, evaluate, type EvalWeights } from './eval.js';
 import { DEFAULT_PROFILE, publicPolicyChoose, type PolicyProfile } from './policy.js';
 import type { Pilot } from './types.js';
@@ -46,8 +47,12 @@ export interface SearchOptions {
 /**
  * Defaults tuned for the simulation runner (~30 search-vs-search games in a 45 s
  * budget). Measured on the owner's decks: 100 nodes × 1 world played even with
- * 160 × 2, 80 × 2 and 160 × 3 (paired seeds, n=20 each), at a third of the cost —
- * past ~80 nodes the evaluation, not the budget, limits strength.
+ * 160 × 2, 80 × 2 and 160 × 3 (paired seeds, n=20 each), at a third of the cost.
+ * Re-measured on the meta lists with scripts/pilot-h2h.ts (n=4320 games each): 300 nodes
+ * beat 100 by 54.4% [52.9, 55.9], 3 worlds by 51.0% [49.5, 52.5], so nodes are what
+ * buys strength, at a cost that grows with them. 100 is what the search affords at the old
+ * speed once it reuses its earlier searches of the turn (the `reuse` switch: ~14% fewer
+ * nodes spent) and keys positions with a numeric hash (publicKey).
  */
 export const DEFAULT_SEARCH: Required<Omit<SearchOptions, 'weights' | 'profile'>> = {
   worlds: 1,
@@ -56,10 +61,37 @@ export const DEFAULT_SEARCH: Required<Omit<SearchOptions, 'weights' | 'profile'>
   verify: 3,
 };
 
+/**
+ * Record that `v` was found at or below `n`: it raises `n` and every position that leads to it, not only the one that first
+ * reached it. In a diamond A->C, B->C a win found under C is also B's, so B cannot later be saved as played out with less.
+ */
+export function raise(n: { val: number; parents: { val: number; parents: unknown[] }[] } | null, v: number): void {
+  type P = { val: number; parents: P[] };
+  const todo: P[] = n ? [n as P] : [];
+  for (let x = todo.pop(); x; x = todo.pop()) {
+    if (v <= x.val) continue;
+    x.val = v;
+    for (const p of x.parents) todo.push(p);
+  }
+}
+
 interface Node {
   s: GameState;
   first: number;
   est: number;
+  parent: Node | null;
+  /** Every position that leads here (`parent` first): a value found below this node belongs to all of them. */
+  parents: Node[];
+  /** What the player can see of the position (publicKey), for reuse by a later search of the same turn. */
+  key: string;
+  /** The best score found anywhere at or below this node. */
+  val: number;
+  /** Played out: its own moves were all tried (`expanded`) and so were those of every position they led to. Set when the search ends. */
+  done: boolean;
+  /** Its own moves were all tried: none cut by the node budget. */
+  expanded: boolean;
+  /** The positions its moves led to (kept to play out, or already queued by another line). */
+  kids: Node[];
   /** The choices that led here from the root (option indexes per decision), for replay. */
   line: number[];
 }
@@ -104,6 +136,18 @@ class Heap {
 }
 
 /**
+ * What the searches of one turn have found out, by position (publicKey). The player re-plans at every decision, and
+ * each new decision's tree is mostly the old one with a move played: a position an earlier search already played out
+ * (`done`) is not searched again, its best score `val` stands, and the new budget goes to what was left unexplored.
+ * It holds only what a search over determinised worlds produced — functions of public information and the pilot's own
+ * random stream — never the real hidden cards.
+ */
+export interface Memo {
+  val: number;
+  done: boolean;
+}
+
+/**
  * Does a line scoring `v` replace the one kept for its first move (score `prevV`, `prevLine`)? A higher score wins. Among winning lines that score the
  * same, the one with fewer recorded choices is kept, whichever was found first. `line.length` counts the options the search branched on; the
  * sub-decisions `settle` answers with the policy along the way are not recorded, so they don't count. This keeps the shortest of the continuations the search retained; transposition pruning may still have hidden a
@@ -122,15 +166,25 @@ export interface WorldResult {
 }
 
 /** Search one world from its pending decision. */
-export function searchWorld(env: Env, root: GameState, me: Player, o: Required<Omit<SearchOptions, 'weights' | 'profile'>> & { weights: EvalWeights; profile: PolicyProfile }): WorldResult {
+export function searchWorld(
+  env: Env,
+  root: GameState,
+  me: Player,
+  o: Required<Omit<SearchOptions, 'weights' | 'profile'>> & { weights: EvalWeights; profile: PolicyProfile },
+  memo?: Map<string, Memo>,
+  /** The publicKeys of the positions this turn has actually been in: a line that comes back to one has only shuffled (an "as often as you like" Ability moving a counter back and forth) and is not searched. */
+  reached?: ReadonlySet<string>,
+): WorldResult {
   const d0 = (root.pending as { decision: Decision }).decision;
   const n0 = optionCount(d0);
   const best = new Float64Array(n0).fill(-Infinity);
   const lines: number[][] = Array.from({ length: n0 }, () => []);
   const rootTurn = root.turn;
   const heap = new Heap();
-  const seen = new Set<string>();
+  const seen = new Map<string, Node>();
+  const made: Node[] = [];
   let nodes = 0;
+  const bump = (n: Node | null, v: number) => raise(n, v);
 
   const score = (s: GameState): number => {
     if (s.phase === 'over' || s.turn !== rootTurn) return evaluate(env, s, me, o.weights, s.current);
@@ -144,11 +198,13 @@ export function searchWorld(env: Env, root: GameState, me: Player, o: Required<O
     }
   };
 
-  const expand = (s: GameState, first: number, line: number[], inline: number): void => {
+  /** Expand a position; false when the node budget cut it short (some option, or a sub-decision under it, was not searched). */
+  const expand = (s: GameState, first: number, line: number[], inline: number, pn: Node | null): boolean => {
+    let complete = true;
     const d = (s.pending as { decision: Decision }).decision;
     const m = optionCount(d);
     for (let i = 0; i < m; i++) {
-      if (first >= 0 && nodes >= o.nodes) return;
+      if (first >= 0 && nodes >= o.nodes) return false;
       const c = cloneState(s);
       submit(env, c, [i]);
       const f = first < 0 ? i : first;
@@ -161,34 +217,92 @@ export function searchWorld(env: Env, root: GameState, me: Player, o: Required<O
           // A targeting / promote / copied-attack choice mid-action: resolve it now (few options),
           // or with the policy once the budget is spent.
           if (nodes < o.nodes && inline < 3) {
-            expand(c, f, l, inline + 1);
+            if (!expand(c, f, l, inline + 1, pn)) complete = false;
             continue;
           }
+          if (nodes >= o.nodes) complete = false; // the policy answers what the budget could not
           stop = settle(env, c, me, rootTurn, false, o.profile);
           if (stop === 'branch' && (c.pending as { decision: Decision }).decision.kind !== 'main') stop = 'leaf';
         }
       }
+      let pk: string | undefined;
+      if (stop === 'branch' && (memo || reached)) {
+        pk = publicKey(env, c, me);
+        if (reached?.has(pk)) continue; // back to a position of this turn: nothing gained, and playing it again never ends
+      }
       const v = score(c);
       record(f, v, l);
+      bump(pn, v);
       if (stop === 'branch') {
-        const h = hashState(env, c);
-        if (seen.has(h)) continue;
-        seen.add(h);
-        heap.push({ s: c, first: f, est: v, line: l });
+        const h = memo ? (pk as string) : hashState(env, c);
+        const old = memo?.get(h);
+        if (old?.done && old.val < o.weights.win / 2) {
+          // An earlier search of this turn already played this position out: take its result.
+          if (old.val > v) {
+            record(f, old.val, l);
+            bump(pn, old.val);
+          }
+          continue;
+        }
+        const twin = seen.get(h);
+        if (twin) {
+          if (pn) {
+            pn.kids.push(twin);
+            twin.parents.push(pn);
+            bump(pn, twin.val);
+          }
+          continue;
+        }
+        const nd: Node = { s: c, first: f, est: v, line: l, parent: pn, parents: pn ? [pn] : [], key: h, val: v, done: false, expanded: false, kids: [] };
+        seen.set(h, nd);
+        pn?.kids.push(nd);
+        made.push(nd);
+        heap.push(nd);
       }
     }
+    return complete;
   };
 
   // The root is expanded in full, past the node budget: every first move gets a score, so the
   // choice never falls to an option nobody looked at. Its cost is bounded by the option count
   // (one clone + settle each), not by `nodes`; runner.test.ts measures the worst event-loop stall.
-  expand(root, -1, [], 0);
+  expand(root, -1, [], 0, null);
   while (heap.size && nodes < o.nodes) {
     const nd = heap.pop();
     if (nd.est >= o.weights.win / 2) continue; // already won along this line
-    expand(nd.s, nd.first, nd.line, 0);
+    nd.expanded = expand(nd.s, nd.first, nd.line, 0, nd);
+  }
+  if (memo) {
+    // A position is played out only when its own moves were all tried AND so were those of every position they led to:
+    // one whose expansion the budget cut, or whose follow-ups were left in the queue, stands for work not done, and a
+    // later search must be free to finish it.
+    const finished = new Map<Node, boolean>();
+    const complete = (n: Node): boolean => {
+      const known = finished.get(n);
+      if (known !== undefined) return known;
+      finished.set(n, false); // a position never leads back to itself; this only guards against a loop
+      const r = n.expanded && n.kids.every(complete);
+      finished.set(n, r);
+      return r;
+    };
+    for (const n of made) n.done = complete(n);
+    for (const n of made) {
+      const prev = memo.get(n.key);
+      if (!prev || (n.done && !prev.done) || (n.done === prev.done && n.val > prev.val)) memo.set(n.key, { val: n.val, done: n.done });
+    }
   }
   return { best, lines, nodes };
+}
+
+/**
+ * Can this answer be submitted to this decision? A line is replayed in a world that may settle its sub-decisions
+ * differently from the search that found it (past the node budget the search answered the last ones with the policy), so
+ * the decision a step meets need not be the one it was recorded for; such a replay must stop, not throw.
+ */
+function fits(d: Decision, choice: number[]): boolean {
+  if (choice.length < d.min || choice.length > d.max) return false;
+  const n = optionCount(d);
+  return choice.every((i) => Number.isInteger(i) && i >= 0 && i < n);
 }
 
 /** Replay a line of choices in a world; true when it wins the game this turn. */
@@ -206,7 +320,7 @@ function replayWins(env: Env, world: GameState, me: Player, line: number[], acti
       idx = d.actions.findIndex((a) => sameAction(a, want));
       if (idx < 0) return false;
     }
-    if (idx >= optionCount(d)) return false;
+    if (!fits(d, [idx])) return false;
     submit(env, s, [idx]);
     if (k < line.length - 1) settle(env, s, me, rootTurn, subs, profile);
   }
@@ -229,6 +343,12 @@ function lineActions(env: Env, world: GameState, me: Player, line: number[], sub
   for (let k = 0; k < line.length; k++) {
     const d = s.pending?.decision;
     if (!d || s.phase === 'over') break;
+    // A line found past the node budget settled its last sub-decision with the policy instead of branching on it,
+    // so replaying it with branching can face a different decision: stop there (the win is then not verified).
+    if (!fits(d, [line[k] as number])) {
+      out.length = 0;
+      break;
+    }
     out.push(d.kind === 'main' && d.actions ? (d.actions[line[k] as number] ?? null) : null);
     submit(env, s, [line[k] as number]);
     if (k < line.length - 1) settle(env, s, me, rootTurn, subs, profile);
@@ -242,6 +362,10 @@ export class SearchPilot implements Pilot {
   readonly opts: Required<Omit<SearchOptions, 'weights' | 'profile'>> & { weights: EvalWeights; profile: PolicyProfile };
   /** Nodes searched so far (all decisions), for benchmarks. */
   nodes = 0;
+  /** What the earlier searches of the current turn found out (the `reuse` switch). */
+  private memo: { turn: number; me: Player; map: Map<string, Memo> } | null = null;
+  /** The positions `me` has actually decided in this turn (publicKey), so that a search does not walk back into one. */
+  private reached: { turn: number; me: Player; keys: Set<string> } | null = null;
   constructor(seed = 1, opts: SearchOptions = {}) {
     this.rng = new Rng(seed);
     this.opts = {
@@ -261,6 +385,11 @@ export class SearchPilot implements Pilot {
     if (n <= 1 || game.state.phase !== 'main' || !branchable(d, me, o.subs)) return publicPolicyChoose(env, game.state, d, this.rng, o.profile);
     if (d.kind === 'main' && n === 1) return [0];
 
+    if (d.kind === 'main') {
+      if (!this.reached || this.reached.turn !== game.state.turn || this.reached.me !== me) this.reached = { turn: game.state.turn, me, keys: new Set() };
+      this.reached.keys.add(publicKey(env, game.state, me));
+    }
+    const reached = this.reached?.turn === game.state.turn && this.reached.me === me ? this.reached.keys : undefined;
     const K = Math.max(1, o.worlds);
     const sum = new Float64Array(n);
     const wins = new Uint8Array(n);
@@ -268,7 +397,12 @@ export class SearchPilot implements Pilot {
     let winLine: { world: GameState; line: number[] } | null = null;
     for (let k = 0; k < K; k++) {
       const world = determinize(game.state, game.ctx, me, this.rng);
-      const r = searchWorld(env, world, me, o);
+      let memo: Map<string, Memo> | undefined;
+      if ((o.profile.tuning ?? DEFAULT_TUNING).reuse) {
+        if (!this.memo || this.memo.turn !== game.state.turn || this.memo.me !== me || this.memo.map.size > 20000) this.memo = { turn: game.state.turn, me, map: new Map() };
+        memo = this.memo.map;
+      }
+      const r = searchWorld(env, world, me, o, memo, reached);
       this.nodes += r.nodes;
       for (let i = 0; i < n; i++) {
         const v = r.best[i] as number;
@@ -292,7 +426,7 @@ export class SearchPilot implements Pilot {
     // A win seen in only some worlds: replay that exact line in fresh worlds; play it if it always wins.
     if (winLine && o.verify > 0) {
       const acts = lineActions(env, winLine.world, me, winLine.line, o.subs, o.profile);
-      let ok = true;
+      let ok = acts.length > 0;
       for (let v = 0; v < o.verify && ok; v++) {
         const w = determinize(game.state, game.ctx, me, this.rng);
         ok = replayWins(env, w, me, winLine.line, acts, o.subs, o.profile);
