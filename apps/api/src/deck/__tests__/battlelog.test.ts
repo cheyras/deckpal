@@ -327,6 +327,19 @@ test('mergeLogFields: one explicit field overrides only that field', () => {
   assert.equal(m.opponentDeck, parsed.opponentDeckGuess);
 });
 
+test('mergeLogFields: a parsed screen name is capped at the 200 characters an explicit one is', () => {
+  // The other player chooses their screen name, and the parser takes whatever
+  // precedes "'s Turn" — 4,000 characters went through verbatim and were
+  // stored. The route caps an explicit `opponent` at 200; the parsed one now
+  // gets the same cap instead of a side door.
+  const long = 'Z'.repeat(4000);
+  const parsed = parseBattleLog(FIXTURE.split('PlayerB').join(long), DECK_NAMES);
+  assert.equal(parsed.players.opponent, long, 'the parser itself still reads the name whole');
+  const m = mergeLogFields(parsed, {});
+  assert.equal(m.opponent?.length, 200);
+  assert.equal(mergeLogFields(parsed, { opponent: 'VladEvans' }).opponent, 'VladEvans');
+});
+
 test('mergeLogFields: create semantics — null explicit means omit (parser fills)', () => {
   // The route turns an explicit null result into undefined before calling, since
   // clearing on create is meaningless. mergeLogFields treats null/undefined the

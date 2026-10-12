@@ -1273,8 +1273,8 @@ async function serve(request) {
         // THE BODY AND THE DATA, in one set.
         //
         // `buildTools` is the cosmetic ones — express, showScreen, and the
-        // rest the browser runs. `buildDataTools` is the read half of the same
-        // 23 tools the MCP server exposes, through the other adapter onto the
+        // rest the browser runs. `buildDataTools` is the same tools the MCP
+        // server exposes, reads and writes, through the other adapter onto the
         // same definitions. Until this line, every factual claim Deck-E made
         // was the model's training data, because there was nothing else for it
         // to be.
