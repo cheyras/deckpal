@@ -256,7 +256,9 @@ const listsTool = defineTool({
       .default(false)
       .describe('true → show DELETED lists (the recycle bin) instead of live ones. Restore one with edit_list(restore:true).'),
     page: z.number().int().min(1).default(1).describe('With list_id: page of items, 1-based.'),
-    page_size: z.number().int().min(1).max(500).default(100).describe('With list_id: items per page (default 100, cap 500).'),
+    // Cap 200, like every other page_size: 500 of these rows would be about
+    // 55,000 characters, past what the audit allows any single read.
+    page_size: z.number().int().min(1).max(200).default(100).describe('With list_id: items per page (default 100, cap 200).'),
   }),
   annotations: { readOnlyHint: true, idempotentHint: true },
   handler: async ({ list_id, deleted, page = 1, page_size = ITEMS_PAGE }, ctx) => {

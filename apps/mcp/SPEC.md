@@ -293,7 +293,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   model gets.
 - **Context-window discipline is a correctness requirement.** List-returning tools: `page`
   (default 1) + `page_size` (default 50, hard cap 200) unless a tool's rows are a different
-  size — one list's items page at 100 (cap 500), the deck index at 100, raw battle logs at 3 —
+  size — one list's items page at 100 (cap 200), the deck index at 100, raw battle logs at 3 —
   and `pnpm mcp:audit --responses` measures every read against a budget in CI. Compact line format, one row per line,
   e.g. `Charizard ex | me05-84 | Double Rare | holo x2 | $31.20` — not JSON dumps. Every
   truncated response states the total and how to page. `collection_summary` should answer most
@@ -617,7 +617,7 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
     version history and battle logs, and `restore: true` brings it back. `purge: true` is a real
     `DELETE` that takes the version history and every battle log with it, with no undo; the dry
     run (and the deed) spell that out.
-11. **`lists`** — `{ list_id?, deleted? = false, page? = 1, page_size? = 100 (≤ 500) }`. Index or
+11. **`lists`** — `{ list_id?, deleted? = false, page? = 1, page_size? = 100 (≤ 200) }`. Index or
     one list with its items (compact), the items paged; `deleted: true` reads the recycle bin.
 12. **`edit_list`** — `{ mode?: create|edit, list_id?, name?, kind? = dynamic, add_cards?,
     add_missing?, remove_item_ids?, restore? = false, dry_run? = true }`. `kind` is set at create

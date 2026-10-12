@@ -249,9 +249,11 @@ try {
   await measure('lists index', 'lists', {});
   await measure('lists Trade binder (300 items)', 'lists', { list_id: 'Trade binder' });
   await measure('lists sv08 master set', 'lists', { list_id: 'sv08 master set' });
+  await measure('lists sv08 master set page_size 200', 'lists', { list_id: 'sv08 master set', page_size: 200 }, 'max');
   await measure('mutation_history', 'mutation_history', {});
   await measure('mutation_history limit 200', 'mutation_history', { limit: 200 }, 'max');
   await measure('mutation_history one 250-item batch', 'mutation_history', { batch_id: bigBatchId });
+  await measure('mutation_history one 250-item batch limit 200', 'mutation_history', { batch_id: bigBatchId, limit: 200 }, 'max');
   await measure('revert one 250-item batch (dry run)', 'revert', { batch_id: bigBatchId });
   await measure(`set_cart set ${firstSet}`, 'set_cart', { set_id: firstSet });
   await measure('set_cart list', 'set_cart', { list_id: 'Trade binder' });

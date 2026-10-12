@@ -168,6 +168,10 @@ export function winLoss(r: { wins: number; losses: number; ties: number }): stri
 export function pagingFooter(page: number, pageSize: number, total: number): string {
   if (total === 0) return 'no results';
   const from = (page - 1) * pageSize + 1;
+  // A page past the end used to read "showing 201–150 of 150": a range that
+  // cannot exist, on a page with no rows. Say it is past the end, and where
+  // the end is.
+  if (from > total) return `page ${page} is past the end: ${total} in all, last page ${Math.ceil(total / pageSize)}`;
   const to = Math.min(page * pageSize, total);
   if (page === 1 && to >= total) return `showing all ${total}`;
   const more = to < total ? ` — page ${page + 1} for more` : '';

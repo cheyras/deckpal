@@ -145,9 +145,12 @@ How the writes behave:
 
 ## Example sessions
 
-Real output from `pnpm mcp:audit --responses`, which runs every tool against a
-seeded database (the deck and card names are real; the collection is
-synthetic).
+Real output from `pnpm mcp:audit --responses`, which calls every read tool —
+plus the write tools that build its fixture (`log_cards`, `save_deck`,
+`add_battle_log`, `deck_strategy`, `edit_list`, `revert`) — against a seeded
+database. It does not call `delete_deck`, `delete_list`, `edit_battle_log` or
+`delete_battle_log`. The deck and card names are real; the collection is
+synthetic.
 
 ### "How is my collection doing?"
 

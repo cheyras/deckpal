@@ -407,7 +407,7 @@ const decksTool = defineTool({
           );
         });
         lines.push(
-          res.decks.length > INDEX_PAGE
+          res.decks.length > INDEX_PAGE || page > 1
             ? `${res.decks.length} deck(s); ${pagingFooter(page, INDEX_PAGE, res.decks.length)}`
             : `${res.decks.length} deck(s)`,
         );

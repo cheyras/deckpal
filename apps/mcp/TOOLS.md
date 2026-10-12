@@ -414,7 +414,7 @@ Read card lists (dynamic lists track collection ownership live; static lists are
 | `list_id` | string |  |  | One list, by UUID or by NAME. Omit to list them all with their ids. |
 | `deleted` | boolean |  | `false` | true → show DELETED lists (the recycle bin) instead of live ones. Restore one with edit_list(restore:true). |
 | `page` | integer |  | `1` | With list_id: page of items, 1-based. |
-| `page_size` | integer |  | `100` | With list_id: items per page (default 100, cap 500). |
+| `page_size` | integer |  | `100` | With list_id: items per page (default 100, cap 200). |
 
 <a id="edit_list"></a>
 

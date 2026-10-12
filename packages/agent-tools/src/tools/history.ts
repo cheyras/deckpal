@@ -163,7 +163,7 @@ const mutationHistoryTool = defineTool({
         const page = args.page ?? 1;
         const lines = [batchLine(r.batch), `${r.events.length} change(s):`];
         for (const e of r.events.slice((page - 1) * size, page * size)) lines.push('  ' + eventLine(e));
-        if (r.events.length > size) lines.push(`  ${pagingFooter(page, size, r.events.length)} (same batch_id)`);
+        if (r.events.length > size || page > 1) lines.push(`  ${pagingFooter(page, size, r.events.length)} (same batch_id)`);
         const undoable = r.events.filter((e) => e.undoneByEventId === null).length;
         lines.push(
           undoable > 0

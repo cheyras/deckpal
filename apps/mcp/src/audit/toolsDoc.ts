@@ -28,7 +28,8 @@ export async function toolCounts(): Promise<ToolCounts> {
   return { tools: full.length, read, write: full.length - read, gated: withGated.length - full.length };
 }
 
-const cell = (s: string): string => s.replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ');
+/** Text made safe for one markdown table cell: backslashes first, then pipes, then line breaks. */
+const cell = (s: string): string => s.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ');
 
 function typeOf(p: Record<string, unknown>): string {
   if (Array.isArray(p.enum)) return (p.enum as unknown[]).map((v) => JSON.stringify(v)).join(' | ');

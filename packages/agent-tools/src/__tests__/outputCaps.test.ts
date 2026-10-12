@@ -71,6 +71,36 @@ test('decks: the index pages at 100 decks', async () => {
   assert.equal(second.text.split('\n').filter((l) => l.startsWith('Deck ')).length, 50);
 });
 
+test('a page past the end says so, and names the last page, instead of an impossible range', async () => {
+  // Astra, PR #335 round 1: `decks({page: 3})` over 150 decks said
+  // "showing 201–150 of 150" above no rows. The fix is in pagingFooter, which
+  // battle_logs, lists, decks and mutation_history all share.
+  const { pagingFooter } = await import('../format.js');
+  assert.equal(pagingFooter(3, 100, 150), 'page 3 is past the end: 150 in all, last page 2');
+  assert.equal(pagingFooter(2, 100, 150), 'showing 101–150 of 150');
+
+  const decks = Array.from({ length: 150 }, (_, i) => ({
+    id: uuid(i), name: `Deck ${i + 1}`, formatCode: 'standard', version: 1, totalCount: 60, valueUsd: 10, legal: true,
+    updatedAt: '2026-10-01', record: { wins: 0, losses: 0, ties: 0 },
+  }));
+  const deckCtx = ctxWith(() => ({ decks }));
+  const res = await tool('decks').handler({ deleted: false, page: 3 }, deckCtx);
+  assert.match(res.text, /^150 deck\(s\); page 3 is past the end: 150 in all, last page 2$/);
+
+  const small = ctxWith(() => ({ decks: decks.slice(0, 5) }));
+  assert.match((await tool('decks').handler({ deleted: false, page: 2 }, small)).text, /page 2 is past the end: 5 in all, last page 1/);
+
+  const history = ctxWith(() => batch(30));
+  const events = await tool('mutation_history').handler({ batch_id: uuid(9), page: 2 }, history);
+  assert.match(events.text, /page 2 is past the end: 30 in all, last page 1 \(same batch_id\)/);
+});
+
+test('lists caps page_size at 200, like every other page_size', () => {
+  const schema = tool('lists').inputSchema!;
+  assert.equal(schema.safeParse({ list_id: 'x', page_size: 200 }).success, true);
+  assert.equal(schema.safeParse({ list_id: 'x', page_size: 201 }).success, false);
+});
+
 test('decks: an index that fits one page reads exactly as it always did', async () => {
   const ctx = ctxWith(() => ({ decks: [{ id: uuid(1), name: 'Only', formatCode: 'standard', version: 1, totalCount: 60, valueUsd: 1, legal: true, updatedAt: '', record: { wins: 0, losses: 0, ties: 0 } }] }));
   const res = await tool('decks').handler({ deleted: false, page: 1 }, ctx);

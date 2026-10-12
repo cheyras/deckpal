@@ -11,7 +11,7 @@ supersedes: []
 **Decision:** Measure the surface with a repeatable tool, cap every read whose output grew with the user's data, make the advertised annotations mean what the MCP spec says, quote third-party text on the way out, and generate the docs' tool lists from the registry. Do not rename, merge or remove any tool in this pass; record the options with their measured trade-offs below.
 
 ### 1. Measured (`pnpm mcp:audit`)
-`pnpm mcp:audit` reads `tools/list` back through the real SDK. `--responses` seeds a disposable Postgres cluster with a real-sized catalog — the simulator's 3,268 Standard card frames, 5,907 printings — and a heavy user written through the write tools themselves: 640 collection rows, 30 decks, 120 battle logs made from the repo's real PTCG Live fixtures, and 690 list items. It then starts the real API and MCP server and calls every read tool at its defaults and at the largest page the schema allows. The database CI job runs the same suite with budgets as assertions:
+`pnpm mcp:audit` reads `tools/list` back through the real SDK. `--responses` seeds a disposable Postgres cluster with a real-sized catalog — the simulator's 3,268 Standard card frames, 5,907 printings — and a heavy user written through the write tools themselves: 640 collection rows, 30 decks, 120 battle logs made from the repo's real PTCG Live fixtures, and 690 list items. It then starts the real API and MCP server, calls every read tool at its defaults, and calls every paged read at the largest page its schema allows. The database CI job runs the same suite with budgets as assertions:
 - a default read: 12,000 characters;
 - an explicitly requested big read or a maximum page: 30,000;
 - an error: 1,000;
@@ -49,7 +49,7 @@ Where the bulk sits: input schemas are 57% of the list (37,944 chars) and descri
 ### 2. Changed (nothing a client depends on breaks)
 - **Caps and paging:**
   - `battle_logs` returns at most 3 raw logs a page in list mode and says when it capped `page_size`.
-  - `lists` pages one list's items (`page`, `page_size`, default 100, cap 500).
+  - `lists` pages one list's items (`page`, `page_size`, default 100, cap 200).
   - The `decks` index pages at 100 (`page`).
   - `mutation_history` with `batch_id` pages that operation's changes (`limit`, default 50).
   - `revert` lists 50 clean plan items, then counts the rest, while always listing every conflict and skip.
