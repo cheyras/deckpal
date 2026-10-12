@@ -536,8 +536,9 @@ served by `apps/images`. Sync jobs run via cron or any scheduler.
 ## 10. The agent tool layer — one definition, two front-ends
 
 **`packages/agent-tools` (`@deckpal/agent-tools`) is the single definition of
-what an agent may do in DeckPal.** 28 tools (17 read, 11 write, 4 of those
-also destructive), each a `ToolDefinition`: a zod input schema, `annotations`
+what an agent may do in DeckPal.** 28 tools (17 read, 11 write), plus three
+capability-gated `decke_improvement_*` readers served only over MCP, each a
+`ToolDefinition`: a zod input schema, `annotations`
 (`readOnlyHint` is required in the type, not optional as MCP's own SDK has
 it — a tool that forgets to state it fails to compile rather than defaulting
 into whatever reads the flag), and a handler written against `Ctx` alone
@@ -547,7 +548,25 @@ the same host (`apps/mcp/SPEC.md` §3), so write logic — upsert, `collection_e
 append, `recomputeSetProgress`, one transaction — stays defined exactly once
 in `apps/api/src/routes/*`, however many surfaces call it.
 
-The 13th read is `card_price_history` (added 2026-09-12): a read-only OHLC
+"Destructive" means two things here. A definition's `destructiveHint` is
+DeckPal's meaning, "can destroy data that is not otherwise recoverable": the
+three deletes and `revert` carry it, and Deck-E's approval rule keys on it,
+asking before every such call, previews included. MCP's `destructiveHint` is
+broader (anything but a purely additive write) and defaults to true when
+omitted, as `openWorldHint` does. The MCP adapter (`wireAnnotations` in
+`apps/mcp/src/adapters/mcp.ts`) therefore advertises DeckPal's flag OR the
+definition's `overwriteHint`, explicitly on every write, `openWorldHint: false`
+everywhere, and mirrors the title into `annotations.title` for clients older
+than protocol 2025-06-18 — so an MCP client sees 10 of the 11 writes as
+destructive while Deck-E still asks only before the four. The adapter also
+drops zod's `$schema` line from advertised schemas (2020-12 is MCP's default
+dialect) and cuts any single result over 100,000 characters with a visible
+note; that is a backstop, since the list tools page on their own.
+`pnpm mcp:audit` measures `tools/list` and every read's result against a
+seeded database, with the budgets enforced in the database CI job, and
+`apps/mcp/TOOLS.md` is generated from the registry by `pnpm mcp:tools-doc`.
+
+`card_price_history` (added 2026-09-12) is a read-only OHLC
 price-history tool that delegates to the existing `GET /cards/:cardId/prices`
 endpoint through `ctx.api.get` — no schema change, no new credential, no direct
 Postgres touch — and carries the endpoint's verbatim MAY/MAY NOT rollup
@@ -567,7 +586,7 @@ offset past the available records are distinct results. Offsets count points
 in API order, plus one record for each empty variant. A record whose complete
 fields and identity cannot fit the budget produces an explicit error.
 
-The 15th read is `deck_odds` (added 2026-10-10), the first simulation tool:
+`deck_odds` (added 2026-10-10) is the first simulation tool:
 `POST /decks/odds` runs `apps/api/src/deck/odds.ts`, a pure, seeded Monte Carlo
 of the Standard setup (draw 7, mulligan until a Basic, 6 Prizes, one draw a turn
 with turn 1 included) that reuses `testhand.ts`'s mulberry32, library expansion
@@ -604,8 +623,8 @@ signed card. See
 in-person game needs a `deck_id` and an explicit result instead. Two voices are
 stored apart — `notes` (the player's words) and `review_md` (the assistant's
 markdown analysis) — and `opponent_archetype` is a normalized countable key, so
-`battle_logs` can open with the deck's record per archetype. The 15th read,
-`battle_digest`, calls `GET /decks/:id/logs/:logId/digest`, which re-reads the
+`battle_logs` can open with the deck's record per archetype. The
+`battle_digest` read calls `GET /decks/:id/logs/:logId/digest`, which re-reads the
 stored, immutable raw log through `digestBattleLog` on every call: the prize
 race turn by turn, first attacks, mulligans, the opposing cards seen, the end
 reason and whether the game was close, rendered under 3,000 characters for a
@@ -1661,7 +1680,7 @@ one out on the tool's *first* query (`openRlsSession()` in `rls.ts`, the same
 `BEGIN; SELECT set_config('request.jwt.claims', …); SET LOCAL role =
 'authenticated'` shape §5's `withUserContext` and the MCP server's own RLS
 session use) and releases it the moment the tool call returns. Roughly half
-the 23 tools never touch Postgres at all — writes go through the REST API — so
+the tools never touch Postgres at all — writes go through the REST API — so
 an eager session would spend a pooled connection on tool calls that run no
 query. An ordinary conversational turn with no data tool touches the database
 not at all.
@@ -2069,7 +2088,7 @@ error, no failing test, and the only symptom a reader seeing markup in a speech
 bubble (issue #90). `tools.test.ts` now pins `COSMETIC_TOOLS` to the tools that
 factory actually returns, and `narration.test.ts` asserts every one of them is
 stripped in all three shapes, so a tool cannot be added without the filter
-learning it. The 23 data tools and 4 deep tools stay deliberately out of scope:
+learning it. The data tools and the deep tool stay deliberately out of scope:
 their names are ordinary English (`decks`, `lists`, `health`, `revert`) and the
 attribute rule strips a whole element on a bare `name="…"` match, which trades a
 leak nobody has measured for false positives on prose that happens daily. It

@@ -155,9 +155,10 @@ the host receiving the approval sat in a muted line below. Now:
   ONLY` transaction, and the REST API refuses its every non-GET request with
   `403 insufficient_scope` before any route runs (`enforceTokenScope`). The
   exceptions are `POST /massentry`, which only builds cart links and which the
-  read tool `set_cart` uses, and `POST /decks/check` and `POST /decks/odds`,
-  which take a whole deck list in the body and only read (`check_deck`,
-  `deck_odds`). `/decks/check` was missing until 2026-10-10, so a read-only
+  read tool `set_cart` uses, and `POST /decks/check`, `POST /decks/odds` and
+  `POST /decks/simulate`, which take a whole deck list in the body and only
+  read (`check_deck`, `deck_odds`, `simulate_battles`). `/decks/check` was
+  missing until 2026-10-10, so a read-only
   connection was offered `check_deck` and then refused it.
 - **Tokens reach what the consent screen says.** `/decke` (Deck-E
   conversations), `/me/showcase` and `/me/settings` now require a session, like
@@ -242,8 +243,8 @@ REST API and the MCP server (`BEGIN` + `set_config('request.jwt.claims', …)` +
 returns, so a dropped connection can never be handed to the next request still
 carrying a stranger's claims.
 
-**All 27 tools reach the conversational model; the write half is held by the
-SDK, not filtered out.** The adapter Deck-E uses
+**All 28 tools, plus Deck-E's own `preview_card_changes`, reach the
+conversational model; the write half is held by the SDK, not filtered out.** The adapter Deck-E uses
 (`apps/api/src/decke/adapters/aisdk.ts`) still *defaults* to
 `annotations.readOnlyHint` — never to the verb in a tool's name, because a name
 can mislead in either direction (`set_cart` sounds like a write and only composes
@@ -378,7 +379,7 @@ everything else to `it failed with <code>`. `errText`
 error a handler caught and formatted itself: a driver error becomes its
 SQLSTATE, a statement timeout keeps its "narrow the query" hint, and the
 fallback that carries our own readable messages is scrubbed of DSNs, IP
-addresses, `host:port` pairs and `for user "…"`. Every one of the 27 tools
+addresses, `host:port` pairs and `for user "…"`. Every tool
 formats through it -- not only the ones whose file runs SQL, because whether a
 given catch can reach the database is a call-graph question that was already
 answered wrongly once (issue #94: `log_cards` resolves cards over SQL before its
@@ -1306,8 +1307,12 @@ to say so:
 - **MCP:** `delete_list(purge: true)`, `delete_deck(purge: true)`.
 
 A purge is a real `DELETE` and cascades exactly as the old behaviour did — for a
-deck that means its version history and every battle log. It is the one path in
-the API with no undo, and it is the only one.
+deck that means its version history and every battle log. It has no undo, and
+it is not the only path without one: deleting a battle log is permanent (logs
+have no recycle bin), an `edit_battle_log` change cannot be reverted, and a
+`save_deck` edit to a version with no battle logs amends that version in place,
+so the replaced list is gone (`revert` skips deck card changes, and
+`deck_history` can only restore versions that exist).
 
 **Account deletion is unaffected.** Every one of these tables cascades from
 `app_user`, so removing a user still removes their soft-deleted rows.

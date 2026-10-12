@@ -8,16 +8,16 @@
 
 </div>
 
-An open-core Pokemon TCG collection and agentic strategy platform. Browse a full card catalog, track your
+An open-source (AGPL-3.0) Pokemon TCG collection and agentic strategy platform. Browse a full card catalog, track your
 collection across printings, see prices, connect to Claude or GPT to collaboratively build decks with
 battle-log intelligence, scan cards with a perceptual-hash scanner, and set
 completion goals. Built for Pokemon but the data model, image storage, and
 scanner are **game-agnostic**.
 
-DeckPal is heading toward a hosted service with paid subscriptions. The open
-core is AGPL-3.0 — anyone can fork and self-host. The architecture is
-cloud-first: Vercel + Supabase for the hosted path, plain Postgres for
-self-hosters.
+deckpal.app is the hosted service, on a pay-what-you-want basis (below). All of
+the code in this repository is AGPL-3.0 — anyone can fork and self-host. The
+architecture is cloud-first: Vercel + Supabase for the hosted path, plain
+Postgres for self-hosters.
 
 ---
 
@@ -55,20 +55,26 @@ self-hosters.
   addresses the object directly; the image function stays as the fallback that
   fills a cold asset); self-host uses a local disk cache with a dedicated image
   server. `warm:cloud` warms the whole catalog into the cloud tier.
-- **MCP server** ("deckpal-mcp") -- 28 tools for Claude, ChatGPT, Gemini, or any
+- **MCP server** ("deckpal-mcp") -- 28 tools (17 read, 11 write) for Claude, ChatGPT, Gemini, or any
   MCP-speaking assistant to query the collection, catalog, prices, decks, and
   per-card price history, to work out a deck's opening-hand, draw and Prize
   odds, and to log collection changes with attribution. Live
   and multi-user on cloud: connect with one click via OAuth 2.1
   (`https://deckpal.app/mcp`, choose "Connect"), or a personal access token for
-  clients without MCP OAuth support.
-- **Every change is logged and undoable.** Collection edits, list and deck
-  changes and strategy-guide rewrites each record a before/after snapshot;
-  `mutation_history` shows what an operation did and `revert` undoes it (dry-run
-  first, and it refuses rather than half-applying when an exact undo is not
-  possible). Batch writes carry an idempotency key, so retrying after a timeout
-  returns the original result instead of applying twice. Deleting a list or deck
-  is reversible -- *Recently deleted* on each index restores it.
+  clients without MCP OAuth support. See [`apps/mcp/README.md`](apps/mcp/README.md)
+  for connecting, tokens and which tools write; the full tool reference,
+  [`apps/mcp/TOOLS.md`](apps/mcp/TOOLS.md), is generated from the registry.
+- **Changes are logged, and most are undoable.** Collection quantities, list
+  changes, deck deletes and strategy-guide rewrites record a before/after
+  snapshot; `mutation_history` shows what an operation did and `revert` undoes
+  it (dry-run first; an item it cannot undo exactly is reported as a conflict
+  and skipped, never half-applied). A deck's card list is versioned once it has
+  battle logs, and `deck_history` restores an earlier version; an edit to a
+  version with no logs replaces it in place. Battle-log edits and deletes
+  cannot be undone. `log_cards` and `save_deck` carry an idempotency key, so
+  retrying after a timeout returns the original result instead of applying
+  twice. Deleting a list or deck is reversible -- *Recently deleted* on each
+  index restores it.
 - **PWA** -- installable, offline-capable (tiered: app shell always; visited
   art LRU-cached; owned cards opt-in).
 - **Pay what you want** — the hosted deckpal.app asks what you would like to pay
@@ -98,7 +104,7 @@ pnpm monorepo, deployed on Vercel + Supabase (cloud) or plain Postgres
 | `apps/mcp` (`deckpal-mcp`) | **deckpal-mcp** -- MCP server, live and multi-user on cloud |
 | `packages/db` (`@deckpal/db`) | Shared Postgres pool + numbered immutable SQL migrations |
 | `packages/storage` (`@deckpal/storage`) | Shared image path algebra + the provenance choke point used by `apps/images` and the cloud image function |
-| `packages/agent-tools` (`@deckpal/agent-tools`) | The 26 agent tool definitions shared by `deckpal-mcp` and Deck-E, the AI assistant |
+| `packages/agent-tools` (`@deckpal/agent-tools`) | The 28 agent tool definitions shared by `deckpal-mcp` and Deck-E, the AI assistant (plus three capability-gated readers served only over MCP) |
 | `packages/matching` (`@deckpal/matching`) | The scanner's card-identity embedding: one versioned input spec shared by the phone, the API and the catalogue job, with bit-exact TypeScript/Python parity |
 | `packages/sim` (`@deckpal/sim`) | The battle simulator: a pure, seeded Pokémon TCG rules engine plus the batch runner and report behind the read-only `simulate_battles` agent tool |
 
@@ -121,7 +127,7 @@ runbook.
 
 ### Option B — Self-host (plain Postgres)
 
-Self-hosting runs the open core without Supabase. You provide your own Postgres
+Self-hosting runs the same code without Supabase. You provide your own Postgres
 15+ database and a reverse proxy for authentication.
 
 Prerequisites: Node >= 20, pnpm >= 10, Postgres >= 15.
@@ -206,3 +212,5 @@ users of that service.
 | [`AGENTS.md`](AGENTS.md) | Engineering contracts and conventions for AI agents |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Contributor guide -- setup, workflow, code conventions |
 | [`SECURITY.md`](SECURITY.md) | Security model (auth, RLS, self-host) and disclosure policy |
+| [`apps/mcp/README.md`](apps/mcp/README.md) | Connecting an AI assistant to the MCP server: clients, tokens, read vs write tools, example sessions |
+| [`apps/mcp/TOOLS.md`](apps/mcp/TOOLS.md) | Every MCP tool with its arguments and annotations — generated from the registry (`pnpm mcp:tools-doc`) |

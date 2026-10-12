@@ -43,11 +43,35 @@ export interface Surface {
 
 export const estimateTokens = (chars: number): number => Math.ceil(chars / 4);
 
-interface AdvertisedTool {
+export interface AdvertisedTool {
   name: string;
+  title?: string;
   description?: string;
-  inputSchema?: unknown;
-  annotations?: { readOnlyHint?: boolean };
+  inputSchema?: {
+    type: 'object';
+    properties?: Record<string, Record<string, unknown>>;
+    required?: string[];
+    [key: string]: unknown;
+  };
+  annotations?: {
+    title?: string;
+    readOnlyHint?: boolean;
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint?: boolean;
+  };
+}
+
+/** The `tools/list` result a client receives, as data. */
+export async function listTools(options: ToolVisibility = {}, ctx: Ctx = {} as Ctx): Promise<{ tools: AdvertisedTool[]; instructions: string }> {
+  const conn = await connectInMemory(ctx, options);
+  try {
+    const reply = await conn.request('tools/list');
+    if (reply.error) throw new Error(`tools/list failed: ${reply.error.message}`);
+    return { tools: (reply.result as { tools: AdvertisedTool[] }).tools, instructions: String(conn.init.instructions ?? '') };
+  } finally {
+    await conn.close();
+  }
 }
 
 /**
