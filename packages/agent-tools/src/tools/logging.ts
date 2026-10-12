@@ -452,7 +452,11 @@ const logCardsTool = defineTool({
     'the rest of the batch still applies. Do NOT use this to read history — use ' +
     'mutation_history or collection_log for that, and get_card for current quantities.',
   inputSchema,
-  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  // idempotentHint FALSE: a repeat is absorbed only inside the derived key's
+  // ~15-minute window (or under an explicit idempotency_key); the same +1
+  // sent an hour later is a second card. overwriteHint: negative deltas and
+  // absolute quantities lower what is owned (revert undoes them).
+  annotations: { readOnlyHint: false, destructiveHint: false, overwriteHint: true, idempotentHint: false },
   handler: async ({ items, note, idempotency_key, dry_run }, ctx) => {
     const startedAt = Date.now();
     try {

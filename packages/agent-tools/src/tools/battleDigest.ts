@@ -3,7 +3,7 @@ import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
 import { errText } from '../shared.js';
 import { needDeck } from '../entities.js';
-import { row } from '../format.js';
+import { oneLine, row, screenName, untrusted } from '../format.js';
 
 /**
  * `battle_digest` — one stored game, read into the shape a model can judge.
@@ -99,7 +99,7 @@ function capped(items: string[], n: number): string {
 
 function timeline(events: PrizeEvent[], n: number): string {
   const one = (e: PrizeEvent): string =>
-    `T${e.turn} ${side(e.side)} +${e.prizes}${e.knockedOut ? ` ${e.knockedOut}` : ''} (${e.score.me}–${e.score.opponent})`;
+    `T${e.turn} ${side(e.side)} +${e.prizes}${e.knockedOut ? ` ${untrusted(e.knockedOut)}` : ''} (${e.score.me}–${e.score.opponent})`;
   if (events.length <= n) return events.map(one).join(' · ');
   // Keep the opening and the finish — the turning point is usually in one of
   // them, and the middle is what a reader can most afford to lose.
@@ -119,6 +119,9 @@ function timeline(events: PrizeEvent[], n: number): string {
  */
 export function renderBattleDigest(p: DigestPayload, deckName: string, note?: string | null): string {
   const d = p.digest;
+  // Every name below was printed in the pasted log — the players' screen names
+  // and the cards they showed — so it renders through `untrusted` (format.ts).
+  const who = (n: string | null) => screenName(n, '?');
   const build = (cardCap: number, eventCap: number, monCap: number): string => {
     const lines: string[] = [];
     const logResult = d.result && p.result && d.result !== p.result ? ` (the log text reads ${resultLabel(d.result)})` : '';
@@ -126,13 +129,13 @@ export function renderBattleDigest(p: DigestPayload, deckName: string, note?: st
 
     if (d.players.me === null) {
       lines.push(
-        `players: could not tell which one owns this deck — the log names ${d.playerNames.join(' and ') || 'nobody'}. ` +
+        `players: could not tell which one owns this deck — the log names ${d.playerNames.map(who).join(' and ') || 'nobody'}. ` +
           'Re-call with player_name set to their exact screen name for the per-side digest.',
       );
       lines.push(row(`${d.totalTurns} turns`, `ended ${ENDED[d.endReason]}`, d.closeGame ? 'close game' : 'not close'));
     } else {
       lines.push(row(
-        `players: me ${d.players.me} vs ${d.players.opponent ?? '?'}`,
+        `players: me ${who(d.players.me)} vs ${who(d.players.opponent)}`,
         d.confidence === 'low' ? 'owner identification LOW confidence' : null,
       ));
       lines.push(row(
@@ -154,13 +157,15 @@ export function renderBattleDigest(p: DigestPayload, deckName: string, note?: st
       if (d.prizeTimeline.length) {
         lines.push(`prize timeline (T = game turn, both players counted; score me–opp after): ${timeline(d.prizeTimeline, eventCap)}`);
       }
-      if (d.myPokemonUsed.length) lines.push(`my Pokemon used: ${capped(d.myPokemonUsed, monCap)}`);
-      if (d.opponentArchetypeGuess) lines.push(`opponent archetype guess (from their board): ${d.opponentArchetypeGuess}`);
+      if (d.myPokemonUsed.length) lines.push(`my Pokemon used: ${capped(d.myPokemonUsed.map((n) => untrusted(n)), monCap)}`);
+      if (d.opponentArchetypeGuess) lines.push(`opponent archetype guess (from their board): ${untrusted(d.opponentArchetypeGuess, 80)}`);
       if (d.opponentCards.length) {
-        lines.push(`opponent cards seen (× times shown): ${capped(d.opponentCards.map((c) => `${c.name} ×${c.count}`), cardCap)}`);
+        lines.push(`opponent cards seen (× times shown): ${capped(d.opponentCards.map((c) => `${untrusted(c.name)} ×${c.count}`), cardCap)}`);
       }
     }
-    if (d.unknowns.length) lines.push(`unknown (never guess these): ${d.unknowns.join('; ')}`);
+    // The digest writes these sentences, but one of them quotes the players'
+    // names; one line each, so a name cannot open a line of its own.
+    if (d.unknowns.length) lines.push(`unknown (never guess these): ${d.unknowns.map((u) => oneLine(u, 240)).join('; ')}`);
     if (note) lines.push(note);
     return lines.join('\n');
   };

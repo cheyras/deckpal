@@ -144,5 +144,12 @@ export function errText(err: unknown): string {
   // in `safeToolError`, where an error has already escaped a handler and
   // nothing is known about it — would take the tool layer's whole vocabulary
   // with it. The scrub above is what makes keeping the sentence safe.
-  return msg;
+  //
+  // CAPPED, because some of those messages echo the input back (an API 400
+  // quoting a pasted name, a log line), and the input can be 50,000 characters
+  // of somebody else's text. Our own sentences are far shorter than this.
+  return msg.length > ERR_TEXT_MAX ? `${msg.slice(0, ERR_TEXT_MAX - 1)}…` : msg;
 }
+
+/** The longest error sentence a tool result carries. */
+export const ERR_TEXT_MAX = 1_000;

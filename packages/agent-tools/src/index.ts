@@ -16,8 +16,8 @@ import { statusTools } from './tools/status.js';
 /**
  * `@deckpal/agent-tools` — DeckPal's tool layer, with no protocol in it.
  *
- * This is what `apps/mcp/src/tools/` used to be. Nothing about the 23 tools was
- * ever MCP-specific except three details — the `McpServer` parameter on the
+ * This is what `apps/mcp/src/tools/` used to be. Nothing about the 23 tools it
+ * held at extraction (2026-08-21) was ever MCP-specific except three details — the `McpServer` parameter on the
  * `register*Tools` signature, the `server.registerTool(...)` call shape, and
  * `ok()`/`fail()` returning MCP's `CallToolResult`. Those three now live in
  * `apps/mcp/src/adapters/mcp.ts` and nowhere else, so a second caller (Deck-E,

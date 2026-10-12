@@ -71,7 +71,9 @@ test('text terms are escaped, parameterised, ANDed on one rules-text line, and c
     2,
     'both terms must apply to the same attack EXISTS',
   );
-  assert.equal(res.structured?.pageSize, 100, 'rules-text searches default to 100 rows');
+  // 50, like every other search: 100 rules-text rows measured 18,278 characters
+  // (`pnpm mcp:audit --responses`), and the footer pages on.
+  assert.equal(res.structured?.pageSize, 50, 'rules-text searches default to 50 rows');
 });
 
 test('damage x accepts both multiplication sign and literal x and selects a matching attack', async () => {

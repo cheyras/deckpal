@@ -1,9 +1,10 @@
+import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok, type ToolResult } from '../result.js';
 import { errText } from '../shared.js';
 import { needDeck } from '../entities.js';
-import { pagingFooter, row, winLoss } from '../format.js';
+import { pagingFooter, row, screenName, untrusted, untrustedBlock, winLoss } from '../format.js';
 
 /**
  * Deck-intelligence tools — SPEC §5 #15–#18 (strategy guides, battle logs,
@@ -24,6 +25,8 @@ import { pagingFooter, row, winLoss } from '../format.js';
 
 const SOURCE = 'deckpal-mcp';
 const STRATEGY_MAX = 40000;
+/** Raw logs per page in battle_logs list mode, whatever page_size asks for. */
+export const RAW_PAGE_MAX = 3;
 
 // ── API payload shapes (only the fields these tools render) ──────────────────
 
@@ -208,16 +211,24 @@ export function strategyLabel(md: string | null | undefined): string {
 /** "WIN vs Robni16 (Dragapult ex / Dusknoir)" — result/opponent cell of a log row. */
 function matchup(l: { result: string | null; opponent: string | null; opponentDeck: string | null }): string {
   const res = l.result ? l.result.toUpperCase() : 'NO RESULT';
-  const opp = l.opponent ?? 'unknown';
-  return `${res} vs ${opp}${l.opponentDeck ? ` (${l.opponentDeck})` : ''}`;
+  // The opponent's screen name, and the deck label guessed from their cards,
+  // come out of the pasted log: text the other player chose. See `untrusted`.
+  return `${res} vs ${screenName(l.opponent)}${l.opponentDeck ? ` (${untrusted(l.opponentDeck, 80)})` : ''}`;
 }
+
+/** Card or Pokémon names parsed out of a log. */
+const names = (list: string[]): string => list.map((n) => untrusted(n)).join(', ');
+
+/** A raw log, fenced as third-party text (format.ts `untrustedBlock`). */
+const rawBlock = (id: number, raw: string): string[] =>
+  untrustedBlock(`raw log #${id}`, raw, randomBytes(3).toString('hex'));
 
 function logRow(l: LogSummary): string {
   return row(
     `#${l.id}`,
     `v${l.deckVersion}`,
     matchup(l),
-    `archetype ${l.opponentArchetype ?? 'unclassified'}`,
+    `archetype ${untrusted(l.opponentArchetype, 60, 'unclassified')}`,
     `origin ${l.origin}`,
     l.turns != null ? `${l.turns} turns` : null,
     l.prizes ? `prizes ${l.prizes.me}-${l.prizes.opponent}` : null,
@@ -239,9 +250,8 @@ function diffLines(diff: Diff): string[] {
 /** "WIN vs Robni16 (Dragapult ex / Dusknoir) | 12 turns | confidence high" — the parsed-result line echoed on the log-preview path. */
 function previewParsedLine(p: LogPreviewParsed): string {
   const res = p.result ? p.result.toUpperCase() : 'NO RESULT';
-  const opp = p.opponent ?? 'unknown';
   return row(
-    `${res} vs ${opp}${p.opponentDeckGuess ? ` (${p.opponentDeckGuess})` : ''}`,
+    `${res} vs ${screenName(p.opponent)}${p.opponentDeckGuess ? ` (${untrusted(p.opponentDeckGuess, 80)})` : ''}`,
     p.turns != null ? `${p.turns} turns` : null,
     p.prizes ? `prizes ${p.prizes.me}-${p.prizes.opponent}` : null,
     p.confidence ? `confidence ${p.confidence}` : null,
@@ -327,9 +337,10 @@ const deckStrategyTool = defineTool({
   title: 'Read or write a deck strategy guide',
   description:
     "Read or replace a deck's strategy guide (markdown). Omit markdown to READ the current " +
-    'guide in full. Pass markdown to REPLACE the whole guide (empty string clears it) — the ' +
-    "response reports the previous guide's first heading and length so an accidental overwrite " +
-    'is visible. Strategy edits NEVER bump the deck version; the guide is snapshotted with the ' +
+    'guide in full. Pass markdown to REPLACE the whole guide (empty string clears it). There is ' +
+    'NO dry run: a call with markdown writes at once, so show the user the new guide and get ' +
+    "their yes first. The response reports the previous guide's first heading and length, and " +
+    'revert (entity_type deck_strategy) can put it back. Strategy edits NEVER bump the deck version; the guide is snapshotted with the ' +
     'current version, so after a version bump the new version starts from the same guide. ' +
     'Typical loop: read battle_logs for the current version, then update the guide here (and ' +
     'the card list via save_deck with a version_note). For version history use deck_history.',
@@ -344,7 +355,8 @@ const deckStrategyTool = defineTool({
           'include everything you want kept. Empty string clears the guide. Omit to read instead.',
       ),
   }),
-  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  // overwriteHint: a write replaces the whole guide (revert can restore it).
+  annotations: { readOnlyHint: false, destructiveHint: false, overwriteHint: true, idempotentHint: true },
   handler: async ({ deck_id: deckRef, markdown }, ctx) => {
     try {
       // ── STRICT ONLY WHEN IT WRITES ──────────────────────────────────────
@@ -574,8 +586,8 @@ const battleLogsTool = defineTool({
     'game) with the win/loss record; filter to one deck version with version — that is the ' +
     'synthesis read path ("how did v2 do?"). With log_id: full detail for one log including all ' +
     'parsed fields plus the saved review. include_raw: true appends the raw PTCG Live log text when one exists — raw logs are LARGE ' +
-    '(often thousands of lines each), so in list mode page_size then defaults to 10; keep it ' +
-    'small to stay inside result-size budgets and page through the rest. Read-only. To record a ' +
+    '(4–15k characters each), so list mode returns at most 3 a page; to judge a game, battle_digest ' +
+    'is a small fraction of the size. Read-only. To record a ' +
     'game use add_battle_log; for version history use deck_history.',
   inputSchema: z.object({
     deck_id: z.string().describe('The deck, by UUID or by NAME.'),
@@ -597,7 +609,7 @@ const battleLogsTool = defineTool({
       .min(1)
       .max(200)
       .optional()
-      .describe('Logs per page (default 50, cap 200; default 10 when include_raw is true).'),
+      .describe('Logs per page (default 50, cap 200; with include_raw, at most 3).'),
   }),
   annotations: { readOnlyHint: true, idempotentHint: true },
   handler: async ({ deck_id: deckRef, log_id, version, include_raw, page, page_size }, ctx) => {
@@ -614,7 +626,7 @@ const battleLogsTool = defineTool({
         const lines = [
           row(
             `battle log #${l.id}`, `v${l.deckVersion}`, matchup(l),
-            `archetype ${l.opponentArchetype ?? 'unclassified'}`,
+            `archetype ${untrusted(l.opponentArchetype, 60, 'unclassified')}`,
             `origin ${l.origin}`, `played ${day(l.playedAt)}`, `source ${l.source}`,
           ),
           row(
@@ -625,19 +637,18 @@ const battleLogsTool = defineTool({
           ),
         ];
         if (p) {
-          if (p.players.me || p.players.opponent) lines.push(`players: me ${p.players.me ?? '?'} vs ${p.players.opponent ?? '?'}`);
-          if (p.myPokemon.length) lines.push(`my Pokemon: ${p.myPokemon.join(', ')}`);
-          if (p.opponentPokemon.length) lines.push(`opponent Pokemon: ${p.opponentPokemon.join(', ')}`);
-          if (p.knockouts.byMe.length) lines.push(`KOs by me: ${p.knockouts.byMe.join(', ')}`);
-          if (p.knockouts.byOpponent.length) lines.push(`KOs against me: ${p.knockouts.byOpponent.join(', ')}`);
+          if (p.players.me || p.players.opponent) {
+            lines.push(`players: me ${screenName(p.players.me, '?')} vs ${screenName(p.players.opponent, '?')}`);
+          }
+          if (p.myPokemon.length) lines.push(`my Pokemon: ${names(p.myPokemon)}`);
+          if (p.opponentPokemon.length) lines.push(`opponent Pokemon: ${names(p.opponentPokemon)}`);
+          if (p.knockouts.byMe.length) lines.push(`KOs by me: ${names(p.knockouts.byMe)}`);
+          if (p.knockouts.byOpponent.length) lines.push(`KOs against me: ${names(p.knockouts.byOpponent)}`);
         }
         if (l.notes) lines.push(`notes: ${l.notes}`);
         if (l.reviewMd) lines.push('--- review ---', l.reviewMd);
         if (include_raw) {
-          lines.push(
-            `--- raw log #${l.id} ---`,
-            l.rawLog ?? `(no raw log — ${l.origin} game)`,
-          );
+          lines.push(...(l.rawLog === null ? [`(no raw log — ${l.origin} game)`] : rawBlock(l.id, l.rawLog)));
         } else {
           lines.push(l.rawLog === null ? `(no raw log — ${l.origin} game)` : '(raw log omitted — pass include_raw: true to read it)');
         }
@@ -645,14 +656,21 @@ const battleLogsTool = defineTool({
       }
 
       // ── List mode ─────────────────────────────────────────────────────────
-      const pageSize = page_size ?? (include_raw ? 10 : 50);
+      // RAW LOGS ARE CAPPED AT RAW_PAGE_MAX A PAGE, whatever page_size says.
+      // A real Live log is 4–15k characters (50k allowed), and the schema's cap
+      // of 200 rows was written for the compact rows: measured on 120 real logs,
+      // `include_raw` at page_size 200 returned 949,283 characters — about
+      // 237k tokens, from one call a model can make by accident. The footer
+      // pages through the rest; battle_digest is the cheap way to read a game.
+      const pageSize = include_raw ? Math.min(page_size ?? RAW_PAGE_MAX, RAW_PAGE_MAX) : page_size ?? 50;
+      const clamped = include_raw && page_size !== undefined && page_size > RAW_PAGE_MAX;
       const qs = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
       if (version !== undefined) qs.set('version', String(version));
       const res = (await ctx.api.get(`${deckPath(deckId)}/logs?${qs}`)) as LogsPayload;
 
       const archetypes = res.archetypes ?? [];
       const archetypeRecord = archetypes.length
-        ? `archetype record: ${archetypes.map((a) => `${a.opponentArchetype} ${a.wins}W–${a.losses}L–${a.ties}T (${a.games}, last ${day(a.lastPlayedAt)})`).join(' · ')}`
+        ? `archetype record: ${archetypes.map((a) => `${untrusted(a.opponentArchetype, 60)} ${a.wins}W–${a.losses}L–${a.ties}T (${a.games}, last ${day(a.lastPlayedAt)})`).join(' · ')}`
         : 'archetype record: none classified';
       if (res.totals.total === 0) {
         return ok([
@@ -668,7 +686,7 @@ const battleLogsTool = defineTool({
         lines.push(logRow(l));
         if (include_raw) {
           const full = (await ctx.api.get(`${deckPath(deckId)}/logs/${encodeURIComponent(l.id)}`)) as { log: LogFull };
-          lines.push(`--- raw log #${l.id} ---`, full.log.rawLog ?? `(no raw log — ${full.log.origin} game)`, '---');
+          lines.push(...(full.log.rawLog === null ? [`(no raw log — ${full.log.origin} game)`] : rawBlock(l.id, full.log.rawLog)));
         }
       }
       const scope = version !== undefined ? `v${version}` : 'all versions';
@@ -680,6 +698,9 @@ const battleLogsTool = defineTool({
         if (per.length > 1) lines.push(`  by version: ${per.join(' · ')}`);
       }
       lines.push(pagingFooter(page, pageSize, res.pagination.total));
+      if (clamped) {
+        lines.push(`include_raw returns at most ${RAW_PAGE_MAX} raw logs a page (page_size ${page_size} was capped). battle_digest reads one game in under 3,000 characters.`);
+      }
       // NAME THE DECK WHENEVER A NAME WAS RESOLVED. This is the only deck tool
       // that matches loosely, and its rows carry log numbers and opponents but
       // never the deck itself — so a wrong fuzzy hit rendered a page of real
@@ -688,7 +709,11 @@ const battleLogsTool = defineTool({
       if (picked.note) lines.push(picked.note);
       return ok(lines.join('\n'));
     } catch (err) {
-      return fail(`battle_logs failed: ${errText(err)}`);
+      const message = errText(err);
+      // A log id from another deck (or a typo) is the usual cause; the list
+      // view shows this deck's #ids.
+      const hint = /^No battle log\b/.test(message) ? ' — battle_logs without log_id lists this deck\'s logs with their #ids.' : '';
+      return fail(`battle_logs failed: ${message}${hint}`);
     }
   },
 });
@@ -740,7 +765,9 @@ const deckHistoryTool = defineTool({
       .default(true)
       .describe('Reverting only. true (default): preview the exact diff, change nothing. false: execute the revert.'),
   }),
-  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  // overwriteHint: revert_to replaces the deck's current list (the replaced
+  // version stays in history).
+  annotations: { readOnlyHint: false, destructiveHint: false, overwriteHint: true, idempotentHint: false },
   handler: async ({ deck_id: deckRef, version, revert_to, include_strategy, note, dry_run }, ctx) => {
     try {
       // ── STRICT ONLY WHEN IT REVERTS ─────────────────────────────────────
@@ -895,7 +922,8 @@ const editBattleLogTool = defineTool({
       .default(true)
       .describe('true (default): preview the field-by-field would-change plan (current → new), change nothing. Re-call with dry_run: false to apply the edit.'),
   }),
-  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  // overwriteHint: replaces or clears a log's fields, with no history of the old values.
+  annotations: { readOnlyHint: false, destructiveHint: false, overwriteHint: true, idempotentHint: true },
   handler: async ({ deck_id: deckRef, log_id, result, opponent, opponent_deck, opponent_archetype, notes, review, played_at, dry_run }, ctx) => {
     try {
       // STRICT — edits a stored battle log, so an approximate name is a choice, never an action.
@@ -932,9 +960,11 @@ const editBattleLogTool = defineTool({
           'Nothing was changed.',
         ];
         if (result !== undefined) lines.push(`  result: ${l.result ? l.result.toUpperCase() : 'NO RESULT'} → ${result ? result.toUpperCase() : 'NO RESULT'}`);
-        if (opponent !== undefined) lines.push(`  opponent: ${l.opponent ?? '(none)'} → ${opponent ?? '(none)'}`);
-        if (opponent_deck !== undefined) lines.push(`  opponent_deck: ${l.opponentDeck ?? '(none)'} → ${opponent_deck ?? '(none)'}`);
-        if (opponent_archetype !== undefined) lines.push(`  opponent_archetype: ${l.opponentArchetype ?? '(none)'} → ${opponent_archetype ?? '(none)'}`);
+        if (opponent !== undefined) lines.push(`  opponent: ${screenName(l.opponent, '(none)')} → ${screenName(opponent, '(none)')}`);
+        if (opponent_deck !== undefined) lines.push(`  opponent_deck: ${untrusted(l.opponentDeck, 80, '(none)')} → ${untrusted(opponent_deck, 200, '(none)')}`);
+        if (opponent_archetype !== undefined) {
+          lines.push(`  opponent_archetype: ${untrusted(l.opponentArchetype, 60, '(none)')} → ${untrusted(opponent_archetype, 200, '(none)')}`);
+        }
         if (notes !== undefined) lines.push(`  notes: ${l.notes ? trunc(l.notes, 60) : '(none)'} → ${notes ? trunc(notes, 60) : '(none)'}`);
         if (review !== undefined) lines.push(`  review: ${l.reviewMd ? trunc(l.reviewMd, 60) : '(none)'} → ${review ? trunc(review, 60) : '(none)'}`);
         if (played_at !== undefined) lines.push(`  played_at: ${day(l.playedAt)} → ${played_at}`);
