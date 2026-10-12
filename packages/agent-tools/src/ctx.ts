@@ -26,8 +26,8 @@ import type { Queryable } from './db.js';
  * ## Why there is no `config` here any more
  *
  * The MCP server's `Ctx` used to carry `config: McpConfig` — `{ port, key,
- * apiBase }`. Not one of the 23 tools ever read it: `port` and `key` are the
- * self-host listener's business, and `apiBase` is already baked into the `Api`
+ * apiBase }`. Not one of the 23 tools at extraction (2026-08-21) ever read
+ * it: `port` and `key` are the self-host listener's business, and `apiBase` is already baked into the `Api`
  * instance by the time a tool sees it. Carrying it here meant every caller had
  * to invent a port and a shared secret to satisfy the type — `cloud.ts` was
  * literally passing `{ port: 0, key: '' }` with a comment explaining that it

@@ -64,6 +64,9 @@ jobs:
           pnpm --filter @deckpal/storage build
           pnpm --filter @deckpal/agent-tools build
           pnpm --filter @deckpal/matching build
+          # The MCP audit suite starts the whole API (createApp), whose
+          # simulate route loads @deckpal/sim's dist.
+          pnpm --filter @deckpal/sim build
 
       # No service container, URL or production secret is supplied. The runner
       # creates a private Unix-socket cluster, verifies it, and always removes it.

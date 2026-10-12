@@ -39,9 +39,10 @@ const cardPriceHistoryTool = defineTool({
     '  MAY assert — open/close/high/low/mean/median of a bucket; the exact dates\n' +
     '  and values of the period\'s high and low (`highOn`/`lowOn` are TRUE DAILY\n' +
     '  FACTS that survive the rollup); trend across buckets; and volatility\n' +
-    '  DERIVED from OHLC (Parkinson or Garman-Klass — never a stored variance,\n' +
-    '  which would be a second name for the range: corr(stddev, high-low) = 0.9878\n' +
-    '  measured over 633,431 real weekly buckets).\n\n' +
+    // The measurement behind "never a stored variance" — corr(stddev,
+    // high-low) = 0.9878 over 633,431 real weekly buckets — is the design's
+    // evidence, not something the model needs on every turn.
+    '  DERIVED from OHLC (Parkinson or Garman-Klass), never a stored variance.\n\n' +
     '  MAY NOT assert — any specific day\'s price inside a week or month bucket\n' +
     '  other than the two extremes; the path between them; durations ("stayed\n' +
     '  under $5 for eleven days"); or a second/third dip or spike within one\n' +

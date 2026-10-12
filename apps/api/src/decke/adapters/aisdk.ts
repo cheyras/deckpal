@@ -1,6 +1,6 @@
 /**
  * `ToolDefinition` → the AI SDK's `tool()`. The other front-end onto the same
- * 23 tools the MCP server exposes.
+ * tools the MCP server exposes.
  *
  * `apps/mcp/src/adapters/mcp.ts` is this file's sibling and its mirror: same
  * definitions, different protocol. A tool added for Claude appears for Deck-E in
@@ -27,7 +27,7 @@
  * This heading used to read "READ TOOLS ONLY, until the approval flow exists",
  * and it outlived the condition it named. The approval round-trip HAS been
  * built (`needsApproval` below, and §15e of `ARCHITECTURE.md`), and
- * `api/chat.mjs` now passes `include: () => true`, so all 23 tools reach the
+ * `api/chat.mjs` now passes `include: () => true`, so every data tool reaches the
  * conversational model and the write half is held by the SDK rather than
  * filtered out here. A header describing a policy the file's own code
  * contradicts twenty lines later is worse than no header, which is why this

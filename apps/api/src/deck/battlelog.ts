@@ -405,10 +405,21 @@ export function mergeLogFields(
 ): MergedLogFields {
   return {
     result: explicit.result ?? parsed.result,
-    opponent: explicit.opponent ?? parsed.players.opponent,
-    opponentDeck: explicit.opponentDeck ?? parsed.opponentDeckGuess,
+    opponent: explicit.opponent ?? capParsed(parsed.players.opponent),
+    opponentDeck: explicit.opponentDeck ?? capParsed(parsed.opponentDeckGuess),
   };
 }
+
+/**
+ * The longest opponent name or deck label the PARSER may store — the same
+ * 200 the route already enforces on an explicit `opponent`/`opponentDeck`.
+ * Without it the cap had a side door: a parsed screen name is whatever the
+ * other player's client printed before "'s Turn", with no length limit, and
+ * it was stored and then shown to every reader of the log.
+ */
+const PARSED_FIELD_MAX = 200;
+const capParsed = (s: string | null): string | null =>
+  s === null || s.length <= PARSED_FIELD_MAX ? s : s.slice(0, PARSED_FIELD_MAX);
 
 export interface PreparedBattleLog {
   parsed: ParsedBattleLog | null;

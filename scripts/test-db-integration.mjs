@@ -403,6 +403,31 @@ try {
     assert.equal(evidence.status, 'passed');
     result.cases.push(evidence);
   }
+  // The MCP tool surface, measured: a real-sized catalog and a heavy user,
+  // the real API and MCP server, every read tool's result size checked
+  // against its budget, and a hostile opponent name read back through the
+  // real parser. Its own database, like the suites above. Also run by hand
+  // as `pnpm mcp:audit --responses` (which prints the table instead).
+  {
+    assertNoEnvFile();
+    await run(join(bindir, 'psql'), ['-X', '-v', 'ON_ERROR_STOP=1', '-c',
+      'CREATE DATABASE deckpal_ci_mcp_audit OWNER deckpal_ci_fixture']);
+    await run(join(bindir, 'psql'), ['-X', '-v', 'ON_ERROR_STOP=1', '-d',
+      'deckpal_ci_mcp_audit', '-c', 'CREATE EXTENSION vector']);
+    const caseFile = join(scratch, 'mcp-audit.json');
+    await run(process.execPath, ['--import', join(REPO, 'node_modules', 'tsx', 'dist', 'loader.mjs'),
+      join(REPO, 'apps', 'mcp', 'audit', 'responses.mjs')], {
+      timeoutMs: 480_000,
+      env: {
+        PGUSER: 'deckpal_ci_fixture', PGDATABASE: 'deckpal_ci_mcp_audit',
+        DECKPAL_TEST_ROOT: scratch, DECKPAL_TEST_MARKER: marker, DECKPAL_TEST_RESULT: caseFile,
+        DECKPAL_MCP_AUDIT_BUDGETS: '1',
+      },
+    });
+    const evidence = JSON.parse(readFileSync(caseFile, 'utf8'));
+    assert.equal(evidence.status, 'passed');
+    result.cases.push(evidence);
+  }
   result.status = 'passed';
 } catch (error) {
   result.status = 'failed';

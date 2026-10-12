@@ -722,14 +722,17 @@ function planStructural(e: EventRow, _strategy: Strategy): PlanEntry {
         ...base,
         exact: false,
         action: 'cannot be undone',
-        skipped: 'a purge is a real DELETE — the rows are gone. This is the one deliberate no-undo path (see SECURITY.md).',
+        skipped: 'a purge is a real DELETE — the rows are gone, deliberately (see SECURITY.md).',
       };
     case 'deck.cards':
       return {
         ...base,
         exact: false,
         action: 'use the deck version history',
-        skipped: `deck card lists are versioned — revert with POST /decks/${e.entity_id}/revert (deck_history in the MCP), which is exact`,
+        // "Which is exact" was only half true: a version that never had a
+        // battle log is amended in place, so the list it replaced is not one
+        // of the versions there is to go back to.
+        skipped: `deck card lists are versioned — restore a version with POST /decks/${e.entity_id}/revert (deck_history in the MCP); an edit to a version with no battle logs replaced that version in place, so its earlier list is not kept`,
       };
     default:
       return { ...base, exact: false, action: 'unsupported', skipped: `no undo is defined for '${e.operation}'` };

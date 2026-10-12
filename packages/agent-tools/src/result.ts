@@ -4,8 +4,8 @@
  * This is `apps/mcp/src/envelope.ts` with the MCP shape taken out of it. That
  * file returned a `CallToolResult` — `{ content: [{ type: 'text', text }],
  * structuredContent? }` — which is the MCP wire type, and it was the single
- * reason 23 otherwise protocol-agnostic tool handlers had to know that MCP
- * existed at all. Every handler still wraps its body in try/catch and returns
+ * reason the 23 tool handlers at extraction (2026-08-21), otherwise
+ * protocol-agnostic, had to know that MCP existed at all. Every handler still wraps its body in try/catch and returns
  * one of these two shapes; it just no longer says so in MCP's vocabulary.
  *
  * The translation back to `CallToolResult` lives in exactly one place,
@@ -22,7 +22,11 @@
 export interface ToolResult {
   /** The compact, human/model-readable body. Always present (SPEC §4). */
   text: string;
-  /** Optional machine-readable echo — MCP renders it as `structuredContent`. */
+  /**
+   * Optional machine-readable echo, read by Deck-E's adapter. The MCP adapter
+   * deliberately never sends it as `structuredContent` (see `toCallToolResult`
+   * in apps/mcp/src/adapters/mcp.ts).
+   */
   structured?: Record<string, unknown>;
   /** True when the tool failed. Handlers never throw to the transport. */
   isError?: boolean;

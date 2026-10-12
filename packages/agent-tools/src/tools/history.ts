@@ -2,7 +2,12 @@ import { z } from 'zod';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
 import { errText } from '../shared.js';
-import { row, stamp } from '../format.js';
+import { pagingFooter, row, stamp } from '../format.js';
+
+/** Changes listed per page when mutation_history shows one operation. */
+const EVENTS_PAGE = 50;
+/** Clean revert-plan lines listed before the rest are summarised. Conflicts and skips are always listed. */
+const PLAN_LINES = 50;
 
 /**
  * `mutation_history` and `revert` — SPEC §5 #22/#23.
@@ -108,8 +113,9 @@ const mutationHistoryTool = defineTool({
     'The audit trail of every CHANGE made through DeckPal — collection quantities, lists, ' +
     'decks, strategy guides — grouped by the operation that made them, newest first. Each ' +
     'operation carries who wrote it (web UI, deckpal-mcp, an import), an optional note, and ' +
-    'a before/after snapshot per thing it touched. Filter by time, source, tool, note text, ' +
-    'or a specific card/list/deck. Pass batch_id to see one operation in full. This is how ' +
+    'one line per thing it touched (with the quantity before → after where there is one). ' +
+    'Battle-log writes and deck_history reverts made over MCP are not recorded here. Filter by time, source, tool, note text, ' +
+    'or a specific card/list/deck. Pass batch_id to see one operation\'s changes, paged. This is how ' +
     'you answer "what did that call actually do?" and it is the input to revert. For ' +
     'collection quantities only, collection_log is a flatter view of the same events.',
   inputSchema: z.object({
@@ -133,7 +139,13 @@ const mutationHistoryTool = defineTool({
       .string()
       .optional()
       .describe('Only operations that touched this exact thing (a numeric card_variant id, or a list/deck UUID).'),
-    limit: z.number().int().min(1).max(200).default(25).describe('Operations per page (1–200, default 25).'),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe(`Per page (1–200): operations (default 25), or with batch_id that operation's changes (default ${EVENTS_PAGE}).`),
     page: z.number().int().min(1).default(1).describe('Page number, 1-based.'),
   }),
   annotations: { readOnlyHint: true, idempotentHint: true },
@@ -144,8 +156,14 @@ const mutationHistoryTool = defineTool({
           batch: BatchSummary;
           events: EventDetail[];
         };
+        // PAGED. One operation can touch hundreds of things (a 250-item
+        // log_cards batch measured 14,243 characters; an import is larger),
+        // and this listed every one.
+        const size = args.limit ?? EVENTS_PAGE;
+        const page = args.page ?? 1;
         const lines = [batchLine(r.batch), `${r.events.length} change(s):`];
-        for (const e of r.events) lines.push('  ' + eventLine(e));
+        for (const e of r.events.slice((page - 1) * size, page * size)) lines.push('  ' + eventLine(e));
+        if (r.events.length > size || page > 1) lines.push(`  ${pagingFooter(page, size, r.events.length)} (same batch_id)`);
         const undoable = r.events.filter((e) => e.undoneByEventId === null).length;
         lines.push(
           undoable > 0
@@ -163,8 +181,8 @@ const mutationHistoryTool = defineTool({
       if (args.note) params.set('note', args.note);
       if (args.entity_type) params.set('entity_type', args.entity_type);
       if (args.entity_id) params.set('entity_id', args.entity_id);
-      params.set('limit', String(args.limit));
-      params.set('page', String(args.page));
+      params.set('limit', String(args.limit ?? 25));
+      params.set('page', String(args.page ?? 1));
 
       const r = (await ctx.api.get(`/mutations?${params.toString()}`)) as {
         total: number;
@@ -215,8 +233,8 @@ const revertTool = defineTool({
       .string()
       .optional()
       .describe(
-        "With since: only undo changes written by this source, e.g. 'web' or 'deckpal-mcp'. Omit to undo " +
-          'EVERYTHING in the window regardless of who wrote it.',
+        "With since: only undo changes written by this source, e.g. 'web' or 'deckpal-mcp' (mutation_history " +
+          'calls the same filter `source`). Omit to undo EVERYTHING in the window regardless of who wrote it.',
       ),
     entity_type: z
       .enum(['collection_item', 'card_list', 'list_item', 'deck', 'deck_strategy'])
@@ -237,7 +255,14 @@ const revertTool = defineTool({
       .describe('Apply items that have conflicts, or re-undo something already undone. Read the dry run first.'),
     note: z.string().max(500).optional().describe('Note stored on the revert operation itself.'),
     dry_run: z.boolean().default(true).describe('true (default): show the exact diff, change nothing. false: apply.'),
-  }),
+  })
+    // STRICT: an argument this tool does not know is an error, not a no-op.
+    // Every other filter here NARROWS what gets undone, so silently dropping
+    // one widens the undo. Measured: `source` — the name mutation_history
+    // uses, and the name apps/mcp/SPEC.md documented for this tool — passed
+    // validation and was discarded, so "undo what the agent did since 2pm"
+    // became "undo everything since 2pm". The dry run was the only guard.
+    .strict(),
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
   handler: async (args, ctx) => {
     try {
@@ -285,6 +310,11 @@ const revertTool = defineTool({
       const lines: string[] = [
         `${r.dryRun ? 'revert DRY RUN' : 'revert'} — ${r.label} (strategy: ${r.strategy})`,
       ];
+      // Every conflict and every skip is listed — those are what the reader has
+      // to decide about. Clean items are listed up to PLAN_LINES and then
+      // counted: a revert can cover up to 500 changes, and the 250-item batch
+      // the audit undoes measured 12,694 characters of identical lines.
+      let clean = 0;
       for (const p of r.plan) {
         const head = row(`#${p.eventId}`, p.entityType, p.entityId, p.action);
         if (p.skipped) {
@@ -293,9 +323,12 @@ const revertTool = defineTool({
         } else if (p.conflicts.length > 0) {
           lines.push(`  ⚠ ${head}`);
           for (const c of p.conflicts) lines.push(`      conflict: ${c}`);
-        } else {
+        } else if (clean++ < PLAN_LINES) {
           lines.push(`  ${r.dryRun ? '·' : '✓'} ${head}`);
         }
+      }
+      if (clean > PLAN_LINES) {
+        lines.push(`  … and ${clean - PLAN_LINES} more clean item(s), no conflicts among them; the counts below include them.`);
       }
 
       if (r.dryRun) {

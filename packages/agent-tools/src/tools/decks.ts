@@ -4,7 +4,7 @@ import type { Ctx } from '../ctx.js';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
 import { errText } from '../shared.js';
-import { row, usd, winLoss } from '../format.js';
+import { pagingFooter, row, untrusted, usd, winLoss } from '../format.js';
 import { meansCreate, needDeck, presentRef } from '../entities.js';
 import { strategyLabel } from './deckIntel.js';
 
@@ -22,6 +22,8 @@ import { strategyLabel } from './deckIntel.js';
 const SOURCE = 'deckpal-mcp';
 const FORMATS = ['standard', 'expanded', 'glc', 'unlimited'] as const;
 const INCLUDES = ['cards', 'validate', 'pricing', 'testhand', 'strategy'] as const;
+/** Decks per page of the index. */
+const INDEX_PAGE = 100;
 
 // ── API response shapes (only the fields these tools render) ─────────────────
 
@@ -374,9 +376,10 @@ const decksTool = defineTool({
         "Extra sections to fetch for one deck: 'cards', 'validate', 'pricing', 'testhand', " +
           "'strategy' (the whole guide text). Ignored without deck_id.",
       ),
+    page: z.number().int().min(1).default(1).describe(`Without deck_id: page of the index, ${INDEX_PAGE} decks a page.`),
   }),
   annotations: { readOnlyHint: true, idempotentHint: true },
-  handler: async ({ deck_id, deleted, include }, ctx) => {
+  handler: async ({ deck_id, deleted, include, page = 1 }, ctx) => {
     try {
       // `presentRef`, so a model filling the field with 'none' or 'None' gets
       // the index it was reaching for rather than a lookup failure. 'None' is
@@ -387,7 +390,10 @@ const decksTool = defineTool({
         if (res.decks.length === 0) {
           return ok(deleted ? 'Nothing in the recycle bin — no deleted decks.' : 'No decks yet. Create one with save_deck.');
         }
-        const lines = res.decks.map((d) => {
+        // Paged at INDEX_PAGE: the index had no bound, and scouting lists make
+        // three-figure deck counts realistic (30 decks measured 3,564 chars).
+        const from = (page - 1) * INDEX_PAGE;
+        const lines = res.decks.slice(from, from + INDEX_PAGE).map((d) => {
           const games = d.record.wins + d.record.losses + d.record.ties;
           return row(
             d.name,
@@ -400,7 +406,11 @@ const decksTool = defineTool({
             games > 0 ? winLoss(d.record) : null,
           );
         });
-        lines.push(`${res.decks.length} deck(s)`);
+        lines.push(
+          res.decks.length > INDEX_PAGE || page > 1
+            ? `${res.decks.length} deck(s); ${pagingFooter(page, INDEX_PAGE, res.decks.length)}`
+            : `${res.decks.length} deck(s)`,
+        );
         return ok(lines.join('\n'));
       }
 
@@ -604,7 +614,10 @@ const saveDeckTool = defineTool({
       .default(true)
       .describe('true (default): only print what would happen. false: execute.'),
   }),
-  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  // overwriteHint: an edit reconciles the whole card list and can rename. On a
+  // version with no battle logs it amends that version's snapshot in place, so
+  // the list it replaced is not kept anywhere (see the 2026-10-12 decision).
+  annotations: { readOnlyHint: false, destructiveHint: false, overwriteHint: true, idempotentHint: true },
   handler: async ({ mode, deck_id, name, format, cards, ptcgl_text, version_note, dry_run }, ctx) => {
     try {
       if (ptcgl_text !== undefined && cards !== undefined) {
@@ -696,7 +709,9 @@ const saveDeckTool = defineTool({
             `${res.replayed ? 'Deck was already imported' : 'Imported deck'} '${res.deck.name}' (${res.deck.formatCode}) — id ${res.deck.id}`,
             `  resolved ${res.import.resolvedEntries} line(s) → ${res.import.distinctCards} distinct card(s), ${res.counts.total} cards total`,
           ];
-          for (const u of res.import.unresolved) lines.push(`  UNRESOLVED: ${u}`);
+          // A pasted decklist can come from anywhere on the web; a line that
+          // did not resolve is echoed as a quoted value, never as raw text.
+          for (const u of res.import.unresolved) lines.push(`  UNRESOLVED: ${untrusted(u, 120)}`);
           for (const w of res.import.warnings) lines.push(`  warning: ${w.message}`);
           lines.push(res.validation.legal ? 'Deck is format-legal.' : 'Deck is NOT format-legal — call decks with include: [validate].');
           return ok(lines.join('\n'));

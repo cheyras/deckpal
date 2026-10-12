@@ -25,13 +25,6 @@ const pageSizeArg = z
   .max(200)
   .default(50)
   .describe('Rows per page (default 50, hard cap 200).');
-const searchPageSizeArg = z
-  .number()
-  .int()
-  .min(1)
-  .max(200)
-  .optional()
-  .describe('Rows per page. Defaults to 100 for rules-text/damage searches, otherwise 50; hard cap 200.');
 
 // ── search_cards — SPEC §5 #3 ──────────────────────────────────────────────
 export interface SearchRow {
@@ -309,7 +302,7 @@ const searchCardsTool = defineTool({
           '"only cards that have a price".',
       ),
     page: pageArg,
-    page_size: searchPageSizeArg,
+    page_size: pageSizeArg,
   }),
   annotations: { readOnlyHint: true, idempotentHint: true },
   handler: async (args, ctx) => {
@@ -317,7 +310,10 @@ const searchCardsTool = defineTool({
       const query = args.query?.trim();
       const textTerms = (args.text ?? []).map((term) => term.trim()).filter(Boolean);
       const textSearch = textTerms.length > 0 || args.damage !== undefined;
-      const pageSize = args.page_size ?? (textSearch ? 100 : 50);
+      // 50 for every kind of search. Rules-text rows carry the matched attack
+      // or Ability text, so the old text-search default of 100 measured 18,278
+      // characters (~4.6k tokens) for one broad term; the footer pages on.
+      const pageSize = args.page_size ?? 50;
 
       // owned_only AND exclude_owned together is `qty > 0 AND qty = 0` — always
       // false, so it silently returns zero rows. The descriptions say "do not

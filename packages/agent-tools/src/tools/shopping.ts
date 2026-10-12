@@ -113,7 +113,9 @@ function render(r: CartResponse): string[] {
 
 const setCartTool = defineTool({
   name: 'set_cart',
-  title: 'Build a TCGplayer cart',
+  // "Build a TCGplayer cart" overstated it: the tool builds links, and the
+  // user's own browser is what fills a cart.
+  title: 'Build TCGplayer cart links',
   description:
     'Build TCGplayer Mass Entry deep link(s) that pre-fill a shopping cart, from ONE of: a ' +
     'set (everything still needed for a goal), a saved list (list_id), or an explicit set of ' +
@@ -126,8 +128,10 @@ const setCartTool = defineTool({
     "on TCGplayer's Mass Entry page. For what is missing and its cost use set_progress; for " +
     'buying deck gaps use decks with include=[pricing].',
   inputSchema: z.object({
-    set_id: z.string().optional().describe("TCGdex set id, e.g. 'me05'. Carts what you still need from that set."),
-    list_id: z.string().optional().describe('List UUID (from the lists tool). Carts that list\'s own contents — nothing re-derived.'),
+    // Both are RESOLVED, by id or by name (resolveSet / needList below), the
+    // way every sibling tool takes them; the descriptions used to say id-only.
+    set_id: z.string().optional().describe("One set, by id ('me05') or by NAME. Carts what you still need from that set."),
+    list_id: z.string().optional().describe("One list, by UUID or by NAME. Carts that list's own contents — nothing re-derived."),
     items: z
       .array(
         z.object({

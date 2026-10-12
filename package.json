@@ -30,7 +30,9 @@
     "sim:serve": "node --import tsx tools/ios-sim/server.mjs",
     "test:ios-sim": "node --import tsx --test tools/ios-sim/__tests__/*.test.mjs && python3 -m unittest discover -s tools/ios-sim/__tests__ -p 'test_*.py' -v",
     "test:security-headers": "node scripts/check-security-headers.mjs",
-    "test:redirects": "node scripts/check-redirects.mjs"
+    "test:redirects": "node scripts/check-redirects.mjs",
+    "mcp:audit": "node --import tsx scripts/mcp-audit.mjs",
+    "mcp:tools-doc": "node --import tsx scripts/mcp-tools-doc.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",

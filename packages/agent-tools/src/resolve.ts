@@ -212,7 +212,11 @@ export async function resolveCard(ctx: Ctx, ref: CardRef): Promise<CardResolutio
     const owned = await ownedPocketCardById(ctx, ref.card_id);
     return owned
       ? { status: 'ok', card: shape(owned) }
-      : { status: 'not_found', message: `No card with id '${ref.card_id}'` };
+      : {
+        status: 'not_found',
+        // The recovery, in the message: the one call that turns a name into an id.
+        message: `No card with id '${ref.card_id}'. TCGdex ids look like 'sv08-125'; search_cards finds a card by name.`,
+      };
   }
   const name = ref.name?.trim();
   if (!name) return { status: 'not_found', message: 'Provide card_id, or name (+ set_id/number)' };

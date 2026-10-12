@@ -3,6 +3,7 @@ import type { Ctx } from '../ctx.js'
 import { defineTool, type ToolDefinition } from '../registry.js'
 import { fail, ok, type ToolResult } from '../result.js'
 import { errText } from '../shared.js'
+import { untrusted } from '../format.js'
 
 export interface CheckDeckInput {
   format?: string
@@ -41,9 +42,12 @@ export const deckCardLine = z.object({
 })
 
 export const checkDeckInputSchema = z.object({
-  format: z.string().trim().min(1).max(24).default('standard'),
-  cards: z.array(deckCardLine).min(1).max(60).optional(),
-  ptcgl_text: z.string().trim().min(1).max(8_000).optional(),
+  format: z.string().trim().min(1).max(24).default('standard')
+    .describe("Format to check against: 'standard' (default), 'expanded', 'glc' or 'unlimited'."),
+  cards: z.array(deckCardLine).min(1).max(60).optional()
+    .describe('The list, one entry per line: exactly one of name or card_id, plus quantity. Give exactly one of cards or ptcgl_text.'),
+  ptcgl_text: z.string().trim().min(1).max(8_000).optional()
+    .describe('The list as PTCG Live export text, instead of cards.'),
 }).refine((input) => Number(input.cards !== undefined) + Number(input.ptcgl_text !== undefined) === 1, {
   message: 'Provide exactly one of cards or ptcgl_text.',
 })
@@ -62,7 +66,9 @@ export function renderDeckCheck(result: DeckCheckResult): string {
     if (!rows.length) continue
     lines.push(`${section}:`)
     for (const line of rows) {
-      lines.push(`  ${line.quantity}× ${line.name} (${line.card_id ?? 'unresolved'}) — own ${line.owned}`)
+      // An unresolved line is whatever was pasted, echoed as a quoted value.
+      const name = line.resolved ? line.name : untrusted(line.name, 80)
+      lines.push(`  ${line.quantity}× ${name} (${line.card_id ?? 'unresolved'}) — own ${line.owned}`)
       if (line.note) lines.push(`    ${line.note}`)
     }
   }
@@ -85,7 +91,7 @@ export const checkDeckTool: ToolDefinition = defineTool({
   name: 'check_deck',
   title: 'Check a deck list',
   description:
-    'Run this on every complete deck list before showing or saving it. It accepts card names or catalog ids, checks legality, evolution gaps, ownership and missing cost. Fix everything it flags, then run it again before you show or save the final list.',
+    'Run this on every complete deck list before showing or saving it. It accepts card names or catalog ids, checks legality, evolution gaps, ownership and missing cost. Fix everything it flags, then run it again before you show or save the final list. Read-only: it saves nothing (save_deck does), and a saved deck is read with decks. For draw odds use deck_odds; for matchups, simulate_battles.',
   inputSchema: checkDeckInputSchema,
   annotations: { readOnlyHint: true, idempotentHint: true },
   handler: async (input, ctx): Promise<ToolResult> => {

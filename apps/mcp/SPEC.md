@@ -13,7 +13,7 @@ not revoke an existing MCP connection.
 
 | Thing | Value |
 |---|---|
-| App dir | `/home/cheyras/deckpal/apps/mcp` (pnpm workspace picks up `apps/*` automatically) |
+| App dir | `apps/mcp` (pnpm workspace picks up `apps/*` automatically) |
 | Package name | `deckpal-mcp` (matches `deckpal-api` / `deckpal-sync` style) |
 | MCP server name | `deckpal-mcp`, version from package.json |
 | Port | **3704**, bind `127.0.0.1` only (3702 = TCGdex escape-hatch slot, 3703 = dev server, per DECISIONS.md) |
@@ -168,11 +168,12 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   only because Claude requests a refresh token when it sees it; DeckPal checks no OAuth scope
   string). The consent screen offers a scope choice only when `GET /oauth/client`
   includes `trust`, which the older scope-ignoring API omits. Its **read-only** connection resolves with
-  `scope: 'read'`, is built a server with only the 15 `readOnlyHint` tools, runs in `BEGIN READ
+  `scope: 'read'`, is built a server with only the 17 `readOnlyHint` tools (20 with the Deck-E
+  improvement capability), runs in `BEGIN READ
   ONLY`, and is refused every non-GET REST call (`403 insufficient_scope`) except `POST /massentry`,
-  `POST /decks/check` and `POST /decks/odds` (2026-10-10: `/decks/check` had been missing, so `check_deck` was
-  served and then refused),
-  which only build `set_cart`'s cart links and the two deck reads. Tokens that existed
+  `POST /decks/check`, `POST /decks/odds` and `POST /decks/simulate` (2026-10-10: `/decks/check` had
+  been missing, so `check_deck` was served and then refused),
+  which only build `set_cart`'s cart links and the three deck reads. Tokens that existed
   before 075, including hand-made ones and live claude.ai connectors, resolve exactly as before:
   full scope, no expiry. The consent screen names the redirect's host and marks only Claude's exact
   documented callback as Verified; see SECURITY.md. Session routes that changed shape:
@@ -247,27 +248,37 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
 
 ## 4. Tool conventions
 
-- **The 26 tool definitions live in `packages/agent-tools/src/tools/*.ts`** (`@deckpal/agent-tools`),
+- **The tool definitions live in `packages/agent-tools/src/tools/*.ts`** (`@deckpal/agent-tools`):
+  the 28 in `allTools()` (17 read, 11 write) plus the three capability-gated `deckeImprovementTools`,
   each a `ToolDefinition` — `{ name, title, description, inputSchema, annotations, handler }` — written
   against `Ctx` alone, with no MCP SDK import anywhere in that package. `apps/mcp/src/adapters/mcp.ts`
-  is the only file that turns one into an MCP registration: it walks `allTools()` and calls
+  is the only file that turns one into an MCP registration: it walks `allTools()` and the gated
+  three (registered only for a token with the capability) and calls
   `server.registerTool(name, { title, description, inputSchema, annotations }, handler)` per tool,
   branching on whether `inputSchema` is present (the SDK calls a no-arg tool's handler as
   `(serverCtx)`, not `(args, serverCtx)` — `health` needs the with-args branch skipped or its handler
   receives the server context in the position it expects its own args). `apps/api/src/decke/adapters/
-  aisdk.ts` is the sibling adapter onto the AI SDK's `tool()`, for Deck-E — same 24 definitions, a
-  different protocol. A tool added or changed here appears on both fronts in the same commit.
+  aisdk.ts` is the sibling adapter onto the AI SDK's `tool()`, for Deck-E — the same 28 definitions
+  from `allTools()`, a different protocol. A tool added or changed here appears on both fronts in the
+  same commit.
   Every tool has `title` + annotations: `readOnlyHint: true` on all reads; `destructiveHint: true` on
-  `delete_deck` / `delete_list`; `idempotentHint` where true. `readOnlyHint` is required in this
+  `delete_deck`, `delete_list`, `delete_battle_log` and `revert` (DeckPal's meaning: not otherwise
+  recoverable); `idempotentHint` where true. On the wire, `wireAnnotations` in the MCP adapter
+  follows the spec instead: every write advertises an explicit `destructiveHint` (true for 10 of the
+  11, the OR of DeckPal's flag and `overwriteHint`; only `add_battle_log` is false), and every tool
+  advertises `openWorldHint: false`. `readOnlyHint` is required in this
   package's `ToolDefinition` type (MCP's own SDK type leaves it optional) — a tool that omits it fails
   to compile rather than defaulting into whatever the approval-gate logic assumes. It is also the
   whole of the read-only connection's tool list (`registerAllTools(..., { readOnly: true })`), so a
   write tool marked `readOnlyHint: true` would be served to connections that chose "Read only";
   the REST refusal and the READ ONLY transaction behind it would still stop the write.
 - Every handler wraps in try/catch and returns the house envelope — `ok()` →
-  `{ content: [{ type:'text', text }] }` (optionally `structuredContent`), `fail(msg)` →
+  `{ content: [{ type:'text', text }] }`, `fail(msg)` →
   `{ isError: true, content:[...] }`. `apps/mcp/src/adapters/mcp.ts`'s `toCallToolResult()` is what
-  turns that envelope into MCP's `CallToolResult` on the wire. Never throw to the transport.
+  turns that envelope into MCP's `CallToolResult` on the wire, and it deliberately never sends
+  `structuredContent`: with no `outputSchema`, a client could show that unlabelled metadata instead
+  of the text (see the comment on `toCallToolResult`). `ok()`'s second argument stays internal, for
+  Deck-E. Never throw to the transport.
 - **The caught error is formatted by `errText()`** (`packages/agent-tools/src/shared.ts`), always —
   not only in the tools whose file runs SQL. A `pg` message is built from the connection
   parameters, and a tool result is read by a MODEL and, on this path, by a third-party model
@@ -281,7 +292,9 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   card use `get_card` instead"). Zod `.describe()` on every field — it's the only arg docs the
   model gets.
 - **Context-window discipline is a correctness requirement.** List-returning tools: `page`
-  (default 1) + `page_size` (default 50, hard cap 200). Compact line format, one row per line,
+  (default 1) + `page_size` (default 50, hard cap 200) unless a tool's rows are a different
+  size — one list's items page at 100 (cap 200), the deck index at 100, raw battle logs at 3 —
+  and `pnpm mcp:audit --responses` measures every read against a budget in CI. Compact line format, one row per line,
   e.g. `Charizard ex | me05-84 | Double Rare | holo x2 | $31.20` — not JSON dumps. Every
   truncated response states the total and how to page. `collection_summary` should answer most
   questions in one call.
@@ -357,7 +370,10 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
 
 ## 5. Tool surface (28 ordinary tools + 3 capability-gated tools + 1 resource)
 
-### Reads — direct SQL (`readOnlyHint: true`)
+The generated `apps/mcp/TOOLS.md` (`pnpm mcp:tools-doc`) is authoritative for names, arguments,
+defaults and annotations; this section records design intent.
+
+### Reads — direct SQL, except `card_price_history` (`readOnlyHint: true`)
 
 Credentials carrying `decke_improvement_read` additionally see these read-only tools; nobody else
 sees them in `tools/list`:
@@ -384,7 +400,8 @@ sees them in `tools/list`:
    sets for the user's default goal (`user_settings`). **The default entry point** — description
    says so. Also backs the `collection://summary` resource.
 3. **`search_cards`** — `{ query?, text?, text_same_attack? = true, damage?, set_id?, category?,
-   rarity?, owned_only? = false, standard_legal?, min_value_usd?, page?, page_size? }`. Catalog+ownership search over
+   rarity?, owned_only? = false, exclude_owned? = false, standard_legal?, min_value_usd?, page?,
+   page_size? = 50 }`. Catalog+ownership search over
    `card` (trgm + unaccent on `name_normalized`), joined to owned qty and best market price.
    Compact lines + total count. Each line ends with a trailing `series <slug>` cell (added
    2026-08-21, `packages/agent-tools` extraction) — the web route for a card is
@@ -403,7 +420,7 @@ sees them in `tools/list`:
    suffix: `x` (either `×` or a literal `x`), `+` or `-`. Text searches return one
    compact row per distinct card text with the matching line, `printings: N` for
    reprints (the representative is an owned printing first, then Standard-legal,
-   then newest), default 100 and at most 200 rows per page, and always say how many
+   then newest), default 50 (like every search) and at most 200 rows per page, and always say how many
    matched and whether more pages exist. "Which cards do X" is answered here, not
    by web research.
 
@@ -511,8 +528,10 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
 `GET/POST /lists`, `GET/PATCH/DELETE /lists/:id`, `POST /lists/:id/items`,
 `DELETE /lists/:id/items/:itemId`).
 
-8. **`decks`** — `{ deck_id?, include?: subset of [cards, validate, pricing, testhand] }`.
-   No id: deck index (id, name, format, version, card count, battle record). With id: deck +
+8. **`decks`** — `{ deck_id?, deleted? = false, include?: subset of [cards, validate, pricing,
+   testhand, strategy], page? = 1 }`. `deleted: true` reads the recycle bin instead of live decks.
+   No id: deck index (id, name, format, version, card count, battle record), 100 decks a `page`.
+   With id: deck +
    an intelligence headline (W/L record, battle-log count, strategy-guide presence as first
    heading + char count) + requested includes. **Without `cards` the response says so, in
    the imperative, where the list would have been** — the header carries a card COUNT, which
@@ -580,7 +599,7 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
    (keyed from `DECKE_APPROVAL_SECRET`, bound to the account), expires after 2 hours, dies with a deploy, and a run takes at most 12
    calls; unset secret = no token. The tool description tells assistants to continue only for more certainty or an undecided
    verdict and to stop once the verdict is clear or the intervals are narrow. Still read-only: nothing is stored.
-9. **`save_deck`** — `{ deck_id?, name?, format?, cards?: [{card_id, quantity}], ptcgl_text?,
+9. **`save_deck`** — `{ mode?: 'create' | 'edit', deck_id?, name?, format?, cards?: [{card_id, quantity}], ptcgl_text?,
    version_note?, dry_run? = true }`. Create or replace the list with ONE request to
    `POST /decks/save` (2026-09-29), which resolves every card first and writes the deck,
    its cards and its version snapshot in one transaction — a bad id saves nothing and is
@@ -593,11 +612,18 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
    says CREATE or EDIT by name — `mode?: create|edit` carries the same explicit choice and
    the same create-leaning default as `edit_list` (§12), for the same reason: an unintended
    edit here rewrites a decklist rather than appending to it.
-10. **`delete_deck`** — `{ deck_id, dry_run? = true }`. `destructiveHint: true`. The dry run
-    (and the deed) spell out that the deck's version history and battle logs cascade with it.
-11. **`lists`** — `{ list_id? }`. Index or one list with items (compact).
-12. **`edit_list`** — `{ mode?: create|edit, list_id?, name?, add_cards?, remove_item_ids?,
-    dry_run? = true }`. Item payload shape comes from `lists.ts`. `mode` is the explicit
+10. **`delete_deck`** — `{ deck_id, purge? = false, restore? = false, dry_run? = true }`.
+    `destructiveHint: true`. By default a soft delete: the deck leaves every view but keeps its
+    version history and battle logs, and `restore: true` brings it back. `purge: true` is a real
+    `DELETE` that takes the version history and every battle log with it, with no undo; the dry
+    run (and the deed) spell that out.
+11. **`lists`** — `{ list_id?, deleted? = false, page? = 1, page_size? = 100 (≤ 200) }`. Index or
+    one list with its items (compact), the items paged; `deleted: true` reads the recycle bin.
+12. **`edit_list`** — `{ mode?: create|edit, list_id?, name?, kind? = dynamic, add_cards?,
+    add_missing?, remove_item_ids?, restore? = false, dry_run? = true }`. `kind` is set at create
+    only; `add_missing` adds everything still missing from a set, filtered, server-side;
+    `restore: true` restores a deleted list. Item payload shape comes from `lists.ts`.
+    `mode` is the explicit
     choice: `create` never touches an existing list even when the name is already taken,
     `edit` requires `list_id` and never creates. Omitted, it is inferred — `list_id` absent
     or a word meaning "a new one" (`new`, `create`) creates, anything else resolves. The
@@ -605,7 +631,9 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
     deletable, a silently appended one has already changed data the user did not name. The
     dry run always states which of the two it is, by name, and warns when a create collides
     with an existing name.
-13. **`delete_list`** — `{ list_id, dry_run? = true }`. `destructiveHint: true`.
+13. **`delete_list`** — `{ list_id, purge? = false, dry_run? = true }`. `destructiveHint: true`.
+    Soft delete by default (restore with `edit_list(restore: true)`); `purge: true` destroys the
+    list and its items with no undo.
 
 ### Collection writes — via deckpal-api
 
@@ -698,8 +726,10 @@ archetype, so "new matchup" and "met three times" are counts rather than guesses
     …)`, or `none classified`), then one compact row per game, newest first, W/L footer
     (`3W–1L–0T`) over the filter scope plus a per-version breakdown when unfiltered. `log_id`:
     full detail incl parsed fields, notes and the saved review. `include_raw` appends raw log
-    text; raw logs are huge, so list-mode `page_size` then defaults to 10 (result-size budgets,
-    §7) — to judge one game, `battle_digest` is the smaller read. `readOnlyHint: true`.
+    text, fenced as third-party text; raw logs are 4–15k characters, so list mode returns at most
+    3 a page whatever `page_size` asks (before 2026-10-12 a page of 200 measured 949,283
+    characters) — to judge one game, `battle_digest` is the smaller read. Opponent and card
+    names render through `untrusted`/`screenName` (format.ts). `readOnlyHint: true`.
 17a. **`battle_digest`** — `{ deck_id, log_id, player_name? }` (added 2026-10-10).
     `GET /decks/:id/logs/:logId/digest?playerName=`: the API re-reads the stored, immutable raw
     log (`digestBattleLog` in `apps/api/src/deck/battlelog.ts`) into who went first, mulligans,
@@ -758,14 +788,17 @@ archetype, so "new matchup" and "met three times" are counts rather than guesses
 ### History and undo — via deckpal-api
 
 22. **`mutation_history`** — `{ batch_id? | since?, until?, source?, tool?, note?, entity_type?,
-    entity_id?, limit?, page? }`. `GET /mutations` / `GET /mutations/:batchId`. Every change made
+    entity_id?, limit?, page? }`; with `batch_id`, `limit` (default 50) and `page` page that
+    operation's changes. `GET /mutations` / `GET /mutations/:batchId`. Every change made
     through DeckPal, grouped by the operation that made it, with a before/after snapshot per
     thing touched. Answers "what did that call actually do?" — the question that had no answer
     during the 2026-08-19 incident, when recovery meant hand-deriving 92 corrective deltas out of
     `collection_log`. Coverage begins at the migration-036 deploy.
-23. **`revert`** — exactly one of `{ batch_id }`, `{ event_id }`, `{ since, until?, source? }`, or
-    `{ entity_type, entity_id, at? }`, plus `{ strategy? = inverse, force? = false, note?,
-    dry_run? = true }`. `POST /mutations/revert`. Undoes a whole operation, one change, a time
+23. **`revert`** — exactly one of `{ batch_id }`, `{ event_id }`, `{ since, until?, filter_source? }`,
+    or `{ entity_type, entity_id, at? }`, plus `{ strategy? = inverse, force? = false, note?,
+    dry_run? = true }`. The source filter is `filter_source` here (`mutation_history` calls it
+    `source`), and an unknown argument is rejected rather than ignored. `POST /mutations/revert`.
+    Undoes a whole operation, one change, a time
     window, or one entity. `inverse` applies the opposite change so unrelated later edits
     survive; `restore` forces the old value back. Where an exact undo is impossible — the
     original change clamped at zero, the inverse would clamp, or a later call asserted an

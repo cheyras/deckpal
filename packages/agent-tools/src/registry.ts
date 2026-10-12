@@ -13,7 +13,7 @@ import type { ToolResult } from './result.js';
  * to be separate concerns wearing one coat:
  *
  *  1. **The protocol.** `registerTool` is MCP's API and the handler had to
- *     return MCP's `CallToolResult`. Nothing else about the 23 tools is
+ *     return MCP's `CallToolResult`. Nothing else about the tools is
  *     MCP-specific — they are SQL and REST calls that render compact text.
  *  2. **The identity.** `ctx` was a *closure* variable, captured when
  *     `register*Tools` ran. That is only correct because the MCP server is
@@ -27,7 +27,7 @@ import type { ToolResult } from './result.js';
  * definitions, built at module load, serves every request for every user; the
  * caller supplies the identity at call time. That is what makes
  * `allTools()` a constant rather than a factory, and it is the whole reason the
- * MCP adapter can register the same 23 values the AI SDK adapter will expose.
+ * MCP adapter can register the same values the AI SDK adapter exposes.
  *
  * ## What did NOT change
  *
@@ -53,11 +53,34 @@ import type { ToolResult } from './result.js';
 export interface ToolAnnotations {
   /** True when the tool cannot change any state. Required — see above. */
   readOnlyHint: boolean;
-  /** True when the tool can destroy data that is not otherwise recoverable. */
+  /**
+   * True when the tool can destroy data that is not otherwise recoverable.
+   *
+   * NARROWER THAN MCP'S `destructiveHint`, deliberately. Deck-E reads this one
+   * as "always ask, even for a preview" (`requiresApproval` in
+   * apps/api/src/decke/adapters/aisdk.ts), so it stays on the deletes and
+   * `revert`. MCP's flag means "may do anything but add" — see
+   * `overwriteHint`, which the MCP adapter folds in when it advertises the
+   * tool.
+   */
   destructiveHint?: boolean;
+  /**
+   * True when a write can replace or remove existing data even though DeckPal
+   * can usually get it back: a card list reconciled, a guide replaced, a
+   * quantity lowered, a list item removed. Together with `destructiveHint`
+   * this is MCP's `destructiveHint` ("may perform destructive updates" rather
+   * than "only additive updates"); apps/mcp/src/adapters/mcp.ts advertises
+   * the OR of the two. Deck-E does not read it.
+   */
+  overwriteHint?: boolean;
   /** True when calling twice with the same arguments has the same effect as once. */
   idempotentHint?: boolean;
-  /** True when the tool touches the wider world rather than only DeckPal's data. */
+  /**
+   * True when the tool touches the wider world rather than only DeckPal's
+   * data. MCP's default for an omitted value is TRUE; the MCP adapter
+   * advertises `false` unless a tool sets this, because every DeckPal tool
+   * works on DeckPal's own data.
+   */
   openWorldHint?: boolean;
   /** Human-readable title; DeckPal sets `title` on the definition instead. */
   title?: string;

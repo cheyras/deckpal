@@ -3,7 +3,7 @@ import type { Ctx } from '../ctx.js';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
 import { meansCreate, needList, presentRef } from '../entities.js';
-import { row, usd } from '../format.js';
+import { pagingFooter, row, usd } from '../format.js';
 import { describeCard, describeVariant, pickVariant, resolveCardsBatch, variantsOfMany, type CardRef } from '../resolve.js';
 import { FINISHES, GOALS, errText } from '../shared.js';
 
@@ -40,6 +40,8 @@ import { FINISHES, GOALS, errText } from '../shared.js';
 
 const KINDS = ['dynamic', 'static', 'pokedex_binder'] as const;
 const SOURCE = 'deckpal-mcp';
+/** Items per page when reading one list. */
+const ITEMS_PAGE = 100;
 
 // ── API response shapes (only what we render) ─────────────────────────────────
 
@@ -244,7 +246,7 @@ const listsTool = defineTool({
   description:
     'Read card lists (dynamic lists track collection ownership live; static lists are fixed bags ' +
     'with quantities; pokedex_binder lists track one slot per species). Without list_id: the list ' +
-    'index with progress and value. With list_id: the list plus every item (item ids are needed to ' +
+    'index with progress and value. With list_id: the list plus its items, 100 a page (item ids are needed to ' +
     'remove items via edit_list). Pass deleted:true for the recycle bin — lists that were deleted ' +
     'but can still be restored. Read-only — use edit_list to create/change, delete_list to delete.',
   inputSchema: z.object({
@@ -253,9 +255,13 @@ const listsTool = defineTool({
       .boolean()
       .default(false)
       .describe('true → show DELETED lists (the recycle bin) instead of live ones. Restore one with edit_list(restore:true).'),
+    page: z.number().int().min(1).default(1).describe('With list_id: page of items, 1-based.'),
+    // Cap 200, like every other page_size: 500 of these rows would be about
+    // 55,000 characters, past what the audit allows any single read.
+    page_size: z.number().int().min(1).max(200).default(100).describe('With list_id: items per page (default 100, cap 200).'),
   }),
   annotations: { readOnlyHint: true, idempotentHint: true },
-  handler: async ({ list_id, deleted }, ctx) => {
+  handler: async ({ list_id, deleted, page = 1, page_size = ITEMS_PAGE }, ctx) => {
     try {
       const ref = presentRef(list_id);
       if (!ref) {
@@ -279,7 +285,13 @@ const listsTool = defineTool({
       const detail = (await ctx.api.get(`/lists/${encodeURIComponent(picked.value.id)}`)) as ListDetail;
       const lines = [summaryLine(detail.list)];
       if (detail.items.length === 0) lines.push('(list is empty)');
-      for (const it of detail.items) lines.push(`  ${itemLine(it, detail.list.kind)}`);
+      // PAGED. This returned every item, and a list has no upper bound: a
+      // 300-card static list measured 32,789 characters and a master-set list
+      // 42,228 (~10.5k tokens), before a smart list or a 1,025-slot Pokédex
+      // binder. The API still sends them all; only what the model reads is cut.
+      const from = (page - 1) * page_size;
+      for (const it of detail.items.slice(from, from + page_size)) lines.push(`  ${itemLine(it, detail.list.kind)}`);
+      if (detail.items.length > 0) lines.push(pagingFooter(page, page_size, detail.items.length));
       if (picked.note) lines.push(picked.note);
       return ok(lines.join('\n'));
     } catch (err) {
@@ -370,7 +382,8 @@ const editListTool = defineTool({
     restore: z.boolean().default(false).describe('true → restore this deleted list (see lists(deleted:true)).'),
     dry_run: z.boolean().default(true).describe('true (default): only print what would happen. false: execute.'),
   }),
-  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  // overwriteHint: remove_item_ids and renames (each revertible from mutation_history).
+  annotations: { readOnlyHint: false, destructiveHint: false, overwriteHint: true, idempotentHint: false },
   handler: async ({ mode, list_id, name, kind, add_cards, add_missing, remove_item_ids, restore, dry_run }, ctx) => {
     try {
       // STRICT: this adds to, removes from and renames a list. A fuzzy hit
@@ -618,7 +631,9 @@ const editListTool = defineTool({
 
       for (const id of remove_item_ids ?? []) {
         try {
-          await ctx.api.send('DELETE', `/lists/${encodeURIComponent(targetId)}/items/${encodeURIComponent(id)}`);
+          // `source` attributes the removal in mutation_history; without it the
+          // route recorded the agent's removals as made in the web UI.
+          await ctx.api.send('DELETE', `/lists/${encodeURIComponent(targetId)}/items/${encodeURIComponent(id)}`, { source: SOURCE });
           lines.push(`  done: remove item ${id}`);
         } catch (err) {
           failures++;
