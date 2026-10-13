@@ -25,6 +25,9 @@ interface Bucket {
 
 const MAX_KEYS = 10_000;
 
+/** The per-store key bound above, for tests and for sizing a limiter whose keys a caller chooses (see the OAuth section below). */
+export const RATE_LIMIT_MAX_KEYS = MAX_KEYS;
+
 export class RateLimitStore {
   private readonly buckets = new Map<string, Bucket>();
   private readonly sweepTimer: ReturnType<typeof setInterval>;
@@ -275,10 +278,14 @@ function boundedOptions(
   max: number,
   windowMs: number,
   keyGenerator: (req: Request) => string,
+  // `backend`: a store other than the shared one (the OAuth limiters below own
+  // theirs). `refuse`: a different 429 body for routes whose callers are not
+  // DeckPal's own clients; Retry-After and no-store are set either way.
+  { backend, refuse }: { backend?: RateLimitStore; refuse?: (res: Response, retryAfter: number) => void } = {},
 ): Partial<Options> {
   return {
     windowMs, limit: max, keyGenerator,
-    store: new BoundedExpressStore(tag, max, windowMs),
+    store: new BoundedExpressStore(tag, max, windowMs, backend),
     legacyHeaders: false,
     standardHeaders: false,
     passOnStoreError: false,
@@ -287,6 +294,10 @@ function boundedOptions(
       const retryAfter = Math.max(1, Math.ceil(((info.resetTime?.getTime() ?? Date.now() + windowMs) - Date.now()) / 1000));
       res.setHeader('Retry-After', String(retryAfter));
       res.setHeader('Cache-Control', 'no-store');
+      if (refuse) {
+        refuse(res, retryAfter);
+        return;
+      }
       res.status(429).json({
         error: {
           code: 'rate_limited',
@@ -340,26 +351,176 @@ export const bugsRateLimit: RequestHandler = perUserRateLimit('bugs', 10, 60 * 6
  */
 export const simulateRateLimit: RequestHandler = perUserRateLimit('simulate', 6, 60_000);
 
+// ── The public OAuth endpoints (SEC-09; re-keyed 2026-10-12) ────────────────
+
 /**
- * The public half of the OAuth "Connect" flow (SEC-09): `/register`,
- * `/token` and the two `.well-known` discovery documents. These are mounted
- * on the bare origin, ahead of the ordinary `/api` router, so none of the
- * limiters above ever see them — `POST /register` in particular is an
- * unauthenticated `oauth_client` INSERT with no limiter at all upstream of it.
+ * The public half of the OAuth "Connect" flow: `/register`, `/token` and the
+ * two `.well-known` discovery documents (oauthServer.ts). They are mounted on
+ * the bare origin, ahead of the ordinary `/api` router, so none of the
+ * limiters above ever see them.
  *
- * Keyed the same way `preAuthFloodGuard` is (validated platform IP on Vercel,
- * raw socket peer on self-host — see `resolveClientKey`), because none of
- * these four requests carries a credential yet: there is no user or token to
- * key on. 30/min/IP is generous for a real client's discovery + register +
- * token-exchange sequence (a handful of requests) while still bounding an
- * unauthenticated INSERT loop and the token-exchange advisory lock it shares
- * with `/token`. A distinct tag from `preauth` — sharing that prefix with
- * `preAuthFloodGuard`'s 600/min budget would mean two different limits
- * fighting over one bucket.
+ * Until 2026-10-12 all four shared one limiter, 30 a minute per source IP.
+ * That is the wrong key for the clients this flow exists for. claude.ai,
+ * ChatGPT and every other hosted MCP connector do discovery, registration,
+ * the code exchange and every refresh from the provider's own egress IPs,
+ * shared by all of that provider's users, and an access token lasts an hour
+ * (`ACCESS_TOKEN_TTL_SECONDS`, packages/db/src/grants.ts). Thirty refreshes a
+ * minute from one IP is under two thousand connections; the next one was
+ * refused, in DeckPal's `{"error":{"code":…}}` shape, which an OAuth client
+ * cannot parse and so treats as a failed refresh: a disconnect.
+ *
+ * The reasoning is apps/mcp/src/cloud.ts's (the comment above
+ * `mcpPreResolveOk`), applied per endpoint:
+ *
+ * - **`/token`**: a GLOBAL per-instance ceiling, checked before the body is
+ *   read, then a budget per `client_id`. The client_id is not a credential
+ *   (every client is public), so on its own it is a string an attacker can
+ *   vary for free, which is how cloud.ts's first per-credential map was
+ *   filled with garbage. The ceiling is what makes keying on it safe: a key
+ *   is only created for a request the ceiling already admitted, so the
+ *   per-client map holds at most two windows' worth of admissions, 2 × 3,000,
+ *   in its own store with room for 10,000. Garbage can therefore never fill
+ *   it, and since a full map refuses new keys rather than evicting live ones,
+ *   it cannot push a real client's bucket out either. A request whose
+ *   client_id is missing or is not the shape DeckPal issues (no such request
+ *   can match a registered client) is keyed on its source IP, as the one
+ *   identity it has, with the same per-client budget.
+ * - **`/register`**: no client exists yet, so a global per-instance budget
+ *   sized for real registration rates, behind a per-IP limit set four times
+ *   the old one. The per-IP limit runs first, so one noisy source (a stuck
+ *   client re-registering in a loop) is cut off before it spends the global
+ *   budget everybody else registers from.
+ * - **Discovery**: static JSON, no database. A refusal there costs the
+ *   instance as much as an answer, so the limit protects nothing and exists
+ *   only so no bare-origin route is unbounded. It is global and far above
+ *   any real rate, never per IP, because a client that rediscovers before
+ *   each refresh sends these from the same shared egress IPs.
+ *
+ * Every refusal is an RFC 6749 §5.2 error body with `Retry-After`; see
+ * `refuseOAuth`. All keys live in stores of their own, not the shared one, so
+ * a flood on the `/api` router can never fill the map these need and the
+ * reverse.
+ *
+ * Per-instance, like every limiter in this file: each serverless instance
+ * counts for itself, so the real ceilings are N × these. Every figure below
+ * is sized as if one instance served everything.
  */
-export const oauthPublicRateLimit: RequestHandler = rateLimit(
-  boundedOptions('oauth-public', 30, 60_000, req => ipKeyGenerator(resolveClientKey(req), false)),
+export const OAUTH_LIMITS = {
+  windowMs: 60_000,
+  /**
+   * Per client_id, per instance. A connection refreshes about once an hour,
+   * so 600 a minute is 36,000 refreshes an hour: about 12,000 users connected
+   * through one client_id, allowing the busiest minute three times the
+   * average. Twenty times the old per-IP figure.
+   */
+  tokenPerClient: 600,
+  /**
+   * Every `/token` request on the instance. Five busy clients' worth, 50 a
+   * second of short transactions on a 12-connection pool, and small enough
+   * that the per-client store stays under its 10,000 keys even counting
+   * expired keys not yet swept (3 × this; asserted in rateLimit.test.ts).
+   */
+  tokenGlobal: 3_000,
+  /** Per source IP, per instance: 7,200 connects an hour from one egress IP. */
+  registerPerIp: 120,
+  /**
+   * Every `/register` on the instance. Each one is a single `oauth_client`
+   * INSERT; 300 a minute is 18,000 an hour, room for thousands of people
+   * reconnecting at once, and still a bound on rows a flood can write.
+   */
+  registerGlobal: 300,
+  /**
+   * Both discovery documents together, per instance. A client may fetch both
+   * before every refresh; this is twice that for `tokenGlobal` refreshes a
+   * minute, so it is never the limit that binds first.
+   */
+  discoveryGlobal: 12_000,
+} as const;
+
+/**
+ * The shape `generateClientId()` mints (packages/db/src/oauth.ts): `dscl_`
+ * and 24 random bytes in base64url. Unchanged since the first OAuth release;
+ * rateLimit.test.ts checks it against `registerClient`'s real output.
+ */
+const OAUTH_CLIENT_ID_SHAPE = /^dscl_[A-Za-z0-9_-]{32}$/;
+
+/** The `/token` per-client key. Reads the parsed body, so it must run after the body parsers. */
+export function oauthTokenClientKey(req: Request): string {
+  const clientId = (req.body as Record<string, unknown> | undefined)?.client_id;
+  if (typeof clientId === 'string' && OAUTH_CLIENT_ID_SHAPE.test(clientId)) return 'client:' + clientId;
+  return 'ip:' + ipKeyGenerator(resolveClientKey(req), false);
+}
+
+/**
+ * The 429 these endpoints answer: RFC 6749 §5.2's `{error, error_description}`
+ * shape, which every OAuth client parses, instead of DeckPal's own.
+ *
+ * `temporarily_unavailable` on purpose. RFC 6749 defines it for the
+ * authorization endpoint ("temporary overloading or maintenance"), and its
+ * token-endpoint list (§5.2) has no rate-limit code at all. `slow_down`
+ * belongs to device-flow polling (RFC 8628) and `too_many_requests` is the
+ * MCP SDK's own, non-standard code. This is the standard word for "try again
+ * later", and `/token` already answers its own 503 with it, so a client that
+ * handles one handles both. Above all it is none of the codes that tell a
+ * client its grant or registration is dead (`invalid_grant`,
+ * `invalid_client`). Those make it throw its tokens away, which is the
+ * disconnect this exists to stop.
+ *
+ * `error_description` stays inside the characters §5.2 allows (printable
+ * ASCII without `"` or `\`).
+ */
+function refuseOAuth(res: Response, retryAfter: number): void {
+  res.status(429).json({
+    error: 'temporarily_unavailable',
+    error_description: `Too many requests. Try again in ${retryAfter} seconds.`,
+  });
+}
+
+// Stores of their own (see above). Global keys: three, one per ceiling.
+// Client keys: bounded by `tokenGlobal`. Register IP keys: one per source.
+const oauthGlobalStore = new RateLimitStore();
+const oauthClientStore = new RateLimitStore();
+const oauthIpStore = new RateLimitStore();
+
+const everyone = (): string => 'all';
+const sourceIp = (req: Request): string => ipKeyGenerator(resolveClientKey(req), false);
+
+/** Both `.well-known` documents: one global ceiling per instance, no per-IP rule. */
+export const oauthDiscoveryRateLimit: RequestHandler = rateLimit(
+  boundedOptions('oauth-discovery', OAUTH_LIMITS.discoveryGlobal, OAUTH_LIMITS.windowMs, everyone, { backend: oauthGlobalStore, refuse: refuseOAuth }),
 );
+
+/** `/register`, first: per source IP, so one source cannot spend the global budget below. */
+export const oauthRegisterIpRateLimit: RequestHandler = rateLimit(
+  boundedOptions('oauth-register-ip', OAUTH_LIMITS.registerPerIp, OAUTH_LIMITS.windowMs, sourceIp, { backend: oauthIpStore, refuse: refuseOAuth }),
+);
+
+/** `/register`, second: the instance's global registration budget. */
+export const oauthRegisterRateLimit: RequestHandler = rateLimit(
+  boundedOptions('oauth-register', OAUTH_LIMITS.registerGlobal, OAUTH_LIMITS.windowMs, everyone, { backend: oauthGlobalStore, refuse: refuseOAuth }),
+);
+
+/** `/token`, first, before the body is read: the instance's global ceiling. */
+export const oauthTokenRateLimit: RequestHandler = rateLimit(
+  boundedOptions('oauth-token', OAUTH_LIMITS.tokenGlobal, OAUTH_LIMITS.windowMs, everyone, { backend: oauthGlobalStore, refuse: refuseOAuth }),
+);
+
+/** `/token`, after the body parsers and before any database work: the per-client_id budget. */
+export const oauthTokenClientRateLimit: RequestHandler = rateLimit(
+  boundedOptions('oauth-token-client', OAUTH_LIMITS.tokenPerClient, OAUTH_LIMITS.windowMs, oauthTokenClientKey, { backend: oauthClientStore, refuse: refuseOAuth }),
+);
+
+/** Test seam: empties every OAuth store so cases don't leak into each other. */
+export function __resetOAuthRateLimitsForTests(): void {
+  oauthGlobalStore.clear();
+  oauthClientStore.clear();
+  oauthIpStore.clear();
+}
+
+/** Test seam: how many keys the `/token` per-client store holds. */
+export function __oauthClientKeyCountForTests(): number {
+  return oauthClientStore.size;
+}
 
 /**
  * Pre-auth ingress guard: 600 requests per 60s per source IP per process.

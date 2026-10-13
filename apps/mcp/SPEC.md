@@ -233,11 +233,29 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
     immediate 401, no DB) and is metered by neither layer.
   - The bare-origin **OAuth discovery / `/register` / `/token` handlers**
     (cloud-only, `apps/api/src/oauthServer.ts`), still mounted on `app` ahead
-    of the base-path router. Each of the four now carries `oauthPublicRateLimit`
-    (30 req/min per source IP, `apps/api/src/rateLimit.ts`), checked before the
-    host allowlist or any body parsing. `POST /register` in particular is an
+    of the base-path router. `POST /register` in particular is an
     unauthenticated `oauth_client` INSERT and had no limiter anywhere upstream
-    of it before this.
+    of it before SEC-09. Since 2026-10-12 none of their limiters
+    (`apps/api/src/rateLimit.ts`, `OAUTH_LIMITS`) is keyed on the source IP
+    alone, for the same reason as `mcpRateOk`: a hosted connector sends every
+    user's discovery, registration and hourly refresh from shared egress IPs,
+    and the earlier 30 req/min per source IP refused them all at once.
+    - `/token`: 3,000 req/min per instance, checked before the body is read,
+      then 600 req/min per `client_id`, checked after the body parsers and
+      before any database work. A missing or malformed `client_id` (not
+      `dscl_` + 32 base64url characters) is keyed on the source IP at the same
+      600. Keying on the unverified `client_id` is safe because a key is only
+      created for a request the global ceiling admitted, so garbage cannot fill
+      the per-client map (the failure `mcpPreResolveOk`'s history describes).
+    - `/register`: 120 req/min per source IP, checked first, then 300 req/min
+      per instance.
+    - Both `.well-known` documents: 12,000 req/min per instance, no per-IP
+      rule.
+
+    A refusal is `429`, `Retry-After`, `Cache-Control: no-store` and an
+    RFC 6749 §5.2 body, `{"error":"temporarily_unavailable","error_description":"…"}`,
+    which an OAuth client can parse; never a code (`invalid_grant`,
+    `invalid_client`) that tells a client to discard its tokens.
   - The **Stripe raw-body webhook** (signature-verified) remains outside every
     application rate limiter, unchanged — Stripe's own retry/backoff and
     signature verification are the controls there.

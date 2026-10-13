@@ -208,9 +208,10 @@ export function createApp(): express.Express {
   // directly, ahead of the `basePath` API router, and only in cloud mode: the
   // flow mints api_token rows tied to a Supabase user, which self-host has no
   // concept of (SPEC.md §3b). Each of its four routes carries its own
-  // oauthPublicRateLimit (SEC-09): they sit ahead of preAuthFloodGuard too, so
-  // without their own limiter an unauthenticated `POST /register` — a bare
-  // `oauth_client` INSERT — had none at all.
+  // limiters (SEC-09): they sit ahead of preAuthFloodGuard too, so without
+  // them an unauthenticated `POST /register` — a bare `oauth_client` INSERT —
+  // had none at all. They are keyed per client_id and per instance, not per
+  // source IP (2026-10-12; rateLimit.ts's OAuth section).
   if (SUPABASE_MODE) {
     mountOAuthServer(app);
     // The search-engine sitemaps, also at the bare origin and also cloud-only:

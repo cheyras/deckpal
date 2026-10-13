@@ -222,10 +222,14 @@ Three flows are mounted **separately on `app`, ahead of that router**:
   application rate limit; Stripe's own retry/backoff and signature
   verification are the control.
 - The **bare-origin OAuth discovery / `/register` / `/token` handlers**
-  (cloud-only, mint `api_token` rows). Each now carries `oauthPublicRateLimit`
-  (SEC-09) — 30/min per source IP, checked before the host allowlist or any
-  body parsing — where previously none of the pipeline above ever ran for
-  them at all.
+  (cloud-only, mint `api_token` rows), where previously none of the pipeline
+  above ever ran at all. They carry their own limiters (SEC-09), keyed per
+  `client_id` and per instance rather than per source IP since 2026-10-12,
+  because hosted connectors refresh every user from shared egress IPs:
+  `/token` 3,000/min per instance before the body is read, then 600/min per
+  `client_id` before any database work; `/register` 120/min per source IP,
+  then 300/min per instance; discovery 12,000/min per instance. Refusals use
+  RFC 6749's error shape. SECURITY.md → Rate limiting has the reasoning.
 - The **MCP transport** at `/mcp` (separate `api/mcp.mjs` function) is not
   part of this pipeline either, but it now carries two limiters (SEC-09): a
   global 300/min-per-instance admission counter before `resolveToken`
