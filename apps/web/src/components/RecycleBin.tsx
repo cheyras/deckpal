@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query'
 import { Icon } from './Icon'
 import { save, useLane } from '../lib/writes'
 import { ApiError } from '../lib/api'
@@ -12,10 +12,11 @@ import { ApiError } from '../lib/api'
  * only actually true if a person can reach the undo: an agent that can restore
  * something the user cannot is a worse deal, not a better one.
  *
- * So this sits under both indexes, collapsed and quiet when the bin is empty,
- * and it is also where "delete forever" lives — the one no-undo action in the
- * app, deliberately two steps away from the ordinary delete button and behind
- * its own confirmation.
+ * So this sits under both indexes, and in a deck's Battles tab for its battle
+ * logs (migration 086), collapsed and quiet when the bin is empty. It is also
+ * where "delete forever" lives — the one no-undo action in the app,
+ * deliberately two steps away from the ordinary delete button and behind its
+ * own confirmation.
  */
 
 interface BinEntry {
@@ -25,32 +26,39 @@ interface BinEntry {
 }
 
 interface Props {
-  /** 'list' | 'deck' — used in the copy and to key the query. */
-  kind: 'list' | 'deck'
+  /** Keys the query and the write lane; one bin per kind, or per deck for battle logs. */
+  kind: 'list' | 'deck' | 'battle-log'
   load: (signal?: AbortSignal) => Promise<BinEntry[]>
   restore: (id: string, signal?: AbortSignal) => Promise<unknown>
   purge: (id: string, signal?: AbortSignal) => Promise<unknown>
-  /** Query keys to refresh after a restore (the live index). */
-  invalidate: string[]
+  /** Query key to refresh after a restore (the live index). */
+  invalidate?: string[]
+  /** Anything else a restore or purge changes — a deck's record, say. */
+  onChanged?: () => void
+  /** The bin's own query key, when one bin per kind is not enough. Default `[kind + 's', 'deleted']`. */
+  binKey?: QueryKey
+  /** Spacing above the section. */
+  className?: string
 }
 
-export function RecycleBin({ kind, load, restore, purge, invalidate }: Props) {
+export function RecycleBin({ kind, load, restore, purge, invalidate, onChanged, binKey: binKeyProp, className = 'mt-[32px]' }: Props) {
   const qc = useQueryClient()
   const [open, setOpen] = useState(false)
   const [confirmPurge, setConfirmPurge] = useState<string | null>(null)
-  const binKey = [`${kind}s`, 'deleted']
+  const binKey = binKeyProp ?? [`${kind}s`, 'deleted']
 
   const { data, isLoading } = useQuery({ queryKey: binKey, queryFn: ({ signal }) => load(signal) })
   const entries = data ?? []
 
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: binKey })
-    void qc.invalidateQueries({ queryKey: invalidate })
+    if (invalidate) void qc.invalidateQueries({ queryKey: invalidate })
+    onChanged?.()
   }
   // Both succeed visibly (the row leaves the bin) and fail out loud: this is
   // the undo for every delete, so a restore that silently did nothing would be
   // the worst failure in the app to swallow. Both are safe to repeat.
-  const laneKey = `${kind}s:bin`
+  const laneKey = binKeyProp ? `${binKeyProp.join(':')}:bin` : `${kind}s:bin`
   const lane = useLane(laneKey)
   const doRestore = (e: BinEntry) =>
     void save(laneKey, {
@@ -84,7 +92,7 @@ export function RecycleBin({ kind, load, restore, purge, invalidate }: Props) {
   if (isLoading || entries.length === 0) return null
 
   return (
-    <section className="mt-[32px] rounded-xl border border-border-default bg-surface-tertiary">
+    <section className={`${className} rounded-xl border border-border-default bg-surface-tertiary`}>
       <button
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}

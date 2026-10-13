@@ -161,6 +161,15 @@ an in-person game never requests a digest or log and offers no "View log"; that
 a failed digest shows no error and an empty review renders nothing; that the
 review's injected `<script>`, `<img onerror>`, `javascript:` link and remote
 image stay inert text; a visible keyboard focus ring; no shift after the detail
-paints; and no sideways scroll. Run it alone with
+paints; and no sideways scroll.
+
+The `battles-bin` case (1280 and 390px) runs the recycle bin (migration 086)
+against the same fixture, which keeps live logs and a bin of two and allows only
+the battle-log DELETE and restore routes. It deletes a game and asserts that the
+confirm says where it goes, not "can't be undone"; that the toast's Undo restores
+it; that the collapsed "Recently deleted" section counts and lists the bin across
+versions; that Restore puts a game back; and that "Delete forever" asks first,
+then purges (`?purge=true`), after which an empty bin renders nothing. Every
+write is checked against the exact route it should hit. Run it alone with
 `node --import tsx tests/browser/battlesV2.mjs`; screenshots land in
 `TEST_ARTIFACT_DIR` (default `.cache/browser-tests/battles-v2`).
