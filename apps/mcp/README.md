@@ -47,8 +47,9 @@ end to end; report what you see.
 
 ### Any other client: a personal access token
 
-DeckPal → Profile → **Agent access** → **New token**. Copy it when it is shown;
-it is shown once. Send it on every request:
+DeckPal → Profile → **Agent access** → **New token**. Choose **Read and change**
+(the default) or **Read only**, then copy the token when it is shown; it is
+shown once. Send it on every request:
 
 ```json
 {
@@ -83,7 +84,7 @@ through your TLS proxy, which can also inject the header.
 |---|---|---|---|
 | How you get it | the client's Connect button | Profile → Agent access | `DECKPAL_MCP_KEY` |
 | Sent as | `Authorization: Bearer` (the client handles it) | `Authorization: Bearer dsk_…` | `x-brain-key: …` |
-| Scope | Read and change, or Read only — chosen on the consent page | always read and change | everything (one user) |
+| Scope | Read and change, or Read only — chosen on the consent page | Read and change, or Read only — chosen when you create it | everything (one user) |
 | Lifetime | access token 1 hour, refresh token 90 days, rotated on use | until revoked | until you change it |
 | Revoke | Profile → Agent access | Profile → Agent access | restart with a new key |
 
@@ -110,8 +111,8 @@ through your TLS proxy, which can also inject the header.
 
 <!-- tools:end -->
 
-A **Read only** connection is shown the read tools and nothing else, runs in a
-read-only transaction, and is refused any write at the REST API too. The server
+A **Read only** connection or token is shown the read tools and nothing else,
+runs in a read-only transaction, and is refused any write at the REST API too. The server
 instructions tell the model what that means (if `save_deck` is missing, give the
 user the text instead).
 

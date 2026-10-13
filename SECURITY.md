@@ -160,6 +160,17 @@ the host receiving the approval sat in a muted line below. Now:
   read (`check_deck`, `deck_odds`, `simulate_battles`). `/decks/check` was
   missing until 2026-10-10, so a read-only
   connection was offered `check_deck` and then refused it.
+- **A personal access token can be read-only too (migration 085,
+  2026-10-12).** Profile → Agent access → **New token** offers the consent
+  screen's choice, Read and change by default. `POST /tokens` takes
+  `scope: "full" | "read"`, treats an absent scope as full and refuses
+  anything else with a 400. A read token is the same `scope = 'read'` on the
+  same `api_token` row as a read-only OAuth connection, so the same three
+  layers refuse its writes: no write tools, `BEGIN READ ONLY`, and
+  `enforceTokenScope`. It is never minted full in place of the read-only token
+  asked for: before 085 is applied the route answers 503 and mints nothing,
+  and the web app revokes, unshown, any token an older API mints full after
+  it asked for read.
 - **Tokens reach what the consent screen says.** `/decke` (Deck-E
   conversations), `/me/showcase` and `/me/settings` now require a session, like
   `/tokens`, `/avatar` and billing.
@@ -167,9 +178,12 @@ the host receiving the approval sat in a muted line below. Now:
   UPDATE on `api_token` from client roles and grants back only what the app
   uses as the user (mint: `user_id, name, token_hash, prefix`; revoke and touch:
   `name, last_used_at, revoked_at`), so nobody can PATCH a read-only connection
-  to full or push its expiry out over PostgREST. `oauth_token` has RLS and no
-  client grant at all. Composes with 072 (PR #204), which freezes a token's
-  identity and makes revocation final.
+  to full or push its expiry out over PostgREST. 085 adds `scope` to the mint
+  columns, for INSERT only: inserting `'full'` is what an insert without the
+  column already did and `'read'` is strictly less, so it grants nothing new,
+  and UPDATE of `scope` stays revoked, so no read token can be widened.
+  `oauth_token` has RLS and no client grant at all. Composes with 072 (PR
+  #204), which freezes a token's identity and makes revocation final.
 - **Backward compatibility.** Every token that existed before 075, hand-made or
   OAuth-minted (including live claude.ai connectors), keeps `expires_at NULL`
   and full scope and resolves exactly as before. Nothing forces a reconnect;
