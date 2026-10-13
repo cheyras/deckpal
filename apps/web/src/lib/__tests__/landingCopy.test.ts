@@ -33,6 +33,13 @@ test('the landing mentions nothing that is not generally released', () => {
   assert.doesNotMatch(credits, /\bcredits?\b/i, 'only PTCG Live Trade Credits (and "credit card") may be mentioned')
 })
 
+test('the homepage names the simulator, with its caveat', () => {
+  // Owner ruling 2026-10-12: name it on the page itself, not only in llms.txt and /connect.
+  const page = renderLandingStatic()
+  assert.match(page, /simulate games/)
+  assert.match(page, /from a bot, not real games/)
+})
+
 test('house style: no em dashes, no arrows', () => {
   assert.doesNotMatch(everything, /[—→←⇒]/)
 })

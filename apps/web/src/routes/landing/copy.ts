@@ -265,6 +265,9 @@ export const COPY = {
     body: [
       'A list on paper is a guess. Export it from DeckPal, import it into PTCG Live, and play a few games to see what it really does. Does it set up on time? Does that one-of ever show up? Is the energy count right?',
       "Casual Standard on PTCG Live is built for low-stakes testing, and you can craft cards you don't own with Trade Credits earned through play. Want a faster first look? DeckPal can draw an opening hand so you can see how the deck starts before you load a game.",
+      // simulate_battles: a heuristic CPU on both sides, opponents from the user's
+      // decks or the built-in Standard meta pool. Keep the "bot, not real games" caveat.
+      'Your AI can also have DeckPal simulate games of your deck against your other decks or a built-in set of Standard tournament lists, with a computer player on both sides, to find weak matchups. The results come from a bot, not real games, so treat them as a first look.',
     ],
     photoAlt: 'A sleeved deck with Mega Chandelure ex on top, beside an open deck box and a closed laptop under a desk lamp at night.',
     draw: 'Draw an opening hand',
