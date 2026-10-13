@@ -1413,20 +1413,20 @@ sets a synchronous invocation latch. A known cancellation or lost database
 acknowledgement before that call retains an exact-operation compensation path;
 it cannot refund completed/failed invocations or an earlier real retry attempt.
 
-Migration 078 retired the account-wide sharing switch described next: it turned
-it off for every account and deleted the excerpts it had collected, so this path
-stores no content now. Sharing is per chat (see "Deck-E improvement chats").
-Optional content is stored separately from metadata. Sharing defaults off;
-the first accepted exchange leg fixes consent epoch. Every administrative detail
-and conversation read requires active target, current enabled consent and that
-same epoch. Off deletes optional excerpts; off-on cannot resurrect old content.
-Active users can withdraw after losing Deck-E access or when it is disabled.
-Only the current user message and visible assistant response qualify. Personal
+Migration 078 retired migration 071's account-wide sharing switch: it turned it
+off for every account and deleted the excerpts it had collected. Administrative
+usage detail is now metadata only (`contentStatus: "retired"`, `content: null`),
+and sharing is per chat (see "Deck-E improvement chats"). For the record, the
+retired switch kept optional content separately from metadata, defaulted off,
+fixed a consent epoch at the first accepted exchange leg, and showed content
+only while current consent matched that epoch; it covered only the current user
+message and visible assistant response. Personal
 history may retain the user's own tool records but is never the source of
 administrative cost/build authority. Exact owned accepted correlation is checked
 before a supplied exchange is linked; immutable duplicate writes cannot rewrite
-the generation stamp. Deleting own history also removes its administrative
-excerpts, preserving metadata.
+the generation stamp. Deleting own history preserves usage metadata, and if the
+conversation was shared, the same transaction revokes the share and deletes its
+improvement copy (migration 079).
 
 Usage reads require an active application session, tier 40 or higher and current
 `admin.access`. Custom roles lose metadata and shared-content access immediately

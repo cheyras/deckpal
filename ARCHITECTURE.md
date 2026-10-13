@@ -1583,8 +1583,10 @@ not a sanitised injection surface, it is not an injection surface.
 
 **Who may talk to him, and how much, is decided on the server.** Deck-E
 requires current `decke.use` permission and an active account. When database
-credit policy is enabled, each priced operation reserves an atomic flat charge
-with its policy snapshot before invocation; accounting errors fail closed.
+credit policy is enabled, each paid reply atomically holds whole credits with
+its policy snapshot before invocation and settles at the Gateway-reported model
+cost plus markup (metered, migration 081), returning the unused hold;
+accounting errors fail closed.
 When charging is disabled, ordinary accounts use the daily chat/deep counters;
 explicit unlimited overrides retain access/hold/budget checks without debit or
 daily allowance. Lifecycle policy derives product permission; retired entitlement
@@ -1859,8 +1861,9 @@ normal streamed tool loop rather than delegating to a nested sub-agent.
 read-only Perplexity operation with no approval card; its short purpose becomes
 the activity label, source hosts enter the model context, and HTTPS source URLs
 are sent only to the browser. `check_deck` validates a proposed list before
-`showDeck` renders its saveable deck widget. Credits remain flat per operation in
-this release, including research at the analysis price.
+`showDeck` renders its saveable deck widget. Research is charged like every
+other model call: metered at its reported cost since migration 081 (when this
+shipped, credits were flat per operation and research cost the analysis price).
 
 **A revision saves as a version of the deck it revises** (2026-10-10). `showDeck`
 takes an optional `deck_id` (and a `version_note`). The server resolves the id
@@ -2342,7 +2345,8 @@ markup inherits; zero remains valid. Unlimited means a zero-debit reservation,
 not a synthetic balance grant. New reservations require current policy; existing
 reserved work and bounded children retain immutable pricing. Access, debt,
 refund/dispute holds and operational limits still apply. Flat quoted settlement
-and existing financial recovery/reconciliation are unchanged.
+(replaced by metered settlement in migration 081) and existing financial
+recovery/reconciliation were unchanged by this.
 
 The chat server durably accepts a parent request before provider work.
 The first credit start and provider-attempt row commit atomically after current

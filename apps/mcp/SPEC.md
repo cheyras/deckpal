@@ -986,17 +986,30 @@ subscription and credit-wallet self-service in an active browser session.
 Product Scanner/Deck-E access comes from lifecycle and opt-in, not editable role
 grants or preview hostnames. Disabled stops new provider starts, including Owner.
 
-Deck-E independently logs server request/provider-attempt metadata and honors
-its flat credit/daily policy. Owner-only unlimited/markup overrides do not grant
-MCP administration or bypass feature, suspension, debt, holds or budgets.
-Support subscriptions and gifts do not purchase AI credits.
+Deck-E independently logs server request and provider-operation metadata and
+charges by its credit policy. Since migration 081 that policy is metered
+(version 2): each paid reply holds whole credits, settles at the Gateway-reported
+model cost plus markup with the fraction carried per user, returns the unused
+hold, and has an overshoot covered by the overage buffer rather than becoming
+debt. While credit charging is off, Deck-E's daily allowances apply instead. The
+flat per-operation policy is legacy and cannot be saved over a metered one.
+Owner-only unlimited/markup overrides do not grant MCP administration or bypass
+feature, suspension, debt, holds or budgets. Support subscriptions and gifts do
+not purchase AI credits.
 
-Conversation sharing is a separate default-off browser preference. Current
-exchange-start and present consent must match before an administrator reads
-optional current-message/assistant content. Withdrawal hides prior shared text;
-off-on never restores it. Own history and metadata are distinct, and no prompt/
-tool context is added to general telemetry or connector tools. Private APIs
-remain no-store and outside anonymous service-worker caching.
+Administrators' AI-usage views are metadata only. Migration 078 retired the
+account-wide sharing switch and deleted the excerpts it had collected; request
+detail now always answers `contentStatus: "retired"` with `content: null`.
+Improvement sharing is a separate, per-conversation consent given from a browser
+session: the reader shares one chat when Deck-E asks or with feedback, or turns
+on the always-share preference (off by default, migration 079), which shares
+each new chat that has no decision yet. Stopping a share, or deleting the chat
+from History, deletes the shared copy. The pseudonymised shared copies are read
+only with `decke.improvement.read`, from a browser session or through the three
+capability-gated readers above. Own history and metadata are distinct, and no
+prompt or tool context reaches general telemetry or the ordinary connector
+tools. Private APIs remain no-store and outside anonymous service-worker
+caching.
 
 Suspension/token revoke-all still cover API, token resolver, standalone MCP
 context and restrictive data policies; OAuth codes are consumed as well.

@@ -2289,7 +2289,7 @@ database Checkout quotas remain60 requests/hour and10 new orders/hour.
 | Method/path | Response |
 |---|---|
 | GET `/admin/ai-usage` | `{items,total,limit,offset,aggregate:{knownUsd,knownCount,unknownCount}}`; filters `userId,conversationId,category,status,from,to,modelId,buildSha,buildPr,costSource`. |
-| GET `/admin/ai-usage/requests/:id` | `{request,operations,contentStatus,content}`. |
+| GET `/admin/ai-usage/requests/:id` | `{request,operations,contentStatus:"retired",content:null}`: metadata only (migration 078). |
 | GET `/admin/ai-usage/conversations/:id` | Bounded `{items:requestDetails[],total,limit,offset}`. |
 | GET `/admin/ai-usage/conversations` | Cursor-paged all-chat cost rollup with no transcript content; filters `from,to,userId,model`, limit max 100. |
 | GET `/admin/ai-usage/observations` | `days=7|30|90` and optional `buildSha`; grouped complete/unknown sample counts, mean/p95 microUSD, model/build and notice. |
@@ -2297,8 +2297,8 @@ database Checkout quotas remain60 requests/hour and10 new orders/hour.
 | GET `/decke/history` | Own conversations, newest activity first: `{conversations:[{id,title,turns,startedAt,updatedAt,buildPrMin,buildPrMax,buildSha}]}`; `limit` 1–200, default 40. |
 | GET `/decke/history/:id` | `{id,title,startedAt,turns:[{seq,exchangeId,usage,asked,answered,tools,buildPr,buildSha,finishReason,at}]}`. `usage` is that turn's `AiUsageRow[]`, empty for legacy/unlinked turns. Votes are not here; read them from `GET /decke/feedback/:conversationId`. |
 | GET `/decke/feedback/:conversationId` | Own votes for one conversation: `{items:[{seq,vote,comment}]}`. |
-| DELETE `/decke/history/:id` | Deletes own history and optional administrative excerpts; usage metadata remains. |
-| POST `/decke/improvement/consent` | `{conversationId,share,source}` grants or declines one-chat sharing; a grant backfills available redacted history. |
+| DELETE `/decke/history/:id` | Deletes one own conversation and its turns → `{ok:true}`. If that conversation was shared, the same transaction revokes the share and deletes its improvement copy (migration 079 trigger). Usage metadata remains. |
+| POST `/decke/improvement/consent` | `{conversationId,share,source,shareAll?}` grants or declines one-chat sharing; `source` is `decke_ask`, `feedback` or `reader`. A grant backfills available redacted history. `shareAll:true` (only with `share:true` and `source:"decke_ask"`) also turns on the always-share preference. Returns `{status,source}`. |
 | DELETE `/decke/improvement/consent/:conversationId` | Stops sharing and deletes that conversation's saved improvement copy. |
 | GET `/decke/improvement/mine` | Own raw conversation ids currently shared, for History badges. |
 | POST `/decke/telemetry` | Shared-chat event batch (1–200, max 512 KiB); returns `202 {recorded}` and otherwise stores nothing. |
@@ -2328,33 +2328,52 @@ Aggregate knownCount/unknownCount count provider operations; the list total coun
 parent requests. Financial summary estimates support both historical flat and
 current effective-policy snapshots, and missing estimates count as unpriced.
 
-Usage is server-authored independently of client history. Lists/observations
-never include conversation content. Detail content is null unless both
-exchange-start consent and current active-account consent share the same
-enabled epoch. `contentStatus` is shared/not_shared/revoked/unavailable.
-Only current user text and visible assistant response may be shared; raw tool
-records, prior context and errors are excluded.
+Usage is server-authored independently of client history, and it is metadata
+only. Lists, observations, conversation pages and request details never carry
+conversation content: since migration 078, `decke_usage_detail` answers
+`contentStatus: "retired"` and `content: null` for every request. 078 retired
+migration 071's account-wide sharing switch in place (it turned the switch off
+for every account and deleted the excerpts it had collected), and
+`GET`/`PUT /me/decke-sharing` now only report that.
 Usage reads require an active application session, tier 40 or higher and current
-`admin.access`. Custom roles lose metadata and shared-content access immediately
-when that permission is removed; the capability projection uses the same rule.
-Contributor is denied. Disabling sharing remains available after Deck-E access
-is lost and does not delete personal history. Re-enable never restores old text.
+`admin.access`; a custom role loses them as soon as that permission is removed.
+Contributor is denied.
+
+Reading what a reader said is a separate mechanism, per conversation:
+
+- **Consent is per chat.** A reader shares one conversation when Deck-E asks
+  (`POST /decke/improvement/consent` with `source:"decke_ask"`, the only
+  source the web app sends there; the route also accepts `"reader"`) or with
+  feedback (`PUT /decke/feedback` with `share:true`). Nothing is shared
+  without one of those, except under the next point.
+- **Always share** is the `deckeShareAll` preference on `/me/settings`
+  (default `false`, migration 079). While it is on, each new conversation
+  with no recorded decision is shared automatically (source `always`); it
+  never overrides a decision already made. `deckeSharePrompts` (default
+  `true`) decides whether Deck-E asks at all.
+- **Stopping** is `DELETE /decke/improvement/consent/:conversationId`, or
+  deleting the conversation from History; either removes the saved
+  improvement copy.
+- **Reading** the shared, pseudonymised copies is `/admin/decke-improvement`,
+  which needs tier 40, `admin.access` and `decke.improvement.read`, from a
+  browser session or a token minted with the improvement capability. Copies
+  are kept 180 days.
 
 
 ### Credit economy endpoints
 
 | Method/path | Permission | Request / purpose |
 |---|---|---|
-| GET / PUT `/admin/credits/settings` | `credits.read` / `credits.manage` | Versioned policy and notices; write `{policy, expectedRevision}`. |
+| GET / PUT `/admin/credits/settings` | `credits.read` / `credits.manage` | GET → `{policy,revision,updatedAt,overageBuffer:{balance,coveredTotal},estimateNotice,chargeNotice}`; write `{policy, expectedRevision}`, where `policy` must be the same version as the stored one (see below). |
 | GET / POST `/admin/credits/packs` | `credits.read` / `credits.manage` | List packs; create `{name,credits,priceCents,currency:"usd",active}`. |
 | PATCH `/admin/credits/packs/:id` | `credits.manage` | Same pack fields plus `expectedRevision`. |
 | GET `/admin/credits/payment-status` | `credits.read` | `refresh=true` bypasses the 60-second readiness cache; returns ready/reason/requiredEvents/checkedAt. |
-| GET `/admin/credits/users/:id` | `credits.read` | Wallet, debt/hold and paginated events. |
+| GET `/admin/credits/users/:id` | `credits.read` | The raw wallet `{balance,heldCredits,debt,purchaseHold}` (`balance` a decimal string) plus paginated events. |
 | POST `/admin/credits/users/:id/adjustments` | `credits.manage` | `{delta,reason,idempotencyKey}`; nonzero integer delta, bounded ±1,000,000. |
 | POST `/admin/credits/users/:id/resolve-hold` | `credits.manage` | `{reason}`; only eligible closed lost-dispute holds. |
-| GET `/admin/credits/summary` | `credits.read` | `days=7|30|90` (default 30); cohort sales/refunds, estimated usage cost, current order/hold/debt counts. |
+| GET `/admin/credits/summary` | `credits.read` | `days=7|30|90` (default 30); credits spent and granted (metered replies counted at what they settled for), `providerCostUsd` reported for metered work, `estimatedProviderMicroUsd`/`unpricedSpends` for older flat spends, `overageCoveredCredits`, `overageBufferCredits`, sales/refunds and current order/hold/debt counts. |
 | GET `/admin/credits/orders` | `credits.read` | `status`, `user`, `limit`, `offset`. |
-| GET `/me/credits` | Session | Own balance, debt, purchaseHold, prices, unlimited, overrideRevision, lowAt, packs, pricingRevision and purchase availability/reason. |
+| GET `/me/credits` | Session | Own wallet and quote; shape below. |
 | GET `/me/credits/events` | Session | Own paginated credit/debt statement; finance-only provider estimates are excluded. |
 | GET `/me/credits/orders/:id` | Session | Own server-confirmed frozen order state. |
 | POST `/me/credits/checkout` | Session + eligible account | `{packId,idempotencyKey}` only; returns hosted `url` and `orderId`. |
@@ -2368,11 +2387,63 @@ letters, digits, underscores or hyphens; financial reasons contain 3–500
 characters. Checkout permits 60 requests/hour and 10 new order attempts/hour
 per account. Browser-supplied amounts/customer/session IDs are not accepted.
 
-Policy fields are `enabled`, `microUsdPerCredit`, `markupBps`,
-`estimatedMicroUsd:{chatTurn,analysis,planDeck}` and `lowBalance`.
-Values are bounded safe integers; operation prices use ceiling division and
-minimum one for paid work; unlimited explicitly spends zero. Historical balances/events and pending order terms are unchanged
-by policy edits. Credits use USD card-only Checkout, separate from support
+**The policy is metered (version 2) since migration 081.** Its fields
+(`normalizePolicy`, `apps/api/src/credits/policy.ts`, and
+`credit_validate_policy` in SQL) are exactly:
+
+```json
+{ "version": 2, "enabled": true, "microUsdPerCredit": 10000, "markupBps": 0,
+  "lowBalance": 100, "legHoldCredits": 25, "legHoldMinCredits": 3,
+  "overageBufferMaxCredits": 2000 }
+```
+
+All are whole numbers: `microUsdPerCredit` 1–1,000,000,000, `markupBps`
+0–100,000, `lowBalance` 0–1,000,000, `legHoldCredits` 1–10,000,
+`legHoldMinCredits` 1 up to `legHoldCredits`, `overageBufferMaxCredits`
+0–10,000,000. The values shown are what 081 seeds (it converted a stored flat
+policy by keeping `enabled`, `microUsdPerCredit`, `markupBps` and `lowBalance`
+and adding the last three). A reply settles at its reported model cost:
+`credits = costUsd × 1,000,000 × (10,000 + markupBps) / (microUsdPerCredit ×
+10,000)`, kept to 12 decimal places. Whole credits leave the wallet and the
+remainder (under one credit) is carried per user; an operation with no reported
+cost is charged nothing. Before a paid reply starts it holds
+`min(legHoldCredits, balance)` whole credits (Deep Think holds a multiple,
+migration 083) and is refused with `reason` `insufficient` below
+`legHoldMinCredits`, or `debt` / `payment_hold`. Settlement returns the unused
+hold at once; a cost beyond the wallet is covered by the overage buffer, never
+recorded as debt. A request's charge mode is `paid`, `unlimited` (an owner
+override, which spends zero) or `daily` (credit charging is off, so Deck-E's
+daily allowances apply instead of credits).
+
+**The flat (version 1) policy is legacy.** Its shape, `{enabled,
+microUsdPerCredit, markupBps, estimatedMicroUsd:{chatTurn,analysis,planDeck},
+lowBalance}`, priced each operation by ceiling division with a minimum of one
+credit. The code still reads it, but a deployment migrated past 081 stores
+version 2, and `PUT /admin/credits/settings` refuses a policy whose version
+differs from the stored one (`normalizePolicyUpdate`), so a flat policy cannot
+be saved over a metered one. The two paths refuse each other in SQL: a flat
+charge against a v2 revision fails with "Flat pricing retired", and metered
+accounting refuses a non-v2 revision.
+
+`GET /me/credits` answers, under a metered policy:
+
+```json
+{ "mode": "metered", "balance": 41.25, "balanceExact": "41.250000000000",
+  "heldCredits": 0, "holdCredits": 25, "holdMinCredits": 3,
+  "debt": 0, "purchaseHold": false, "enabled": true, "lowAt": 100,
+  "unlimited": false, "overrideRevision": 0, "packs": [ … ],
+  "purchasesEnabled": true, "purchaseUnavailableReason": null,
+  "pricingRevision": 7, "chargeNotice": "…" }
+```
+
+`balance` is the spendable balance rounded to four places for display;
+`balanceExact` is the exact decimal string; `heldCredits` is what open replies
+currently hold. Under a legacy flat policy the same route answers
+`mode: "flat"` with `prices:{chatTurn,analysis,planDeck}` and no hold fields
+(`shapeWalletAccounting`, `apps/api/src/credits/view.ts`).
+
+Historical balances/events and pending order terms are unchanged by policy
+edits. Credits use USD card-only Checkout, separate from support
 subscriptions/gifts; signed webhook reconciliation, never a return URL,
 fulfills an order. See ADMINISTRATION.md for charge/refund/debt semantics.
 
