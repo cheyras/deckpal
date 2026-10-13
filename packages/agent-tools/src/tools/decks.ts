@@ -535,6 +535,8 @@ const saveDeckTool = defineTool({
     'Versioning is automatic: card and format changes to a deck version that already has battle ' +
     'logs create a NEW version (its snapshot is kept forever — see deck_history); changes to a ' +
     'logless version just amend the current snapshot, so a burst of edits stays one version. ' +
+    'Either way the list a save replaced is kept in mutation_history, and revert with the ' +
+    "save's batch_id puts it back (as a new version). " +
     "Pass version_note to record WHY the list changed (e.g. 'cut Switch for Jet Energy after v2 " +
     "losses to Dragapult') — future agents read it in deck_history. Strategy guides are edited " +
     'with deck_strategy, not here. Not for reading (use decks) or deleting (use delete_deck).',
@@ -616,8 +618,9 @@ const saveDeckTool = defineTool({
       .describe('true (default): only print what would happen. false: execute.'),
   }),
   // overwriteHint: an edit reconciles the whole card list and can rename. On a
-  // version with no battle logs it amends that version's snapshot in place, so
-  // the list it replaced is not kept anywhere (see the 2026-10-12 decision).
+  // version with no battle logs it amends that version's snapshot in place; the
+  // list it replaced survives only in the save's mutation event (2026-10-12),
+  // which `revert` restores as a new version.
   annotations: { readOnlyHint: false, destructiveHint: false, overwriteHint: true, idempotentHint: true },
   handler: async ({ mode, deck_id, name, format, cards, ptcgl_text, version_note, dry_run }, ctx) => {
     try {

@@ -3,6 +3,7 @@ import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
 import { errText, pageArg } from '../shared.js';
 import { forTools, pagingFooter, row, stamp, undoHint } from '../format.js';
+import { sendOnce } from '../writeKey.js';
 
 /** Changes listed per page when mutation_history shows one operation. */
 const EVENTS_PAGE = 50;
@@ -111,10 +112,11 @@ const mutationHistoryTool = defineTool({
   title: 'What changed, and which operation changed it',
   description:
     'The audit trail of every CHANGE made through DeckPal — collection quantities, lists, ' +
-    'decks, strategy guides — grouped by the operation that made them, newest first. Each ' +
+    'decks and their card lists, strategy guides, battle logs — grouped by the operation that ' +
+    'made them, newest first. Each ' +
     'operation carries who wrote it (web UI, deckpal-mcp, an import), an optional note, and ' +
     'one line per thing it touched (with the quantity before → after where there is one). ' +
-    'Battle-log writes and deck_history reverts made over MCP are not recorded here. Filter by time, source, tool, note text, ' +
+    'Filter by time, source, tool, note text, ' +
     'or a specific card/list/deck. Pass batch_id to see one operation\'s changes, paged. This is how ' +
     'you answer "what did that call actually do?" and it is the input to revert. For ' +
     'collection quantities only, collection_log is a flatter view of the same events.',
@@ -217,7 +219,9 @@ const revertTool = defineTool({
     'applying the opposite change, so unrelated later edits survive; pass strategy:"restore" ' +
     'to force the old value back instead. Where an exact undo is impossible (the original ' +
     'change hit the zero floor, or a later call asserted an absolute quantity for that card) ' +
-    'the item is reported as a CONFLICT and skipped rather than half-applied. The revert is ' +
+    'the item is reported as a CONFLICT and skipped rather than half-applied. A deck\'s card ' +
+    'list comes back as a new deck version; a deleted battle log comes back from the recycle ' +
+    'bin, an edited one gets its old values. The revert is ' +
     'itself logged, so it can be reverted. Use mutation_history first to find what to undo.',
   inputSchema: z.object({
     batch_id: z.string().optional().describe('Undo this whole operation (from mutation_history or a log_cards result).'),
@@ -232,10 +236,10 @@ const revertTool = defineTool({
           'calls the same filter `source`). Omit to undo EVERYTHING in the window regardless of who wrote it.',
       ),
     entity_type: z
-      .enum(['collection_item', 'card_list', 'list_item', 'deck', 'deck_strategy'])
+      .enum(['collection_item', 'card_list', 'list_item', 'deck', 'deck_strategy', 'battle_log'])
       .optional()
       .describe('With entity_id: undo changes to one thing.'),
-    entity_id: z.string().optional().describe('The card_variant id (numeric) or list/deck UUID to roll back.'),
+    entity_id: z.string().optional().describe('The card_variant id (numeric), list/deck UUID, or battle log #id to roll back.'),
     at: z.string().optional().describe('With entity_type + entity_id: roll that one thing back to how it was at this time.'),
     strategy: z
       .enum(['inverse', 'restore'])
@@ -286,7 +290,14 @@ const revertTool = defineTool({
       if (args.at) body.at = args.at;
       if (args.note) body.note = args.note;
 
-      const r = (await ctx.api.send('POST', '/mutations/revert', body)) as {
+      // Keyed only when forced (writeKey.ts). An ordinary revert marks what it
+      // undid, so a retry finds it "already reverted"; a forced one does not,
+      // and repeating it would apply it twice. Unkeyed, "undo since 2pm" can be
+      // re-run on purpose to catch what happened after the first run.
+      const r = (await (args.force && !args.dry_run
+        ? sendOnce(ctx, 'revert', 'POST', '/mutations/revert', body)
+        : ctx.api.send('POST', '/mutations/revert', body))) as {
+        replayed?: boolean;
         dryRun: boolean;
         label: string;
         strategy: string;
@@ -334,6 +345,7 @@ const revertTool = defineTool({
             : 'dry run — nothing changed. Re-call with dry_run:false to apply.',
         );
       } else {
+        if (r.replayed) lines.push('this exact forced revert had already run, so nothing new was applied — the counts are from that run.');
         lines.push(`undid ${r.applied}, ${r.conflicts} conflict(s) left alone, ${r.skipped} skipped`);
         if (r.batchId) lines.push(`this revert ${undoHint(r.batchId)} too`);
       }

@@ -12,8 +12,9 @@
  *  - SCHEMAS. zod's `$schema` line is dropped from every advertised schema
  *    (2020-12 is MCP's default dialect); validation is still zod's, so defaults
  *    and strictness still apply — checked by calling tools, not by reading.
- *  - THE PREVIEW INVARIANT. Every write previews unless told otherwise, with
- *    one exception that says so in its description.
+ *  - THE PREVIEW INVARIANT. Every write an MCP client sees previews unless
+ *    told otherwise. Since 2026-10-12 that includes `deck_strategy`, through
+ *    its MCP-only contract (registry.ts `mcp`).
  *
  * Reads @deckpal/agent-tools' dist; build it first.
  */
@@ -71,16 +72,43 @@ test('no advertised schema carries a $schema line', async () => {
   for (const t of tools) assert.equal(JSON.stringify(t.inputSchema ?? {}).includes('$schema'), false, t.name);
 });
 
-test('every write previews by default, except deck_strategy, which says it writes at once', () => {
+test('every write the MCP server advertises previews by default (deck_strategy included, via its MCP contract)', () => {
   for (const def of allTools().filter((d) => !d.annotations.readOnlyHint)) {
-    const shape = (def.inputSchema as unknown as { shape: Record<string, { parse: (v: unknown) => unknown }> }).shape;
-    if (def.name === 'deck_strategy') {
-      assert.equal('dry_run' in shape, false);
-      assert.match(def.description, /NO dry run: a call with markdown writes at once/);
-      continue;
-    }
+    // What MCP clients get: a definition's `mcp` contract replaces the shared one.
+    const advertised = def.mcp ?? def;
+    const shape = (advertised.inputSchema as unknown as { shape: Record<string, { parse: (v: unknown) => unknown }> }).shape;
     assert.ok('dry_run' in shape, `${def.name} has no dry_run`);
     assert.equal(shape.dry_run!.parse(undefined), true, `${def.name}: dry_run must default to true`);
+  }
+});
+
+test('over MCP, deck_strategy is advertised with its preview contract and previews by default', async () => {
+  const sends: string[] = [];
+  const api = {
+    base: 'https://test/api',
+    get: async (path: string) =>
+      path === '/decks'
+        ? { decks: [{ id: 'deck-1', name: 'Toolbox Slowking', formatCode: 'standard', version: 2 }] }
+        : { deck: { id: 'deck-1', name: 'Toolbox Slowking', formatCode: 'standard', version: 2, strategyMd: '# Old' }, counts: { total: 60 }, validation: { legal: true } },
+    send: async (m: string, p: string) => {
+      sends.push(`${m} ${p}`);
+      return {};
+    },
+  };
+  const ctx = { db: { query: async () => ({ rows: [] }) }, userId: 'u1', api } as unknown as Ctx;
+  const { tools } = await listTools();
+  const strategy = tools.find((t) => t.name === 'deck_strategy')!;
+  assert.ok('dry_run' in ((strategy.inputSchema as { properties?: object }).properties ?? {}));
+  assert.match(strategy.description ?? '', /dry_run defaults to TRUE/);
+
+  const conn = await connectInMemory(ctx);
+  try {
+    const reply = await conn.request('tools/call', { name: 'deck_strategy', arguments: { deck_id: 'Toolbox Slowking', markdown: '# New' } });
+    const text = (reply.result as { content: { text: string }[] }).content[0]!.text;
+    assert.match(text, /^DRY RUN — nothing saved\./);
+    assert.deepEqual(sends, []);
+  } finally {
+    await conn.close();
   }
 });
 

@@ -4,7 +4,7 @@
 
 **31 tools: 20 read, 11 write**, in the order `tools/list` returns them, plus 3 capability-gated read tools shown only to a token holding the Deck-E improvement capability. A read-only connection is shown the 20 read tools and none of the writes.
 
-Every write previews by default (`dry_run` defaults to true) except `deck_strategy`, whose description says it writes at once. "destructive" is MCP's meaning: the tool may change or remove existing data, not only add to it. What can be undone, and how, is in `decisions/2026/2026-10-12-mcp-tool-surface-and-write-safety.md`.
+Every write previews by default (`dry_run` defaults to true). "destructive" is MCP's meaning: the tool may change or remove existing data, not only add to it. Most writes can be undone with `revert`; what can be undone, and how, is in `decisions/2026/2026-10-12-write-safety-battle-log-recycle-bin-deck-list-undo-retry-keys-strategy-preview.md`.
 
 | tool | title | kind | purpose |
 |---|---|---|---|
@@ -29,7 +29,7 @@ Every write previews by default (`dry_run` defaults to true) except `deck_strate
 | [`battle_logs`](#battle_logs) | Read battle logs | read | Read a deck's battle logs. |
 | [`deck_history`](#deck_history) | Deck version history and revert | write, destructive | Read a deck's version history, inspect one version, or revert. |
 | [`edit_battle_log`](#edit_battle_log) | Correct a battle log entry | write, destructive, idempotent | Fix a battle log's metadata after the fact: result (e.g. the parser missed a non-standard ending and left NO RESULT), opponent name, opponent-deck label, countable archetype, notes, review, or played_at. |
-| [`delete_battle_log`](#delete_battle_log) | Delete a battle log entry | write, destructive, idempotent | Permanently remove one battle log from a deck (e.g. a duplicate paste or a log attached to the wrong deck). |
+| [`delete_battle_log`](#delete_battle_log) | Delete or restore a battle log entry | write, destructive, idempotent | Remove one battle log from a deck (e.g. a duplicate paste or a log attached to the wrong deck). |
 | [`battle_digest`](#battle_digest) | Read one game as a digest | read | Read ONE stored PTCG Live game as a compact digest: who went first, mulligans, turns, each side's first attack, the prize timeline turn by turn (with the Knock Out each prize paid for), every card the opponent showed, how it ended, whether it was close, and what the log cannot tell (their hand, the prized cards). |
 | [`battle_turn_review`](#battle_turn_review) | Simulator review of one turn | read | Ask the battle simulator's strongest pilot what it would have done on one of the reader's turns of a stored PTCG Live game: its best first actions, the line each leads to and the Prizes it takes, ranked beside what the reader did. |
 | [`lists`](#lists) | Browse card lists | read | Read card lists (dynamic lists track collection ownership live; static lists are fixed bags with quantities; pokedex_binder lists track one slot per species). |
@@ -37,7 +37,7 @@ Every write previews by default (`dry_run` defaults to true) except `deck_strate
 | [`delete_list`](#delete_list) | Delete a card list | write, destructive, idempotent | Delete a list. |
 | [`log_cards`](#log_cards) | Log collection changes | write, destructive | Log card acquisitions/removals to the LOCAL DeckPal collection database — this edits only this app's collection tracker, nothing external (no store, no marketplace, no purchases). |
 | [`set_cart`](#set_cart) | Build TCGplayer cart links | read | Build TCGplayer Mass Entry deep link(s) that pre-fill a shopping cart, from ONE of: a set (everything still needed for a goal), a saved list (list_id), or an explicit set of cards (items). |
-| [`mutation_history`](#mutation_history) | What changed, and which operation changed it | read | The audit trail of every CHANGE made through DeckPal — collection quantities, lists, decks, strategy guides — grouped by the operation that made them, newest first. |
+| [`mutation_history`](#mutation_history) | What changed, and which operation changed it | read | The audit trail of every CHANGE made through DeckPal — collection quantities, lists, decks and their card lists, strategy guides, battle logs — grouped by the operation that made them, newest first. |
 | [`revert`](#revert) | Undo a change | write, destructive | Undo something DeckPal did: a whole operation (batch_id), one change (event_id), everything since a moment (since), or every change to one card/list/deck (entity_type + entity_id). |
 | [`decke_improvement_list`](#decke_improvement_list) | List shared Deck-E conversations | read, gated | List explicitly shared, pseudonymised Deck-E conversations available to improvement readers. |
 | [`decke_improvement_read`](#decke_improvement_read) | Read one shared Deck-E conversation | read, gated | Read a compact transcript with turns, full redacted tool arguments and outputs, model legs, errors, ten-second turn offsets, bucketed costs/tokens, feedback, approvals and animation/browser events. |
@@ -231,7 +231,7 @@ Read decks. Without deck_id: the deck index (id, name, format, version, card cou
 
 write, destructive, idempotent · annotations `{"title":"Create or edit a deck","readOnlyHint":false,"destructiveHint":true,"idempotentHint":true,"openWorldHint":false}`
 
-Create a deck (omit deck_id) or edit one (pass deck_id): rename, change format, and reconcile its card list to the given cards array in one all-or-nothing write. To create from a PTCG Live decklist pass ptcgl_text instead of cards (creation only). Card ids are TCGdex ids (e.g. sv01-25). When choosing a card_id, use the cheapest printing OF THE SAME CARD unless the user asked for a specific rarity or art: printings of one card are gameplay-identical and can differ by hundreds of dollars (a Special Illustration Rare vs the regular version). SAME NAME IS NOT SAME CARD, and this is the trap — the game reuses names across sets for cards with different HP and different text, so the cheapest row under a name can be a different card that happens to share it. Shaymin sv08.5-087 (70 HP, $0.20) and sv10-010 (80 HP, $0.83) are not the same card. Picking wrong is SILENT: the deck still has 60 cards and is still legal, it just does not do what the list said. search_cards flags a name that is several cards and groups the ids that really are interchangeable — swap only within one of those groups, and when in doubt keep the printing the decklist named. Defaults to a dry run that prints the exact operations without executing — re-run with dry_run: false to apply. Versioning is automatic: card and format changes to a deck version that already has battle logs create a NEW version (its snapshot is kept forever — see deck_history); changes to a logless version just amend the current snapshot, so a burst of edits stays one version. Pass version_note to record WHY the list changed (e.g. 'cut Switch for Jet Energy after v2 losses to Dragapult') — future agents read it in deck_history. Strategy guides are edited with deck_strategy, not here. Not for reading (use decks) or deleting (use delete_deck).
+Create a deck (omit deck_id) or edit one (pass deck_id): rename, change format, and reconcile its card list to the given cards array in one all-or-nothing write. To create from a PTCG Live decklist pass ptcgl_text instead of cards (creation only). Card ids are TCGdex ids (e.g. sv01-25). When choosing a card_id, use the cheapest printing OF THE SAME CARD unless the user asked for a specific rarity or art: printings of one card are gameplay-identical and can differ by hundreds of dollars (a Special Illustration Rare vs the regular version). SAME NAME IS NOT SAME CARD, and this is the trap — the game reuses names across sets for cards with different HP and different text, so the cheapest row under a name can be a different card that happens to share it. Shaymin sv08.5-087 (70 HP, $0.20) and sv10-010 (80 HP, $0.83) are not the same card. Picking wrong is SILENT: the deck still has 60 cards and is still legal, it just does not do what the list said. search_cards flags a name that is several cards and groups the ids that really are interchangeable — swap only within one of those groups, and when in doubt keep the printing the decklist named. Defaults to a dry run that prints the exact operations without executing — re-run with dry_run: false to apply. Versioning is automatic: card and format changes to a deck version that already has battle logs create a NEW version (its snapshot is kept forever — see deck_history); changes to a logless version just amend the current snapshot, so a burst of edits stays one version. Either way the list a save replaced is kept in mutation_history, and revert with the save's batch_id puts it back (as a new version). Pass version_note to record WHY the list changed (e.g. 'cut Switch for Jet Energy after v2 losses to Dragapult') — future agents read it in deck_history. Strategy guides are edited with deck_strategy, not here. Not for reading (use decks) or deleting (use delete_deck).
 
 | argument | type | required | default | description |
 |---|---|---|---|---|
@@ -322,12 +322,13 @@ Play simulated games between one of the user's decks (or an unsaved list) and ot
 
 write, destructive, idempotent · annotations `{"title":"Read or write a deck strategy guide","readOnlyHint":false,"destructiveHint":true,"idempotentHint":true,"openWorldHint":false}`
 
-Read or replace a deck's strategy guide (markdown). Omit markdown to READ the current guide in full. Pass markdown to REPLACE the whole guide (empty string clears it). There is NO dry run: a call with markdown writes at once, so show the user the new guide and get their yes first. The response reports the previous guide's first heading and length, and revert (entity_type deck_strategy) can put it back. Strategy edits NEVER bump the deck version; the guide is snapshotted with the current version, so after a version bump the new version starts from the same guide. Typical loop: read battle_logs for the current version, then update the guide here (and the card list via save_deck with a version_note). For version history use deck_history.
+Read or replace a deck's strategy guide (markdown). Omit markdown to READ the current guide in full. Pass markdown to REPLACE the whole guide (empty string clears it). dry_run defaults to TRUE: the first call says what would change (old and new heading, length, lines added and removed) and saves nothing; show the user, then re-call with dry_run: false. The previous guide can be put back with revert (entity_type deck_strategy). Strategy edits NEVER bump the deck version; the guide is snapshotted with the current version, so after a version bump the new version starts from the same guide. Typical loop: read battle_logs for the current version, then update the guide here (and the card list via save_deck with a version_note). For version history use deck_history.
 
 | argument | type | required | default | description |
 |---|---|---|---|---|
 | `deck_id` | string | yes |  | The deck, by UUID or by its exact name. |
 | `markdown` | string |  |  | The COMPLETE new guide in markdown (max 40000 chars) — replaces the whole guide, so include everything you want kept. Empty string clears the guide. Omit to read instead. |
+| `dry_run` | boolean |  | `true` | With markdown. true (default): preview the replacement, save nothing. false: save it. |
 
 <a id="add_battle_log"></a>
 
@@ -357,7 +358,7 @@ Attach a PTCG Live or in-person battle to a deck. A Live log is parsed server-si
 
 read · annotations `{"title":"Read battle logs","readOnlyHint":true,"openWorldHint":false}`
 
-Read a deck's battle logs. Without log_id: a paged list, newest first (one compact row per game) with the win/loss record; filter to one deck version with version — that is the synthesis read path ("how did v2 do?"). With log_id: full detail for one log including all parsed fields plus the saved review. include_raw: true appends the raw PTCG Live log text when one exists — raw logs are LARGE (4–15k characters each), so list mode returns at most 3 a page; to judge a game, battle_digest is a small fraction of the size. Read-only. To record a game use add_battle_log; for version history use deck_history.
+Read a deck's battle logs. Without log_id: a paged list, newest first (one compact row per game) with the win/loss record; filter to one deck version with version — that is the synthesis read path ("how did v2 do?"). With log_id: full detail for one log including all parsed fields plus the saved review. include_raw: true appends the raw PTCG Live log text when one exists — raw logs are LARGE (4–15k characters each), so list mode returns at most 3 a page; to judge a game, battle_digest is a small fraction of the size. deleted: true lists the recycle bin instead (logs removed with delete_battle_log, restorable with its restore flag). Read-only. To record a game use add_battle_log; for version history use deck_history.
 
 | argument | type | required | default | description |
 |---|---|---|---|---|
@@ -367,6 +368,7 @@ Read a deck's battle logs. Without log_id: a paged list, newest first (one compa
 | `include_raw` | boolean |  | `false` | Append the raw log text (the synthesis read path). Large — see the description for budget guidance. |
 | `page` | integer |  | `1` | List page, starting at 1. |
 | `page_size` | integer |  |  | Logs per page (default 50, cap 200; with include_raw, at most 3). |
+| `deleted` | boolean |  | `false` | true: list the deck's recycle bin (deleted logs, newest first) instead. Ignores the other options. |
 
 <a id="deck_history"></a>
 
@@ -408,17 +410,19 @@ Fix a battle log's metadata after the fact: result (e.g. the parser missed a non
 
 <a id="delete_battle_log"></a>
 
-### `delete_battle_log` — Delete a battle log entry
+### `delete_battle_log` — Delete or restore a battle log entry
 
-write, destructive, idempotent · annotations `{"title":"Delete a battle log entry","readOnlyHint":false,"destructiveHint":true,"idempotentHint":true,"openWorldHint":false}`
+write, destructive, idempotent · annotations `{"title":"Delete or restore a battle log entry","readOnlyHint":false,"destructiveHint":true,"idempotentHint":true,"openWorldHint":false}`
 
-Permanently remove one battle log from a deck (e.g. a duplicate paste or a log attached to the wrong deck). The deck, its versions, and other logs are untouched; the version's win/loss record recomputes without it. Defaults to a dry run describing what would be deleted; re-run with dry_run: false to delete. To fix a wrong result/opponent instead, use edit_battle_log — deletion is not undoable.
+Remove one battle log from a deck (e.g. a duplicate paste or a log attached to the wrong deck). The deck, its versions, and other logs are untouched; the version's win/loss record recomputes without it. A delete moves the log to the deck's recycle bin: restore: true puts it back with the same #id and version, and battle_logs with deleted: true lists the bin. purge: true deletes it for good (a live log or one already in the bin) and cannot be undone. Defaults to a dry run describing what would happen; re-run with dry_run: false. To fix a wrong result/opponent instead, use edit_battle_log.
 
 | argument | type | required | default | description |
 |---|---|---|---|---|
 | `deck_id` | string | yes |  | The deck, by UUID or by its exact name. |
-| `log_id` | integer | yes |  | Battle log id (the #N from battle_logs). |
-| `dry_run` | boolean |  | `true` | true (default): only report what would be deleted. false: delete. |
+| `log_id` | integer | yes |  | Battle log id (the #N from battle_logs, or from battle_logs deleted: true). |
+| `restore` | boolean |  | `false` | true: put a deleted log back from the recycle bin instead of deleting. |
+| `purge` | boolean |  | `false` | true: delete for good — no recycle bin, no undo. Not combinable with restore. |
+| `dry_run` | boolean |  | `true` | true (default): only report what would happen. false: do it. |
 
 <a id="battle_digest"></a>
 
@@ -540,7 +544,7 @@ Build TCGplayer Mass Entry deep link(s) that pre-fill a shopping cart, from ONE 
 
 read · annotations `{"title":"What changed, and which operation changed it","readOnlyHint":true,"openWorldHint":false}`
 
-The audit trail of every CHANGE made through DeckPal — collection quantities, lists, decks, strategy guides — grouped by the operation that made them, newest first. Each operation carries who wrote it (web UI, deckpal-mcp, an import), an optional note, and one line per thing it touched (with the quantity before → after where there is one). Battle-log writes and deck_history reverts made over MCP are not recorded here. Filter by time, source, tool, note text, or a specific card/list/deck. Pass batch_id to see one operation's changes, paged. This is how you answer "what did that call actually do?" and it is the input to revert. For collection quantities only, collection_log is a flatter view of the same events.
+The audit trail of every CHANGE made through DeckPal — collection quantities, lists, decks and their card lists, strategy guides, battle logs — grouped by the operation that made them, newest first. Each operation carries who wrote it (web UI, deckpal-mcp, an import), an optional note, and one line per thing it touched (with the quantity before → after where there is one). Filter by time, source, tool, note text, or a specific card/list/deck. Pass batch_id to see one operation's changes, paged. This is how you answer "what did that call actually do?" and it is the input to revert. For collection quantities only, collection_log is a flatter view of the same events.
 
 | argument | type | required | default | description |
 |---|---|---|---|---|
@@ -561,7 +565,7 @@ The audit trail of every CHANGE made through DeckPal — collection quantities, 
 
 write, destructive · annotations `{"title":"Undo a change","readOnlyHint":false,"destructiveHint":true,"idempotentHint":false,"openWorldHint":false}`
 
-Undo something DeckPal did: a whole operation (batch_id), one change (event_id), everything since a moment (since), or every change to one card/list/deck (entity_type + entity_id). Defaults to a DRY RUN that prints the exact before → after for each item and changes nothing — re-call with dry_run:false to apply. Quantities are undone by applying the opposite change, so unrelated later edits survive; pass strategy:"restore" to force the old value back instead. Where an exact undo is impossible (the original change hit the zero floor, or a later call asserted an absolute quantity for that card) the item is reported as a CONFLICT and skipped rather than half-applied. The revert is itself logged, so it can be reverted. Use mutation_history first to find what to undo.
+Undo something DeckPal did: a whole operation (batch_id), one change (event_id), everything since a moment (since), or every change to one card/list/deck (entity_type + entity_id). Defaults to a DRY RUN that prints the exact before → after for each item and changes nothing — re-call with dry_run:false to apply. Quantities are undone by applying the opposite change, so unrelated later edits survive; pass strategy:"restore" to force the old value back instead. Where an exact undo is impossible (the original change hit the zero floor, or a later call asserted an absolute quantity for that card) the item is reported as a CONFLICT and skipped rather than half-applied. A deck's card list comes back as a new deck version; a deleted battle log comes back from the recycle bin, an edited one gets its old values. The revert is itself logged, so it can be reverted. Use mutation_history first to find what to undo.
 
 | argument | type | required | default | description |
 |---|---|---|---|---|
@@ -570,8 +574,8 @@ Undo something DeckPal did: a whole operation (batch_id), one change (event_id),
 | `since` | string |  |  | Undo every change at/after this ISO 8601 timestamp, e.g. '2026-08-19T02:00:00Z'. |
 | `until` | string |  |  | With since: stop at this timestamp. |
 | `filter_source` | string |  |  | With since: only undo changes written by this source, e.g. 'web' or 'deckpal-mcp' (mutation_history calls the same filter `source`). Omit to undo EVERYTHING in the window regardless of who wrote it. |
-| `entity_type` | "collection_item" \| "card_list" \| "list_item" \| "deck" \| "deck_strategy" |  |  | With entity_id: undo changes to one thing. |
-| `entity_id` | string |  |  | The card_variant id (numeric) or list/deck UUID to roll back. |
+| `entity_type` | "collection_item" \| "card_list" \| "list_item" \| "deck" \| "deck_strategy" \| "battle_log" |  |  | With entity_id: undo changes to one thing. |
+| `entity_id` | string |  |  | The card_variant id (numeric), list/deck UUID, or battle log #id to roll back. |
 | `at` | string |  |  | With entity_type + entity_id: roll that one thing back to how it was at this time. |
 | `strategy` | "inverse" \| "restore" |  | `"inverse"` | inverse (default): apply the opposite change, leaving unrelated later edits alone. restore: force the value back to what it was, discarding anything that happened since. |
 | `force` | boolean |  | `false` | Apply items that have conflicts, or re-undo something already undone. Read the dry run first. |
