@@ -101,7 +101,11 @@ export const OPS = {
   deckCards: 'deck.cards',
   battleLogCreate: 'battle_log.create',
   battleLogEdit: 'battle_log.edit',
+  /** Moved to the recycle bin (086). Undone by a restore. */
   battleLogDelete: 'battle_log.delete',
+  battleLogRestore: 'battle_log.restore',
+  /** A real DELETE, deliberately: no undo. */
+  battleLogPurge: 'battle_log.purge',
 } as const;
 
 export interface MutationEventInput {

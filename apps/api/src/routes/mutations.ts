@@ -3,8 +3,9 @@ import type pg from 'pg';
 import { commitRequestTx, q, q1, recomputeSetProgress } from '../db.js';
 import { asyncHandler, badRequest, clampInt, notFound, str, userCache, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
-import { recordStrategyChange } from '../deck/versions.js';
-import { closeBatch, openBatch, recordEvents, SOURCE_SHAPE, type MutationEventInput } from '../mutations.js';
+import { recordDeckChange, recordStrategyChange, restoreSnapshot, type SnapshotEntry } from '../deck/versions.js';
+import { closeBatch, OPS, openBatch, recordEvents, SOURCE_SHAPE, type MutationEventInput } from '../mutations.js';
+import { binBattleLog, deckState, unbinBattleLog, type DeckState } from './decks.js';
 import { replayField, requestWriteKey, writeOnce } from '../writeOnce.js';
 
 /**
@@ -483,7 +484,12 @@ mutationsRouter.post(
           collectionEvents.push(e);
           continue;
         }
-        plan.push(planStructural(e, strategy));
+        const entry = planStructural(e, strategy);
+        // Decks and battle logs are checked against what is there NOW, so a
+        // dry run says up front that a later change would be discarded or the
+        // log has since gone, rather than finding out on the real run.
+        if (!entry.skipped) entry.conflicts.push(...await structuralConflicts(client, userId, e));
+        plan.push(entry);
       }
 
       // Collection quantities need the live values, under lock, before the plan
@@ -640,7 +646,7 @@ mutationsRouter.post(
       }
 
       for (const p of actionable.filter((x) => x.entityType !== 'collection_item')) {
-        const applied = await applyStructural(client, userId, p);
+        const applied = await applyStructural(client, userId, p, { source, note: note ?? `revert ${target.label}` });
         if (applied) logged.push(applied);
         else {
           // The undo matched no row — the list item's slot was taken again, the
@@ -724,18 +730,121 @@ function planStructural(e: EventRow, _strategy: Strategy): PlanEntry {
         action: 'cannot be undone',
         skipped: 'a purge is a real DELETE — the rows are gone, deliberately (see SECURITY.md).',
       };
-    case 'deck.cards':
+    case 'deck.cards': {
+      // v2 events (2026-10-12) carry the deck's whole state on both sides —
+      // name, format and the card list with printings — so the change can be
+      // put back exactly, even an edit that amended a version in place.
+      if (e.before === null) {
+        return { ...base, action: `delete the deck it created ("${String(e.after?.name ?? '')}"; it moves to Recently deleted)` };
+      }
+      if ((e.before as { v?: unknown }).v === 2) {
+        const b = e.before as unknown as DeckState;
+        const count = b.cards.reduce((n, c) => n + c.quantity, 0);
+        return { ...base, action: `put the deck back as it was before this change ("${b.name}", ${count} cards, ${b.formatCode}), as a new version` };
+      }
       return {
         ...base,
         exact: false,
         action: 'use the deck version history',
-        // "Which is exact" was only half true: a version that never had a
-        // battle log is amended in place, so the list it replaced is not one
-        // of the versions there is to go back to.
-        skipped: `deck card lists are versioned — restore a version with POST /decks/${e.entity_id}/revert (deck_history in the MCP); an edit to a version with no battle logs replaced that version in place, so its earlier list is not kept`,
+        // Recorded before v2: the event says the list changed but not what it was.
+        skipped: `this change was recorded before 2026-10-12 without the list it replaced — restore a version with POST /decks/${e.entity_id}/revert (deck_history in the MCP)`,
+      };
+    }
+    case 'battle_log.create':
+      return { ...base, action: `move battle log #${e.entity_id} to Recently deleted` };
+    case 'battle_log.delete':
+      return { ...base, action: `restore battle log #${e.entity_id} from Recently deleted` };
+    case 'battle_log.restore':
+      return { ...base, action: `move battle log #${e.entity_id} back to Recently deleted` };
+    case 'battle_log.edit':
+      if ((e.before as { v?: unknown } | null)?.v === 2) {
+        return { ...base, action: `put battle log #${e.entity_id}'s previous result, opponent, archetype, notes, review and date back` };
+      }
+      return {
+        ...base,
+        exact: false,
+        action: 'cannot be undone exactly',
+        skipped: 'this edit was recorded before 2026-10-12 without every field it could change, so putting part of it back would not be the log as it was',
+      };
+    case 'battle_log.purge':
+      return {
+        ...base,
+        exact: false,
+        action: 'cannot be undone',
+        skipped: 'a purge is a real DELETE — the log is gone, deliberately (see SECURITY.md).',
       };
     default:
       return { ...base, exact: false, action: 'unsupported', skipped: `no undo is defined for '${e.operation}'` };
+  }
+}
+
+/** A card list as comparable text: printing and quantity per line, order-free. */
+function cardsKey(cards: readonly SnapshotEntry[]): string {
+  return cards.map((c) => `${c.cardId}:${c.variantId ?? '-'}:${c.quantity}`).sort().join('|');
+}
+
+/** True when two deck states hold the same name, format and printings. */
+function sameDeckState(a: DeckState, b: Partial<DeckState>): boolean {
+  return a.name === b.name && a.formatCode === b.formatCode && (a.glcType ?? null) === (b.glcType ?? null)
+    && cardsKey(a.cards) === cardsKey(b.cards ?? []);
+}
+
+/** The fields a v2 battle_log.edit event records, compared as the database returns them. */
+const LOG_EDIT_FIELDS = ['result', 'opponent', 'opponent_deck', 'opponent_archetype', 'notes', 'review_md', 'played_at'] as const;
+function sameLogFields(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  // played_at is a Date from the live row and an ISO string from the event's
+  // JSON. Never `new Date(String(date))`: String() of a Date drops the
+  // milliseconds, so a log nobody touched would read as edited since.
+  const ms = (v: unknown) => (v instanceof Date ? v.getTime() : Date.parse(String(v)));
+  return LOG_EDIT_FIELDS.every((f) => {
+    const x = a[f] ?? null;
+    const y = b[f] ?? null;
+    return f === 'played_at' && x !== null && y !== null ? ms(x) === ms(y) : x === y;
+  });
+}
+
+/**
+ * What stands in the way of undoing one deck or battle-log event, judged
+ * against the live rows. Empty means the undo can be applied exactly. Run in
+ * the plan, so a dry run reports it; `force` applies past a "changed since".
+ */
+async function structuralConflicts(client: pg.PoolClient, userId: string, e: EventRow): Promise<string[]> {
+  const logId = Number(e.entity_id);
+  const deckOf = (v: unknown) => String((v as { deckId?: unknown } | null)?.deckId ?? '');
+  const live = async (deckId: string) => (await client.query<Record<string, unknown>>(
+    `SELECT result, opponent, opponent_deck, opponent_archetype, notes, review_md, played_at
+       FROM battle_log WHERE id = $1 AND deck_id::text = $2 AND user_id = $3`,
+    [logId, deckId, userId],
+  )).rows[0];
+  switch (e.operation) {
+    case 'deck.cards': {
+      const alive = await client.query(`SELECT 1 FROM deck WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`, [e.entity_id, userId]);
+      if (!alive.rows[0]) return ['the deck no longer exists, or is in Recently deleted — restore it first'];
+      if (e.before === null) return [];
+      const now = await deckState(client, e.entity_id, userId);
+      return sameDeckState(now, e.after as unknown as DeckState)
+        ? []
+        : ['the deck has changed since this change — putting the earlier list back would discard the later edits too. Revert the later change first, or pass force'];
+    }
+    case 'battle_log.create':
+    case 'battle_log.restore':
+      return (await live(deckOf(e.after))) ? [] : [`battle log #${logId} is no longer there — it was deleted or purged since`];
+    case 'battle_log.delete': {
+      const binned = await client.query(
+        `SELECT 1 FROM battle_log_bin WHERE id = $1 AND deck_id::text = $2 AND user_id = $3`, [logId, deckOf(e.before), userId]);
+      return binned.rows[0]
+        ? []
+        : [`battle log #${logId} is not in Recently deleted — it was restored already, purged, or deleted before the recycle bin existed (2026-10-12)`];
+    }
+    case 'battle_log.edit': {
+      const now = await live(deckOf(e.after));
+      if (!now) return [`battle log #${logId} is no longer there — it was deleted or purged since`];
+      return sameLogFields(now, e.after as Record<string, unknown>)
+        ? []
+        : [`battle log #${logId} has been edited again since — putting these fields back would discard that. Revert the later edit first, or pass force`];
+    }
+    default:
+      return [];
   }
 }
 
@@ -744,6 +853,7 @@ async function applyStructural(
   client: pg.PoolClient,
   userId: string,
   p: PlanEntry,
+  opts: { source: string; note: string },
 ): Promise<MutationEventInput | null> {
   const ev = await client.query<EventRow>(
     `SELECT id, batch_id, entity_type, entity_id, operation, before, after, requested_delta, effective_delta,
@@ -876,6 +986,69 @@ async function applyStructural(
       if (!owned.rows[0]) return null;
       await recordStrategyChange(client, e.entity_id, md);
       return log(e.after, e.before, 'deck.strategy.set');
+    }
+    case 'deck.cards': {
+      if (e.before === null) {
+        // Undo a create: the deck goes to Recently deleted, from where a
+        // further undo (or the web's restore) brings it back.
+        const r = await client.query(`UPDATE deck SET deleted_at = now() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`, [e.entity_id, userId]);
+        return r.rowCount ? log(e.after, null, OPS.deckDelete) : null;
+      }
+      const target = e.before as unknown as DeckState & { strategyMd?: string | null };
+      if (target.v !== 2) return null;
+      const locked = await client.query(`SELECT 1 FROM deck WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL FOR UPDATE`, [e.entity_id, userId]);
+      if (!locked.rows[0]) return null;
+      const now = await deckState(client, e.entity_id, userId);
+      if (now.name !== target.name || now.formatCode !== target.formatCode || (now.glcType ?? null) !== (target.glcType ?? null)) {
+        await client.query(
+          `UPDATE deck SET name = $3, format_code = $4, glc_type = $5, updated_at = now() WHERE id = $1 AND user_id = $2`,
+          [e.entity_id, userId, target.name, target.formatCode, target.glcType ?? null],
+        );
+      }
+      const restoresGuide = Object.prototype.hasOwnProperty.call(target, 'strategyMd');
+      if (cardsKey(now.cards) !== cardsKey(target.cards) || restoresGuide) {
+        // The same path deck_history's revert takes: the earlier list lands as
+        // a NEW version, so the list being replaced stays in history too.
+        await restoreSnapshot(
+          client, e.entity_id, userId,
+          { cards: target.cards, strategyMd: target.strategyMd ?? null },
+          { includeStrategy: restoresGuide, source: opts.source, note: opts.note.slice(0, 500) },
+        );
+      } else if (now.formatCode !== target.formatCode || (now.glcType ?? null) !== (target.glcType ?? null)) {
+        // A format change alone still changes what the list means.
+        await recordDeckChange(client, e.entity_id, { source: opts.source, note: opts.note.slice(0, 500) });
+      }
+      return log(now, await deckState(client, e.entity_id, userId), OPS.deckCards);
+    }
+    case 'battle_log.create':
+    case 'battle_log.restore': {
+      const deckId = String((e.after as { deckId?: unknown } | null)?.deckId ?? '');
+      const row = await binBattleLog(client, deckId, userId, Number(e.entity_id), opts.source);
+      return row ? log(e.after, null, OPS.battleLogDelete) : null;
+    }
+    case 'battle_log.delete': {
+      const deckId = String((e.before as { deckId?: unknown } | null)?.deckId ?? '');
+      const row = await unbinBattleLog(client, deckId, userId, Number(e.entity_id));
+      return row ? log(null, e.before, OPS.battleLogRestore) : null;
+    }
+    case 'battle_log.edit': {
+      const b = e.before as Record<string, unknown> & { v?: number; deckId?: string };
+      if (b.v !== 2) return null;
+      const was = await client.query<Record<string, unknown>>(
+        `SELECT result, opponent, opponent_deck, opponent_archetype, notes, review_md, played_at
+           FROM battle_log WHERE id = $1 AND deck_id::text = $2 AND user_id = $3 FOR UPDATE`,
+        [Number(e.entity_id), String(b.deckId ?? ''), userId],
+      );
+      if (!was.rows[0]) return null;
+      const now = await client.query<Record<string, unknown>>(
+        `UPDATE battle_log
+            SET result = $4, opponent = $5, opponent_deck = $6, opponent_archetype = $7, notes = $8, review_md = $9, played_at = $10
+          WHERE id = $1 AND deck_id::text = $2 AND user_id = $3
+          RETURNING result, opponent, opponent_deck, opponent_archetype, notes, review_md, played_at`,
+        [Number(e.entity_id), String(b.deckId ?? ''), userId, b.result ?? null, b.opponent ?? null, b.opponent_deck ?? null,
+          b.opponent_archetype ?? null, b.notes ?? null, b.review_md ?? null, b.played_at],
+      );
+      return log({ v: 2, deckId: b.deckId, ...was.rows[0] }, { v: 2, deckId: b.deckId, ...now.rows[0] }, OPS.battleLogEdit);
     }
     default:
       return null;
