@@ -10,7 +10,12 @@
  *  - apps/mcp/TOOLS.md and the tool list in apps/mcp/README.md are generated
  *    (`pnpm mcp:tools-doc`) and must match a fresh generation;
  *  - each prose claim of a count in the README, AGENTS.md's package table,
- *    ARCHITECTURE.md, DEPLOYMENT.md and SPEC.md must equal the derived count.
+ *    ARCHITECTURE.md, DEPLOYMENT.md and SPEC.md must equal the derived count;
+ *  - so must the public ones: the landing page's copy (llms.txt and the
+ *    /connect page's Read only paragraph, apps/web/src/routes/landing/copy.ts)
+ *    and the link-preview card's pill (scripts/gen-og-image.mjs). The card is a
+ *    JPEG, so after changing the script, regenerate it (`node
+ *    scripts/gen-og-image.mjs` after a web build) and commit the image too.
  *
  * Adding or removing a tool therefore fails here until the docs follow — which
  * is the point. Dated records (decisions/, roadmap/) are history and are not
@@ -86,4 +91,15 @@ test('apps/mcp/SPEC.md states the registry counts', () => {
 
 test('apps/mcp/README.md states the registry counts', () => {
   claims('apps/mcp/README.md', /(\d+) tools \((\d+) read, (\d+) write\)/g, (c) => [c.tools, c.read, c.write]);
+});
+
+test("the landing page's copy states the registry counts", () => {
+  const copy = 'apps/web/src/routes/landing/copy.ts';
+  claims(copy, /(\d+) tools \((\d+) read, (\d+) write\)/g, (c) => [c.tools, c.read, c.write]);
+  claims(copy, /Read only gives your AI the (\d+) tools/g, () => [readOnlyCount]);
+  claims(copy, /Read and change adds the (\d+)/g, (c) => [c.write]);
+});
+
+test('the link-preview card states the registry count', () => {
+  claims('scripts/gen-og-image.mjs', /(\d+) tools over MCP/g, (c) => [c.tools]);
 });

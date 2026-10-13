@@ -64,7 +64,7 @@ const FAQ: readonly FaqItem[] = [
   {
     id: 'which-ai',
     q: 'Which AI works with it?',
-    a: "Claude and Mistral work on their free plans. Gemini, Perplexity and ChatGPT need a paid plan, and ChatGPT's personal plans may limit connectors to reading your data. The table above has the details.",
+    a: "Claude works on its free plan, and it is the one we have tested end to end. Going by their own docs, Grok and Mistral also take custom connectors on their free plans, while ChatGPT, Gemini and Perplexity need a paid plan, and ChatGPT's personal plans may limit connectors to reading your data. We have not tested those apps yet. The table above has the details.",
   },
   {
     id: 'private',
@@ -78,12 +78,12 @@ const LLMS_TXT = [
   '',
   '> DeckPal is an AI deck-building companion for the Pokémon TCG. It keeps track of your collection, decks and battle logs, and connects them to the AI app you already use (Claude, and other apps that support custom MCP connectors) at ' +
     MCP_URL +
-    ', so your AI can plan a deck with you, read how your PTCG Live games went, suggest changes, and build a TCGplayer cart for the cards you are missing. Open source (AGPL-3.0). Pay-what-you-want monthly subscription; $0 a month is an option.',
+    ', so your AI can plan a deck with you, read how your PTCG Live games went, suggest changes, and build TCGplayer Mass Entry links for the cards you are missing (you open them, choose condition and check out on TCGplayer). Open source (AGPL-3.0). Pay-what-you-want monthly subscription; $0 a month is an option.',
   '',
   '## Connect an AI app',
   '- [MCP endpoint](' +
     MCP_URL +
-    '): remote Streamable HTTP, OAuth 2.1 with PKCE and dynamic client registration, 26 tools (15 read, 11 write), Read only option at consent',
+    '): remote Streamable HTTP, OAuth 2.1 with PKCE and dynamic client registration, 28 tools (17 read, 11 write), Read only option at consent',
   '- Claude: add a custom connector with the URL ' + MCP_URL + ' (works on the free plan, one custom connector)',
   '- Claude Code: ' + CLAUDE_CODE_CMD,
   '- Other apps: compatibility by plan is on the home page, last checked ' + COMPAT_CHECKED,
@@ -91,8 +91,8 @@ const LLMS_TXT = [
   '## What the tools cover',
   '- Collection: collection_summary, collection_log, collection_value, log_cards, set_progress',
   '- Catalog and prices: search_cards, get_card, card_price_history',
-  '- Decks: decks, save_deck, delete_deck, check_deck, deck_odds, deck_strategy, deck_history',
-  '- Battle logs: battle_logs, add_battle_log, edit_battle_log, delete_battle_log',
+  '- Decks: decks, save_deck, delete_deck, check_deck, deck_odds, simulate_battles, deck_strategy, deck_history',
+  '- Battle logs: battle_logs, battle_digest, add_battle_log, edit_battle_log, delete_battle_log',
   '- Lists and shopping: lists, edit_list, delete_list, set_cart',
   '- Safety: health, mutation_history, revert',
   '',
@@ -179,7 +179,7 @@ export const COPY = {
       { who: 'you', text: 'Yes, save it.' },
       { who: 'ai', text: 'Saved v2. v1 keeps its record of 2 wins and 1 loss, so we can compare after your next games.' },
       { who: 'you', text: "It's winning. What do I need to build it for real?" },
-      { who: 'ai', text: 'You own 48 of the 60. I made a TCGplayer cart for the other 12 at the cheapest printings.', card: 'cart' },
+      { who: 'ai', text: 'You own 48 of the 60. I made a TCGplayer cart link for the other 12 at the cheapest printings.', card: 'cart' },
     ] as readonly ChatLine[],
     deck: {
       name: 'Mega Chandelure ex / Dusknoir',
@@ -209,7 +209,7 @@ export const COPY = {
       { id: 'plan', title: 'Plan', body: 'Bring a wild idea, a card you love, or a winning list. Your AI researches and saves a first draft.' },
       { id: 'playtest', title: 'Playtest', body: 'Take the list to PTCG Live and play it for real. Every game gives you something to learn from.' },
       { id: 'tune', title: 'Tune', body: 'Paste in a battle log or tell your AI how it went. Ask what\'s losing, then swap in a fix.' },
-      { id: 'build', title: 'Build', body: "When you're confident in it, DeckPal shows which singles you're missing and exports a TCGplayer cart." },
+      { id: 'build', title: 'Build', body: "When you're confident in it, DeckPal shows which singles you're missing and makes a TCGplayer cart link for them." },
     ] as readonly LoopStep[],
     loopLabel: 'Repeat until it wins',
     diagramLabel:
@@ -222,7 +222,7 @@ export const COPY = {
     headline: 'Make the deck you actually want to play, then make it solid.',
     body: [
       "Copying a pro's list card for card works until you want to know why it works. Start from your binder, a card you want to build around, or a list that's winning events, and shape it into something that fits how you play.",
-      "Your AI handles the research that usually eats your weekend. It checks what's winning right now, folds in your ideas, points out blind spots, and saves the deck to DeckPal already knowing what you own. Got a store-bought deck? List the cards and ask what you'd change.",
+      "Your AI handles the research that usually eats your weekend. If your AI app can search the web, it can check what's winning right now. It folds in your ideas, points out blind spots, and saves the deck to DeckPal already knowing what you own. Got a store-bought deck? List the cards and ask what you'd change.",
       "Paste a PTCG Live decklist in, and export one back out when you're ready to playtest. Legality is checked for Standard, Expanded, Gym Leader Challenge and Unlimited.",
     ],
     photoAlt: 'A binder of Pitch Black cards open on a wooden desk at home, seen from above, beside a deck box, sleeves and a phone.',
@@ -314,8 +314,8 @@ export const COPY = {
     eyebrow: 'Build',
     headline: 'Fill the gaps, then build the real thing.',
     body: [
-      'Once a deck has earned its spot in your bag, DeckPal shows which cards you already own, which you\'re missing, and what the gaps cost. Then it builds a TCGplayer cart with just those cards in it. You pick printing and condition, and you check out on TCGplayer.',
-      "Your AI defaults to the cheapest printing of each card, so you aren't paying Special Illustration Rare prices for a card that plays the same. Prefer to shop around? Ask your AI to research current listings elsewhere.",
+      'Once a deck has earned its spot in your bag, DeckPal shows which cards you already own, which you\'re missing, and what the gaps cost. Then it makes a TCGplayer Mass Entry link with just those cards in it. You open it, pick printing and condition on TCGplayer, and check out there.',
+      "Your AI defaults to the cheapest printing of each card, so you aren't paying Special Illustration Rare prices for a card that plays the same. Prefer to shop around? If your AI app can search the web, ask it to check listings elsewhere.",
     ],
     photoAlt: 'Singles in toploaders spilling from a padded mailer on a kitchen counter, beside a phone.',
     listTitle: 'Missing from Mega Chandelure ex / Dusknoir',
@@ -414,7 +414,7 @@ export const COPY = {
         turns: [
           { who: 'ai', text: '12 cards: 3 Mega Chandelure ex, 2 Dusknoir, 2 Dusclops, 3 Rare Candy, a Duskull and a Lumiose City.' },
           { who: 'you', text: 'Build me the cart.' },
-          { who: 'ai', text: 'Your TCGplayer cart is ready with those 12 at the cheapest printings. You pick condition and check out on TCGplayer.' },
+          { who: 'ai', text: 'Here is a TCGplayer cart link with those 12 at the cheapest printings. Open it, pick condition and check out on TCGplayer.' },
         ],
       },
       {
@@ -438,7 +438,7 @@ export const COPY = {
       'Write detailed strategy guides for each deck and update them as your logs come in.',
       'Add a whole stack of cards to your collection from a pasted or voice-dictated list.',
       'Make lists like a wishlist, a trade pile, a for-sale pile, or every card you\'re missing from a set under $5.',
-      'Build a TCGplayer cart for whatever a deck is missing, or research current listings elsewhere.',
+      'Make a TCGplayer cart link for whatever a deck is missing. You open it and check out on TCGplayer.',
     ],
     demo: {
       ask: 'Add the Mega Chandelure ex I just pulled. It is the Double Rare.',
@@ -466,7 +466,7 @@ export const COPY = {
     cells: {
       prices: {
         title: 'Prices',
-        body: 'Prices from TCGplayer and Cardmarket for every printing, synced daily, with history. Ask your AI what your collection is worth and what moved this month.',
+        body: 'Daily prices from TCGplayer and Cardmarket, with history, for the printings they list. Ask your AI what your collection is worth and what moved this month.',
         chartLabel: 'Collection value over six months',
       },
       progress: {
@@ -500,19 +500,21 @@ export const COPY = {
   founder: {
     eyebrow: 'Open source',
     headline: 'Built in the open.',
-    body: 'The whole project is on GitHub. Read it, fork it, or run it yourself. Your collection stays private until you share something.',
+    body: 'The whole project is on GitHub. Read it, fork it, or run it yourself. Your collection stays private to your account. The AI apps you connect can read it until you disconnect them.',
     // The owner's own note. Empty until they write it; the page renders none.
     note: [] as readonly string[],
     signature: '',
-    photoAlt: "DeckPal's code on GitHub: the repository's Code tab, 869 commits.",
+    // The screenshot is from early October 2026 and shows 869 commits; the facts
+    // beside it are a later snapshot, dated, so the two never claim the same moment.
+    photoAlt: "DeckPal's code on GitHub in early October 2026: the repository's Code tab, at 869 commits.",
     repoCta: 'See the code on GitHub',
     license: 'AGPL-3.0',
     licenseLabel: 'License',
-    commits: '869',
+    commits: '927',
     commitsLabel: 'Commits',
-    prs: '195',
+    prs: '253',
     prsLabel: 'Pull requests merged',
-    asOf: 'As of October 2026',
+    asOf: 'As of October 12, 2026',
   },
 
   connect: {
@@ -544,7 +546,7 @@ export const COPY = {
     claudeCode: CLAUDE_CODE_CMD,
     claudeCodeLabel: 'Claude Code',
     finePrint:
-      'Compatibility varies by AI app and plan. Claude and Mistral let you add a custom connector on their free plans. ChatGPT, Perplexity and Gemini need a paid plan, and some apps limit what a connector can do. Last checked October 2, 2026. Plans change often, so confirm in your app\'s settings before you start.',
+      'Compatibility varies by AI app and plan. Claude lets you add a custom connector on its free plan, and so do Grok and Mistral according to their docs. ChatGPT, Perplexity and Gemini need a paid plan, and some apps limit what a connector can do. Last checked October 2, 2026. Plans change often, so confirm in your app\'s settings before you start.',
     checked: `Last checked ${COMPAT_CHECKED}`,
     filtersLabel: 'Filter the table',
     filterFree: 'Free plans only',
@@ -687,15 +689,15 @@ export const COPY = {
       },
       access: {
         title: 'Read only, or read and change',
-        body: 'You choose when you approve. Read only gives your AI the 15 tools that look things up. Read and change adds the 11 that edit your collection, decks, lists and battle logs. Most changes are previewed before they are saved, most can be reverted later, and you can disconnect any time in Profile, then Agent access.',
+        body: 'You choose when you approve. Read only gives your AI the 17 tools that look things up. Read and change adds the 11 that edit your collection, decks, lists and battle logs. Most changes are previewed before they are saved, most can be reverted later, and you can disconnect any time in Profile, then Agent access.',
       },
       tools: {
         title: 'What your AI can do',
         groups: [
           { name: 'Collection', tools: 'collection_summary, collection_log, collection_value, log_cards, set_progress' },
           { name: 'Catalog and prices', tools: 'search_cards, get_card, card_price_history' },
-          { name: 'Decks', tools: 'decks, save_deck, delete_deck, check_deck, deck_odds, deck_strategy, deck_history' },
-          { name: 'Battle logs', tools: 'battle_logs, add_battle_log, edit_battle_log, delete_battle_log' },
+          { name: 'Decks', tools: 'decks, save_deck, delete_deck, check_deck, deck_odds, simulate_battles, deck_strategy, deck_history' },
+          { name: 'Battle logs', tools: 'battle_logs, battle_digest, add_battle_log, edit_battle_log, delete_battle_log' },
           { name: 'Lists and shopping', tools: 'lists, edit_list, delete_list, set_cart' },
           { name: 'Safety', tools: 'health, mutation_history, revert' },
         ],
@@ -731,12 +733,12 @@ export const COPY = {
 
   seo: {
     jsonLdDescription:
-      'DeckPal is an AI deck-building companion for the Pokémon TCG. It tracks your collection by printing, your decks and your PTCG Live battle logs, and connects them to the AI app you already use over MCP so your AI can plan, playtest and tune decks with you and build a TCGplayer cart for missing cards. Open source (AGPL-3.0); pay-what-you-want monthly subscription with $0 accepted.',
+      'DeckPal is an AI deck-building companion for the Pokémon TCG. It tracks your collection by printing, your decks and your PTCG Live battle logs, and connects them to the AI app you already use over MCP so your AI can plan, playtest and tune decks with you and build TCGplayer cart links for missing cards. Open source (AGPL-3.0); pay-what-you-want monthly subscription with $0 accepted.',
     jsonLdFeatureList: [
       'Connect Claude or another AI app to your own collection over MCP',
       'Deck builder with Pokémon TCG Live import and export and legality checks for Standard, Expanded, Gym Leader Challenge and Unlimited',
       'Battle log parsing with a record per deck version',
-      'Missing-card lists with a TCGplayer cart at the cheapest printing',
+      'Missing-card lists with TCGplayer Mass Entry links at the cheapest printing',
       'Per-printing collection tracking, set progress and daily prices',
     ],
     jsonLdOfferDescription: 'Pay-what-you-want monthly subscription. $0 a month is an option.',
