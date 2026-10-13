@@ -19,11 +19,12 @@
  * ───────────────────────────────────────────────────────────────────────────── */
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { api, type ApiTokenRow } from '../lib/api'
-import { lifetimeText, redirectBadge, tokenState } from '../lib/oauthConsent'
+import { lifetimeText, redirectBadge, tokenState, type ConsentScope } from '../lib/oauthConsent'
 import { isCloudMode } from '../lib/supabase'
 import { Field, FormAlert } from './ui'
 import { Button } from './ui/Button'
 import { Icon } from './Icon'
+import { ScopeChoice } from './ScopeChoice'
 
 /**
  * Where an MCP client should point.
@@ -185,6 +186,8 @@ export function AgentAccess() {
   const [nameError, setNameError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  // Read and change is the default, as on the consent screen.
+  const [scope, setScope] = useState<ConsentScope>('full')
   const [canGrantImprovement, setCanGrantImprovement] = useState(false)
   const [grantImprovement, setGrantImprovement] = useState(false)
   const [secret, setSecret] = useState<{ raw: string; name: string } | null>(null)
@@ -219,9 +222,19 @@ export function AgentAccess() {
     setFormError(null)
     setCreating(true)
     try {
-      const res = await api.createApiToken(trimmed, grantImprovement)
+      const res = await api.createApiToken(trimmed, scope, grantImprovement)
+      // An API older than migration 085 ignores scope and mints full access.
+      // Never hand over a full-access secret for a read-only request: discard
+      // it unseen and revoke the row it belongs to.
+      if (scope === 'read' && res.token.scope !== 'read') {
+        await api.revokeApiToken(res.token.id).catch(() => undefined)
+        setFormError('This server can’t make read-only tokens yet, so the token was discarded without being shown. Try again later.')
+        await refresh()
+        return
+      }
       setSecret({ raw: res.secret, name: res.token.name })
       setName('')
+      setScope('full')
       setGrantImprovement(false)
       setOpen(false)
       // Reveal the connection steps with the token: the two are useless apart.
@@ -336,6 +349,7 @@ export function AgentAccess() {
               if (nameError) setNameError(null)
             }}
           />
+          <ScopeChoice name="token-scope" value={scope} onChange={setScope} disabled={creating} className="mb-[16px]" />
           {canGrantImprovement && (
             <label className="mb-[14px] flex cursor-pointer items-start gap-[10px] text-[14px] text-text-body">
               <input
@@ -519,7 +533,8 @@ export function AgentAccess() {
           <p className="text-[12px] leading-[1.6] text-text-muted">
             <strong className="text-text-body">What a connection grants.</strong> Anything you connect — by
             approving it or with a token — can read your collection, lists, decks and battle logs, and can change
-            them: the same things you can do when signed in. One you approved as <em>Read only</em> can only read.
+            them: the same things you can do when signed in. One you approved or made as <em>Read only</em> can
+            only read.
             None can change your password or account settings, read your Deck-E conversations, spend money, or
             create or revoke tokens. An approved connection ends by itself after 90 days without use. A token you
             make here never expires, so treat it like a password: paste it only into clients you trust, and revoke
