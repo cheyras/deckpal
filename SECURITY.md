@@ -19,7 +19,8 @@ DeckPal has two deployment modes with different security models.
 
 ### Cloud deployment (Vercel + Supabase)
 
-**Authentication:** Supabase Auth provides email + OAuth sign-in. The SPA
+**Authentication:** Supabase Auth provides email-and-password sign-in (no
+social or third-party sign-in providers are configured). The SPA
 manages sessions via `@supabase/supabase-js`. API requests carry a Supabase
 JWT as `Authorization: Bearer <token>`, verified by the API middleware.
 
@@ -193,8 +194,11 @@ than granting free repeated work. The public health response reports
 `administration` and `deckeEntitlement` readiness/status without account IDs.
 
 **The conversation the browser sends is bounded before anything pays for it**
-(SEC-04, 2026-09-26). The charge is flat per request while every step re-bills
-the whole context, so `/api/chat` reads at most 256 KB, streamed, and validates
+(SEC-04, 2026-09-26). Every step re-bills the whole context. When this landed the
+charge was flat per request; since migration 081 a paid reply is charged its
+reported model cost plus markup, but a reply that outruns the wallet is still
+finished on DeckPal's overage buffer, and daily-cap and unlimited accounts are
+not charged by cost at all. So `/api/chat` reads at most 2 MiB, streamed, and validates
 the history with zod before any ledger, credit accounting or model call: at
 most 200 messages, `user`/`assistant` roles only, text and `tool-<name>` parts
 only (no `file` part the provider would fetch, no `reasoning`/`source-*`, no
@@ -252,7 +256,8 @@ an outbound URL; `deck_history` sounds like a read and can roll a deck back) —
 and every write
 declares `needsApproval`, so the turn pauses on the wire and the tool's `execute`
 does not run until the reader answers. That is a mechanism rather than an
-instruction — verified against the pinned `ai@7.0.66` at the wire level, and
+instruction — verified at the wire level against `ai@7.0.66`, the version pinned
+at the time (the pin is now `ai@7.0.113`), and
 signed, so a modified replay is rejected. What needs approval is derived from
 annotations and schema: anything `destructiveHint` always, any real write always,
 a preview never; when a call is classified as a preview the server writes
@@ -495,7 +500,9 @@ calls keep their preview default.
 ### Deck-E improvement chats (migration 078)
 
 The improvement corpus is deliberately narrower than Deck-E History: no chat is
-copied unless its reader explicitly shares that one conversation. The risks here
+copied unless its reader shares it, either that one conversation or, while
+**Always share my Deck-E chats** is on (off by default, migration 079), each new
+chat. The risks here
 are unusually content-heavy: a name can appear in nested tool output; a reader's
 collection can itself be identifying; a mistaken administrator role or token
 capability could expose the corpus; telemetry can become an unbounded shadow
@@ -541,7 +548,7 @@ Two outbound paths were hardened on 2026-08-27 (GitHub issue #96, six critical
   PUBLIC `card-art` bucket at a derivable path. It now enforces an explicit
   upstream allow-list — `assets.tcgdex.net`, `raw.githubusercontent.com` and
   `images.pokemontcg.io` (approved card-art fallback, 2026-08-31),
-  the only two hosts any code path can derive — with `redirect: 'manual'` and the
+  the only three hosts any code path can derive — with `redirect: 'manual'` and the
   host re-checked on **every hop**, plus a resolved-address check that refuses
   loopback, RFC1918, CGNAT and link-local answers (`169.254.169.254` included).
   Non-web schemes and URLs carrying embedded credentials are refused outright,
@@ -579,7 +586,7 @@ Two outbound paths were hardened on 2026-08-27 (GitHub issue #96, six critical
 **Known limits of the above.** The allow-list is enforced on the hostname and on
 the addresses that name resolves to at check time; `fetch` resolves the name
 again when it connects, so a determined DNS-rebinding attacker who already
-controls DNS for one of the two allow-listed CDNs is narrowed but not excluded.
+controls DNS for one of the three allow-listed hosts is narrowed but not excluded.
 Closing that needs a connector that validates the socket's peer address, which is
 a larger change and has not been made. Note also what the list does *not* do: it
 never enumerates blocked hosts. A source that has been ruled out is denied by the
@@ -1009,8 +1016,8 @@ hostile `code` property is a value, not a pattern.
 
 Addressed via version floors and within-major `pnpm` overrides (resolved
 versions in `pnpm-lock.yaml`): `sharp >= 0.35.4` (`sharp@0.35.4`), `hono >= 4.13.5`
-(`hono@4.13.7`), `qs >= 6.16.0` (`qs@6.16.0`), `fast-uri >= 3.1.6`
-(`fast-uri@3.1.7`). `hono` is explicit in `apps/mcp/package.json` because
+(`hono@4.13.9`), `qs >= 6.16.0` (`qs@6.16.0`), `fast-uri >= 3.1.6`
+(`fast-uri@3.1.8`). `hono` is explicit in `apps/mcp/package.json` because
 optional peer resolution otherwise retained the vulnerable version. The
 existing Dependabot batch plus the `sharp` and `github-script` updates are
 consolidated into this changeset. `actions/github-script` v7→v9 is an Actions
@@ -1053,7 +1060,9 @@ proxy is the sole ingress point.
 
 DeckPal's hosted tier asks each account what it would like to pay per month and
 accepts **$0** as a real answer. Nothing in the product is gated on the number:
-there is no entitlement column and no locked feature, which is worth stating in
+there is no entitlement column and no feature locked behind payment (the
+features still limited to staff or opted-in accounts are gated by role and
+opt-in, never by what anyone pays), which is worth stating in
 a security document because it means a forged "I am a supporter" claim would buy
 an attacker nothing at all.
 
@@ -1265,9 +1274,9 @@ The sweep in particular is the one place where a silent failure means money kept
 by mistake. It DOES log the message of an error that is not Stripe's,
 because the same funnel catches our own throws and reducing "no payment method
 on file for a one-time charge" to `type: unknown` hid the wiring failure it
-exists to expose. Keys are never logged, and `/health` reports only which of four configuration states the
-deployment is in (`configured` / `partial` / `unset` / `self-host`) plus the
-mode read off the key's prefix.
+exists to expose. Keys are never logged, and `/health` reports only which of five configuration states the
+deployment is in (`configured` / `mode-mismatch` / `partial` / `unset` /
+`self-host`) plus the mode read off the key's prefix.
 
 ## The privacy page (2026-09-27)
 
@@ -1384,9 +1393,13 @@ Only Owner may mutate user unlimited/nullable-markup revisions. Unlimited
 reserves zero credits explicitly without synthetic grants and retains debt,
 refund/dispute holds, access and operational budgets. New reservations cannot
 select revoked policy; legitimate reserved and bounded nested work use frozen
-snapshots. Flat quoted charges, idempotent pre-start refunds/recovery,
-nonnegative spendable balances, debt repayment and Stripe reconciliation
-remain unchanged. No automatic token-cost settlement exists.
+snapshots. Since migration 081 charges are metered, not flat: each paid reply
+holds whole credits before provider work, settles at the Gateway-reported cost
+plus markup (an operation with no reported cost is not charged), and returns the
+unused hold in the same transaction. A reply that costs more than the wallet
+holds still finishes, and DeckPal's overage buffer covers the difference rather
+than recording debt. Idempotent recovery of stale reservations, nonnegative
+spendable balances, debt repayment and Stripe reconciliation remain unchanged.
 
 Server usage accepts a durable request before invocation and writes distinct
 local provider-attempt rows. It stores allowlisted cost/token/build/status fields,
@@ -1400,6 +1413,9 @@ sets a synchronous invocation latch. A known cancellation or lost database
 acknowledgement before that call retains an exact-operation compensation path;
 it cannot refund completed/failed invocations or an earlier real retry attempt.
 
+Migration 078 retired the account-wide sharing switch described next: it turned
+it off for every account and deleted the excerpts it had collected, so this path
+stores no content now. Sharing is per chat (see "Deck-E improvement chats").
 Optional content is stored separately from metadata. Sharing defaults off;
 the first accepted exchange leg fixes consent epoch. Every administrative detail
 and conversation read requires active target, current enabled consent and that
