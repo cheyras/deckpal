@@ -1,6 +1,6 @@
 # Contributing to DeckPal
 
-Thanks for considering a contribution. DeckPal is an open-core TCG collection
+Thanks for considering a contribution. DeckPal is an open-source TCG collection
 platform licensed under AGPL-3.0. This guide covers the practical setup,
 conventions, and what a good PR looks like.
 
@@ -53,9 +53,13 @@ For the database itself, either works:
 
 - **Supabase CLI** (matches the cloud path — auth and RLS): `supabase init && supabase start`.
   The CLI prints the local URL, anon key, and service role key.
-- **Plain Postgres 15+** (simpler; the self-host path): a dedicated database and
-  role. The runner auto-skips migrations marked `-- @supabase-only` when
-  `SUPABASE_MODE` is unset. See [DEPLOYMENT.md](DEPLOYMENT.md).
+- **Plain Postgres 15+ with pgvector** (simpler; the self-host path): a
+  dedicated database and role, with the `vector` extension installable
+  (`postgresql-<major>-pgvector`; migration 051 needs it). The runner
+  auto-skips migrations marked `-- @supabase-only` when `SUPABASE_MODE` is
+  unset. See [DEPLOYMENT.md](DEPLOYMENT.md).
+
+You also need Node 20.19+ (or 22.12+, the range Vite 8 accepts) and pnpm 10.
 
 Point the dev server at any other deployment — a preview URL, a fork's — with
 `DECKPAL_DEV_ORIGIN=https://...`.
