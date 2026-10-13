@@ -45,6 +45,8 @@ BEGIN
  INSERT INTO deck_card (deck_id, card_id, card_variant_id, user_id, quantity) VALUES (deck_id, card_id, variant_id, a, 2);
  INSERT INTO deck_version (deck_id, version, format_code, cards, user_id) VALUES (deck_id, 1, 'standard', '[]', a);
  INSERT INTO battle_log (deck_id, deck_version, raw_log, user_id) VALUES (deck_id, 1, 'log', a);
+ INSERT INTO battle_log_bin (id, deck_id, user_id, deck_version, raw_log, origin, source, played_at, created_at)
+  VALUES (900001, deck_id, a, 1, 'deleted log', 'ptcgl', 'web', now(), now());
 
  INSERT INTO card_list (user_id, kind, name) VALUES (a, 'static', 'A binder') RETURNING id INTO list_id;
  INSERT INTO list_item (list_id, user_id, list_kind, position, card_variant_id, static_quantity)
