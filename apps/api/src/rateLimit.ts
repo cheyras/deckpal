@@ -25,9 +25,6 @@ interface Bucket {
 
 const MAX_KEYS = 10_000;
 
-/** The per-store key bound above, for tests and for sizing a limiter whose keys a caller chooses (see the OAuth section below). */
-export const RATE_LIMIT_MAX_KEYS = MAX_KEYS;
-
 export class RateLimitStore {
   private readonly buckets = new Map<string, Bucket>();
   private readonly sweepTimer: ReturnType<typeof setInterval>;
@@ -351,7 +348,7 @@ export const bugsRateLimit: RequestHandler = perUserRateLimit('bugs', 10, 60 * 6
  */
 export const simulateRateLimit: RequestHandler = perUserRateLimit('simulate', 6, 60_000);
 
-// ── The public OAuth endpoints (SEC-09; re-keyed 2026-10-12) ────────────────
+// ── The public OAuth endpoints (SEC-09; limits raised 2026-10-12) ───────────
 
 /**
  * The public half of the OAuth "Connect" flow: `/register`, `/token` and the
@@ -359,97 +356,53 @@ export const simulateRateLimit: RequestHandler = perUserRateLimit('simulate', 6,
  * the bare origin, ahead of the ordinary `/api` router, so none of the
  * limiters above ever see them.
  *
- * Until 2026-10-12 all four shared one limiter, 30 a minute per source IP.
- * That is the wrong key for the clients this flow exists for. claude.ai,
- * ChatGPT and every other hosted MCP connector do discovery, registration,
- * the code exchange and every refresh from the provider's own egress IPs,
- * shared by all of that provider's users, and an access token lasts an hour
- * (`ACCESS_TOKEN_TTL_SECONDS`, packages/db/src/grants.ts). Thirty refreshes a
- * minute from one IP is under two thousand connections; the next one was
- * refused, in DeckPal's `{"error":{"code":…}}` shape, which an OAuth client
- * cannot parse and so treats as a failed refresh: a disconnect.
+ * Each endpoint is limited per source IP (the validated platform IP on Vercel,
+ * the socket peer on self-host; see `resolveClientKey`) and on nothing else,
+ * checked first, before any body is read. Until 2026-10-12 the figure was 30 a
+ * minute, which hosted MCP connectors outgrow fast. claude.ai, ChatGPT and the
+ * rest do discovery, registration, the code exchange and every refresh from
+ * the provider's own egress IPs, and an access token lasts an hour
+ * (`ACCESS_TOKEN_TTL_SECONDS`, packages/db/src/grants.ts): thirty a minute is
+ * under two thousand connections refreshing through one IP. The next one was
+ * refused in DeckPal's `{"error":{"code":…}}` shape, which an OAuth client
+ * cannot parse, so it read as a failed refresh: a disconnect.
  *
- * The reasoning is apps/mcp/src/cloud.ts's (the comment above
- * `mcpPreResolveOk`), applied per endpoint:
+ * Why the IP, and no bucket shared between senders. A global ceiling is a
+ * bucket any one sender can empty for everybody, even with requests a later
+ * limiter refuses. A `client_id` is public, so a per-client budget is one
+ * anyone can empty for a named client without holding a grant. Both were
+ * tried for this fix and reproduced as lockouts in review (see
+ * decisions/2026/2026-10-12-oauth-endpoints-per-ip-rate-limits-sized-for-hosted-connectors-no-shared-bucket.md).
+ * A per-IP bucket fills only from the IP it belongs to, so the worst a flood
+ * can do is refuse itself. So the key stays and the room grows:
  *
- * - **`/token`**: a GLOBAL per-instance ceiling, checked before the body is
- *   read, then a budget per `client_id`. The client_id is not a credential
- *   (every client is public), so on its own it is a string an attacker can
- *   vary for free, which is how cloud.ts's first per-credential map was
- *   filled with garbage. The ceiling is what makes keying on it safe: a key
- *   is only created for a request the ceiling already admitted, so the
- *   per-client map holds at most two windows' worth of admissions, 2 × 3,000,
- *   in its own store with room for 10,000. Garbage can therefore never fill
- *   it, and since a full map refuses new keys rather than evicting live ones,
- *   it cannot push a real client's bucket out either. A request whose
- *   client_id is missing or is not the shape DeckPal issues (no such request
- *   can match a registered client) is keyed on its source IP, as the one
- *   identity it has, with the same per-client budget.
- * - **`/register`**: no client exists yet, so a global per-instance budget
- *   sized for real registration rates, behind a per-IP limit set four times
- *   the old one. The per-IP limit runs first, so one noisy source (a stuck
- *   client re-registering in a loop) is cut off before it spends the global
- *   budget everybody else registers from.
- * - **Discovery**: static JSON, no database. A refusal there costs the
- *   instance as much as an answer, so the limit protects nothing and exists
- *   only so no bare-origin route is unbounded. It is global and far above
- *   any real rate, never per IP, because a client that rediscovers before
- *   each refresh sends these from the same shared egress IPs.
+ * - `/token`: 600 a minute per IP. A connection refreshes about once an hour,
+ *   so that is 36,000 refreshes an hour through one egress IP: about 12,000
+ *   users behind it if the busiest minute is three times the average.
+ * - `/register`: 60 a minute per IP. A client registers once per connection,
+ *   not once per refresh.
+ * - Both discovery documents together: 1,200 a minute per IP, two for each
+ *   `/token` request, since a client may fetch both before every refresh.
+ *   Static JSON, no database work.
  *
- * Every refusal is an RFC 6749 §5.2 error body with `Retry-After`; see
- * `refuseOAuth`. All keys live in stores of their own, not the shared one, so
- * a flood on the `/api` router can never fill the map these need and the
- * reverse.
+ * Accepted limit: a flood spread across many IPs can still load the database
+ * through `/token` and `/register`, as it always could. There is deliberately
+ * no global ceiling to stop it, because a global ceiling is a lever any one
+ * sender can pull to refuse everybody else.
  *
- * Per-instance, like every limiter in this file: each serverless instance
- * counts for itself, so the real ceilings are N × these. Every figure below
- * is sized as if one instance served everything.
+ * Every refusal is an RFC 6749 §5.2 error body; see `refuseOAuth`. Each
+ * endpoint keeps its keys in a store of its own, so a flood of distinct
+ * addresses at one of them (or at the `/api` router) cannot fill the map
+ * another needs. Per-instance, like every limiter in this file: each
+ * serverless instance counts for itself, and the figures are sized as if one
+ * instance served everything.
  */
 export const OAUTH_LIMITS = {
   windowMs: 60_000,
-  /**
-   * Per client_id, per instance. A connection refreshes about once an hour,
-   * so 600 a minute is 36,000 refreshes an hour: about 12,000 users connected
-   * through one client_id, allowing the busiest minute three times the
-   * average. Twenty times the old per-IP figure.
-   */
-  tokenPerClient: 600,
-  /**
-   * Every `/token` request on the instance. Five busy clients' worth, 50 a
-   * second of short transactions on a 12-connection pool, and small enough
-   * that the per-client store stays under its 10,000 keys even counting
-   * expired keys not yet swept (3 × this; asserted in rateLimit.test.ts).
-   */
-  tokenGlobal: 3_000,
-  /** Per source IP, per instance: 7,200 connects an hour from one egress IP. */
-  registerPerIp: 120,
-  /**
-   * Every `/register` on the instance. Each one is a single `oauth_client`
-   * INSERT; 300 a minute is 18,000 an hour, room for thousands of people
-   * reconnecting at once, and still a bound on rows a flood can write.
-   */
-  registerGlobal: 300,
-  /**
-   * Both discovery documents together, per instance. A client may fetch both
-   * before every refresh; this is twice that for `tokenGlobal` refreshes a
-   * minute, so it is never the limit that binds first.
-   */
-  discoveryGlobal: 12_000,
+  tokenPerIp: 600,
+  registerPerIp: 60,
+  discoveryPerIp: 1_200,
 } as const;
-
-/**
- * The shape `generateClientId()` mints (packages/db/src/oauth.ts): `dscl_`
- * and 24 random bytes in base64url. Unchanged since the first OAuth release;
- * rateLimit.test.ts checks it against `registerClient`'s real output.
- */
-const OAUTH_CLIENT_ID_SHAPE = /^dscl_[A-Za-z0-9_-]{32}$/;
-
-/** The `/token` per-client key. Reads the parsed body, so it must run after the body parsers. */
-export function oauthTokenClientKey(req: Request): string {
-  const clientId = (req.body as Record<string, unknown> | undefined)?.client_id;
-  if (typeof clientId === 'string' && OAUTH_CLIENT_ID_SHAPE.test(clientId)) return 'client:' + clientId;
-  return 'ip:' + ipKeyGenerator(resolveClientKey(req), false);
-}
 
 /**
  * The 429 these endpoints answer: RFC 6749 §5.2's `{error, error_description}`
@@ -476,50 +429,34 @@ function refuseOAuth(res: Response, retryAfter: number): void {
   });
 }
 
-// Stores of their own (see above). Global keys: three, one per ceiling.
-// Client keys: bounded by `tokenGlobal`. Register IP keys: one per source.
-const oauthGlobalStore = new RateLimitStore();
-const oauthClientStore = new RateLimitStore();
-const oauthIpStore = new RateLimitStore();
+// One store per endpoint (see above). Keys are source IPs, bounded like every
+// RateLimitStore: a full map refuses new keys rather than evicting live ones.
+const oauthTokenStore = new RateLimitStore();
+const oauthRegisterStore = new RateLimitStore();
+const oauthDiscoveryStore = new RateLimitStore();
 
-const everyone = (): string => 'all';
 const sourceIp = (req: Request): string => ipKeyGenerator(resolveClientKey(req), false);
 
-/** Both `.well-known` documents: one global ceiling per instance, no per-IP rule. */
-export const oauthDiscoveryRateLimit: RequestHandler = rateLimit(
-  boundedOptions('oauth-discovery', OAUTH_LIMITS.discoveryGlobal, OAUTH_LIMITS.windowMs, everyone, { backend: oauthGlobalStore, refuse: refuseOAuth }),
-);
-
-/** `/register`, first: per source IP, so one source cannot spend the global budget below. */
-export const oauthRegisterIpRateLimit: RequestHandler = rateLimit(
-  boundedOptions('oauth-register-ip', OAUTH_LIMITS.registerPerIp, OAUTH_LIMITS.windowMs, sourceIp, { backend: oauthIpStore, refuse: refuseOAuth }),
-);
-
-/** `/register`, second: the instance's global registration budget. */
-export const oauthRegisterRateLimit: RequestHandler = rateLimit(
-  boundedOptions('oauth-register', OAUTH_LIMITS.registerGlobal, OAUTH_LIMITS.windowMs, everyone, { backend: oauthGlobalStore, refuse: refuseOAuth }),
-);
-
-/** `/token`, first, before the body is read: the instance's global ceiling. */
+/** `/token`: per source IP, first, before the body is read. */
 export const oauthTokenRateLimit: RequestHandler = rateLimit(
-  boundedOptions('oauth-token', OAUTH_LIMITS.tokenGlobal, OAUTH_LIMITS.windowMs, everyone, { backend: oauthGlobalStore, refuse: refuseOAuth }),
+  boundedOptions('oauth-token', OAUTH_LIMITS.tokenPerIp, OAUTH_LIMITS.windowMs, sourceIp, { backend: oauthTokenStore, refuse: refuseOAuth }),
 );
 
-/** `/token`, after the body parsers and before any database work: the per-client_id budget. */
-export const oauthTokenClientRateLimit: RequestHandler = rateLimit(
-  boundedOptions('oauth-token-client', OAUTH_LIMITS.tokenPerClient, OAUTH_LIMITS.windowMs, oauthTokenClientKey, { backend: oauthClientStore, refuse: refuseOAuth }),
+/** `/register`: per source IP, first, before the body is read. */
+export const oauthRegisterRateLimit: RequestHandler = rateLimit(
+  boundedOptions('oauth-register', OAUTH_LIMITS.registerPerIp, OAUTH_LIMITS.windowMs, sourceIp, { backend: oauthRegisterStore, refuse: refuseOAuth }),
+);
+
+/** Both `.well-known` documents, one bucket per source IP between them. */
+export const oauthDiscoveryRateLimit: RequestHandler = rateLimit(
+  boundedOptions('oauth-discovery', OAUTH_LIMITS.discoveryPerIp, OAUTH_LIMITS.windowMs, sourceIp, { backend: oauthDiscoveryStore, refuse: refuseOAuth }),
 );
 
 /** Test seam: empties every OAuth store so cases don't leak into each other. */
 export function __resetOAuthRateLimitsForTests(): void {
-  oauthGlobalStore.clear();
-  oauthClientStore.clear();
-  oauthIpStore.clear();
-}
-
-/** Test seam: how many keys the `/token` per-client store holds. */
-export function __oauthClientKeyCountForTests(): number {
-  return oauthClientStore.size;
+  oauthTokenStore.clear();
+  oauthRegisterStore.clear();
+  oauthDiscoveryStore.clear();
 }
 
 /**

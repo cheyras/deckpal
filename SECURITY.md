@@ -698,7 +698,7 @@ stays at its default **false** (not loopback), and no new production env
 variable is required — the existing `VERCEL` is platform-provided, not user
 input. The Stripe raw-body webhook is mounted separately on `app` ahead of
 that router and is outside this guard, as is the bare-origin OAuth discovery /
-`/register` / `/token` handlers — **which now carry their own limiters, below**
+`/register` / `/token` handlers — **which now carry their own limiter, below**
 — and the MCP transport at `/mcp`, a separate function (`api/mcp.mjs`, **also
 now its own limiter, below**).
 
@@ -715,31 +715,26 @@ boundary. Active-account and action/SQL permission checks still follow RLS.
 a report; self-host's resolved local identity must too), only identity — see
 "Bug/feature reports are keyed per account" below for why it moved off `req.ip`.
 
-**The public OAuth "Connect" endpoints (SEC-09; re-keyed 2026-10-12).**
+**The public OAuth "Connect" endpoints (SEC-09; limits raised 2026-10-12).**
 `/register`, `/token` and the two `/.well-known/oauth-*` discovery documents
 are mounted at the bare origin, ahead of the base-path router above, so none
 of its limiters ever run for them — `POST /register` in particular was an
 unauthenticated `oauth_client` INSERT with **no rate limit anywhere upstream
-of it** until SEC-09. Each route now carries its own limiters
-(`apps/api/src/rateLimit.ts`, `OAUTH_LIMITS`), and **none is keyed on the
-source IP alone**:
+of it** until SEC-09. Each route carries its own limiter
+(`apps/api/src/rateLimit.ts`, `OAUTH_LIMITS`), keyed on the **source IP and
+nothing else** (resolved the same way as the ingress guard's: validated
+platform IP on Vercel, raw socket peer on self-host), and checked first,
+before any body is read:
 
-- **`/token`:** a global ceiling of **3,000 requests/minute per instance**,
-  checked before the body is read, then **600/minute per `client_id`**,
-  checked after the body parsers and before any database work. A request
-  whose `client_id` is missing or is not the shape DeckPal issues (`dscl_` +
-  32 base64url characters — no such request can match a registered client)
-  is keyed on its source IP, at the same 600. A connection refreshes about
-  once an hour, so 600 a minute is about 12,000 users connected through one
-  client on one instance, allowing the busiest minute three times the
+- **`/token`: 600 requests/minute per IP.** A connection refreshes about once
+  an hour, so that is 36,000 refreshes an hour through one egress IP: about
+  12,000 users behind it, allowing the busiest minute three times the
   average.
-- **`/register`:** **120/minute per source IP**, then **300/minute per
-  instance**. The per-IP check runs first, so one noisy source (a client
-  stuck re-registering) is cut off before it spends the budget everyone else
-  registers from.
-- **Discovery:** **12,000/minute per instance**, shared by both documents,
-  with no per-IP rule. They are static JSON; a refusal costs as much as an
-  answer, so this exists only so no bare-origin route is unbounded.
+- **`/register`: 60/minute per IP.** A client registers once per connection,
+  not once per refresh.
+- **Discovery: 1,200/minute per IP**, one bucket for both documents: two for
+  each `/token` request, since a client may fetch both before every refresh.
+  Static JSON, no database work.
 
 Refusals are `429` with `Retry-After` and `Cache-Control: no-store`, and an
 RFC 6749 §5.2 body, `{"error":"temporarily_unavailable","error_description":"…"}`,
@@ -750,31 +745,38 @@ no rate-limit code) and the one `/token` already uses for its own 503. Above
 all it is not `invalid_grant` or `invalid_client`, which tell a client to
 throw its tokens away.
 
-**Why not the IP.** The SEC-09 version keyed all four routes on the source IP
-at 30/minute. Hosted MCP connectors (claude.ai, ChatGPT) do discovery,
-registration, the code exchange and every hourly refresh from the provider's
-own egress IPs, shared by all of its users, so a few dozen of them refreshing
-in the same minute used up the bucket for every one of them, and the refusal
-reached the client as a failed refresh: a disconnect. It is the reasoning
-`/mcp`'s limiters below already follow.
+**Why these numbers.** Until 2026-10-12 all four routes shared 30/minute per
+IP. Hosted MCP connectors (claude.ai, ChatGPT) do discovery, registration,
+the code exchange and every hourly refresh from the provider's own egress
+IPs, so a few dozen of their users refreshing in the same minute used up the
+bucket for all of them, and the refusal, in DeckPal's own error shape,
+reached the client as a failed refresh: a disconnect. 600 a minute per IP is
+far beyond DeckPal's current scale, and providers are expected to send from
+pools of egress IPs, which multiplies it again.
 
-**Why keying on `client_id` is safe.** A `client_id` is public, not a
-credential (every client is public), so on its own it is a string anyone can
-vary for free, which is exactly how `/mcp`'s first per-credential map was
-filled with garbage (below). The difference here is the order: a per-client
-key is only created for a request the global ceiling already admitted, so the
-per-client store (its own, 10,000 keys) holds at most two windows'
-admissions. A garbage flood cannot fill it, and a full store refuses new keys
-rather than evicting live ones, so garbage cannot push a real client's bucket
-out either. `rateLimit.test.ts` runs a ten-minute simulated flood at four
-times the ceiling and checks that no key is ever refused for lack of room,
-with the same flood minus the ceiling as the failing control. The limits
-remain: someone who knows a client's id can spend that client's 600, and
-anyone can spend the global ceiling. These bound floods and keep one client
-from crowding out another; they are not an authentication boundary.
+**Why still the IP, with no global or per-client budget.** The first version
+of this fix (never merged) gave `/token` a global ceiling of 3,000/minute per
+instance plus 600/minute per `client_id`, and `/register` a global budget
+behind its per-IP one. Review reproduced two lockouts against the real route.
+The global counter was spent by requests the per-client limiter then
+refused, so 3,000 unsupported-grant requests from one IP made `/token`
+refuse an unrelated client on another IP. And a `client_id` is public, so
+anyone could drain a named client's budget without holding any grant, after
+which that client was refused from every IP. Any bucket an outsider can fill
+lets one party lock out others, which the old 30/minute per-IP limit never
+did. A per-IP bucket fills only from its own IP, so a flood refuses only
+itself: `rateLimit.test.ts` sends 3,000 such requests from one IP, naming
+another client's id throughout, and checks that client, on its own IP, never
+sees a 429.
 
-The OAuth limiters keep their keys in stores of their own, so a flood on the
-base-path router cannot fill the maps they need, and the reverse.
+**Accepted limit.** A flood spread across many IPs can still load the
+database through `/token` and `/register`, as it always could. There is
+deliberately no global ceiling to stop it, because a global ceiling is a
+lever any one sender can pull to refuse everybody else. Per-instance, like
+every limiter here. Each endpoint keeps its keys in a store of its own
+(bounded at 10,000 like every other), so a flood of distinct addresses at one
+cannot fill the map another needs, and a flood on the base-path router cannot
+fill any of them.
 
 **MCP (SEC-09).** `/mcp` (`apps/mcp/src/cloud.ts`) now carries two limiters,
 for two different threats:
@@ -801,14 +803,12 @@ for two different threats:
 A request with no credential at all is already the cheapest path in that
 handler (an immediate 401, no DB) and is metered by neither layer.
 
-**Why the credential, not the IP, for the per-token layer.** The
-pre-authentication limiters in this file mostly key on the caller's IP
-because that is the identity available before authentication. `/mcp`'s
-fairness layer is where that reasoning breaks first (the public OAuth
-endpoints above are the other place, since 2026-10-12): claude.ai (and every
-other hosted MCP connector) makes its calls from that provider's own shared
-egress IPs, common to every one of that provider's users. An IP-keyed limit
-there would let one heavy user on a
+**Why the credential, not the IP, for the per-token layer.** Every other
+limiter in this file keys on the caller's IP because that is the identity
+available before authentication. `/mcp`'s fairness layer is the one place
+that reasoning breaks: claude.ai (and every other hosted MCP connector) makes
+its calls from that provider's own shared egress IPs, common to every one of
+that provider's users. An IP-keyed limit there would let one heavy user on a
 shared connector exhaust the bucket for every other user behind the same
 egress IP — silencing a stranger's MCP access because of a heavy neighbor,
 the exact class of bug SEC-11 fixes for `/bugs` below, one hop upstream.

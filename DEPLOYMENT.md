@@ -387,13 +387,14 @@ order attempts per user/hour are unchanged.
 **The Stripe raw-body webhook** is still mounted separately on `app` ahead of
 that router and is outside this guard (unchanged). **The bare-origin OAuth
 discovery / `/register` / `/token` handlers** are also still mounted
-separately on `app` ahead of that router, each with its own limiters, none
-keyed on the source IP alone (since 2026-10-12; the earlier 30 requests/min
-per source IP refused hosted connectors such as claude.ai, whose users all
-refresh from shared egress IPs). `/token`: 3,000/min per instance, checked
-before the body is read, then 600/min per `client_id` (about 12,000 connected
-users per client per instance, refreshing hourly). `/register`: 120/min per
-source IP, then 300/min per instance. Discovery: 12,000/min per instance.
+separately on `app` ahead of that router, each with its own limiter, keyed
+on the source IP only and checked first, before any body parsing: `/token`
+600 requests/min per IP (about 12,000 users refreshing hourly behind one
+egress IP), `/register` 60/min per IP, and both discovery documents 1,200/min
+per IP between them. These were 30/min per IP until 2026-10-12, which refused
+hosted connectors such as claude.ai, whose users all refresh from the
+provider's egress IPs. There is deliberately no global or per-`client_id`
+budget, because either is a bucket one sender can empty for everybody else.
 Refusals are `429` + `Retry-After` with an OAuth-shaped body
 (`{"error":"temporarily_unavailable",…}`); SECURITY.md → Rate limiting has
 the reasoning. No env variable. **The MCP transport at

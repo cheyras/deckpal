@@ -210,8 +210,8 @@ export function createApp(): express.Express {
   // concept of (SPEC.md §3b). Each of its four routes carries its own
   // limiters (SEC-09): they sit ahead of preAuthFloodGuard too, so without
   // them an unauthenticated `POST /register` — a bare `oauth_client` INSERT —
-  // had none at all. They are keyed per client_id and per instance, not per
-  // source IP (2026-10-12; rateLimit.ts's OAuth section).
+  // had none at all. Per source IP, sized since 2026-10-12 for hosted
+  // connectors' shared egress IPs (rateLimit.ts's OAuth section).
   if (SUPABASE_MODE) {
     mountOAuthServer(app);
     // The search-engine sitemaps, also at the bare origin and also cloud-only:

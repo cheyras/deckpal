@@ -235,22 +235,24 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
     (cloud-only, `apps/api/src/oauthServer.ts`), still mounted on `app` ahead
     of the base-path router. `POST /register` in particular is an
     unauthenticated `oauth_client` INSERT and had no limiter anywhere upstream
-    of it before SEC-09. Since 2026-10-12 none of their limiters
-    (`apps/api/src/rateLimit.ts`, `OAUTH_LIMITS`) is keyed on the source IP
-    alone, for the same reason as `mcpRateOk`: a hosted connector sends every
-    user's discovery, registration and hourly refresh from shared egress IPs,
-    and the earlier 30 req/min per source IP refused them all at once.
-    - `/token`: 3,000 req/min per instance, checked before the body is read,
-      then 600 req/min per `client_id`, checked after the body parsers and
-      before any database work. A missing or malformed `client_id` (not
-      `dscl_` + 32 base64url characters) is keyed on the source IP at the same
-      600. Keying on the unverified `client_id` is safe because a key is only
-      created for a request the global ceiling admitted, so garbage cannot fill
-      the per-client map (the failure `mcpPreResolveOk`'s history describes).
-    - `/register`: 120 req/min per source IP, checked first, then 300 req/min
-      per instance.
-    - Both `.well-known` documents: 12,000 req/min per instance, no per-IP
-      rule.
+    of it before SEC-09. Each route carries one limiter
+    (`apps/api/src/rateLimit.ts`, `OAUTH_LIMITS`), keyed on the source IP
+    only and checked first, before any body parsing. Until 2026-10-12 it was
+    30 req/min per IP, which refused hosted connectors: they send every user's
+    discovery, registration and hourly refresh from the provider's egress IPs.
+    - `/token`: 600 req/min per IP, about 12,000 users refreshing hourly
+      behind one egress IP.
+    - `/register`: 60 req/min per IP.
+    - Both `.well-known` documents: 1,200 req/min per IP between them, two per
+      `/token` request.
+
+    There is deliberately no global or per-`client_id` budget. Unlike
+    `mcpRateOk`'s `tokenId`, a `client_id` is public and no grant is needed to
+    send one, so a per-client budget is one anyone can drain for a named
+    client; and a global one is spent by any single sender for everybody.
+    Both were tried for this fix and reproduced as cross-client lockouts in
+    review. A per-IP bucket fills only from its own IP. A flood spread across
+    many IPs can still load the database, as it always could.
 
     A refusal is `429`, `Retry-After`, `Cache-Control: no-store` and an
     RFC 6749 §5.2 body, `{"error":"temporarily_unavailable","error_description":"…"}`,

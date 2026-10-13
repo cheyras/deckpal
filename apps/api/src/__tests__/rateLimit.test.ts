@@ -1,12 +1,11 @@
 import { describe, it, before, after, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import {
   RateLimitStore, preAuthRateLimit, perUserRateLimit, adminRateLimit, creditWalletRateLimit, preAuthFloodGuard, BoundedExpressStore, bugsRateLimit,
-  OAUTH_LIMITS, RATE_LIMIT_MAX_KEYS, oauthDiscoveryRateLimit, oauthRegisterIpRateLimit, oauthRegisterRateLimit, oauthTokenRateLimit,
-  oauthTokenClientRateLimit, oauthTokenClientKey, __resetOAuthRateLimitsForTests, __oauthClientKeyCountForTests,
+  OAUTH_LIMITS, __resetOAuthRateLimitsForTests,
 } from '../rateLimit.js';
 import type { Request, Response, RequestHandler } from 'express';
 
@@ -871,25 +870,24 @@ describe('production ingress and session limits over real HTTP', () => {
     );
   });
 
-  it('SEC-09: the public OAuth routes carry their limiters in order, global ceilings before any body is read', () => {
+  it('SEC-09: each public OAuth route carries one per-IP limiter, first, before any body parser', () => {
     const source = readFileSync(new URL('../oauthServer.ts', import.meta.url), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
     for (const pattern of [
       /app\.get\(\s*'\/\.well-known\/oauth-authorization-server'\s*,\s*oauthDiscoveryRateLimit\s*,\s*\(/,
       /app\.get\(\s*'\/\.well-known\/oauth-protected-resource'\s*,\s*oauthDiscoveryRateLimit\s*,\s*\(/,
-      // Per-IP before the global budget, so one source's refusals never spend it; both before the parser.
-      /app\.post\(\s*'\/register'\s*,\s*oauthRegisterIpRateLimit\s*,\s*oauthRegisterRateLimit\s*,\s*express\.json\(/,
-      // Global ceiling before the parsers; the per-client budget after them (it reads client_id) and before the handler.
-      /app\.post\(\s*'\/token'\s*,\s*oauthTokenRateLimit\s*,\s*express\.urlencoded\([^)]*\)\s*,\s*express\.json\([^)]*\)\s*,\s*oauthTokenClientRateLimit\s*,\s*\(/,
+      /app\.post\(\s*'\/register'\s*,\s*oauthRegisterRateLimit\s*,\s*express\.json\(\{[^}]*\}\)\s*,\s*\(/,
+      /app\.post\(\s*'\/token'\s*,\s*oauthTokenRateLimit\s*,\s*express\.urlencoded\([^)]*\)\s*,\s*express\.json\([^)]*\)\s*,\s*\(/,
     ]) {
-      assert.ok(pattern.test(source), `expected the OAuth limiters mounted in order: ${pattern}`);
+      assert.ok(pattern.test(source), `expected the OAuth limiter first, then the parsers, then the handler: ${pattern}`);
     }
-    // The old IP-only limiter must not come back on any route.
-    const sources = readdirSync(new URL('..', import.meta.url), { recursive: true, withFileTypes: true })
-      .filter((entry) => entry.isFile() && entry.name.endsWith('.ts') && !entry.parentPath.includes('__tests__'))
-      .map((entry) => readFileSync(entry.parentPath + '/' + entry.name, 'utf8'));
-    assert.ok(sources.length > 10);
-    assert.ok(sources.every((text) => !text.includes('oauthPublicRateLimit')), 'oauthPublicRateLimit (30/min per IP) is gone');
+    // Nothing else from rateLimit.ts: no global or per-client_id bucket, which one sender could empty for others.
+    assert.match(source, /import \{ oauthDiscoveryRateLimit, oauthRegisterRateLimit, oauthTokenRateLimit \} from '\.\/rateLimit\.js';/);
+    const limiters = readFileSync(new URL('../rateLimit.ts', import.meta.url), 'utf8');
+    for (const name of ['oauthTokenRateLimit', 'oauthRegisterRateLimit', 'oauthDiscoveryRateLimit']) {
+      assert.match(limiters, new RegExp(`export const ${name}: RequestHandler = rateLimit\\(\\s*boundedOptions\\('[a-z-]+', OAUTH_LIMITS\\.\\w+PerIp, OAUTH_LIMITS\\.windowMs, sourceIp,`),
+        `${name} is a genuine express-rate-limit keyed on the source IP`);
+    }
   });
 });
 
@@ -953,23 +951,22 @@ describe('bugsRateLimit (SEC-11)', () => {
   });
 });
 
-// ── The public OAuth routes: per client_id and per instance, not per IP ─────
+// ── The public OAuth routes: per source IP, and no bucket shared between senders ──
 //
-// Until 2026-10-12 all four routes shared one 30-a-minute-per-source-IP
-// limiter, and hosted connectors (claude.ai, ChatGPT) send every user's
-// discovery, registration and hourly refresh from shared egress IPs. These
-// run the real exported middleware, in oauthServer.ts's order, at the real
-// numbers in OAUTH_LIMITS.
+// Until 2026-10-12 these were 30 a minute per source IP, which refused hosted
+// connectors (claude.ai, ChatGPT) that send many users' refreshes from one
+// egress IP. The first fix added a global ceiling and a per-client_id budget;
+// review reproduced both as ways for one sender to lock out others. These run
+// against the REAL routes (mountOAuthServer), using only requests the handlers
+// answer without a database, at the real numbers in OAUTH_LIMITS.
 
-describe('OAuth endpoint limits (per client_id and per instance, never per IP alone)', () => {
+describe('OAuth endpoint limits (per source IP, no bucket one sender can empty for another)', () => {
   const savedVercel = process.env.VERCEL;
   let server: http.Server, origin: string;
-  const reached = { token: 0, register: 0, discovery: 0 };
   let ipSequence = 0;
   // 198.18.0.0/15 is reserved for benchmarking: no real client, room for 131,072 addresses.
   const freshIp = () => { const n = ++ipSequence; return `198.${18 + (n >> 16)}.${(n >> 8) & 255}.${n & 255}`; };
   const freshClientId = () => 'dscl_' + randomBytes(24).toString('base64url');
-  const SHARED_EGRESS = '192.0.2.10'; // one hosted connector's egress IP, shared by all its users
 
   type Sent = { status: number; headers: Headers; body: string };
   const send = async (path: string, init: RequestInit = {}): Promise<Sent> => {
@@ -978,15 +975,16 @@ describe('OAuth endpoint limits (per client_id and per instance, never per IP al
   };
   const postToken = (ip: string, body: string, type = 'application/x-www-form-urlencoded') =>
     send('/token', { method: 'POST', headers: { 'x-vercel-forwarded-for': ip, 'content-type': type }, body });
-  const refresh = (clientId: string | undefined, ip: string, as: 'form' | 'json' = 'form') => {
-    const fields: Record<string, string> = { grant_type: 'refresh_token', refresh_token: 'dsr_fixture' };
-    if (clientId !== undefined) fields.client_id = clientId;
-    return as === 'form' ? postToken(ip, new URLSearchParams(fields).toString()) : postToken(ip, JSON.stringify(fields), 'application/json');
-  };
+  /** A /token request the real handler refuses with a 400 before any database work. */
+  const token = (ip: string, fields: Record<string, string>, as: 'form' | 'json' = 'form') =>
+    as === 'form' ? postToken(ip, new URLSearchParams(fields).toString()) : postToken(ip, JSON.stringify(fields), 'application/json');
+  const unsupportedGrant = (ip: string, clientId: string) => token(ip, { grant_type: 'client_credentials', client_id: clientId });
+  /** An authorization_code exchange with no code_verifier: invalid_request, no database. */
+  const incompleteExchange = (ip: string, clientId: string) =>
+    token(ip, { grant_type: 'authorization_code', code: 'dsac_x', redirect_uri: 'https://claude.ai/api/mcp/auth_callback', client_id: clientId });
+  /** No redirect_uris: registerClient refuses it before its INSERT. */
   const register = (ip: string) => send('/register', {
-    method: 'POST',
-    headers: { 'x-vercel-forwarded-for': ip, 'content-type': 'application/json' },
-    body: JSON.stringify({ client_name: 'fixture', redirect_uris: ['https://claude.ai/api/mcp/auth_callback'] }),
+    method: 'POST', headers: { 'x-vercel-forwarded-for': ip, 'content-type': 'application/json' }, body: '{"client_name":"fixture"}',
   });
   const discover = (ip: string, n = 0) =>
     send(n % 2 ? '/.well-known/oauth-protected-resource' : '/.well-known/oauth-authorization-server', { headers: { 'x-vercel-forwarded-for': ip } });
@@ -1015,19 +1013,18 @@ describe('OAuth endpoint limits (per client_id and per instance, never per IP al
     // §5.2 allows %x20-21 / %x23-5B / %x5D-7E: printable ASCII without `"` or `\`.
     assert.match(String(body.error_description), /^[\x20\x21\x23-\x5B\x5D-\x7E]+$/);
   }
+  /** Reached the real handler: refused there, for its own reason, not by a limiter. */
+  function assertHandled(res: Sent, status: number, error: string): void {
+    assert.equal(res.status, status, res.body);
+    assert.equal((JSON.parse(res.body) as { error?: unknown }).error, error);
+  }
 
   before(async () => {
     process.env.VERCEL = '1';
     const express = (await import('express')).default;
+    const { mountOAuthServer } = await import('../oauthServer.js');
     const app = express();
-    // The exported middleware in oauthServer.ts's order; the source-order test above binds the two.
-    const discovered: RequestHandler = (_req, res) => { reached.discovery++; res.json({ issuer: 'fixture' }); };
-    app.get('/.well-known/oauth-authorization-server', oauthDiscoveryRateLimit, discovered);
-    app.get('/.well-known/oauth-protected-resource', oauthDiscoveryRateLimit, discovered);
-    app.post('/register', oauthRegisterIpRateLimit, oauthRegisterRateLimit, express.json({ limit: '16kb' }),
-      (_req, res) => { reached.register++; res.status(201).json({ ok: true }); });
-    app.post('/token', oauthTokenRateLimit, express.urlencoded({ extended: false, limit: '16kb' }), express.json({ limit: '16kb' }), oauthTokenClientRateLimit,
-      (_req, res) => { reached.token++; res.json({ ok: true }); });
+    mountOAuthServer(app);
     server = await new Promise<http.Server>((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
     origin = 'http://127.0.0.1:' + (server.address() as { port: number }).port;
   });
@@ -1039,123 +1036,72 @@ describe('OAuth endpoint limits (per client_id and per instance, never per IP al
     if (savedVercel === undefined) delete process.env.VERCEL; else process.env.VERCEL = savedVercel;
   });
 
-  beforeEach(() => {
-    __resetOAuthRateLimitsForTests();
-    reached.token = 0; reached.register = 0; reached.discovery = 0;
-  });
+  beforeEach(() => __resetOAuthRateLimitsForTests());
 
-  it('keys every client_id registerClient mints as that client, and anything else by its source IP', async () => {
-    const { registerClient } = await import('@deckpal/db');
-    const db = {
-      query: async (_sql: string, params: unknown[]) => ({ rows: [{ client_id: params[0], client_name: params[1], redirect_uris: params[2], created_at: new Date(0).toISOString() }] }),
-    };
-    const as = (body: unknown, ip = '192.0.2.99') => ({ body, headers: { 'x-vercel-forwarded-for': ip }, ip: '127.0.0.1', socket: {} }) as unknown as Request;
-    for (let n = 0; n < 500; n++) {
-      const { clientId } = await registerClient(db as never, { redirectUris: ['https://claude.ai/api/mcp/auth_callback'] });
-      assert.equal(oauthTokenClientKey(as({ client_id: clientId })), 'client:' + clientId, clientId);
-    }
-    // None of these can match a registered client, so they have no client identity to key on.
-    for (const body of [undefined, {}, { client_id: '' }, { client_id: 'dscl_short' }, { client_id: 42 }, { client_id: ['dscl_' + 'A'.repeat(32)] },
-      { client_id: 'dscl_' + 'A'.repeat(32) + '\n' }, { client_id: 'dscl_' + 'A'.repeat(10_000) }]) {
-      assert.equal(oauthTokenClientKey(as(body)), 'ip:192.0.2.99', JSON.stringify(body)?.slice(0, 60));
-    }
-  });
-
-  it('/token: one source IP sending many client_ids is not refused by any per-IP rule', async () => {
-    // A hosted connector: a thousand users' refreshes from one egress IP. The
-    // old limiter refused the 31st; preAuthFloodGuard would refuse the 601st.
-    const statuses = await burst(1_000, () => refresh(freshClientId(), SHARED_EGRESS));
-    assert.equal(count(statuses, 200), 1_000);
-    assert.equal(reached.token, 1_000);
-  });
-
-  it('/token: one client_id past its budget is refused with Retry-After and an RFC 6749 body; other clients are not', async () => {
-    const busy = freshClientId();
-    // From a different IP every time: the budget follows the client, not the address.
-    assert.equal(count(await burst(OAUTH_LIMITS.tokenPerClient, () => refresh(busy, freshIp())), 200), OAUTH_LIMITS.tokenPerClient);
-    assertOAuthRefusal(await refresh(busy, freshIp()));
-    assertOAuthRefusal(await refresh(busy, SHARED_EGRESS, 'json')); // a JSON body is keyed the same way
-    assert.equal(reached.token, OAUTH_LIMITS.tokenPerClient, 'refused requests never reached the handler');
-    assert.equal((await refresh(freshClientId(), SHARED_EGRESS)).status, 200, 'another client, same IP, is untouched');
-  });
-
-  it('/token: garbage client_ids cannot push a real client\'s bucket out, reset it, or become keys of their own size', async () => {
-    const real = freshClientId();
-    const used = OAUTH_LIMITS.tokenPerClient - 10;
-    assert.equal(count(await burst(used, () => refresh(real, SHARED_EGRESS)), 200), used);
-    const malformed = ['', 'dscl_short', 'not-a-client', 'dscl_' + '!'.repeat(32), 'dscl_' + 'A'.repeat(10_000)];
-    const flood = await burst(2_000, (i) => {
-      if (i < 1_500) return refresh(freshClientId(), i % 2 ? SHARED_EGRESS : freshIp()); // well-formed, never registered
-      if (i < 1_900) return refresh(malformed[i % malformed.length], '192.0.2.66');
-      if (i < 1_950) return postToken('192.0.2.67', JSON.stringify({ grant_type: 'refresh_token', refresh_token: 'x', client_id: [real] }), 'application/json');
-      return refresh(undefined, '192.0.2.68');
+  it('a flood from one IP, naming another client and sending garbage, never gets a 429 for a client on another IP', async () => {
+    // Review's reproduction of the first fix: 3,000 requests from one sender
+    // (unsupported grants, garbage client_ids) emptied a shared /token budget,
+    // and naming a real client's public client_id emptied that client's. Here
+    // the sender names client B's id throughout and only ever refuses itself.
+    const attacker = freshIp(), victimIp = freshIp(), victim = freshClientId();
+    const flood = await burst(3_000, (i) => {
+      if (i < 3) return postToken(attacker, '{not json', 'application/json'); // 400 from the parser while under budget
+      if (i % 3 === 0) return unsupportedGrant(attacker, victim);
+      if (i % 3 === 1) return incompleteExchange(attacker, victim);
+      return unsupportedGrant(attacker, 'dscl_' + 'A'.repeat(10_000)); // garbage client_id
     });
-    assert.equal(count(flood, 200), 2_000, 'inside the global ceiling, so all of it was admitted');
-    // The real client's bucket kept its count through all of that: exactly 10 left.
-    assert.equal(count(await burst(10, () => refresh(real, freshIp())), 200), 10);
-    assertOAuthRefusal(await refresh(real, freshIp()));
-    // One key per admitted well-formed id, one per source IP for the rest; a 10 KB id was never a key.
-    assert.equal(__oauthClientKeyCountForTests(), 1 + 1_500 + 3);
-    assert.equal((await refresh(freshClientId(), freshIp())).status, 200, 'a client never seen before is still admitted');
+    assert.equal(count(flood, 429), 3_000 - OAUTH_LIMITS.tokenPerIp, 'the sender refused itself');
+    assert.equal(count(flood, 400), OAUTH_LIMITS.tokenPerIp);
+    // Client B, on its own IP, still has its whole budget.
+    const fromVictim = await burst(OAUTH_LIMITS.tokenPerIp, (i) => (i % 2 ? unsupportedGrant(victimIp, victim) : incompleteExchange(victimIp, victim)));
+    assert.equal(count(fromVictim, 429), 0);
+    assertHandled(await unsupportedGrant(freshIp(), victim), 400, 'unsupported_grant_type');
+    assertHandled(await incompleteExchange(freshIp(), victim), 400, 'invalid_request');
+
+    // The same for /register and discovery: one sender's flood is its own problem.
+    const registrations = await burst(OAUTH_LIMITS.registerPerIp + 100, () => register(attacker));
+    assert.equal(count(registrations, 400), OAUTH_LIMITS.registerPerIp);
+    assert.equal(count(registrations, 429), 100);
+    assertHandled(await register(victimIp), 400, 'invalid_client_metadata');
+    const discovery = await burst(OAUTH_LIMITS.discoveryPerIp + 100, (i) => discover(attacker, i), 64);
+    assert.equal(count(discovery, 200), OAUTH_LIMITS.discoveryPerIp);
+    assert.equal(count(discovery, 429), 100);
+    assert.equal((await discover(victimIp, 0)).status, 200);
+    assert.equal((await discover(victimIp, 1)).status, 200);
   });
 
-  it('/token: behind the global ceiling a garbage flood can never fill the per-client map (simulated, 10 minutes)', () => {
-    const { windowMs, tokenGlobal, tokenPerClient } = OAUTH_LIMITS;
-    // The invariant tokenGlobal is sized for. A per-client key is only created
-    // for a request the ceiling admitted, so at most two windows' worth are
-    // live, and three counting expired keys a sweep has not yet removed.
-    assert.ok(3 * tokenGlobal < RATE_LIMIT_MAX_KEYS);
-    const flood = (gated: boolean) => {
-      // Long timer: only the store's own at-capacity sweep runs, on simulated time.
-      const global = new RateLimitStore(24 * 3_600_000), clients = new RateLimitStore(24 * 3_600_000);
-      let refusedNewKeys = 0, n = 0;
-      try {
-        for (let now = 1_000_000; now < 1_000_000 + 10 * windowMs; now += 5) { // 12,000 a minute, 4x the ceiling
-          if (gated && global.check('oauth-token:all', tokenGlobal, windowMs, now) > 0) continue;
-          if (clients.check('client:garbage-' + n++, tokenPerClient, windowMs, now) > 0) refusedNewKeys++;
-        }
-      } finally { global.destroy(); clients.destroy(); }
-      return refusedNewKeys;
-    };
-    assert.equal(flood(true), 0, 'every admitted key found room: the map never filled');
-    // Control: without the ceiling in front, the same flood fills the map and it
-    // refuses keys it has never seen, which is the failure cloud.ts documents.
-    assert.ok(flood(false) > 0);
+  it('/token: one IP is refused on request 601, whatever client_ids it sends', async () => {
+    const ip = freshIp();
+    // A different client_id on every request: the budget belongs to the IP.
+    const statuses = await burst(OAUTH_LIMITS.tokenPerIp, () => unsupportedGrant(ip, freshClientId()));
+    assert.equal(count(statuses, 400), OAUTH_LIMITS.tokenPerIp, 'all 600 reached the handler');
+    assertOAuthRefusal(await unsupportedGrant(ip, freshClientId()));
+    assertOAuthRefusal(await token(ip, { grant_type: 'refresh_token', refresh_token: 'dsr_x', client_id: freshClientId() }, 'json'));
+    assertHandled(await unsupportedGrant(freshIp(), freshClientId()), 400, 'unsupported_grant_type');
   });
 
-  it('/token: the global ceiling holds for every client, and runs before the body is read', async () => {
-    const statuses = await burst(OAUTH_LIMITS.tokenGlobal, () => refresh(freshClientId(), freshIp()));
-    assert.equal(count(statuses, 200), OAUTH_LIMITS.tokenGlobal);
-    assertOAuthRefusal(await refresh(freshClientId(), freshIp()));
-    // Unparseable JSON is refused by the ceiling (429), not by the parser behind it (400).
-    assertOAuthRefusal(await postToken(freshIp(), '{not json', 'application/json'));
-    assert.equal(reached.token, OAUTH_LIMITS.tokenGlobal);
-    assert.equal(__oauthClientKeyCountForTests(), OAUTH_LIMITS.tokenGlobal, 'refused requests created no per-client keys');
+  it('/register: 60 a minute per IP; discovery: 1,200 a minute per IP across both documents', async () => {
+    const ip = freshIp();
+    assert.equal(count(await burst(OAUTH_LIMITS.registerPerIp, () => register(ip)), 400), OAUTH_LIMITS.registerPerIp);
+    assertOAuthRefusal(await register(ip));
+    assertHandled(await register(freshIp()), 400, 'invalid_client_metadata');
+    // A hosted connector's egress IP fetching both documents before each of 600 refreshes.
+    assert.equal(count(await burst(OAUTH_LIMITS.discoveryPerIp, (i) => discover(ip, i), 64), 200), OAUTH_LIMITS.discoveryPerIp);
+    assertOAuthRefusal(await discover(ip, 0));
+    assertOAuthRefusal(await discover(ip, 1));
+    assert.equal((await discover(freshIp(), 1)).status, 200);
   });
 
-  it('/register: a per-IP limit four times the old one, then a global budget one noisy source cannot spend alone', async () => {
-    const { registerPerIp, registerGlobal } = OAUTH_LIMITS;
-    const noisy = freshIp();
-    const fromNoisy = await burst(registerPerIp + 50, () => register(noisy));
-    assert.equal(count(fromNoisy, 201), registerPerIp);
-    assert.equal(count(fromNoisy, 429), 50);
-    assertOAuthRefusal(await register(noisy));
-    // Those 51 refusals spent none of the global budget; the rest is still there for everybody else.
-    const others = await burst(registerGlobal - registerPerIp, (i) => register(i % 2 ? SHARED_EGRESS : freshIp()));
-    assert.equal(count(others, 201), registerGlobal - registerPerIp);
-    assertOAuthRefusal(await register(freshIp()));
-    assertOAuthRefusal(await register(SHARED_EGRESS));
-    assert.equal(reached.register, registerGlobal);
-  });
-
-  it('.well-known: one global ceiling per instance, and no per-IP rule', async () => {
-    const { discoveryGlobal } = OAUTH_LIMITS;
-    // All of it from one hosted connector's egress IP.
-    const statuses = await burst(discoveryGlobal, (i) => discover(SHARED_EGRESS, i), 64);
-    assert.equal(count(statuses, 200), discoveryGlobal);
-    // Both documents share it, and a never-seen IP is refused too: it is global.
-    assertOAuthRefusal(await discover(freshIp(), 0));
-    assertOAuthRefusal(await discover(SHARED_EGRESS, 1));
-    assert.equal(reached.discovery, discoveryGlobal);
+  it('every limiter runs before the body parsers: past the budget, unparseable or oversized bodies get 429, not 400 or 413', async () => {
+    const tokenIp = freshIp(), registerIp = freshIp();
+    // Control, under budget: the parsers really would refuse these.
+    assert.equal((await postToken(tokenIp, '{not json', 'application/json')).status, 400);
+    assert.equal((await postToken(tokenIp, 'x'.repeat(17 * 1024))).status, 413);
+    assert.equal((await send('/register', { method: 'POST', headers: { 'x-vercel-forwarded-for': registerIp, 'content-type': 'application/json' }, body: '{not json' })).status, 400);
+    await burst(OAUTH_LIMITS.tokenPerIp, () => unsupportedGrant(tokenIp, freshClientId()));
+    await burst(OAUTH_LIMITS.registerPerIp, () => register(registerIp));
+    assertOAuthRefusal(await postToken(tokenIp, '{not json', 'application/json'));
+    assertOAuthRefusal(await postToken(tokenIp, 'x'.repeat(17 * 1024)));
+    assertOAuthRefusal(await send('/register', { method: 'POST', headers: { 'x-vercel-forwarded-for': registerIp, 'content-type': 'application/json' }, body: '{not json' }));
   });
 });

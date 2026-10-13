@@ -2,13 +2,7 @@ import type { Express, Request, Response } from 'express';
 import express from 'express';
 import { pool, withTx } from './db.js';
 import { MAX_ACTIVE_TOKENS } from './routes/tokens.js';
-import {
-  oauthDiscoveryRateLimit,
-  oauthRegisterIpRateLimit,
-  oauthRegisterRateLimit,
-  oauthTokenClientRateLimit,
-  oauthTokenRateLimit,
-} from './rateLimit.js';
+import { oauthDiscoveryRateLimit, oauthRegisterRateLimit, oauthTokenRateLimit } from './rateLimit.js';
 import {
   OAuthValidationError,
   connectionName,
@@ -48,14 +42,11 @@ import {
  * All four are mounted ahead of the ordinary `/api` router (see index.ts), so
  * none of that router's limiters — not `preAuthFloodGuard`, not any
  * per-route body-size parser — ever run for them (SEC-08, SEC-09). Each
- * route below therefore carries its own limiters and its own
- * appropriately-sized body parser. None of the limiters is keyed on the
- * source IP alone, because hosted connectors (claude.ai, ChatGPT) send every
- * user's discovery, registration and hourly refresh from shared egress IPs;
- * rateLimit.ts's OAuth section has the keys, numbers and reasons. Order is
- * load-bearing: the global ceilings run before any body is read, and
- * `/token`'s per-client budget runs after the parsers (it reads `client_id`
- * from the body) and before any database work.
+ * route below therefore carries its own limiter, first, before any body is
+ * read, and its own appropriately-sized body parser. Each limiter is keyed on
+ * the source IP and nothing else, with room for hosted connectors that send
+ * many users' refreshes through one egress IP, and no bucket one sender can
+ * empty for another; rateLimit.ts's OAuth section has the numbers and reasons.
  */
 
 function originFor(req: Request): string {
@@ -123,7 +114,7 @@ export function mountOAuthServer(app: Express): void {
 
   // POST /register — RFC 7591 dynamic client registration. Public by design:
   // any MCP client self-registers before it has ever seen a DeckPal user.
-  app.post('/register', oauthRegisterIpRateLimit, oauthRegisterRateLimit, express.json({ limit: '16kb' }), (req, res) => {
+  app.post('/register', oauthRegisterRateLimit, express.json({ limit: '16kb' }), (req, res) => {
     void (async () => {
       if (!hostAllowed(req)) {
         res.status(421).json({ error: { code: 'bad_host', message: 'Host not allowed' } });
@@ -164,7 +155,6 @@ export function mountOAuthServer(app: Express): void {
     oauthTokenRateLimit,
     express.urlencoded({ extended: false, limit: '16kb' }),
     express.json({ limit: '16kb' }),
-    oauthTokenClientRateLimit,
     (req, res) => {
       void (async () => {
         if (!hostAllowed(req)) {

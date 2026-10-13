@@ -113,9 +113,9 @@ omit the host.
   reset on cold start, and are speed bumps rather than a distributed quota.
 
   Bare-origin OAuth discovery, `/register` and `/token` have their own
-  limiters, none keyed on the source IP alone: `/token` 3,000/min per instance
-  then 600/min per `client_id`, `/register` 120/min per source IP then
-  300/min per instance, discovery 12,000/min per instance. Their refusals are
+  per-source-IP limiters, checked before any body is read: `/token` 600/min,
+  `/register` 60/min, and 1,200/min shared by the two discovery documents.
+  Their refusals are
   `429` + `Retry-After` with RFC 6749's
   `{"error":"temporarily_unavailable","error_description":"…"}` body, not the
   error shape above. The MCP transport has a global 300/min-per-instance
