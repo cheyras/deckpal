@@ -780,9 +780,9 @@ archetype, so "new matchup" and "met three times" are counts rather than guesses
     deck-out, other), whether the game was close and what the log cannot tell (their hand, the
     prized cards). Close means the lead changed hands, or a final prize gap of two or less once
     someone has taken three prizes — so a turn-two 0–0 concession is not "close". Rendered under
-    3,000 characters (the long lists shrink first). The side is the owner stored with the row
-    unless `player_name` overrides it; an unidentified owner is said, with the names to choose
-    from, never guessed. An in-person game has no log: the tool answers so (not a failure) and
+    3,000 characters (the long lists shrink first). The side is, in order: `player_name`; the
+    reader's PTCG Live name when it plays in the log; the owner stored with the row; the deck's
+    cards. An unidentified owner is said, with the names to choose from, never guessed. An in-person game has no log: the tool answers so (not a failure) and
     points at `battle_logs` `log_id`. Recomputed on every call, so every past game improves when
     the digest does, with no backfill. `readOnlyHint: true`, so read-only connections get it.
 18. **`deck_history`** — `{ deck_id, version?, revert_to?, include_strategy? = true, note?,

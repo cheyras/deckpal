@@ -1582,9 +1582,10 @@ The full row — same `log` shape as the 201 above (summary fields + nullable `r
 Added 2026-10-10. `?playerName=` (optional). Reads the log's **stored raw PTCG
 Live log** into a compact, model-sized digest (`digestBattleLog` in
 `apps/api/src/deck/battlelog.ts`) — read-only, same ownership rules as the
-detail route above. The side is the owner the row was stored with
-(`parsed.players.me`) unless `playerName` names another; the deck's current
-card list is only used when the row has no stored owner.
+detail route above. The side is, in order: `playerName` when given; the
+reader's PTCG Live name when it plays in this log; the owner the row was
+stored with (`parsed.players.me`); and only when none of those is known, the
+deck's current card list.
 ```json
 200 { "logId": 7, "deckVersion": 2, "origin": "ptcgl", "result": "win",
       "digest": {
