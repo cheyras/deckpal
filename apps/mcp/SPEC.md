@@ -17,7 +17,7 @@ not revoke an existing MCP connection.
 | Package name | `deckpal-mcp` (matches `deckpal-api` / `deckpal-sync` style) |
 | MCP server name | `deckpal-mcp`, version from package.json |
 | Port | **3704**, bind `127.0.0.1` only (3702 = TCGdex escape-hatch slot, 3703 = dev server, per DECISIONS.md) |
-| Env vars | `DECKPAL_MCP_PORT=3704`, `DECKPAL_MCP_KEY=<hex secret>`, `DECKPAL_API_BASE=http://127.0.0.1:3700/deckpal/api`, `PGPOOL_MAX_MCP=1`, `PGAPPNAME=deckpal-mcp` — all in repo-root `.env` (mode 600, gitignored), loaded via `loadEnv()` from `@deckpal/db` |
+| Env vars | `DECKPAL_MCP_PORT=3704`, `DECKPAL_MCP_KEY=<hex secret>`, `DECKPAL_API_BASE=http://127.0.0.1:3700/deckpal/api`, `PGPOOL_MAX_MCP=1`, `PGAPPNAME=deckpal-mcp` — all in repo-root `.env` (mode 600, gitignored), loaded via `loadEnv()` from `@deckpal/db`. `DECKPAL_API_BASE` must match where the API mounts: a self-host behind nginx at `/deckpal/` deletes `.env.example`'s `API_BASE_PATH=/api` so the API uses its default `/deckpal/api`; if `API_BASE_PATH=/api` is kept, use `http://127.0.0.1:3700/api` |
 | Process name | `deckpal-mcp`, `max_memory_restart: '300M'` |
 | MCP endpoint | `POST/GET/DELETE http://127.0.0.1:3704/mcp` (+ plain `GET /health` JSON for supervisors) |
 
@@ -71,7 +71,7 @@ transaction) lives in `apps/api/src/routes/collection.ts` and must stay single-s
   documented budget of 3 (API 2 + sync 1). Headroom verified (DECISIONS.md 2026-07-24: 7 spare).
   The budget docs (`.env` comment, `CLAUDE.md`, `DECISIONS.md` dated entry) get updated to
   "4 TOTAL (API 2 + sync 1 + mcp 1)" as part of this build.
-- The `pokedex` role carries `statement_timeout=30s` — design every query to finish well under
+- The self-host `deckpal` role carries `statement_timeout=30s` (DEPLOYMENT.md) — design every query to finish well under
   that; a timeout surfaces as an `isError` tool result with a "narrow the query" hint.
 - API client: native `fetch`, via `makeApi` from `@deckpal/agent-tools`
   (`packages/agent-tools/src/api.ts` — `api.get` / `api.send`), JSON in/out, surfaces the API's
@@ -86,7 +86,7 @@ transaction) lives in `apps/api/src/routes/collection.ts` and must stay single-s
 - User: single-user box. Resolve `defaultUserId` = lowest `app_user.id` once at startup (same
   rule as `apps/api/src/db.ts`).
 - Identifiers exposed to Claude are **TCGdex ids** (`set_id` like `me05`, `card_id` like
-  `me05-84`) and numeric `card_variant.id` for variants — matching the REST API convention.
+  `me05-084`) and numeric `card_variant.id` for variants — matching the REST API convention.
 - **`set_id`, `deck_id` and `list_id` also accept a NAME** (added 2026-08-25). A valid id behaves
   exactly as before; a name is resolved by `packages/agent-tools/src/entities.ts`, and the tool
   reports which id it used so the next call can be exact. Ambiguity is returned as a candidate
@@ -323,7 +323,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   (default 1) + `page_size` (default 50, hard cap 200) unless a tool's rows are a different
   size — one list's items page at 100 (cap 200), the deck index at 100, raw battle logs at 3 —
   and `pnpm mcp:audit --responses` measures every read against a budget in CI. Compact line format, one row per line,
-  e.g. `Charizard ex | me05-84 | Double Rare | holo x2 | $31.20` — not JSON dumps. Every
+  e.g. `Charizard ex | me05-084 | Double Rare | holo x2 | $31.20` — not JSON dumps. Every
   truncated response states the total and how to page. `collection_summary` should answer most
   questions in one call.
 - Card resolution (shared helper, used by `get_card` and `log_cards`): accept `card_id` (TCGdex)
@@ -672,7 +672,9 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
     reported per-item and **does not block the others**. Dry run: resolved variant +
     `current → new` per item, no writes. Description must say: this edits the local DeckPal
     collection only — nothing external. `readOnlyHint: false`, `destructiveHint: false`,
-    **`idempotentHint: true`**.
+    `overwriteHint: true`, **`idempotentHint: false`** — a repeat is absorbed only inside the
+    derived idempotency key's ~15-minute window (or under an explicit `idempotency_key`); the
+    same `+1` sent an hour later is a second card.
 
     **Rewritten 2026-08-19 (see DECISIONS.md).** It used to be a loop: two SQL round trips to
     resolve each item, then one HTTPS call per item, each with its own transaction and its own
@@ -978,12 +980,9 @@ there.
 
 ## 7. Non-negotiables (inherited from the repo)
 
-- rtk-prefix every shell command and every `&&` segment. `rtk curl` summarizes JSON — write to a
-  file and parse with node when you need the real body.
-- Never write `variant_tier_override` (human-asserted). Never touch other running services,
-  Postgres config. No `git push` (no remote). Don't commit — the lead agent reviews and
-  commits.
-- Secrets (`.env`, `token-cache.json`): read at runtime only, never log values, never commit.
+- Never write `variant_tier_override` (human-asserted). Never touch other running services or
+  Postgres config.
+- Secrets (`.env`): read at runtime only, never log values, never commit.
 - `console.log`/`console.error` with `[deckpal-mcp]` prefix — no logging library.
 - Result-size budgets: Claude Code caps tool output ~25k tokens; claude.ai ~150k chars — the
   paging defaults in §4 exist so we never get near either.
@@ -1015,17 +1014,30 @@ subscription and credit-wallet self-service in an active browser session.
 Product Scanner/Deck-E access comes from lifecycle and opt-in, not editable role
 grants or preview hostnames. Disabled stops new provider starts, including Owner.
 
-Deck-E independently logs server request/provider-attempt metadata and honors
-its flat credit/daily policy. Owner-only unlimited/markup overrides do not grant
-MCP administration or bypass feature, suspension, debt, holds or budgets.
-Support subscriptions and gifts do not purchase AI credits.
+Deck-E independently logs server request and provider-operation metadata and
+charges by its credit policy. Since migration 081 that policy is metered
+(version 2): each paid reply holds whole credits, settles at the Gateway-reported
+model cost plus markup with the fraction carried per user, returns the unused
+hold, and has an overshoot covered by the overage buffer rather than becoming
+debt. While credit charging is off, Deck-E's daily allowances apply instead. The
+flat per-operation policy is legacy and cannot be saved over a metered one.
+Owner-only unlimited/markup overrides do not grant MCP administration or bypass
+feature, suspension, debt, holds or budgets. Support subscriptions and gifts do
+not purchase AI credits.
 
-Conversation sharing is a separate default-off browser preference. Current
-exchange-start and present consent must match before an administrator reads
-optional current-message/assistant content. Withdrawal hides prior shared text;
-off-on never restores it. Own history and metadata are distinct, and no prompt/
-tool context is added to general telemetry or connector tools. Private APIs
-remain no-store and outside anonymous service-worker caching.
+Administrators' AI-usage views are metadata only. Migration 078 retired the
+account-wide sharing switch and deleted the excerpts it had collected; request
+detail now always answers `contentStatus: "retired"` with `content: null`.
+Improvement sharing is a separate, per-conversation consent given from a browser
+session: the reader shares one chat when Deck-E asks or with feedback, or turns
+on the always-share preference (off by default, migration 079), which shares
+each new chat that has no decision yet. Stopping a share, or deleting the chat
+from History, deletes the shared copy. The pseudonymised shared copies are read
+only with `decke.improvement.read`, from a browser session or through the three
+capability-gated readers above. Own history and metadata are distinct, and no
+prompt or tool context reaches general telemetry or the ordinary connector
+tools. Private APIs remain no-store and outside anonymous service-worker
+caching.
 
 Suspension/token revoke-all still cover API, token resolver, standalone MCP
 context and restrictive data policies; OAuth codes are consumed as well.

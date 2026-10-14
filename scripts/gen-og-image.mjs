@@ -127,7 +127,7 @@ const html = `<!doctype html>
       <img class="wordmark" src="/logo/deckpal-logo-white.svg" alt="DeckPal">
       <p class="pitch">Ask Claude what you can build from the cards you own.</p>
       <div class="meta">
-        <span class="pill"><span class="dot"></span>21 tools over MCP</span>
+        <span class="pill"><span class="dot"></span>28 tools over MCP</span>
         <span>Free &amp; open source</span>
       </div>
     </div>

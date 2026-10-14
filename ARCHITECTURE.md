@@ -30,7 +30,7 @@ DeckPal is a multi-user Pokemon TCG collection platform deployed on Vercel
 holds its own copy of the card catalog, cached card art, and accumulating price
 history -- so it keeps working if every upstream vanishes. Card data is imported
 from TCGdex's open database, prices come from TCGCSV and Cardmarket bulk dumps,
-and both are pulled by scheduled GitHub Actions jobs. The repo is open-core
+and both are pulled by scheduled GitHub Actions jobs. The repo is open source
 (AGPL-3.0) and can also be self-hosted with plain Postgres.
 
 ## 2. Guiding constraints
@@ -39,8 +39,12 @@ and both are pulled by scheduled GitHub Actions jobs. The repo is open-core
    Supabase. The repo must also work with plain Postgres and no Supabase (see
    section 9).
 2. **Offline resilience is structural, not a fallback.** The read path is
-   Postgres + Supabase Storage CDN (or local image cache for self-host). There
-   is no proxy-on-demand, so there is no network failure mode to handle in the UI.
+   Postgres + Supabase Storage CDN (or local image cache for self-host). Its
+   one on-demand upstream fetch is the cloud image tier's lazy fill: an image
+   the bucket does not hold yet is fetched once from its recorded source,
+   stored, and served from the bucket from then on (section 7). If that fetch
+   fails the page shows a placeholder rather than a broken image. Self-host
+   never fetches upstream on a request.
 3. **Own the data.** Every sync is additive and writes to the database. Price
    history accrues to us and is never re-fetched from a provider's retention.
 4. **Multi-user with row-level security.** Every user sees only their own
@@ -54,22 +58,27 @@ Clients (browser, PWA, MCP agents)
        | Auth (JWT)          | Data (JWT Bearer)    | Images (public CDN)
        v                     v                      v
 Supabase Auth        Vercel Serverless       Supabase Storage
-(email + OAuth)      Functions               card-art bucket (~1.9 GB)
+(email + password)   Functions               card-art bucket (~2 GB)
                      Express catch-all       CDN + image transforms
-                     (api/index.ts)
+                     (api/index.mjs)
                             |
-                            | service-role or user JWT
+                            | per request: anon, or authenticated
+                            | with the user's JWT claims (RLS)
                             v
                      Supabase Postgres (RLS)
                      Supavisor connection pool
                             ^
-                            | service-role (direct)
+                            | database owner role (session pooler)
                      GitHub Actions
                      Scheduled sync (catalog, prices)
 ```
 
-**Only the sync jobs cross the network boundary to upstream data sources.**
-A user request never leaves the Vercel + Supabase perimeter.
+**The sync jobs are what reach upstream data sources.** A user request reads
+catalog and price data from Postgres, not from upstream. Some requests do leave
+the Vercel + Supabase perimeter, for example the cloud image tier's lazy fill of
+an image the bucket does not hold yet (section 7), Deck-E's model calls through
+the Vercel AI Gateway, Stripe for the pay-what-you-want tier, and the bug
+reporter's GitHub issue.
 
 ## 4. Repo and deployment shape
 
@@ -77,13 +86,18 @@ A user request never leaves the Vercel + Supabase perimeter.
 Vercel serverless function.**
 
 The Vite SPA (React 19 + TanStack Router + TanStack Query + Tailwind 4) is
-mature and explicitly out of scope for a framework migration. The ~55 Express
-API endpoints are served by a single catch-all function (`api/index.ts`) that
-imports the Express app and exports it as a Vercel serverless handler.
+mature and explicitly out of scope for a framework migration. The Express
+API's endpoints (about 170; `API.md` inventories them) are served by a single
+catch-all function (`api/index.mjs`) that imports the Express app and exports it
+as a Vercel serverless handler. Three sibling functions sit beside it: Deck-E's
+streaming chat, the image tier and the MCP server (`vercel.json` lists all four).
 
 ```
 api/
-  index.ts              <- Vercel catch-all: imports Express app
+  index.mjs             <- Vercel catch-all: imports Express app
+  chat.mjs              <- Deck-E's streaming POST /api/chat
+  images.mjs            <- the cloud image tier (/deckpal/images/*)
+  mcp.mjs               <- the multi-user MCP server (/mcp)
 apps/
   api/src/              <- existing Express app (unchanged)
   web/                  <- Vite SPA (Vercel static output)
@@ -114,12 +128,15 @@ with PostgreSQL OID parser controls, without a live database.
 
 ## 5. Auth and multi-user
 
-**Decision: Supabase Auth (email + OAuth) with JWT-based RLS enforcement.**
+**Decision: Supabase Auth (email and password) with JWT-based RLS enforcement.**
 
 ### Auth flow
 
-1. The SPA uses `@supabase/supabase-js` for auth flows (signIn, signUp, token
-   refresh, OAuth providers).
+1. The SPA uses `@supabase/supabase-js` for auth flows: password sign-in,
+   sign-up, password-reset email and token refresh (`apps/web/src/routes/Auth.tsx`;
+   `supabase/config.toml` enables only the email provider). There is no
+   third-party OAuth sign-in. The OAuth in section 10 is DeckPal acting as an
+   authorization server for MCP clients, a different thing.
 2. API requests carry the Supabase JWT as `Authorization: Bearer <token>`.
 3. API middleware verifies the JWT and extracts the user UUID (`sub`).
 4. Database queries execute with RLS context set per-request.
@@ -145,8 +162,13 @@ async function withUserContext(userId: string, fn: (client) => Promise<T>): Prom
 }
 ```
 
-For catalog-only reads (search, series list without user progress): the service
-role is used (bypasses RLS, since catalog tables are world-readable).
+Catalog reads get the same treatment, never the service role: a signed-in
+request runs as `authenticated` with its claims, and a logged-out one as `anon`
+with no claims (`apps/api/src/index.ts`, the RLS middleware). The catalog
+policies are `USING (true)`, so the catalog reads the same either way, while the
+per-user tables a public route LEFT JOINs come back empty for `anon` because no
+policy matches. The pool connects as the table owner, which would bypass RLS,
+which is exactly why even anonymous reads switch role.
 
 ### Request pipeline order
 
@@ -355,13 +377,18 @@ that anon and a second user reach none of a user's rows in any table or view.
 
 **Bucket:** `card-art` (public)
 
-**Path contract (preserved from the disk cache):**
+**Path contract (the same relative paths as the disk cache):**
 ```
-card-art/images/<lang>/<serie>/<set>/<localId>/low.webp
-card-art/images/<lang>/<serie>/<set>/<localId>/high.webp
+card-art/images/<lang>/<serie>/<set>/<localId>.low.webp
+card-art/images/<lang>/<serie>/<set>/<localId>.high.webp
 card-art/sets/<setId>/logo.webp
 card-art/sets/<setId>/symbol.webp
 ```
+
+`packages/storage/src/paths.ts` is the authoritative path code for both tiers
+(`apps/images/src/layout.ts` re-exports it). The `/<localId>/<low|high>.webp`
+shape belongs to the upstream asset URL and the public `/deckpal/images/…`
+request URL, not to the stored object.
 
 **Provenance choke point:** All writes go through a `putAsset()` wrapper
 (`packages/storage/src/put-asset.ts`) that uploads to Supabase Storage via the
@@ -399,8 +426,10 @@ format conversion) are available on Pro.
 
 **The fill has a destination control, not only a content check.** The bytes for
 a MISS come from `image_asset.source_url`, and `packages/storage/src/upstream.ts`
-holds the allow-list of hosts that URL is permitted to name — `assets.tcgdex.net`
-and `raw.githubusercontent.com`, the only two any code path derives. It is
+holds the allow-list of hosts that URL is permitted to name — `assets.tcgdex.net`,
+`raw.githubusercontent.com` and `images.pokemontcg.io` (the approved card-art
+fallback, which also supplies a few set symbols through the set-image
+crosswalk in `packages/storage/src/setImageFallback.ts`). It is
 enforced with `redirect: 'manual'` and re-checked on every hop, because a check
 that only ever sees the first URL is bypassed by a `302`; the resolved addresses
 are checked too, so an allow-listed name pointing at loopback or `169.254.169.254`
@@ -469,12 +498,13 @@ captures are private".
 Unchanged from the original design. `apps/images/src/store.ts` is the write
 choke point. Card art lives at
 `<IMAGE_CACHE_ROOT>/images/<lang>/<serie>/<set>/<localId>.<low|high>.webp`.
-`apps/images` serves the cache. `apps/images/src/layout.ts` is authoritative
-for all paths.
+`apps/images` serves the cache. The path code lives in
+`packages/storage/src/paths.ts`, shared with the cloud tier;
+`apps/images/src/layout.ts` re-exports it.
 
 ### Storage cost
 
-| Supabase tier | Storage included | ~1.9 GB image corpus |
+| Supabase tier | Storage included | About 2 GB image corpus |
 |---|---|---|
 | Free | 1 GB | Exceeds free tier |
 | Pro ($25/month) | 100 GB | Included |
@@ -487,11 +517,13 @@ migration and serve from upstream CDNs.
 
 ### Catalog -- direct import, never the TCGdex API
 
-The weekly catalog job pulls the published container image, streams
-`docker save` through `tar`, extracts `generated/en/{cards,sets,series}.json`
-and imports it. No container is ever created. The TCGdex API server must never
-be run -- it loads all 18 languages into memory per worker (measured 6.4x
-JSON-to-object expansion) and would OOM most environments.
+The weekly catalog job (`.github/workflows/catalog-refresh.yml`, which calls
+`scripts/refresh-catalog.sh`) pulls the published container image, runs
+`docker create` and then `docker cp` to copy out `generated/en/`, and imports
+the compiled JSON. The container exists only to copy files out of: it is never
+started, and it is removed on exit. The TCGdex API server must never be run --
+it loads all 18 languages into memory per worker (measured 6.4x JSON-to-object
+expansion) and would OOM most environments.
 
 ### Prices -- daily, and the UI must say so
 
@@ -514,12 +546,19 @@ runners for the TCGdex catalog extraction.
 
 ### Sync invariants
 
-- **Skip-if-unchanged** is the first step of every job, gated on the upstream's
-  own stamp.
+- **Skip-if-unchanged** gates the TCGCSV and Cardmarket price jobs, on the
+  upstream's own stamp (a targeted TCGCSV `--sets` run always proceeds). The
+  weekly catalog job has no such gate: it re-imports every week and relies on
+  B8 idempotency, so an unchanged week is a no-op write that still pulls the
+  image.
 - **`captured_at` is the source's timestamp, not `now()`.** Re-running a day's
   sync is a genuine no-op.
-- One transaction per group, a resumable cursor, and a `pg_advisory_lock` so a
-  manual run cannot race the scheduler.
+- The price jobs run one transaction per group with a resumable cursor, and
+  take a `pg_try_advisory_lock` (`apps/sync/src/prices/db.ts`) so a manual run
+  cannot race the scheduler: a run that finds the lock held refuses rather than
+  waits. The catalog import takes no advisory lock; the workflow's
+  `concurrency: catalog-refresh` group is what keeps two scheduled or
+  dispatched runs from overlapping.
 
 ## 9. Self-host story
 
@@ -667,7 +706,8 @@ a set's name.
 
 ### MCP server — live and multi-user
 
-`deckpal-mcp`'s 28 tools are served to any signed-up user at
+`deckpal-mcp`'s 28 tools (17 on a read-only connection) are served to any
+signed-up user at
 `https://deckpal.app/mcp` (`apps/mcp/src/cloud.ts`), authenticated per-user by
 a personal access token (`dsk_…`, SHA-256 hashed, shown once at creation,
 revocable from Profile). Each call resolves the token to a `user_id` and runs
@@ -686,8 +726,10 @@ also be minted automatically: a real OAuth 2.1 authorization server
 registration + RFC 6749 token-exchange endpoints, `apps/api/src/routes/
 oauth.ts` for the session-gated consent decision, `apps/web/src/routes/
 Authorize.tsx` for the `/authorize` consent screen) sits in front of the same
-credential. Any MCP-spec client (claude.ai, ChatGPT, Gemini, Claude Code) adds
-just `https://deckpal.app/mcp` and chooses "Connect"; the client
+credential. Claude (tested end to end) adds just `https://deckpal.app/mcp` and
+chooses "Connect"; ChatGPT, Gemini and other apps with remote MCP connectors
+should follow the same flow, going by their own docs, but are not yet tested
+here. The client
 self-registers, the user signs in and approves a consent screen naming the
 client and its exact permissions, and the token endpoint mints an ordinary
 `api_token` row — the OAuth layer is a bridge onto the pre-existing
@@ -829,8 +871,11 @@ It holds two unrelated things, which is why the table has a divider in it:
 
 **Writes have two paths and both are narrow.** The Stripe webhook runs outside
 the RLS middleware, as the connection's owning role, and writes by customer id.
-The billing routes run as `authenticated` and write through four
-`SECURITY DEFINER` functions that derive the row from `auth.uid()`. The
+The billing routes run as `authenticated` and write through five
+`SECURITY DEFINER` functions that derive the row from `auth.uid()`
+(`billing_ensure_row`, `billing_touch_visit`, `billing_ack_prompt`,
+`billing_apply_stripe` and `billing_release_customer`; the A/B event log below
+has its own, `billing_record_ab_event`). The
 alternatives — a second pooled connection per request, or a `RESET ROLE` dance on
 the request's own client — are respectively a B2 violation and a way to leave a
 whole request running with RLS off. See `SECURITY.md` for why the customer id in
@@ -1046,13 +1091,16 @@ iOS recognizer.
 Built against [UI Spec (wiki)](https://github.com/cheyras/deckpal/wiki/UI-Spec). Full rationale: [Frontend Research (wiki)](https://github.com/cheyras/deckpal/wiki/Frontend-Research).
 
 **Stack:** React 19, TanStack Router, TanStack Query, TanStack Virtual, Vite,
-Tailwind 4. Charts via `d3-scale`/`d3-shape`; drag-and-drop via `@dnd-kit`
-(both lazy-loaded).
+Tailwind 4. Charts are hand-rolled SVG (`apps/web/src/components/ValueChart.tsx`)
+with no charting dependency, and there is no drag-and-drop library.
 
-**Offline is tiered, and honest about phones.** Tier 0: app shell, ~5-6 MB,
-always. Tier 1: visited art, LRU-capped ~2,000 images. Tier 2: opt-in pack
-(owned cards + tracked sets). Offline means full metadata browse, search and
-edit everywhere; real art for what you own.
+**Offline is tiered, and honest about phones** (`apps/web/src/sw.ts`). Tier 0:
+the precached app shell, always. Tier 1: visited card and set art, CacheFirst,
+LRU-capped at 2,000 entries. Tier 2: the Deck-E character assets, cached
+stale-while-revalidate once the chat has been opened. On the cloud, anonymous
+public catalog reads are also kept NetworkFirst as a last-good copy (300
+entries, seven days); private data is network-only. Writes are never queued:
+offline, a write is refused on the spot (`apps/web/src/lib/writes.ts`).
 
 **Nothing may block first paint without a deadline, and the auth session is the
 one that did.** `supabase.auth.getSession()` reads localStorage only while the
@@ -1267,10 +1315,12 @@ Shipping it means the chunk is emitted (~1.17 MB of three.js and the runtime,
 measured 2026-08-22 and approximate on purpose — the precise figure drifts with
 every dependency bump, and `scripts/check-precache.mjs` rather than any number
 written here is what actually enforces that none of it reaches the precache) and
-the 5.6 MB of assets sit in `public/models/`. Neither is downloaded by anyone who
-does not open the route, because the import is lazy — **provided both stay out of
-the PWA precache**, which is eager and would otherwise pull 6.5 MB into every
-visitor's cache on first load for a route exactly one account can open.
+about 1.1 MB of assets sit in `public/models/decke/` (1,138,551 bytes on
+2026-10-12; 5.6 MB when this was first written). Neither is downloaded by
+anyone who does not open the character, because the import is lazy — **provided
+both stay out of the PWA precache**, which is eager and would otherwise pull both
+into every visitor's cache on first load for a character most visitors never
+open.
 `vite.config.ts` excludes `models/**` and `assets/Decke-*.js`; measured, the
 precache is unchanged at 25 entries / 1964 KiB with the route shipping.
 
@@ -1456,13 +1506,17 @@ of the eight frames swing by up to 0.05 IoU between identical runs.
 
 ### The asset
 
-The shipped `decke.glb` is 2.92 MB, down from a 7.48 MB raw export, via
-`scripts/decke/shrink.mjs`. Two hard rules live in that script and are worth
-repeating here: **never Draco** (`KHR_draco_mesh_compression` structurally cannot
-carry morph targets, and every body deformation on this character is one), and
-**never quantize** (`KHR_mesh_quantization` parks a de-quantisation transform on
-each mesh's node, which the rider system then overwrites — it inflates
-`Hinge_Pin_R` into a cylinder wider than the character).
+The shipped `decke.glb` is about 0.6 MB (606,796 bytes), down from a 7.48 MB raw
+export. `scripts/decke/shrink.mjs` takes the export to 2.92 MB with meshopt, and
+`scripts/decke/optimize.mjs` quantises that output to its shipped size
+(DECISIONS.md 2026-08-24; #97). Two hard rules are worth repeating here:
+**never Draco** (`KHR_draco_mesh_compression` structurally cannot carry morph
+targets, and every body deformation on this character is one), and **never
+quantize a mesh on the node the rig drives** (`quantize()` parks a
+de-quantisation transform on the mesh's node, which the rider system then
+overwrites — it inflates `Hinge_Pin_R` into a cylinder wider than the
+character). `optimize.mjs` quantises safely by first moving each mesh onto a
+wrapper child, so the rig and the de-quantisation no longer share a node.
 
 Run the unit tests with:
 
@@ -1490,7 +1544,7 @@ Verification of it has been done against previews and against the live backend a
 the QA account, never the owner's, per contract B12. It needs
 `DECKE_VERCEL_AI_GATEWAY_KEY` in the
 Vercel project; it fails closed without one and reports its own readiness on
-`/api/health`. He now holds all 26 of `packages/agent-tools`' tools (§15c) —
+`/api/health`. He now holds all 28 of `packages/agent-tools`' tools (§15c) —
 the write half held behind an approval round trip (§15e) rather than filtered
 out — plus research and deck checking in the normal streamed loop, against the
 six cosmetic tools of the original ship.
@@ -1536,8 +1590,10 @@ not a sanitised injection surface, it is not an injection surface.
 
 **Who may talk to him, and how much, is decided on the server.** Deck-E
 requires current `decke.use` permission and an active account. When database
-credit policy is enabled, each priced operation reserves an atomic flat charge
-with its policy snapshot before invocation; accounting errors fail closed.
+credit policy is enabled, each paid reply atomically holds whole credits with
+its policy snapshot before invocation and settles at the Gateway-reported model
+cost plus markup (metered, migration 081), returning the unused hold;
+accounting errors fail closed.
 When charging is disabled, ordinary accounts use the daily chat/deep counters;
 explicit unlimited overrides retain access/hold/budget checks without debit or
 daily allowance. Lifecycle policy derives product permission; retired entitlement
@@ -1812,8 +1868,9 @@ normal streamed tool loop rather than delegating to a nested sub-agent.
 read-only Perplexity operation with no approval card; its short purpose becomes
 the activity label, source hosts enter the model context, and HTTPS source URLs
 are sent only to the browser. `check_deck` validates a proposed list before
-`showDeck` renders its saveable deck widget. Credits remain flat per operation in
-this release, including research at the analysis price.
+`showDeck` renders its saveable deck widget. Research is charged like every
+other model call: metered at its reported cost since migration 081 (when this
+shipped, credits were flat per operation and research cost the analysis price).
 
 **A revision saves as a version of the deck it revises** (2026-10-10). `showDeck`
 takes an optional `deck_id` (and a `version_note`). The server resolves the id
@@ -2295,7 +2352,8 @@ markup inherits; zero remains valid. Unlimited means a zero-debit reservation,
 not a synthetic balance grant. New reservations require current policy; existing
 reserved work and bounded children retain immutable pricing. Access, debt,
 refund/dispute holds and operational limits still apply. Flat quoted settlement
-and existing financial recovery/reconciliation are unchanged.
+(replaced by metered settlement in migration 081) and existing financial
+recovery/reconciliation were unchanged by this.
 
 The chat server durably accepts a parent request before provider work.
 The first credit start and provider-attempt row commit atomically after current
