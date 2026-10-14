@@ -748,7 +748,11 @@ any body is read:
   per connection** (or per code), and a secret that matches nothing against
   the source IP's invalid-grant bucket, **120/minute**. A refusal here comes
   before the transaction, so nothing is rotated or consumed and the client's
-  retry with the same refresh token still works.
+  retry with the same refresh token still works. Only LIVE grants get a key
+  (a revoked, expired or suspended connection's refresh token counts as
+  matching nothing), a used refresh token always passes so reuse detection
+  can revoke its connection, and a full grant store admits a new key rather
+  than refusing it, since only a grant's holder can present one.
 - **`/register`: 60/minute per IP.** A client registers once per connection,
   not once per refresh.
 - **Discovery: 1,200/minute per IP**, one bucket for both documents: two for

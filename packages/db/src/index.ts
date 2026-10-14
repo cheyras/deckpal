@@ -37,4 +37,4 @@ export {
   peekGrantKey,
   refreshConnection,
 } from './grants.js';
-export type { IssuedTokens, RefreshOutcome } from './grants.js';
+export type { GrantPeek, IssuedTokens, RefreshOutcome } from './grants.js';

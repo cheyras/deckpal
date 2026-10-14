@@ -36,8 +36,13 @@ export class RateLimitStore {
     this.sweepTimer.unref();
   }
 
-  /** Check and increment. Returns seconds until reset if over limit, or 0 if allowed. */
-  check(key: string, max: number, windowMs: number, now = Date.now()): number {
+  /**
+   * Check and increment. Returns seconds until reset if over limit, or 0 if allowed.
+   * `whenFull`: what a NEW key gets when the map is at capacity. 'refuse' (the default) suits keys an attacker can
+   * mint for free (IPs, guesses); 'admit' suits keys only a legitimate holder can present (a verified grant), where
+   * refusing would let a full map lock out everyone else's valid requests (Astra, #339).
+   */
+  check(key: string, max: number, windowMs: number, now = Date.now(), whenFull: 'refuse' | 'admit' = 'refuse'): number {
     let b = this.buckets.get(key);
     if (!b || b.resetAt <= now) {
       // Enforce cardinality bound: if at capacity and this is a new key, reject
@@ -53,8 +58,8 @@ export class RateLimitStore {
           this.sweep(now);
         }
         if (this.buckets.size >= MAX_KEYS) {
-          // Still full — reject cheaply. Return a short retry window.
-          return Math.ceil(windowMs / 1000);
+          // Still full — reject cheaply (or, for verified keys, admit untracked).
+          return whenFull === 'admit' ? 0 : Math.ceil(windowMs / 1000);
         }
       }
       b = { count: 0, resetAt: now + windowMs };
@@ -454,13 +459,22 @@ export const oauthTokenRateLimit: RequestHandler = rateLimit(
 
 /**
  * `/token` layer 2: seconds to wait before this grant may be tried, or 0.
- * `grantKey` is `peekGrantKey`'s answer: a live grant's own identity (its
- * connection, or its code), or `null` for a secret that matches nothing, which
- * is counted against the source IP's invalid-grant bucket instead.
+ * `grant` is `peekGrantKey`'s answer: a live grant's own identity (its
+ * connection, or its code), or `null` for a secret that matches nothing live,
+ * which is counted against the source IP's invalid-grant bucket instead.
+ *
+ * Two exemptions, both from Astra's third review (#339):
+ * - a USED refresh token always passes. It is the reuse signal
+ *   `refreshConnection` revokes the connection on; whoever spent the
+ *   connection's 30 a minute could otherwise suppress that tripwire;
+ * - a full grant store ADMITS a new key rather than refusing it. Its keys can
+ *   only be presented by their holders, so refusing there would let a full map
+ *   lock out every other valid grant.
  */
-export function oauthGrantWait(grantKey: string | null, req: Request): number {
-  return grantKey
-    ? oauthGrantStore.check(grantKey, OAUTH_LIMITS.tokenPerGrant, OAUTH_LIMITS.windowMs)
+export function oauthGrantWait(grant: { key: string; used: boolean } | null, req: Request): number {
+  if (grant?.used) return 0;
+  return grant
+    ? oauthGrantStore.check(grant.key, OAUTH_LIMITS.tokenPerGrant, OAUTH_LIMITS.windowMs, Date.now(), 'admit')
     : oauthInvalidGrantStore.check(sourceIp(req), OAUTH_LIMITS.tokenInvalidPerIp, OAUTH_LIMITS.windowMs);
 }
 

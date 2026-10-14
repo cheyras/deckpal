@@ -892,7 +892,7 @@ describe('production ingress and session limits over real HTTP', () => {
     // either grant transaction, so a refusal never rotates or consumes anything.
     const handler = source.slice(source.indexOf("'/token'"));
     const peek = handler.indexOf('peekGrantKey(');
-    const wait = handler.indexOf('oauthGrantWait(grantKey, req)');
+    const wait = handler.indexOf('oauthGrantWait(grant, req)');
     const firstTx = handler.indexOf('withTx(');
     assert.ok(peek > 0 && wait > peek && firstTx > wait, 'peekGrantKey, then oauthGrantWait, then the transactions');
   });
@@ -912,45 +912,73 @@ describe('oauthGrantWait — the budget belongs to the grant, not the client_id 
   beforeEach(() => __resetOAuthRateLimitsForTests());
   const from = (ip: string) => mockReq({ ip, socket: { remoteAddress: ip } as Request['socket'] });
 
+  const live = (key: string) => ({ key, used: false });
+
   it('a live connection gets tokenPerGrant a minute, and another connection behind the same IP is untouched', () => {
     const req = from('203.0.113.10');
-    for (let i = 0; i < OAUTH_LIMITS.tokenPerGrant; i++) assert.equal(oauthGrantWait('connection:a', req), 0, `request ${i + 1}`);
-    const wait = oauthGrantWait('connection:a', req);
+    for (let i = 0; i < OAUTH_LIMITS.tokenPerGrant; i++) assert.equal(oauthGrantWait(live('connection:a'), req), 0, `request ${i + 1}`);
+    const wait = oauthGrantWait(live('connection:a'), req);
     assert.ok(wait >= 1 && wait <= 60, `connection a waits, got ${wait}`);
-    assert.equal(oauthGrantWait('connection:b', req), 0, 'connection b, same IP, is not refused');
+    assert.equal(oauthGrantWait(live('connection:b'), req), 0, 'connection b, same IP, is not refused');
+  });
+
+  it('a USED refresh token always reaches reuse detection, even with its connection budget spent (Astra round 3, P1)', () => {
+    const req = from('203.0.113.11');
+    // Whoever holds a compromised refresh token spends the connection's budget with wrong-client requests...
+    for (let i = 0; i < OAUTH_LIMITS.tokenPerGrant; i++) oauthGrantWait(live('connection:stolen'), req);
+    assert.ok(oauthGrantWait(live('connection:stolen'), req) >= 1, 'the budget is spent');
+    // ...and the replay of a used token must still go through to refreshConnection, which revokes the connection.
+    assert.equal(oauthGrantWait({ key: 'connection:stolen', used: true }, req), 0);
+    assert.equal(oauthGrantWait({ key: 'connection:stolen', used: true }, from('198.51.100.9')), 0, 'from any IP');
+  });
+
+  it('a full grant store admits new verified grants instead of refusing them; the invalid bucket still refuses (Astra round 3, P2)', () => {
+    const req = from('203.0.113.12');
+    // 10,000 distinct verified keys fill the store (its bound, like every RateLimitStore).
+    for (let i = 0; i < 10_000; i++) oauthGrantWait(live(`connection:filler-${i}`), req);
+    assert.equal(oauthGrantWait(live('connection:newcomer'), req), 0, 'an unseen valid grant is admitted, not locked out');
   });
 
   it('secrets that match nothing are counted per IP, and that bucket never refuses a live grant', () => {
     const shared = from('203.0.113.20');
     for (let i = 0; i < OAUTH_LIMITS.tokenInvalidPerIp; i++) assert.equal(oauthGrantWait(null, shared), 0);
     assert.ok(oauthGrantWait(null, shared) >= 1, "the IP's next invalid grant waits");
-    assert.equal(oauthGrantWait('connection:victim', shared), 0, 'a valid grant behind the same IP still goes through');
+    assert.equal(oauthGrantWait(live('connection:victim'), shared), 0, 'a valid grant behind the same IP still goes through');
     assert.equal(oauthGrantWait(null, from('203.0.113.21')), 0, "another IP's invalid grants have their own bucket");
   });
 
-  it('peekGrantKey reads without locking or writing, keys a refresh token on its connection, and never echoes a code', async () => {
+  it('peekGrantKey reads without locking or writing, keys only LIVE grants, flags a used token, and never echoes a code', async () => {
     const { peekGrantKey } = await import('@deckpal/db');
     const seen: string[] = [];
+    let refreshRow: Record<string, unknown> = { token_id: 'tok-1', used: false, live: true };
     const db = {
       async query(sql: string) {
         seen.push(sql);
-        if (sql.includes('FROM oauth_token')) return { rows: [{ token_id: 'tok-1' }] };
+        if (sql.includes('FROM oauth_token')) return { rows: [refreshRow] };
         if (sql.includes('FROM oauth_code')) return { rows: [{ live: true }] };
         return { rows: [] };
       },
     };
     assert.equal(await peekGrantKey(db as never, { grantType: 'refresh_token', refreshToken: 'not-a-refresh-token' }), null);
     assert.equal(seen.length, 0, 'a secret without the refresh prefix costs no query');
-    assert.equal(await peekGrantKey(db as never, { grantType: 'refresh_token', refreshToken: 'dsr_abc' }), 'connection:tok-1');
+    assert.deepEqual(await peekGrantKey(db as never, { grantType: 'refresh_token', refreshToken: 'dsr_abc' }), { key: 'connection:tok-1', used: false });
+    // A used token on a live connection keeps its key and says so: the reuse tripwire must see it.
+    refreshRow = { token_id: 'tok-1', used: true, live: true };
+    assert.deepEqual(await peekGrantKey(db as never, { grantType: 'refresh_token', refreshToken: 'dsr_abc' }), { key: 'connection:tok-1', used: true });
+    // A revoked, expired or suspended connection is not a live grant: no key, so it counts per IP (Astra round 3, P2).
+    refreshRow = { token_id: 'tok-1', used: false, live: false };
+    assert.equal(await peekGrantKey(db as never, { grantType: 'refresh_token', refreshToken: 'dsr_abc' }), null);
     const code = await peekGrantKey(db as never, { grantType: 'authorization_code', code: 'dsac_secret_code' });
-    assert.match(code ?? '', /^code:[0-9a-f]{32}$/);
-    assert.ok(!(code ?? '').includes('dsac_secret_code'), 'the key is a hash, not the code');
+    assert.match(code?.key ?? '', /^code:[0-9a-f]{32}$/);
+    assert.ok(!(code?.key ?? '').includes('dsac_secret_code'), 'the key is a hash, not the code');
     for (const sql of seen) {
       assert.match(sql, /^\s*SELECT/i);
       assert.doesNotMatch(sql, /FOR UPDATE|UPDATE |INSERT |DELETE /i, sql);
     }
-    // A USED refresh token still has a key: presenting it is the reuse signal refreshConnection must see.
-    assert.doesNotMatch(seen.find((s) => s.includes('oauth_token'))!, /used_at/);
+    const tokenSql = seen.find((s) => s.includes('oauth_token'))!;
+    assert.match(tokenSql, /revoked_at IS NULL/);
+    assert.match(tokenSql, /admin_account_active/);
+    assert.match(seen.find((s) => s.includes('oauth_code'))!, /admin_account_active/);
     const empty = { async query() { return { rows: [] }; } };
     assert.equal(await peekGrantKey(empty as never, { grantType: 'refresh_token', refreshToken: 'dsr_unknown' }), null);
     assert.equal(await peekGrantKey(empty as never, { grantType: 'authorization_code', code: 'dsac_unknown' }), null);

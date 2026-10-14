@@ -194,11 +194,11 @@ export function mountOAuthServer(app: Express): void {
           // rotates nothing, so the client's retry with the same refresh token
           // still works. Keyed on the grant, not the client_id or the IP; see
           // rateLimit.ts for why each of those was a lockout.
-          const grantKey = await peekGrantKey(
+          const grant = await peekGrantKey(
             pool,
             grantType === 'refresh_token' ? { grantType, refreshToken } : { grantType, code },
           );
-          const wait = oauthGrantWait(grantKey, req);
+          const wait = oauthGrantWait(grant, req);
           if (wait > 0) {
             refuseOAuthGrant(res, wait);
             return;

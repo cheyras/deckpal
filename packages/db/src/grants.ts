@@ -153,6 +153,13 @@ export async function refreshConnection(
   return { ok: true, tokens: await issuePair(db, row.token_id, row.scope) };
 }
 
+/** What `peekGrantKey` found: the grant's rate-limit key, and whether the secret was already used. */
+export interface GrantPeek {
+  key: string;
+  /** A refresh token presented again. It is the reuse signal `refreshConnection` revokes on, so no budget may stop it. */
+  used: boolean;
+}
+
 /**
  * The rate-limit identity of a `/token` request, read WITHOUT changing anything
  * (apps/api/src/rateLimit.ts `oauthGrantWait`).
@@ -160,32 +167,42 @@ export async function refreshConnection(
  * A refresh token names its connection, so its budget is that connection's:
  * only someone holding the refresh token can spend it, unlike a `client_id`,
  * which is public. A live code is keyed on its hash. `null` means the secret
- * matches nothing live, so the request is about to be refused as
- * `invalid_grant` and is counted per source IP instead.
+ * matches nothing LIVE — unknown, expired, or belonging to a revoked, expired or
+ * suspended connection — so the request is about to be refused as
+ * `invalid_grant` and is counted per source IP instead. Checking liveness here
+ * matters: revoked connections' unused refresh tokens stay stored, and an owner
+ * could otherwise present thousands of them as distinct keys (Astra, #339).
  *
- * A used refresh token still has a key: presenting one is the reuse signal
- * `refreshConnection` acts on (it revokes the connection), and that must not
- * be skipped by a limiter. No row lock and no write: this runs outside the
- * grant's transaction, before it, so it cannot hold anything up.
+ * A USED refresh token on a live connection comes back with `used: true`:
+ * presenting one is the reuse signal `refreshConnection` acts on (it revokes
+ * the connection), so the caller must let it through whatever the budget.
+ * No row lock and no write: this runs outside the grant's transaction, before it.
  */
 export async function peekGrantKey(
   db: Queryable,
   input: { grantType: 'refresh_token'; refreshToken: string } | { grantType: 'authorization_code'; code: string },
-): Promise<string | null> {
+): Promise<GrantPeek | null> {
   if (input.grantType === 'refresh_token') {
     if (!input.refreshToken.startsWith(REFRESH_TOKEN_PREFIX)) return null;
-    const { rows } = await db.query<{ token_id: string }>(
-      `SELECT token_id FROM oauth_token WHERE token_hash = $1 AND kind = 'refresh' AND expires_at > now()`,
+    const { rows } = await db.query<{ token_id: string; used: boolean; live: boolean }>(
+      `SELECT o.token_id, o.used_at IS NOT NULL AS used,
+              t.revoked_at IS NULL AND (t.expires_at IS NULL OR t.expires_at > now())
+                AND public.admin_account_active(t.user_id::text) AS live
+         FROM oauth_token o
+         JOIN api_token t ON t.id = o.token_id
+        WHERE o.token_hash = $1 AND o.kind = 'refresh' AND o.expires_at > now()`,
       [hashToken(input.refreshToken)],
     );
-    return rows[0] ? `connection:${rows[0].token_id}` : null;
+    const row = rows[0];
+    return row && row.live ? { key: `connection:${row.token_id}`, used: row.used } : null;
   }
   if (!input.code) return null;
   const { rows } = await db.query<{ live: boolean }>(
-    `SELECT true AS live FROM oauth_code WHERE code = $1 AND used_at IS NULL AND expires_at > now()`,
+    `SELECT true AS live FROM oauth_code
+      WHERE code = $1 AND used_at IS NULL AND expires_at > now() AND public.admin_account_active(user_id::text)`,
     [input.code],
   );
-  return rows[0] ? `code:${hashToken(input.code).slice(0, 32)}` : null;
+  return rows[0] ? { key: `code:${hashToken(input.code).slice(0, 32)}`, used: false } : null;
 }
 
 async function issuePair(db: Queryable, tokenId: string, scope: TokenScope): Promise<IssuedTokens> {
