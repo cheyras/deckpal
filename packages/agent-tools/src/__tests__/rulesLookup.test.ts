@@ -152,6 +152,12 @@ test('the condition-keeping summary always shows: Sniper\'s Eye needs exactly 4 
   assert.doesNotMatch(slime, /or is a weaker version/, 'the reversed exception is gone');
 });
 
+test('Grand Tree needs an evolution path in play, not the Stage 1 in the deck (round 9)', async () => {
+  const out = await ask({ cards: ['Grand Tree'] });
+  assert.match(out, /#2030[\s\S]*need(?:s)? not be in your deck|does not have to be in your deck/);
+  assert.doesNotMatch(out, /a Stage 1 card you have in your deck|evolve further into a card in the deck/);
+});
+
 test('repeated whitespace in a name still matches it (round 2)', async () => {
   assert.match(await ask({ query: 'Does Nighttime  Mine   affect Dragapult ex?' }), /#2288/);
 });

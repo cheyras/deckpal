@@ -52,14 +52,17 @@ jobs:
             packages/storage/dist
             packages/matching/dist
             packages/db/dist
+            packages/sim/dist
             packages/agent-tools/dist
-          key: browser-workspace-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'packages/storage/src/**', 'packages/matching/src/**', 'packages/db/src/**', 'packages/agent-tools/src/**', 'packages/*/package.json', 'packages/*/tsconfig.json', 'tsconfig*.json') }}
+          key: browser-workspace-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'packages/storage/src/**', 'packages/matching/src/**', 'packages/db/src/**', 'packages/sim/src/**', 'packages/agent-tools/src/**', 'packages/*/package.json', 'packages/*/tsconfig.json', 'tsconfig*.json') }}
       - name: Build browser shared packages
         if: steps.workspace-cache.outputs.cache-hit != 'true'
         run: |
           pnpm --filter @deckpal/storage build
           pnpm --filter @deckpal/matching build
           pnpm --filter @deckpal/db build
+          # agent-tools imports @deckpal/sim at runtime (card tags, the ruling index): its dist must exist.
+          pnpm --filter @deckpal/sim build
           pnpm --filter @deckpal/agent-tools build
       - name: Check shard assignment
         run: node --test tests/browser/shards.test.mjs
