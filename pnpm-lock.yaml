@@ -322,6 +322,9 @@ importers:
       '@deckpal/db':
         specifier: workspace:*
         version: link:../db
+      '@deckpal/sim':
+        specifier: workspace:*
+        version: link:../sim
       zod:
         specifier: ^4.6
         version: 4.6.5

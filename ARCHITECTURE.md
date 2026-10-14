@@ -575,7 +575,7 @@ served by `apps/images`. Sync jobs run via cron or any scheduler.
 ## 10. The agent tool layer — one definition, two front-ends
 
 **`packages/agent-tools` (`@deckpal/agent-tools`) is the single definition of
-what an agent may do in DeckPal.** 28 tools (17 read, 11 write), plus three
+what an agent may do in DeckPal.** 29 tools (18 read, 11 write), plus three
 capability-gated `decke_improvement_*` readers served only over MCP, each a
 `ToolDefinition`: a zod input schema, `annotations`
 (`readOnlyHint` is required in the type, not optional as MCP's own SDK has

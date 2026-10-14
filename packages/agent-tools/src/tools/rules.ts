@@ -49,9 +49,11 @@ function scoreRule(rule: CoreRule, query: string, qWords: string[]): number {
 function rulingMatches(r: RulingIndexEntry, cards: string[], qWords: string[]): number {
   let score = 0;
   const cats = r.categories.map(loose);
+  // Whole words only, and at least 3 letters for a partial match: the Supporter "N" must not match "Not a real card".
+  const within = (outer: string, inner: string): boolean => inner.length >= 3 && ` ${outer} `.includes(` ${inner} `);
   for (const c of cards) {
     if (cats.some((x) => x === c)) score += 6;
-    else if (cats.some((x) => x.includes(c) || (c.length > 4 && c.includes(x)))) score += 3;
+    else if (cats.some((x) => within(x, c) || within(c, x))) score += 3;
   }
   if (qWords.length) {
     const hay = loose(`${r.categories.join(' ')} ${r.summaries.join(' ')}`);
