@@ -268,7 +268,7 @@ test('Ruling 2039: a Stadium that replaces Area Zero Underdepths with the same B
 });
 
 // https://compendium.pokegym.net/ruling/2026/ -- the Active Tera Pokémon and Benched Pokémon Knocked Out together: Knock Outs and Prizes first, then discard to 5, then the new Active.
-test('Ruling 2026: Knock Outs and Prize cards come first, then one more Benched Pokémon is discarded, then the new Active Pokémon is chosen', () => {
+test('Ruling 2026: under Area Zero Underdepths with 8 on the Bench, when the Active Tera Pokémon and Benched Pokémon are Knocked Out together, Knock Outs and Prize cards come first, then the Bench is discarded down to 5, then the new Active Pokémon is chosen', () => {
   const dk = deck('Pikachu ex', 'Dreepy', "N's Darumaka", 'Area Zero Underdepths');
   // 20 to the Defending Pokémon and 20 to each Benched Pokémon.
   const sweep: CardScript = {

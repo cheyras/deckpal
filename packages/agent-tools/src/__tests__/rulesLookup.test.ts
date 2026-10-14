@@ -133,6 +133,16 @@ test('a Benched Cursed Blast on both players\' last Prize is a draw when they ca
   assert.doesNotMatch(out, /the player who can still promote a new Active Pokémon wins/);
 });
 
+test('summaries keep the conditions that decide the answer: Shadowy Concealment needs attack damage, Underdepths discards to 5 (round 7)', async () => {
+  const gengar = await ask({ query: 'does phantom dive damage counters knocking out my benched darkness pokemon give one fewer prize', cards: ['Shadowy Concealment'] });
+  assert.match(gengar, /Knocked Out by damage from an attack from an opposing Pokémon ex/);
+  assert.match(gengar, /damage counters an effect places do not count/);
+  assert.doesNotMatch(gengar, /gives 1 fewer Prize card when the attacker is a Pokémon ex/);
+  const depths = await ask({ cards: ['Area Zero Underdepths'] });
+  assert.match(depths, /#2026[\s\S]*discarded down to 5/);
+  assert.doesNotMatch(depths, /then one more (?:Benched Pokémon )?is discarded/);
+});
+
 test('repeated whitespace in a name still matches it (round 2)', async () => {
   assert.match(await ask({ query: 'Does Nighttime  Mine   affect Dragapult ex?' }), /#2288/);
 });

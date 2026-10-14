@@ -173,7 +173,7 @@ test('Area Zero Underdepths: a Tera Pokémon picked up (not Knocked Out) leaves 
   assert.equal(g.state.p[0].bench.length, 5);
 });
 
-test('Area Zero Underdepths: when the Tera Pokémon and Benched Pokémon are Knocked Out together the Knock Outs and Prize cards come first, then one more is discarded, then the new Active Pokémon (ruling 2026)', () => {
+test('Area Zero Underdepths: when the Tera Pokémon and Benched Pokémon are Knocked Out together the Knock Outs and Prize cards come first, then the Bench is discarded down to 5, then the new Active Pokémon (ruling 2026)', () => {
   const dk = deck('Pikachu ex', 'Dreepy', "N's Darumaka", 'Area Zero Underdepths');
   // 20 to the Defending Pokémon and 20 to each Benched Pokémon.
   const sweep: CardScript = {

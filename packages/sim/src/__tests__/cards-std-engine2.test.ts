@@ -413,7 +413,7 @@ test('Delibird, Quick Gift: usable on the first player\'s first turn: search you
 
 // ------------------------------------------------------------------ Mega Gengar ex, Shedinja
 
-test('Mega Gengar ex, Shadowy Concealment: a Knocked Out {D} Pokémon gives 1 fewer Prize card when the attacker is a Pokémon ex; it does not stack (rulings 2262, 2244, 2245)', () => {
+test('Mega Gengar ex, Shadowy Concealment: a {D} Pokémon Knocked Out by damage from an attack from an opposing Pokémon ex gives 1 fewer Prize card (damage counters an effect places do not count); it does not stack (rulings 2262, 2244, 2245)', () => {
   const dk = deck('Mega Gengar ex', 'Pecharunt', SLO, REL, DRA, "N's Zoroark ex", 'Legacy Energy');
   const ko = (target: SideLayout, attacker: string): Game => {
     const energy = attacker === DRA ? [P] : [P, P];
