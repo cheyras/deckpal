@@ -9,6 +9,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { def } from '../context.js';
 import { reviewPosition, reviewTurn, turnPosition } from '../replay/turnReview.js';
+import { legalActions } from '../flow.js';
 import { newSlot } from '../state.js';
 
 const dir = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'live-logs');
@@ -164,6 +165,28 @@ test("on every one of the reader's turns, each listed name is in the deck as oft
     }
   }
   assert.ok(turns >= 4, `reviewed ${turns} turns`);
+});
+
+test("a listed older reprint plays as the current card: an Air Balloon swsh1-213 drawn in the rebuilt deck can be attached (Astra, #343)", () => {
+  // Turn 6. The list's Air Balloon is the Sword & Shield printing, which has no script of its own; the replay plays it
+  // as the scripted current printing, and so must the rebuilt deck, or the search sees an unplayable card.
+  const deckList = [{ name: 'Air Balloon', id: 'swsh1-213', count: 2 }];
+  const pos = turnPosition(raw, 6, { players: AB, me: 0, deckList });
+  assert.ok(!('reason' in pos), 'reason' in pos ? pos.reason : '');
+  const { game } = pos;
+  const s = game.state;
+  const balloons = s.p[0].deck.filter((i) => def(game.ctx, i).name === 'Air Balloon');
+  assert.ok(balloons.length >= 1, 'an Air Balloon is in the rebuilt deck');
+  for (const i of balloons) assert.equal(def(game.ctx, i).coverage, 'full', `instance ${i} is scripted`);
+  // Drawn (the log's own Air Balloon set aside), it is offered as a Tool for each of the reader's Pokémon without one.
+  const b = balloons[0]!;
+  s.p[0].deck.splice(s.p[0].deck.indexOf(b), 1);
+  s.p[0].hand = [...s.p[0].hand.filter((i) => def(game.ctx, i).name !== 'Air Balloon'), b];
+  const env = { ctx: game.ctx, emit: null };
+  const attach = legalActions(env, s, 0).filter((a) => a.t === 'tool' && a.card === b);
+  const room = [s.p[0].active, ...s.p[0].bench].filter((sl) => sl && sl.tools.length === 0).length;
+  assert.ok(room >= 1, 'a Pokémon without a Tool');
+  assert.equal(attach.length, room, 'one attach action per Pokémon without a Tool');
 });
 
 test('wins are counted in the worlds that ranked the option, never the larger of two samples (Astra, #343)', () => {
