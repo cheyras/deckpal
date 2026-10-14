@@ -54,7 +54,7 @@ prerequisites and the three CI workflows.
    - `pg_trgm` — trigram index for card name search
    - `unaccent` — accent-insensitive search
 
-> **Storage cost note:** The full card-art corpus is ~1.9 GB. Supabase Free
+> **Storage cost note:** The full card-art corpus is about 2 GB. Supabase Free
 > tier includes 1 GB of storage, which is not enough for the full image set.
 > **Supabase Pro ($25/month)** includes 100 GB and is the recommended tier. On
 > Free, you can serve only low-resolution images (~400 MB) or defer image
@@ -90,6 +90,10 @@ pnpm --filter @deckpal/db migrate
 pnpm --filter @deckpal/db migrate:status
 
 # Fill the card-identity index (migration 047 onward). Idempotent; ~6s.
+# ONLY once the database holds a catalogue: on an empty one fingerprint:index
+# exits 1 ("not one row could be hashed"). On a fresh project skip both here;
+# refresh-catalog.sh (step 6) runs them after it imports, and after any other
+# first import (e.g. step 5) run them then.
 pnpm --filter deckpal-api fingerprint:index
 pnpm --filter deckpal-api identical-prints:index
 ```
@@ -101,9 +105,12 @@ pnpm --filter deckpal-api identical-prints:index
 > knows the difference. The hash covers child tables the importer writes after
 > the card row exists, so it cannot be an importer column or a generated one;
 > it is a pass. `scripts/refresh-catalog.sh` runs it after every import, so
-> this line is only needed on a fresh database or a manual migrate. It exits
-> non-zero if nothing hashes or if no name resolves to several cards — the two
-> shapes that mean the hash is broken rather than the catalogue being small.
+> this line is only needed after a catalogue arrives some other way (e.g.
+> `scripts/migrate-to-cloud.mjs`, step 5) or on an existing catalogue migrated
+> past 047. It exits non-zero if nothing hashes or if no name resolves to
+> several cards — the two shapes that mean the hash is broken rather than the
+> catalogue being small. An empty database is the first shape, which is why it
+> fails before the first import.
 > The following `identical-prints:index` pass writes the safe ordinary-print
 > groups used by deck ownership; promo sets are excluded, and stamped variants
 > are filtered when ownership is resolved. `scripts/refresh-catalog.sh` runs
@@ -206,7 +213,7 @@ pnpm --filter deckpal-images storage:backfill -- --prefix sets
 # just the art that can NEVER be lazily recovered (rows with no source_url)
 pnpm --filter deckpal-images storage:backfill -- --missing-source
 
-# the whole corpus — ~2.1 GB, needs Supabase Pro (Free's 1 GB is not enough)
+# the whole corpus — about 2 GB, needs Supabase Pro (Free's 1 GB is not enough)
 pnpm --filter deckpal-images storage:backfill -- --prefix images
 
 # record per-tier rows for objects already in the bucket (repairs a partial run,
@@ -313,9 +320,13 @@ legacy API keys does not remove DeckPal's own HS256 verifier.
 1. Import the repo on [vercel.com](https://vercel.com).
 2. Set the following build configuration:
    - **Build Command:** ⚠️ **use what `vercel.json` says, not a filter.** The
-     repo's `vercel.json` builds all six workspaces; `pnpm --filter deckpal-web
-     build` — which this line used to prescribe — does not build `@deckpal/db`,
-     `api` or `mcp`, so the API ships against a stale or missing `dist/`.
+     repo's `vercel.json` runs `node scripts/vercel-build.mjs`, which fetches
+     the scanner's embed model and then builds eight workspaces in order: the
+     five shared packages (`@deckpal/db`, `matching`, `storage`, `agent-tools`,
+     `sim`), then `deckpal-api`, `deckpal-mcp` and `deckpal-web`.
+     `pnpm --filter deckpal-web build` — which this line used to prescribe —
+     builds none of the packages, `api` or `mcp`, so the API ships against a
+     stale or missing `dist/`.
    - **Output Directory:** `apps/web/dist`
    - **Root Directory:** (leave as repo root)
    - **Install Command:** `pnpm install`
@@ -339,7 +350,7 @@ legacy API keys does not remove DeckPal's own HS256 verifier.
 | `API_BASE_PATH` | `/api` | **On Vercel this must be `/api`.** The default is `/deckpal/api` (`apps/api/src/index.ts`), and the Stripe webhook mounts at `${API_BASE_PATH}/stripe/webhook` — so with the default, the endpoint Stripe was given (`/api/stripe/webhook`) is a **404 on every delivery, forever**, while `/health` still reports the billing gate as `configured`. |
 | `NODE_ENV` | `production` | |
 | `DECKPAL_PUBLIC_ORIGIN` | optional, `https://deckpal.app` | The site's public origin, without a trailing slash. Read by the OAuth discovery routes (`apps/api/src/oauthServer.ts`, which otherwise derive it from the `Host` header) and by the search-engine sitemaps (`apps/api/src/sitemaps.ts`, which otherwise use `https://deckpal.app`). Set it only on a fork served from another domain, or every sitemap URL points at deckpal.app. |
-| `SUPABASE_MODE` | `1` | **Set in cloud, unset in self-host — and the billing tier is off without it.** It selects the RLS request-transaction middleware and the `SECURITY DEFINER` write path, and `billingAvailable()` requires it, so an unset value makes `GET /health` answer `billingGate: "self-host"` and every money route refuse, no matter how correct the four Stripe variables are. It also gates the migration runner: `packages/db` **skips every `-- @supabase-only` migration when it is unset** (054, 056, 058, 059, 060, 062, 065) and the CLI prints them as `present`, which reads identically to "already applied". Load it before any migration run. |
+| `SUPABASE_MODE` | `1` | **Set in cloud, unset in self-host — and the billing tier is off without it.** It selects the RLS request-transaction middleware and the `SECURITY DEFINER` write path, and `billingAvailable()` requires it, so an unset value makes `GET /health` answer `billingGate: "self-host"` and every money route refuse, no matter how correct the four Stripe variables are. It also gates the migration runner: `packages/db` **skips every `-- @supabase-only` migration when it is unset** — 19 of them, from `021_rls_policies` through `065_admin_security`, including all the RLS policies and the billing write path (054, 056, 058, 059, 060, 062). The CLI prints each one as `SKIPPED` and ends with a warning giving the count; on a cloud deployment that warning means the run was wrong, not finished. Load it before any migration run. |
 | `DECKE_VERCEL_AI_GATEWAY_KEY` | `<Vercel AI Gateway key>` | **Deck-E's brain. Unset = his chat is off.** The credential `POST /api/chat` and the deck import fix (`POST /api/decks/import/fix`) use to reach the Vercel AI Gateway. **Unset means every chat request 503s** and the client hides the character's entry point — fail-closed, and reported rather than silent: the API warns on boot and returns `deckeGate` on `GET /health` (`configured` / `unset` / `borrowed`). **It must be a key with paid credits attached.** A free-tier key authenticates fine and lists every model, then returns a bare `429` — no `retry-after`, no `x-ratelimit-*` headers — on *every* model, so a model fallback does not help and retrying only burns budget. **Deliberately separate from `AI_GATEWAY_API_KEY`**, which belongs to the marketing image generator (`scripts/gen-marketing-images.mjs`): two keys means Deck-E's per-user spend is legible on its own and revocable without breaking a build script. Local development falls back to `AI_GATEWAY_API_KEY` when this is unset; **production never falls back**, because quietly billing the wrong key is worse than being off. |
 | `DESIGN_EDITOR_USER_ID` | `<existing auth.users UUID>` | Trusted one-time cloud initialization input for Owner after 068; must identify an existing app_user. Existing initialized deployments seed Owner from admin_state.bootstrap_owner. Runtime authority is protected canonical membership. Missing owner/schema is visible on /health. Preview uses the same gates. |
 | `DECKE_ENTITLED_USER_IDS` | retired compatibility input | The server may pass this legacy argument to signature-compatible bootstrap, but 068 does not import new grants. It does not grant Scanner/Deck-E or experimental eligibility. Use canonical role plus lifecycle/opt-in; reviewed migration handles prior rows. |
@@ -632,7 +643,8 @@ CVC is a card that works.
            .resumed, invoice.paid, invoice.payment_failed,
            invoice.payment_action_required, payment_method.attached /
            .detached / .updated / .automatically_updated,
-           setup_intent.succeeded, customer.updated, customer.deleted
+           setup_intent.succeeded, customer.updated, customer.deleted,
+           payment_intent.succeeded   (16 events: the webhook's HANDLED set)
    → copy the whsec_… signing secret into STRIPE_WEBHOOK_SECRET
 
 4. Settings → Billing → Customer portal → Save
@@ -1427,13 +1439,16 @@ needs no new setting or deployment step.
    to view it pays a ~1.5–2.5 s fill per image:
 
    ```bash
-   pnpm --filter deckpal-images warm:cloud                 # whole catalog, low + high
-   pnpm --filter deckpal-images warm:cloud -- --set sv11   # just the new set
+   pnpm --filter deckpal-images warm:cloud -- --base https://<your-domain>                # whole catalog, low + high
+   pnpm --filter deckpal-images warm:cloud -- --base https://<your-domain> --set sv11     # just the new set
    ```
 
-   It needs no credentials (the catalog and image routes are public), is
-   idempotent and resumable, and reports the assets upstream genuinely cannot
-   serve rather than counting them as filled.
+   `--base` defaults to `https://deckpal.app`, so on any other deployment pass
+   it, or you warm deckpal.app instead of your own bucket. It needs no
+   credentials (the catalog and image routes are public), is idempotent and
+   resumable, and reports the assets upstream genuinely cannot serve rather
+   than counting them as filled. On deckpal.app, `.github/workflows/image-warm.yml`
+   runs it after every catalog refresh.
 
    **Dev-server-only variables** (never set these on a deployment):
 
@@ -1468,8 +1483,18 @@ needs no new setting or deployment step.
    it swallows everything):
    - `/deckpal/images/*` → the image function (`api/images.mjs`), which serves
      card art and set logos/symbols out of the `card-art` bucket
+   - `/mcp` and `/mcp/*` → the MCP function (`api/mcp.mjs`)
    - `/api/*` → the Express catch-all serverless function (`api/index.mjs`)
-   - everything else → the SPA (`index.html`)
+   - the OAuth endpoints `/register`, `/token`,
+     `/.well-known/oauth-authorization-server` and
+     `/.well-known/oauth-protected-resource` → `api/index.mjs` too
+   - the search-engine sitemaps (`/sitemap-*.xml`) → `api/index.mjs`
+   - everything else that is not a static file (`/assets/…` or a path with a
+     file extension) → the SPA (`index.html`)
+
+   Before any of those, `middleware.ts` serves the prerendered landing and
+   connect documents for exactly `/` and `/connect`, because Vercel serves the
+   real `index.html` for `/` before it applies rewrites.
 
 ### 5. Run the data-migration script (existing data)
 
@@ -1477,17 +1502,19 @@ If you have an existing local database to migrate (e.g., from a prior self-hoste
 installation):
 
 ```bash
-# Dump the local database
+# Back up the local database first (the script reads the live DB, not this dump)
 pg_dump -Fc -f deckpal-local.dump <local-db-name>
 
-# Run the migration script
-# (connects to both the local DB and Supabase, copies data with user_id
-# mapped to your Supabase Auth UUID)
-pnpm --filter deckpal-sync migrate-to-cloud
+# Run the migration script. PG* point at the LOCAL database; SUPABASE_DB_URL
+# is the target's direct connection. It needs packages/db built.
+pnpm --filter @deckpal/db build
+node scripts/migrate-to-cloud.mjs --dry-run                          # plan only
+node scripts/migrate-to-cloud.mjs --target-user-id <your Supabase Auth UUID>
 ```
 
-The script (`scripts/migrate-to-cloud.ts`):
-1. Copies catalog tables row-by-row (idempotent via ON CONFLICT)
+The script (`scripts/migrate-to-cloud.mjs`):
+1. Copies catalog tables in batches (idempotent via ON CONFLICT DO NOTHING;
+   `price_observation` is not copied)
 2. Copies per-user tables with user_id mapped to your Supabase Auth UUID
 3. Handles the BIGINT-to-UUID type transformation
 4. Preserves all FKs and IDs
@@ -1503,8 +1530,9 @@ The script (`scripts/migrate-to-cloud.ts`):
 
 ### 6. GitHub Actions sync setup
 
-Four data workflows, all driven by the same five secrets below. Three are
-scheduled; `price-rollup.yml` is dispatch-only until its first supervised run.
+Five database workflows, all driven by the same five secrets below, and one
+image workflow that needs none. Four are scheduled; `price-backfill.yml` is
+manual, and `image-warm.yml` follows each catalog refresh.
 
 | Workflow | Schedule | What it does |
 |---|---|---|
@@ -1512,6 +1540,8 @@ scheduled; `price-rollup.yml` is dispatch-only until its first supervised run.
 | `price-refresh.yml` | every 15 min, plus 02:10 and 21:10 UTC | polls TCGCSV's `last-updated.txt` and ingests on change; nightly Cardmarket ingest, all-users value snapshot, set-progress reconcile |
 | `price-backfill.yml` | manual only | replays TCGCSV daily archives into `price_observation` for a past range |
 | `price-rollup.yml` | 3rd of the month, 04:20 UTC (armed 2026-08-30) | tiered retention: rolls old months into weekly/monthly OHLC `price_bucket` rows, verifies them against the source, then retires and later DROPS the daily partition |
+| `decke-improvement-purge.yml` | daily, 03:17 UTC | deletes expired shared Deck-E chats via `decke_improvement_purge_expired()` (migration 078, see above) |
+| `image-warm.yml` | after each successful `catalog-refresh.yml`, or manual | runs `warm:cloud` against `https://deckpal.app` (a dispatch input changes the base) and reports what no approved source can fill; public endpoints only, so **no secrets** |
 
 **`price-refresh.yml` is what keeps prices and the Insights charts alive on the
 cloud tier.** Until 2026-08-29 nothing did: `apps/sync` is a long-running
@@ -1781,34 +1811,74 @@ ALTER ROLE deckpal SET random_page_cost                    = 1.5;
 SQL
 ```
 
+Install `pgvector` too (`apt install postgresql-<major>-pgvector` or your
+distribution's equivalent): migration 051 needs the `vector` extension and stops
+with a message naming the package if it is missing. See "`pgvector` is a
+prerequisite of migration 051" above.
+
 ### 2. Configure environment
 
 ```bash
 cp .env.example .env
 chmod 600 .env
-# Edit .env -- set PGPASSWORD to the password from step 1
 ```
 
-### 3. Install, migrate, build
+Then edit `.env`:
+
+- Set `PGPASSWORD` to the password from step 1.
+- **Delete the `API_BASE_PATH=/api` line.** `.env.example` ships the cloud-style
+  value, but a self-host deployment is served under `/deckpal/`: the web build
+  without a Supabase URL calls `/deckpal/api`, and the API serves the SPA at
+  `/deckpal` only when it is on the default. Unset, the API mounts at the
+  default `/deckpal/api`.
+- Change `DECKPAL_API_BASE` to `http://127.0.0.1:3700/deckpal/api` to match. The
+  MCP server and the sync jobs reach the API through it.
+- Set `IMAGE_CACHE_ROOT` and `SPRITE_ROOT` to where the card-art cache and the
+  sprites will live (or remove both lines to use `cache/` and
+  `assets/sprites/pokemon` in the checkout).
+- Leave the Supabase block and `SUPABASE_MODE` unset.
+
+### 3. Install, migrate, fetch the catalogue, build
 
 ```bash
 pnpm install
+
+# The shared packages first: the apps and the catalogue script resolve their dist/.
 pnpm --filter @deckpal/db build
-pnpm --filter @deckpal/db migrate     # auto-skips `-- @supabase-only` migrations (SUPABASE_MODE unset)
-pnpm --filter deckpal-sync import:catalog   # optional arg: dataDir (default data/catalog/en)
-pnpm --filter deckpal-web build
+pnpm --filter @deckpal/matching build
+pnpm --filter @deckpal/storage build
+pnpm --filter @deckpal/agent-tools build
+pnpm --filter @deckpal/sim build
+
+pnpm --filter @deckpal/db migrate     # skips the 19 `-- @supabase-only` migrations (SUPABASE_MODE unset) and prints them as SKIPPED
+
+# The catalogue is not in the repo. This needs Docker: it extracts the upstream
+# JSON into data/catalog/en (B3-safe), imports it, and fills the fingerprint
+# indexes. Re-run it weekly (step 6).
+scripts/refresh-catalog.sh
+
 pnpm --filter deckpal-api build
+pnpm --filter deckpal-web build
+pnpm --filter deckpal-images build
 ```
 
 ### 4. Run
 
 ```bash
-node apps/api/dist/index.js
+node apps/api/dist/index.js       # 127.0.0.1:3700; serves the SPA at /deckpal/ and the API at /deckpal/api
+node apps/images/dist/index.js    # 127.0.0.1:3701; serves /deckpal/images/*
 ```
 
-The API serves the built SPA. The image server (`apps/images`) serves cached
-card art from the local disk. Run it alongside the API if you need card art
-served locally.
+Run both under your process manager. The API serves the built SPA. The image
+server (`apps/images`) serves card art from the local disk and **never fetches
+upstream on a miss** — an image that is not in the cache gets the placeholder.
+Fill the cache once, and again after a catalogue refresh adds sets:
+
+```bash
+pnpm --filter deckpal-images warm         # card art, low + high (the whole corpus is about 2 GB)
+pnpm --filter deckpal-images warm:sets    # set logos and symbols
+scripts/fetch-sprites.sh                  # Pokédex sprites, ~270 MB, into <SPRITES_DEST>/pokemon (default assets/sprites); SPRITE_ROOT must name that pokemon/ directory
+```
 
 `apps/images` binds `127.0.0.1` and carries its own in-memory budgets: health
 **60 requests/min** before its `cacheStats` DB query, and the four
@@ -1822,7 +1892,9 @@ the proxy remains the real ingress boundary.
 
 The API has no built-in authentication in self-host mode. Place a reverse proxy
 (e.g., nginx with an SSO gateway, Caddy with SSO, or any auth-capable proxy) in front
-of the API. See [`SECURITY.md`](SECURITY.md) for details.
+of the API. See [`SECURITY.md`](SECURITY.md) for details. Route
+`/deckpal/images/` to the image server (`127.0.0.1:3701`) and the rest of
+`/deckpal/` to the API (`127.0.0.1:3700`), passing the path through unchanged.
 
 Preserve the API's `Content-Security-Policy` header if the proxy sets headers of
 its own. The quad labeler uses a `blob:` worker for HEIC repair and `blob:`
@@ -1832,7 +1904,10 @@ and `img-src`. No extra environment variable or proxy rewrite is required.
 ### 6. Set up sync jobs
 
 `deckpal-sync` runs the price and collection-snapshot jobs on its own node-cron
-schedule. The **catalog** entry there is a logging stub on purpose: refreshing the
+schedule once it is running: `pnpm --filter deckpal-sync build`, then
+`node apps/sync/dist/index.js` under your process manager. Its snapshot and
+reconcile jobs call the API at `DECKPAL_API_BASE` (step 2). The **catalog**
+entry there is a logging stub on purpose: refreshing the
 catalog needs Docker to extract the upstream JSON, so it is a scheduled GitHub
 Actions job for the cloud path (`.github/workflows/catalog-refresh.yml`) and a
 cron/systemd timer calling the script directly for self-host:
@@ -1864,8 +1939,10 @@ self-host deployment runs the same server as its own process.
 
 ### 1. Connect
 
-Works with claude.ai, ChatGPT, Gemini, Claude Code, or any client that speaks
-the MCP Authorization spec (OAuth 2.1 + PKCE + dynamic client registration —
+Tested end to end with Claude. ChatGPT, Gemini and other apps with remote MCP
+connectors should work too, going by their own docs, but we have not tested
+them yet. What a client needs is the MCP Authorization spec (OAuth 2.1 + PKCE +
+dynamic client registration —
 `apps/api/src/oauthServer.ts`).
 
 1. In your client, add a custom MCP connector pointed at
@@ -2029,20 +2106,26 @@ than per-user tokens, because a self-host deployment has one user:
 
 ```bash
 pnpm --filter deckpal-mcp build
-DECKPAL_MCP_KEY=$(openssl rand -hex 32) node apps/mcp/dist/index.js
+
+# Once: generate the shared secret and put it in .env as DECKPAL_MCP_KEY=<value>,
+# replacing the template's line. Keep that value; the proxy or client needs it.
+openssl rand -hex 32
+
+node apps/mcp/dist/index.js      # reads DECKPAL_MCP_KEY and the rest from .env
 ```
 
 | Variable | Meaning |
 |---|---|
-| `DECKPAL_MCP_KEY` | Shared secret required in the `x-brain-key` header. Startup fails without it. |
+| `DECKPAL_MCP_KEY` | Shared secret required in the `x-brain-key` header. Startup fails without it (an empty value counts as unset). |
 | `MCP_ALLOWED_HOSTS` | Comma-separated `Host` allowlist (DNS-rebinding protection). Default `127.0.0.1,localhost`. |
 | `DECKPAL_MCP_PORT` | Listen port. Default `3704`. |
-| `DECKPAL_API_BASE` | Where the REST API lives. Must be an **absolute** URL (scheme + host); every tool path is resolved against it with `new URL()` and rejected if it lands outside. Default `http://127.0.0.1:3700/deckpal/api`. |
+| `DECKPAL_API_BASE` | Where the REST API lives. Must be an **absolute** URL (scheme + host); every tool path is resolved against it with `new URL()` and rejected if it lands outside. Default `http://127.0.0.1:3700/deckpal/api`. `.env.example` ships the cloud-style `http://127.0.0.1:3700/api`, so on self-host set it to the `/deckpal/api` form (Path B step 2). |
 
-Expose it through your reverse proxy at whatever path you like, add the
-`x-brain-key` header there (or have the client send it), and point your MCP
-client at that URL. Personal access tokens created in the UI still work as
-`Authorization: Bearer` credentials against the REST API itself.
+Expose it through your reverse proxy at whatever path you like, have the proxy
+add the `x-brain-key` header with the same value as `DECKPAL_MCP_KEY` (or have
+the client send it), and point your MCP client at that URL. Personal access
+tokens created in the UI still work as `Authorization: Bearer` credentials
+against the REST API itself.
 
 Self-hosters who want the per-user endpoint instead can run
 `node apps/mcp/dist/cloud.js` (defaults to `127.0.0.1:3705`), which is the same

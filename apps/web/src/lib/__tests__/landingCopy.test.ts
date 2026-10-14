@@ -3,11 +3,15 @@
  * - Nothing that is not generally released may appear on the public page (the
  *   card scanner and Deck-E are gated to opted-in accounts; see landing/copy.ts).
  *   "Trade Credits" is Pokémon TCG Live's currency, and "no credit card" is about
- *   payment; neither is DeckPal's own credits.
+ *   payment; neither is DeckPal's own credits. The battle simulator is named:
+ *   `simulate_battles` is served to every connected AI, and the owner ruled on
+ *   2026-10-12 that the landing lists it.
  * - The static <head> in index.html is a hand-kept copy of `COPY.meta`; this is
  *   what stops them drifting.
  * - The connector's tool count is quoted in llms.txt and has been wrong before
- *   (the page said 21 for weeks after the server exposed 25).
+ *   (the page said 21 for weeks after the server exposed 25, then 26 after it
+ *   exposed 28). apps/mcp's docs.test.ts checks the quoted counts against the
+ *   live tools/list; this file checks the quoted list agrees with them.
  * - The compatibility table is the page's only source of which-app-works claims.
  *   Only Claude has been tested end to end; every other row must say it is from
  *   the app's docs.
@@ -22,11 +26,18 @@ import { landingJsonLd, renderConnectStatic, renderLandingStatic, renderLlmsFull
 const everything = JSON.stringify(COPY) + renderLandingStatic() + renderConnectStatic() + renderLlmsFull() + landingJsonLd()
 
 test('the landing mentions nothing that is not generally released', () => {
-  for (const banned of [/scanner/i, /deck-e/i, /simulat/i, /\breplay\b/i]) {
+  for (const banned of [/scanner/i, /deck-e/i, /\breplay\b/i]) {
     assert.doesNotMatch(everything, banned, `landing copy matches ${banned}`)
   }
   const credits = everything.replace(/Trade Credits|credit card/g, '')
   assert.doesNotMatch(credits, /\bcredits?\b/i, 'only PTCG Live Trade Credits (and "credit card") may be mentioned')
+})
+
+test('the homepage names the simulator, with its caveat', () => {
+  // Owner ruling 2026-10-12: name it on the page itself, not only in llms.txt and /connect.
+  const page = renderLandingStatic()
+  assert.match(page, /simulate games/)
+  assert.match(page, /from a bot, not real games/)
 })
 
 test('house style: no em dashes, no arrows', () => {
@@ -47,12 +58,19 @@ test('the meta fits a results page', () => {
   assert.ok(COPY.meta.description.length <= 160, `description is ${COPY.meta.description.length} chars`)
 })
 
-test('llms.txt quotes the 26 tools the connector exposes', () => {
-  assert.match(COPY.seo.llmsTxt, /26 tools \(15 read, 11 write\)/)
+test('llms.txt quotes the 28 tools the connector exposes, and lists each once', () => {
+  assert.match(COPY.seo.llmsTxt, /28 tools \(17 read, 11 write\)/)
+  const quoted = Number(/(\d+) tools \(\d+ read, \d+ write\)/.exec(COPY.seo.llmsTxt)?.[1])
   const tools = COPY.seo.llmsTxt.match(/^- [A-Z][^:]+: ([a-z_, ]+)$/gm)?.flatMap((l) => l.split(': ')[1].split(', ')) ?? []
-  assert.equal(tools.length, 26)
-  assert.equal(new Set(tools).size, 26)
-  assert.doesNotMatch(everything, /\b21 tools\b/)
+  assert.equal(tools.length, quoted)
+  assert.equal(new Set(tools).size, quoted)
+  assert.doesNotMatch(everything, /\b(21|26|27) tools\b/)
+})
+
+test('the /connect tool groups are the same tools as llms.txt', () => {
+  const llms = COPY.seo.llmsTxt.match(/^- [A-Z][^:]+: ([a-z_, ]+)$/gm)?.flatMap((l) => l.split(': ')[1].split(', ')) ?? []
+  const page = COPY.connectPage.sections.tools.groups.flatMap((g) => g.tools.split(', '))
+  assert.deepEqual([...page].sort(), [...llms].sort())
 })
 
 test('compatibility claims: owner order, dated, and only Claude marked tested', () => {
