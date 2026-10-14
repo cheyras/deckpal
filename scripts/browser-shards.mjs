@@ -54,6 +54,8 @@ export const durations = {
   // Measured 10s locally (a 3s cloud build, Chromium at 1280 and 390); padded
   // for hosted runners until it has its own CI timing.
   'agent-access': 30,
+  // Same shape as agent-access: a cloud build and Chromium at 1280 and 390.
+  'ptcgl-name': 30,
 }
 
 export function shardSuites(suites, count) {

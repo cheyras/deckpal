@@ -527,8 +527,20 @@ when the account never chose — the app default applies.
                 "deckeHidden": false, "deckeSharePrompts": true,
                 "skin": null, "topbar": null,
                 "seriesSortKey": "recency", "seriesSortDir": "desc",
-                "seriesGroupOwned": true } }
+                "seriesGroupOwned": true,
+                "ptcglName": "cheyras", "ptcglNameSource": "auto" } }
 ```
+`ptcglName` is the reader's PTCG Live screen name (migration 086), `null` until
+it is typed or learned. `ptcglNameSource` is `"manual"` when typed and
+`"auto"` when it filled itself in: once three logged PTCG Live games
+attribute the same name to the reader, strictly more than any other, an empty
+name is set to it after the next `POST /decks/:id/logs`. It is never changed
+automatically once set. When it is set and appears in a pasted log as a
+player (matched as the parser matches players, case and curly apostrophes
+aside), adding the log, ranking it (`/decks/log-preview`) and its digest read
+the log from that player's side unless the caller names one. For the digest
+it also outranks the side stored when the game was logged, so setting the
+name corrects an old guess.
 
 ### PATCH /deckpal/api/me/settings
 Any subset of the fields above; returns the full updated row in the same
@@ -537,6 +549,9 @@ shape. Unknown values are a `400` (never a silent reset to the default);
 accept `null` to mean "follow the app default". A body with no known field is
 a `400`. `deckeSharePrompts` is a strict boolean (default `true`) controlling
 whether Deck-E may ask to share a chat; it does not itself share any content.
+`ptcglName` takes a string (trimmed, at most 100 characters) and makes the
+name `"manual"`; `null` or a blank string clears it, after which it can be
+learned again. Before migration 086 is applied it answers `503`.
 
 ### GET /deckpal/api/me/showcase
 The profile's featured cards in slot order (`user_showcase`, slots 1-based,
@@ -1534,8 +1549,11 @@ Added 2026-08-29 for battle-log deck inference. Body `{ "log" (required,
 ≤50000), "player_name"? }` (camelCase `playerName` also accepted). Parses the
 log **without writing anything** and scores it against the 40 most-recently-updated
 non-deleted decks' current-version card lists (name overlap strengthened by
-normalized PTCG Live card codes; both players considered, so an unidentified
-owner still ranks) — a per-user recency cap rather than a full scan.
+normalized PTCG Live card codes) — a per-user recency cap rather than a full
+scan. When the reader is known (`player_name`, or their PTCG Live name playing
+in the log) only that player's cards are scored, so a saved deck that matches
+the opponent's cards does not rank; otherwise both players are considered, so
+an unidentified owner still ranks.
 ```json
 200 { "parsed": { "result": "win", "opponent": "Robni16", "turns": 14,
                   "prizes": { "me": 6, "opponent": 5 }, "confidence": "high",
@@ -1564,9 +1582,10 @@ The full row — same `log` shape as the 201 above (summary fields + nullable `r
 Added 2026-10-10. `?playerName=` (optional). Reads the log's **stored raw PTCG
 Live log** into a compact, model-sized digest (`digestBattleLog` in
 `apps/api/src/deck/battlelog.ts`) — read-only, same ownership rules as the
-detail route above. The side is the owner the row was stored with
-(`parsed.players.me`) unless `playerName` names another; the deck's current
-card list is only used when the row has no stored owner.
+detail route above. The side is, in order: `playerName` when given; the
+reader's PTCG Live name when it plays in this log; the owner the row was
+stored with (`parsed.players.me`); and only when none of those is known, the
+deck's current card list.
 ```json
 200 { "logId": 7, "deckVersion": 2, "origin": "ptcgl", "result": "win",
       "digest": {

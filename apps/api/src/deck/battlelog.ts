@@ -355,9 +355,12 @@ export interface DeckMatchScore {
  * the log carries Live card codes, each code that normalizes to one of the
  * deck's card ids adds an extra point, so a deck whose exact printings match
  * ranks above one that matches only by (possibly ambiguous) names. The deck is
- * one player's, so the best-scoring player is taken as its owner.
+ * one player's: when `owner` names a player in the log (the reader's PTCG Live
+ * name, or the name the caller gave), only that player's cards are scored, so a
+ * saved deck that matches the OPPONENT's cards does not rank first (Astra, #341);
+ * otherwise the best-scoring player is taken as its owner.
  */
-export function scoreDeckMatch(parsed: ParsedBattleLog, deckCards: DeckCardForMatch[]): DeckMatchScore {
+export function scoreDeckMatch(parsed: ParsedBattleLog, deckCards: DeckCardForMatch[], owner?: string): DeckMatchScore {
   const deckNameKeys = new Set(deckCards.map((c) => nameKey(c.name)));
   const deckCardIds = new Set(
     deckCards
@@ -367,7 +370,8 @@ export function scoreDeckMatch(parsed: ParsedBattleLog, deckCards: DeckCardForMa
   const total = deckCards.length;
   let bestNames = 0;
   let bestCodes = 0;
-  for (const pl of parsed.playerCards) {
+  const own = owner ? parsed.playerCards.filter((pl) => nameKey(pl.name) === nameKey(owner)) : [];
+  for (const pl of own.length ? own : parsed.playerCards) {
     const names = overlapScore(pl.cardNameKeys, deckNameKeys);
     let codes = 0;
     for (const raw of pl.cardCodes) {
@@ -493,6 +497,42 @@ export function parseBattleLog(rawLog: string, deckCardNames: string[], playerNa
   }
 }
 
+const SETUP_RE = /^(.+?) (?:chose (?:heads|tails)|won the coin toss|decided to go (?:first|second)|drew \d+ cards for the opening hand|took a mulligan)/;
+
+/**
+ * The players a log names, first appearance first, from NORMALIZED lines. Turn headers are authoritative; setup lines
+ * fill in a player who never got a turn (e.g. a turn-1 concession).
+ */
+function playerNamesIn(lines: string[]): string[] {
+  const names: string[] = [];
+  const add = (n: string): void => {
+    if (!names.includes(n)) names.push(n);
+  };
+  for (const line of lines) {
+    const turn = line.match(/^(.+)'s Turn$/);
+    if (turn) {
+      add(turn[1]!);
+      continue;
+    }
+    if (names.length < 2) {
+      const setup = line.match(SETUP_RE);
+      if (setup) add(setup[1]!);
+    }
+  }
+  return names;
+}
+
+/** The players a raw log names, found exactly as the parser finds them (curly apostrophes and card codes normalized). */
+export function logPlayerNames(rawLog: string): string[] {
+  if (typeof rawLog !== 'string' || !rawLog.trim()) return [];
+  return playerNamesIn(rawLog.split(/\r?\n/).map(normalizeLine));
+}
+
+/** Whether two player names are the same name, as the parser's `playerName` override compares them. */
+export function samePlayerName(a: string, b: string): boolean {
+  return nameKey(a) === nameKey(b);
+}
+
 function parseInner(rawLog: string, deckCardNames: string[], playerName?: string): ParsedBattleLog {
   const out = emptyParse();
   if (typeof rawLog !== 'string' || !rawLog.trim()) return out;
@@ -500,8 +540,6 @@ function parseInner(rawLog: string, deckCardNames: string[], playerName?: string
   const lines = rawLog.split(/\r?\n/).map(normalizeLine);
 
   // ── Pass 1: discover the two player names ──────────────────────────────────
-  // Turn headers are authoritative; setup lines fill in a player who never got a
-  // turn (e.g. a turn-1 concession).
   const players = new Map<string, PlayerState>();
   const player = (name: string): PlayerState => {
     let p = players.get(name);
@@ -511,18 +549,7 @@ function parseInner(rawLog: string, deckCardNames: string[], playerName?: string
     }
     return p;
   };
-  const SETUP_RE = /^(.+?) (?:chose (?:heads|tails)|won the coin toss|decided to go (?:first|second)|drew \d+ cards for the opening hand|took a mulligan)/;
-  for (const line of lines) {
-    const turn = line.match(/^(.+)'s Turn$/);
-    if (turn) {
-      player(turn[1]!);
-      continue;
-    }
-    if (players.size < 2) {
-      const setup = line.match(SETUP_RE);
-      if (setup) player(setup[1]!);
-    }
-  }
+  for (const name of playerNamesIn(lines)) player(name);
   const names = [...players.keys()];
   if (names.length === 0) return out;
 
