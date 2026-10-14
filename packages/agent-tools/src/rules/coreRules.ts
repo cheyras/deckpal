@@ -158,12 +158,15 @@ export const CORE_RULES: readonly CoreRule[] = [
   {
     id: 'winning',
     title: 'Winning',
-    keywords: ['win', 'winning', 'last prize', 'no pokemon', 'deck out', 'cannot draw', 'concede', 'sudden death'],
+    keywords: ['win', 'winning', 'last prize', 'no pokemon', 'deck out', 'cannot draw', 'concede', 'sudden death', 'draw', 'tie', 'simultaneous'],
     text:
       'You win when you take your last Prize card, when your opponent has no Pokémon in play, or when your opponent ' +
       'cannot draw at the start of their turn. Running out of cards during a draw EFFECT does not lose; only the ' +
-      'start-of-turn draw does. If both Active Pokémon are Knocked Out at once, both players take Prizes, then promote.',
-    checked: 'sim rules.test.ts (rulebook p.8, 21)',
+      'start-of-turn draw does. When Knock Outs on both sides happen at once, both players take Prizes first, then ' +
+      'the win conditions are counted for each player: whoever meets MORE of them wins (taking your last Prize and ' +
+      'leaving your opponent no Pokémon is two), and an equal count is a tiebreaker game, recorded as a draw. Only if ' +
+      'nobody has won do both players promote and play goes on.',
+    checked: 'sim rules.test.ts (rulebook p.8, 21), rules-audit.test.ts (Destined Fight), flow.ts checkWin',
   },
   {
     id: 'special-conditions',

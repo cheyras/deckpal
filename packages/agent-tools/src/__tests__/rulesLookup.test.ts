@@ -95,6 +95,25 @@ test('"Hide n Sneak" in a question does not also pull the Supporter N, and a pla
   assert.doesNotMatch(plain, /Official rulings filed under/);
 });
 
+test('a longer card name the index lacks is not matched by its first word, from the question or both arguments (round 2)', async () => {
+  const both = await ask({ query: 'Can I use Switch Cart?', cards: ['Switch Cart'] });
+  assert.doesNotMatch(both, /· Switch \(/, 'rulings for plain "Switch" leaked in');
+  const queryOnly = await ask({ query: 'Can I use Switch Cart when my Active is Asleep?' });
+  assert.doesNotMatch(queryOnly, /· Switch \(/);
+  // A sentence-initial word is not part of a name: "Does Hide n Sneak…" still finds Hide 'n' Sneak.
+  assert.match(await ask({ query: 'Does Hide n Sneak stop Cursed Blast?' }), /#2425/);
+});
+
+test('repeated whitespace in a name still matches it (round 2)', async () => {
+  assert.match(await ask({ query: 'Does Nighttime  Mine   affect Dragapult ex?' }), /#2288/);
+});
+
+test('simultaneous wins: more win conditions wins, an equal count is a draw (round 2)', async () => {
+  const out = await ask({ query: 'I took my last prize but my last pokemon was knocked out too, who wins or is it a draw' });
+  assert.match(out, /whoever meets MORE of them wins/);
+  assert.match(out, /an equal count is a tiebreaker game, recorded as a draw/);
+});
+
 test('an unknown card with a generic question gets no topic-matched rulings presented as "filed under" it', async () => {
   const out = await ask({ query: 'when does damage happen and who takes prizes', cards: ['Zzz Not A Real Card'] });
   assert.doesNotMatch(out, /Official rulings filed under/);

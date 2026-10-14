@@ -61,24 +61,46 @@ for (const r of RULING_INDEX) {
 
 /** Case kept: a card name in a question is written with capitals ("Cursed Blast"), a plain word is not ("switch"). */
 const cased = (s: string): string =>
-  s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[’']/g, '').replace(/[^A-Za-z0-9 ]/g, ' ').replace(/s+/g, ' ').trim();
+  s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[’']/g, '').replace(/[^A-Za-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 const CASED_NAMES = [...new Set(RULING_INDEX.flatMap((r) => r.categories))]
-  .map((c) => ({ name: c, cased: cased(c) }))
-  .filter((c) => c.cased.length >= 3 && /[A-Z]/.test(c.cased))
-  .sort((a, b) => b.cased.length - a.cased.length);
+  .map((c) => ({ name: c, words: cased(c).split(' ').filter(Boolean) }))
+  .filter((c) => c.words.join(' ').length >= 3 && /[A-Z]/.test(c.words.join(' ')))
+  .sort((a, b) => b.words.join(' ').length - a.words.join(' ').length);
 
-/** Ruling names written in the question itself, longest first, each consuming its words so "Hide n Sneak" does not also yield "N". */
-function namesInQuery(query: string): string[] {
-  let text = ` ${cased(query)} `;
-  const found: string[] = [];
-  for (const c of CASED_NAMES) {
-    const needle = ` ${c.cased} `;
-    if (text.includes(needle)) {
-      found.push(c.name);
-      text = text.split(needle).join(' ');
+/** A capitalised word next to a match means the match is part of a longer name. "I" is not a name. */
+const capital = (w: string | undefined): boolean => !!w && w !== 'I' && /^[A-Z]/.test(w);
+
+/**
+ * Ruling names written in the question itself, matched as whole words, longest first, each consuming its words, so
+ * "Hide n Sneak" does not also yield "N". Two guards against matching PART of a name the index does not have (Astra,
+ * #340): the words of the names passed in `cards` are consumed first, and a match with a capitalised word right after
+ * it, or right before it (unless that is the sentence's first word), is skipped — "Switch Cart" is not "Switch", and
+ * "Mega Lucario ex" is not "Lucario".
+ */
+function namesInQuery(query: string, passed: readonly string[] = []): string[] {
+  const found = new Set<string>();
+  const passedWords = passed.map((p) => cased(p).split(' ').filter(Boolean)).filter((w) => w.length > 0);
+  for (const sentence of query.split(/[.?!;:\n]+/)) {
+    const words = cased(sentence).split(' ').filter(Boolean);
+    const used = new Array<boolean>(words.length).fill(false);
+    const at = (i: number, phrase: readonly string[]): boolean => phrase.every((w, k) => words[i + k] === w && !used[i + k]);
+    const take = (i: number, n: number): void => {
+      for (let k = 0; k < n; k++) used[i + k] = true;
+    };
+    for (const p of passedWords) for (let i = 0; i + p.length <= words.length; i++) if (at(i, p)) take(i, p.length);
+    for (const c of CASED_NAMES) {
+      for (let i = 0; i + c.words.length <= words.length; i++) {
+        if (!at(i, c.words)) continue;
+        const end = i + c.words.length;
+        const longerBefore = i >= 2 && capital(words[i - 1]) && !used[i - 1];
+        const longerAfter = capital(words[end]) && !used[end];
+        if (longerBefore || longerAfter) continue;
+        found.add(c.name);
+        take(i, c.words.length);
+      }
     }
   }
-  return found;
+  return [...found];
 }
 
 function renderRuling(r: RulingIndexEntry): string {
@@ -122,7 +144,7 @@ const rulesLookupTool = defineTool({
       .slice(0, MAX_RULES);
     // Rulings only for NAMES: the ones passed in `cards`, and card/attack/Ability names written in the question.
     // A topic-only match ("prize", "damage") is what the core rules are for, and it buried the ruling that mattered.
-    const named = [...new Set([...cards, ...namesInQuery(query).map(loose)])];
+    const named = [...new Set([...cards, ...namesInQuery(query, args.cards ?? []).map(loose)])];
     const hits = new Map<number, { r: RulingIndexEntry; names: number; words: number }>();
     for (const n of named) {
       for (const r of RULINGS_BY_NAME.get(n) ?? []) {
@@ -148,7 +170,7 @@ const rulesLookupTool = defineTool({
     } else if (query) {
       lines.push('No core rule matched those words. Core rules available: ' + CORE_RULES.map((r) => r.title).join('; ') + '.');
     }
-    const namedLabel = [...new Set([...(args.cards ?? []), ...namesInQuery(query)])].join(', ');
+    const namedLabel = [...new Set([...(args.cards ?? []), ...namesInQuery(query, args.cards ?? [])])].join(', ');
     if (rulings.length) {
       lines.push(`Official rulings filed under ${namedLabel} (${rulings.length}${rulings.length > MAX_RULINGS ? `, showing ${MAX_RULINGS}` : ''}):`);
       for (const { r } of rulings.slice(0, MAX_RULINGS)) lines.push(renderRuling(r));
