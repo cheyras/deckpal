@@ -35,6 +35,7 @@ export {
   REFRESH_TOKEN_PREFIX,
   REFRESH_TOKEN_TTL_DAYS,
   openConnection,
+  peekGrantKey,
   refreshConnection,
 } from './grants.js';
-export type { IssuedTokens, RefreshOutcome } from './grants.js';
+export type { GrantPeek, IssuedTokens, RefreshOutcome } from './grants.js';

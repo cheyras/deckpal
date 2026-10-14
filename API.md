@@ -120,8 +120,15 @@ omit the host.
   **`Retry-After`** header. Budgets are in-memory fixed windows per instance,
   reset on cold start, and are speed bumps rather than a distributed quota.
 
-  Bare-origin OAuth discovery, `/register` and `/token` have their own 30/min
-  per-source-IP limiter. The MCP transport has a global 300/min-per-instance
+  Bare-origin OAuth discovery, `/register` and `/token` have their own
+  limits. Per source IP, checked before any body is read: `/token` 6,000/min
+  (a ceiling), `/register` 60/min, and 1,200/min shared by the two discovery
+  documents. `/token` also budgets each verified grant: 30/min per connection,
+  and 120/min per IP for secrets that match nothing.
+  Their refusals are
+  `429` + `Retry-After` with RFC 6749's
+  `{"error":"temporarily_unavailable","error_description":"…"}` body, not the
+  error shape above. The MCP transport has a global 300/min-per-instance
   admission counter before token resolution and a 60/min-per-token budget
   after. The Stripe webhook relies on signature verification and its retry
   behavior instead of an application limiter. See `SECURITY.md` → Rate limiting.

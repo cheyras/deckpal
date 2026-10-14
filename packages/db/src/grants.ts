@@ -153,6 +153,68 @@ export async function refreshConnection(
   return { ok: true, tokens: await issuePair(db, row.token_id, row.scope) };
 }
 
+/** What `peekGrantKey` found: the grant's rate-limit key, and whether the secret was already used. */
+export interface GrantPeek {
+  key: string;
+  /**
+   * A replay that WILL revoke the connection: a used refresh token, presented for its own client, outside the race
+   * grace. That is the reuse signal `refreshConnection` revokes on, so no budget may stop it. A used token presented
+   * for another client, or inside the grace, is refused without revoking anything, and stays metered (Astra, #339).
+   */
+  reuse: boolean;
+}
+
+/**
+ * The rate-limit identity of a `/token` request, read WITHOUT changing anything
+ * (apps/api/src/rateLimit.ts `oauthGrantWait`).
+ *
+ * A refresh token names its connection, so its budget is that connection's:
+ * only someone holding the refresh token can spend it, unlike a `client_id`,
+ * which is public. A live code is keyed on its hash. `null` means the secret
+ * matches nothing LIVE — unknown, expired, or belonging to a revoked, expired or
+ * suspended connection — so the request is about to be refused as
+ * `invalid_grant` and is counted per source IP instead. Checking liveness here
+ * matters: revoked connections' unused refresh tokens stay stored, and an owner
+ * could otherwise present thousands of them as distinct keys (Astra, #339).
+ *
+ * A used refresh token on a live connection, presented for its own client and
+ * outside the race grace, comes back with `reuse: true`: `refreshConnection`
+ * will revoke the connection on it, so the caller must let it through whatever
+ * the budget. Every other presentation is metered.
+ * No row lock and no write: this runs outside the grant's transaction, before it.
+ */
+export async function peekGrantKey(
+  db: Queryable,
+  input: { grantType: 'refresh_token'; refreshToken: string; clientId?: string } | { grantType: 'authorization_code'; code: string },
+): Promise<GrantPeek | null> {
+  if (input.grantType === 'refresh_token') {
+    if (!input.refreshToken.startsWith(REFRESH_TOKEN_PREFIX)) return null;
+    const { rows } = await db.query<{ token_id: string; used: boolean; racing: boolean; oauth_client_id: string | null; live: boolean }>(
+      `SELECT o.token_id, o.used_at IS NOT NULL AS used,
+              o.used_at > now() - make_interval(secs => $2) AS racing, t.oauth_client_id,
+              t.revoked_at IS NULL AND (t.expires_at IS NULL OR t.expires_at > now())
+                AND public.admin_account_active(t.user_id::text) AS live
+         FROM oauth_token o
+         JOIN api_token t ON t.id = o.token_id
+        WHERE o.token_hash = $1 AND o.kind = 'refresh' AND o.expires_at > now()`,
+      [hashToken(input.refreshToken), REFRESH_RACE_SECONDS],
+    );
+    const row = rows[0];
+    if (!row || !row.live) return null;
+    // The same three conditions refreshConnection checks before it revokes: the token was used, it is presented for
+    // its own client, and the race grace has passed.
+    const ownClient = !input.clientId || !row.oauth_client_id || input.clientId === row.oauth_client_id;
+    return { key: `connection:${row.token_id}`, reuse: row.used && ownClient && !row.racing };
+  }
+  if (!input.code) return null;
+  const { rows } = await db.query<{ live: boolean }>(
+    `SELECT true AS live FROM oauth_code
+      WHERE code = $1 AND used_at IS NULL AND expires_at > now() AND public.admin_account_active(user_id::text)`,
+    [input.code],
+  );
+  return rows[0] ? { key: `code:${hashToken(input.code).slice(0, 32)}`, reuse: false } : null;
+}
+
 async function issuePair(db: Queryable, tokenId: string, scope: TokenScope): Promise<IssuedTokens> {
   const accessToken = generateToken();
   const refreshToken = REFRESH_TOKEN_PREFIX + randomBytes(32).toString('base64url');
