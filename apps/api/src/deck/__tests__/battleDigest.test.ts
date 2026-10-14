@@ -385,7 +385,9 @@ test("route: GET /decks/:id/logs/:logId/turns/:turn/review — the digest's owne
     route,
     /playerName: playerName\s*\?\? storedNameFor\(row\.raw_log, \(await ptcglNameOf\(poolQueryable, userId\)\)\)\s*\?\? \(typeof storedMe === 'string' && storedMe \? storedMe : undefined\)/,
   );
-  assert.match(route, /reviewTurn\(row\.raw_log, turn, \{ players: \[me, opponent\], me: 0 \}\)/);
+  assert.match(route, /reviewTurn\(row\.raw_log, turn, \{ players: \[me, opponent\], me: 0, \.\.\.\(deckList\.length \? \{ deckList \} : \{\}\) \}\)/);
+  // The reader's deck is rebuilt from the version the game was logged against (Astra, #343).
+  assert.match(route, /FROM deck_version WHERE deck_id = \$1 AND version = \$2`,\s*\[deckId, row\.deck_version\]/);
 });
 
 test('never throws on arbitrary text — worst case is the empty digest', () => {

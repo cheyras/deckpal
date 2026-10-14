@@ -28,8 +28,9 @@ import { DEFAULT_WEIGHTS, evaluate } from '../pilot/eval.js';
 import { optionCount, settle } from '../pilot/lookahead.js';
 import { DEFAULT_PROFILE } from '../pilot/policy.js';
 import { DEFAULT_SEARCH, searchWorld } from '../pilot/search.js';
+import { canonicalName } from './cardCodes.js';
 import { parseLiveLog } from './liveLog.js';
-import { replayLog, type ReplayObservation } from './replay.js';
+import { HIDDEN, replayLog, type ReplayObservation } from './replay.js';
 
 export interface TurnOption {
   /** 1 = the search's choice. */
@@ -64,6 +65,8 @@ export interface TurnReview {
   nodes: number;
   /** Cards in the reader's hand the log never showed (hidden fillers the search had to guess at). */
   hiddenInHand: number;
+  /** How the reader's deck was rebuilt for the search: from the battle's decklist, or estimated without one. */
+  deck: 'list' | 'estimate' | null;
   ms: number;
 }
 
@@ -77,6 +80,138 @@ export interface TurnReviewOptions {
   seed?: number;
   /** How many options to describe (the reader's is added if it is not among them). */
   top?: number;
+  /**
+   * The reader's decklist (the battle's recorded deck version), by card name. The replay's deck is a reservoir (four
+   * copies of every card the log showed, plus blank fillers), not the reader's 60: with the list, the reader's deck
+   * is rebuilt count for count before the search (Astra, #343: a line played one Secret Box four times). Listed cards
+   * the log never showed are built from the list (by `id`, the printing's code, else by name), so the search can draw
+   * them (Astra, #343 round 2).
+   */
+  deckList?: ReadonlyArray<DeckListEntry>;
+}
+
+export interface DeckListEntry {
+  name: string;
+  id?: string | null;
+  count: number;
+}
+
+/** Cards in a deck. */
+const DECK_SIZE = 60;
+
+/** Every card of `side` that is out of its deck: hand, discard, Lost Zone, Prizes, in play (either side's), the Stadium. */
+function outOfDeck(game: Game, side: Player): number[] {
+  const s = game.state;
+  const all: number[] = [];
+  for (const ps of s.p) {
+    all.push(...ps.hand, ...ps.discard, ...(ps.lost ?? []), ...ps.prizes);
+    for (const sl of [ps.active, ...ps.bench]) if (sl) all.push(...sl.cards, ...sl.energy, ...sl.tools);
+  }
+  if (s.stadium) all.push(s.stadium.card);
+  return all.filter((iid) => game.ctx.owner[iid] === side);
+}
+
+/**
+ * Make one side's deck the size the real one is (60 less every card already out of it) and, with the decklist, the
+ * composition it can be: each listed card as many times as the list has it less the copies already out of the deck.
+ * Listed cards the catalog cannot build stay blank fillers; without a list, the replay's revealed copies go first and
+ * are cut to size from the largest groups, then fillers, so no card appears more than the reservoir allows.
+ */
+function normaliseDeck(game: Game, side: Player, deckList?: ReadonlyArray<DeckListEntry>): 'list' | 'estimate' {
+  const ctx = game.ctx;
+  const ps = game.state.p[side];
+  const outside = outOfDeck(game, side);
+  const size = Math.max(0, DECK_SIZE - outside.length);
+  const key = (iid: number) => canonicalName(def(ctx, iid).name).toLowerCase();
+  const hidden = canonicalName(HIDDEN).toLowerCase();
+  const pool = new Map<string, number[]>();
+  for (const iid of ps.deck) {
+    const k = key(iid);
+    pool.set(k, [...(pool.get(k) ?? []), iid]);
+  }
+  const fillers = pool.get(hidden) ?? [];
+  pool.delete(hidden);
+  // The cards the deck may hold, by name.
+  const kept = new Map<string, number[]>();
+  if (deckList?.length) {
+    const seen = new Map<string, number>();
+    for (const iid of outside) {
+      const k = key(iid);
+      if (k !== hidden) seen.set(k, (seen.get(k) ?? 0) + 1);
+    }
+    const listed = new Map<string, number>();
+    for (const e of deckList) {
+      const k = canonicalName(e.name).toLowerCase();
+      listed.set(k, (listed.get(k) ?? 0) + e.count);
+    }
+    for (const [k, count] of listed) {
+      const avail = (pool.get(k) ?? []).slice(0, Math.max(0, count - (seen.get(k) ?? 0)));
+      if (avail.length) kept.set(k, avail);
+    }
+  } else {
+    for (const [k, ids] of pool) kept.set(k, ids.slice());
+  }
+  // More than fit (hidden cards in hand or Prizes are some of them): cut the largest groups first. Then fillers.
+  let total = [...kept.values()].reduce((n, ids) => n + ids.length, 0);
+  while (total > size) {
+    const k = [...kept.values()].sort((a, b) => b.length - a.length)[0];
+    if (!k?.length) break;
+    k.pop();
+    total--;
+  }
+  const out = [...kept.values()].flat();
+  while (out.length < size && fillers.length) out.push(fillers.pop()!);
+  ps.deck = out.slice(0, size);
+  return deckList?.length ? 'list' : 'estimate';
+}
+
+/** The reader's position at their first main decision of `turn`, decks rebuilt for the search; or why there is none. */
+export function turnPosition(
+  raw: string,
+  turn: number,
+  o: TurnReviewOptions,
+): { game: Game; decision: Decision; readerFirst: number; readerDid: string[]; hiddenInHand: number; deck: 'list' | 'estimate' } | { reason: string; readerDid: string[] } {
+  const parsed = parseLiveLog(raw, o.players ? { players: o.players } : {});
+  const header = parsed.events.find((e) => e.t === 'turn_start' && e.turn === turn);
+  if (!header || header.t !== 'turn_start') return { reason: `the log has no turn ${turn} (it has ${parsed.turns})`, readerDid: [] };
+  if (header.p !== o.me) return { reason: `turn ${turn} is the opponent's; pick one of your own turns`, readerDid: [] };
+
+  // Per run: the replay backtracks over ambiguous choices, and only the run it keeps may speak (#342's leak).
+  interface Seen {
+    start: ReplayObservation | null;
+    readerDid: string[];
+  }
+  const r = replayLog(raw, {
+    ...(o.players ? { players: o.players } : {}),
+    ...(o.deckList?.length ? { deckList: { side: o.me, cards: o.deckList } } : {}),
+    observe: () => {
+      const seen: Seen = { start: null, readerDid: [] };
+      return {
+        decision(obs: ReplayObservation) {
+          if (obs.decision.kind !== 'main' || obs.decision.player !== o.me || obs.event?.turn !== turn) return;
+          if (!seen.start) seen.start = obs;
+          if (obs.event) seen.readerDid.push(obs.event.text);
+        },
+        finish: () => seen,
+      };
+    },
+  });
+  const kept = (r.observed as Seen | undefined) ?? { start: null, readerDid: [] };
+  const first = kept.start;
+  if (!first) {
+    return {
+      reason:
+        r.divergence && r.divergence.turn <= turn
+          ? `the simulator's replay stopped at turn ${r.divergence.turn} (${r.divergence.reason}), before this one`
+          : `the replay never reached a decision of yours on turn ${turn}`,
+      readerDid: kept.readerDid,
+    };
+  }
+  const game = first.game;
+  const decision = game.decision as Decision;
+  const deck = normaliseDeck(game, decision.player, o.deckList);
+  normaliseDeck(game, opp(decision.player));
+  return { game, decision, readerFirst: first.choice[0] ?? -1, readerDid: kept.readerDid, hiddenInHand: first.fillersInHand, deck };
 }
 
 const PRIZE = DEFAULT_WEIGHTS.prize;
@@ -117,47 +252,12 @@ function walk(world: GameState, game: Game, me: Player, line: number[]): { actio
 export function reviewTurn(raw: string, turn: number, o: TurnReviewOptions): TurnReview {
   const t0 = Date.now();
   const empty = (reason: string, readerDid: string[] = [], hiddenInHand = 0): TurnReview => ({
-    turn, found: false, reason, readerDid, options: [], offered: 0, worlds: 0, nodes: 0, hiddenInHand, ms: Date.now() - t0,
+    turn, found: false, reason, readerDid, options: [], offered: 0, worlds: 0, nodes: 0, hiddenInHand, deck: null, ms: Date.now() - t0,
   });
   try {
-    const parsed = parseLiveLog(raw, o.players ? { players: o.players } : {});
-    const header = parsed.events.find((e) => e.t === 'turn_start' && e.turn === turn);
-    if (!header || header.t !== 'turn_start') return empty(`the log has no turn ${turn} (it has ${parsed.turns})`);
-    if (header.p !== o.me) return empty(`turn ${turn} is the opponent's; pick one of your own turns`);
-
-    // Per run: the replay backtracks over ambiguous choices, and only the run it keeps may speak (#342's leak).
-    interface Seen {
-      start: ReplayObservation | null;
-      readerDid: string[];
-    }
-    const r = replayLog(raw, {
-      ...(o.players ? { players: o.players } : {}),
-      observe: () => {
-        const seen: Seen = { start: null, readerDid: [] };
-        return {
-          decision(obs: ReplayObservation) {
-            if (obs.decision.kind !== 'main' || obs.decision.player !== o.me || obs.event?.turn !== turn) return;
-            if (!seen.start) seen.start = obs;
-            if (obs.event) seen.readerDid.push(obs.event.text);
-          },
-          finish: () => seen,
-        };
-      },
-    });
-    const kept = (r.observed as Seen | undefined) ?? { start: null, readerDid: [] };
-    const first = kept.start;
-    const readerDid = kept.readerDid;
-    if (!first) {
-      return empty(
-        r.divergence && r.divergence.turn <= turn
-          ? `the simulator's replay stopped at turn ${r.divergence.turn} (${r.divergence.reason}), before this one`
-          : `the replay never reached a decision of yours on turn ${turn}`,
-        readerDid,
-      );
-    }
-
-    const game = first.game;
-    const d = game.decision as Decision;
+    const pos = turnPosition(raw, turn, o);
+    if ('reason' in pos) return empty(pos.reason, pos.readerDid);
+    const { game, decision: d, readerDid, deck: deckFrom } = pos;
     const me = d.player;
     const env = { ctx: game.ctx, emit: null };
     const worlds = Math.max(1, Math.min(6, o.worlds ?? 3));
@@ -166,27 +266,19 @@ export function reviewTurn(raw: string, turn: number, o: TurnReviewOptions): Tur
     const rng = new Rng(o.seed ?? 20261014);
     const n = optionCount(d);
     const sum = new Float64Array(n);
-    const wins = new Uint8Array(n);
     let spent = 0;
-    let lines: number[][] = [];
-    let world0: GameState | null = null;
     for (let k = 0; k < worlds; k++) {
       const world = determinize(game.state, game.ctx, me, rng);
       const res = searchWorld(env, world, me, opts);
       spent += res.nodes;
-      if (k === 0) {
-        world0 = world;
-        lines = res.lines;
-      }
       for (let i = 0; i < n; i++) {
         const v = res.best[i] as number;
         sum[i] = (sum[i] as number) + (v === -Infinity ? -WIN : v);
-        if (v >= WIN / 2) wins[i] = (wins[i] as number) + 1;
       }
     }
     const avg = Array.from(sum, (v) => v / worlds);
     const order = [...avg.keys()].sort((a, b) => (avg[b] as number) - (avg[a] as number));
-    const readerFirst = first.choice[0] ?? -1;
+    const { readerFirst } = pos;
     const top = Math.max(1, Math.min(5, o.top ?? 3));
     const pick = order.slice(0, top);
     if (readerFirst >= 0 && !pick.includes(readerFirst)) pick.push(readerFirst);
@@ -230,8 +322,6 @@ export function reviewTurn(raw: string, turn: number, o: TurnReviewOptions): Tur
     });
     const ranked = focused.slice().sort((a, b) => b.v - a.v);
     const best = (ranked[0] as { v: number }).v;
-    void lines;
-    void world0;
     const options: TurnOption[] = ranked.map((f, r) => {
       const w = walk(focusWorlds[0] as GameState, game, me, f.line);
       return {
@@ -241,7 +331,8 @@ export function reviewTurn(raw: string, turn: number, o: TurnReviewOptions): Tur
         prizes: w.prizes,
         knockOuts: w.knockOuts,
         behindBest: Math.round(((best - f.v) / PRIZE) * 10) / 10,
-        winsIn: Math.max(f.wonIn, wins[f.i] as number),
+        // From the search that ranked it, not the wide one (two samples of worlds: Astra, #343).
+        winsIn: f.wonIn,
         reader: f.i === readerFirst,
       };
     });
@@ -254,7 +345,8 @@ export function reviewTurn(raw: string, turn: number, o: TurnReviewOptions): Tur
       offered: n,
       worlds,
       nodes: spent,
-      hiddenInHand: first.fillersInHand,
+      hiddenInHand: pos.hiddenInHand,
+      deck: deckFrom,
       ms: Date.now() - t0,
     };
   } catch (err) {

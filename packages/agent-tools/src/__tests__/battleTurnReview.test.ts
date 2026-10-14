@@ -65,6 +65,12 @@ test('a reader well behind the best is told so, in Prize cards; hidden hand card
   assert.match(text, /2 card\(s\) in your hand the log never showed were guessed/);
 });
 
+test("the caveats say how the reader's deck was rebuilt for the search (Astra, #343)", () => {
+  assert.match(renderTurnReview(payload({ deck: 'list' }), 'X'), /your deck was rebuilt from the deck version you logged the game against/);
+  assert.match(renderTurnReview(payload({ deck: 'estimate' }), 'X'), /your deck was estimated from the cards the log showed \(no decklist\)/);
+  assert.doesNotMatch(renderTurnReview(payload(), 'X'), /your deck was/, 'an older API says nothing');
+});
+
 test('no review is said with its reason; an unknown reader asks for player_name', () => {
   assert.match(renderTurnReview(payload({ found: false, reason: "turn 5 is the opponent's; pick one of your own turns", options: [] }), 'X'), /no review: turn 5 is the opponent's/);
   const unknown: TurnReviewPayload = { logId: 7, turn: 6, players: { me: null, opponent: null }, review: null, reason: 'could not tell which player owns this deck — pass playerName' };

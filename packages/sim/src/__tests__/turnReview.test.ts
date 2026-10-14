@@ -7,10 +7,61 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { reviewTurn } from '../replay/turnReview.js';
+import { def } from '../context.js';
+import { reviewTurn, turnPosition } from '../replay/turnReview.js';
 
-const raw = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'live-logs', 'hns-11.txt'), 'utf8');
+const dir = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'live-logs');
+const raw = readFileSync(join(dir, 'hns-11.txt'), 'utf8');
 const AB: [string, string] = ['PlayerA', 'PlayerB'];
+
+test("the reader's deck is rebuilt to the real count before the search: a single copy is played at most once (Astra, #343)", () => {
+  // Turn 8: one Secret Box is in hand; the list has one, so no line may play a second.
+  const listed = reviewTurn(raw, 8, { players: AB, me: 0, deckList: [{ name: 'Secret Box', count: 1 }] });
+  assert.equal(listed.found, true, listed.reason ?? '');
+  assert.equal(listed.deck, 'list');
+  for (const o of listed.options) assert.ok(o.line.filter((l) => /Secret Box/.test(l)).length <= 1, `${o.first}: ${o.line.join(' → ')}`);
+  // Without a list the deck is still cut to its real size, never the replay's reservoir.
+  const estimated = reviewTurn(raw, 8, { players: AB, me: 0 });
+  assert.equal(estimated.deck, 'estimate');
+  for (const o of estimated.options) assert.ok(o.line.filter((l) => /Secret Box/.test(l)).length <= 4, `${o.first}`);
+});
+
+test("the rebuilt deck conserves the list: the Stadium in play counts, and listed cards the log never showed are built (Astra, #343)", () => {
+  // Turn 8: the reader's Prism Tower is the Stadium in play. Rare Candy is listed but never appears in the log; Hilda
+  // comes by its printing's code.
+  const deckList = [
+    { name: 'Prism Tower', count: 2 },
+    { name: 'Secret Box', count: 1 },
+    { name: 'Rare Candy', count: 2 },
+    { name: 'Hilda', id: 'sv10.5w-084', count: 1 },
+  ];
+  const pos = turnPosition(raw, 8, { players: AB, me: 0, deckList });
+  assert.ok(!('reason' in pos), 'reason' in pos ? pos.reason : '');
+  const { game } = pos;
+  const name = (iid: number) => def(game.ctx, iid).name;
+  assert.equal(game.state.stadium && name(game.state.stadium.card), 'Prism Tower');
+  const ps = game.state.p[0];
+  const out = [...ps.hand, ...ps.discard, ...ps.lost, ...ps.prizes, game.state.stadium!.card];
+  for (const sl of [ps.active, ...ps.bench]) if (sl) out.push(...sl.cards, ...sl.energy, ...sl.tools);
+  assert.equal(ps.deck.length + out.length, 60, 'every card of the 60 is somewhere, once');
+  const copies = (ids: number[], n: string) => ids.filter((i) => name(i) === n).length;
+  for (const e of deckList) {
+    assert.ok(copies(ps.deck, e.name) + copies(out, e.name) <= e.count, `${e.name}: ${copies(ps.deck, e.name)} in the deck, ${copies(out, e.name)} out of it, ${e.count} listed`);
+  }
+  assert.equal(copies(ps.deck, 'Prism Tower'), 1, 'two listed, one is the Stadium in play');
+  assert.equal(copies(ps.deck, 'Rare Candy'), 2, 'a listed card the log never showed is in the deck');
+  assert.equal(copies(ps.deck, 'Hilda'), 1, 'built from its printing code');
+  // The review searches that deck.
+  const r = reviewTurn(raw, 8, { players: AB, me: 0, deckList });
+  assert.equal(r.found, true, r.reason ?? '');
+  assert.equal(r.deck, 'list');
+});
+
+test('wins are counted in the worlds that ranked the option, never the larger of two samples (Astra, #343)', () => {
+  const r = reviewTurn(readFileSync(join(dir, 'hns-34.txt'), 'utf8'), 6, { players: AB, me: 0 });
+  assert.equal(r.found, true, r.reason ?? '');
+  for (const o of r.options) assert.ok(o.winsIn >= 0 && o.winsIn <= r.worlds, `${o.first}: ${o.winsIn}/${r.worlds}`);
+});
 
 test("turn 6: the 3-Prize Vengeful Anchor turn — the reader's line is as good as the best, and every option's line says what it takes", () => {
   const r = reviewTurn(raw, 6, { players: AB, me: 0 });
