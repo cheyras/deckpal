@@ -90,7 +90,7 @@ If parsed turns or Prizes look wrong (0 turns, no result for a game that clearly
 
 ## Don'ts
 
-- Don't log the same game twice. If the player pastes a log again, check \`battle_logs\` (\`deck_id\`, newest first) for the same opponent, result and turn count. If found, say it is already battle #N.
+- Don't log the same game twice. If the player may be pasting a log again, look in \`battle_logs\` (\`deck_id\`, newest first) for a game with the same opponent, result and turn count. That is only a candidate (a rematch can match all three): read it with \`log_id\` and \`include_raw: true\`, and call it a duplicate only if its raw log is the same text. Then say it is already battle #N.
 - Don't edit a log you just saved unless the player gave new information or you found a real factual error. Say what was wrong.
 - Don't suggest a new deck version because of one game. Put ideas in the notes.`,
   'game-analysis': `# Analyse a game
@@ -99,7 +99,7 @@ Goal: a fair, accurate read of what decided the game, plus one lesson. Write to 
 
 ## 1. Get the facts
 
-1. Call \`battle_digest\` with \`deck_id\` and \`log_id\`. It gives the Prize timeline, first attacks, the opponent's cards, the simulator's replay of every attack, the end board, a "review worth" line (brief, standard or deep, with reasons) and "moments": self-Knock-Outs, prevented damage, near misses, timer turns, concessions.
+1. Call \`battle_logs\` with \`deck_id\` and \`log_id\`: the player's notes and any saved review (the digest has neither). Then call \`battle_digest\` with \`deck_id\` and \`log_id\`. It gives the Prize timeline, the opponent's cards, the simulator's replay of the attacks (long games: the first and last), the end board, a "review worth" line (brief, standard or deep) and "moments" (self-Knock-Outs, prevented damage, near misses, timer turns).
 2. Choose the depth:
    - an explicit ask for a review always gets a full one;
    - otherwise use the review worth;
@@ -112,7 +112,7 @@ Goal: a fair, accurate read of what decided the game, plus one lesson. Write to 
 
 1. Call \`battle_digest\` again with \`detail: 'turns'\`. It adds the board at the start of every turn.
 2. Pick the one or two turns that decided the game (a Prize swing, a moment flagged in the digest, a turn the player flagged).
-3. For each, call \`battle_turn_review\` with \`deck_id\`, \`log_id\` and \`turn\`. It shows what the simulator's strongest pilot would do beside what you did. \`turn\` is the game's turn number (both players counted) and must be one of YOUR turns: for an opponent's deciding turn, review your turn before it. If it says the replay stopped before that turn, there is no review for it; say so.
+3. For each, call \`battle_turn_review\` with \`deck_id\`, \`log_id\` and \`turn\`. It shows the simulator's strongest pilot's options beside what you did. \`turn\` counts both players' turns and must be one of YOURS: for an opponent's deciding turn, review your turn before it. If the replay stopped before that turn, there is no review; say so.
 4. Options within about 0.3 Prize of each other are equal. Never call a reasonable play a misplay. It is one sampled guess at hidden cards, not an oracle: say so.
 
 ## 3. Check the board before judging a play
@@ -507,8 +507,12 @@ Describe changes in plain words ("this morning's batch added 14 cards from Prism
 - **Deck list:** \`deck_history\` with \`revert_to: N\`. Dry run first, show the diff, then \`dry_run: false\` on a yes. It lands as a new version, so nothing is lost, and restores that version's strategy guide unless \`include_strategy: false\`.
 - **Deleted deck or list:** \`decks\` or \`lists\` with \`deleted: true\` shows the recycle bin. Restore with \`delete_deck\` and \`restore: true\`, or \`edit_list\` with \`restore: true\`, each with \`dry_run: false\` (both preview by default).
 - **Battle log edit:** edits made through these tools are NOT in \`mutation_history\`, and \`revert\` cannot undo them. So before changing a game's notes or review, read the current text (\`battle_logs\` with \`deck_id\` and \`log_id\`) and keep it in your reply. To undo, set the old values back with \`edit_battle_log\` and say that is what you are doing. If you no longer have them, say the old text cannot be recovered.
-- **Battle log on the wrong deck:** a log cannot be moved, and \`delete_battle_log\` cannot be undone. So first read it whole (\`battle_logs\` with \`deck_id\`, \`log_id\` and \`include_raw: true\`: the raw log, notes and review), add it to the right deck with \`add_battle_log\` (the raw text as \`log\`, the notes, and the review with \`edit_battle_log\` after), and only then delete the wrong one: dry run, say exactly which battle (#N) it removes, wait for a yes.
-- **A duplicate:** \`delete_battle_log\` on the copy, the same way (dry run, say which #N, wait for a yes).
+- **Battle log on the wrong deck:** a log cannot be moved, and \`delete_battle_log\` cannot be undone. Copy it, check the copy, then delete:
+  1. Read it whole: \`battle_logs\` with \`deck_id\`, \`log_id\` and \`include_raw: true\` (the raw log if there is one, origin, result, opponent, archetype, date, notes, review).
+  2. \`add_battle_log\` on the right deck with every field: \`log\` (the raw text, if any), \`origin\`, \`result\`, \`opponent_deck\`, \`opponent_archetype\`, \`played_at\`, \`notes\`, \`review\`, \`dry_run: false\`. A game with no raw text (in person) needs \`origin\` and \`result\`. The copy joins that deck's current version.
+  3. Read the copy back (\`battle_logs\` with its \`log_id\`) and check each field matches.
+  4. Only then delete the original: dry run, say exactly which battle (#N) it removes, wait for a yes.
+- **A duplicate:** confirm it first (\`battle-log\`, Don'ts), then \`delete_battle_log\` on the copy: dry run, say which #N, wait for a yes.
 - **Never use \`purge: true\`** unless the player explicitly says they want it gone forever.`,
   'tools': `# DeckPal tools: when to use which
 
@@ -522,7 +526,7 @@ A deck, list or card can usually be named by its name. Writes preview by default
 | \`get_card\` | One card: full text, HP, Weakness, tags (Tera, Ancient, Future), legality, printings, prices | \`card_id\`, or \`name\` + \`set_id\` / \`number\` |
 | \`search_cards\` | Find cards by name or printed text; owned slices; cheapest printing | \`query\` = NAME only; \`text\`, \`tag\`, \`set_id\`, \`owned_only\`, \`exclude_owned\`, \`standard_legal\`. Same name is not the same card |
 | \`rules_lookup\` | Rules and official rulings | \`query\`, \`cards\`. Then \`get_card\`. See \`rules\` |
-| \`battle_logs\` | A deck's games and record by archetype; one game in full | \`deck_id\`; \`version\`; \`log_id\` for full notes. \`include_raw\` only to move a log to another deck |
+| \`battle_logs\` | A deck's games and record by archetype; one game in full | \`deck_id\`; \`version\`; \`log_id\` for full notes. \`include_raw\` only to move a log or confirm a duplicate |
 | \`battle_digest\` | One game, compact, with review worth and moments | \`deck_id\`, \`log_id\`; \`detail: 'turns'\` for deep reviews |
 | \`battle_turn_review\` | The simulator's strongest pilot on one turn of a game | \`deck_id\`, \`log_id\`, \`turn\`. Within about 0.3 Prize is equal |
 | \`deck_history\` | Version timeline and records; one version; revert | \`version\`; \`revert_to\` (dry run default) |
