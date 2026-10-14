@@ -328,7 +328,7 @@ test("Team Rocket's Ampharos, Darkest Impulse: both Pokémon the opponent evolve
 // ----------------------------------------------------------------------------------------------- Festival Lead / Midnight Fluttering
 
 // https://compendium.pokegym.net/ruling/2093/ : once Dipplin's attack Knocks Out the Flutter Mane, Festival Lead works again and a second attack is allowed.
-test('Dipplin, Festival Lead: after it Knocks Out the Flutter Mane that switched Abilities off, it may attack again (https://compendium.pokegym.net/ruling/2093/)', () => {
+test('Dipplin, Festival Lead: with Festival Grounds in play, after it Knocks Out the Flutter Mane that switched Abilities off, it may attack again (https://compendium.pokegym.net/ruling/2093/)', () => {
   const mk = (damage: number): Game => {
     const g = scenario(DK, DK, [
       { active: 'Dipplin', bench: ['Dreepy', 'Dreepy'], energy: { active: [GRS] } },
@@ -485,7 +485,7 @@ test('Return (Lumineon, Audino, Blissey ex): with 6 or more cards in hand it jus
 // ----------------------------------------------------------------------------------------------- Lycanroc
 
 // https://compendium.pokegym.net/ruling/384/ : Counter looks at whether the Pokemon was damaged last turn, wherever it has moved since.
-test('Lycanroc, Counter: still adds the damage taken last turn after Lycanroc went to the Bench and came back (https://compendium.pokegym.net/ruling/384/)', () => {
+test('Lycanroc, Counter: still adds the attack damage it took last turn after Lycanroc went to the Bench and came back (https://compendium.pokegym.net/ruling/384/)', () => {
   const g = scenario(
     DK,
     DK,

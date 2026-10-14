@@ -315,7 +315,7 @@ export const STD_C31: CardScript[] = [
     name: 'Super Potion',
     // "Heal 60 damage from 1 of your Pokémon. If you healed any damage in this way, discard an Energy from that Pokémon."
     // Ruling (XY FAQ, TPCi Rules Team 2014-02-06, https://compendium.pokegym.net/ruling/1178/): damage is healed even if no Energy to discard. (no Energy attached: the damage is still healed)
-    // Only a damaged Pokémon can be chosen (No effect, no play): the heal always removes damage, so the Energy is always discarded.
+    // Only a damaged Pokémon can be chosen (No effect, no play): the heal always removes damage, so any attached Energy is always discarded (with none attached, nothing is).
     playable: HAS_DAMAGED,
     play: [
       { op: 'chooseSlots', from: 'myPokemon', filter: { damaged: true }, min: 1, max: 1, as: 't', prompt: 'Heal 60 damage from which of your Pokémon?' },
@@ -332,7 +332,7 @@ export const STD_C31: CardScript[] = [
     provides: ['Colorless'],
     // "If the Pokémon this card is attached to is in the Active Spot and is damaged by an attack from your opponent's Pokémon (even if this Pokémon is Knocked Out), put 2 damage counters on the Attacking Pokémon."
     // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2371/): Quaquaval ex, as the Attacking Pokémon, still takes the counters although both Pokémon ended on the Bench; the 60 damage went to the Active Defending Pokémon.
-    // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2121/): Spiky Energy stacks, so 2 copies on the damaged Pokémon put 4 damage counters on the attacker.
+    // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2121/): Spiky Energy stacks, so 2 copies on the Active Pokémon damaged by an attack put 4 damage counters on the attacker.
     triggers: [{ on: 'damagedByAttackActive', program: [{ op: 'custom', fn: 'c31.countersOnAttacker', args: { n: 2 } }] }],
   },
 ];

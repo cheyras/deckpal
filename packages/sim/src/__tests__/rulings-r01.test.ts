@@ -348,7 +348,7 @@ test('Compendium #1132: Rare Candy removes Special Conditions and marks the Poke
 });
 
 // Compendium #750 (Rare Candy errata, 2011): not on the first turn, not on a Basic put into play this turn.
-test('Compendium #750: Rare Candy errata: no first turn, no Basic put into play this turn; otherwise it works', () => {
+test('Compendium #750: Rare Candy errata: puts a Stage 2 from hand onto a Basic in play, but not on your first turn or on a Basic put into play this turn', () => {
   const first = scenario(CANDY_ALL, CANDY_ALL, [{ active: 'Duskull', hand: ['Rare Candy', 'Dusknoir'] }, { active: 'Slowpoke' }], { turn: 1 });
   assert.ok(!has(first, 'Play Rare Candy'), 'first turn');
   const fresh = scenario(CANDY_ALL, CANDY_ALL, [{ active: 'Slowpoke', hand: ['Rare Candy', 'Dusknoir', 'Duskull'] }, { active: 'Slowpoke' }]);

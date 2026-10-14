@@ -335,8 +335,8 @@ export const STD_C35: CardScript[] = [
     abilities: [
       {
         // "If you go first, this Pokémon can use attacks during your first turn."
-        // Ruling (Black Bolt/White Flare FAQ; TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2181/): Debut Performance lets Meloetta ex use any attack available to it on the first turn, even one from an attached TM.
-        // -- it applies to Echoed Voice, its only attack (no Tool or TM attacks exist yet to be accessed).
+        // Ruling (Black Bolt/White Flare FAQ; TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2181/): If you go first, Debut Performance lets Meloetta ex use any attack available to it on your first turn, even one from an attached TM.
+        // -- the script only needs to cover Echoed Voice, its own attack; an attack gained from a TM falls under the same ruling.
         name: 'Debut Performance',
       },
     ],

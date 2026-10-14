@@ -95,7 +95,7 @@ test('Malamar, Perplex: the Defending Pokémon is Confused; Brain Crush does 130
 
 // ------------------------------------------------------------------ Thievul
 
-test("Thievul, Skill Thief: with an empty hand, use an attack of any of your opponent's Pokémon, no Energy needed (Compendium #2409)", () => {
+test("Thievul, Skill Thief: with an empty hand, copy an attack of any opposing Pokémon without needing its Energy, though Skill Thief itself must still be paid for (Compendium #2409)", () => {
   const dk = deck('me05-054', URSA, SLO, 'me05-064', 'me05-063');
   const side: Sides = [{ active: 'Thievul', energy: { active: [D, D] }, hand: [] }, { active: 'Bloodmoon Ursaluna ex', bench: ['Slowpoke'] }];
   const g = scenario(dk, dk, side);

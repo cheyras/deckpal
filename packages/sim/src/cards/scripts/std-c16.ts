@@ -100,7 +100,7 @@ export const STD_C16: CardScript[] = [
       // "The Retreat Cost of the Pokémon this card is attached to is {C} less."
       { effect: { k: 'retreatCost', delta: -1 }, scope: 'self' },
       // "If that Pokémon's remaining HP is 30 or less, it has no Retreat Cost."
-      // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1971/): Rescue Board removes the Retreat Cost, and Big Net cannot raise it back.
+      // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1971/): when the holder has 30 HP or less remaining, Rescue Board removes its Retreat Cost, and Big Net cannot raise it back.
       { effect: { k: 'retreatCost', set: 0 }, scope: 'self', when: { custom: 'c16.remainingHpAtMost', args: { n: 30 } } },
     ],
   },

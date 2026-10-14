@@ -128,7 +128,7 @@ export const STD_C23: CardScript[] = [
     //  onto that Pokémon to evolve it. If that Pokémon was evolved in this way, that player may search their deck for a Stage 2 Pokémon that evolves
     //  from that Pokémon and put it onto that Pokémon to evolve it. Then, that player shuffles their deck. (Players can't evolve a Basic Pokémon during
     //  their first turn or a Basic Pokémon that was put into play this turn.)"
-    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2030/): needs a valid evolution path from a Basic in the deck. (offered only when a Basic can evolve into a Stage 1 in the deck)
+    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2030/): needs a known valid evolution path: a Pokémon in play that can evolve further into a card in the deck. (offered only when a Basic can evolve into a Stage 1 in the deck)
     // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2029/): can search for Stage 1 even if no Stage 2 exists.
     // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2037/): Infernal Reign is not usable when Grand Tree evolves into Charizard ex, since it was not played from the hand. (no "play from hand" trigger runs)
     stadiumAbility: {

@@ -253,7 +253,7 @@ test('Compendium #2084: an Active Dusknoir that Cursed Blasts a Togekiss - heads
 });
 
 // https://compendium.pokegym.net/ruling/2089/ : the Knocked Out Togekiss still gets its Wonder Kiss flip, because every effect resolves before Knock Outs are processed.
-test('Compendium #2089: the Wonder Kiss flip still happens when the Togekiss is Knocked Out by the same Cursed Blast', () => {
+test('Compendium #2089: the Wonder Kiss flip still happens when a Cursed Blast Knocks Out both the opposing Active Dusknoir and the Togekiss', () => {
   const g = at([{ active: 'Duskull', evolve: { active: ['Dusclops', 'Dusknoir'] }, bench: ['Dreepy'] }, togekissSide()]);
   g.state.forcedCoins = [false];
   choose(g, 'Cursed Blast');
@@ -306,7 +306,7 @@ test('Compendium #2304: Regi Charge may attach none (and up to 2) from the disca
 // ------------------------------------------------------------------ Sinister Surge
 
 // https://compendium.pokegym.net/ruling/2246/ : Sinister Surge may put the 2 counters on your own Benched {D} Pokémon with 20 or less HP left, Knocking it Out; the opponent takes the Prize.
-test('Compendium #2246: Sinister Surge can Knock Out your own Benched Pokémon with 20 or less HP left, and the opponent takes the Prize', () => {
+test('Compendium #2246: Sinister Surge can Knock Out your own Benched {D} Pokémon with 20 or less HP left, and the opponent takes the Prize', () => {
   const g = at([{ active: 'Toxel', evolve: { active: ['Toxtricity'] }, bench: ['Toxel'], damage: { 0: 50 } }, { active: 'Dragapult ex' }]);
   choose(g, 'Sinister Surge');
   pick(g, [D]);
@@ -378,7 +378,7 @@ test('Compendium #2185: Ignition Energy on a Klinklang put directly onto the Ben
 // ------------------------------------------------------------------ Mentally Calm
 
 // https://compendium.pokegym.net/ruling/2129/ : with Milotic's Mentally Calm, an effect that would put your Pokémon into your hand does not, so every attached card stays attached (the Supporter itself is still played; Professor Turo's Scenario has no script, so that half is not pinned here, and Meowth ex's Tuck Tail stands in for the bounce).
-test('Compendium #2129: under Mentally Calm a Pokémon that would be put into its owner\'s hand stays in play with all its cards attached', () => {
+test('Compendium #2129: under Mentally Calm an opposing Pokémon that would be put into its owner\'s hand stays in play with all its cards attached', () => {
   const g = at([
     { active: 'Meowth ex', energy: { active: [P, P, R] }, bench: ['Dreepy'] },
     { active: 'Feebas', evolve: { active: ['Milotic'] } },
@@ -417,7 +417,7 @@ const NO_ENERGY_DECK = fromIds('r03-no-energy', [
 ]);
 
 // https://compendium.pokegym.net/ruling/991/ and https://compendium.pokegym.net/ruling/990/ : Energy Search can be played with no Basic Energy in the deck, is discarded as usual, and a second one can then be played too.
-test('Compendium #991: Energy Search with no Basic Energy in the deck is still playable and goes to the discard pile; a second copy can be played the same way (also #990)', () => {
+test('Compendium #991: Energy Search with a nonempty deck but no Basic Energy in it is still playable and goes to the discard pile; a second copy can be played the same way (also #990)', () => {
   const g = scenario(NO_ENERGY_DECK, NO_ENERGY_DECK, [{ active: 'Dreepy', hand: ['Energy Search', 'Energy Search'] }, { active: 'Dreepy' }]);
   assert.ok(g.state.p[0].deck.length > 0);
   assert.ok(has(g, 'Energy Search'), 'Energy Search was not offered with no Basic Energy in the deck');

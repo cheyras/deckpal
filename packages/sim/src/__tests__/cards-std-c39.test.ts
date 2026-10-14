@@ -464,7 +464,7 @@ test("Lillie's Ribombee, Inviting Wink: can't be used when the opponent's Bench 
   assert.equal(g.state.p[1].bench.length, 5);
 });
 
-test("Lillie's Ribombee, Inviting Wink: the Pokémon put there may evolve on the opponent's next turn (ruling 2110)", () => {
+test("Lillie's Ribombee, Inviting Wink: the Pokémon put there may evolve on the opponent's next turn, unless that is their first turn of the game (ruling 2110)", () => {
   // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2110/): they may evolve the Pokémon placed there on their next turn, unless that is their first turn of the game.
   const g = game([{ active: CUTIE, hand: [RIBO] }, FOE({ hand: [WOOPER, QUAG] })]);
   choose(g, `Evolve ${CUTIE}`);

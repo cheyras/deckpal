@@ -153,7 +153,7 @@ export const STD_C01: CardScript[] = [
       // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2227/): no, you cannot decline: once you use the attack, a revealed Supporter's effect must be used if you are able.
       // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2226/): yes, even when you may not play a Supporter: you are only using its effect, not playing it. (a Supporter can't normally be played this turn)
       // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2225/): yes, even after playing a Supporter this turn: it is not a second Supporter played, just its effect used via an attack. (the turn's Supporter drop is untouched)
-      // Ruling 2376 (https://compendium.pokegym.net/ruling/2376/, 2026-06-04): used through this attack, a Supporter's choice may be left at none (Eri: discard zero Items), unlike when played from hand, per the April 2026 Rulebook update.
+      // Ruling 2376 (https://compendium.pokegym.net/ruling/2376/, 2026-06-04): used through this attack, a Supporter's "up to" choice may be left at none (Eri: discard zero Items), unlike when played from hand, per the April 2026 Rulebook update.
       'Supernatural Shapeshifter': {
         program: [
           { op: 'move', cards: { top: 1 }, to: 'discard', as: 'x' },
@@ -238,7 +238,7 @@ export const STD_C01: CardScript[] = [
       // "Choose a Pokémon in play (yours or your opponent's) that has the least HP remaining, except for this Pokémon, and it is Knocked Out."
       // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2220/): yes, it Knocks Out your own Pokémon if that one has the least HP remaining, and your opponent takes the Prize card(s). (it can be your own Pokémon)
       // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2221/): once announced, Bring Down must be used; an invalid target must be fixed to a valid one, even one of their own Pokémon.
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2222/): the Mist Energy Pokémon is still the one chosen but is not Knocked Out, since Mist Energy blocks every effect except damage.
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2222/): the Mist Energy Pokémon is still the one chosen but is not Knocked Out, since Mist Energy stops every effect of opposing attacks except damage.
       'Bring Down': {
         program: [
           { op: 'custom', fn: 'c01.leastHpRemaining', args: { as: 't' } },

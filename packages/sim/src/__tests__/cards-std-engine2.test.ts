@@ -113,7 +113,7 @@ const OPP_TURN = { current: 1 as const, turn: 4 };
 
 // ------------------------------------------------------------------ Flygon
 
-test('Flygon, Sandy Flapping: when evolved from the hand you may discard the top 2 cards of the opponent\'s deck; used again when Knocked Out in the Active Spot (ruling 2243)', () => {
+test('Flygon, Sandy Flapping: when evolved from the hand you may discard the top 2 cards of the opponent\'s deck; used again when attack damage Knocks it Out in the Active Spot (ruling 2243)', () => {
   const dk = deck('Flygon', 'Vibrava', DRA, REL);
   const g = scenario(dk, dk, [{ active: 'Vibrava', bench: [REL], hand: ['Flygon'] }, { active: DRA, energy: { active: [P] } }]);
   const deck1 = g.state.p[1].deck.length;

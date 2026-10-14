@@ -232,7 +232,7 @@ export const STD_C27: CardScript[] = [
     name: 'Megaton Blower',
     // "Discard all Pokémon Tools and Special Energy from all of your opponent's Pokémon, and discard a Stadium in play."
     // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2065/): yes, playable with only a Stadium in play: discarding it does not depend on discarding Tools or Special Energy.
-    // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2064/): it cannot be played for no effect; if at least one Stadium, Tool or Special Energy is in play, do as much as you can.
+    // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2064/): it cannot be played for no effect; if there is at least one Stadium in play, or a Tool or Special Energy on an opposing Pokémon, do as much as you can.
     playable: {
       or: [
         { stadium: true },

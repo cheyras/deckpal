@@ -117,7 +117,7 @@ test("Stunfisk, Pouncing Trap: without the effect (control), the Defending Poké
   assert.ok(has(g, 'Retreat'), 'the Dragapult ex can retreat when no Pouncing Trap was used');
 });
 
-test('Stunfisk, Pouncing Trap vs Mist Energy: both effects are blocked (Ruling #2341)', () => {
+test('Stunfisk, Pouncing Trap vs Mist Energy: Mist Energy already attached blocks both effects, the +100 and the retreat lock; attaching it afterward does not undo them (Ruling #2341)', () => {
   // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2341/): the extra damage would NOT be done -- the effect is blocked by Mist Energy.
   const g = G([{ active: 'Stunfisk', energy: { active: [L] } }, FOE({ bench: ['Marill'], energy: { active: [MIST, P] } })]);
   choose(g, 'Attack: Pouncing Trap');

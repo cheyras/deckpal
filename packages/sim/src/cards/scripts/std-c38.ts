@@ -112,7 +112,7 @@ export const STD_C38: CardScript[] = [
       'Mind Jack': { damage: { mul: [30, { pokemon: { zone: 'oppBench' } }] } },
       // "Choose 1 of your opponent's Active Pokémon's attacks and use it as this attack."
       // Ruling (TPCi Rules Team 2011-04-28, https://compendium.pokegym.net/ruling/455/): copied attacks don't require their Energy cost, but mandatory parts still happen.
-      // Ruling (TPCi Rules Team 2015-10-29, https://compendium.pokegym.net/ruling/453/): a copied attack that names another Pokémon (Haxorus' Dragon Dance) basically has no effect on a Pokémon not so named.
+      // Ruling (TPCi Rules Team 2015-10-29, https://compendium.pokegym.net/ruling/453/): a copied attack that names another Pokémon (Haxorus' Dragon Dance) gives its named-Pokémon bonus only to that Pokémon, so Zoroark gets nothing from it; the rest of a copied attack still applies.
       'Foul Play': {
         program: [
           { op: 'chooseSlots', from: 'oppActive', min: 1, max: 1, as: 't', prompt: "Your opponent's Active Pokémon" },

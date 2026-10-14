@@ -152,7 +152,7 @@ test("Compendium #2310: Shell Spikes still makes the attacker discard an Energy 
 
 // ------------------------------------------------------------------ Paldean Tauros
 
-test('Compendium #2255: Raging Charge counts every damaged Pokémon with "Tauros" in its name, Paldean Tauros and plain Tauros alike, and only the damaged ones', () => {
+test('Compendium #2255: Raging Charge counts every damaged Pokémon of yours with "Tauros" in its name, Paldean Tauros and plain Tauros alike, and only the damaged ones', () => {
   // https://compendium.pokegym.net/ruling/2255/ -- a damaged Tauros counts alongside damaged Paldean Tauros: 40 each.
   const dk = deck(['me02-048', 'me04-096', DRAGAPULT, DHELMISE]);
   const hit = (me: SideLayout): number => {

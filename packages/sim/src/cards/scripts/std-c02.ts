@@ -230,7 +230,7 @@ export const STD_C02: CardScript[] = [
     id: 'me01-128',
     name: 'Strange Timepiece',
     // "Devolve 1 of your evolved {P} Pokémon by putting any number of Evolution cards on it into your hand. (That Pokémon can't evolve this turn.)"
-    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2328/): devolving a Pokémon does not count as putting it onto the Bench. Ruling #2327 (https://compendium.pokegym.net/ruling/2327/): the parenthesis is only reminder text of the normal rules, and Boosted Evolution overrides them, so Espeon can evolve back at once.
+    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2328/): devolving a Pokémon does not count as putting it onto the Bench. Ruling #2327 (https://compendium.pokegym.net/ruling/2327/): the parenthetical on Strange Timepiece is only reminder text for the normal rules, and Boosted Evolution overrides those rules, so the Eevee it leaves behind can evolve into Espeon again right away.
     playable: { gte: [{ pokemon: { zone: 'myPokemon', filter: { type: 'Psychic', stage: 'evolution' } } }, 1] },
     play: [
       { op: 'chooseSlots', from: 'myPokemon', filter: { type: 'Psychic', stage: 'evolution' }, min: 1, max: 1, as: 't', prompt: 'Devolve which of your evolved {P} Pokémon?' },

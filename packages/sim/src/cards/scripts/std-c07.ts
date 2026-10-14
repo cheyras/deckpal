@@ -264,7 +264,7 @@ export const STD_C07: CardScript[] = [
       {
         name: "Sniper's Eye",
         // "If your opponent has exactly 4 cards in their hand, ignore all {C} Energy in the costs of attacks used by this Pokémon."
-        // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2311/): yes, it drops every {C} from the cost of any attack Decidueye ex can use, including the underlying Dartrix's Feather Shot.
+        // Ruling (Perfect Order FAQ, TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2311/): yes, while the opponent has exactly 4 cards in hand it drops every {C} from the cost of any attack Decidueye ex can use, including the underlying Dartrix's Feather Shot reached through Memory Dive.
         // (so the underlying Dartrix's attacks lose their {C} too: the static covers every attack)
         statics: [{ effect: { k: 'attackCostC', delta: -9 }, scope: 'self', when: { eq: [{ handSize: 'opp' }, 4] } }],
       },
