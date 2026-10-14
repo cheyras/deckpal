@@ -8,7 +8,8 @@ import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { def } from '../context.js';
-import { reviewTurn, turnPosition } from '../replay/turnReview.js';
+import { reviewPosition, reviewTurn, turnPosition } from '../replay/turnReview.js';
+import { newSlot } from '../state.js';
 
 const dir = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'live-logs');
 const raw = readFileSync(join(dir, 'hns-11.txt'), 'utf8');
@@ -74,6 +75,95 @@ test("two printings of one name are two cards: the rebuild keeps each printing's
   const deck = riolus(ps.deck);
   assert.equal(deck.filter((d) => d.hp === 80).length, 1, 'two listed, one in play');
   assert.equal(deck.filter((d) => d.hp === 70).length, 2, 'the other printing is its own card, both copies');
+});
+
+test("entries of one reprinted text are one card with both quantities, logged or not (Astra, #343)", () => {
+  // Turn 8. Rare Candy never appears in the log; Buddy-Buddy Poffin does, under both of these printings.
+  const deckList = [
+    { name: 'Rare Candy', id: 'me01-125', count: 2 },
+    { name: 'Rare Candy', id: 'sv01-191', count: 2 },
+    { name: 'Buddy-Buddy Poffin', id: 'me02.5-184', count: 2 },
+    { name: 'Buddy-Buddy Poffin', id: 'sv08.5-101', count: 2 },
+  ];
+  const pos = turnPosition(raw, 8, { players: AB, me: 0, deckList });
+  assert.ok(!('reason' in pos), 'reason' in pos ? pos.reason : '');
+  const { game } = pos;
+  const ps = game.state.p[0];
+  const out = [...ps.hand, ...ps.discard, ...ps.lost, ...ps.prizes];
+  for (const sl of [ps.active, ...ps.bench]) if (sl) out.push(...sl.cards, ...sl.energy, ...sl.tools);
+  const copies = (ids: number[], n: string) => ids.filter((i) => def(game.ctx, i).name === n).length;
+  assert.equal(copies(ps.deck, 'Rare Candy'), 4, 'two entries of two, never only the first');
+  const poffinsOut = copies(out, 'Buddy-Buddy Poffin');
+  assert.ok(poffinsOut >= 1, 'the log shows Poffin before turn 8');
+  assert.equal(copies(ps.deck, 'Buddy-Buddy Poffin') + poffinsOut, 4, 'four listed, counted once across both printings');
+});
+
+test("copies are counted per name: a listed Basic Energy printing the catalog splits from the logged one is still one card (#343)", () => {
+  // Turn 7 is PlayerB's; the log's Energy is mee-006. The list's sve-006 is not in the catalog and resolves by name to
+  // another printing whose catalog record differs (a "stage" on an Energy), so the two have different definitions.
+  const deckList = [{ name: 'Basic Fighting Energy', id: 'sve-006', count: 8 }];
+  const pos = turnPosition(raw, 7, { players: AB, me: 1, deckList });
+  assert.ok(!('reason' in pos), 'reason' in pos ? pos.reason : '');
+  const { game } = pos;
+  const ps = game.state.p[1];
+  const out = [...ps.hand, ...ps.discard, ...ps.lost, ...ps.prizes];
+  for (const sl of [ps.active, ...ps.bench]) if (sl) out.push(...sl.cards, ...sl.energy, ...sl.tools);
+  const energy = (ids: number[]) => ids.filter((i) => /Fighting Energy$/.test(def(game.ctx, i).name)).length;
+  assert.ok(energy(out) >= 2, `the log attached Energy before turn 7 (${energy(out)} out)`);
+  assert.equal(energy(ps.deck) + energy(out), 8, `${energy(ps.deck)} in the deck, ${energy(out)} out of it, 8 listed`);
+});
+
+test("Knock Outs are the engine's, never 'left play': Benched Pokémon discarded down to the limit are not Knocked Out (Astra, #343)", () => {
+  // Turn 6 (the reader's 3-Prize Vengeful Anchor turn), with the opponent given 7 Benched Pokémon: the engine makes them
+  // discard 2 at the first rule check of the reader's line, which takes the Prizes of exactly one Knock Out.
+  const pos = turnPosition(raw, 6, { players: AB, me: 0 });
+  assert.ok(!('reason' in pos), 'reason' in pos ? pos.reason : '');
+  const s = pos.game.state;
+  const them = s.p[1];
+  const basics = them.deck.filter((i) => { const d = def(pos.game.ctx, i); return d.kind === 'pokemon' && d.stage === 0; });
+  while (them.bench.length < 7 && basics.length) {
+    const c = basics.pop()!;
+    them.deck.splice(them.deck.indexOf(c), 1);
+    them.bench.push(newSlot(s, c));
+  }
+  assert.equal(them.bench.length, 7, 'the opponent has 7 Benched Pokémon');
+  const r = reviewPosition(pos, 6, { players: AB, me: 0 });
+  assert.equal(r.found, true, r.reason ?? '');
+  for (const o of r.options) {
+    assert.ok(o.knockOuts.length <= Math.max(1, o.prizes), `${o.first}: ${o.knockOuts.join(', ')} Knocked Out for ${o.prizes} Prize(s)`);
+  }
+  const mine = r.options.find((o) => o.reader)!;
+  assert.deepEqual(mine.knockOuts, ['Mega Lucario ex']);
+});
+
+test("on every one of the reader's turns, each listed name is in the deck as often as the list has it less the copies out (#343)", () => {
+  // The list: two of every card the log shows for the reader, Air Balloon under an older printing than the log's
+  // (swsh1-213: the catalog's text differs from the scripted one) and the rest resolved by name.
+  const first = turnPosition(raw, 2, { players: AB, me: 0 });
+  assert.ok(!('reason' in first), 'reason' in first ? first.reason : '');
+  const names = [...new Set(first.game.ctx.decks[0].cards.map((c) => c.frame.name))].filter((n) => n !== 'Hidden card');
+  assert.ok(names.includes('Air Balloon') && names.length * 2 <= 60, names.join(', '));
+  const deckList = names.map((name) => ({ name, id: name === 'Air Balloon' ? 'swsh1-213' : null, count: 2 }));
+  let turns = 0;
+  for (let turn = 1; turn <= 20; turn++) {
+    const pos = turnPosition(raw, turn, { players: AB, me: 0, deckList });
+    if ('reason' in pos) continue;
+    turns++;
+    const { game } = pos;
+    const ps = game.state.p[0];
+    const out = [...ps.hand, ...ps.discard, ...ps.lost, ...ps.prizes];
+    for (const sl of [...game.state.p[0].bench, game.state.p[0].active, ...game.state.p[1].bench, game.state.p[1].active]) {
+      if (sl) out.push(...sl.cards, ...sl.energy, ...sl.tools);
+    }
+    if (game.state.stadium) out.push(game.state.stadium.card);
+    const mine = out.filter((i) => game.ctx.owner[i] === 0);
+    assert.equal(ps.deck.length + mine.length, 60, `turn ${turn}: 60 cards`);
+    const copies = (ids: number[], n: string) => ids.filter((i) => def(game.ctx, i).name === n).length;
+    for (const n of names) {
+      assert.equal(copies(ps.deck, n), Math.max(0, 2 - copies(mine, n)), `turn ${turn}, ${n}: ${copies(ps.deck, n)} in the deck, ${copies(mine, n)} out`);
+    }
+  }
+  assert.ok(turns >= 4, `reviewed ${turns} turns`);
 });
 
 test('wins are counted in the worlds that ranked the option, never the larger of two samples (Astra, #343)', () => {

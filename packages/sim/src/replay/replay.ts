@@ -586,14 +586,23 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
     }
     cards.push({ frame: HIDDEN_FRAME, count: 80 });
     // After the fillers, so every card the log shows keeps the instance it has without a list.
-    // A listed printing is new when its game text is (two Riolu printings are two cards, Astra #343).
+    // A card is its game text, not its name or printing (Astra, #343): two Riolu printings are two cards, and two
+    // entries of one reprinted text are one card with both quantities. Whatever the list has beyond the copies the
+    // reservoir holds is added (an entry of the same definition just adds instances).
     if (o.deckList?.side === side) {
-      const have = new Set(cards.map((c) => defKey(c.frame)));
+      const want = new Map<string, { frame: CardFrame; count: number }>();
       for (const e of o.deckList.cards) {
         const frame = e.count > 0 ? listedFrame(e.name, e.id) : null;
-        if (!frame || have.has(defKey(frame))) continue;
-        have.add(defKey(frame));
-        cards.push({ frame, count: e.count });
+        if (!frame) continue;
+        const w = want.get(defKey(frame));
+        if (w) w.count += e.count;
+        else want.set(defKey(frame), { frame, count: e.count });
+      }
+      const held = new Map<string, number>();
+      for (const c of cards) held.set(defKey(c.frame), (held.get(defKey(c.frame)) ?? 0) + c.count);
+      for (const [k, { frame, count }] of want) {
+        const short = count - (held.get(k) ?? 0);
+        if (short > 0) cards.push({ frame, count: short });
       }
     }
     return { name: `${parsed.players[side]} (from the log)`, cards };

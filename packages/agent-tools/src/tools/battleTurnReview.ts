@@ -88,7 +88,7 @@ export function renderTurnReview(p: TurnReviewPayload, deckName: string, note?: 
     });
     const mine = r.options.find((o) => o.reader);
     const verdict = !mine
-      ? 'your first action is not among the options listed (it was not one the engine offered at that point)'
+      ? 'your first action could not be matched to one of the options the engine offered at that point, so it is not ranked'
       : mine.behindBest <= EVEN
         ? `your first action is as good as the best by the engine's evaluation (within ${EVEN} Prize)`
         : `your first action trails the best by ${mine.behindBest.toFixed(1)} Prize cards by the engine's evaluation`;
