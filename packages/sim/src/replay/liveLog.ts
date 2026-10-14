@@ -118,6 +118,11 @@ export interface ParseOptions {
 
 const MENTION = /^\(([A-Za-z0-9][A-Za-z0-9.-]*_\d+(?:_[A-Za-z][A-Za-z0-9]*)?)\)\s+(.+)$/;
 
+/** Longest action line read (Live's longest is about 210 characters); a longer one is skipped as not Live's. */
+export const LIVE_LINE_MAX = 500;
+/** Longest bullet line read (a revealed card list; Live's longest in the fixtures is about 330). */
+export const LIVE_BULLET_MAX = 4_000;
+
 function normLine(s: string): string {
   return s.replace(/[‘’ʼ]/g, "'").replace(/\s+$/, '');
 }
@@ -187,6 +192,10 @@ export function parseLiveLog(raw: string, o: ParseOptions = {}): ParsedLiveLog {
     const rawLine = lines[i]!;
     const ln = i + 1;
     if (!rawLine.trim()) continue;
+    if (rawLine.length > LIVE_BULLET_MAX) {
+      unknown(rawLine.slice(0, 120));
+      continue;
+    }
 
     // Bullets enrich the event a preceding directive designated.
     const bullet = /^\s*•\s*(.+)$/.exec(rawLine);
@@ -206,6 +215,13 @@ export function parseLiveLog(raw: string, o: ParseOptions = {}): ParsedLiveLog {
 
     const sub = /^-\s/.test(rawLine);
     const line = (sub ? rawLine.replace(/^-\s+/, '') : rawLine).trim();
+    // An action line from Live is at most a couple of hundred characters (the longest in the fixtures is 212). The
+    // patterns below hold several lazy groups between fixed words, which backtrack polynomially on a crafted line, and
+    // since 2026-10-14 a stored log reaches this parser from an API route: a longer line is not Live's and is skipped.
+    if (line.length > LIVE_LINE_MAX) {
+      unknown(rawLine.slice(0, 120));
+      continue;
+    }
     if (line === 'Setup') {
       fold = null;
       continue;
