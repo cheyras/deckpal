@@ -51,6 +51,9 @@ export const durations = {
   // Measured 25s locally (a 7s fixture build, Chromium at 1440 and 390, WebKit
   // at 390); padded for hosted runners until it has its own CI timing.
   'decke-deck-widget': 50,
+  // Measured 10s locally (a 3s cloud build, Chromium at 1280 and 390); padded
+  // for hosted runners until it has its own CI timing.
+  'agent-access': 30,
 }
 
 export function shardSuites(suites, count) {

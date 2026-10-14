@@ -12,6 +12,15 @@ pressed, and no species-detail fan-out. It also checks the showcase search's
 keyboard focus ring on its rounded container and captures focused and unfocused
 states. The 49th card must become reachable.
 
+`agentAccess.mts` (suite `agent-access`) drives Profile → Agent access at 1280px
+and 390px over a local `/api/tokens` fixture. It checks four things. A read-only
+token is labelled **Read only** in the list. **New token** offers the consent
+screen's two choices as one named radio group, with Read and change by default.
+Choosing Read only, by keyboard, sends `scope: "read"`, and the default sends
+`"full"`. If an API ignores scope and mints full access anyway, the new token is
+revoked and its secret is never shown. Screenshots of each state go to
+`agent-access/` in the artifact directory.
+
 The runner discovers `tests/browser/*.mjs` modules. A module registers an
 independent branch by exporting `browserSuites(context)`, which returns an array
 of `{ name, run }` entries. Each name must be unique, and `run` is async. A new

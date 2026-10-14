@@ -1,9 +1,18 @@
 import { Router } from 'express';
 import { adminError, getAccessForUser, hasPermission } from '../admin/access.js';
 import { pool, rlsStore, withTx, commitRequestTx } from '../db.js';
-import { asyncHandler, badRequest, notFound, UUID_RE } from '../http.js';
+import { ApiError, asyncHandler, badRequest, notFound, UUID_RE } from '../http.js';
 import { currentUserId } from '../identity.js';
-import { classifyRedirect, countActiveTokens, createToken, listTokens, revokeToken, type Queryable } from '@deckpal/db';
+import {
+  classifyRedirect,
+  countActiveTokens,
+  createToken,
+  listTokens,
+  readOnlyTokensReady,
+  revokeToken,
+  type Queryable,
+  type TokenScope,
+} from '@deckpal/db';
 
 /**
  * Personal access tokens — `/tokens` (migration 026).
@@ -58,18 +67,41 @@ tokensRouter.get(
   }),
 );
 
-// POST /tokens { name } — mint. The raw value is in this response and nowhere else.
+let warnedReadOnlyPending = false;
+
+// POST /tokens { name, scope? } — mint. The raw value is in this response and nowhere else.
 tokensRouter.post(
   '/',
   asyncHandler(async (req, res) => {
-    const body = (req.body ?? {}) as { name?: unknown; deckeImprovementRead?: unknown };
+    const body = (req.body ?? {}) as { name?: unknown; scope?: unknown; deckeImprovementRead?: unknown };
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     if (!name) throw badRequest('name is required');
     if (name.length > MAX_NAME_LEN) throw badRequest(`name must be ${MAX_NAME_LEN} characters or fewer`);
+    // Absent means full, which is what every token meant before the choice
+    // existed, so older clients are unchanged; anything else present is a
+    // mistake, not a default (the same rule as the OAuth consent decision).
+    if (body.scope !== undefined && body.scope !== 'full' && body.scope !== 'read') {
+      throw badRequest('scope must be "full" or "read"');
+    }
+    const scope: TokenScope = body.scope === 'read' ? 'read' : 'full';
     if (body.deckeImprovementRead !== undefined && typeof body.deckeImprovementRead !== 'boolean') {
       throw badRequest('deckeImprovementRead must be a boolean');
     }
     const deckeImprovementRead = body.deckeImprovementRead === true;
+
+    // Before migration 085 the signed-in user may not insert a scope, and
+    // quietly minting full access after the person chose read-only would make
+    // the choice a lie. Refuse it, say so in the log, and leave full tokens be.
+    if (scope === 'read' && !(await readOnlyTokensReady(db()))) {
+      if (!warnedReadOnlyPending) {
+        warnedReadOnlyPending = true;
+        console.warn(
+          '[deckpal] migration 085_read_only_tokens is not applied: POST /tokens refuses scope "read" ' +
+            'with a 503 until `pnpm --filter @deckpal/db migrate` runs. Full-access tokens are unaffected.',
+        );
+      }
+      throw new ApiError(503, 'unavailable', 'DeckPal is finishing an update, so a read-only token can’t be made yet. Nothing was created. Try again in a few minutes.');
+    }
 
     const userId = currentUserId(req);
     const created = await withTx(async client => {
@@ -79,7 +111,7 @@ tokensRouter.post(
       if ((await countActiveTokens(client, userId)) >= MAX_ACTIVE_TOKENS) {
         throw badRequest(`You already have ${MAX_ACTIVE_TOKENS} active tokens. Revoke one first.`);
       }
-      const token = await createToken(client, userId, name);
+      const token = await createToken(client, userId, name, scope);
       if (deckeImprovementRead) {
         // The security-definer RPC re-checks current tier and both permissions;
         // this route being session-only is not treated as sufficient authority.
