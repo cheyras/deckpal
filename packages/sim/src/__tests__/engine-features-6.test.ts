@@ -139,7 +139,7 @@ test("playLock 'abilityPokemon': no Pokémon with an Ability from the hand, to t
   assert.ok(legalActions(h.env, h.state, 0).some((a) => a.t === 'end'));
 });
 
-test("playLock 'abilityPokemon' looks at the Ability printed on the card in the hand, whatever switches Abilities off in play (ruling 2147)", () => {
+test("A lock on playing Pokémon that have an Ability looks at the Ability printed on the card in the hand, whatever switches Abilities off in play (ruling 2147)", () => {
   const dk = deck('Dreepy', "Arven's Skwovet", "Arven's Greedent");
   const g = scenario(dk, dk, [{ active: 'Dreepy', bench: ["Arven's Skwovet"], hand: ["Arven's Greedent"] }, { active: 'Dreepy' }]);
   // A stand-in for Team Rocket's Watchtower: {C} Pokémon in play have no Abilities.
@@ -228,7 +228,7 @@ test('koPrizes with `anyKo` and `duringTakersTurn`: more Prize cards for any Kno
   assert.equal(c.state.p[0].prizesTaken, 1, "a Knock Out in the opponent's turn gives the usual Prize cards");
 });
 
-test('an attack\'s koPrizes effect ends when the Pokémon leaves the Active Spot or evolves (ruling 1957)', () => {
+test('An attack\'s effect on the Prize cards for a Knock Out ends when the Pokémon leaves the Active Spot or evolves (ruling 1957)', () => {
   const dk = deck("N's Darumaka", 'Dreepy', 'Drakloak', 'Chikorita');
   const g = scenario(dk, dk, [{ active: "N's Darumaka" }, { active: 'Dreepy', bench: ['Chikorita'], hand: ['Drakloak'] }], { turn: 4, current: 1, first: 0 });
   g.state.p[1].active!.enteredTurn = 0;
@@ -525,7 +525,7 @@ test('attackedLastTurn: true for a Pokémon (matching the filter, other than the
   assert.ok(!ask(moon.id), 'two turns ago is not last turn');
 });
 
-test('attackedLastTurn: a failed attack does not count (Confusion, ruling 2087); the record belongs to the Pokémon in play (ruling 2092), or the card it was once it has left', () => {
+test('A failed attack does not count as having attacked last turn (Confusion, ruling 2087); the record belongs to the Pokémon in play (ruling 2092), or the card it was once it has left', () => {
   const dk = deck('Great Tusk', 'Roaring Moon', 'Koraidon', 'Dreepy');
   const mk = (cond: number, coin: boolean): Game => {
     const g = scenario(dk, dk, [{ active: 'Great Tusk', bench: ['Roaring Moon'], energy: { active: ['Fighting Energy', 'Fighting Energy'] }, cond }, { active: 'Dreepy' }], {

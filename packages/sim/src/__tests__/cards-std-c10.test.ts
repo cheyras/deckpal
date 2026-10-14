@@ -349,7 +349,7 @@ test('Gloomy Garbage: the 20 comes off before Weakness (the Pokémon ex\'s Weakn
   assert.equal(dmg(g, 0), 20);
 });
 
-test('Gloomy Garbage: ruling 2346 -- damage that ignores effects on the Defending Pokémon is still reduced', () => {
+test('Gloomy Garbage: ruling 2346 -- the reduction is an effect on the attacker holding a Tool, so damage that ignores effects on the Defending Pokémon is still reduced', () => {
   // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2346/): the reduction is an effect on the attacker, not on the Defending Pokémon, so Shred (which ignores effects on the Defending Pokémon) does not skip it.
   const g = game(
     [{ active: DRA, bench: ['Garbodor'] }, { active: 'Mega Lopunny ex', energy: { active: [W, W] }, tools: { active: ['Air Balloon'] } }],
@@ -359,7 +359,7 @@ test('Gloomy Garbage: ruling 2346 -- damage that ignores effects on the Defendin
   assert.equal(dmg(g, 0), 140, '160 - 20, from a Garbodor on the Bench');
 });
 
-test('Gloomy Garbage: ruling 2345 -- it also reduces damage done to Benched Pokémon', () => {
+test('Gloomy Garbage: ruling 2345 -- it also reduces damage done to Benched Pokémon when the attacker holds a Tool', () => {
   // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2345/): the 20-damage reduction applies when hitting Benched Pokémon too.
   const mk = (tools: string[]): Game => {
     const g = game(

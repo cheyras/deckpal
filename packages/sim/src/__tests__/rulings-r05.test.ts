@@ -300,7 +300,7 @@ test('Gnawing Curse does not apply to Metang Metal Maker, which attaches from th
 
 // https://compendium.pokegym.net/ruling/147/
 // Two Gengar ex in play: one Energy attached from the hand gets 2 counters from each, 4 in all.
-test('Two Gengar ex with Gnawing Curse put 4 damage counters on a Pokémon that gets an Energy (https://compendium.pokegym.net/ruling/147/)', () => {
+test('Two Gengar ex with Gnawing Curse put 4 damage counters on a Pokémon that gets an Energy card attached from the hand (https://compendium.pokegym.net/ruling/147/)', () => {
   const dk = deck(GENGAR_IDS);
   const mk = (benchGengar: boolean): Game =>
     scenario(

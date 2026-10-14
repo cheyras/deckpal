@@ -94,7 +94,7 @@ export const STD_C24: CardScript[] = [
     name: 'Ceruledge',
     attacks: {
       // "Discard all Special Energy from all of your opponent's Pokémon."
-      // Ruling (TPCi Rules Team 2024-11-14, https://compendium.pokegym.net/ruling/2085/): disabled Special Energy still counts as Special Energy. (the custom looks at the card, never at its text)
+      // Ruling (TPCi Rules Team 2024-11-14, https://compendium.pokegym.net/ruling/2085/): disabled Special Energy still counts as Special Energy.
       'Cursed Edge': { post: [{ op: 'custom', fn: 'c24.discardSpecialEnergyAllOpp' }] },
       // "During your next turn, this Pokémon can't attack."
       'Black Blaze Slash': { post: [{ op: 'effect', static: { k: 'cantAttack' }, on: 'self', duration: 'myNextTurn' }] },

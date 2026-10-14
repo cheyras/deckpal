@@ -2,7 +2,7 @@
 
 # DeckPal MCP tools
 
-**28 tools: 17 read, 11 write**, in the order `tools/list` returns them, plus 3 capability-gated read tools shown only to a token holding the Deck-E improvement capability. A read-only connection is shown the 17 read tools and none of the writes.
+**29 tools: 18 read, 11 write**, in the order `tools/list` returns them, plus 3 capability-gated read tools shown only to a token holding the Deck-E improvement capability. A read-only connection is shown the 18 read tools and none of the writes.
 
 Every write previews by default (`dry_run` defaults to true) except `deck_strategy`, whose description says it writes at once. "destructive" is MCP's meaning: the tool may change or remove existing data, not only add to it. What can be undone, and how, is in `decisions/2026/2026-10-12-mcp-tool-surface-and-write-safety.md`.
 
@@ -16,6 +16,7 @@ Every write previews by default (`dry_run` defaults to true) except `deck_strate
 | [`get_card`](#get_card) | Card detail (variants, tiers, prices) | read | Full detail for ONE card: identity, rarity, HP, regulation mark, legality, set and collector number, and FULL RULES TEXT — Abilities (name, type, effect), attacks (cost, name, damage, effect), the Trainer/Tool/Energy effect line, and weakness/resistance plus retreat — so the card can be advised on by what it DOES, not from memory. |
 | [`set_progress`](#set_progress) | Check set completion | read | Completion progress toward the three goals (complete = one of any variant per card, master = every standard-tier variant, grandmaster = every variant), plus goal 'numbered' = the regular numbered set only: one of any variant of each card numbered 1 up to the printed set total (the 165 in "006/165"), leaving out secret rares numbered above it and unnumbered subset cards (TG01, GG01). |
 | [`card_price_history`](#card_price_history) | Historical prices for one card (OHLC) | read | Historical OHLC price series for one card by TCGdex id (e.g. sv03.5-151 or base1-1). |
+| [`rules_lookup`](#rules_lookup) | Game rules and official rulings | read | Look up the game rules and official rulings instead of answering from memory. |
 | [`decks`](#decks) | Browse decks | read | Read decks. |
 | [`save_deck`](#save_deck) | Create or edit a deck | write, destructive, idempotent | Create a deck (omit deck_id) or edit one (pass deck_id): rename, change format, and reconcile its card list to the given cards array in one all-or-nothing write. |
 | [`delete_deck`](#delete_deck) | Delete a deck | write, destructive, idempotent | Delete a deck and its card list (the collection is NOT touched — decks only reference cards). |
@@ -110,6 +111,7 @@ Search cards by NAME or by their PRINTED RULES TEXT. `query` matches CARD names 
 | `owned_only` | boolean |  | `false` | true → only cards you own at least one copy of (any variant). |
 | `exclude_owned` | boolean |  | `false` | true → only cards you do NOT own (owned quantity 0 or no row) — the filter for "cards I do not own" / buy-recommendation asks. Mirrors owned_only the other way; do not pass both. |
 | `standard_legal` | boolean |  |  | Filter on Standard-format legality (card.legal_standard). |
+| `tag` | "Tera" \| "Ancient" \| "Future" |  |  | Only printings with this tag. Rows show tags too. |
 | `min_value_usd` | number |  |  | Only cards worth at least this many USD. 0 means no minimum and is ignored. Any value ABOVE 0 also drops cards with no price at all, so use 0.01 for "only cards that have a price". |
 | `page` | integer |  | `1` | Page number, 1-based. |
 | `page_size` | integer |  | `50` | Rows per page (default 50, hard cap 200). |
@@ -176,6 +178,19 @@ Grounded on `grain`, an agent:
 | `range` | "30d" \| "3m" \| "6m" \| "1y" \| "18m" \| "2y" |  | `"3m"` | History window: 30d \| 3m \| 6m \| 1y \| 18m \| 2y. Default 3m. |
 | `currency` | "USD" \| "EUR" \| "JPY" |  | `"USD"` | Currency: USD \| EUR \| JPY. Default USD. Values are in major units (dollars/euros/yen) — never cents. |
 | `offset` | integer |  | `0` | Start at 0. Continue with next_offset from the result text, using the same card_id, range and currency. Counts complete points, plus one record per empty variant. |
+
+<a id="rules_lookup"></a>
+
+### `rules_lookup` — Game rules and official rulings
+
+read · annotations `{"title":"Game rules and official rulings","readOnlyHint":true,"openWorldHint":false}`
+
+Look up the game rules and official rulings instead of answering from memory. Returns the matching core rules (turn 1, evolving, Rare Candy, Weakness, damage vs damage counters, Tera, Prizes, Special Conditions…) in DeckPal's words, and official rulings filed under the cards, attacks or Abilities you name, each with a link. Card text itself comes from get_card.
+
+| argument | type | required | default | description |
+|---|---|---|---|---|
+| `query` | string |  |  | The rules question in plain words. |
+| `cards` | string[] |  |  | Card, attack or Ability names involved, e.g. ["Cursed Blast", "Hide 'n' Sneak"]. |
 
 <a id="decks"></a>
 

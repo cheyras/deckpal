@@ -209,7 +209,7 @@ test('https://compendium.pokegym.net/ruling/2359/ Festival Lead: Dipplin attacks
   assert.equal(g.state.p[1].hand.length, hand + 6 + 1, 'three more for the second attack (and the card for their turn, which follows)');
 });
 
-test('https://compendium.pokegym.net/ruling/2358/ Adversity Policy still draws 3 when the attacker (Skuntank, Smash Turn) switches itself to the Bench after the damage', () => {
+test('https://compendium.pokegym.net/ruling/2358/ Adversity Policy on an Active Pokémon Weak to the attacker still draws 3 when the attacker (Skuntank, Smash Turn) switches itself to the Bench after the damage', () => {
   const dk = deck(SKUNTANK, STUNKY, MEWTWO_EX, POLICY);
   const run = (tool: boolean): Game => {
     const g = scenario(dk, dk, [
@@ -253,7 +253,7 @@ test("https://compendium.pokegym.net/ruling/2258/ Grimsley's Move can put a Stag
   assert.deepEqual(benchNames(g, 0), ['Skuntank']);
 });
 
-test('https://compendium.pokegym.net/ruling/2229/ Forest of Vitality: a Basic {G} Pokémon can evolve twice in the turn it is played (but not on the first turn of the game)', () => {
+test('https://compendium.pokegym.net/ruling/2229/ Forest of Vitality: a Basic {G} Pokémon can evolve into {G} Evolutions twice in the turn it is played (but not on the first turn of the game)', () => {
   const dk = deck(BULBASAUR, IVYSAUR, MEGA_VENUSAUR, FOREST, DREEPY);
   const mk = (turn: number): Game => {
     const g = scenario(dk, dk, [{ active: 'Dreepy', bench: ['Bulbasaur'], hand: ['Ivysaur', 'Mega Venusaur ex'] }, { active: 'Dreepy' }], { turn, current: 0, first: 0 });

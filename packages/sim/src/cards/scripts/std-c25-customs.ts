@@ -102,7 +102,7 @@ function usedMarker(attack: string): string {
  * Sylveon ex, Angelite: "If 1 of your Pokémon used Angelite during your last turn, this attack can't be used." (the remembering half)
  * Records that the Pokémon using this attack used `args.attack`: a marker effect on it that lasts through the end of its
  * controller's NEXT turn. A copy of the attack (Mew ex, Genome Hacking) is not a use of it: TPCi Rules Team 2025-01-09,
- * https://compendium.pokegym.net/ruling/2094/ ("the 'attack' it did was Genome Hacking"), so no marker is left.
+ * https://compendium.pokegym.net/ruling/2094/ (using a copy of the attack counts as using Genome Hacking, not Angelite), so no marker is left.
  */
 registerCustom('c25.rememberUsed', (_env, s, f, args) => {
   if (f.code.endsWith(':copy')) return 'next';

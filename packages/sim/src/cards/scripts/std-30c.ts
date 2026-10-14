@@ -33,7 +33,7 @@ export const STD_30C: CardScript[] = [
     name: 'Lycanroc',
     attacks: {
       // "If this Pokémon was damaged by an attack during your opponent's last turn, this attack does that much more damage."
-      // Ruling (TPCi Rules Team 2020-05-07, https://compendium.pokegym.net/ruling/384/): damage dealt counts regardless of the Pokémon's position or whether it switched since. (same wording as Counter)
+      // Ruling (TPCi Rules Team 2020-05-07, https://compendium.pokegym.net/ruling/384/): attack damage this Pokémon took during the opponent's last turn counts regardless of its position or whether it switched since. (same wording as Counter)
       Counter: { damage: { add: [10, { damageTakenLastTurn: 'self' }] } },
     },
   },

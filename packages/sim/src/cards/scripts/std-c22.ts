@@ -175,7 +175,7 @@ export const STD_C22: CardScript[] = [
         program: [...searchToBench({}, 2), { op: 'custom', fn: 'c06.rememberAttack', args: { attack: 'Form Ranks' } }],
       },
       // "If this Pokémon used Form Ranks during your last turn, this attack does 90 more damage."
-      // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2017/): 120 damage; checks if attacked last turn, not a pokémon effect.
+      // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2017/): 120 damage: the bonus checks whether Falinks used Form Ranks during your last turn, a game-state check rather than an effect on the Pokémon.
       // (Retreating Falinks and promoting it again keeps the bonus: the marker stays with the Pokémon.)
       'All-Out Attack': { damage: { add: [30, { cond: FORM_RANKS_LAST_TURN, then: 90, else: 0 }] } },
     },

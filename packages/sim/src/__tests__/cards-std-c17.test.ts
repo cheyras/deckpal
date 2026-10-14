@@ -425,7 +425,7 @@ test('Wellspring Mask Ogerpon ex, Torrential Pump: 100; you may shuffle 3 Energy
   assert.equal(energyNames(declined, 0, 'active').length, 3);
 });
 
-test('Wellspring Mask Ogerpon ex, Torrential Pump: with fewer than 3 Energy attached, shuffle what it has and still do the Bench damage (Compendium #2031)', () => {
+test('Wellspring Mask Ogerpon ex, Torrential Pump: with fewer than 3 Energy attached, shuffling all it has still does the Bench damage, but shuffling none does not (Compendium #2031)', () => {
   // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2031/): do as much as you can; bench damage happens if any Energy is shuffled in, even if not three.
   // Counter Gain (more Prize cards remaining than the opponent) makes the attack cost {C} less: 2 Energy suffice.
   const g = G(

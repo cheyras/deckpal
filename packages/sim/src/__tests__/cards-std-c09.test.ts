@@ -436,7 +436,7 @@ test('Delphox, Energized Storm: 30 damage for each Energy attached to all Pokém
 
 // ------------------------------------------------------------------ Delibird
 
-test('Delibird, Pleasing Present: your opponent attaches up to 3 Basic Energy from their hand first, then you, in any way you like (Compendium #2353)', () => {
+test('Delibird, Pleasing Present: your opponent chooses their Basic Energy attachments (up to 3, or none) first, then you choose yours; each player picks their own targets and all of it counts as attached at once (Compendium #2353)', () => {
   const dk = deck('me04-018', DUN, 'me05-033', LATIAS, 'sv06-167');
   const g = scenario(dk, dk, [
     { active: 'Delibird', bench: ['Mega Latias ex'], energy: { active: [W] }, hand: [F, F, W] },

@@ -87,6 +87,11 @@ test('DEPLOYMENT.md states the registry counts', () => {
 test('apps/mcp/SPEC.md states the registry counts', () => {
   claims('apps/mcp/SPEC.md', /only the (\d+) `readOnlyHint` tools/g, (c) => [c.read]);
   claims('apps/mcp/SPEC.md', /(\d+) ordinary tools \+ (\d+) capability-gated/g, (c) => [c.tools, c.gated]);
+  claims('apps/mcp/SPEC.md', /only the (\d+) `readOnlyHint` tools \((\d+) with the Deck-E/g, (c) => [c.read, c.read + c.gated]);
+});
+
+test('SECURITY.md states the registry count', () => {
+  claims('SECURITY.md', /All (\d+) tools, plus Deck-E's own/g, (c) => [c.tools]);
 });
 
 test('apps/mcp/README.md states the registry counts', () => {

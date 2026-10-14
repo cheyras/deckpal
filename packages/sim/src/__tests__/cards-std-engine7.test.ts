@@ -234,7 +234,7 @@ test('Fezandipiti, Adrena-Pheromone: with any {D} Energy attached, a coin is fli
   assert.equal(legacy.state.forcedCoins.length, 0, 'it flipped');
 });
 
-test('Fezandipiti, Energy Feather: 30 damage for each Energy attached; with only Legacy Energy it attacks and is protected too (ruling 1969)', () => {
+test('Fezandipiti, Energy Feather: 30 damage for each Energy attached; with only Legacy Energy it can still attack, and Adrena-Pheromone still gets its coin flip for protection (ruling 1969)', () => {
   const dk = deck('Fezandipiti', 'Mega Kangaskhan ex', "N's Darumaka", 'Legacy Energy');
   const g = scenario(dk, dk, [{ active: 'Fezandipiti', energy: { active: [PSY, DRK, FIR] } }, { active: 'Mega Kangaskhan ex' }]);
   choose(g, 'Attack: Energy Feather');
@@ -671,7 +671,7 @@ test('Iron Treads, Wheel Pass: 60 damage; move an Energy from this Pokémon to 1
 
 // ------------------------------------------------------------------ Palafin, Palafin ex
 
-test('Palafin, Zero to Hero: when it moves to the Bench you may switch it with a Palafin ex from your deck; everything stays, the Palafin goes into the deck, shuffle (ruling 1977)', () => {
+test('Palafin, Zero to Hero: when it moves from the Active Spot to the Bench you may switch it with a Palafin ex from your deck; the cards underneath stay in play, only the Palafin goes into the deck, then shuffle (ruling 1977)', () => {
   const dk = deck('Finizen', 'Palafin', 'Palafin ex', 'Dreepy', 'Switch', "Hero's Cape");
   const mk = (): Game =>
     scenario(dk, dk, [{ active: 'Finizen', evolve: { active: ['Palafin'] }, energy: { active: [WTR, WTR] }, tools: { active: ["Hero's Cape"] }, damage: { active: 30 }, cond: CONFUSED, bench: ['Dreepy'], hand: ['Switch'] }, { active: 'Dreepy' }]);
