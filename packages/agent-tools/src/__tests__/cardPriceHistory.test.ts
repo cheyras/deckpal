@@ -860,7 +860,9 @@ test('records after an oversized one stay reachable: it is a page of its own, an
   ];
   const second = await t.handler({ card_id: 'base1-1', page: 2 }, mockCtx(response));
   assert.equal(second.isError, true);
-  assert.match(second.text, /The history continues on page 3\./);
+  assert.match(second.text, /The history continues: call again with page 3, page_size 200, and the same card_id, range and currency\./);
+  const sized = await t.handler({ card_id: 'base1-1', page: 2, page_size: 7 }, mockCtx(response));
+  assert.match(sized.text, /call again with page 3, page_size 7,/, 'the size it was cut with');
   const third = await t.handler({ card_id: 'base1-1', page: 3 }, mockCtx(response));
   assert.ok(!third.isError, third.text);
   assert.match(third.text, /variant 3 \| kind normal \| Printing 3/);

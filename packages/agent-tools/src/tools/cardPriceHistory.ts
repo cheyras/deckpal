@@ -217,7 +217,7 @@ const cardPriceHistoryTool = defineTool({
       if (span?.oversized) {
         return fail(
           `card_price_history failed: page ${page} is one complete history record that, with its variant identity, cannot fit the ${PAGE_CHAR_LIMIT}-character page budget. No record was truncated; this record cannot be paginated.` +
-            (page < pageCount ? ` The history continues on page ${page + 1}.` : ''),
+            (page < pageCount ? ` The history continues: call again with page ${page + 1}, page_size ${pageSize}, and the same card_id, range and currency.` : ''),
         );
       }
       if (!span) {
