@@ -6,6 +6,8 @@ import { meansCreate, needList, presentRef } from '../entities.js';
 import { pagingFooter, row, usd } from '../format.js';
 import { describeCard, describeVariant, pickVariant, resolveCardsBatch, variantsOfMany, type CardRef } from '../resolve.js';
 import { FINISHES, GOALS, errText } from '../shared.js';
+import { q, q1 } from '../db.js';
+import { cardFilters, SEARCH_CTES } from './catalog.js';
 
 /**
  * List tools — SPEC §5 #11–#13. Everything goes through deckpal-api
@@ -238,6 +240,122 @@ async function resolveAdds(
   return out.map((x) => x ?? { ok: false as const, label: '?', error: 'unresolved' });
 }
 
+// ── add_search: a whole search, one call ──────────────────────────────────────
+//
+// THE JOB THAT NEEDED IT (the owner's Haiku test, 2026-10-13): "make a list of my holo Pikachus".
+// search_cards showed one page and no finishes, so the model checked about 150 cards one get_card
+// call at a time, hit the 60-a-minute limit, added the normal printing of 44 cards that have a holo
+// one, missed 19, and said "7 left". The search it needed already existed; adding its results did
+// not. add_search runs the SAME filters as search_cards (cardFilters), every page, and picks each
+// card's printing by finish in one query.
+
+/** The most cards one add_search may add: the bulk endpoint's limit. */
+const SEARCH_ADD_MAX = 500;
+
+const addSearchSchema = z.object({
+  query: z.string().optional(),
+  set_id: z.string().optional(),
+  category: z.enum(['Pokemon', 'Trainer', 'Energy']).optional(),
+  rarity: z.string().optional(),
+  standard_legal: z.boolean().optional(),
+  tag: z.enum(['Tera', 'Ancient', 'Future']).optional(),
+  owned_only: z.boolean().optional(),
+  exclude_owned: z.boolean().optional(),
+  min_value_usd: z.number().min(0).optional(),
+  finish: z
+    .array(z.enum(FINISHES))
+    .min(1)
+    .optional()
+    .describe("Only cards printed in one of these, each added in the first it has: ['holo','reverse'] = holo, else reverse."),
+});
+type AddSearch = z.infer<typeof addSearchSchema>;
+
+interface SearchAdd {
+  variantId: number;
+  label: string;
+  finish: string;
+}
+
+/**
+ * Every card the search matches, with the printing to add: with `finish`, the first finish in the
+ * order given that the card is printed in; without it, the card's primary printing. Within a
+ * finish, the plainest printing (primary, then standard tier, then catalog order) — a holo, not
+ * its stamped or cosmos-foil cousin. Cards whose tcgdex id is in `skip` are left out.
+ */
+async function searchForList(
+  ctx: Ctx,
+  args: AddSearch,
+  skip: ReadonlySet<string>,
+): Promise<{ ok: false; message: string } | { ok: true; adds: SearchAdd[]; matched: number; skipped: number; filters: string; setNote: string | null }> {
+  const shared = await cardFilters(ctx, args);
+  if (!shared.ok) return shared;
+  if (shared.filters.length === 0) {
+    return { ok: false, message: 'add_search needs at least one filter (query, set_id, rarity, finish…): it will not add the whole catalog.' };
+  }
+  const ps: unknown[] = [ctx.userId];
+  const p = (v: unknown): string => {
+    ps.push(v);
+    return `$${ps.length}`;
+  };
+  const where = [`c.lang = 'en'`, ...shared.filters.map((f) => f.sql(p))].join(' AND ');
+  const from = `FROM browsable_card c
+       JOIN card_set cs ON cs.id = c.set_id
+       LEFT JOIN owned o ON o.card_id = c.id
+       LEFT JOIN best b ON b.card_id = c.id`;
+  const skipIds = [...skip];
+  const skipParam = p(skipIds);
+  // Cards already in the list are left out IN the query, so the cap below counts only what would be
+  // added; `count(*) OVER ()` is taken before the LIMIT, so an over-limit search says how big it was
+  // instead of quietly adding the first 500.
+  const wanted = await q<{ id: string; tcgdex_id: string; name: string; total: string }>(
+    ctx.db,
+    `${SEARCH_CTES}
+     SELECT c.id, c.tcgdex_id, c.name, count(*) OVER () AS total
+       ${from}
+      WHERE ${where} AND NOT (c.tcgdex_id = ANY(${skipParam}::text[]))
+      ORDER BY c.released_on NULLS LAST, cs.tcgdex_id, c.number_sort
+      LIMIT ${SEARCH_ADD_MAX + 1}`,
+    ps,
+  );
+  const skipped = skipIds.length
+    ? Number((await q1<{ n: string }>(ctx.db, `${SEARCH_CTES} SELECT count(*) AS n ${from} WHERE ${where} AND c.tcgdex_id = ANY(${skipParam}::text[])`, ps))?.n ?? 0)
+    : 0;
+  const toAdd = Number(wanted[0]?.total ?? 0);
+  const matched = toAdd + skipped;
+  const filters = shared.filters.map((f) => f.label).join(' AND ');
+  if (toAdd > SEARCH_ADD_MAX) {
+    return {
+      ok: false,
+      message:
+        `add_search would add ${toAdd} cards (${filters}${skipped ? `; ${skipped} more already in the list` : ''}); ` +
+        `one call adds at most ${SEARCH_ADD_MAX}. Narrow it (set_id, rarity, finish, category) and add it in parts.`,
+    };
+  }
+  const variants = wanted.length
+    ? await q<{ card_id: string; id: string; finish: string; display_name: string | null; kind: string }>(
+        ctx.db,
+        `SELECT cv.card_id, cv.id, vk.finish, cv.display_name, cv.variant_kind_code AS kind
+           FROM card_variant cv
+           JOIN variant_kind vk ON vk.code = cv.variant_kind_code
+           LEFT JOIN variant_tier_resolved vtr ON vtr.card_variant_id = cv.id
+          WHERE cv.card_id = ANY($1::bigint[])
+          ORDER BY cv.card_id, cv.is_primary DESC, (vtr.tier = 'standard') DESC NULLS LAST, vk.sort_hint, cv.sort_order`,
+        [wanted.map((c) => Number(c.id))],
+      )
+    : [];
+  const byCard = new Map<string, typeof variants>();
+  for (const v of variants) byCard.set(String(v.card_id), [...(byCard.get(String(v.card_id)) ?? []), v]);
+  const order = args.finish?.length ? [...new Set(args.finish)] : null;
+  const adds: SearchAdd[] = [];
+  for (const c of wanted) {
+    const vs = byCard.get(String(c.id)) ?? [];
+    const pick = order ? order.map((f) => vs.find((v) => v.finish === f)).find(Boolean) : vs[0];
+    if (!pick) continue; // a card with no printing in the catalog: nothing to add
+    adds.push({ variantId: Number(pick.id), label: `${c.name} (${c.tcgdex_id}, ${pick.display_name ?? pick.kind})`, finish: pick.finish });
+  }
+  return { ok: true, adds, matched, skipped, filters, setNote: shared.setNote };
+}
+
 // ── Tool registration ─────────────────────────────────────────────────────────
 
 const listsTool = defineTool({
@@ -309,9 +427,10 @@ const editListTool = defineTool({
     "TCGdex card_id, or name + set_id/number, plus an optional variant_kind ('reverse', " +
     "'holo', …) — so you do NOT need to look up variant ids first. add_missing does the whole " +
     'job server-side: "everything missing for this goal in this set, optionally minus certain ' +
-    'rarities or above a price" in one call. remove_item_ids are the item UUIDs shown by the ' +
+    'rarities or above a price" in one call; add_search adds every card a search matches (all pages), by finish. ' +
+    'remove_item_ids are the item UUIDs shown by the ' +
     'lists tool. Renaming changes the name only, not what a list holds — to change contents use ' +
-    'add_cards, add_missing or remove_item_ids. kind (static or dynamic) is set at create and cannot ' +
+    'add_cards, add_missing, add_search or remove_item_ids. kind (static or dynamic) is set at create and cannot ' +
     'be changed by edit: a dynamic list tracks ownership live but does NOT re-filter by its name, so ' +
     'a list called "under $5" holds whatever was added, not every card under $5. ' +
     'Defaults to a dry run that prints the exact operations without executing — ' +
@@ -378,13 +497,16 @@ const editListTool = defineTool({
       })
       .optional()
       .describe('Add everything still missing from a set, filtered. Resolved server-side in one call.'),
+    add_search: addSearchSchema
+      .optional()
+      .describe("Add EVERY card a search_cards search with these filters matches (all pages, up to 500); each card's main printing unless finish. Cards already in the list are skipped."),
     remove_item_ids: z.array(z.string()).optional().describe('Item UUIDs to remove (from the lists tool output), not card ids.'),
     restore: z.boolean().default(false).describe('true → restore this deleted list (see lists(deleted:true)).'),
     dry_run: z.boolean().default(true).describe('true (default): only print what would happen. false: execute.'),
   }),
   // overwriteHint: remove_item_ids and renames (each revertible from mutation_history).
   annotations: { readOnlyHint: false, destructiveHint: false, overwriteHint: true, idempotentHint: false },
-  handler: async ({ mode, list_id, name, kind, add_cards, add_missing, remove_item_ids, restore, dry_run }, ctx) => {
+  handler: async ({ mode, list_id, name, kind, add_cards, add_missing, add_search, remove_item_ids, restore, dry_run }, ctx) => {
     try {
       // STRICT: this adds to, removes from and renames a list. A fuzzy hit
       // would edit a list that merely sounded like the one they meant.
@@ -473,6 +595,25 @@ const editListTool = defineTool({
       // Resolve adds up front (read-only, safe in a dry run too).
       const adds = add_cards?.length ? await resolveAdds(ctx, add_cards, listKind) : [];
 
+      // add_search: the whole search, resolved here (read-only). Cards already in the list are
+      // skipped, except items this same call removes: "swap my normal printings for holos" is a
+      // remove plus an add_search, and the removed cards must come back in the new finish.
+      let searched: Extract<Awaited<ReturnType<typeof searchForList>>, { ok: true }> | null = null;
+      if (add_search) {
+        if (listKind === 'pokedex_binder') return fail('add_search adds cards; a pokedex_binder list takes dex_id items (add_cards).');
+        const removing = new Set(remove_item_ids ?? []);
+        const listed = new Set(
+          (current?.items ?? []).filter((i) => i.kind === 'card' && !removing.has(i.itemId)).map((i) => i.cardId),
+        );
+        const s = await searchForList(ctx, add_search, listed);
+        if (!s.ok) return fail(s.message);
+        searched = s;
+        const resolvedCount = adds.filter((a) => a.ok).length;
+        if (resolvedCount + s.adds.length > SEARCH_ADD_MAX) {
+          return fail(`That is ${resolvedCount + s.adds.length} cards in one call; the limit is ${SEARCH_ADD_MAX}. Split it.`);
+        }
+      }
+
       // add_missing is resolved by the API — ask it for the preview so the
       // dry run reports exactly what the execute call will add.
       let missingPreview: { wouldAdd: number; items: Array<{ label: string }> } | null = null;
@@ -532,6 +673,20 @@ const editListTool = defineTool({
           ? a.cardId ? `add ${a.label} — card: add x${qty} ${a.cardId}` : `add ${a.label}`
           : `add ${a.label} — UNRESOLVABLE: ${a.error}`);
         if (!a.ok && a.detail) for (const d of a.detail) plan.push(`     ${d}`);
+      }
+      if (searched) {
+        // Counted in the order the finishes were asked for ("2 holo, 1 reverse"), not found.
+        const byFinish = new Map<string, number>((add_search?.finish ?? []).map((f) => [f, 0]));
+        for (const a of searched.adds) byFinish.set(a.finish, (byFinish.get(a.finish) ?? 0) + 1);
+        for (const [f, count] of byFinish) if (count === 0) byFinish.delete(f);
+        plan.push(
+          `add ${searched.adds.length} card(s) the search finds (${searched.filters})` +
+            (byFinish.size ? `: ${[...byFinish].map(([f, n]) => `${n} ${f}`).join(', ')}` : '') +
+            (searched.skipped ? `; ${searched.skipped} already in the list, skipped` : ''),
+        );
+        for (const a of searched.adds.slice(0, 15)) plan.push(`     ${a.label}`);
+        if (searched.adds.length > 15) plan.push(`     …and ${searched.adds.length - 15} more`);
+        if (searched.setNote) plan.push(`     (${searched.setNote})`);
       }
       if (missingPreview) {
         plan.push(`add ${missingPreview.wouldAdd} missing card(s) from ${add_missing!.set_id} (goal ${add_missing!.goal})`);
@@ -593,15 +748,19 @@ const editListTool = defineTool({
           lines.push(`  FAILED: add ${a.label} — ${a.error}`);
         }
       }
-      if (resolvedAdds.length > 0 || add_missing) {
+      const searchItems = (searched?.adds ?? []).map((a) => ({ cardVariantId: a.variantId, quantity: 1 }));
+      if (resolvedAdds.length > 0 || add_missing || searchItems.length > 0) {
         try {
           const res = (await ctx.api.send('POST', `/lists/${encodeURIComponent(targetId)}/items/bulk`, {
-            items: resolvedAdds.map((a) => ({
-              cardVariantId: a.body.cardVariantId,
-              dexId: a.body.dexId,
-              quantity: a.body.staticQuantity ?? 1,
-              note: a.body.note,
-            })),
+            items: [
+              ...resolvedAdds.map((a) => ({
+                cardVariantId: a.body.cardVariantId,
+                dexId: a.body.dexId,
+                quantity: a.body.staticQuantity ?? 1,
+                note: a.body.note,
+              })),
+              ...searchItems,
+            ],
             ...(add_missing
               ? {
                   addMissing: {

@@ -448,13 +448,19 @@ sees them in `tools/list`:
    sets for the user's default goal (`user_settings`). **The default entry point** — description
    says so. Also backs the `collection://summary` resource.
 3. **`search_cards`** — `{ query?, text?, text_same_attack? = true, damage?, set_id?, category?,
-   rarity?, owned_only? = false, exclude_owned? = false, standard_legal?, min_value_usd?, page?,
+   rarity?, owned_only? = false, exclude_owned? = false, standard_legal?, tag?, finish?, min_value_usd?, page?,
    page_size? = 50 }`. Catalog+ownership search over
    `card` (trgm + unaccent on `name_normalized`), joined to owned qty and best market price.
    Compact lines + total count. Each line ends with a trailing `series <slug>` cell (added
    2026-08-21, `packages/agent-tools` extraction) — the web route for a card is
    `/series/<seriesSlug>/<setId>/<number>` and no field elsewhere in the line supplies the slug.
    Trailing addition only: no existing field moved, changed or was removed.
+
+   **Finishes** (2026-10-14, Phase 4): every row carries a `finishes holo/reverse` cell, the
+   distinct `variant_kind.finish` values of the card's printings in sync order (normal, holo,
+   reverse, lenticular, metal). `finish` (a list of those) keeps only cards with at least one
+   printing in one of them. The filters are built by `cardFilters` (catalog.ts), which
+   `edit_list`'s `add_search` shares, so a search and "add everything it found" cannot disagree.
 
    **`query` is a plain substring of the printed card NAME** — not a query
    language. `OR`, `AND`, quotes and wildcards match literally and find nothing,
@@ -680,8 +686,16 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
 11. **`lists`** — `{ list_id?, deleted? = false, page? = 1, page_size? = 100 (≤ 200) }`. Index or
     one list with its items (compact), the items paged; `deleted: true` reads the recycle bin.
 12. **`edit_list`** — `{ mode?: create|edit, list_id?, name?, kind? = dynamic, add_cards?,
-    add_missing?, remove_item_ids?, restore? = false, dry_run? = true }`. `kind` is set at create
+    add_missing?, add_search?, remove_item_ids?, restore? = false, dry_run? = true }`. `kind` is set at create
     only; `add_missing` adds everything still missing from a set, filtered, server-side;
+    `add_search` (2026-10-14) adds every card `search_cards`' name filters match (`query`,
+    `set_id`, `category`, `rarity`, `standard_legal`, `tag`, `owned_only`, `exclude_owned`,
+    `min_value_usd`, `finish`), every page, up to 500 cards, in the same single bulk write: with
+    `finish`, each card in the first listed finish it has (the plainest printing of it: primary,
+    then standard tier, then catalog order), otherwise its primary printing. Cards already in the
+    list are skipped, except items this call removes, so a remove plus an add_search swaps a
+    card's printing. It needs at least one filter, refuses a match over 500 with the count, and
+    can fill a list in the call that creates it;
     `restore: true` restores a deleted list. Item payload shape comes from `lists.ts`.
     `mode` is the explicit
     choice: `create` never touches an existing list even when the name is already taken,
