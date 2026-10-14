@@ -287,7 +287,9 @@ export function turnPosition(
   const decision = game.decision as Decision;
   const deck = normaliseDeck(game, decision.player, o.deckList);
   normaliseDeck(game, opp(decision.player));
-  return { game, decision, readerFirst: first.choice[0] ?? -1, readerDid: kept.readerDid, hiddenInHand: first.fillersInHand, deck };
+  // A choice the replay had to guess is not "what you did".
+  const readerFirst = first.known ? (first.choice[0] ?? -1) : -1;
+  return { game, decision, readerFirst, readerDid: kept.readerDid, hiddenInHand: first.fillersInHand, deck };
 }
 
 const PRIZE = DEFAULT_WEIGHTS.prize;
