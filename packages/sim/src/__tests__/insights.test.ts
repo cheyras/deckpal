@@ -73,7 +73,10 @@ test("a Pokémon Knocked Out on its owner's own turn is a self_ko, with the Priz
   const self = ins.moments.find((m) => m.kind === 'self_ko')!;
   assert.ok(self, 'the self-Knock-Out is a moment');
   assert.equal(self.side, 0);
-  assert.match(momentText(self, label), /^me's Dhelmise was Knocked Out on me's own turn \(its own attack or effect\); opp took 1 Prize card for it$/);
+  assert.match(
+    momentText(self, label),
+    /^me's Dhelmise was Knocked Out during me's own turn \(by its own attack or effect, or an effect that hit back\); opp took 1 Prize card for it$/,
+  );
   // An opponent's attack Knocking Out PlayerA's Pokémon on PlayerB's turn is not a self_ko.
   assert.equal(ins.moments.filter((m) => m.kind === 'self_ko').length, 1);
   assert.ok(assessReview(ins, 0, {}).reasons.some((r) => /Knocked Out on your own turn/.test(r)));

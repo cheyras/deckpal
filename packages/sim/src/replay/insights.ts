@@ -491,7 +491,7 @@ function insightsInner(raw: string, o: { players?: [string, string] }): ReplayIn
         turn: e.turn,
         side: e.p,
         kind: 'self_ko',
-        text: `${name(e.p)}'s ${e.card.name} was Knocked Out on ${name(e.p)}'s own turn (its own attack or effect)${prizes ? `; ${name(e.p === 0 ? 1 : 0)} took ${prizes} Prize card${prizes === 1 ? '' : 's'} for it` : ''}`,
+        text: `${name(e.p)}'s ${e.card.name} was Knocked Out during ${name(e.p)}'s own turn (by its own attack or effect, or an effect that hit back)${prizes ? `; ${name(e.p === 0 ? 1 : 0)} took ${prizes} Prize card${prizes === 1 ? '' : 's'} for it` : ''}`,
       });
     }
 
