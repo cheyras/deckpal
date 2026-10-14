@@ -153,6 +153,41 @@ export async function refreshConnection(
   return { ok: true, tokens: await issuePair(db, row.token_id, row.scope) };
 }
 
+/**
+ * The rate-limit identity of a `/token` request, read WITHOUT changing anything
+ * (apps/api/src/rateLimit.ts `oauthGrantWait`).
+ *
+ * A refresh token names its connection, so its budget is that connection's:
+ * only someone holding the refresh token can spend it, unlike a `client_id`,
+ * which is public. A live code is keyed on its hash. `null` means the secret
+ * matches nothing live, so the request is about to be refused as
+ * `invalid_grant` and is counted per source IP instead.
+ *
+ * A used refresh token still has a key: presenting one is the reuse signal
+ * `refreshConnection` acts on (it revokes the connection), and that must not
+ * be skipped by a limiter. No row lock and no write: this runs outside the
+ * grant's transaction, before it, so it cannot hold anything up.
+ */
+export async function peekGrantKey(
+  db: Queryable,
+  input: { grantType: 'refresh_token'; refreshToken: string } | { grantType: 'authorization_code'; code: string },
+): Promise<string | null> {
+  if (input.grantType === 'refresh_token') {
+    if (!input.refreshToken.startsWith(REFRESH_TOKEN_PREFIX)) return null;
+    const { rows } = await db.query<{ token_id: string }>(
+      `SELECT token_id FROM oauth_token WHERE token_hash = $1 AND kind = 'refresh' AND expires_at > now()`,
+      [hashToken(input.refreshToken)],
+    );
+    return rows[0] ? `connection:${rows[0].token_id}` : null;
+  }
+  if (!input.code) return null;
+  const { rows } = await db.query<{ live: boolean }>(
+    `SELECT true AS live FROM oauth_code WHERE code = $1 AND used_at IS NULL AND expires_at > now()`,
+    [input.code],
+  );
+  return rows[0] ? `code:${hashToken(input.code).slice(0, 32)}` : null;
+}
+
 async function issuePair(db: Queryable, tokenId: string, scope: TokenScope): Promise<IssuedTokens> {
   const accessToken = generateToken();
   const refreshToken = REFRESH_TOKEN_PREFIX + randomBytes(32).toString('base64url');

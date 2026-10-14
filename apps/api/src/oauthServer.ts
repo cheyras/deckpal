@@ -2,7 +2,7 @@ import type { Express, Request, Response } from 'express';
 import express from 'express';
 import { pool, withTx } from './db.js';
 import { MAX_ACTIVE_TOKENS } from './routes/tokens.js';
-import { oauthDiscoveryRateLimit, oauthRegisterRateLimit, oauthTokenRateLimit } from './rateLimit.js';
+import { oauthDiscoveryRateLimit, oauthGrantWait, oauthRegisterRateLimit, oauthTokenRateLimit, refuseOAuthGrant } from './rateLimit.js';
 import {
   OAuthValidationError,
   connectionName,
@@ -11,6 +11,7 @@ import {
   getClient,
   grantSchemaReady,
   openConnection,
+  peekGrantKey,
   refreshConnection,
   registerClient,
   verifyPkceS256,
@@ -187,6 +188,19 @@ export function mountOAuthServer(app: Express): void {
           res.setHeader('Cache-Control', 'no-store');
           if (!(await grantSchemaReady(pool))) {
             oauthError(res, 503, 'temporarily_unavailable', 'DeckPal is finishing an update. Try connecting again in a few minutes.');
+            return;
+          }
+          // The grant's own budget, BEFORE its transaction: a refusal here
+          // rotates nothing, so the client's retry with the same refresh token
+          // still works. Keyed on the grant, not the client_id or the IP; see
+          // rateLimit.ts for why each of those was a lockout.
+          const grantKey = await peekGrantKey(
+            pool,
+            grantType === 'refresh_token' ? { grantType, refreshToken } : { grantType, code },
+          );
+          const wait = oauthGrantWait(grantKey, req);
+          if (wait > 0) {
+            refuseOAuthGrant(res, wait);
             return;
           }
           const outcome: { tokens?: IssuedTokens; error?: string } =

@@ -223,13 +223,16 @@ Three flows are mounted **separately on `app`, ahead of that router**:
   verification are the control.
 - The **bare-origin OAuth discovery / `/register` / `/token` handlers**
   (cloud-only, mint `api_token` rows), where previously none of the pipeline
-  above ever ran at all. Each carries its own limiter (SEC-09), keyed on the
-  source IP only and checked before any body parsing, sized since 2026-10-12
-  for hosted connectors that refresh many users from one egress IP: `/token`
-  600/min, `/register` 60/min, discovery 1,200/min per IP for both documents.
-  No global or per-`client_id` budget, since one sender could empty either
-  for everybody else. Refusals use RFC 6749's error shape. SECURITY.md → Rate
-  limiting has the reasoning.
+  above ever ran at all. Each carries its own limits (SEC-09), reworked
+  2026-10-13 for hosted connectors that refresh many users from one egress IP.
+  `/token` has a per-IP ceiling of 6,000/min, checked before any body parsing,
+  plus a budget per verified grant: a read-only lookup of the presented secret
+  (`peekGrantKey`) finds its connection, and each connection gets 30/min.
+  A secret that matches nothing counts against its IP at 120/min. `/register`
+  is 60/min and discovery 1,200/min per IP for both documents. No global or
+  per-`client_id` budget, since one sender could empty either for everybody
+  else. Refusals use RFC 6749's error shape. SECURITY.md → Rate limiting has
+  the reasoning.
 - The **MCP transport** at `/mcp` (separate `api/mcp.mjs` function) is not
   part of this pipeline either, but it now carries two limiters (SEC-09): a
   global 300/min-per-instance admission counter before `resolveToken`

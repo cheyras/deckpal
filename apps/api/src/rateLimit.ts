@@ -356,50 +356,58 @@ export const simulateRateLimit: RequestHandler = perUserRateLimit('simulate', 6,
  * the bare origin, ahead of the ordinary `/api` router, so none of the
  * limiters above ever see them.
  *
- * Each endpoint is limited per source IP (the validated platform IP on Vercel,
- * the socket peer on self-host; see `resolveClientKey`) and on nothing else,
- * checked first, before any body is read. Until 2026-10-12 the figure was 30 a
- * minute, which hosted MCP connectors outgrow fast. claude.ai, ChatGPT and the
- * rest do discovery, registration, the code exchange and every refresh from
- * the provider's own egress IPs, and an access token lasts an hour
- * (`ACCESS_TOKEN_TTL_SECONDS`, packages/db/src/grants.ts): thirty a minute is
- * under two thousand connections refreshing through one IP. The next one was
- * refused in DeckPal's `{"error":{"code":…}}` shape, which an OAuth client
- * cannot parse, so it read as a failed refresh: a disconnect.
+ * `/token` is where hosted connectors live: claude.ai, ChatGPT and the rest do
+ * discovery, registration, the code exchange and every refresh from the
+ * provider's own egress IPs, and an access token lasts an hour
+ * (`ACCESS_TOKEN_TTL_SECONDS`, packages/db/src/grants.ts). Until 2026-10-12 the
+ * limit was 30 a minute per source IP — under two thousand connections
+ * refreshing through one IP — and the refusal came in DeckPal's
+ * `{"error":{"code":…}}` shape, which an OAuth client reads as a failed
+ * refresh: a disconnect.
  *
- * Why the IP, and no bucket shared between senders. A global ceiling is a
- * bucket any one sender can empty for everybody, even with requests a later
- * limiter refuses. A `client_id` is public, so a per-client budget is one
- * anyone can empty for a named client without holding a grant. Both were
- * tried for this fix and reproduced as lockouts in review (see
- * decisions/2026/2026-10-12-oauth-endpoints-per-ip-rate-limits-sized-for-hosted-connectors-no-shared-bucket.md).
- * A per-IP bucket fills only from the IP it belongs to, so the worst a flood
- * can do is refuse itself. So the key stays and the room grows:
+ * WHAT THE BUDGET IS KEYED ON, AND WHY. Three designs were reviewed and each
+ * reproduced as a lockout (decisions/2026/2026-10-13-oauth-token-limits-keyed-on-the-verified-grant.md):
+ * a global ceiling is a bucket any sender can empty for everybody; a
+ * `client_id` is public, so a per-client budget is one anyone can empty for a
+ * named client without a grant; and a per-IP budget at hosted-connector size
+ * is one any OTHER sender on the same egress IP can empty. So `/token` keys
+ * its real budget on what only the grant's holder has:
  *
- * - `/token`: 600 a minute per IP. A connection refreshes about once an hour,
- *   so that is 36,000 refreshes an hour through one egress IP: about 12,000
- *   users behind it if the busiest minute is three times the average.
- * - `/register`: 60 a minute per IP. A client registers once per connection,
- *   not once per refresh.
- * - Both discovery documents together: 1,200 a minute per IP, two for each
- *   `/token` request, since a client may fetch both before every refresh.
- *   Static JSON, no database work.
+ * 1. `tokenPerIpCeiling`: 6,000 a minute per source IP, first, before any body
+ *    is read. It bounds the database work one address can cause; it is not
+ *    the budget a client runs into. 6,000 is ten times the busiest minute of
+ *    12,000 connections refreshing hourly behind one IP.
+ * 2. `oauthGrantWait`, in the handler, after a read-only lookup of the
+ *    presented secret (`peekGrantKey`) and BEFORE the grant's transaction:
+ *    - a live refresh token spends its CONNECTION's budget, `tokenPerGrant`
+ *      (30 a minute; a connection refreshes about once an hour). Only the
+ *      refresh token's holder can spend it, and a refusal here leaves the
+ *      token unrotated, so the client's retry still works;
+ *    - a secret that matches nothing spends its source IP's
+ *      `tokenInvalidPerIp` (120 a minute). That bucket only ever refuses
+ *      requests that were going to fail anyway, so a neighbour's garbage
+ *      cannot refuse a valid grant.
  *
- * Accepted limit: a flood spread across many IPs can still load the database
- * through `/token` and `/register`, as it always could. There is deliberately
- * no global ceiling to stop it, because a global ceiling is a lever any one
- * sender can pull to refuse everybody else.
+ * Accepted limit: one sender can still refuse others on its own egress IP by
+ * exceeding the 6,000 ceiling there, and a flood spread across many IPs can
+ * load the database, as it always could. There is deliberately no global
+ * ceiling.
  *
- * Every refusal is an RFC 6749 §5.2 error body; see `refuseOAuth`. Each
- * endpoint keeps its keys in a store of its own, so a flood of distinct
- * addresses at one of them (or at the `/api` router) cannot fill the map
- * another needs. Per-instance, like every limiter in this file: each
- * serverless instance counts for itself, and the figures are sized as if one
- * instance served everything.
+ * `/register` and the two `.well-known` documents keep per-IP limits:
+ * registration happens once per connection (60 a minute), and discovery is
+ * static JSON (1,200 a minute, both documents together, two per refresh).
+ *
+ * Every refusal is an RFC 6749 §5.2 error body; see `refuseOAuth`. Each bucket
+ * lives in a store of its own, bounded like every RateLimitStore (a full map
+ * refuses new keys rather than evicting live ones). Per-instance, like every
+ * limiter in this file: each serverless instance counts for itself, and the
+ * figures are sized as if one instance served everything.
  */
 export const OAUTH_LIMITS = {
   windowMs: 60_000,
-  tokenPerIp: 600,
+  tokenPerIpCeiling: 6_000,
+  tokenPerGrant: 30,
+  tokenInvalidPerIp: 120,
   registerPerIp: 60,
   discoveryPerIp: 1_200,
 } as const;
@@ -429,18 +437,39 @@ function refuseOAuth(res: Response, retryAfter: number): void {
   });
 }
 
-// One store per endpoint (see above). Keys are source IPs, bounded like every
-// RateLimitStore: a full map refuses new keys rather than evicting live ones.
+// One store per bucket (see above), bounded like every RateLimitStore: a full
+// map refuses new keys rather than evicting live ones.
 const oauthTokenStore = new RateLimitStore();
+const oauthGrantStore = new RateLimitStore();
+const oauthInvalidGrantStore = new RateLimitStore();
 const oauthRegisterStore = new RateLimitStore();
 const oauthDiscoveryStore = new RateLimitStore();
 
 const sourceIp = (req: Request): string => ipKeyGenerator(resolveClientKey(req), false);
 
-/** `/token`: per source IP, first, before the body is read. */
+/** `/token` layer 1: the per-IP ceiling, first, before the body is read. */
 export const oauthTokenRateLimit: RequestHandler = rateLimit(
-  boundedOptions('oauth-token', OAUTH_LIMITS.tokenPerIp, OAUTH_LIMITS.windowMs, sourceIp, { backend: oauthTokenStore, refuse: refuseOAuth }),
+  boundedOptions('oauth-token', OAUTH_LIMITS.tokenPerIpCeiling, OAUTH_LIMITS.windowMs, sourceIp, { backend: oauthTokenStore, refuse: refuseOAuth }),
 );
+
+/**
+ * `/token` layer 2: seconds to wait before this grant may be tried, or 0.
+ * `grantKey` is `peekGrantKey`'s answer: a live grant's own identity (its
+ * connection, or its code), or `null` for a secret that matches nothing, which
+ * is counted against the source IP's invalid-grant bucket instead.
+ */
+export function oauthGrantWait(grantKey: string | null, req: Request): number {
+  return grantKey
+    ? oauthGrantStore.check(grantKey, OAUTH_LIMITS.tokenPerGrant, OAUTH_LIMITS.windowMs)
+    : oauthInvalidGrantStore.check(sourceIp(req), OAUTH_LIMITS.tokenInvalidPerIp, OAUTH_LIMITS.windowMs);
+}
+
+/** The layer-2 refusal: the same 429 the express limiters answer. */
+export function refuseOAuthGrant(res: Response, retryAfter: number): void {
+  res.setHeader('Retry-After', String(retryAfter));
+  res.setHeader('Cache-Control', 'no-store');
+  refuseOAuth(res, retryAfter);
+}
 
 /** `/register`: per source IP, first, before the body is read. */
 export const oauthRegisterRateLimit: RequestHandler = rateLimit(
@@ -455,6 +484,8 @@ export const oauthDiscoveryRateLimit: RequestHandler = rateLimit(
 /** Test seam: empties every OAuth store so cases don't leak into each other. */
 export function __resetOAuthRateLimitsForTests(): void {
   oauthTokenStore.clear();
+  oauthGrantStore.clear();
+  oauthInvalidGrantStore.clear();
   oauthRegisterStore.clear();
   oauthDiscoveryStore.clear();
 }

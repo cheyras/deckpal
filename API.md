@@ -113,8 +113,10 @@ omit the host.
   reset on cold start, and are speed bumps rather than a distributed quota.
 
   Bare-origin OAuth discovery, `/register` and `/token` have their own
-  per-source-IP limiters, checked before any body is read: `/token` 600/min,
-  `/register` 60/min, and 1,200/min shared by the two discovery documents.
+  limits. Per source IP, checked before any body is read: `/token` 6,000/min
+  (a ceiling), `/register` 60/min, and 1,200/min shared by the two discovery
+  documents. `/token` also budgets each verified grant: 30/min per connection,
+  and 120/min per IP for secrets that match nothing.
   Their refusals are
   `429` + `Retry-After` with RFC 6749's
   `{"error":"temporarily_unavailable","error_description":"…"}` body, not the

@@ -715,28 +715,43 @@ boundary. Active-account and action/SQL permission checks still follow RLS.
 a report; self-host's resolved local identity must too), only identity — see
 "Bug/feature reports are keyed per account" below for why it moved off `req.ip`.
 
-**The public OAuth "Connect" endpoints (SEC-09; limits raised 2026-10-12).**
+**The public OAuth "Connect" endpoints (SEC-09; limits reworked 2026-10-13).**
 `/register`, `/token` and the two `/.well-known/oauth-*` discovery documents
 are mounted at the bare origin, ahead of the base-path router above, so none
 of its limiters ever run for them — `POST /register` in particular was an
 unauthenticated `oauth_client` INSERT with **no rate limit anywhere upstream
-of it** until SEC-09. Each route carries its own limiter
-(`apps/api/src/rateLimit.ts`, `OAUTH_LIMITS`), keyed on the **source IP and
-nothing else** (resolved the same way as the ingress guard's: validated
-platform IP on Vercel, raw socket peer on self-host), and checked first,
-before any body is read:
+of it** until SEC-09. Each route carries its own limits
+(`apps/api/src/rateLimit.ts`, `OAUTH_LIMITS`). The per-IP ones key on the
+**source IP** (resolved the same way as the ingress guard's: validated
+platform IP on Vercel, raw socket peer on self-host) and run first, before
+any body is read:
 
-- **`/token`: 600 requests/minute per IP.** A connection refreshes about once
-  an hour, so that is 36,000 refreshes an hour through one egress IP: about
-  12,000 users behind it, allowing the busiest minute three times the
-  average.
+- **`/token`, layer 1: a ceiling of 6,000 requests/minute per IP.** It bounds
+  the database work one address can cause. It is not the budget a client
+  normally runs into: 6,000 is ten times the busiest minute of 12,000
+  connections refreshing hourly behind one IP.
+- **`/token`, layer 2: a budget per grant.** In the handler, after the grant
+  schema check and before either grant transaction, `peekGrantKey`
+  (`packages/db/src/grants.ts`) does a read-only SELECT (no lock, no write) of
+  the presented secret. A live refresh token gives its connection
+  (`connection:<api_token id>`; a used refresh token still gives its key, so
+  reuse detection still runs). A live unused authorization code gives
+  `code:<first 32 hex of its hash>`. Anything else gives nothing. Then
+  `oauthGrantWait` charges a live grant against its own budget, **30/minute
+  per connection** (or per code), and a secret that matches nothing against
+  the source IP's invalid-grant bucket, **120/minute**. A refusal here comes
+  before the transaction, so nothing is rotated or consumed and the client's
+  retry with the same refresh token still works.
 - **`/register`: 60/minute per IP.** A client registers once per connection,
   not once per refresh.
 - **Discovery: 1,200/minute per IP**, one bucket for both documents: two for
   each `/token` request, since a client may fetch both before every refresh.
   Static JSON, no database work.
 
-Refusals are `429` with `Retry-After` and `Cache-Control: no-store`, and an
+There is no global ceiling and no per-`client_id` budget.
+
+Refusals, from either `/token` layer or the other routes, are `429` with
+`Retry-After` and `Cache-Control: no-store`, and an
 RFC 6749 §5.2 body, `{"error":"temporarily_unavailable","error_description":"…"}`,
 not DeckPal's own `{"error":{"code":…}}` shape, which an OAuth client cannot
 parse. `temporarily_unavailable` is RFC 6749's word for "overloaded, try
@@ -750,33 +765,43 @@ IP. Hosted MCP connectors (claude.ai, ChatGPT) do discovery, registration,
 the code exchange and every hourly refresh from the provider's own egress
 IPs, so a few dozen of their users refreshing in the same minute used up the
 bucket for all of them, and the refusal, in DeckPal's own error shape,
-reached the client as a failed refresh: a disconnect. 600 a minute per IP is
-far beyond DeckPal's current scale, and providers are expected to send from
-pools of egress IPs, which multiplies it again.
+reached the client as a failed refresh: a disconnect. A connection refreshes
+about once an hour, so 30/minute per connection is far more than it needs.
 
-**Why still the IP, with no global or per-client budget.** The first version
-of this fix (never merged) gave `/token` a global ceiling of 3,000/minute per
-instance plus 600/minute per `client_id`, and `/register` a global budget
-behind its per-IP one. Review reproduced two lockouts against the real route.
-The global counter was spent by requests the per-client limiter then
-refused, so 3,000 unsupported-grant requests from one IP made `/token`
-refuse an unrelated client on another IP. And a `client_id` is public, so
-anyone could drain a named client's budget without holding any grant, after
-which that client was refused from every IP. Any bucket an outsider can fill
-lets one party lock out others, which the old 30/minute per-IP limit never
-did. A per-IP bucket fills only from its own IP, so a flood refuses only
-itself: `rateLimit.test.ts` sends 3,000 such requests from one IP, naming
-another client's id throughout, and checks that client, on its own IP, never
-sees a 429.
+**Why the key is the verified grant.** Three simpler designs were reviewed
+and each reproduced as a lockout against the real route:
 
-**Accepted limit.** A flood spread across many IPs can still load the
-database through `/token` and `/register`, as it always could. There is
-deliberately no global ceiling to stop it, because a global ceiling is a
-lever any one sender can pull to refuse everybody else. Per-instance, like
-every limiter here. Each endpoint keeps its keys in a store of its own
-(bounded at 10,000 like every other), so a flood of distinct addresses at one
-cannot fill the map another needs, and a flood on the base-path router cannot
-fill any of them.
+1. A global `/token` ceiling (3,000/minute per instance) is one bucket any
+   sender can empty for everybody, even with requests a later limiter then
+   refuses.
+2. A per-`client_id` budget (600/minute) can be emptied for a named client by
+   anyone, without holding a grant, because a `client_id` is public. That
+   client is then refused from every IP.
+3. A per-IP budget at hosted-connector size (600/minute) can be emptied by
+   any other sender behind the same egress IP: 600 unsupported-grant requests
+   naming client A refused client B's first request from that IP.
+
+The bar is that nothing may let one party lock out others more easily than
+the old 30/minute per-IP limit did. A refresh token or code is a secret, so
+only its holder can present one that matches a live grant, and only the
+holder can spend that grant's 30/minute. A guess matches nothing and is
+counted only against the sender's own IP, in a bucket that refuses requests
+that were going to fail as `invalid_grant` anyway, so a neighbour's garbage
+on the same IP cannot refuse a valid grant. `rateLimit.test.ts` sends 3,000
+garbage requests from one IP naming client B and checks that B is still
+answered by the handler, on the same IP and on another.
+
+**Accepted limit.** One sender can still refuse others on its own egress IP
+by exceeding the 6,000/minute ceiling there, and a flood spread across many
+IPs can load the database through `/token` and `/register`, as it always
+could. There is deliberately no global ceiling to stop it, because a global
+ceiling is a lever any one sender can pull to refuse everybody else.
+Per-instance, like every limiter here: each serverless instance counts for
+itself, and the figures are sized as if one instance served everything. Each
+bucket keeps its keys in a store of its own (bounded at 10,000 like every
+other), so a flood of distinct addresses at one cannot fill the map another
+needs, and a flood on the base-path router cannot fill any of them. See
+`decisions/2026/2026-10-13-oauth-token-limits-keyed-on-the-verified-grant.md`.
 
 **MCP (SEC-09).** `/mcp` (`apps/mcp/src/cloud.ts`) now carries two limiters,
 for two different threats:
