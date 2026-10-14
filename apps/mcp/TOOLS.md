@@ -393,13 +393,14 @@ Permanently remove one battle log from a deck (e.g. a duplicate paste or a log a
 
 read · annotations `{"title":"Read one game as a digest","readOnlyHint":true,"openWorldHint":false}`
 
-Read ONE stored PTCG Live game as a compact digest: who went first, mulligans, turns, each side's first attack, the prize timeline turn by turn (with the Knock Out each prize paid for), every card the opponent showed, how it ended, whether it was close, and what the log cannot tell (their hand, the prized cards). Use it to judge or review a game — it is a small fraction of the raw log that battle_logs include_raw returns. A game reported in person has no log to digest; read its notes and review with battle_logs log_id instead. Read-only.
+Read ONE stored PTCG Live game as a compact digest: who went first, mulligans, turns, each side's first attack, the prize timeline turn by turn (with the Knock Out each prize paid for), every card the opponent showed, how it ended, whether it was close, and what the log cannot tell (their hand, the prized cards). Then the battle simulator's replay of the game: every attack with its printed damage, Weakness/Resistance and the HP its target had; moments worth a look (a self-Knock-Out, prevented damage, a near miss, a timer turn, a concession); the board at the end; one line per opponent card; and how deep a review the game deserves. detail 'turns' adds the board at the start of every turn. A game reported in person has no log to digest; read its notes and review with battle_logs log_id instead. Read-only.
 
 | argument | type | required | default | description |
 |---|---|---|---|---|
 | `deck_id` | string | yes |  | The deck, by UUID or by NAME. |
 | `log_id` | integer | yes |  | Battle log id (the #N from battle_logs or add_battle_log). |
 | `player_name` | string |  |  | Only when a digest said it could not tell which player owns the deck: the owner's exact screen name in the log. |
+| `detail` | "summary" \| "turns" |  |  | 'turns' adds the board as each turn began (a deep review). Default 'summary'. |
 
 <a id="lists"></a>
 

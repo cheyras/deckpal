@@ -1609,6 +1609,49 @@ text alone says.
 Logs stored without raw text (`origin: in_person` or `other`) have nothing to
 digest. Consumed by the agent tool `battle_digest`.
 
+**`replay`** (added 2026-10-14) is the battle simulator's reading of the same
+log (`replayInsights` in `packages/sim/src/replay/insights.ts`, via
+`apps/api/src/deck/replayDigest.ts`), or `null` when it cannot read it. Never
+an error. Sides are indexes into `players`; side 0 is the reader whenever the
+digest named them, and `me` says which side that is (`null` when unknown).
+```json
+"replay": {
+  "players": ["PlayerA", "PlayerB"], "me": 0,
+  "replay": { "completed": true, "replayed": 43, "actions": 43, "stoppedTurn": null,
+              "reason": null, "unscripted": [] },
+  "turns": [ { "turn": 3, "side": 1, "board": [
+      { "active": { "name": "Poltchageist", "hp": 30, "maxHp": 30, "energy": [], "tools": [],
+                    "conditions": [] },
+        "bench": [ "…" ], "prizesLeft": 6, "hand": 7 }, "…" ] }, "…" ],
+  "attacks": [ { "turn": 6, "line": 84, "side": 0, "attacker": "Dhelmise", "move": "Vengeful Anchor",
+                 "target": { "side": 1, "name": "Mega Lucario ex" }, "printed": "30+", "dealt": 340,
+                 "modifiers": ["4 discarded Pokémon: 140", "Weakness to Psychic: 170"],
+                 "hpBefore": 340, "knockedOut": true }, "…" ],
+  "moments": [ { "turn": 8, "side": 1, "kind": "timer",
+                 "text": "{p1} didn't take an action in time: the timer ended their turn 8" }, "…" ],
+  "finalBoard": [ "…" ],
+  "cards": [ [ { "name": "Dhelmise", "line": "Basic Psychic 140 HP · Vengeful Anchor (Psychic) 30+: …" } ], [ "…" ] ],
+  "ending": { "winner": 0, "reason": "prizes", "turn": 10, "note": null },
+  "assessment": { "score": 7, "depth": "deep", "reasons": ["+3 close: Prizes 5–6", "…"] },
+  "ms": 31 }
+```
+- **`turns`**: the board as each turn began (after the draw), from the engine's
+  replay. HP counts HP effects (Tools, Stadiums). A turn after the replay
+  stopped has `board: null`.
+- **`attacks`**: from Live's own lines. `printed` is the card's printed damage,
+  and `modifiers` is Live's damage breakdown without the base and total lines.
+- **`moments`** (`kind`):
+  - `self_ko`: Knocked Out on its owner's own turn;
+  - `prevented`: printed damage, did none;
+  - `blocked`: "Effects of X did not affect Y";
+  - `near_ko`: left on 30 HP or less;
+  - `timer`: "didn't take an action in time";
+  - `ending`.
+
+  Their `text` names players as `{p0}`/`{p1}`, for the renderer to label.
+- **`assessment`**: how much a review is worth (`assessReview`). `null` when the
+  reader is unknown.
+
 ### PATCH /deckpal/api/decks/:id/logs/:logId
 Body: any of `{ "result", "opponent", "opponentDeck", "opponentArchetype",
 "notes", "reviewMd", "playedAt" }`.
