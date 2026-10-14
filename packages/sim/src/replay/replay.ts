@@ -47,11 +47,11 @@ import type { Action, CardFrame, Decision, GameEvent, GameState, Player, Slot } 
 import { scriptFor } from '../cards/registry.js';
 import { transcript } from '../transcript.js';
 import { FRAMES } from '../cards/frames-all.js';
-import { textKey } from '../cards/frame.js';
+import { defKey, textKey } from '../cards/frame.js';
 import { withPrintedWR } from '../cards/printed-wr.js';
 import { withEvolvesFrom } from '../cards/evolves-from.js';
 import { withCleanText } from '../cards/clean-text.js';
-import { canonicalName, resolveFrame } from './cardCodes.js';
+import { canonicalName, listedFrame, resolveFrame } from './cardCodes.js';
 import { parseLiveLog, type CardMention, type LiveEvent, type ParseOptions, type Side } from './liveLog.js';
 
 export const HIDDEN = 'Hidden card';
@@ -586,11 +586,14 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
     }
     cards.push({ frame: HIDDEN_FRAME, count: 80 });
     // After the fillers, so every card the log shows keeps the instance it has without a list.
+    // A listed printing is new when its game text is (two Riolu printings are two cards, Astra #343).
     if (o.deckList?.side === side) {
+      const have = new Set(cards.map((c) => defKey(c.frame)));
       for (const e of o.deckList.cards) {
-        if (e.count <= 0 || names[side].has(norm(e.name))) continue;
-        const frame = (e.id ? resolveFrame(e.name, e.id).frame : null) ?? resolveFrame(e.name).frame;
-        if (frame) cards.push({ frame, count: e.count });
+        const frame = e.count > 0 ? listedFrame(e.name, e.id) : null;
+        if (!frame || have.has(defKey(frame))) continue;
+        have.add(defKey(frame));
+        cards.push({ frame, count: e.count });
       }
     }
     return { name: `${parsed.players[side]} (from the log)`, cards };

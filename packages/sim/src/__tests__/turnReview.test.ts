@@ -57,6 +57,25 @@ test("the rebuilt deck conserves the list: the Stadium in play counts, and liste
   assert.equal(r.deck, 'list');
 });
 
+test("two printings of one name are two cards: the rebuild keeps each printing's count (Astra, #343)", () => {
+  // Turn 1 is PlayerB's: one Riolu me01-076 (80 HP, Accelerating Stab) is already Active. The list also has two of the
+  // 70-HP sv08.5-050 printing, which the log never shows.
+  const deckList = [
+    { name: 'Riolu', id: 'me01-076', count: 2 },
+    { name: 'Riolu', id: 'sv08.5-050', count: 2 },
+  ];
+  const pos = turnPosition(raw, 1, { players: AB, me: 1, deckList });
+  assert.ok(!('reason' in pos), 'reason' in pos ? pos.reason : '');
+  const { game } = pos;
+  const riolus = (ids: number[]) => ids.map((i) => def(game.ctx, i)).filter((d) => d.name === 'Riolu');
+  const ps = game.state.p[1];
+  const inPlay = [ps.active, ...ps.bench].flatMap((sl) => (sl ? sl.cards : []));
+  assert.deepEqual(riolus(inPlay).map((d) => d.hp), [80], 'the Active Riolu is the 80-HP printing');
+  const deck = riolus(ps.deck);
+  assert.equal(deck.filter((d) => d.hp === 80).length, 1, 'two listed, one in play');
+  assert.equal(deck.filter((d) => d.hp === 70).length, 2, 'the other printing is its own card, both copies');
+});
+
 test('wins are counted in the worlds that ranked the option, never the larger of two samples (Astra, #343)', () => {
   const r = reviewTurn(readFileSync(join(dir, 'hns-34.txt'), 'utf8'), 6, { players: AB, me: 0 });
   assert.equal(r.found, true, r.reason ?? '');
