@@ -39,7 +39,7 @@ function replay(over: Partial<ReplayPayload> = {}): ReplayPayload {
     ],
     moments: [
       { turn: 7, side: 1, kind: 'near_ko', text: "{p1}'s Phantom Dive left {p0}'s Banette on 20 HP (200 of the 220 it needed)" },
-      { turn: 9, side: 0, kind: 'self_ko', text: "{p0}'s Dusknoir was Knocked Out on {p0}'s own turn (its own attack or effect); {p1} took 2 Prize cards for it" },
+      { turn: 9, side: 0, kind: 'self_ko', text: "{p0}'s Dusknoir was Knocked Out during {p0}'s own turn (by its own attack or effect, or an effect that hit back); {p1} took 2 Prize cards for it" },
       { turn: 10, side: 1, kind: 'timer', text: "{p1} didn't take an action in time: the timer ended their turn 10" },
       { turn: 12, side: null, kind: 'ending', text: '{p1} conceded on turn 12' },
     ],
@@ -64,7 +64,7 @@ test('the replay renders as facts with the reader as "me": worth, moments, attac
     'If the reader asked for a review, give a full one whatever this says.',
     'replay: complete (43/43 actions)',
     "- T7 near_ko: opp's Phantom Dive left me's Banette on 20 HP (200 of the 220 it needed)",
-    "- T9 self_ko: me's Dusknoir was Knocked Out on me's own turn (its own attack or effect); opp took 2 Prize cards for it",
+    "- T9 self_ko: me's Dusknoir was Knocked Out during me's own turn (by its own attack or effect, or an effect that hit back); opp took 2 Prize cards for it",
     "- T10 timer: opp didn't take an action in time",
     '- T12 ending: opp conceded on turn 12',
     '- T6 me Dhelmise Vengeful Anchor → opp Mega Lucario ex: 340 (printed 30+; 4 discarded Pokémon: 140; Weakness to Psychic: 170) · had 340 HP · KO',

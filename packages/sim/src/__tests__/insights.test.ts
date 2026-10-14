@@ -73,7 +73,10 @@ test("a Pokémon Knocked Out on its owner's own turn is a self_ko, with the Priz
   const self = ins.moments.find((m) => m.kind === 'self_ko')!;
   assert.ok(self, 'the self-Knock-Out is a moment');
   assert.equal(self.side, 0);
-  assert.match(momentText(self, label), /^me's Dhelmise was Knocked Out on me's own turn \(its own attack or effect\); opp took 1 Prize card for it$/);
+  assert.match(
+    momentText(self, label),
+    /^me's Dhelmise was Knocked Out during me's own turn \(by its own attack or effect, or an effect that hit back\); opp took 1 Prize card for it$/,
+  );
   // An opponent's attack Knocking Out PlayerA's Pokémon on PlayerB's turn is not a self_ko.
   assert.equal(ins.moments.filter((m) => m.kind === 'self_ko').length, 1);
   assert.ok(assessReview(ins, 0, {}).reasons.some((r) => /Knocked Out on your own turn/.test(r)));
@@ -145,6 +148,26 @@ test('an attack logged as a bare "used X." is an attack too: a copied attack and
   assert.ok(call, 'a damage-less attack is listed');
   assert.equal(call.target, null);
   assert.equal(call.dealt, 0);
+});
+
+test("a damage-clause attack keeps its copied name and every Pokémon it hit on detail lines (Astra, #342: turn 13's Trifrost)", () => {
+  const ins = replayInsights(log('tbs-57.txt'), { players: AB });
+  const t13 = ins.attacks.filter((a) => a.turn === 13);
+  assert.deepEqual(
+    t13.map((a) => [a.move, a.target?.name, a.dealt, a.knockedOut]),
+    [
+      ['Seek Inspiration (Trifrost)', 'Mega Excadrill ex', 110, true],
+      ['Seek Inspiration (Trifrost)', 'Metang', 110, true],
+      ['Seek Inspiration (Trifrost)', 'Genesect ex', 110, false],
+    ],
+  );
+});
+
+test('a codeless card is described by the printing its logged moves fit, or said to be ambiguous (Astra, #342: Metang)', () => {
+  const ins = replayInsights(log('tbs-57.txt'), { players: AB });
+  const metang = ins.cards[1].find((c) => c.name === 'Metang')!;
+  assert.match(metang.line, /Ability Metal Maker/, 'the log shows it using Metal Maker');
+  assert.doesNotMatch(metang.line, /Guard Press/, 'not the other printing');
 });
 
 test('a codeless attacker is matched against every printing of its name (Astra, #342: Tea Server)', () => {

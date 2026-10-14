@@ -27,6 +27,7 @@ import { maxHp } from '../query.js';
 import { topCard } from '../state.js';
 import { ASLEEP, BURNED, CONFUSED, PARALYZED, POISONED, type CardFrame, type Slot } from '../types.js';
 import { TERA_PRINTINGS } from '../cards/tera.js';
+import { FRAMES } from '../cards/frames-all.js';
 import { framesNamed, resolveFrame } from './cardCodes.js';
 import { parseLiveLog, type CardMention, type LiveEvent, type Side } from './liveLog.js';
 import { replayLog, type ReplayObservation } from './replay.js';
@@ -215,6 +216,40 @@ export function cardLine(f: CardFrame): string {
   return `${f.energyType ?? ''} Energy${f.effect ? `: ${short(f.effect, 140)}` : ''}`.trim();
 }
 
+let attackNames: Set<string> | null = null;
+/** Is this the name of an attack on any card in the snapshot? (A copying attack's "chose X" names one.) */
+function isAttackName(n: string): boolean {
+  if (!attackNames) {
+    attackNames = new Set();
+    for (const f of Object.values(FRAMES)) for (const a of f.attacks ?? []) attackNames.add(a.name.toLowerCase());
+  }
+  return attackNames.has(n.trim().toLowerCase());
+}
+
+/**
+ * The card a mention is, for describing it. A coded mention is that printing. A codeless name can be several printings
+ * with different text (Metang with Metal Maker, or with Metal Claw and Guard Press), and the name lookup alone may pick
+ * the wrong one (Astra, #342): the printing is chosen by the attacks and Abilities the log shows it using, and when that
+ * still leaves different texts, the line says so instead of asserting one.
+ */
+function describeMention(c: CardMention, used: ReadonlySet<string>): string {
+  if (c.id) {
+    const f = frameOf(c);
+    return f ? cardLine(f) : 'card text unknown to DeckPal';
+  }
+  const all = framesNamed(c.name);
+  if (!all.length) {
+    const f = frameOf(c);
+    return f ? cardLine(f) : 'card text unknown to DeckPal';
+  }
+  const moves = (f: CardFrame) => new Set([...(f.attacks ?? []).map((a) => a.name.toLowerCase()), ...(f.abilities ?? []).map((a) => a.name.toLowerCase())]);
+  const fits = used.size ? all.filter((f) => [...used].every((u) => moves(f).has(u))) : [...all];
+  const lines = [...new Set(fits.map(cardLine))];
+  if (lines.length === 1) return lines[0]!;
+  const seen = used.size ? `; seen using ${[...used].join(', ')}` : '';
+  return `${all.length} printings share this name with different text, and the log does not say which${seen}: get_card for each`;
+}
+
 /**
  * Printed damage of `move` on the attacker's card: its exact printing when the log gives a code, else the printing of
  * that name that has the attack (a codeless name may resolve to another printing).
@@ -364,7 +399,31 @@ function insightsInner(raw: string, o: { players?: [string, string] }): ReplayIn
           });
         }
       };
+      // A copying attack names the attack it copied on a detail line ("chose Trifrost"): the move reads "Seek
+      // Inspiration (Trifrost)" in either log form.
+      const copied = after.find((n): n is LiveEvent & { t: 'chose' } => n.t === 'chose' && isAttackName(n.option))?.option;
+      // Hits on detail lines ("Metang took 110 damage."), beyond the one the damage clause names.
+      const hitsAfter = after.filter((n): n is LiveEvent & { t: 'damage' } => n.t === 'damage');
+      const pushHit = (attacker: string, move: string, printed: string | null, h: LiveEvent & { t: 'damage' }) => {
+        const ko = koOf(h.p, h.target.name);
+        const before = findMon(board?.[h.p], h.target.name);
+        attacks.push({
+          turn: e.turn,
+          line: e.line,
+          side: e.p,
+          attacker,
+          move,
+          target: { side: h.p, name: h.target.name },
+          printed,
+          dealt: h.amount,
+          modifiers: [],
+          hpBefore: trusted ? (before?.hp ?? null) : null,
+          knockedOut: ko,
+        });
+        pushNear(h.p, h.target.name, h.amount, ko, before?.hp ?? null, move);
+      };
       if (e.t === 'attack') {
+        const move = copied ? `${e.move} (${copied})` : e.move;
         const printed = printedDamage(e.attacker, e.move);
         const modifiers = [
           ...(e.breakdown ?? []).filter((b) => !/^(?:base|total) damage/i.test(b.label)).map((b) => `${b.label}: ${b.amount}`),
@@ -377,7 +436,7 @@ function insightsInner(raw: string, o: { players?: [string, string] }): ReplayIn
           line: e.line,
           side: e.p,
           attacker: e.attacker.name,
-          move: e.move,
+          move,
           target: { side: e.target.player, name: e.target.card.name },
           printed,
           dealt: e.damage,
@@ -388,7 +447,7 @@ function insightsInner(raw: string, o: { players?: [string, string] }): ReplayIn
         // Zero damage from an attack that prints a fixed or "+" amount, with no failed coin flip: worth a look. Its cause
         // is not asserted (a condition in the attack's own text can make it do nothing too): a "×" attack on tails
         // simply does nothing (Astra, #342).
-        if (e.damage === 0 && leadingNumber(printed) > 0 && !/×|x/i.test(printed ?? '') && !tails) {
+        if (e.damage === 0 && !copied && leadingNumber(printed) > 0 && !/×|x/i.test(printed ?? '') && !tails) {
           moments.push({
             turn: e.turn,
             side: e.p,
@@ -396,33 +455,24 @@ function insightsInner(raw: string, o: { players?: [string, string] }): ReplayIn
             text: `${name(e.p)}'s ${e.attacker.name} used ${e.move} (it prints ${printed}) on ${name(e.target.player)}'s ${e.target.card.name} and did no damage${negated ? '; Live says an effect did not affect it' : ''}`,
           });
         }
-        pushNear(e.target.player, e.target.card.name, e.damage, ko, before?.hp ?? null, e.move);
+        pushNear(e.target.player, e.target.card.name, e.damage, ko, before?.hp ?? null, move);
+        // The other Pokémon it hit (a spread or copied attack: Trifrost's two Benched hits). A detail line repeating the
+        // primary target is that same hit, not another.
+        let primarySeen = false;
+        for (const h of hitsAfter) {
+          if (!primarySeen && h.p === e.target.player && same(h.target.name, e.target.card.name)) {
+            primarySeen = true;
+            continue;
+          }
+          pushHit(e.attacker.name, move, printed, h);
+        }
       } else if (e.t === 'use') {
-        const copied = after.find((n): n is LiveEvent & { t: 'chose' } => n.t === 'chose' && !!frameOf(e.user))?.option;
         const move = copied ? `${e.move} (${copied})` : e.move;
         const printed = printedDamage(e.user, e.move);
-        const hits = after.filter((n): n is LiveEvent & { t: 'damage' } => n.t === 'damage');
-        if (!hits.length) {
+        if (!hitsAfter.length) {
           attacks.push({ turn: e.turn, line: e.line, side: e.p, attacker: e.user.name, move, target: null, printed, dealt: 0, modifiers: [], hpBefore: null, knockedOut: false });
         }
-        for (const h of hits) {
-          const ko = koOf(h.p, h.target.name);
-          const before = findMon(board?.[h.p], h.target.name);
-          attacks.push({
-            turn: e.turn,
-            line: e.line,
-            side: e.p,
-            attacker: e.user.name,
-            move,
-            target: { side: h.p, name: h.target.name },
-            printed,
-            dealt: h.amount,
-            modifiers: [],
-            hpBefore: trusted ? (before?.hp ?? null) : null,
-            knockedOut: ko,
-          });
-          pushNear(h.p, h.target.name, h.amount, ko, before?.hp ?? null, move);
-        }
+        for (const h of hitsAfter) pushHit(e.user.name, move, printed, h);
       }
     }
 
@@ -441,7 +491,7 @@ function insightsInner(raw: string, o: { players?: [string, string] }): ReplayIn
         turn: e.turn,
         side: e.p,
         kind: 'self_ko',
-        text: `${name(e.p)}'s ${e.card.name} was Knocked Out on ${name(e.p)}'s own turn (its own attack or effect)${prizes ? `; ${name(e.p === 0 ? 1 : 0)} took ${prizes} Prize card${prizes === 1 ? '' : 's'} for it` : ''}`,
+        text: `${name(e.p)}'s ${e.card.name} was Knocked Out during ${name(e.p)}'s own turn (by its own attack or effect, or an effect that hit back)${prizes ? `; ${name(e.p === 0 ? 1 : 0)} took ${prizes} Prize card${prizes === 1 ? '' : 's'} for it` : ''}`,
       });
     }
 
@@ -526,11 +576,20 @@ function insightsInner(raw: string, o: { players?: [string, string] }): ReplayIn
         break;
     }
   }
-  const cards = seen.map((m) =>
-    [...m.values()].map((c) => {
-      const f = frameOf(c);
-      return { name: c.name, line: f ? cardLine(f) : 'card text unknown to DeckPal' };
-    }),
+  // The attacks and Abilities each side's cards were seen using, by name: what picks a codeless printing.
+  const usedBy: [Map<string, Set<string>>, Map<string, Set<string>>] = [new Map(), new Map()];
+  const used = (s: Side, card: string, move: string): void => {
+    const k = card.toLowerCase();
+    const set = usedBy[s].get(k) ?? new Set<string>();
+    set.add(move.toLowerCase());
+    usedBy[s].set(k, set);
+  };
+  for (const e of ev) {
+    if (e.t === 'attack') used(e.p, e.attacker.name, e.move);
+    else if (e.t === 'use') used(e.p, e.user.name, e.move);
+  }
+  const cards = seen.map((m, s) =>
+    [...m.values()].map((c) => ({ name: c.name, line: describeMention(c, usedBy[s as Side].get(c.name.toLowerCase()) ?? new Set()) })),
   ) as [CardLine[], CardLine[]];
 
   for (const m of moments) {
