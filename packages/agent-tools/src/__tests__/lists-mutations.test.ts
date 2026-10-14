@@ -134,7 +134,7 @@ test('edit_list create makes a NEW list even when a same-named one exists — ne
   );
 
   assert.equal(res.isError, undefined);
-  assert.match(res.text, /Created dynamic list 'Binder A' — id list-2/);
+  assert.match(res.text, /Created dynamic list 'Binder A' \(for the tool, never the reply: list_id "list-2"\)/);
   assert.equal(api.sends.some((s) => s.path.includes('list-1')), false, 'must never touch the existing list of the same name');
 });
 
@@ -205,7 +205,7 @@ test('edit_list add_cards dry_run:false sends the bulk-add call with the resolve
 
   assert.equal(res.isError, undefined);
   assert.match(res.text, /done: added 1/);
-  assert.match(res.text, /undo with revert\(batch_id: "batch-add-1"\)/);
+  assert.match(res.text, /can be undone \(for the tool, never the reply: revert batch_id "batch-add-1"\)/);
 });
 
 test('edit_list add_cards with an unresolvable card is reported and does not stop the rename from applying', async () => {
@@ -376,8 +376,8 @@ test('delete_list dry_run:false soft-deletes and offers restore via edit_list', 
   const res = await byName('delete_list').handler({ list_id: 'Binder A', purge: false, dry_run: false }, makeCtx(api));
 
   assert.equal(res.isError, undefined);
-  assert.match(res.text, /restore with edit_list\(list_id: "list-1", restore: true\)/);
-  assert.match(res.text, /revert\(batch_id: "batch-del-list-1"\)/);
+  assert.match(res.text, /can be restored \(for the tool, never the reply: edit_list list_id "list-1", restore true, dry_run false/);
+  assert.match(res.text, /revert batch_id "batch-del-list-1"/);
 });
 
 test('delete_list on an approximate name is a CHOICE, never an action, even with purge:true', async () => {

@@ -213,7 +213,7 @@ try {
   await measure('collection_summary', 'collection_summary', {});
   await measure('collection_summary top_n 25', 'collection_summary', { top_n: 25 }, 'max');
   await measure('collection_log', 'collection_log', {});
-  await measure('collection_log limit 200', 'collection_log', { limit: 200 }, 'max');
+  await measure('collection_log page_size 200', 'collection_log', { page_size: 200 }, 'max');
   await measure('collection_value', 'collection_value', {});
   await measure('search_cards "pikachu"', 'search_cards', { query: 'pikachu' });
   await measure('search_cards category Pokemon (broad)', 'search_cards', { category: 'Pokemon' });
@@ -251,9 +251,9 @@ try {
   await measure('lists sv08 master set', 'lists', { list_id: 'sv08 master set' });
   await measure('lists sv08 master set page_size 200', 'lists', { list_id: 'sv08 master set', page_size: 200 }, 'max');
   await measure('mutation_history', 'mutation_history', {});
-  await measure('mutation_history limit 200', 'mutation_history', { limit: 200 }, 'max');
+  await measure('mutation_history page_size 200', 'mutation_history', { page_size: 200 }, 'max');
   await measure('mutation_history one 250-item batch', 'mutation_history', { batch_id: bigBatchId });
-  await measure('mutation_history one 250-item batch limit 200', 'mutation_history', { batch_id: bigBatchId, limit: 200 }, 'max');
+  await measure('mutation_history one 250-item batch page_size 200', 'mutation_history', { batch_id: bigBatchId, page_size: 200 }, 'max');
   await measure('revert one 250-item batch (dry run)', 'revert', { batch_id: bigBatchId });
   await measure(`set_cart set ${firstSet}`, 'set_cart', { set_id: firstSet });
   await measure('set_cart list', 'set_cart', { list_id: 'Trade binder' });

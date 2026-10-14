@@ -1321,10 +1321,11 @@ export function correctionReason(outcome: CommitOutcome, counts: CorrectionCount
       }
       return (
         'The reader corrected this before it ran, so THIS call did NOT execute. They applied their own ' +
-        `corrected version and it has already landed: batch ${outcome.body.batchId}, ` +
+        `corrected version and it has already landed, ` +
         `${outcome.body.applied} applied — ${enumerate(outcome.body)}.${droppedText} Report these ` +
-        `numbers. Do not call log_cards for this again; offer revert(batch_id: "${outcome.body.batchId}") ` +
-        'if they want it back.'
+        'numbers. Do not call log_cards for this again; if they want it back, offer to undo it ' +
+        // The id is for the call, never the reply (Phase 4: a model passed batch ids on to the reader).
+        `(for the tool, never the reply: revert batch_id "${outcome.body.batchId}").`
       )
     case 'nothing':
       return outcome.why === 'all-removed'

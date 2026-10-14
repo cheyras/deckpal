@@ -167,6 +167,58 @@ export function advertisedSchema(schema: ZodLike): ZodLike {
   return proxy;
 }
 
+// ── AN ARGUMENT A TOOL DOES NOT TAKE IS SAID, NOT SWALLOWED (Phase 4, 2026-10-14) ──────────
+//
+// zod objects strip unknown keys, so a wrong argument used to vanish without a word. In the
+// owner's Haiku test the model paged `search_cards` with card_price_history's `offset`; it was
+// dropped, page 1 came back again, and the model took that for the whole result. Calls are now
+// validated against a LOOSE copy of the schema (unknown keys kept) while the advertised JSON
+// Schema stays exactly the original, and the handler runs on the declared
+// arguments only, with a first line naming what was ignored. A schema that is already strict
+// (`revert`) keeps refusing unknown keys outright.
+
+/** Words a model reaches for when paging: these get "it pages with `page`". */
+const PAGING_WORDS = new Set(['offset', 'limit', 'cursor', 'start', 'skip', 'per_page', 'page_number', 'next_offset', 'size', 'count']);
+
+/** The top-level argument names a schema declares, or null when it is not a plain object schema. */
+function declaredKeys(schema: ZodLike): Set<string> | null {
+  const shape = (schema as unknown as { shape?: Record<string, unknown> }).shape;
+  return shape && typeof shape === 'object' ? new Set(Object.keys(shape)) : null;
+}
+
+/** True for an object schema that strips unknown keys (zod's default), the ones worth reporting. */
+function strips(schema: ZodLike): boolean {
+  const def = (schema as unknown as { _zod?: { def?: { type?: string; catchall?: unknown } } })._zod?.def;
+  return def?.type === 'object' && def.catchall === undefined;
+}
+
+/** The first line of a result that was called with arguments the tool does not take. */
+export function ignoredArgsNote(tool: ToolDefinition, ignored: readonly string[]): string {
+  const keys = tool.inputSchema ? declaredKeys(tool.inputSchema) : null;
+  const paging = keys?.has('page') && ignored.some((k) => PAGING_WORDS.has(k.toLowerCase()));
+  return (
+    `Ignored ${ignored.map((k) => `\`${k}\``).join(', ')}: ${tool.name} has no such argument${ignored.length > 1 ? 's' : ''}.` +
+    (paging ? ' It pages with `page` (and `page_size`).' : '')
+  );
+}
+
+const reporting = new WeakMap<ZodLike, ZodLike>();
+/** The schema a call is validated against: advertised as the original, validated loose. */
+export function callSchema(schema: ZodLike): ZodLike {
+  const cached = reporting.get(schema);
+  if (cached) return cached;
+  const shown = advertisedSchema(schema);
+  if (!strips(schema)) return shown;
+  const loose = (schema as unknown as { loose: () => ZodLike }).loose();
+  const looseValidate = (loose as unknown as { '~standard': { validate: unknown } })['~standard'].validate;
+  const standard = { ...(shown as unknown as { '~standard': Record<string, unknown> })['~standard'], validate: looseValidate };
+  const proxy = new Proxy(schema, {
+    get: (target, prop, receiver) => (prop === '~standard' ? standard : Reflect.get(target, prop, receiver)),
+  });
+  reporting.set(schema, proxy);
+  return proxy;
+}
+
 /**
  * Register every tool on a fresh `McpServer`.
  *
@@ -221,9 +273,17 @@ function register(server: McpServer, ctx: Ctx, tool: ToolDefinition): void {
     return;
   }
 
+  const declared = declaredKeys(tool.inputSchema);
   server.registerTool(
     tool.name,
-    { ...base, inputSchema: advertisedSchema(tool.inputSchema) },
-    async (args) => toCallToolResult(await tool.handler(args, ctx)),
+    { ...base, inputSchema: callSchema(tool.inputSchema) },
+    async (args) => {
+      const given = (args ?? {}) as Record<string, unknown>;
+      const ignored = declared ? Object.keys(given).filter((k) => !declared.has(k)) : [];
+      if (ignored.length === 0) return toCallToolResult(await tool.handler(args, ctx));
+      const known = Object.fromEntries(Object.entries(given).filter(([k]) => declared!.has(k)));
+      const result = await tool.handler(known, ctx);
+      return toCallToolResult({ ...result, text: `${ignoredArgsNote(tool, ignored)}\n${result.text}` });
+    },
   );
 }

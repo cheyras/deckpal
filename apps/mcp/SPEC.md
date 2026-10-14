@@ -336,7 +336,23 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   size — one list's items page at 100 (cap 200), the deck index at 100, raw battle logs at 3 —
   and `pnpm mcp:audit --responses` measures every read against a budget in CI. Compact line format, one row per line,
   e.g. `Charizard ex | me05-084 | Double Rare | holo x2 | $31.20` — not JSON dumps. Every
-  truncated response states the total and how to page. `collection_summary` should answer most
+  truncated response states the total and how to page.
+- **Paging is the same in every paged tool** (2026-10-14, Phase 4): `page` + `page_size`, and a
+  footer naming the next call ("showing 1–50 of 312 — call again with page 2 for more").
+  `collection_log` (was `limit` alone), `mutation_history` (was `limit`), `decks` (was `page`
+  alone) and `card_price_history` (was `offset`/`next_offset`) were brought in line, because a
+  paging argument learned on one tool was being sent to another and silently dropped. The
+  shared arguments are `pageArg`/`pageSizeArg` in `packages/agent-tools/src/shared.ts`. The
+  gated `decke_improvement_*` tools keep their cursor over an append-only feed.
+- **An argument a tool does not take is reported, not swallowed** (MCP adapter, `callSchema`):
+  calls are validated against a loose copy of the schema while the advertised JSON Schema stays
+  the original, the handler runs on the declared arguments only, and the result's first line is
+  "Ignored `offset`: search_cards has no such argument. It pages with `page` (and
+  `page_size`)." (the paging hint only for paging words on a paged tool). A strict schema
+  (`revert`) still refuses unknown arguments outright.
+- **Ids are for the next tool call, and say so** (2026-10-14): undo hints and creation lines end
+  with `(for the tool, never the reply: revert batch_id "…")` (`forTools`/`undoHint` in
+  `format.ts`) instead of handing the id over in the sentence. `collection_summary` should answer most
   questions in one call.
 - Card resolution (shared helper, used by `get_card` and `log_cards`): accept `card_id` (TCGdex)
   OR `name` (+ optional `set_id`, `number`); normalized/trigram/unaccent match against
@@ -536,7 +552,7 @@ sees them in `tools/list`:
    available" with no missing list — never a guess. The overview ranks the same sets by numbered
    completion and marks a set with no printed total `numbered n/a`. Before this, the only way to
    ask was `rarity_exclude` with that set's exact secret-rare rarity names.
-6. **`collection_log`** — `{ since?: ISO, source?, limit? = 50 }`. The agentic-logging read
+6. **`collection_log`** — `{ since?: ISO, source?, page? = 1, page_size? = 50 (≤ 200) }`. The agentic-logging read
    face: `collection_event` joined to card/variant — `occurred_at | card | variant | Δdelta →
    qty_after | source | note`. Needs migration 018 (below).
 7. **`collection_value`** — `{ window? = '30d' ∈ 7d|30d|90d }`. Value now, change over window,
@@ -545,7 +561,7 @@ sees them in `tools/list`:
    route — implementer reads that file first and picks the thinner path; label results as
    estimates.
  7b. **`card_price_history`** — `{ card_id, range? = '3m' ∈ 30d|3m|6m|1y|18m|2y,
-     currency? = 'USD' ∈ USD|EUR|JPY, offset? = 0 }`. Historical OHLC price series for one card by
+     currency? = 'USD' ∈ USD|EUR|JPY, page? = 1 }`. Historical OHLC price series for one card by
      TCGdex id, one series per printing variant. Delegates a single read to
      `GET /cards/:cardId/prices` through `ctx.api.get` — no schema change, no new
      credential, no direct Postgres touch. `card_id` is the canonical TCGdex id
@@ -554,24 +570,24 @@ sees them in `tools/list`:
      (dollars/euros pre-divided from cents; JPY is whole yen) — never divide by 100.
      `readOnlyHint: true`, `idempotentHint: true`.
 
-     **Pagination.** `offset` is an optional nonnegative safe integer, default
-     `0`. It counts points in API order plus one record for each empty variant,
-     and is not sent to the REST endpoint. Each call makes one GET for the
-     same card/range/currency. Each successful
-     text page is at most 5500 characters including headers and continuation;
-     OHLC point fields and printing identity remain complete. Read the
-     model-visible `next_offset=<integer>` and call again with that `offset`
-     and unchanged `card_id`, `range`, and `currency` until
-     `next_offset=none`. Do not treat the first page as the complete history.
-     If a single complete record and its identity exceed the budget, the tool
-     returns an explicit error; it does not split or truncate that record.
+     **Pagination.** `page` is 1-based, default `1`, like every paged tool (it was an
+     `offset` cursor until 2026-10-14). It is not sent to the REST endpoint. Each call makes
+     one GET for the same card/range/currency. Pages are as many complete records (points in
+     API order, plus one record for each empty variant) as fit 5500 characters including
+     headers and continuation; they are packed from the first record every time, with room
+     reserved for the longest header and footer, so page N is always the same records. Read
+     the model-visible "call again with page N, the same card_id, range and currency" and
+     follow it until the text says "page N of N, the last". Do not treat the first page as the
+     complete history. A record that cannot fit any page stops the packing there: earlier
+     pages stay readable and the page that would start with it is an explicit error; no record
+     is ever split or truncated.
      Continuation is in text because MCP does not expose structured tool
      metadata. This also avoids conversational Deck-E's 6000-character cutoff.
 
      **Empty behaviour.** An empty `series` means there are no recorded
      observations for that card/range/currency — NOT a current price (use
      `get_card` for that), NOT zero history, and NOT a fabricated trend. The tool
-     says so in plain text. An offset past available records is reported
+     says so in plain text. A page past the last is reported
      separately and does not imply the card has no history.
 
      **Pricing interpretation limits.** The description carries the full
@@ -595,8 +611,8 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
 `DELETE /lists/:id/items/:itemId`).
 
 8. **`decks`** — `{ deck_id?, deleted? = false, include?: subset of [cards, validate, pricing,
-   testhand, strategy], page? = 1 }`. `deleted: true` reads the recycle bin instead of live decks.
-   No id: deck index (id, name, format, version, card count, battle record), 100 decks a `page`.
+   testhand, strategy], page? = 1, page_size? = 100 (≤ 200) }`. `deleted: true` reads the recycle bin
+   instead of live decks. No id: deck index (id, name, format, version, card count, battle record), paged.
    With id: deck +
    an intelligence headline (W/L record, battle-log count, strategy-guide presence as first
    heading + char count) + requested includes. **Without `cards` the response says so, in
@@ -894,7 +910,7 @@ archetype, so "new matchup" and "met three times" are counts rather than guesses
 ### History and undo — via deckpal-api
 
 22. **`mutation_history`** — `{ batch_id? | since?, until?, source?, tool?, note?, entity_type?,
-    entity_id?, limit?, page? }`; with `batch_id`, `limit` (default 50) and `page` page that
+    entity_id?, page?, page_size? }`; with `batch_id`, `page_size` (default 50) and `page` page that
     operation's changes. `GET /mutations` / `GET /mutations/:batchId`. Every change made
     through DeckPal, grouped by the operation that made it, with a before/after snapshot per
     thing touched. Answers "what did that call actually do?" — the question that had no answer

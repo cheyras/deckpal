@@ -83,8 +83,8 @@ test('repeating an identical create reuses its deterministic key and returns the
   const retry = await resultFor()
   assert.equal(keys.length, 2)
   assert.equal(keys[0], keys[1])
-  assert.match(first.text, /id deck-atomic/)
-  assert.match(retry.text, /already saved.*id deck-atomic/i)
+  assert.match(first.text, /deck_id "deck-atomic"/)
+  assert.match(retry.text, /already saved.*deck_id "deck-atomic"/i)
 })
 
 test('a pasted decklist save sends a stable retry key, so a repeated call replays instead of importing a twin', async () => {

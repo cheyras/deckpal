@@ -4,6 +4,7 @@ import type { Ctx } from '../ctx.js';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
 import { errText } from '../shared.js';
+import { forTools, undoHint } from '../format.js';
 import {
   describeCard,
   describeVariant,
@@ -647,8 +648,8 @@ const logCardsTool = defineTool({
       if (duplicateOf) {
         footer.push(
           `note: an identical batch was applied at ${duplicateOf.at}${duplicateOf.note ? ` ("${duplicateOf.note}")` : ''}. ` +
-            'This one was applied as well — if that was a retry rather than a second real acquisition, revert it with ' +
-            `revert(batch_id: "${batchIds[0] ?? duplicateOf.batchId}").`,
+            'This one was applied as well — if that was a retry rather than a second real acquisition, revert it ' +
+            `${forTools(`revert batch_id "${batchIds[0] ?? duplicateOf.batchId}"`)}.`,
         );
       }
       if (dry_run) {
@@ -656,7 +657,7 @@ const logCardsTool = defineTool({
         footer.push('dry run — nothing written; re-call with dry_run:false to apply');
       } else {
         footer.push(`applied ${applied}, unchanged ${unchanged}, skipped ${skipped.length} (unresolved)`);
-        if (batchIds.length) footer.push(`batch id ${batchIds.join(', ')} — undo with revert(batch_id: "${batchIds[0]!}")`);
+        if (batchIds.length) footer.push(undoHint(batchIds[0]!) + (batchIds.length > 1 ? ` ${forTools(`other batches: ${batchIds.slice(1).join(', ')}`)}` : ''));
       }
       if (landedAfterTimeout.length > 0) {
         footer.push(

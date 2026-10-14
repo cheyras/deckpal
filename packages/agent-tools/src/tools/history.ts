@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
-import { errText } from '../shared.js';
-import { pagingFooter, row, stamp } from '../format.js';
+import { errText, pageArg } from '../shared.js';
+import { forTools, pagingFooter, row, stamp, undoHint } from '../format.js';
 
 /** Changes listed per page when mutation_history shows one operation. */
 const EVENTS_PAGE = 50;
@@ -139,14 +139,15 @@ const mutationHistoryTool = defineTool({
       .string()
       .optional()
       .describe('Only operations that touched this exact thing (a numeric card_variant id, or a list/deck UUID).'),
-    limit: z
+    page: pageArg,
+    // No default: it depends on what is paged (operations, or one operation's changes).
+    page_size: z
       .number()
       .int()
       .min(1)
       .max(200)
       .optional()
-      .describe(`Per page (1–200): operations (default 25), or with batch_id that operation's changes (default ${EVENTS_PAGE}).`),
-    page: z.number().int().min(1).default(1).describe('Page number, 1-based.'),
+      .describe(`Rows per page (cap 200): operations (default 25), or with batch_id its changes (default ${EVENTS_PAGE}).`),
   }),
   annotations: { readOnlyHint: true, idempotentHint: true },
   handler: async (args, ctx) => {
@@ -159,7 +160,7 @@ const mutationHistoryTool = defineTool({
         // PAGED. One operation can touch hundreds of things (a 250-item
         // log_cards batch measured 14,243 characters; an import is larger),
         // and this listed every one.
-        const size = args.limit ?? EVENTS_PAGE;
+        const size = args.page_size ?? EVENTS_PAGE;
         const page = args.page ?? 1;
         const lines = [batchLine(r.batch), `${r.events.length} change(s):`];
         for (const e of r.events.slice((page - 1) * size, page * size)) lines.push('  ' + eventLine(e));
@@ -167,7 +168,7 @@ const mutationHistoryTool = defineTool({
         const undoable = r.events.filter((e) => e.undoneByEventId === null).length;
         lines.push(
           undoable > 0
-            ? `undo this whole operation with revert(batch_id: "${r.batch.batchId}") — dry run first, as always`
+            ? `the whole operation can be undone, dry run first ${forTools(`revert batch_id "${r.batch.batchId}"`)}`
             : 'every change in this operation has already been reverted',
         );
         return ok(lines.join('\n'), { batch: r.batch, eventCount: r.events.length });
@@ -181,7 +182,7 @@ const mutationHistoryTool = defineTool({
       if (args.note) params.set('note', args.note);
       if (args.entity_type) params.set('entity_type', args.entity_type);
       if (args.entity_id) params.set('entity_id', args.entity_id);
-      params.set('limit', String(args.limit ?? 25));
+      params.set('limit', String(args.page_size ?? 25));
       params.set('page', String(args.page ?? 1));
 
       const r = (await ctx.api.get(`/mutations?${params.toString()}`)) as {
@@ -197,13 +198,7 @@ const mutationHistoryTool = defineTool({
         );
       }
       const lines = r.batches.map(batchLine);
-      const from = (r.page - 1) * r.pageSize + 1;
-      const to = Math.min(r.page * r.pageSize, r.total);
-      lines.push(
-        `showing ${from}–${to} of ${r.total}` +
-          (to < r.total ? ` — page ${r.page + 1} for more` : '') +
-          '. Pass batch_id for one operation in full.',
-      );
+      lines.push(`${pagingFooter(r.page, r.pageSize, r.total)}. Pass batch_id for one operation in full.`);
       return ok(lines.join('\n'), { total: r.total, page: r.page, returned: r.batches.length });
     } catch (err) {
       return fail(`mutation_history failed: ${errText(err)}`);
@@ -340,7 +335,7 @@ const revertTool = defineTool({
         );
       } else {
         lines.push(`undid ${r.applied}, ${r.conflicts} conflict(s) left alone, ${r.skipped} skipped`);
-        if (r.batchId) lines.push(`this revert is itself operation ${r.batchId} — revert(batch_id: "${r.batchId}") undoes it`);
+        if (r.batchId) lines.push(`this revert ${undoHint(r.batchId)} too`);
       }
       return ok(lines.join('\n'), {
         dryRun: r.dryRun,

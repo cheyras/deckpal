@@ -182,7 +182,7 @@ test('revert dry_run:false applies and reports its OWN batch id — the undo of 
 
   assert.equal(res.isError, undefined);
   assert.match(res.text, /undid 1, 0 conflict\(s\) left alone, 0 skipped/);
-  assert.match(res.text, /this revert is itself operation batch-revert-1 — revert\(batch_id: "batch-revert-1"\) undoes it/);
+  assert.match(res.text, /this revert can be undone \(for the tool, never the reply: revert batch_id "batch-revert-1"\) too/);
 });
 
 test("revert strategy:'restore' and force:true are forwarded verbatim to the API", async () => {
@@ -247,7 +247,7 @@ test('mutation_history batch_id detail mode offers the undo instruction only whe
 
   assert.equal(res.isError, undefined);
   assert.match(res.text, /2 → 3/);
-  assert.match(res.text, /undo this whole operation with revert\(batch_id: "batch-1"\)/);
+  assert.match(res.text, /the whole operation can be undone, dry run first \(for the tool, never the reply: revert batch_id "batch-1"\)/);
 });
 
 test('mutation_history says every change was already reverted when none remain undoable', async () => {
@@ -289,7 +289,7 @@ test('mutation_history says every change was already reverted when none remain u
 
   assert.equal(res.isError, undefined);
   assert.match(res.text, /every change in this operation has already been reverted/);
-  assert.equal(res.text.includes('undo this whole operation'), false);
+  assert.equal(res.text.includes('the whole operation can be undone'), false);
 });
 
 test('mutation_history list mode with zero results explains the log\'s start date rather than showing an empty page', async () => {

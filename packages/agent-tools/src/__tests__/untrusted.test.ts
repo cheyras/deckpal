@@ -182,7 +182,7 @@ test('battle_logs include_raw: three raw logs a page at most, each fenced, whate
   const fences = res.text.match(/^<<raw log #\d+ · fence ([0-9a-f]{6}) · /gm) ?? [];
   assert.equal(fences.length, 3);
   assert.equal((res.text.match(/^<<end raw log #\d+ · fence [0-9a-f]{6}>>$/gm) ?? []).length, 3);
-  assert.match(res.text, /showing 1–3 of 10 — page 2 for more/);
+  assert.match(res.text, /showing 1–3 of 10 — call again with page 2 for more/);
   assert.match(res.text, /include_raw returns at most 3 raw logs a page \(page_size 200 was capped\)/);
   // The forged old-style separator inside the log sits between the real fences.
   const firstFence = res.text.indexOf('<<raw log #1 ');

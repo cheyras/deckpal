@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
-import { errText } from '../shared.js';
+import { errText, pageArg } from '../shared.js';
 
 /**
  * card_price_history — OHLC price history for one card, via the REST API.
@@ -28,9 +28,8 @@ const cardPriceHistoryTool = defineTool({
   description:
     'Historical OHLC price series for one card by TCGdex id (e.g. sv03.5-151 or base1-1). ' +
     'Returns bounded pages of complete price points across every printing variant. ' +
-    'Start with offset=0, then continue with the next_offset shown in the result TEXT, ' +
-    'keeping the same card_id, range and currency, until next_offset=none. ' +
-    'Offsets count points in API order, with one record for each empty variant. ' +
+    'Start with page 1 and, while the result TEXT says to, call again with the next page, ' +
+    'keeping the same card_id, range and currency, until it says the last page. ' +
     'For CURRENT prices use get_card instead. ' +
     'range: 30d|3m|6m|1y|18m|2y (default 3m). currency: USD|EUR|JPY (default USD). ' +
     'An empty series means there are no recorded observations for that card/range/currency — ' +
@@ -64,13 +63,7 @@ const cardPriceHistoryTool = defineTool({
       .enum(CURRENCIES)
       .default('USD')
       .describe('Currency: USD | EUR | JPY. Default USD. Values are in major units (dollars/euros/yen) — never cents.'),
-    offset: z
-      .number()
-      .int()
-      .nonnegative()
-      .max(Number.MAX_SAFE_INTEGER)
-      .default(0)
-      .describe('Start at 0. Continue with next_offset from the result text, using the same card_id, range and currency. Counts complete points, plus one record per empty variant.'),
+    page: pageArg,
   }),
   annotations: { readOnlyHint: true, idempotentHint: true },
   handler: async (args, ctx) => {
@@ -83,9 +76,10 @@ const cardPriceHistoryTool = defineTool({
         return fail('card_id must be a TCGdex id, not a path segment (.) or (..)');
       }
 
-      const offset = args.offset === undefined ? 0 : args.offset;
-      if (!Number.isSafeInteger(offset) || offset < 0) {
-        return fail('card_price_history failed: offset must be a nonnegative safe integer.');
+      const page: unknown = args.page === undefined ? 1 : args.page;
+      // Checked here too, not only by the schema: a direct call (Deck-E's adapter, a test) may skip it.
+      if (typeof page !== 'number' || !Number.isSafeInteger(page) || page < 1) {
+        return fail('card_price_history failed: page must be a whole number from 1.');
       }
 
       const rangeArg = args.range ?? '3m';
@@ -135,82 +129,110 @@ const cardPriceHistoryTool = defineTool({
           ? variant.points.map((_, pointIndex) => ({ variant, pointIndex }))
           : [{ variant, pointIndex: -1 }];
       });
-      const header = `card_price_history: ${cardId} | range ${range} | currency ${currency} | offset ${offset}`;
-      const footer = (nextOffset: number | null): string =>
-        `\nnext_offset=${nextOffset ?? 'none'}` +
-        (nextOffset === null ? '' : '\nContinue using the same card_id, range and currency.');
+      // ── PAGES BY NUMBER (Phase 4, 2026-10-14) ─────────────────────────────
+      //
+      // This tool paged by an `offset` cursor while every other tool paged by `page`, and a model
+      // carried `offset` over to search_cards, where it was dropped and page 1 came back again.
+      // Pages are still as many complete records as fit the character budget; they are packed
+      // from the first record every time, with room reserved for the longest header and footer,
+      // so page N is always the same records whatever page is asked for.
+      const headerFor = (k: number) => `card_price_history: ${cardId} | range ${range} | currency ${currency} | page ${k}`;
+      const footerFor = (k: number, pages: number) =>
+        k < pages
+          ? `\npage ${k} of ${pages} — call again with page ${k + 1}, the same card_id, range and currency`
+          : `\npage ${k} of ${pages}, the last`;
+      const reserve = headerFor(99_999).length + footerFor(99_998, 99_999).length;
+      const recordText = (r: (typeof records)[number], startsVariant: boolean): string => {
+        const { variant, pointIndex } = r;
+        const tierStr = variant.tier !== null ? ` | tier ${variant.tier}` : '';
+        let text = startsVariant
+          ? `\n\nvariant ${variant.variantId} | kind ${variant.kind} | ${variant.displayName}${tierStr} | ${variant.points.length} point(s) in full variant`
+          : '';
+        const pt = variant.points[pointIndex];
+        if (pointIndex === -1) {
+          text += '\n  No historical observations recorded for this variant.';
+        } else {
+          text +=
+            `\n  grain=${pt!.grain} start=${pt!.start} end=${pt!.end}` +
+            ` open=${pt!.open} high=${pt!.high} low=${pt!.low} close=${pt!.close}` +
+            ` highOn=${pt!.highOn} lowOn=${pt!.lowOn}` +
+            ` mean=${pt!.mean} median=${pt!.median} n=${pt!.n}`;
+        }
+        return text;
+      };
+      // Each page starts with its first record's variant line, so a page never shows a point
+      // without saying whose it is.
+      const pages: Array<{ from: number; to: number }> = [];
+      // A record too big for any page stops the packing there: the pages before it stay readable,
+      // and only the page that would start with it is an error.
+      let oversized = false;
+      for (let from = 0; from < records.length && !oversized; ) {
+        let used = reserve;
+        let cursor = from;
+        let previous: (typeof series)[number] | undefined;
+        while (cursor < records.length) {
+          const r = records[cursor]!;
+          const text = recordText(r, r.variant !== previous);
+          if (used + text.length > PAGE_CHAR_LIMIT) {
+            if (cursor === from) oversized = true;
+            break;
+          }
+          used += text.length;
+          previous = r.variant;
+          cursor++;
+        }
+        if (oversized) break;
+        pages.push({ from, to: cursor });
+        from = cursor;
+      }
+      const pageCount = Math.max(1, pages.length + (oversized ? 1 : 0));
       const pageSeries: typeof series = [];
-      const pageResult = (body: string, cursor: number) => {
-        const nextOffset = cursor < records.length ? cursor : null;
-        const text = body + footer(nextOffset);
+      const pageResult = (text: string, returned: number) => {
         if (text.length > PAGE_CHAR_LIMIT) {
           return fail('card_price_history failed: the page header cannot fit the text budget. Use a canonical card id.');
         }
         return ok(text, {
           cardId, range, currency, series: pageSeries,
           pagination: {
-            offset,
-            next_offset: nextOffset,
+            page,
+            pages: pageCount,
+            next_page: page < pageCount ? page + 1 : null,
             total_records: records.length,
-            returned_records: cursor - offset,
+            returned_records: returned,
           },
         });
       };
 
-      if (records.length === 0 && offset === 0) {
-        return pageResult(
-          header + '\nNo historical observations recorded for this card/range/currency.',
-          offset,
+      if (records.length === 0 && page === 1) {
+        return pageResult(`${headerFor(page)}\nNo historical observations recorded for this card/range/currency.${footerFor(1, 1)}`, 0);
+      }
+      if (oversized && page === pages.length + 1) {
+        return fail(
+          `card_price_history failed: page ${page} starts with one complete history record that, with its variant identity, cannot fit the ${PAGE_CHAR_LIMIT}-character page budget. No record was truncated; this record cannot be paginated.`,
         );
       }
-      if (offset >= records.length) {
+      const span = pages[page - 1];
+      if (!span) {
         return pageResult(
-          header + `\nOffset ${offset} is at or past the end of this history (${records.length} record(s)). No records on this page; restart at offset=0 to read the history.`,
-          offset,
+          `${headerFor(page)}\nPage ${page} is past the end: this history has ${pageCount} page(s). Start again at page 1.`,
+          0,
         );
       }
 
-      let body = header;
-      let cursor = offset;
+      let body = headerFor(page);
       let previousVariant: (typeof series)[number] | undefined;
-      while (cursor < records.length) {
-        const { variant, pointIndex } = records[cursor]!;
-        const startsVariant = variant !== previousVariant;
-        const tierStr = variant.tier !== null ? ` | tier ${variant.tier}` : '';
-        let recordText = startsVariant
-          ? `\n\nvariant ${variant.variantId} | kind ${variant.kind} | ${variant.displayName}${tierStr} | ${variant.points.length} point(s) in full variant`
-          : '';
-        const pt = variant.points[pointIndex];
-        if (pointIndex === -1) {
-          recordText += '\n  No historical observations recorded for this variant.';
-        } else {
-          recordText +=
-            `\n  grain=${pt!.grain} start=${pt!.start} end=${pt!.end}` +
-            ` open=${pt!.open} high=${pt!.high} low=${pt!.low} close=${pt!.close}` +
-            ` highOn=${pt!.highOn} lowOn=${pt!.lowOn}` +
-            ` mean=${pt!.mean} median=${pt!.median} n=${pt!.n}`;
-        }
-
-        const nextOffset = cursor + 1 < records.length ? cursor + 1 : null;
-        if ((body + recordText + footer(nextOffset)).length > PAGE_CHAR_LIMIT) {
-          if (cursor === offset) {
-            return fail(
-              `card_price_history failed: the complete history record at offset=${offset}, including its variant identity, cannot fit the ${PAGE_CHAR_LIMIT}-character page budget. No record was truncated; this record cannot be paginated.`,
-            );
-          }
-          break;
-        }
-
-        body += recordText;
+      for (let cursor = span.from; cursor < span.to; cursor++) {
+        const r = records[cursor]!;
+        const startsVariant = r.variant !== previousVariant;
+        body += recordText(r, startsVariant);
         if (startsVariant) {
-          pageSeries.push({ ...variant, points: [] });
-          previousVariant = variant;
+          pageSeries.push({ ...r.variant, points: [] });
+          previousVariant = r.variant;
         }
+        const pt = r.variant.points[r.pointIndex];
         if (pt) pageSeries[pageSeries.length - 1]!.points.push(pt);
-        cursor++;
       }
-
-      return pageResult(body, cursor);
+      return pageResult(body + footerFor(page, pageCount), span.to - span.from);
     } catch (err) {
       return fail(`card_price_history failed: ${errText(err)}`);
     }

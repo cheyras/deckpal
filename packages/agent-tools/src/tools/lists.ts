@@ -3,7 +3,7 @@ import type { Ctx } from '../ctx.js';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
 import { meansCreate, needList, presentRef } from '../entities.js';
-import { pagingFooter, row, usd } from '../format.js';
+import { forTools, pagingFooter, row, undoHint, usd } from '../format.js';
 import { describeCard, describeVariant, pickVariant, resolveCardsBatch, variantsOfMany, type CardRef } from '../resolve.js';
 import { FINISHES, GOALS, errText } from '../shared.js';
 import { q, q1 } from '../db.js';
@@ -772,7 +772,7 @@ const editListTool = defineTool({
           list: ListSummary;
         };
         targetId = created.list.id;
-        lines.push(`Created ${created.list.kind} list '${created.list.name}' — id ${targetId}`);
+        lines.push(`Created ${created.list.kind} list '${created.list.name}' ${forTools(`list_id "${targetId}"`)}`);
       }
       if (targetId === null) {
         // Unreachable: `current` only exists when `resolvedId` resolved to it, and
@@ -834,7 +834,7 @@ const editListTool = defineTool({
               (res.alreadyPresent ? `, ${res.alreadyPresent} already in the list` : '') +
               (res.unresolved.length ? `, ${res.unresolved.length} unresolved` : ''),
           );
-          if (res.batchId) lines.push(`  undo with revert(batch_id: "${res.batchId}")`);
+          if (res.batchId) lines.push(`  ${undoHint(res.batchId)}`);
         } catch (err) {
           failures++;
           addFailed = true;
@@ -918,8 +918,8 @@ const deleteListTool = defineTool({
       )) as { restorable: boolean; batchId?: string };
       return ok(
         r.restorable
-          ? `Deleted ${what}. It is in the recycle bin — restore with edit_list(list_id: "${listId}", restore: true)` +
-              (r.batchId ? `, or revert(batch_id: "${r.batchId}")` : '') +
+          ? `Deleted ${what}. It is in the recycle bin and can be restored ` +
+              forTools(`edit_list list_id "${listId}", restore true, dry_run false${r.batchId ? `; or revert batch_id "${r.batchId}"` : ''}`) +
               '.'
           : `PURGED ${what}. This is gone for good.`,
       );
