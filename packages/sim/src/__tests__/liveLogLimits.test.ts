@@ -26,6 +26,16 @@ test('a crafted log of long ambiguous lines is skipped fast, each counted as unr
   assert.ok(r.unknown.count >= 30, `${r.unknown.count} unrecognised`);
 });
 
+test('lines are bounded before the player-discovery pass and the trailing-space trim (Astra, #342)', () => {
+  // Quadratic before: /\s+$/ and the setup patterns ran on every line, however long.
+  for (const n of [10_000, 40_000]) {
+    const raw = 'PlayerA' + ' '.repeat(n) + 'x\n' + 'PlayerA' + ' won the coin toss'.repeat(n / 20) + 'x';
+    const t0 = Date.now();
+    parseLiveLog(raw);
+    assert.ok(Date.now() - t0 < 200, `${n}: took ${Date.now() - t0} ms`);
+  }
+});
+
 test("every line of every real log is within the limits (the limits never cut Live's own text)", () => {
   for (const f of readdirSync(dir).filter((n) => n.endsWith('.txt'))) {
     for (const line of readFileSync(join(dir, f), 'utf8').split(/\r?\n/)) {

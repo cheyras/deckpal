@@ -232,23 +232,36 @@ function insightsInner(raw: string, o: { players?: [string, string] }): ReplayIn
   if (!ev.length) return { ...EMPTY, players: parsed.players };
 
   // ── The engine's boards ──────────────────────────────────────────────────────────────────────────────────────────
-  const turnBoards = new Map<number, Board>();
-  const beforeLine = new Map<number, Board>();
-  let lastBoard: Board | null = null;
+  // One set of boards PER RUN: the replay backtracks over ambiguous choices, and only the run it keeps may speak (a
+  // rejected run's Energy on the wrong Shuppet leaked into the boards before: Astra, #342). `end` is the board after
+  // the last action, not before it.
+  interface Seen {
+    turnBoards: Map<number, Board>;
+    beforeLine: Map<number, Board>;
+    finalBoard: Board | null;
+  }
   const r = replayLog(raw, {
     ...(o.players ? { players: o.players } : {}),
-    observe: () => ({
-      decision(obs: ReplayObservation) {
-        if (obs.decision.kind !== 'main') return;
-        const b = boardOf(obs.game);
-        lastBoard = b;
-        const t = obs.event?.turn;
-        if (t !== undefined && !turnBoards.has(t)) turnBoards.set(t, b);
-        if (obs.event) beforeLine.set(obs.event.line, b);
-      },
-      finish: () => null,
-    }),
+    observe: () => {
+      const seen: Seen = { turnBoards: new Map(), beforeLine: new Map(), finalBoard: null };
+      return {
+        decision(obs: ReplayObservation) {
+          if (obs.decision.kind !== 'main') return;
+          const b = boardOf(obs.game);
+          const t = obs.event?.turn;
+          if (t !== undefined && !seen.turnBoards.has(t)) seen.turnBoards.set(t, b);
+          if (obs.event) seen.beforeLine.set(obs.event.line, b);
+        },
+        end(game: Game) {
+          seen.finalBoard = boardOf(game);
+        },
+        finish: () => seen,
+      };
+    },
   });
+  const kept = (r.observed as Seen | undefined) ?? { turnBoards: new Map<number, Board>(), beforeLine: new Map<number, Board>(), finalBoard: null };
+  const { turnBoards, beforeLine } = kept;
+  const lastBoard = kept.finalBoard;
   // The replay's players are the parser's (it parses the same text the same way).
   const stoppedTurn = r.divergence ? r.divergence.turn : null;
 
@@ -387,11 +400,20 @@ function insightsInner(raw: string, o: { players?: [string, string] }): ReplayIn
   }
 
   // ── Cards each side showed ─────────────────────────────────────────────────────────────────────────────────────────
+  // Keyed by PRINTING when the log gives a code: two different Riolu (80 HP and 70 HP, other attacks) are two cards, each
+  // with its own line (Astra, #342). A codeless mention is keyed by name, and gives way to a coded one of that name.
   const seen: [Map<string, CardMention>, Map<string, CardMention>] = [new Map(), new Map()];
   const show = (s: Side | null | undefined, c: CardMention | null | undefined): void => {
     if (s === null || s === undefined || !c?.name) return;
-    const k = c.name.toLowerCase();
-    if (!seen[s].has(k) || (c.id && !seen[s].get(k)!.id)) seen[s].set(k, c);
+    const byName = `name:${c.name.toLowerCase()}`;
+    const m = seen[s];
+    if (c.id) {
+      m.delete(byName);
+      if (!m.has(`id:${c.id}`)) m.set(`id:${c.id}`, c);
+      return;
+    }
+    const coded = [...m.values()].some((x) => x.id && x.name.toLowerCase() === c.name.toLowerCase());
+    if (!coded && !m.has(byName)) m.set(byName, c);
   };
   for (const e of ev) {
     switch (e.t) {

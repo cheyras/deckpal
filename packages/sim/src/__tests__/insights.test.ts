@@ -109,6 +109,28 @@ test('review worth: close games, notes and surprises raise it; the reasons are l
   for (const why of [/close/, /lead changed/, /notes/, /prevented/]) assert.ok(a.reasons.some((r) => why.test(r)), `${why}: ${a.reasons.join(', ')}`);
 });
 
+test('boards come from the run the replay keeps, not a rejected backtracking attempt (Astra, #342)', () => {
+  // hns-05 backtracks over which Shuppet a line meant; on turn 6 the Energy is on a Benched Shuppet, not the Active one.
+  const ins = replayInsights(log('hns-05.txt'), { players: AB });
+  const t6 = ins.turns.find((t) => t.turn === 6)!.board!;
+  assert.equal(t6[0].active?.name, 'Shuppet');
+  assert.deepEqual(t6[0].active?.energy, [], 'the Active Shuppet has no Energy');
+  assert.ok(t6[0].bench.some((m) => m.name === 'Shuppet' && m.energy.includes('Telepathic Psychic')), 'a Benched Shuppet holds it');
+});
+
+test('the final board is after the last action: the winner has no Prizes left, the Knocked Out Pokémon is gone (Astra, #342)', () => {
+  const ins = replayInsights(log('hns-11.txt'), { players: AB });
+  assert.equal(ins.finalBoard![0].prizesLeft, 0, 'PlayerA took the last Prizes');
+  assert.notEqual(ins.finalBoard![1].active?.name, 'Mega Lucario ex', 'the Knocked Out Mega Lucario ex is not still Active');
+});
+
+test('two printings that share a name are two cards, each with its own line (Astra, #342)', () => {
+  const ins = replayInsights(log('hns-36.txt'), { players: AB });
+  const riolus = [...ins.cards[0], ...ins.cards[1]].filter((c) => c.name === 'Riolu');
+  assert.equal(riolus.length, 2, JSON.stringify(riolus));
+  assert.notEqual(riolus[0]!.line, riolus[1]!.line, 'different HP and attacks');
+});
+
 test('text that is not a log gives the empty reading, never a throw', () => {
   for (const raw of ['', 'hello', '\u0000\u0001', 'X'.repeat(10_000)]) {
     const ins = replayInsights(raw);
