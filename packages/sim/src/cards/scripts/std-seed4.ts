@@ -152,7 +152,7 @@ export const STD_SEED4: CardScript[] = [
         ],
       },
       // "You may discard any amount of Basic Energy from your Pokémon. This attack does 70 damage for each card you discarded in this way."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2423/): Bellowing Thunder damages first and discards Energy afterwards, so Ancient Bulwark has nothing to prevent.
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2423/): Bellowing Thunder does its damage before the chosen Energy is discarded, so Ancient Bulwark judges the Energy still attached: with 3 or more it does not prevent the damage, with 2 or less it does.
       // -- the cards are chosen first (that sets the damage), the damage is done, and only then are they discarded.
       'Bellowing Thunder': {
         pre: [{ op: 'custom', fn: 'seed4.pickBasicEnergyAmong', args: { as: 'd' } }],

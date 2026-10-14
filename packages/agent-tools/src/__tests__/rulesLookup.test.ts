@@ -118,6 +118,13 @@ test('an evolved Pokémon can use a same-named Ability again: only BREAK carries
   assert.doesNotMatch(out, /stays used if the evolution has an Ability with the same name/);
 });
 
+test('Bellowing Thunder vs Ancient Bulwark keeps its Energy condition (round 5)', async () => {
+  const out = await ask({ query: 'Does Ancient Bulwark stop Bellowing Thunder with two Energy?', cards: ['Bellowing Thunder'] });
+  assert.match(out, /#2423/);
+  assert.match(out, /with 3 or more it does not prevent the damage, with 2 or less it does/);
+  assert.doesNotMatch(out, /Ancient Bulwark has nothing to prevent/);
+});
+
 test('repeated whitespace in a name still matches it (round 2)', async () => {
   assert.match(await ask({ query: 'Does Nighttime  Mine   affect Dragapult ex?' }), /#2288/);
 });
