@@ -177,3 +177,6 @@ tools/card-art/out/
 tools/card-art/out-sample/
 tools/card-art/affected.json
 tools/card-art/crosswalk.json
+# Analysis eval: QA ids from setup, and paid run output (scripts/analysis-eval.mjs)
+evals/analysis/.qa-state.json
+evals/analysis/runs/

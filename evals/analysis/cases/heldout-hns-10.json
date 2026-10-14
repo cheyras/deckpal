@@ -1,0 +1,45 @@
+{
+  "id": "heldout-hns-10",
+  "split": "held-out",
+  "log": "packages/sim/src/__tests__/fixtures/live-logs/hns-10.txt",
+  "deck": "hide-n-sneak",
+  "facts": { "result": "win", "prizes": [2, 0], "turns": 7, "ending": "no_bench", "first": "PlayerA" },
+  "notes": null,
+  "rubric": [
+    {
+      "id": "ending-no-bench",
+      "principle": "P5",
+      "must": true,
+      "point": "The game ended because the opponent had no Benched Pokemon to promote when Fezandipiti ex was Knocked Out, not on Prizes (the player had taken 2)."
+    },
+    {
+      "id": "opponent-absent",
+      "principle": "P4",
+      "must": true,
+      "point": "The opponent failed to take an action in time on two turns in a row and never benched a Pokemon, so they were most likely away or stuck; the win says little about the matchup."
+    },
+    {
+      "id": "mulligans",
+      "principle": "P5",
+      "must": false,
+      "point": "The opponent took 5 mulligans (their revealed hands had no Basic Pokemon) and the player drew 5 extra cards for it."
+    },
+    {
+      "id": "three-pulls",
+      "principle": "P2",
+      "must": false,
+      "point": "Fezandipiti ex (210 HP) fell to three 80-damage Puppet Pulls from Banette."
+    },
+    {
+      "id": "light-lessons",
+      "principle": "P6",
+      "must": false,
+      "point": "Keeps the lessons light: no deck or matchup conclusions are drawn from a game against an opponent who did not play."
+    }
+  ],
+  "false_claims": [
+    "The player won by taking all their Prize cards.",
+    "The opponent's deck or strategy beat itself through misplays (they did not act).",
+    "Banette's Hide 'n' Sneak was what won the game."
+  ]
+}

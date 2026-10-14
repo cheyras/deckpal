@@ -1,0 +1,45 @@
+{
+  "id": "heldout-tbs-62",
+  "split": "held-out",
+  "log": "packages/sim/src/__tests__/fixtures/live-logs/tbs-62.txt",
+  "deck": "toolbox-slowking",
+  "facts": { "result": "win", "prizes": [2, 0], "turns": 5, "ending": "concede", "first": "PlayerB" },
+  "notes": null,
+  "rubric": [
+    {
+      "id": "codebreaking-seek",
+      "principle": "P2",
+      "must": true,
+      "point": "Ciphermaniac's Codebreaking put chosen cards on top of the deck, so Slowking's Seek Inspiration (discard the top card and, if it is a Pokemon without a Rule Box, use one of its attacks) hit Metagross and used Metallic Hammer to Knock Out Okidogi ex in one attack."
+    },
+    {
+      "id": "concession-reason",
+      "principle": "P4",
+      "must": true,
+      "point": "Explains the concession from the board as a likely reason: it came straight after the opponent drew 11 cards (Lillie's Determination, then Flip the Script) with their attacker Okidogi ex gone and three Pokemon ex on their Bench (Pecharunt ex, Fezandipiti ex, Meowth ex)."
+    },
+    {
+      "id": "ending",
+      "principle": "P5",
+      "must": true,
+      "point": "The opponent conceded with the player ahead 2-0 on Prizes; the game did not end on Prizes."
+    },
+    {
+      "id": "okidogi-investment",
+      "principle": "P3",
+      "must": false,
+      "point": "The opponent spent a whole turn building Okidogi ex (Toxtricity's Sinister Surge, Pecharunt ex's Subjugating Chains for the Poison that powers Chain-Crazed, Poisonous Musculature) and it was Knocked Out before it attacked."
+    },
+    {
+      "id": "short-game",
+      "principle": "P6",
+      "must": false,
+      "point": "Does not invent misplays or strong matchup conclusions from a 5-turn concession."
+    }
+  ],
+  "false_claims": [
+    "Weakness doubled Seek Inspiration's damage on Okidogi ex (Okidogi ex is weak to Fighting; Slowking is Psychic).",
+    "Seek Inspiration can copy attacks from Pokemon ex.",
+    "The game ended on Prizes."
+  ]
+}
