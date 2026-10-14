@@ -22,6 +22,10 @@ test('the stored name is used only for a log it plays in', () => {
   assert.equal(storedNameFor(log, 'someone-else'), undefined, 'a game from another account is parsed as before');
   assert.equal(storedNameFor(log, null), undefined);
   assert.equal(storedNameFor(null, 'cheyras'), undefined);
+  // Found the way the parser finds players: a curly apostrophe in the turn header, and no draw line (Astra, #341).
+  assert.equal(storedNameFor('Setup\ncheyras’s Turn\ncheyras played Ultra Ball.\n', 'cheyras'), 'cheyras');
+  // A name that is only PART of a player's name is not that player.
+  assert.equal(storedNameFor("cheyras2's Turn\ncheyras2 drew a card.\n", 'cheyras'), undefined);
 });
 
 /** A fake connection: what `user_settings` holds, and the game counts battle_log would group. */
@@ -31,6 +35,7 @@ function fakeDb(state: { name: string | null; counts: Array<{ name: string; n: n
     async query(text: string, params: unknown[] = []) {
       sql.push(text);
       if (/information_schema.columns/.test(text)) return { rows: [{ ready: true }], rowCount: 1 };
+      if (/pg_advisory_xact_lock/.test(text)) return { rows: [{}], rowCount: 1 };
       if (/^SELECT ptcgl_name FROM user_settings/.test(text.trim())) return { rows: [{ ptcgl_name: state.name }], rowCount: 1 };
       if (/FROM battle_log/.test(text)) return { rows: state.counts, rowCount: state.counts.length };
       if (/^UPDATE user_settings/.test(text.trim())) {
@@ -84,4 +89,12 @@ test('learnPtcglName never writes a name the column would reject: the UPDATE run
   assert.equal(await learnPtcglName(padded.db, 'u'), null);
   assert.ok(!padded.sql.some((s) => /^UPDATE/.test(s.trim())), 'no UPDATE for a padded name');
   assert.equal(await learnPtcglName(fakeDb({ name: null, counts: [{ name: 'x'.repeat(101), n: 5 }] }).db, 'u'), null);
+});
+
+test('learnPtcglName takes the per-reader lock before it counts the games', async () => {
+  const f = fakeDb({ name: null, counts: [{ name: 'cheyras', n: 3 }] });
+  await learnPtcglName(f.db, 'user-1');
+  const lock = f.sql.findIndex((s) => /pg_advisory_xact_lock/.test(s));
+  const count = f.sql.findIndex((s) => /FROM battle_log/.test(s));
+  assert.ok(lock >= 0 && lock < count, 'the lock comes before the count');
 });

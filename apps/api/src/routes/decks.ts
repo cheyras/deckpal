@@ -2397,7 +2397,8 @@ decksRouter.post(
     for (const meta of metas) {
       const { rows } = await loadRows(meta.id, userId);
       const deckCards = rows.map((r) => ({ name: r.name, cardId: r.tcgdex_id }));
-      const m = scoreDeckMatch(parsed, deckCards);
+      // With the reader known, only their cards rank the decks: a saved deck matching the opponent's is not theirs.
+      const m = scoreDeckMatch(parsed, deckCards, ownName);
       if (m.score <= 0) continue; // nothing above zero → not a candidate
       candidates.push({
         deckId: meta.id,
@@ -2518,9 +2519,13 @@ decksRouter.get(
       `SELECT c.name FROM deck_card dc JOIN card c ON c.id = dc.card_id WHERE dc.deck_id = $1`,
       [deckId],
     );
+    // Whose side: the name this request gives, then the reader's PTCG Live name when it plays in this log, then the
+    // side stored when the game was logged. The profile name outranks the stored side because that side may be an old
+    // guess from card overlap, and setting the name is how a reader corrects it (Astra, #341).
     const digest = digestBattleLog(row.raw_log, names.map((r) => r.name), {
-      playerName: playerName ?? (typeof storedMe === 'string' && storedMe ? storedMe : undefined)
-        ?? storedNameFor(row.raw_log, (await ptcglNameOf(poolQueryable, userId))),
+      playerName: playerName
+        ?? storedNameFor(row.raw_log, (await ptcglNameOf(poolQueryable, userId)))
+        ?? (typeof storedMe === 'string' && storedMe ? storedMe : undefined),
     });
     userCache(res);
     res.json({

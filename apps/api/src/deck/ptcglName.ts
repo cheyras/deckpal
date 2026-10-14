@@ -10,6 +10,7 @@
  * that, least of all when the reader typed it. Nothing has to call a tool for it: logging a game does it.
  */
 import type { PoolClient } from 'pg';
+import { logPlayerNames, samePlayerName } from './battlelog.js';
 
 /** Games under one name before it is learned. */
 export const LEARN_AFTER = 3;
@@ -32,12 +33,13 @@ export function chooseLearnedName(counts: ReadonlyArray<{ name: string; n: numbe
 }
 
 /**
- * The stored name, but only for a log it actually appears in as a player. A reader logging a game played on another
- * account must not have it parsed from the side of a name that is not in it.
+ * The stored name, but only for a log it actually appears in as a player, found the way the parser finds players (so
+ * "cheyras’s Turn" with a curly apostrophe counts: Astra, #341). Returns the name as the log spells it. A reader logging
+ * a game played on another account must not have it parsed from the side of a name that is not in it.
  */
 export function storedNameFor(rawLog: string | null | undefined, stored: string | null | undefined): string | undefined {
   if (!rawLog || !stored) return undefined;
-  return rawLog.includes(`${stored}'s Turn`) || rawLog.includes(`${stored} drew`) ? stored : undefined;
+  return logPlayerNames(rawLog).find((n) => samePlayerName(n, stored));
 }
 
 let columnReady = false;
@@ -73,11 +75,17 @@ export async function ptcglNameOf(db: Queryable, userId: string): Promise<string
  * After a PTCG Live game is logged: when the reader has no name yet and LEARN_AFTER games attribute the same one to them,
  * store it as 'auto'. The `ptcgl_name IS NULL` guard is the never-overwrite rule, applied in the UPDATE itself so a name
  * the reader saves at the same moment always wins. Returns the name it stored, or null.
+ *
+ * Runs inside the add-log transaction, so it serialises on a per-reader advisory lock held until that transaction ends:
+ * without it, two games logged at once (to different decks, whose locks do not meet) each counted only the committed
+ * games plus their own, and the third game could pass without the name being learned (Astra, #341). Under READ
+ * COMMITTED the count after the lock sees every game committed before it.
  */
 export async function learnPtcglName(db: Queryable, userId: string): Promise<string | null> {
   if (!(await ptcglNameReady(db))) return null;
   const current = await ptcglNameOf(db, userId);
   if (current) return null;
+  await db.query(`SELECT pg_advisory_xact_lock(hashtext('ptcgl_name:' || $1::text))`, [userId]);
   const { rows } = await db.query<{ name: string; n: number }>(
     `SELECT parsed->'players'->>'me' AS name, count(*)::int AS n
        FROM battle_log

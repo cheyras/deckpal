@@ -228,6 +228,52 @@ try {
     rule: filtered.body.legal.rule,
   });
 
+  // ── 4. Two games logged at once still teach the PTCG Live name (#341) ─────
+  // One game under the name is committed; two more are logged concurrently, to different decks, so no deck lock orders
+  // them. Each transaction sees only committed games plus its own: without learnPtcglName's per-reader lock both
+  // counted two and the name stayed empty after the third game.
+  {
+    const { learnPtcglName } = await import('../deck/ptcglName.ts');
+    const reader = '00000000-0000-4000-8000-000000000002';
+    await client.query(`INSERT INTO user_settings (user_id) VALUES ($1)`, [reader]);
+    const game = (c) => c.query(
+      `INSERT INTO battle_log (deck_id, deck_version, user_id, origin, parsed) VALUES ($1, 1, $2, 'ptcgl', $3)`,
+      [deckId, reader, JSON.stringify({ players: { me: 'cheyras', opponent: 'someone' } })]);
+    await game(client);
+    const connect = async () => {
+      const c = new pg.Client({
+        host: join(root, 'socket'), port: 55432,
+        user: 'deckpal_ci_fixture', database: 'deckpal_ci_decks_test',
+        password: '', ssl: false, connectionTimeoutMillis: 5000,
+      });
+      await c.connect();
+      return c;
+    };
+    const a = await connect();
+    const b = await connect();
+    try {
+      await a.query('BEGIN');
+      await b.query('BEGIN');
+      await game(a);
+      await game(b);
+      assert.equal(await learnPtcglName(a, reader), null, 'A sees two games: the committed one and its own');
+      let bSettled = false;
+      const bLearns = learnPtcglName(b, reader).finally(() => { bSettled = true; });
+      await new Promise((r) => setTimeout(r, 300));
+      assert.equal(bSettled, false, "B waits on the reader's lock A holds");
+      await a.query('COMMIT');
+      assert.equal(await bLearns, 'cheyras', "once A commits, B counts A's game: three");
+      await b.query('COMMIT');
+    } finally {
+      await a.end();
+      await b.end();
+    }
+    const stored = (await client.query(
+      `SELECT ptcgl_name, ptcgl_name_source FROM user_settings WHERE user_id = $1`, [reader])).rows[0];
+    assert.deepEqual(stored, { ptcgl_name: 'cheyras', ptcgl_name_source: 'auto' });
+    evidence.cases.push({ name: 'ptcgl_name_learned_from_concurrent_logs', stored });
+  }
+
   evidence.status = 'passed';
   writeFileSync(process.env.DECKPAL_TEST_RESULT, JSON.stringify(evidence, null, 2) + '\n');
   console.log(JSON.stringify(evidence, null, 2));
