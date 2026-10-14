@@ -639,7 +639,8 @@ const battleLogsTool = defineTool({
           row(
             `battle log #${l.id}`, `v${l.deckVersion}`, matchup(l),
             `archetype ${untrusted(l.opponentArchetype, 60, 'unclassified')}`,
-            `origin ${l.origin}`, `played ${day(l.playedAt)}`, `source ${l.source}`,
+            // The full timestamp, not the day: a log copied to another deck keeps it (Astra, #344).
+            `origin ${l.origin}`, `played ${l.playedAt}`, `source ${l.source}`,
           ),
           row(
             l.turns != null ? `${l.turns} turns` : null,

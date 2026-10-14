@@ -508,9 +508,9 @@ Describe changes in plain words ("this morning's batch added 14 cards from Prism
 - **Deleted deck or list:** \`decks\` or \`lists\` with \`deleted: true\` shows the recycle bin. Restore with \`delete_deck\` and \`restore: true\`, or \`edit_list\` with \`restore: true\`, each with \`dry_run: false\` (both preview by default).
 - **Battle log edit:** edits made through these tools are NOT in \`mutation_history\`, and \`revert\` cannot undo them. So before changing a game's notes or review, read the current text (\`battle_logs\` with \`deck_id\` and \`log_id\`) and keep it in your reply. To undo, set the old values back with \`edit_battle_log\` and say that is what you are doing. If you no longer have them, say the old text cannot be recovered.
 - **Battle log on the wrong deck:** a log cannot be moved, and \`delete_battle_log\` cannot be undone. Copy it, check the copy, then delete:
-  1. Read it whole: \`battle_logs\` with \`deck_id\`, \`log_id\` and \`include_raw: true\` (the raw log if there is one, origin, result, opponent, archetype, date, notes, review).
-  2. \`add_battle_log\` on the right deck with every field: \`log\` (the raw text, if any), \`origin\`, \`result\`, \`opponent_deck\`, \`opponent_archetype\`, \`played_at\`, \`notes\`, \`review\`, \`dry_run: false\`. A game with no raw text (in person) needs \`origin\` and \`result\`. The copy joins that deck's current version.
-  3. Read the copy back (\`battle_logs\` with its \`log_id\`) and check each field matches.
+  1. Read it whole: \`battle_logs\` with \`deck_id\`, \`log_id\` and \`include_raw: true\` (the raw log if there is one, origin, result, opponent, archetype, the full timestamp after "played", notes, review).
+  2. \`add_battle_log\` on the right deck with every field: \`log\` (the raw text, if any), \`origin\`, \`result\`, \`opponent_deck\`, \`opponent_archetype\`, \`played_at\` (that timestamp exactly), \`notes\`, \`review\`, \`dry_run: false\`. A game with no raw text (in person) needs \`origin\` and \`result\`. The copy joins that deck's current version.
+  3. Read the copy back (\`battle_logs\` with its \`log_id\`) and check each field matches, the timestamp to the second.
   4. Only then delete the original: dry run, say exactly which battle (#N) it removes, wait for a yes.
 - **A duplicate:** confirm it first (\`battle-log\`, Don'ts), then \`delete_battle_log\` on the copy: dry run, say which #N, wait for a yes.
 - **Never use \`purge: true\`** unless the player explicitly says they want it gone forever.`,
