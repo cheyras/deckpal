@@ -9,6 +9,14 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./card-tags": {
+      "types": "./src/cardTags.ts",
+      "default": "./dist/cardTags.js"
+    },
+    "./rulings": {
+      "types": "./src/rulingIndex.ts",
+      "default": "./dist/rulingIndex.js"
     }
   },
   "scripts": {
@@ -16,7 +24,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test src/__tests__/*.test.ts",
     "bench": "node --import tsx src/bench.ts",
-    "frames": "node scripts/fetch-frames.mjs"
+    "frames": "node scripts/fetch-frames.mjs",
+    "ruling-index": "node --import tsx scripts/ruling-index.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",

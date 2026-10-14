@@ -83,14 +83,14 @@ const LLMS_TXT = [
   '## Connect an AI app',
   '- [MCP endpoint](' +
     MCP_URL +
-    '): remote Streamable HTTP, OAuth 2.1 with PKCE and dynamic client registration, 28 tools (17 read, 11 write), Read only option at consent',
+    '): remote Streamable HTTP, OAuth 2.1 with PKCE and dynamic client registration, 29 tools (18 read, 11 write), Read only option at consent',
   '- Claude: add a custom connector with the URL ' + MCP_URL + ' (works on the free plan, one custom connector)',
   '- Claude Code: ' + CLAUDE_CODE_CMD,
   '- Other apps: compatibility by plan is on the home page, last checked ' + COMPAT_CHECKED,
   '',
   '## What the tools cover',
   '- Collection: collection_summary, collection_log, collection_value, log_cards, set_progress',
-  '- Catalog and prices: search_cards, get_card, card_price_history',
+  '- Catalog, prices and rules: search_cards, get_card, card_price_history, rules_lookup',
   '- Decks: decks, save_deck, delete_deck, check_deck, deck_odds, simulate_battles, deck_strategy, deck_history',
   '- Battle logs: battle_logs, battle_digest, add_battle_log, edit_battle_log, delete_battle_log',
   '- Lists and shopping: lists, edit_list, delete_list, set_cart',
@@ -692,13 +692,13 @@ export const COPY = {
       },
       access: {
         title: 'Read only, or read and change',
-        body: 'You choose when you approve. Read only gives your AI the 17 tools that look things up. Read and change adds the 11 that edit your collection, decks, lists and battle logs. Most changes are previewed before they are saved, most can be reverted later, and you can disconnect any time in Profile, then Agent access.',
+        body: 'You choose when you approve. Read only gives your AI the 18 tools that look things up. Read and change adds the 11 that edit your collection, decks, lists and battle logs. Most changes are previewed before they are saved, most can be reverted later, and you can disconnect any time in Profile, then Agent access.',
       },
       tools: {
         title: 'What your AI can do',
         groups: [
           { name: 'Collection', tools: 'collection_summary, collection_log, collection_value, log_cards, set_progress' },
-          { name: 'Catalog and prices', tools: 'search_cards, get_card, card_price_history' },
+          { name: 'Catalog, prices and rules', tools: 'search_cards, get_card, card_price_history, rules_lookup' },
           { name: 'Decks', tools: 'decks, save_deck, delete_deck, check_deck, deck_odds, simulate_battles, deck_strategy, deck_history' },
           { name: 'Battle logs', tools: 'battle_logs, battle_digest, add_battle_log, edit_battle_log, delete_battle_log' },
           { name: 'Lists and shopping', tools: 'lists, edit_list, delete_list, set_cart' },

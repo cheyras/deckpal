@@ -132,7 +132,7 @@ test('Castform Sunny Form, Sunny Assist: a single Benched Pokémon needs no ques
 
 // ------------------------------------------------------------------ Victini
 
-test('Victini, Victory Cheer: your Evolution {R} Pokémon do 10 more damage; a Stage 2 put straight into play counts (ruling 2044)', () => {
+test('Victini, Victory Cheer: your Evolution {R} Pokémon do 10 more damage to the opposing Active Pokémon; a Stage 2 put straight into play counts (ruling 2044)', () => {
   const run = (mine: SideLayout, extra: SideLayout = {}): Game => {
     const g = game([mine, { active: DRA, ...extra }]);
     return g;

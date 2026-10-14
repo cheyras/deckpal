@@ -277,7 +277,7 @@ test("Team Rocket's Orbeetle, Rocket Brain: move 1 damage counter from a Team Ro
   assert.deepEqual(g.state.p[0].bench.map((b) => b.damage), [10, 30, 40]);
 });
 
-test("Team Rocket's Orbeetle, Rocket Brain: it may put a Pokémon over its HP, one counter at a time (ruling 2152)", () => {
+test("Team Rocket's Orbeetle, Rocket Brain: it may move the counter that Knocks Out one of your own Pokémon, but only one counter at a time, never more than needed (ruling 2152)", () => {
   // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2152/): Rocket Brain may move damage onto one of your own Pokémon even if it is then Knocked Out, but only one counter at a time, never more than needed.
   const dk = deck(ORBEETLE, DRA, LARV, ZUB);
   const g = scenario(dk, dk, [{ active: ORBEETLE, bench: [LARV, ZUB], damage: { 0: 30, 1: 40 } }, { active: DRA }]);

@@ -8,8 +8,11 @@
  * - Special Conditions are removed, except Confusion where `keepConfusion` applies (Dizzying Valley);
  * - the effects of attacks on the Pokémon end, timed AND delayed (`clearAttackEffects`);
  * - "moved to the Active Spot this turn" is forgotten (TPCi ruling 2265);
- * - once-per-turn Ability use is per Ability: an Ability the new top card shares by name with the old one stays spent, the
- *   others are fresh (rules audit);
+ * - once-per-turn Ability use: an evolved Pokémon is a new Pokémon, so every Ability on the Evolution card is fresh, even one
+ *   with the same name as an Ability the old card already used this turn (Kirlia's Refinement, then Gardevoir's: TCG Live
+ *   1.6.0 fixed exactly this). Only a BREAK Evolution, which keeps the previous card's Abilities instead of printing its
+ *   own, would carry the use over (TPCi 2016-02-11), and no BREAK card is scripted. Devolving keeps an Ability the new top
+ *   card shares by name with the old one spent;
  * - evolving marks the Pokémon as evolved this turn (it can't evolve again). Devolving does not, except where the card says so.
  *
  * The caller emits the event and queues the card's triggers as its own text requires (the `evolve` event, `evolveFromHand`
@@ -22,9 +25,13 @@ import { clearAttackEffects, topCard } from './state.js';
 import { CONFUSED, type GameState, type Slot } from './types.js';
 
 /** After the top card of `sl` changed by evolving or devolving: `oldTop` is the card that was on top before. */
-function settleStackChange(env: Env, s: GameState, sl: Slot, oldTop: number): void {
-  const spent = sl.usedAbilities.map((i) => def(env.ctx, oldTop).abilities[i]?.name);
-  sl.usedAbilities = def(env.ctx, topCard(sl)).abilities.flatMap((ab, i) => (spent.includes(ab.name) ? [i] : []));
+function settleStackChange(env: Env, s: GameState, sl: Slot, oldTop: number, evolved: boolean): void {
+  if (evolved) {
+    sl.usedAbilities = [];
+  } else {
+    const spent = sl.usedAbilities.map((i) => def(env.ctx, oldTop).abilities[i]?.name);
+    sl.usedAbilities = def(env.ctx, topCard(sl)).abilities.flatMap((ab, i) => (spent.includes(ab.name) ? [i] : []));
+  }
   sl.cond = confusionKept(env, s, sl) ? sl.cond & CONFUSED : 0;
   delete sl.movedActiveTurn;
   clearAttackEffects(s, sl.id);
@@ -38,7 +45,7 @@ export function evolveOnto(env: Env, s: GameState, sl: Slot, card: number): void
   const oldTop = topCard(sl);
   sl.cards.push(card);
   sl.evolvedTurn = s.turn;
-  settleStackChange(env, s, sl, oldTop);
+  settleStackChange(env, s, sl, oldTop, true);
 }
 
 /**
@@ -52,6 +59,6 @@ export function devolve(env: Env, s: GameState, sl: Slot, n = 1, cantEvolve = fa
   const oldTop = topCard(sl);
   const removed = sl.cards.splice(sl.cards.length - k, k);
   if (cantEvolve) sl.evolvedTurn = s.turn;
-  settleStackChange(env, s, sl, oldTop);
+  settleStackChange(env, s, sl, oldTop, false);
   return removed;
 }

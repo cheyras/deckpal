@@ -250,13 +250,15 @@ test("a Trainer that would do nothing can't be played: a draw or search card wit
   assert.ok(has(full, 'Coach'), 'a draw Supporter was not offered with cards in the deck');
 });
 
-test('an Ability used this turn stays used when its Pokémon evolves into one with the same Ability (TPCi 2016-02-11)', () => {
-  // Greninja's Water Shuriken, then evolving to Greninja BREAK: the Ability counts as already used this turn
-  // (TPCi Rules Team 2016-02-11).
+test('an evolved Pokémon is a new Pokémon: its Ability is fresh even with the same name as one used this turn (TCG Live 1.6.0)', () => {
+  // Kirlia's Refinement, then evolving into a Gardevoir with Refinement: Gardevoir may use it that turn (TCG Live 1.6.0
+  // patch notes fixed Live for exactly this). The 2016 ruling that a used Ability stays used (Greninja BREAK) is about a
+  // BREAK Evolution, which keeps the previous card's Ability instead of printing its own; no BREAK card is scripted.
   const g = at([{ active: 'Seer', hand: ['Oracle'] }, { active: 'Pup' }]);
   choose(g, 'Use Peek');
+  assert.ok(!has(g, 'Use Peek'), 'once during your turn: Peek was offered twice before evolving');
   choose(g, 'Evolve Seer (Active) into Oracle');
-  assert.ok(!has(g, 'Use Peek'), 'the same-named Ability was usable again after evolving');
+  assert.ok(has(g, 'Use Peek'), "the Evolution's own same-named Ability was not offered after evolving");
 });
 
 test('evolving ends effects of attacks and Special Conditions, not effects from Trainers or Abilities (rulebook)', () => {

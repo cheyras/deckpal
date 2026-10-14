@@ -7,6 +7,10 @@ import { describeCard, resolveCard } from '../resolve.js';
 import type { RarityPeel } from '../entities.js';
 import { explainMiss, peelRarity, presentRef, resolveSet, resolvedNote } from '../entities.js';
 import { GOALS, defaultGoal, errText, type Goal } from '../shared.js';
+import { CARD_TAG_MEANING, cardTags, idsWithTag } from '@deckpal/sim/card-tags';
+
+/** The search-row cell for a printing's tags ('Tera'), or nothing. */
+const tagCell = (tcgdexId: string): string | null => cardTags(tcgdexId).join(' ') || null;
 import { cardPriceHistoryTools } from './cardPriceHistory.js';
 
 /**
@@ -277,6 +281,7 @@ const searchCardsTool = defineTool({
           'buy-recommendation asks. Mirrors owned_only the other way; do not pass both.',
       ),
     standard_legal: z.boolean().optional().describe('Filter on Standard-format legality (card.legal_standard).'),
+    tag: z.enum(['Tera', 'Ancient', 'Future']).optional().describe('Only printings with this tag. Rows show tags too.'),
     // ── `0` IS NOT A NO-OP, AND IT WAS BEING SENT AS ONE ────────────────────
     //
     // This compiles to `b.best_minor >= 0` against a LEFT JOIN, so a card with
@@ -385,6 +390,10 @@ const searchCardsTool = defineTool({
           label: `standard_legal ${args.standard_legal}`,
           sql: (p) => `c.legal_standard = ${p(args.standard_legal)}`,
         });
+      }
+      if (args.tag) {
+        const ids = idsWithTag(args.tag);
+        filters.push({ label: `tag ${args.tag}`, sql: (p) => `c.tcgdex_id = ANY(${p(ids)}::text[])` });
       }
       if (args.owned_only) filters.push({ label: 'owned_only', sql: () => `COALESCE(o.qty, 0) > 0` });
       if (args.exclude_owned) filters.push({ label: 'exclude_owned', sql: () => `COALESCE(o.qty, 0) = 0` });
@@ -709,6 +718,7 @@ const searchCardsTool = defineTool({
           return row(
             tr.name,
             tr.tcgdex_id,
+            tagCell(tr.tcgdex_id),
             tr.rarity,
             tr.owned_qty !== null && Number(tr.owned_qty) > 0 ? `owned x${tr.owned_qty}` : null,
             line,
@@ -719,6 +729,7 @@ const searchCardsTool = defineTool({
         return row(
           r.name,
           r.tcgdex_id,
+          tagCell(r.tcgdex_id),
           r.rarity,
           r.owned_qty !== null && Number(r.owned_qty) > 0 ? `owned x${r.owned_qty}` : null,
           money(r.best_minor),
@@ -917,6 +928,11 @@ const getCardTool = defineTool({
       const lines: string[] = [
         `${card.name} | ${card.tcgdexId} | ${card.setName} #${card.localId} (${card.setTcgdexId}) | series ${card.seriesSlug}`,
       ];
+      // TAGS THE CATALOG CANNOT HOLD. TCGdex has no Tera marker and no
+      // Ancient/Future tag, so these come from the battle simulator's tables
+      // (@deckpal/sim/card-tags). Without this line every model told the owner
+      // Nighttime Mine could not tax his Dragapult ex, a Tera Pokémon.
+      for (const tag of cardTags(card.tcgdexId)) lines.push(`tag: ${CARD_TAG_MEANING[tag]}`);
       if (core) {
         lines.push(
           row(

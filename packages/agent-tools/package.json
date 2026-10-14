@@ -18,7 +18,8 @@
   },
   "dependencies": {
     "zod": "^4.6",
-    "@deckpal/db": "workspace:*"
+    "@deckpal/db": "workspace:*",
+    "@deckpal/sim": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",

@@ -79,7 +79,9 @@ function grandTreeStage1(env: Env, s: GameState, p: Player, basics: Slot[]): num
 /**
  * Grand Tree (the "can it be used" half): "Once during each player's turn, that player may search their deck for a Stage 1
  * Pokémon that evolves from 1 of their Basic Pokémon ..." Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2030/):
- * requires a valid evolution path in play; you need a Basic Pokémon that can evolve into a Stage 1 card you have in your deck.
+ * it needs a valid evolution path in play: a Basic Pokémon of yours that has a Stage 1 it could evolve into. That Stage 1 does not have to be in your deck, since a deck search may come up empty (ruling 841).
+ *
+ * Engine simplification (not the ruling): the simulator offers the Ability only when such a Stage 1 is in the deck.
  */
 registerCustomCond('c23.grandTreeUsable', (env, s, ec) => grandTreeStage1(env, s, ec.player, grandTreeBasics(env, s, ec.player)).length > 0);
 

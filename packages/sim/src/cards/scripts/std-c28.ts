@@ -38,7 +38,7 @@ export const STD_C28: CardScript[] = [
     // "Tell your opponent the name of a Pokémon in your hand and put that Pokémon face down in front of you. Your opponent guesses that Pokémon's HP, and then you reveal it.
     //  If your opponent guessed right, they draw 4 cards. If they guessed wrong, you draw 4 cards. Then, return the Pokémon to your hand."
     // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2068/): you must state the full card name when choosing.
-    // -- the Pokémon is chosen as a card, so its whole name is what the guess prompt names. It never leaves the hand in the model (it is returned at the end).
+    // -- the Pokémon is chosen as a card, so its whole name is what you name. It is returned to the hand at the end.
     playable: { gte: [{ count: { zone: 'hand', filter: { cat: 'pokemon' } } }, 1] },
     play: [
       { op: 'chooseCards', from: 'hand', filter: { cat: 'pokemon' }, min: 1, max: 1, as: 'x', prompt: 'Name a Pokémon in your hand' },
@@ -183,7 +183,7 @@ export const STD_C28: CardScript[] = [
       {
         // "Prevent all damage done to this Pokémon by attacks from your opponent's Pokémon ex."
         // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2095/): Safeguard does not stop Demolish; it counts as an effect sitting on Sylveon, which Demolish ignores.
-        // -- an attack that isn't affected by effects on the Defending Pokémon (`ignore.defenderEffects`) gets through Safeguard.
+        // -- an attack that isn't affected by effects on the Defending Pokémon gets through Safeguard.
         name: 'Safeguard',
         statics: [{ effect: { k: 'preventDamage', attacker: { ex: true } }, scope: 'self' }],
       },

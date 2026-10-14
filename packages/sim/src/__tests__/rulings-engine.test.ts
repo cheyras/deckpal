@@ -64,7 +64,7 @@ test('Compendium #1138: Rare Candy cannot be used on a Pokémon that was devolve
   assert.ok(has(c, 'Play Rare Candy'), 'control: an Abra in play since an earlier turn');
 });
 
-test('Compendium #2041: a Pokémon that survives at full HP is left at 10 HP at its max HP after the attack resolves (Lively Stadium discarded)', () => {
+test('Compendium #2041: a Pokémon that survives a full-HP Knock Out is left on 10 HP, worked out at the max HP it has once the attack has finished (for example after the attack discards a Lively Stadium)', () => {
   // https://compendium.pokegym.net/ruling/2041/ -- full-HP survival is settled after the attack: 190 damage on a 200 HP Pikachu ex once the Stadium is gone.
   const dk = deck(['me02.5-057', 'sv08-180', 'me03-046', 'me02.5-116']);
   const run = (reduce: number): Game => {
@@ -128,7 +128,7 @@ test('Compendium #1822: "attacks used by the Defending Pokémon do 30 less damag
   assert.equal(self(true), 20, 'the reduction applies to the damage it does to itself');
 });
 
-test('Compendium #342 (and #1820, #98): an attack that evolves a Pokémon works on the second player\'s own first turn', () => {
+test('Compendium #342: an attack that evolves a Pokémon works on the second player\'s own first turn', () => {
   // https://compendium.pokegym.net/ruling/342/ -- evolving by an attack's effect is not stopped by the first-turn rule (Rare Candy and Evosoda stop themselves).
   const dk = deck(['sv06-135', 'sv08.5-014', 'sv08.5-023', 'sv08.5-064']);
   const g = scenario(dk, dk, [{ active: 'Tyranitar ex' }, { active: 'Eevee', energy: { active: ['Fire Energy', 'Fire Energy'] } }], { turn: 2, current: 1, first: 0 });

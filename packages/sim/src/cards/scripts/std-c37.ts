@@ -296,7 +296,7 @@ export const STD_C37: CardScript[] = [
     name: 'Boldore',
     attacks: {
       // "If your opponent's Active Pokémon has {F} Resistance, this attack does 50 more damage."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/597/): the extra damage is added first and the Resistance subtracted afterwards ("it does not ignore the Resistance").
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/597/): the extra damage is added first and the Resistance subtracted afterwards: the Resistance is not ignored.
       'Smack Down': {
         damage: { add: [30, { cond: { custom: 'c37.defenderResists', args: { type: 'Fighting' } }, then: 50, else: 0 }] },
       },

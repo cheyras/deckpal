@@ -182,7 +182,7 @@ test('Ruling 2305: Gravity Mountain replacing Area Zero Underdepths: the Bench d
 
 // https://compendium.pokegym.net/ruling/2249/ : Crystal Fall's "at least 4 {W} Energy in play" does not say Basic, so Prism Energy on a Basic
 // Pokémon (which provides every type) counts toward the four.
-test('Ruling 2249: Prism Energy counts as a {W} Energy for Crystal Fall (3 Basic Water + Prism = 4)', () => {
+test('Ruling 2249: Prism Energy on a Basic Pokémon counts as a {W} Energy for Crystal Fall, which does not say Basic (3 Basic Water + Prism = 4)', () => {
   const dk = deck(['me02-026', 'me02.5-216', URSA]);
   const mk = (third: string): Game =>
     scenario(dk, dk, [

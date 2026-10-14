@@ -42,9 +42,9 @@ export const STD_ENGINE7: CardScript[] = [
       {
         // "Each of your Pokémon that has "Rotom" in its name may have up to 2 Pokémon Tool cards attached. If this Ability goes away,
         //  discard Pokémon Tools from those Pokémon until only 1 remains on each."
+        // The owner chooses which Tools to discard when the Ability goes away (nothing says otherwise).
         // Rulings (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2242/): Pokémon containing "Rotom" in their names qualify.
         //  (2026-01-22, https://compendium.pokegym.net/ruling/2292/): Pokémon names like Fan Rotom and Rotom ex count as having "Rotom" in them.
-        // The owner chooses which Tools to discard when the Ability goes away (nothing says otherwise).
         name: 'Multi Adapter',
         statics: [{ effect: { k: 'toolSlots', n: 2 }, scope: 'myPokemon', filter: { nameIncludes: 'Rotom' } }],
       },
@@ -390,7 +390,7 @@ export const STD_ENGINE7: CardScript[] = [
     abilities: [
       {
         // "Each of your evolved Pokémon can use any attack from its previous Evolutions. (You still need the necessary Energy to use each attack.)"
-        // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2311/): Sniper's Eye's removal of {C} costs applies to a borrowed Dartrix attack. (so cost effects on the Pokémon apply to the borrowed attacks)
+        // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2311/): while the opponent has exactly 4 cards in hand, Sniper's Eye's removal of {C} costs also applies to a Dartrix attack used through Memory Dive (cost effects on the Pokémon apply to the attacks it borrows).
         name: 'Memory Dive',
         statics: [{ effect: { k: 'previousAttacks' }, scope: 'myPokemon', filter: { stage: 'evolution' } }],
       },

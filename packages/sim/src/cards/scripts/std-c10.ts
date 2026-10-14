@@ -183,7 +183,7 @@ export const STD_C10: CardScript[] = [
     name: 'Watchog',
     attacks: {
       // "Flip 3 coins. If any of them are heads, your opponent reveals their hand. For each heads, choose a card you find there and shuffle it into your opponent's deck."
-      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2356/): you must put back as many as you can; with three cards in their hand, all three go back, not fewer.
+      // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2356/): you must shuffle back one hand card per heads, or the whole hand if it holds fewer cards than that (with three cards in their hand and three heads, all three go back).
       'Snap Inspection': {
         program: [
           { op: 'flip', n: 3, as: 'h' },

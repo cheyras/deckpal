@@ -268,7 +268,7 @@ test('delay: runs at the end of the opponent\'s next turn, before Pokémon Check
   assert.equal(g.state.p[1].active!.damage, 30 + 30 + 10);
 });
 
-test('delay: dropped when the Defending Pokémon leaves the Active Spot or evolves first (TPCi 2026-07-16, ruling 2404)', () => {
+test('A delayed attack effect is dropped when the Defending Pokémon leaves the Active Spot or evolves first (TPCi 2026-07-16, ruling 2404)', () => {
   const dk = deck(SLO, REL, KING, DRA);
   const retreat = scenario(dk, dk, [{ active: SLO, energy: { active: [P, P] } }, { active: SLO, bench: [REL], energy: { active: [P, P] } }], { scripts: [delayer] });
   choose(retreat, 'Attack: Headbutt');

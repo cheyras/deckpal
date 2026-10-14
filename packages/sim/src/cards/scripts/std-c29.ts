@@ -299,7 +299,7 @@ export const STD_C29: CardScript[] = [
     name: "Iono's Voltorb",
     attacks: {
       // "This attack does 20 more damage for each {L} Energy attached to all of your Iono's Pokémon."
-      // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2119/): any Energy providing Lightning counts, including Special Energy.
+      // Ruling (Journey Together FAQ, TPCi Rules Team 2025-03-27, https://compendium.pokegym.net/ruling/2119/): any Energy providing Lightning counts while attached to your Iono's Pokémon, including Special Energy such as Luminous Energy.
       'Voltaic Chain': {
         pre: [{ op: 'custom', fn: 'c29.countEnergyOnPokemon', args: { zone: 'myPokemon', slotFilter: IONO, type: 'Lightning', as: 'n' } }],
         damage: { add: [20, { mul: [20, { v: 'n' }] }] },

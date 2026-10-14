@@ -41,7 +41,7 @@ export const STD_ENGINE2: CardScript[] = [
         // "Once during your turn, when you play this Pokémon from your hand to evolve 1 of your Pokémon, you may use this Ability.
         //  You may also use this Ability if this Pokémon is in the Active Spot and is Knocked Out by damage from an attack from
         //  your opponent's Pokémon. Discard the top 2 cards of your opponent's deck."
-        // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2243/): Flygon may use it on evolving from hand and again when later Knocked Out (an evolved Flygon that is later Knocked Out may use it again)
+        // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2243/): Flygon may use it on evolving from hand and again when later Knocked Out in the Active Spot by opposing attack damage (an evolved Flygon that is later Knocked Out may use it again)
         name: 'Sandy Flapping',
         triggers: [
           { on: 'evolveFromHand', optional: true, program: DISCARD_TOP_2_OF_OPP },
@@ -217,8 +217,8 @@ export const STD_ENGINE2: CardScript[] = [
     abilities: [
       {
         // "If 1 of your {D} Pokémon is Knocked Out by damage from an attack from your opponent's Pokémon ex, that player takes 1 fewer Prize card. The effect of Shadowy Concealment doesn't stack."
-        // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2262/): Shadowy Concealment triggers on KO and reduces prizes even if Mega Gengar ex is discarded.
-        // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2244/): Mega ex = 1 prize; regular ex = 0 prizes; non-ex = 0 prizes; Legacy Energy is consumed.
+        // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2262/): Shadowy Concealment still reduces the Prize cards when Mega Gengar ex is itself the Pokémon Knocked Out, even though it is already in the discard pile when Prizes are taken.
+        // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2244/): when the Knocked Out {D} Pokémon has Legacy Energy and Shadowy Concealment applies, the opponent takes 1 Prize for a Mega Evolution ex, 0 for a regular Pokémon ex and 0 for a non-ex; Legacy Energy counts as used and cannot cut Prizes again later.
         // Ruling (Phantasmal Flames FAQ, TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2245/): a Pokemon KO'd with its Prize prevented was still Knocked Out, so Krookodile's Vengeful Fang gets its bonus.
         name: 'Shadowy Concealment',
         statics: [

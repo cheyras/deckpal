@@ -113,7 +113,7 @@ const OPP_TURN = { current: 1 as const, turn: 4 };
 
 // ------------------------------------------------------------------ Flygon
 
-test('Flygon, Sandy Flapping: when evolved from the hand you may discard the top 2 cards of the opponent\'s deck; used again when Knocked Out in the Active Spot (ruling 2243)', () => {
+test('Flygon, Sandy Flapping: when evolved from the hand you may discard the top 2 cards of the opponent\'s deck; used again when attack damage Knocks it Out in the Active Spot (ruling 2243)', () => {
   const dk = deck('Flygon', 'Vibrava', DRA, REL);
   const g = scenario(dk, dk, [{ active: 'Vibrava', bench: [REL], hand: ['Flygon'] }, { active: DRA, energy: { active: [P] } }]);
   const deck1 = g.state.p[1].deck.length;
@@ -189,7 +189,7 @@ test('Mismagius ex, Swirling Prose: while Active, the opponent\'s Pokémon that 
   assert.equal(benched.state.p[1].active!.cond & CONFUSED, 0, 'Mismagius ex is not in the Active Spot');
 });
 
-test('Mismagius ex, Swirling Prose: rulings 2339 (Team Rocket\'s Giovanni) and 2247 (a Knock Out is not a move to the Bench)', () => {
+test('Mismagius ex, Swirling Prose: Team Rocket\'s Giovanni leaves the new Active Pokémon Confused only when Mismagius ex was already Active before the switch (ruling 2339); a Knock Out and the promotion after it is not a move to the Bench (ruling 2247)', () => {
   const dk = deck('Mismagius ex', TR_GIO, TR_DUG, TR_DIG, SLO, REL, DRA);
   const giovanni = (theirs: SideLayout): Game => {
     const g = scenario(dk, dk, [{ active: TR_DUG, bench: [TR_DIG], hand: [TR_GIO] }, theirs]);
@@ -413,7 +413,7 @@ test('Delibird, Quick Gift: usable on the first player\'s first turn: search you
 
 // ------------------------------------------------------------------ Mega Gengar ex, Shedinja
 
-test('Mega Gengar ex, Shadowy Concealment: a Knocked Out {D} Pokémon gives 1 fewer Prize card when the attacker is a Pokémon ex; it does not stack (rulings 2262, 2244, 2245)', () => {
+test('Mega Gengar ex, Shadowy Concealment: a {D} Pokémon Knocked Out by damage from an attack from an opposing Pokémon ex gives 1 fewer Prize card (damage counters an effect places do not count); it does not stack (rulings 2262, 2244, 2245)', () => {
   const dk = deck('Mega Gengar ex', 'Pecharunt', SLO, REL, DRA, "N's Zoroark ex", 'Legacy Energy');
   const ko = (target: SideLayout, attacker: string): Game => {
     const energy = attacker === DRA ? [P] : [P, P];

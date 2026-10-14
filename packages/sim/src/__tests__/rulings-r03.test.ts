@@ -170,8 +170,8 @@ test('Compendium #2264: Cursed Blast onto a Benched Pokémon under Battle Cage -
 
 // ------------------------------------------------------------------ Cursed Blast timing and winners
 
-// https://compendium.pokegym.net/ruling/2240/ : after a Cursed Blast Knock Out with both players on their last Prize, whoever has a Pokémon to promote wins; if both or neither do, it is a tiebreaker game (a draw).
-test('Compendium #2240: Cursed Blast with both players on 1 Prize - the player who can promote wins; both or neither means a draw', () => {
+// https://compendium.pokegym.net/ruling/2240/ : when an Active Dusknoir's Cursed Blast Knocks Out both Active Pokémon with both players on their last Prize, whoever has a Pokémon to promote wins; if both or neither do, it is a tiebreaker game (a draw).
+test('Compendium #2240: Cursed Blast Knocking Out both Active Pokémon with both players on 1 Prize - the player who can promote wins; both or neither means a draw', () => {
   const game = (mineBench: boolean, theirBench: boolean): Game => {
     const g = at([
       { active: 'Duskull', evolve: { active: ['Dusclops', 'Dusknoir'] }, ...(mineBench ? { bench: ['Dreepy'] } : {}), prizes: 1 },
@@ -189,6 +189,20 @@ test('Compendium #2240: Cursed Blast with both players on 1 Prize - the player w
   assert.ok(both.over && both.state.winner === null && both.state.draw, 'both can promote: tiebreaker game');
   const neither = game(false, false);
   assert.ok(neither.over && neither.state.winner === null && neither.state.draw, 'neither can promote: tiebreaker game');
+});
+
+test('Cursed Blast from the Bench with both players on 1 Prize: your Active stays in play, so it is a draw whenever they can promote (win conditions counted)', () => {
+  // Both take their last Prize (one win condition each); neither is left with no Pokémon in play, so the count is equal.
+  const g = at([
+    { active: 'Snorlax', bench: ['Duskull'], evolve: { 0: ['Dusclops', 'Dusknoir'] }, prizes: 1 },
+    { active: 'Slowpoke', bench: ['Snorlax'], prizes: 1 },
+  ]);
+  choose(g, 'Cursed Blast');
+  if (g.decision?.kind === 'slots') choose(g, 'Slowpoke');
+  while (g.decision?.kind === 'promote') g.submit([0]);
+  assert.ok(g.over, 'the game is over');
+  assert.equal(g.state.winner, null, 'not a win for the player who could promote');
+  assert.ok(g.state.draw, 'a tiebreaker game');
 });
 
 // https://compendium.pokegym.net/ruling/2239/ : after an Active Dusknoir's Cursed Blast Knocks Out the opposing Active, the player whose turn is next takes Prizes first, then the other; promotions go in the same order.
@@ -239,7 +253,7 @@ test('Compendium #2084: an Active Dusknoir that Cursed Blasts a Togekiss - heads
 });
 
 // https://compendium.pokegym.net/ruling/2089/ : the Knocked Out Togekiss still gets its Wonder Kiss flip, because every effect resolves before Knock Outs are processed.
-test('Compendium #2089: the Wonder Kiss flip still happens when the Togekiss is Knocked Out by the same Cursed Blast', () => {
+test('Compendium #2089: the Wonder Kiss flip still happens when a Cursed Blast Knocks Out both the opposing Active Dusknoir and the Togekiss', () => {
   const g = at([{ active: 'Duskull', evolve: { active: ['Dusclops', 'Dusknoir'] }, bench: ['Dreepy'] }, togekissSide()]);
   g.state.forcedCoins = [false];
   choose(g, 'Cursed Blast');
@@ -292,7 +306,7 @@ test('Compendium #2304: Regi Charge may attach none (and up to 2) from the disca
 // ------------------------------------------------------------------ Sinister Surge
 
 // https://compendium.pokegym.net/ruling/2246/ : Sinister Surge may put the 2 counters on your own Benched {D} Pokémon with 20 or less HP left, Knocking it Out; the opponent takes the Prize.
-test('Compendium #2246: Sinister Surge can Knock Out your own Benched Pokémon with 20 or less HP left, and the opponent takes the Prize', () => {
+test('Compendium #2246: Sinister Surge can Knock Out your own Benched {D} Pokémon with 20 or less HP left, and the opponent takes the Prize', () => {
   const g = at([{ active: 'Toxel', evolve: { active: ['Toxtricity'] }, bench: ['Toxel'], damage: { 0: 50 } }, { active: 'Dragapult ex' }]);
   choose(g, 'Sinister Surge');
   pick(g, [D]);
@@ -364,7 +378,7 @@ test('Compendium #2185: Ignition Energy on a Klinklang put directly onto the Ben
 // ------------------------------------------------------------------ Mentally Calm
 
 // https://compendium.pokegym.net/ruling/2129/ : with Milotic's Mentally Calm, an effect that would put your Pokémon into your hand does not, so every attached card stays attached (the Supporter itself is still played; Professor Turo's Scenario has no script, so that half is not pinned here, and Meowth ex's Tuck Tail stands in for the bounce).
-test('Compendium #2129: under Mentally Calm a Pokémon that would be put into its owner\'s hand stays in play with all its cards attached', () => {
+test('Compendium #2129: under Mentally Calm an opposing Pokémon that would be put into its owner\'s hand stays in play with all its cards attached', () => {
   const g = at([
     { active: 'Meowth ex', energy: { active: [P, P, R] }, bench: ['Dreepy'] },
     { active: 'Feebas', evolve: { active: ['Milotic'] } },
@@ -403,7 +417,7 @@ const NO_ENERGY_DECK = fromIds('r03-no-energy', [
 ]);
 
 // https://compendium.pokegym.net/ruling/991/ and https://compendium.pokegym.net/ruling/990/ : Energy Search can be played with no Basic Energy in the deck, is discarded as usual, and a second one can then be played too.
-test('Compendium #991 and #990: Energy Search with no Basic Energy in the deck is still playable and goes to the discard pile; so can a second', () => {
+test('Compendium #991: Energy Search with a nonempty deck but no Basic Energy in it is still playable and goes to the discard pile; a second copy can be played the same way (also #990)', () => {
   const g = scenario(NO_ENERGY_DECK, NO_ENERGY_DECK, [{ active: 'Dreepy', hand: ['Energy Search', 'Energy Search'] }, { active: 'Dreepy' }]);
   assert.ok(g.state.p[0].deck.length > 0);
   assert.ok(has(g, 'Energy Search'), 'Energy Search was not offered with no Basic Energy in the deck');

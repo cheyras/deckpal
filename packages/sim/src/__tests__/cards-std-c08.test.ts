@@ -389,7 +389,7 @@ test("Mega Zygarde ex, Gaia Wave: 200, then during the opponent's next turn it t
   assert.equal(g.state.effects.some((e) => e.static.k === 'damageIn'), false, 'the effect ended with the opponent turn');
 });
 
-test("Mega Zygarde ex, Nullifying Zero: a coin for every one of the opponent's Pokémon; heads is 150 to it, no Weakness on the Bench; Tera Pokémon are still flipped for (ruling 2316)", () => {
+test("Mega Zygarde ex, Nullifying Zero: a coin for every one of the opponent's Pokémon; heads is 150 to it, no Weakness on the Bench; Benched Tera Pokémon are still flipped for but cannot be damaged (ruling 2316)", () => {
   const dk = deck('me03-047', TYR, GENGAR, DRAGAPULT, ABSOL);
   const run = (coins: boolean[], bench: string[]): Game => {
     const g = scenario(dk, dk, [{ active: 'Mega Zygarde ex', energy: { active: [FI, FI, FI, FI, FI] } }, { active: 'Tyranitar ex', bench }]);

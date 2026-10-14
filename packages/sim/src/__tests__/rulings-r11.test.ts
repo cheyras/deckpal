@@ -328,7 +328,7 @@ test("Team Rocket's Ampharos, Darkest Impulse: both Pokémon the opponent evolve
 // ----------------------------------------------------------------------------------------------- Festival Lead / Midnight Fluttering
 
 // https://compendium.pokegym.net/ruling/2093/ : once Dipplin's attack Knocks Out the Flutter Mane, Festival Lead works again and a second attack is allowed.
-test('Dipplin, Festival Lead: after it Knocks Out the Flutter Mane that switched Abilities off, it may attack again (https://compendium.pokegym.net/ruling/2093/)', () => {
+test('Dipplin, Festival Lead: with Festival Grounds in play, after it Knocks Out the Flutter Mane that switched Abilities off, it may attack again (https://compendium.pokegym.net/ruling/2093/)', () => {
   const mk = (damage: number): Game => {
     const g = scenario(DK, DK, [
       { active: 'Dipplin', bench: ['Dreepy', 'Dreepy'], energy: { active: [GRS] } },
@@ -485,7 +485,7 @@ test('Return (Lumineon, Audino, Blissey ex): with 6 or more cards in hand it jus
 // ----------------------------------------------------------------------------------------------- Lycanroc
 
 // https://compendium.pokegym.net/ruling/384/ : Counter looks at whether the Pokemon was damaged last turn, wherever it has moved since.
-test('Lycanroc, Counter: still adds the damage taken last turn after Lycanroc went to the Bench and came back (https://compendium.pokegym.net/ruling/384/)', () => {
+test('Lycanroc, Counter: still adds the attack damage it took last turn after Lycanroc went to the Bench and came back (https://compendium.pokegym.net/ruling/384/)', () => {
   const g = scenario(
     DK,
     DK,
@@ -539,7 +539,7 @@ test('Sky Return: Emolga goes to the hand with its Energy before Repulsor Axe pu
 });
 
 // Control for the test above: the same reaction does put its 8 counters on an attacker that stays in play.
-test('Repulsor Axe: an attacker that stays in play does get the 8 damage counters (control for Sky Return, https://compendium.pokegym.net/ruling/588/)', () => {
+test('Repulsor Axe: an attacker that stays in play does get the 8 damage counters (the control case for Sky Return, ruling 588)', () => {
   const g = scenario(DK, DK, [
     { active: 'Iron Boulder ex', energy: { active: [FGT, FGT, FGT] } },
     { active: 'Dragapult ex', energy: { active: [PSY] } },

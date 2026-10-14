@@ -329,7 +329,7 @@ export const STD_C06: CardScript[] = [
     attacks: {
       // "Search your deck for up to 3 Basic Energy cards of different types and attach them to your Tera Pokémon in any way you like. Then, shuffle your deck."
       // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2059/): Terapagos itself is not a Tera Pokémon for its own Prism Charge.
-      // (Terapagos itself carries no `fix.tera`, so it is not one of its own targets. With no Tera Pokémon in play there is nothing to attach to, so the attack does nothing.)
+      // (Terapagos is not one of its own targets. With no other Tera Pokémon in play there is nothing to attach to, so the attack does nothing.)
       'Prism Charge': {
         program: [
           {

@@ -39,7 +39,7 @@ export const STD_C34: CardScript[] = [
         // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2153/): Smog Signals activates before the KO check.
         // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2172/): Attack effects resolve before triggered effects from damage.
         // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2171/): Mandatory if bench space exists; nothing searches if bench full.
-        // -- not optional (no `optional`), "up to 2" is 1 to 2 for an Ability (TPCi 2026-02-19); with a full Bench nothing is searched or shuffled.
+        // -- not optional, and "up to 2" means 1 to 2 for an Ability (TPCi 2026-02-19); with a full Bench nothing is searched or shuffled.
         // The Pokémon go onto the Bench as they are, whatever their Stage.
         name: 'Smog Signals',
         triggers: [
@@ -153,7 +153,7 @@ export const STD_C34: CardScript[] = [
     attacks: {
       // "Reveal the top 10 cards of your opponent's deck. You may choose an attack from a Pokémon you find there and use it as this attack. Shuffle the revealed cards into your opponent's deck."
       // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2157/): The copied attack's cost is not paid; only Haughty Order's cost.
-      // -- the copied attack's cost is not paid (`useAttackOf`). The revealed cards are shuffled into the deck after the attack.
+      // -- the copied attack's cost is not paid. The revealed cards are shuffled into the deck after the attack.
       'Haughty Order': {
         program: [
           { op: 'custom', fn: 'c34.revealOppTopPick', args: { n: 10, as: 'c' } },
@@ -170,7 +170,7 @@ export const STD_C34: CardScript[] = [
     name: 'Tauros',
     attacks: {
       // "If your opponent's Active Pokémon is an Evolution Pokémon, this attack does 50 more damage."
-      // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2046/): a Stage 1 Pokémon put into play without evolving "is still considered an "Evolution Pokemon" (Stage 1)".
+      // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2046/): a Stage 1 Pokémon put into play without evolving still counts as an Evolution Pokémon (Stage 1).
       // -- the check is the card's Stage, not how it came into play.
       'Clean Hit': { damage: { add: [50, { cond: { slotIs: { ref: 'oppActive', filter: { stage: 'evolution' } } }, then: 50, else: 0 }] } },
     },
