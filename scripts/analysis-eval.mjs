@@ -33,14 +33,18 @@
  *
  * ── IT SPENDS MONEY, SO IT HAS A CEILING ─────────────────────────────────────
  *
- * `--budget` (required for `run`) is a ceiling, not an estimate: every model
- * call first reserves the MOST it could cost (its input at two characters a
- * token at the dearest input rate, plus the whole output cap, at the Gateway's
- * own listed prices) and is refused unless that fits in what is left. It then
- * settles at the Gateway's reported cost. The key is read from
- * AI_GATEWAY_API_KEY (or DECKE_VERCEL_AI_GATEWAY_KEY) and never printed. Only
- * judged runs are scored; resuming the same --out reruns errored runs and
- * re-judges unjudged ones. `report` re-reads a finished run for free.
+ * `--budget` (required for `run`) is a ceiling, not an estimate, over the whole
+ * --out directory: every model call first reserves the MOST it could cost — one
+ * input token per UTF-8 byte of the request (Claude's tokenizer is byte-level)
+ * plus the provider's overhead, at the dearest input rate, and the whole output
+ * cap, all at the Gateway's own listed prices — and is refused unless that fits
+ * in what is left. It settles at the Gateway's reported cost, or at the full
+ * reservation when none comes back, and a call ever costing more than its bound
+ * stops the run. Every call is appended to `calls.jsonl` as it settles; reports
+ * and the ceiling read spend from there, every attempt included. The key is
+ * read from AI_GATEWAY_API_KEY (or DECKE_VERCEL_AI_GATEWAY_KEY) and never
+ * printed. Only judged runs are scored; resuming the same --out reruns errored
+ * runs and re-judges unjudged ones. `report` re-reads a finished run for free.
  *
  *   node scripts/analysis-eval.mjs check                   # free: cases + logs
  *   node scripts/analysis-eval.mjs setup                   # QA decks + logs
@@ -359,8 +363,10 @@ export class BudgetExceeded extends Error {}
  * cost comes back (a failed call may still have been billed).
  */
 export class Ceiling {
-  constructor(capUsd) {
+  /** `priorUsd`: what earlier invocations into the same --out already spent (the ledger's total). */
+  constructor(capUsd, priorUsd = 0) {
     this.capUsd = capUsd
+    this.priorUsd = priorUsd
     this.spentUsd = 0
     this.reservedUsd = 0
     this.calls = 0
@@ -368,10 +374,11 @@ export class Ceiling {
     this.overruns = 0
   }
   remaining() {
-    return this.capUsd - this.spentUsd - this.reservedUsd
+    return this.capUsd - this.priorUsd - this.spentUsd - this.reservedUsd
   }
   reserve(maxUsd) {
-    if (!(maxUsd > 0) || maxUsd > this.remaining()) return null
+    // A call that ever cost more than its bound means the bound is wrong: stop, never guess on.
+    if (this.overruns > 0 || !(maxUsd > 0) || maxUsd > this.remaining()) return null
     this.reservedUsd += maxUsd
     return maxUsd
   }
@@ -388,15 +395,65 @@ export class Ceiling {
   }
 }
 
-/** Fewer characters per token than any real prompt has, so the input estimate is high. */
-export const CHARS_PER_TOKEN_FLOOR = 2
+/**
+ * Tokens the provider adds that are not in the request we send: Anthropic's
+ * tool-use system prompt (a few hundred tokens) and message framing. Generous
+ * on purpose; the serialized request's keys and quotes over-count as well.
+ */
+export const REQUEST_OVERHEAD_TOKENS = 4_096
 
-/** The most one call can cost: every input token at the dearest input rate (cache writes), plus the full output cap. */
+/**
+ * The most one call can cost. The bound on input tokens is the request's UTF-8
+ * BYTE count: Claude's tokenizer is byte-level, so no token is shorter than a
+ * byte. Everything the provider turns into input is counted — messages,
+ * reasoning carried in them, tool definitions, tool choice and a structured
+ * response's schema — plus the provider's own overhead, all at the dearest
+ * input rate (a cache write), and the whole output cap (thinking included).
+ */
 export function maxCallUsd(price, params) {
-  const chars = JSON.stringify(params.prompt ?? '').length + JSON.stringify(params.tools ?? []).length
-  const inputTokens = Math.ceil(chars / CHARS_PER_TOKEN_FLOOR)
+  const request = JSON.stringify({ prompt: params.prompt ?? null, tools: params.tools ?? null, toolChoice: params.toolChoice ?? null, responseFormat: params.responseFormat ?? null })
+  const inputTokens = Buffer.byteLength(request, 'utf8') + REQUEST_OVERHEAD_TOKENS
   const outputTokens = params.maxOutputTokens ?? MAX_OUTPUT_TOKENS
   return inputTokens * Math.max(price.input, price.cacheWrite ?? 0) + outputTokens * price.output
+}
+
+/**
+ * Every model call, appended to `calls.jsonl` the moment it settles, so no
+ * attempt's cost is lost to a crash, a retry or a resume. Reports and the
+ * ceiling read their spend from here, not from run files.
+ */
+export class Ledger {
+  constructor(file = null) {
+    this.file = file
+    this.entries = file && fs.existsSync(file) ? readLedger(file) : []
+    this.priorCount = this.entries.length
+  }
+  push(entry) {
+    const e = { at: new Date().toISOString(), ...entry }
+    this.entries.push(e)
+    if (this.file) fs.appendFileSync(this.file, `${JSON.stringify(e)}\n`)
+  }
+  /** What a ceiling must count: reported charges, plus the whole reservation of any call with no reported cost. */
+  countedUsd(entries = this.entries) {
+    return entries.reduce((n, e) => n + (typeof e.costUsd === 'number' ? e.costUsd : (e.reservedUsd ?? 0)), 0)
+  }
+}
+
+export function readLedger(file) {
+  return fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l))
+}
+
+/** Spend per "case:config" across every attempt: Gateway-reported charges, and reservations of calls that reported none. */
+export function costsByRun(entries) {
+  const out = {}
+  for (const e of entries) {
+    const key = e.label.split(':').slice(0, 2).join(':')
+    const c = (out[key] ??= { reportedUsd: 0, unpricedUsd: 0, calls: 0 })
+    c.calls++
+    if (typeof e.costUsd === 'number') c.reportedUsd += e.costUsd
+    else c.unpricedUsd += e.reservedUsd ?? 0
+  }
+  return out
 }
 
 /** Per-token USD prices from the Gateway's own model list; a model without them is refused. */
@@ -431,12 +488,12 @@ export async function metered(base, price, budget, calls, label) {
           result = await doGenerate()
         } catch (e) {
           budget.settle(reserved, null)
-          calls.push({ label, ok: false, error: safeError(e), ms: Date.now() - t0 })
+          calls.push({ label, ok: false, costUsd: null, reservedUsd: reserved, error: safeError(e), ms: Date.now() - t0 })
           throw e
         }
         const costUsd = gatewayCost(result.providerMetadata)
         budget.settle(reserved, costUsd)
-        calls.push({ label, ok: true, costUsd, ms: Date.now() - t0, usage: result.usage ?? null })
+        calls.push({ label, ok: true, costUsd, reservedUsd: reserved, ms: Date.now() - t0, usage: result.usage ?? null })
         return result
       },
     },
@@ -611,9 +668,10 @@ const pct = (got, of) => (of ? Math.round((100 * got) / of) : null)
 export function aggregate(rows, principles) {
   const byConfig = {}
   for (const row of rows) {
-    const a = (byConfig[row.config] ??= { runs: 0, judged: 0, errors: 0, unjudged: 0, costUsd: 0, steps: 0, falseClaims: 0, principle: {}, split: {}, must: [0, 0], all: [0, 0] })
+    const a = (byConfig[row.config] ??= { runs: 0, judged: 0, errors: 0, unjudged: 0, costUsd: 0, unpricedUsd: 0, steps: 0, falseClaims: 0, principle: {}, split: {}, must: [0, 0], all: [0, 0] })
     a.runs++
     a.costUsd += row.costUsd ?? 0
+    a.unpricedUsd += row.unpricedUsd ?? 0
     if (row.run.error) {
       a.errors++
       continue
@@ -646,6 +704,7 @@ export function aggregate(rows, principles) {
     errors: a.errors,
     unjudged: a.unjudged,
     costUsd: Number(a.costUsd.toFixed(4)),
+    unpricedUsd: Number(a.unpricedUsd.toFixed(4)),
     meanSteps: a.judged ? Number((a.steps / a.judged).toFixed(1)) : null,
     falseClaimsPerReview: a.judged ? Number((a.falseClaims / a.judged).toFixed(2)) : null,
     overall: pct(...a.all),
@@ -668,7 +727,7 @@ export function formatReport(agg, principles, rows) {
   const num = (v) => (v === null || v === undefined ? '—' : v)
   lines.push(`| False claims per review | ${configs.map((k) => num(agg[k].falseClaimsPerReview)).join(' | ')} |`)
   lines.push(`| Mean agent steps | ${configs.map((k) => num(agg[k].meanSteps)).join(' | ')} |`)
-  lines.push(`| Cost (runs + judge) | ${configs.map((k) => `$${agg[k].costUsd.toFixed(2)}`).join(' | ')} |`)
+  lines.push(`| Cost, every attempt (runs + judge) | ${configs.map((k) => `$${agg[k].costUsd.toFixed(2)}${agg[k].unpricedUsd ? ` + $${agg[k].unpricedUsd.toFixed(2)} unpriced` : ''}`).join(' | ')} |`)
   lines.push(`| Runs: judged / errored / unjudged | ${configs.map((k) => `${agg[k].judged} / ${agg[k].errors} / ${agg[k].unjudged}`).join(' | ')} |`, '')
   lines.push('Scores count judged runs only.', '')
   lines.push('## Per case', '', '| Case | Config | Missed | Partial | False claims |', '|---|---|---|---|---|')
@@ -684,8 +743,14 @@ export function formatReport(agg, principles, rows) {
   return `${lines.join('\n')}\n`
 }
 
-/** Read a run directory back into report rows. */
+/**
+ * Read a run directory back into report rows. Cost comes from the call ledger,
+ * every attempt of the pair included (a retried run, a re-judge), with calls
+ * that reported no cost counted apart at their reservation.
+ */
 export function readRows(dir, cases) {
+  const ledger = path.join(dir, LEDGER_FILE)
+  const costs = costsByRun(fs.existsSync(ledger) ? readLedger(ledger) : [])
   const rows = []
   for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.run.json'))) {
     const run = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))
@@ -693,10 +758,13 @@ export function readRows(dir, cases) {
     if (!c) continue
     const judgment = readJudgment(path.join(dir, f))
     const scored = !run.error && judgment?.status === 'ok' ? scoreRun(c, judgment.output) : null
-    rows.push({ config: run.config, run, scored, costUsd: (run.costUsd ?? 0) + (judgment?.costUsd ?? 0) })
+    const cost = costs[`${run.case}:${run.config}`] ?? { reportedUsd: 0, unpricedUsd: 0 }
+    rows.push({ config: run.config, run, scored, costUsd: cost.reportedUsd, unpricedUsd: cost.unpricedUsd })
   }
   return rows
 }
+
+export const LEDGER_FILE = 'calls.jsonl'
 
 const judgeFileOf = (runFile) => runFile.replace('.run.json', '.judge.json')
 export function readJudgment(runFile) {
@@ -777,22 +845,21 @@ export async function main(argv = process.argv.slice(2)) {
   const prices = await loadPrices(gateway, models)
   const out = opts.out ?? path.join(EVAL_DIR, 'runs', new Date().toISOString().replace(/[:.]/g, '-'))
   fs.mkdirSync(out, { recursive: true })
-  const budget = new Ceiling(opts.budget)
-  const calls = []
-  const cost = (prefix) => calls.filter((x) => x.label.startsWith(prefix)).reduce((n, x) => n + (x.costUsd ?? 0), 0)
+  // --budget caps the whole --out directory: a resumed run starts from what earlier invocations spent.
+  const calls = new Ledger(path.join(out, LEDGER_FILE))
+  const prior = calls.countedUsd()
+  const budget = new Ceiling(opts.budget, prior)
+  if (prior > 0) console.log(`Resuming ${path.relative(ROOT, out)}: $${prior.toFixed(2)} already counted against the $${opts.budget} budget.`)
+  const cost = (prefix) => calls.countedUsd(calls.entries.filter((x) => x.label.startsWith(prefix)))
   try {
     await runAll({ gateway, prices, mcp, session, data, cases, state, configs: opts.configs, out, budget, calls, cost })
   } finally {
     await resetLogs(mcp, cases, state)
-    // Every invocation's calls, appended: a resumed run keeps the earlier ones.
-    const callsFile = path.join(out, 'calls.json')
-    const earlier = fs.existsSync(callsFile) ? JSON.parse(fs.readFileSync(callsFile, 'utf8')) : []
-    fs.writeFileSync(callsFile, `${JSON.stringify([...earlier, ...calls], null, 2)}\n`)
   }
   const rows = readRows(out, data.cases)
   const report = formatReport(aggregate(rows, data.principles), data.principles, rows)
   fs.writeFileSync(path.join(out, 'report.md'), report)
-  console.log(`\n${report}\nSpent $${budget.spentUsd.toFixed(2)} of $${budget.capUsd} in ${budget.calls} calls (${budget.unknownCost} with no reported cost, ${budget.overruns} over their reservation). Runs in ${path.relative(ROOT, out)}.`)
+  console.log(`\n${report}\nThis invocation: $${budget.spentUsd.toFixed(2)} in ${budget.calls} calls (${budget.unknownCost} with no reported cost, counted at their reservation; ${budget.overruns} over their bound). All invocations: $${(prior + budget.spentUsd).toFixed(2)} of $${budget.capUsd}. Runs in ${path.relative(ROOT, out)}.`)
   return 0
 }
 
@@ -812,17 +879,16 @@ async function runAll({ gateway, prices, mcp, session, data, cases, state, confi
       if (!run || run.error) {
         await resetLog(mcp, c, ids)
         run = await runCase({ gateway, prices, mcp, session, config: { key: k, ...CONFIGS[k] }, c, ids, deckName: data.decks[c.deck].name, budget, calls })
-        run.costUsd = Number((cost(`${c.id}:${k}:agent`) + cost(`${c.id}:${k}:writer`)).toFixed(6))
         fs.writeFileSync(runFile, `${JSON.stringify(run, null, 2)}\n`)
-        console.log(`${c.id} ${k}: ${run.error ? `error ${run.error.message}` : `${run.steps} steps, ${run.toolCalls.length} tool calls`}, $${run.costUsd.toFixed(3)} (spent $${budget.spentUsd.toFixed(2)})`)
+        console.log(`${c.id} ${k}: ${run.error ? `error ${run.error.message}` : `${run.steps} steps, ${run.toolCalls.length} tool calls`}, $${cost(`${c.id}:${k}:`).toFixed(3)} so far for this pair (all attempts)`)
         if (run.budgetStop) return
         if (run.error) continue
       }
       try {
         const output = await judgeRun({ gateway, prices, c, principles: data.principles, logText, run, budget, calls })
-        writeJudgment(runFile, { status: 'ok', output, costUsd: Number(cost(`${c.id}:${k}:judge`).toFixed(6)) })
+        writeJudgment(runFile, { status: 'ok', output })
       } catch (e) {
-        writeJudgment(runFile, { status: 'failed', error: safeError(e), costUsd: Number(cost(`${c.id}:${k}:judge`).toFixed(6)) })
+        writeJudgment(runFile, { status: 'failed', error: safeError(e) })
         console.log(`${c.id} ${k}: judge failed, ${safeError(e).message}`)
         if (e instanceof BudgetExceeded) return
       }

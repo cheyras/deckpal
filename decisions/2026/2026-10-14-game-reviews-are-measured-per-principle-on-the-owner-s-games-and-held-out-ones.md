@@ -51,8 +51,12 @@ supersedes: []
 - **No leaks between runs:** each case's log is reset (review cleared, notes restored) before every run.
 - **Spend has a ceiling, not an estimate.**
   - `--budget` is required.
-  - Each model call first reserves the most it could cost: its input at two characters a token and the dearest input rate, plus the full 16k output cap. Prices come from the Gateway's own model list.
-  - A call is refused unless that maximum fits in what is left. It then settles at the Gateway's reported cost, or at the full reservation if no cost comes back (Astra, #347).
+  - Each model call first reserves the most it could cost.
+    - Input: one token per UTF-8 byte of the whole request (messages, tools, tool choice, response schema), since Claude's tokenizer is byte-level. A 4,096-token allowance covers the provider's own overhead. All of it is priced at the dearest input rate.
+    - Output: the full 16k cap.
+    - Prices come from the Gateway's own model list.
+  - A call is refused unless that maximum fits in what is left. It settles at the Gateway's reported cost, or at the full reservation if no cost comes back. A call that ever costs more than its bound stops the run (Astra, #347).
+  - The cap covers the whole `--out` directory. Every call is appended to `calls.jsonl` as it settles, and the report and a resumed run read spend from there, every retry and re-judge included (Astra, #347).
 - **Only judged runs are scored.**
   - A run that errored, or whose judging failed or never happened, is counted apart, never scored as a review that missed everything.
   - Resuming the same `--out` reruns errored runs and re-judges unjudged ones (Astra, #347).

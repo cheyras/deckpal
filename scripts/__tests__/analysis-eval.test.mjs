@@ -14,6 +14,9 @@ import {
   BudgetExceeded,
   CONFIGS,
   Ceiling,
+  LEDGER_FILE,
+  Ledger,
+  REQUEST_OVERHEAD_TOKENS,
   Mcp,
   ROOT,
   aggregate,
@@ -152,11 +155,31 @@ test('one cache breakpoint, on the newest non-system message', () => {
 const usage = { inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 5, text: 5, reasoning: 0 } }
 const reply = (content, finish = 'stop') => ({ content, finishReason: { unified: finish, raw: finish }, usage, providerMetadata: { gateway: { cost: '0.01' } }, warnings: [] })
 
-test('a call\'s ceiling: every input token at the dearest rate, plus the whole output cap', () => {
+/** The input-token bound maxCallUsd used, recovered from its price at $1/token in, $0 out. */
+const boundTokens = (params) => maxCallUsd({ input: 1, output: 0 }, params)
+
+test('a call\'s ceiling: one token per request byte plus the provider\'s overhead, at the dearest rate, plus the output cap', () => {
   const params = { prompt: [{ role: 'user', content: 'x'.repeat(1000) }], tools: [], maxOutputTokens: 1000 }
-  const chars = JSON.stringify(params.prompt).length + JSON.stringify([]).length
-  assert.equal(maxCallUsd(PRICE, params), Math.ceil(chars / 2) * 1e-6 + 1000 * 5e-6)
-  assert.equal(maxCallUsd({ ...PRICE, cacheWrite: 2e-6 }, params), Math.ceil(chars / 2) * 2e-6 + 1000 * 5e-6)
+  const bytes = Buffer.byteLength(JSON.stringify({ prompt: params.prompt, tools: [], toolChoice: null, responseFormat: null }), 'utf8')
+  assert.equal(boundTokens(params), bytes + REQUEST_OVERHEAD_TOKENS)
+  assert.equal(maxCallUsd(PRICE, params), (bytes + REQUEST_OVERHEAD_TOKENS) * 1e-6 + 1000 * 5e-6)
+  assert.equal(maxCallUsd({ ...PRICE, cacheWrite: 2e-6 }, params), (bytes + REQUEST_OVERHEAD_TOKENS) * 2e-6 + 1000 * 5e-6, 'cache writes are the dearest input')
+})
+
+test('the bound never undercounts what the provider bills (Astra, #347)', () => {
+  // Anthropic's token-counting example: one get_weather tool and one question bill 403 input tokens.
+  const weather = {
+    prompt: [{ role: 'user', content: [{ type: 'text', text: "What's the weather like in San Francisco?" }] }],
+    tools: [{ type: 'function', name: 'get_weather', description: 'Get the current weather in a given location', inputSchema: { type: 'object', properties: { location: { type: 'string', description: 'The city and state, e.g. San Francisco, CA' } }, required: ['location'] } }],
+  }
+  assert.ok(boundTokens(weather) >= 403, `${boundTokens(weather)} < 403`)
+  // Text that tokenizes worst (emoji, CJK) is counted by its bytes, never its characters.
+  const emoji = { prompt: [{ role: 'user', content: '😀'.repeat(500) }] }
+  assert.ok(boundTokens(emoji) >= 2000 + REQUEST_OVERHEAD_TOKENS)
+  // The judge's response schema is part of the request.
+  const plain = { prompt: [{ role: 'user', content: 'grade this' }] }
+  const schema = { ...plain, responseFormat: { type: 'json', schema: { type: 'object', properties: { items: { type: 'array' } } } } }
+  assert.ok(boundTokens(schema) > boundTokens(plain))
 })
 
 test('the ceiling holds: a call that COULD exceed what is left is refused before it is made', async () => {
@@ -187,6 +210,16 @@ test('a call with no reported cost counts its whole reservation', () => {
   assert.equal(b.spentUsd, 0.3)
   assert.equal(b.unknownCost, 1)
   assert.equal(b.reserve(0.71), null)
+})
+
+test('the ceiling starts from earlier invocations\' spend, and a call over its bound stops everything', () => {
+  const resumed = new Ceiling(1, 0.9)
+  assert.equal(resumed.reserve(0.2), null)
+  assert.equal(resumed.reserve(0.05), 0.05)
+  const b = new Ceiling(10)
+  b.settle(b.reserve(0.1), 0.15)
+  assert.equal(b.overruns, 1)
+  assert.equal(b.reserve(0.01), null, 'a broken bound is never trusted again')
 })
 
 function fakeSession() {
@@ -261,15 +294,25 @@ test('an errored or unjudged run is counted apart, never scored as a review that
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'analysis-eval-'))
   try {
     const put = (f, x) => fs.writeFileSync(path.join(dir, f), JSON.stringify(x))
-    const run = (id, k, extra = {}) => ({ case: id, config: k, steps: 3, costUsd: 0.1, error: null, ...extra })
+    const run = (id, k, extra = {}) => ({ case: id, config: k, steps: 3, error: null, ...extra })
     const all = (c) => ({ items: c.rubric.map((r) => ({ id: r.id, verdict: 'caught' })), false_claims: [] })
     const c101 = data.cases.find((x) => x.id === 'owner-101')
     put('owner-101.A.run.json', run('owner-101', 'A'))
-    put('owner-101.A.judge.json', { status: 'ok', output: all(c101), costUsd: 0.05 })
+    put('owner-101.A.judge.json', { status: 'ok', output: all(c101) })
     put('owner-95.A.run.json', run('owner-95', 'A'))
-    put('owner-95.A.judge.json', { status: 'failed', error: { message: 'budget' }, costUsd: 0 })
+    put('owner-95.A.judge.json', { status: 'failed', error: { message: 'budget' } })
     put('owner-99.A.run.json', run('owner-99', 'A'))
     put('owner-100.A.run.json', run('owner-100', 'A', { error: { message: 'boom' } }))
+    // Two invocations into the same directory: every attempt stays in the ledger.
+    const first = new Ledger(path.join(dir, LEDGER_FILE))
+    first.push({ label: 'owner-101:A:agent', costUsd: 0.2, reservedUsd: 0.5 }) // an attempt that later errored
+    first.push({ label: 'owner-101:A:judge', costUsd: null, reservedUsd: 0.04 }) // a judge call with no reported cost
+    const resumed = new Ledger(path.join(dir, LEDGER_FILE))
+    assert.equal(resumed.entries.length, 2, 'a resumed ledger starts from the file')
+    resumed.push({ label: 'owner-101:A:agent', costUsd: 0.3, reservedUsd: 0.5 }) // the retry
+    resumed.push({ label: 'owner-101:A:judge', costUsd: 0.05, reservedUsd: 0.1 }) // the re-judge
+    resumed.push({ label: 'owner-95:A:agent', costUsd: 0.1, reservedUsd: 0.5 })
+    assert.equal(Number(resumed.countedUsd().toFixed(6)), 0.69, 'reported charges plus unpriced reservations')
     const rows = readRows(dir, data.cases)
     const agg = aggregate(rows, data.principles)
     assert.equal(agg.A.runs, 4)
@@ -277,7 +320,8 @@ test('an errored or unjudged run is counted apart, never scored as a review that
     assert.equal(agg.A.unjudged, 2)
     assert.equal(agg.A.errors, 1)
     assert.equal(agg.A.overall, 100, 'only the judged run is scored')
-    assert.equal(agg.A.costUsd, 0.45)
+    assert.equal(agg.A.costUsd, 0.65, 'every attempt is paid for: 0.2 + 0.3 + 0.05 + 0.1')
+    assert.equal(agg.A.unpricedUsd, 0.04)
     const report = formatReport(agg, data.principles, rows)
     assert.match(report, /\| owner-95 \| A \| not judged/)
     assert.match(report, /\| owner-100 \| A \| error: boom/)
