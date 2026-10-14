@@ -215,11 +215,17 @@ export function cardLine(f: CardFrame): string {
   return `${f.energyType ?? ''} Energy${f.effect ? `: ${short(f.effect, 140)}` : ''}`.trim();
 }
 
-/** Printed damage of `move` on the attacker's card. */
+/**
+ * Printed damage of `move` on the attacker's card: its exact printing when the log gives a code, else the printing of
+ * that name that has the attack (a codeless name may resolve to another printing).
+ */
 function printedDamage(attacker: CardMention, move: string): string | null {
-  const f = frameOf(attacker);
-  const a = f?.attacks?.find((x) => same(x.name, move));
-  return a ? (a.damage ?? '0') : null;
+  const frames = attacker.id ? [frameOf(attacker)] : [frameOf(attacker), ...framesNamed(attacker.name)];
+  for (const f of frames) {
+    const a = f?.attacks?.find((x) => same(x.name, move));
+    if (a) return a.damage ?? '0';
+  }
+  return null;
 }
 
 const leadingNumber = (printed: string | null): number => Number(/^\d+/.exec(printed ?? '')?.[0] ?? 0);
@@ -333,8 +339,10 @@ function insightsInner(raw: string, o: { players?: [string, string] }): ReplayIn
     // "used X." whose damage, if any, follows on detail lines (a copied attack: "chose Trifrost", "Metang took 110
     // damage"; a search attack: Call for Family). The second kind is a `use` event whose move is one of the card's
     // attacks (Astra, #342: Seek Inspiration's three Knock Outs were missing).
-    // A codeless mention may match several printings: the move is an attack if any printing of that name has it.
-    const isAttackUse = e.t === 'use' && !e.sub && (frameOf(e.user) ? [frameOf(e.user)!] : framesNamed(e.user.name)).some((f) => !!f.attacks?.some((a) => same(a.name, e.move)));
+    // A coded mention is that exact printing. A codeless one could be any printing of the name, and the name lookup
+    // may settle on one without this attack (Poltchageist's Tea Server: Astra, #342), so every printing is asked.
+    const candidates = e.t === 'use' ? (e.user.id ? [frameOf(e.user)].filter((f): f is CardFrame => !!f) : framesNamed(e.user.name)) : [];
+    const isAttackUse = e.t === 'use' && !e.sub && candidates.some((f) => !!f.attacks?.some((x) => same(x.name, e.move)));
     if (e.t === 'attack' || isAttackUse) {
       const after = following(ev, i);
       const kos = after.filter((n): n is LiveEvent & { t: 'knockout' } => n.t === 'knockout');

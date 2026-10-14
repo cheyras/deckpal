@@ -147,6 +147,17 @@ test('an attack logged as a bare "used X." is an attack too: a copied attack and
   assert.equal(call.dealt, 0);
 });
 
+test('a codeless attacker is matched against every printing of its name (Astra, #342: Tea Server)', () => {
+  // The name may resolve to a printing without the attack; any printing that has it makes it an attack.
+  const raw = log('hns-11.txt').replace(
+    "PlayerA's (sv6-5_38) Fezandipiti ex used Flip the Script.\n",
+    "PlayerA's (sv6-5_38) Fezandipiti ex used Flip the Script.\nPlayerA's Poltchageist used Tea Server.\n",
+  );
+  assert.notEqual(raw, log('hns-11.txt'), 'the fixture line was found');
+  const ins = replayInsights(raw, { players: AB });
+  assert.ok(ins.attacks.some((a) => a.attacker === 'Poltchageist' && a.move === 'Tea Server'), JSON.stringify(ins.attacks.map((a) => `${a.attacker}:${a.move}`)));
+});
+
 test("where the engine disagrees with the log, boards after that line are flagged, never presented as facts (Astra, #342)", () => {
   const ins = replayInsights(log('hns-34.txt'), { players: AB });
   assert.ok(ins.replay.mismatches.length > 0, 'the engine reports differences on this game');
