@@ -798,6 +798,19 @@ archetype, so "new matchup" and "met three times" are counts rather than guesses
 
     `detail: 'turns'` adds the board as each turn began (at most 11,000 characters). Players are
     "me"/"opp", or escaped screen names when the reader is unknown.
+17b. **`battle_turn_review`** — `{ deck_id, log_id, turn, player_name? }` (added 2026-10-14).
+    `GET /decks/:id/logs/:logId/turns/:turn/review`: the battle simulator's strongest pilot on
+    one of the reader's turns of a stored PTCG Live game (`reviewTurn` in
+    `packages/sim/src/replay/turnReview.ts`). It searches 3 sampled worlds and gives each
+    shortlisted first action its own search. For each option it reports:
+    - the line it leads to;
+    - the Prizes it takes and the Pokémon it Knocks Out;
+    - how far behind the best it is, in Prize cards of the engine's evaluation.
+
+    The reader's own first action is always listed. Then come a plain verdict and the caveats:
+    one sampled world, hidden cards guessed, a strong heuristic player rather than an oracle,
+    and within 0.3 Prize counts as equal. Rendered under 3,500 characters. An opponent's turn,
+    or a turn the replay cannot reach, is answered with the reason. `readOnlyHint: true`.
 18. **`deck_history`** — `{ deck_id, version?, revert_to?, include_strategy? = true, note?,
     dry_run? = true }`. No extra args: version timeline with per-version W/L, note, source, card
     count, current marker. `version`: full snapshot + card diff vs the previous version.

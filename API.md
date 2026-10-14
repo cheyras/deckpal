@@ -1671,6 +1671,40 @@ digest named them, and `me` says which side that is (`null` when unknown).
 - **`assessment`**: how much a review is worth (`assessReview`). `null` when the
   reader is unknown.
 
+### GET /deckpal/api/decks/:id/logs/:logId/turns/:turn/review
+Added 2026-10-14. `?playerName=` (optional). This answers "what would the
+strongest simulator pilot have done on this turn?" (`reviewTurn` in
+`packages/sim/src/replay/turnReview.ts`). It is read-only, with the digest's
+ownership rules and its side order. Steps:
+1. The stored log is replayed to the reader's first decision of turn `:turn`.
+2. The simulator's own-turn search runs over 3 determinised worlds and
+   shortlists the best first actions.
+3. Each shortlisted action, the reader's own always among them, is searched
+   again from the position it leads to, with the same budget.
+
+It is seeded, so the same game gives the same review.
+```json
+200 { "logId": 7, "turn": 6, "players": { "me": "PlayerA", "opponent": "PlayerB" },
+      "review": { "turn": 6, "found": true, "reason": null,
+        "readerDid": ["P0 played Stadium Prism Tower", "P0's Dhelmise attacked with Vengeful Anchor (340 to Mega Lucario ex)"],
+        "options": [ { "rank": 1, "first": "Bench Dhelmise", "line": ["Bench Dhelmise", "…", "Attack: Vengeful Anchor"],
+                       "prizes": 3, "knockOuts": ["Mega Lucario ex"], "behindBest": 0, "winsIn": 0, "reader": false },
+                     { "rank": 3, "first": "Play Prism Tower", "…": "…", "behindBest": 0, "reader": true } ],
+        "offered": 17, "worlds": 3, "nodes": 7200, "hiddenInHand": 0, "ms": 316 } }
+```
+- **`behindBest`**: how much worse than the best option, in Prize cards of the
+  engine's evaluation. Options within about 0.3 are effectively equal.
+- **`line`**: the option's best line through the end of the turn, in one
+  sampled world.
+- **`hiddenInHand`**: how many cards in the reader's hand the log never showed,
+  which the search had to guess.
+- **No review.** Two cases answer `found: false` with a `reason`: an opponent's
+  turn, and a turn the replay could not reach. When the reader cannot be
+  identified, `review` is `null` and `reason` asks for `playerName`.
+- **Errors.** `404` when the log has no raw text, as for the digest. `429`
+  (`rate_limited`) beyond 20 reviews a minute per user.
+Consumed by the agent tool `battle_turn_review`.
+
 ### PATCH /deckpal/api/decks/:id/logs/:logId
 Body: any of `{ "result", "opponent", "opponentDeck", "opponentArchetype",
 "notes", "reviewMd", "playedAt" }`.
