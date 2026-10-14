@@ -8,7 +8,8 @@ import type pg from 'pg';
  * hands to a non-browser client: the MCP endpoint at /mcp, or the REST API
  * directly. It resolves to exactly one `app_user.id`, and every query that
  * follows runs in that user's RLS context — the token grants no more than the
- * user's own session would, and a `read` token less (migration 075).
+ * user's own session would, and a `read` token less (migration 075). The
+ * person minting one chooses its scope (migration 085); it defaults to full.
  *
  * An OAuth connection is a row of this same table (grants.ts); its secrets
  * rotate beneath it and it carries an `expires_at`. Hand-made tokens have no
@@ -275,13 +276,45 @@ export interface CreatedToken {
   raw: string;
 }
 
-export async function createToken(db: Queryable, userId: string, name: string): Promise<CreatedToken> {
+/**
+ * Migration 085: may the role this runs as insert `api_token.scope`? 075 let
+ * client roles insert only (user_id, name, token_hash, prefix), so on Supabase
+ * a read-only token cannot be minted as the signed-in user until 085 grants the
+ * column. Plain Postgres inserts as the table's owner and is ready once 075 is.
+ * Not cached: it is asked only when someone mints a read-only token, and the
+ * answer depends on the role the caller's connection is running as.
+ */
+export async function readOnlyTokensReady(db: Queryable): Promise<boolean> {
+  if (!(await grantSchemaReady(db))) return false;
+  const { rows } = await db.query<{ ready: boolean }>(
+    `SELECT has_column_privilege('public.api_token', 'scope', 'INSERT') AS ready`,
+  );
+  return rows[0]?.ready === true;
+}
+
+/**
+ * Mint a hand-made token. `scope` defaults to 'full', and a full token is
+ * inserted exactly as it was before 085, taking the column's default, so
+ * minting one never depends on 085's grant (or, before 075, on the column
+ * existing). A read-only token names its scope, and is refused outright rather
+ * than minted full on a database with nowhere to record it.
+ */
+export async function createToken(db: Queryable, userId: string, name: string, scope: TokenScope = 'full'): Promise<CreatedToken> {
+  if (scope !== 'full' && scope !== 'read') throw new Error(`unknown token scope: ${String(scope)}`);
+  if (scope === 'read' && !(await grantSchemaReady(db))) {
+    throw new Error('a read-only token needs migration 075 (api_token.scope); nothing was minted');
+  }
   const raw = generateToken();
+  const params = [userId, name, hashToken(raw), tokenPrefix(raw)];
   const { rows } = await db.query<Parameters<typeof shape>[0]>(
-    `INSERT INTO api_token (user_id, name, token_hash, prefix)
-     VALUES ($1, $2, $3, $4)
-     RETURNING ${await columns(db)}`,
-    [userId, name, hashToken(raw), tokenPrefix(raw)],
+    scope === 'read'
+      ? `INSERT INTO api_token (user_id, name, token_hash, prefix, scope)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING ${await columns(db)}`
+      : `INSERT INTO api_token (user_id, name, token_hash, prefix)
+         VALUES ($1, $2, $3, $4)
+         RETURNING ${await columns(db)}`,
+    scope === 'read' ? [...params, scope] : params,
   );
   const row = rows[0];
   if (!row) throw new Error('token insert returned no row');
