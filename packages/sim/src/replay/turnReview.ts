@@ -28,8 +28,9 @@ import { DEFAULT_WEIGHTS, evaluate } from '../pilot/eval.js';
 import { optionCount, settle } from '../pilot/lookahead.js';
 import { DEFAULT_PROFILE } from '../pilot/policy.js';
 import { DEFAULT_SEARCH, searchWorld } from '../pilot/search.js';
+import { canonicalName } from './cardCodes.js';
 import { parseLiveLog } from './liveLog.js';
-import { replayLog, type ReplayObservation } from './replay.js';
+import { HIDDEN, replayLog, type ReplayObservation } from './replay.js';
 
 export interface TurnOption {
   /** 1 = the search's choice. */
@@ -64,6 +65,8 @@ export interface TurnReview {
   nodes: number;
   /** Cards in the reader's hand the log never showed (hidden fillers the search had to guess at). */
   hiddenInHand: number;
+  /** How the reader's deck was rebuilt for the search: from the battle's decklist, or estimated without one. */
+  deck: 'list' | 'estimate' | null;
   ms: number;
 }
 
@@ -77,6 +80,69 @@ export interface TurnReviewOptions {
   seed?: number;
   /** How many options to describe (the reader's is added if it is not among them). */
   top?: number;
+  /**
+   * The reader's decklist (the battle's recorded deck version), by card name. The replay's deck is a reservoir (four
+   * copies of every card the log showed, plus blank fillers), not the reader's 60: with the list, the reader's deck
+   * is rebuilt count for count before the search (Astra, #343: a line played one Secret Box four times).
+   */
+  deckList?: ReadonlyArray<{ name: string; count: number }>;
+}
+
+/** Cards in a deck. */
+const DECK_SIZE = 60;
+
+/**
+ * Make one side's deck the size the real one is (60 less every card already out of it) and, with the decklist, the
+ * composition it can be: each listed card as many times as the list has it less the copies already seen elsewhere.
+ * Listed cards the log never showed have no card in the replay and stay blank fillers; without a list, the replay's
+ * fillers go first and the extra revealed copies after, so no card appears more than the reservoir allows.
+ */
+function normaliseDeck(game: Game, side: Player, deckList?: ReadonlyArray<{ name: string; count: number }>): 'list' | 'estimate' {
+  const ctx = game.ctx;
+  const ps = game.state.p[side];
+  const inPlay = [ps.active, ...ps.bench].flatMap((sl) => (sl ? [...sl.cards, ...sl.energy, ...sl.tools] : []));
+  const outside = [...ps.hand, ...ps.discard, ...(ps.lost ?? []), ...ps.prizes, ...inPlay];
+  const size = Math.max(0, DECK_SIZE - outside.length);
+  const key = (iid: number) => canonicalName(def(ctx, iid).name).toLowerCase();
+  const hidden = canonicalName(HIDDEN).toLowerCase();
+  const pool = new Map<string, number[]>();
+  for (const iid of ps.deck) {
+    const k = key(iid);
+    pool.set(k, [...(pool.get(k) ?? []), iid]);
+  }
+  const fillers = pool.get(hidden) ?? [];
+  pool.delete(hidden);
+  const out: number[] = [];
+  if (deckList?.length) {
+    const seen = new Map<string, number>();
+    for (const iid of outside) {
+      const k = key(iid);
+      if (k !== hidden) seen.set(k, (seen.get(k) ?? 0) + 1);
+    }
+    const listed = new Map<string, number>();
+    for (const e of deckList) {
+      const k = canonicalName(e.name).toLowerCase();
+      listed.set(k, (listed.get(k) ?? 0) + e.count);
+    }
+    for (const [k, count] of listed) {
+      const avail = pool.get(k) ?? [];
+      for (let n = count - (seen.get(k) ?? 0); n > 0 && avail.length; n--) out.push(avail.pop()!);
+    }
+    while (out.length < size && fillers.length) out.push(fillers.pop()!);
+    ps.deck = out.slice(0, size);
+    return 'list';
+  }
+  // No list: every revealed copy the reservoir holds, then fillers, cut to the real size (largest groups first).
+  for (const ids of pool.values()) out.push(...ids);
+  while (out.length > size) {
+    const k = [...pool.entries()].sort((a, b) => b[1].length - a[1].length)[0];
+    if (!k || !k[1].length) break;
+    const drop = k[1].pop()!;
+    out.splice(out.indexOf(drop), 1);
+  }
+  while (out.length < size && fillers.length) out.push(fillers.pop()!);
+  ps.deck = out.slice(0, size);
+  return 'estimate';
 }
 
 const PRIZE = DEFAULT_WEIGHTS.prize;
@@ -117,7 +183,7 @@ function walk(world: GameState, game: Game, me: Player, line: number[]): { actio
 export function reviewTurn(raw: string, turn: number, o: TurnReviewOptions): TurnReview {
   const t0 = Date.now();
   const empty = (reason: string, readerDid: string[] = [], hiddenInHand = 0): TurnReview => ({
-    turn, found: false, reason, readerDid, options: [], offered: 0, worlds: 0, nodes: 0, hiddenInHand, ms: Date.now() - t0,
+    turn, found: false, reason, readerDid, options: [], offered: 0, worlds: 0, nodes: 0, hiddenInHand, deck: null, ms: Date.now() - t0,
   });
   try {
     const parsed = parseLiveLog(raw, o.players ? { players: o.players } : {});
@@ -159,6 +225,8 @@ export function reviewTurn(raw: string, turn: number, o: TurnReviewOptions): Tur
     const game = first.game;
     const d = game.decision as Decision;
     const me = d.player;
+    const deckFrom = normaliseDeck(game, me, o.deckList);
+    normaliseDeck(game, opp(me));
     const env = { ctx: game.ctx, emit: null };
     const worlds = Math.max(1, Math.min(6, o.worlds ?? 3));
     const nodes = Math.max(50, Math.min(2000, o.nodes ?? 600));
@@ -241,7 +309,8 @@ export function reviewTurn(raw: string, turn: number, o: TurnReviewOptions): Tur
         prizes: w.prizes,
         knockOuts: w.knockOuts,
         behindBest: Math.round(((best - f.v) / PRIZE) * 10) / 10,
-        winsIn: Math.max(f.wonIn, wins[f.i] as number),
+        // From the search that ranked it, not the wide one (two samples of worlds: Astra, #343).
+        winsIn: f.wonIn,
         reader: f.i === readerFirst,
       };
     });
@@ -255,6 +324,7 @@ export function reviewTurn(raw: string, turn: number, o: TurnReviewOptions): Tur
       worlds,
       nodes: spent,
       hiddenInHand: first.fillersInHand,
+      deck: deckFrom,
       ms: Date.now() - t0,
     };
   } catch (err) {

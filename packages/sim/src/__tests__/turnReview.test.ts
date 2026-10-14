@@ -9,8 +9,27 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { reviewTurn } from '../replay/turnReview.js';
 
-const raw = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'live-logs', 'hns-11.txt'), 'utf8');
+const dir = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'live-logs');
+const raw = readFileSync(join(dir, 'hns-11.txt'), 'utf8');
 const AB: [string, string] = ['PlayerA', 'PlayerB'];
+
+test("the reader's deck is rebuilt to the real count before the search: a single copy is played at most once (Astra, #343)", () => {
+  // Turn 8: one Secret Box is in hand; the list has one, so no line may play a second.
+  const listed = reviewTurn(raw, 8, { players: AB, me: 0, deckList: [{ name: 'Secret Box', count: 1 }] });
+  assert.equal(listed.found, true, listed.reason ?? '');
+  assert.equal(listed.deck, 'list');
+  for (const o of listed.options) assert.ok(o.line.filter((l) => /Secret Box/.test(l)).length <= 1, `${o.first}: ${o.line.join(' → ')}`);
+  // Without a list the deck is still cut to its real size, never the replay's reservoir.
+  const estimated = reviewTurn(raw, 8, { players: AB, me: 0 });
+  assert.equal(estimated.deck, 'estimate');
+  for (const o of estimated.options) assert.ok(o.line.filter((l) => /Secret Box/.test(l)).length <= 4, `${o.first}`);
+});
+
+test('wins are counted in the worlds that ranked the option, never the larger of two samples (Astra, #343)', () => {
+  const r = reviewTurn(readFileSync(join(dir, 'hns-34.txt'), 'utf8'), 6, { players: AB, me: 0 });
+  assert.equal(r.found, true, r.reason ?? '');
+  for (const o of r.options) assert.ok(o.winsIn >= 0 && o.winsIn <= r.worlds, `${o.first}: ${o.winsIn}/${r.worlds}`);
+});
 
 test("turn 6: the 3-Prize Vengeful Anchor turn — the reader's line is as good as the best, and every option's line says what it takes", () => {
   const r = reviewTurn(raw, 6, { players: AB, me: 0 });

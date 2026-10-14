@@ -2577,8 +2577,8 @@ decksRouter.get(
       res.status(429).json({ error: { code: 'rate_limited', message: 'Too many turn reviews — try again shortly.' } });
       return;
     }
-    const row = await q1<Pick<LogRow, 'id' | 'raw_log' | 'origin' | 'parsed'>>(
-      `SELECT id, raw_log, origin, parsed FROM battle_log WHERE id = $1 AND deck_id = $2`,
+    const row = await q1<Pick<LogRow, 'id' | 'deck_version' | 'raw_log' | 'origin' | 'parsed'>>(
+      `SELECT id, deck_version, raw_log, origin, parsed FROM battle_log WHERE id = $1 AND deck_id = $2`,
       [logId, deckId],
     );
     if (!row) throw notFound(`No battle log '${logId}'`);
@@ -2601,8 +2601,15 @@ decksRouter.get(
         ?? (typeof storedMe === 'string' && storedMe ? storedMe : undefined),
     });
     const { me, opponent } = digest.players;
+    // The list the game was logged against: the search rebuilds the reader's deck from it, count for count, instead of
+    // the replay's reservoir of every card the log showed (Astra, #343).
+    const version = await q1<{ cards: Array<{ name: string; quantity: number }> | null }>(
+      `SELECT cards FROM deck_version WHERE deck_id = $1 AND version = $2`,
+      [deckId, row.deck_version],
+    );
+    const deckList = (version?.cards ?? []).map((c) => ({ name: c.name, count: c.quantity }));
     const review = me && opponent
-      ? reviewTurn(row.raw_log, turn, { players: [me, opponent], me: 0 })
+      ? reviewTurn(row.raw_log, turn, { players: [me, opponent], me: 0, ...(deckList.length ? { deckList } : {}) })
       : null;
     if (review && review.ms > 3_000) console.warn(`[deckpal-api] turn review took ${review.ms} ms (log ${row.id}, turn ${turn})`);
     userCache(res);

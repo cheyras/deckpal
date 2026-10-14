@@ -45,6 +45,8 @@ export interface TurnReviewPayload {
     worlds: number;
     nodes: number;
     hiddenInHand: number;
+    /** How the reader's deck was rebuilt for the search (absent from an older API). */
+    deck?: 'list' | 'estimate' | null;
     ms: number;
   } | null;
   reason?: string;
@@ -94,7 +96,7 @@ export function renderTurnReview(p: TurnReviewPayload, deckName: string, note?: 
       ...out,
       ...lines,
       `verdict: ${verdict}.`,
-      `caveats: lines are from one sampled world, so later steps depend on the cards drawn there; the opponent's hand and both decks' order were sampled${r.hiddenInHand ? `; ${r.hiddenInHand} card(s) in your hand the log never showed were guessed` : ''}. A strong heuristic player (it beats the previous pilot 51.7%), not an oracle: options within ${EVEN} Prize are effectively equal.`,
+      `caveats: lines are from one sampled world, so later steps depend on the cards drawn there; the opponent's hand and both decks' order were sampled${r.deck === 'list' ? '; your deck was rebuilt from the deck version you logged the game against' : r.deck === 'estimate' ? "; your deck was estimated from the cards the log showed (no decklist)" : ''}${r.hiddenInHand ? `; ${r.hiddenInHand} card(s) in your hand the log never showed were guessed` : ''}. A strong heuristic player (it beats the previous pilot 51.7%), not an oracle: options within ${EVEN} Prize are effectively equal.`,
       ...(note ? [note] : []),
     ].join('\n');
   };
