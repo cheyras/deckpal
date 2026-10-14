@@ -24,6 +24,8 @@ export interface BuiltEntry { id: number; date: string; source: string; categori
 const clean = (s: string): string => {
   let t = s
     .replace(/\(?https?:\/\/\S+?\)?(?=[\s,;:.]|$)/g, '')
+    // A citation a test name wrote without its scheme ("compendium.pokegym.net/ruling/2417/)").
+    .replace(/\(?(?:compendium)?\.?pokegym\.net\/ruling\/\d+\/?\)?/gi, '')
     .replace(/\(\s*\)/g, '')
     .replace(/\s+/g, ' ')
     .replace(/\\(['"`])/g, '$1')
@@ -36,7 +38,7 @@ const clean = (s: string): string => {
 function idsIn(text: string): number[] {
   const ids = new Set<number>();
   for (const m of text.matchAll(/compendium\.pokegym\.net\/ruling\/(\d{1,4})/gi)) ids.add(Number(m[1]));
-  for (const m of text.matchAll(/\band \/(\d{1,4})\//g)) ids.add(Number(m[1]));
+  for (const m of text.matchAll(/(?:\band |(?:\.\.\.|…))\/(\d{1,4})\//g)) ids.add(Number(m[1]));
   for (const m of text.matchAll(/(?:Compendium #|\bRuling #?|\brulings? )(\d{1,4}(?:\s*(?:,|and)\s*\d{1,4})*)/gi)) {
     for (const n of m[1]!.split(/\s*(?:,|and)\s*/)) if (n) ids.add(Number(n));
   }
@@ -58,31 +60,83 @@ function fromTests(add: (id: number, summary: string) => void): void {
   }
 }
 
-/** Card-script comments that cite a ruling: the text after the citation, with its continuation lines. */
+/** One citation: the URL (with any "and /2240/" that shares it), its closing parenthesis and colon. */
+const CITATION = /https?:\/\/compendium\.pokegym\.net\/ruling\/\d{1,4}\/?(?:\s*(?:,|and)\s*(?:\.\.\.|…)?\/\d{1,4}\/?)*\)?:?/gi;
+
+/**
+ * The explanation each citation in one comment carries. A comment can cite several rulings, each with its own explanation
+ * ("Ruling (…/2328/): devolving is not benching. Ruling #2327 (…/2327/): the reminder text is overridden."), so each
+ * citation gets the text after it, up to the sentence where the next citation's lead-in begins, and the ids named in its
+ * own lead-in. Taking the text after the LAST citation for every id gave #2328 the explanation of #2327 (Astra, #340).
+ */
+export function citedExplanations(comment: string): Array<{ ids: number[]; text: string }> {
+  const cites = [...comment.matchAll(CITATION)];
+  const out: Array<{ ids: number[]; text: string }> = [];
+  let leadStart = 0;
+  for (let k = 0; k < cites.length; k++) {
+    const m = cites[k]!;
+    const end = m.index! + m[0].length;
+    const next = cites[k + 1]?.index ?? comment.length;
+    let text = comment.slice(end, next);
+    let nextLead = next;
+    if (k + 1 < cites.length) {
+      // The next citation's lead-in ("Ruling #2327 (") starts after the last sentence end before it.
+      const cut = Math.max(text.lastIndexOf('. '), text.lastIndexOf('; '));
+      if (cut >= 0) {
+        text = text.slice(0, cut + 1);
+        nextLead = end + cut + 1;
+      } else {
+        text = '';
+      }
+    }
+    // A citation whose parenthesis closes after more source text ("(https://…/2327/, TPCi 2026-04-09): …").
+    const close = text.indexOf('):');
+    if (close >= 0 && close < 80 && !/[.;]/.test(text.slice(0, close))) text = text.slice(close + 2);
+    out.push({ ids: idsIn(comment.slice(leadStart, end)), text });
+    leadStart = nextLead;
+  }
+  return out;
+}
+
+/**
+ * The comment on a source line: a block comment's ` * ` line, or the text after `//` — never the `//` of "https://", which
+ * is how a URL inside a string literal used to pass for a comment.
+ */
+function commentOf(line: string): { text: string; block: boolean } | null {
+  const t = line.trimStart();
+  if (t.startsWith('*') && !t.startsWith('*/')) return { text: t.replace(/^\*\s?/, ''), block: true };
+  if (t.startsWith('/*')) return { text: t.replace(/^\/\*+\s?/, ''), block: true };
+  const m = /(?:^|[^:])\/\//.exec(line);
+  return m ? { text: line.slice(m.index + m[0].length), block: false } : null;
+}
+
+/** Card-script comments that cite a ruling: the text after each citation, with the comment's continuation lines. */
 function fromScripts(add: (id: number, summary: string) => void): void {
   const dirs = [join(ROOT, 'src', 'cards', 'scripts'), join(ROOT, 'src', 'cards', 'frames-extra')];
   for (const dir of dirs) {
     for (const f of readdirSync(dir).filter((n) => n.endsWith('.ts'))) {
       const lines = readFileSync(join(dir, f), 'utf8').split(/\r?\n/);
       for (let i = 0; i < lines.length; i++) {
-        const line = lines[i]!;
-        const c = line.indexOf('//');
-        if (c < 0 || !/compendium\.pokegym\.net\/ruling\/\d/i.test(line)) continue;
-        const ids = idsIn(line);
-        // The summary starts after the citation's closing "):" when there is one, else after the last URL.
-        let body = line.slice(c + 2);
-        const close = body.lastIndexOf('):');
-        if (close >= 0) body = body.slice(close + 2);
-        else body = body.replace(/^.*compendium\.pokegym\.net\/ruling\/\d+\/?\)?/i, '');
-        // Continuation: following comment-only lines that do not start a new citation.
-        for (let j = i + 1; j < lines.length && body.length < SUMMARY_MAX; j++) {
-          const next = lines[j]!.trim();
-          if (!next.startsWith('//') || /compendium\.pokegym\.net\/ruling\//i.test(next)) break;
-          body += ' ' + next.slice(2);
+        const c = commentOf(lines[i]!);
+        if (!c || !/compendium\.pokegym\.net\/ruling\/\d/i.test(c.text)) continue;
+        let comment = c.text;
+        // Continuation: following lines of the same comment that do not start a new citation.
+        for (let j = i + 1; j < lines.length && comment.length < SUMMARY_MAX * 2; j++) {
+          const raw = lines[j]!.trim();
+          const next = commentOf(lines[j]!);
+          // A block comment goes on to document other things (a function's arguments), so it continues only to the end of
+          // the sentence that cites the ruling.
+          const sameKind = c.block
+            ? raw.startsWith('*') && !raw.startsWith('*/') && !/[.!?)]\s*$/.test(comment) && next?.text.trim() !== ''
+            : raw.startsWith('//');
+          if (!next || !sameKind || /compendium\.pokegym\.net\/ruling\//i.test(next.text)) break;
+          comment += ' ' + next.text;
         }
-        const summary = clean(body);
-        if (summary.length < 12) continue;
-        for (const id of ids) add(id, summary);
+        for (const { ids, text } of citedExplanations(comment)) {
+          const summary = clean(text);
+          if (summary.length < 12) continue;
+          for (const id of ids) add(id, summary);
+        }
       }
     }
   }

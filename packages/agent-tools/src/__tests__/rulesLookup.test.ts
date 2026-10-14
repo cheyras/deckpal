@@ -112,6 +112,12 @@ test('a name passed in cards is consumed from the question whatever its case (ro
   assert.match(upper, /Official rulings filed under cursed blast/);
 });
 
+test('an evolved Pokémon can use a same-named Ability again: only BREAK carries the use over (round 4)', async () => {
+  const out = await ask({ query: 'can I use the ability again after I evolve, kirlia used refinement then evolved' });
+  assert.match(out, /even an Ability with the same name/);
+  assert.doesNotMatch(out, /stays used if the evolution has an Ability with the same name/);
+});
+
 test('repeated whitespace in a name still matches it (round 2)', async () => {
   assert.match(await ask({ query: 'Does Nighttime  Mine   affect Dragapult ex?' }), /#2288/);
 });

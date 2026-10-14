@@ -41,8 +41,9 @@ export const CORE_RULES: readonly CoreRule[] = [
       'into play. There is NO rule against attacking with a Pokémon the turn it evolved: an evolved Pokémon can attack ' +
       'that turn. Evolving keeps damage counters, attached Energy and Tools; it removes Special Conditions and the ' +
       'effects of attacks, but not effects from Trainers or Abilities. The evolved Pokémon counts as a new Pokémon, so ' +
-      'its own Ability can be used even if the Basic used one that turn; an Ability already used stays used if the ' +
-      'evolution has an Ability with the same name.',
+      'its Abilities can be used that turn even if the Pokémon used one before evolving, even an Ability with the same ' +
+      "name (Kirlia's Refinement, then Gardevoir's). Only a BREAK Evolution, which keeps the previous card's Ability " +
+      'rather than printing its own, carries the use over.',
     checked: 'sim rules.test.ts (rulebook p.11-13), rules-audit.test.ts',
   },
   {
