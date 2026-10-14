@@ -158,6 +158,12 @@ test('Grand Tree needs an evolution path in play, not the Stage 1 in the deck (r
   assert.doesNotMatch(out, /a Stage 1 card you have in your deck|evolve further into a card in the deck/);
 });
 
+test("Adversity Policy keeps its Weakness condition, and rulings say summaries assume each card's printed conditions (round 10)", async () => {
+  const out = await ask({ query: 'my active is not weak to dark, does adversity policy draw when skuntank switches out', cards: ['Adversity Policy'] });
+  assert.match(out, /#2358[\s\S]*Weak to the attacker/);
+  assert.match(out, /DeckPal's summaries assume each card's printed conditions/);
+});
+
 test('repeated whitespace in a name still matches it (round 2)', async () => {
   assert.match(await ask({ query: 'Does Nighttime  Mine   affect Dragapult ex?' }), /#2288/);
 });

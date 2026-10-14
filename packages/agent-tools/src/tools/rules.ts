@@ -198,6 +198,9 @@ const rulesLookupTool = defineTool({
     if (rulings.length) {
       lines.push(`Official rulings filed under ${namedLabel} (${rulings.length}${rulings.length > MAX_RULINGS ? `, showing ${MAX_RULINGS}` : ''}):`);
       for (const { r } of rulings.slice(0, MAX_RULINGS)) lines.push(renderRuling(r));
+      // A one-line summary states the ruling's answer for the situation it was asked about; the card's own printed
+      // conditions (Adversity Policy's Weakness, Sniper's Eye's hand size) still apply.
+      lines.push("DeckPal's summaries assume each card's printed conditions: when a condition decides the answer, check the card text (get_card) and the ruling at its link.");
     } else if (named.length) {
       lines.push(`No official ruling is filed under ${namedLabel}. The card text (get_card) and the core rules decide it.`);
     }
