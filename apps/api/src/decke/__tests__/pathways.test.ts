@@ -157,6 +157,8 @@ test("the digest's replay is named where games are reviewed: moments are facts t
   assert.match(log, /moments worth a look \(a Pokémon Knocked Out on its own turn, prevented damage, a near miss, a timer turn, a concession\)/)
   assert.match(log, /Treat those moments as facts to explain, and let `review worth` confirm the depth, unless the reader asked for a full review/)
   assert.match(log, /`detail: 'turns'` for the board as each turn began/)
+  assert.match(log, /call `battle_turn_review` on the one or two of the reader's turns that decided it/)
+  assert.match(log, /never call a reasonable play a misplay on its word alone/)
   assert.match(flat(pathwayText('battle_review')), /from the simulator's replay every attack with what changed its damage/)
 })
 
