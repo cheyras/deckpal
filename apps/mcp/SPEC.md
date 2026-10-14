@@ -168,7 +168,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   only because Claude requests a refresh token when it sees it; DeckPal checks no OAuth scope
   string). The consent screen offers a scope choice only when `GET /oauth/client`
   includes `trust`, which the older scope-ignoring API omits. Its **read-only** connection resolves with
-  `scope: 'read'`, is built a server with only the 18 `readOnlyHint` tools (21 with the Deck-E
+  `scope: 'read'`, is built a server with only the 19 `readOnlyHint` tools (22 with the Deck-E
   improvement capability), runs in `BEGIN READ
   ONLY`, and is refused every non-GET REST call (`403 insufficient_scope`) except `POST /massentry`,
   `POST /decks/check`, `POST /decks/odds` and `POST /decks/simulate` (2026-10-10: `/decks/check` had
@@ -189,7 +189,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   until 085 is applied, because before it the signed-in role may not insert the column; a full token
   is inserted without naming `scope` and so never depends on 085. The `201` response's `token` and
   every `GET /tokens` row carry `scope`. A read token is `scope = 'read'` on its own `api_token`
-  row, so it resolves, lists and is enforced exactly like a read-only OAuth connection (17 read
+  row, so it resolves, lists and is enforced exactly like a read-only OAuth connection (19 read
   tools, `BEGIN READ ONLY`, `403 insufficient_scope` on REST writes), with no expiry and no
   `redirect`, like any hand-made token. Revocation is unchanged, and a token's scope cannot be
   changed after it is made: 085 grants `authenticated` INSERT on `scope` and never UPDATE.
@@ -289,7 +289,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
 ## 4. Tool conventions
 
 - **The tool definitions live in `packages/agent-tools/src/tools/*.ts`** (`@deckpal/agent-tools`):
-  the 28 in `allTools()` (17 read, 11 write) plus the three capability-gated `deckeImprovementTools`,
+  the 30 in `allTools()` (19 read, 11 write) plus the three capability-gated `deckeImprovementTools`,
   each a `ToolDefinition` — `{ name, title, description, inputSchema, annotations, handler }` — written
   against `Ctx` alone, with no MCP SDK import anywhere in that package. `apps/mcp/src/adapters/mcp.ts`
   is the only file that turns one into an MCP registration: it walks `allTools()` and the gated
@@ -408,7 +408,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   "call set_progress with NO set_id" and got seven calls with `set_id: 'none'`. Ids in a failure
   message come from the caller's own data or are absent.
 
-## 5. Tool surface (29 ordinary tools + 3 capability-gated tools + 1 resource)
+## 5. Tool surface (30 ordinary tools + 3 capability-gated tools + 1 resource)
 
 The generated `apps/mcp/TOOLS.md` (`pnpm mcp:tools-doc`) is authoritative for names, arguments,
 defaults and annotations; this section records design intent.
