@@ -390,7 +390,7 @@ export const STD_ENGINE7: CardScript[] = [
     abilities: [
       {
         // "Each of your evolved Pokémon can use any attack from its previous Evolutions. (You still need the necessary Energy to use each attack.)"
-        // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2311/): Sniper's Eye's removal of {C} costs applies to a borrowed Dartrix attack. (so cost effects on the Pokémon apply to the borrowed attacks)
+        // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2311/): while the opponent has exactly 4 cards in hand, Sniper's Eye's removal of {C} costs also applies to a Dartrix attack used through Memory Dive (cost effects on the Pokémon apply to the attacks it borrows).
         name: 'Memory Dive',
         statics: [{ effect: { k: 'previousAttacks' }, scope: 'myPokemon', filter: { stage: 'evolution' } }],
       },

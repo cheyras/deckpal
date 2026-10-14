@@ -143,6 +143,15 @@ test('summaries keep the conditions that decide the answer: Shadowy Concealment 
   assert.doesNotMatch(depths, /then one more (?:Benched Pokémon )?is discarded/);
 });
 
+test('the condition-keeping summary always shows: Sniper\'s Eye needs exactly 4 cards; Selective Slime\'s exception is not reversed (round 8)', async () => {
+  const eye = await ask({ query: "opponent has 5 cards, does Sniper's Eye remove the colorless cost of Feather Shot through Memory Dive", cards: ["Sniper's Eye"] });
+  const block = eye.slice(eye.indexOf('#2311'));
+  assert.match(block, /exactly 4 cards in hand/, 'the condition survives the output limit');
+  const slime = await ask({ cards: ['Selective Slime'] });
+  assert.match(slime, /strengthened version/);
+  assert.doesNotMatch(slime, /or is a weaker version/, 'the reversed exception is gone');
+});
+
 test('repeated whitespace in a name still matches it (round 2)', async () => {
   assert.match(await ask({ query: 'Does Nighttime  Mine   affect Dragapult ex?' }), /#2288/);
 });

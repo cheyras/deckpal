@@ -107,9 +107,29 @@ function namesInQuery(query: string, passed: readonly string[] = []): string[] {
   return [...found];
 }
 
+/** Per ruling: at most this many summaries, and this many characters of them (the first always shows). */
+const SUMMARIES_PER_RULING = 3;
+const SUMMARY_CHARS_PER_RULING = 600;
+
+/**
+ * The summaries a ruling shows, longest first: the longest is the one that keeps the conditions (Sniper's Eye's "exactly
+ * 4 cards in hand" was the third of three, and the first two shown left it out: Astra, #340).
+ */
+function shownSummaries(r: RulingIndexEntry): string[] {
+  const byLength = [...r.summaries].sort((a, b) => b.length - a.length);
+  const out: string[] = [];
+  let chars = 0;
+  for (const s of byLength) {
+    if (out.length >= SUMMARIES_PER_RULING || (out.length > 0 && chars + s.length > SUMMARY_CHARS_PER_RULING)) break;
+    out.push(s);
+    chars += s.length;
+  }
+  return out;
+}
+
 function renderRuling(r: RulingIndexEntry): string {
   const head = `#${r.id} · ${r.date} · ${r.categories.join(', ')} (${r.source})`;
-  const body = r.summaries.length ? r.summaries.slice(0, 2).map((s) => `    DeckPal: ${s}`) : ['    (no DeckPal summary: read it at the link)'];
+  const body = r.summaries.length ? shownSummaries(r).map((s) => `    DeckPal: ${s}`) : ['    (no DeckPal summary: read it at the link)'];
   return [head, ...body, `    ${RULING_URL(r.id)}`].join('\n');
 }
 

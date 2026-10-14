@@ -242,8 +242,9 @@ export const STD_C26: CardScript[] = [
     name: 'Tatsugiri ex',
     attacks: {
       // "This attack's damage isn't affected by any effects on your opponent's Active Pokémon."
+      // (Engine note: Kecleon's Expert Hider itself is not scripted yet.)
       // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2040/): Surprise Pump does 100: it ignores Expert Hider's damage reduction because that is an effect.
-      // -- the damage skips every damage reduction and prevention effect on the Defending Pokémon (Kecleon's Expert Hider itself is not scripted yet).
+      // -- the damage skips every damage reduction and prevention effect on the Defending Pokémon.
       'Surprise Pump': { ignore: { defenderEffects: true } },
       // "Look at the top 10 cards of your deck. You may put any number of Pokémon you find there onto your Bench. Shuffle the other cards back into your deck."
       // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2045/): Stage 1 or Stage 2 cards may be put onto the Bench, as long as there is room.
