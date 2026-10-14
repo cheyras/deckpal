@@ -147,6 +147,26 @@ test('an attack logged as a bare "used X." is an attack too: a copied attack and
   assert.equal(call.dealt, 0);
 });
 
+test("a damage-clause attack keeps its copied name and every Pokémon it hit on detail lines (Astra, #342: turn 13's Trifrost)", () => {
+  const ins = replayInsights(log('tbs-57.txt'), { players: AB });
+  const t13 = ins.attacks.filter((a) => a.turn === 13);
+  assert.deepEqual(
+    t13.map((a) => [a.move, a.target?.name, a.dealt, a.knockedOut]),
+    [
+      ['Seek Inspiration (Trifrost)', 'Mega Excadrill ex', 110, true],
+      ['Seek Inspiration (Trifrost)', 'Metang', 110, true],
+      ['Seek Inspiration (Trifrost)', 'Genesect ex', 110, false],
+    ],
+  );
+});
+
+test('a codeless card is described by the printing its logged moves fit, or said to be ambiguous (Astra, #342: Metang)', () => {
+  const ins = replayInsights(log('tbs-57.txt'), { players: AB });
+  const metang = ins.cards[1].find((c) => c.name === 'Metang')!;
+  assert.match(metang.line, /Ability Metal Maker/, 'the log shows it using Metal Maker');
+  assert.doesNotMatch(metang.line, /Guard Press/, 'not the other printing');
+});
+
 test('a codeless attacker is matched against every printing of its name (Astra, #342: Tea Server)', () => {
   // The name may resolve to a printing without the attack; any printing that has it makes it an attack.
   const raw = log('hns-11.txt').replace(
