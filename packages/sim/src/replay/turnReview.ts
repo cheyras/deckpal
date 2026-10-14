@@ -16,14 +16,14 @@
  * strong heuristic player, not an oracle. Cards the replay could not see (the reader's hand where the log never showed
  * a card) are hidden fillers; `hiddenInHand` says how many, and the answer should be read with that in mind.
  */
-import { def } from '../context.js';
+import { def, type Env } from '../context.js';
 import { describeAction } from '../describe.js';
 import { determinize } from '../determinize.js';
 import { submit } from '../flow.js';
 import type { Game } from '../game.js';
 import { Rng } from '../rng.js';
 import { cloneState, opp } from '../state.js';
-import type { Action, Decision, GameState, Player } from '../types.js';
+import type { Action, Decision, GameEvent, GameState, Player } from '../types.js';
 import { DEFAULT_WEIGHTS, evaluate } from '../pilot/eval.js';
 import { optionCount, settle } from '../pilot/lookahead.js';
 import { DEFAULT_PROFILE } from '../pilot/policy.js';
@@ -116,10 +116,11 @@ function outOfDeck(game: Game, side: Player): number[] {
 /**
  * Make one side's deck the size the real one is (60 less every card already out of it) and, with the decklist, the
  * composition it can be: each listed card as many times as the list has it less the copies already out of the deck.
- * A card is its game text (the engine's definition), never its name: two printings of a name can be different cards
- * (Riolu me01-076 and sv08.5-050; Astra, #343). Listed cards the catalog cannot build stay blank fillers; without a
- * list, the replay's revealed copies go first and are cut to size from the largest groups, then fillers, so no card
- * appears more than the reservoir allows.
+ * Copies are counted per name, as the deck limit is, and placed per game text: two printings of a name can be
+ * different cards (Riolu me01-076 and sv08.5-050), and two that the catalog splits can be one (a Basic Energy, a
+ * reworded reprint) — Astra, #343. Listed cards the catalog cannot build come from the replay's copies of that name, or
+ * stay blank fillers; without a list, the replay's revealed copies go first and are cut to size from the largest
+ * groups, then fillers, so no card appears more than the reservoir allows.
  */
 function normaliseDeck(game: Game, side: Player, deckList?: ReadonlyArray<DeckListEntry>): 'list' | 'estimate' {
   const ctx = game.ctx;
@@ -151,38 +152,66 @@ function normaliseDeck(game: Game, side: Player, deckList?: ReadonlyArray<DeckLi
   const pool = group(ps.deck);
   const fillers = pool.get(HIDDEN) ?? [];
   pool.delete(HIDDEN);
-  // The cards the deck may hold, by identity.
+  // The cards the deck may hold: by name with a list (the deck limit is by name), by identity without.
   const kept = new Map<string, number[]>();
   if (deckList?.length) {
-    const out = group(outside);
-    const nameOf = (k: string): string => {
-      const iid = (pool.get(k) ?? out.get(k) ?? [])[0];
-      return iid === undefined ? '' : canonicalName(def(ctx, iid).name).toLowerCase();
+    const nameOf = (iid: number) => canonicalName(def(ctx, iid).name).toLowerCase();
+    const byName = (ids: readonly number[]) => {
+      const m = new Map<string, Map<string, number[]>>();
+      for (const iid of ids) {
+        const k = identity(iid);
+        if (k === HIDDEN) continue;
+        const n = nameOf(iid);
+        const inner = m.get(n) ?? new Map<string, number[]>();
+        inner.set(k, [...(inner.get(k) ?? []), iid]);
+        m.set(n, inner);
+      }
+      return m;
     };
-    // Each entry's identities: its printing's (entries of one text add up); or, when the catalog cannot say which
-    // printing, every one of that name no resolved entry claims.
-    const listed = new Map<string, { keys: string[]; count: number }>();
-    const add = (keys: string[], count: number) => {
-      if (!keys.length) return;
-      const g = JSON.stringify(keys);
-      listed.set(g, { keys, count: (listed.get(g)?.count ?? 0) + count });
-    };
-    const unresolved: DeckListEntry[] = [];
+    const out = byName(outside);
+    const avail = byName([...pool.values()].flat());
+    // Listed copies per name, then per identity ('?': the catalog cannot build that entry).
+    const listed = new Map<string, Map<string, number>>();
     for (const e of deckList) {
+      if (e.count <= 0) continue;
       const f = listedFrame(e.name, e.id);
-      if (f) add([defKey(f)], e.count);
-      else unresolved.push(e);
-    }
-    const claimed = new Set([...listed.values()].flatMap((l) => l.keys));
-    const known = [...new Set([...pool.keys(), ...out.keys()])].filter((k) => k !== HIDDEN && !claimed.has(k));
-    for (const e of unresolved) {
       const name = canonicalName(e.name).toLowerCase();
-      add(known.filter((k) => nameOf(k) === name), e.count);
+      const inner = listed.get(name) ?? new Map<string, number>();
+      const k = f ? defKey(f) : '?';
+      inner.set(k, (inner.get(k) ?? 0) + e.count);
+      listed.set(name, inner);
     }
-    for (const [g, { keys, count }] of listed) {
-      const already = keys.reduce((n, k) => n + (out.get(k)?.length ?? 0), 0);
-      const avail = keys.flatMap((k) => pool.get(k) ?? []).slice(0, Math.max(0, count - already));
-      if (avail.length) kept.set(g, avail);
+    for (const [name, want] of listed) {
+      const left = new Map(want);
+      // A copy out of the deck pays for its own printing first; the rest (a printing the list does not have: an
+      // Energy the catalog splits, a reworded reprint) come off the name's largest remaining entries.
+      let spare = 0;
+      for (const [k, ids] of out.get(name) ?? []) {
+        const paid = Math.min(ids.length, left.get(k) ?? 0);
+        if (paid) left.set(k, (left.get(k) as number) - paid);
+        spare += ids.length - paid;
+      }
+      for (; spare > 0; spare--) {
+        const top = [...left].sort((a, b) => b[1] - a[1])[0];
+        if (!top || top[1] <= 0) break;
+        left.set(top[0], top[1] - 1);
+      }
+      // Each listed printing from its own instances; short of those, any other printing of the name the replay holds.
+      const have = avail.get(name) ?? new Map<string, number[]>();
+      const taken = new Set<number>();
+      let short = 0;
+      for (const [k, n] of left) {
+        const ids = (have.get(k) ?? []).slice(0, Math.max(0, n));
+        ids.forEach((i) => taken.add(i));
+        short += Math.max(0, n) - ids.length;
+      }
+      for (const i of [...have.values()].flat()) {
+        if (short <= 0) break;
+        if (taken.has(i)) continue;
+        taken.add(i);
+        short--;
+      }
+      if (taken.size) kept.set(name, [...taken]);
     }
   } else {
     for (const [k, ids] of pool) kept.set(k, ids.slice());
@@ -201,12 +230,23 @@ function normaliseDeck(game: Game, side: Player, deckList?: ReadonlyArray<DeckLi
   return deckList?.length ? 'list' : 'estimate';
 }
 
+/** A position to review: the reader's first main decision of a turn, both decks rebuilt for the search. */
+export interface TurnPosition {
+  game: Game;
+  decision: Decision;
+  /** The option the reader took (-1: unknown). */
+  readerFirst: number;
+  readerDid: string[];
+  hiddenInHand: number;
+  deck: 'list' | 'estimate';
+}
+
 /** The reader's position at their first main decision of `turn`, decks rebuilt for the search; or why there is none. */
 export function turnPosition(
   raw: string,
   turn: number,
   o: TurnReviewOptions,
-): { game: Game; decision: Decision; readerFirst: number; readerDid: string[]; hiddenInHand: number; deck: 'list' | 'estimate' } | { reason: string; readerDid: string[] } {
+): TurnPosition | { reason: string; readerDid: string[] } {
   const parsed = parseLiveLog(raw, o.players ? { players: o.players } : {});
   const header = parsed.events.find((e) => e.t === 'turn_start' && e.turn === turn);
   if (!header || header.t !== 'turn_start') return { reason: `the log has no turn ${turn} (it has ${parsed.turns})`, readerDid: [] };
@@ -255,18 +295,18 @@ const WIN = DEFAULT_WEIGHTS.win;
 
 /** Walk a line of choices in a world, naming each main action, and report what it took. */
 function walk(world: GameState, game: Game, me: Player, line: number[]): { actions: string[]; prizes: number; knockOuts: string[] } {
-  const env = { ctx: game.ctx, emit: null };
+  // The engine's own Knock Outs, never 'left play' (a Bench discarded by a Stadium is not a Knock Out; Astra, #343).
+  const them = opp(me);
+  const knockOuts: string[] = [];
+  const env: Env = {
+    ctx: game.ctx,
+    emit: (e: GameEvent) => {
+      if (e.type === 'knockout' && e.player === them) knockOuts.push(def(game.ctx, e.card).name);
+    },
+  };
   const s = cloneState(world);
   const rootTurn = s.turn;
   const before = s.p[me].prizes.length;
-  const them = opp(me);
-  const inPlay = (st: GameState): Map<number, string> => {
-    const m = new Map<number, string>();
-    const ps = st.p[them];
-    for (const sl of [ps.active, ...ps.bench]) if (sl) m.set(sl.id, def(game.ctx, sl.cards[sl.cards.length - 1] as number).name);
-    return m;
-  };
-  const startMons = inPlay(s);
   const actions: string[] = [];
   for (let k = 0; k < line.length; k++) {
     const d = s.pending?.decision as Decision | undefined;
@@ -279,8 +319,6 @@ function walk(world: GameState, game: Game, me: Player, line: number[]): { actio
   }
   // Finish the turn the way the search scored it.
   if (s.phase !== 'over' && s.turn === rootTurn) settle(env, s, me, rootTurn, false, DEFAULT_PROFILE);
-  const endMons = inPlay(s);
-  const knockOuts = [...startMons].filter(([id]) => !endMons.has(id)).map(([, n]) => n);
   return { actions, prizes: Math.max(0, before - s.p[me].prizes.length), knockOuts };
 }
 
@@ -293,99 +331,104 @@ export function reviewTurn(raw: string, turn: number, o: TurnReviewOptions): Tur
   try {
     const pos = turnPosition(raw, turn, o);
     if ('reason' in pos) return empty(pos.reason, pos.readerDid);
-    const { game, decision: d, readerDid, deck: deckFrom } = pos;
-    const me = d.player;
-    const env = { ctx: game.ctx, emit: null };
-    const worlds = Math.max(1, Math.min(6, o.worlds ?? 3));
-    const nodes = Math.max(50, Math.min(2000, o.nodes ?? 600));
-    const opts = { ...DEFAULT_SEARCH, nodes, worlds, weights: DEFAULT_WEIGHTS, profile: DEFAULT_PROFILE };
-    const rng = new Rng(o.seed ?? 20261014);
-    const n = optionCount(d);
-    const sum = new Float64Array(n);
-    let spent = 0;
-    for (let k = 0; k < worlds; k++) {
-      const world = determinize(game.state, game.ctx, me, rng);
-      const res = searchWorld(env, world, me, opts);
-      spent += res.nodes;
-      for (let i = 0; i < n; i++) {
-        const v = res.best[i] as number;
-        sum[i] = (sum[i] as number) + (v === -Infinity ? -WIN : v);
-      }
-    }
-    const avg = Array.from(sum, (v) => v / worlds);
-    const order = [...avg.keys()].sort((a, b) => (avg[b] as number) - (avg[a] as number));
-    const { readerFirst } = pos;
-    const top = Math.max(1, Math.min(5, o.top ?? 3));
-    const pick = order.slice(0, top);
-    if (readerFirst >= 0 && !pick.includes(readerFirst)) pick.push(readerFirst);
-
-    // The wide search shortlists; each shortlisted first action then gets a search of its own, from the position it
-    // leads to, with the same budget in the same worlds. Best-first search spends its budget on the lines that look
-    // best early, so a quiet first action (playing a Stadium before the attack it sets up) can be left unexplored and
-    // scored as if the turn ended there: on a real game that put the reader's 3-Prize turn 13.7 Prizes "behind".
-    const focusRng = new Rng((o.seed ?? 20261014) + 1);
-    const focusWorlds = Array.from({ length: worlds }, () => determinize(game.state, game.ctx, me, focusRng));
-    const rootTurn = game.state.turn;
-    const endScore = (s: GameState): number =>
-      s.phase === 'over' || s.turn !== rootTurn
-        ? evaluate(env, s, me, DEFAULT_WEIGHTS, s.current)
-        : evaluate(env, s, me, DEFAULT_WEIGHTS, s.current === me ? opp(me) : s.current);
-    const focused = pick.map((i) => {
-      let total = 0;
-      let wonIn = 0;
-      let line0: number[] = [i];
-      focusWorlds.forEach((world, k) => {
-        const c = cloneState(world);
-        submit(env, c, [i]);
-        const stop = settle(env, c, me, rootTurn, true, DEFAULT_PROFILE);
-        let v: number;
-        let line = [i];
-        if (stop === 'branch' && c.phase !== 'over' && c.turn === rootTurn) {
-          const res = searchWorld(env, c, me, opts);
-          spent += res.nodes;
-          let bi = 0;
-          for (let j = 1; j < res.best.length; j++) if ((res.best[j] as number) > (res.best[bi] as number)) bi = j;
-          v = res.best[bi] === -Infinity ? -WIN : (res.best[bi] as number);
-          line = [i, ...((res.lines[bi] as number[] | undefined)?.length ? (res.lines[bi] as number[]) : [bi])];
-        } else {
-          v = endScore(c);
-        }
-        total += v;
-        if (v >= WIN / 2) wonIn++;
-        if (k === 0) line0 = line;
-      });
-      return { i, v: total / worlds, wonIn, line: line0 };
-    });
-    const ranked = focused.slice().sort((a, b) => b.v - a.v);
-    const best = (ranked[0] as { v: number }).v;
-    const options: TurnOption[] = ranked.map((f, r) => {
-      const w = walk(focusWorlds[0] as GameState, game, me, f.line);
-      return {
-        rank: r + 1,
-        first: describeAction(game.ctx, game.state, (d.actions as Action[])[f.i] as Action),
-        line: w.actions,
-        prizes: w.prizes,
-        knockOuts: w.knockOuts,
-        behindBest: Math.round(((best - f.v) / PRIZE) * 10) / 10,
-        // From the search that ranked it, not the wide one (two samples of worlds: Astra, #343).
-        winsIn: f.wonIn,
-        reader: f.i === readerFirst,
-      };
-    });
-    return {
-      turn,
-      found: true,
-      reason: null,
-      readerDid,
-      options,
-      offered: n,
-      worlds,
-      nodes: spent,
-      hiddenInHand: pos.hiddenInHand,
-      deck: deckFrom,
-      ms: Date.now() - t0,
-    };
+    return reviewPosition(pos, turn, o, t0);
   } catch (err) {
     return empty(`the review failed: ${err instanceof Error ? err.message : String(err)}`);
   }
+}
+
+/** The search on a rebuilt position (`turnPosition`): the review itself. Tests shape the position before it. */
+export function reviewPosition(pos: TurnPosition, turn: number, o: TurnReviewOptions, t0 = Date.now()): TurnReview {
+  const { game, decision: d, readerDid, deck: deckFrom } = pos;
+  const me = d.player;
+  const env = { ctx: game.ctx, emit: null };
+  const worlds = Math.max(1, Math.min(6, o.worlds ?? 3));
+  const nodes = Math.max(50, Math.min(2000, o.nodes ?? 600));
+  const opts = { ...DEFAULT_SEARCH, nodes, worlds, weights: DEFAULT_WEIGHTS, profile: DEFAULT_PROFILE };
+  const rng = new Rng(o.seed ?? 20261014);
+  const n = optionCount(d);
+  const sum = new Float64Array(n);
+  let spent = 0;
+  for (let k = 0; k < worlds; k++) {
+    const world = determinize(game.state, game.ctx, me, rng);
+    const res = searchWorld(env, world, me, opts);
+    spent += res.nodes;
+    for (let i = 0; i < n; i++) {
+      const v = res.best[i] as number;
+      sum[i] = (sum[i] as number) + (v === -Infinity ? -WIN : v);
+    }
+  }
+  const avg = Array.from(sum, (v) => v / worlds);
+  const order = [...avg.keys()].sort((a, b) => (avg[b] as number) - (avg[a] as number));
+  const { readerFirst } = pos;
+  const top = Math.max(1, Math.min(5, o.top ?? 3));
+  const pick = order.slice(0, top);
+  if (readerFirst >= 0 && !pick.includes(readerFirst)) pick.push(readerFirst);
+
+  // The wide search shortlists; each shortlisted first action then gets a search of its own, from the position it
+  // leads to, with the same budget in the same worlds. Best-first search spends its budget on the lines that look
+  // best early, so a quiet first action (playing a Stadium before the attack it sets up) can be left unexplored and
+  // scored as if the turn ended there: on a real game that put the reader's 3-Prize turn 13.7 Prizes "behind".
+  const focusRng = new Rng((o.seed ?? 20261014) + 1);
+  const focusWorlds = Array.from({ length: worlds }, () => determinize(game.state, game.ctx, me, focusRng));
+  const rootTurn = game.state.turn;
+  const endScore = (s: GameState): number =>
+    s.phase === 'over' || s.turn !== rootTurn
+      ? evaluate(env, s, me, DEFAULT_WEIGHTS, s.current)
+      : evaluate(env, s, me, DEFAULT_WEIGHTS, s.current === me ? opp(me) : s.current);
+  const focused = pick.map((i) => {
+    let total = 0;
+    let wonIn = 0;
+    let line0: number[] = [i];
+    focusWorlds.forEach((world, k) => {
+      const c = cloneState(world);
+      submit(env, c, [i]);
+      const stop = settle(env, c, me, rootTurn, true, DEFAULT_PROFILE);
+      let v: number;
+      let line = [i];
+      if (stop === 'branch' && c.phase !== 'over' && c.turn === rootTurn) {
+        const res = searchWorld(env, c, me, opts);
+        spent += res.nodes;
+        let bi = 0;
+        for (let j = 1; j < res.best.length; j++) if ((res.best[j] as number) > (res.best[bi] as number)) bi = j;
+        v = res.best[bi] === -Infinity ? -WIN : (res.best[bi] as number);
+        line = [i, ...((res.lines[bi] as number[] | undefined)?.length ? (res.lines[bi] as number[]) : [bi])];
+      } else {
+        v = endScore(c);
+      }
+      total += v;
+      if (v >= WIN / 2) wonIn++;
+      if (k === 0) line0 = line;
+    });
+    return { i, v: total / worlds, wonIn, line: line0 };
+  });
+  const ranked = focused.slice().sort((a, b) => b.v - a.v);
+  const best = (ranked[0] as { v: number }).v;
+  const options: TurnOption[] = ranked.map((f, r) => {
+    const w = walk(focusWorlds[0] as GameState, game, me, f.line);
+    return {
+      rank: r + 1,
+      first: describeAction(game.ctx, game.state, (d.actions as Action[])[f.i] as Action),
+      line: w.actions,
+      prizes: w.prizes,
+      knockOuts: w.knockOuts,
+      behindBest: Math.round(((best - f.v) / PRIZE) * 10) / 10,
+      // From the search that ranked it, not the wide one (two samples of worlds: Astra, #343).
+      winsIn: f.wonIn,
+      reader: f.i === readerFirst,
+    };
+  });
+  return {
+    turn,
+    found: true,
+    reason: null,
+    readerDid,
+    options,
+    offered: n,
+    worlds,
+    nodes: spent,
+    hiddenInHand: pos.hiddenInHand,
+    deck: deckFrom,
+    ms: Date.now() - t0,
+  };
 }
