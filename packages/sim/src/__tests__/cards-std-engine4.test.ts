@@ -156,7 +156,7 @@ test('Area Zero Underdepths: replacing it makes the player discard first, so a P
   assert.equal(k.state.p[1].prizes.length, 5, 'Knocked Out after the discard');
 });
 
-test('Area Zero Underdepths: a Tera Pokémon picked up (not Knocked Out) leaves the Bench cut down before the new Active Pokémon (rulings 2131 and 2132)', () => {
+test('Area Zero Underdepths: a Tera Pokémon picked up (not Knocked Out) leaves the Bench cut down to 5 before the new Active Pokémon, when it is the only Tera Pokémon (ruling 2132)', () => {
   const dk = deck('Pikachu ex', 'Dreepy', 'Area Zero Underdepths', "Hero's Cape");
   // A stand-in for "put your Pokémon into your hand" (Professor Turo's Scenario is not in the card snapshot): a Tool that picks its holder up.
   const pickUp: CardScript = { id: 'sv05-152', name: "Hero's Cape", triggers: [{ on: 'endOfTurn', program: [{ op: 'custom', fn: 'returnSelfToHand' }] }] };
@@ -173,7 +173,7 @@ test('Area Zero Underdepths: a Tera Pokémon picked up (not Knocked Out) leaves 
   assert.equal(g.state.p[0].bench.length, 5);
 });
 
-test('Area Zero Underdepths: when the Tera Pokémon and Benched Pokémon are Knocked Out together the Knock Outs and Prize cards come first, then one more is discarded, then the new Active Pokémon (ruling 2026)', () => {
+test('Area Zero Underdepths: when your only Tera Pokémon and Benched Pokémon are Knocked Out together the Knock Outs and Prize cards come first, then the Bench is discarded down to 5, then the new Active Pokémon (ruling 2026)', () => {
   const dk = deck('Pikachu ex', 'Dreepy', "N's Darumaka", 'Area Zero Underdepths');
   // 20 to the Defending Pokémon and 20 to each Benched Pokémon.
   const sweep: CardScript = {
@@ -431,7 +431,7 @@ test('Festival Lead: Kieran\'s +30 applies to each attack on a Pokémon ex, so t
   assert.equal(dmg(h, 1), 40, 'a Pokémon that is not an ex: no bonus');
 });
 
-test('Festival Lead: an Energy-attached Pokémon with Adversity Policy draws 3 cards for each of the two attacks (ruling 2359)', () => {
+test('Festival Lead: a Grass-Weak Pokémon with Adversity Policy draws its owner 3 cards for each of the two attacks that damage it (ruling 2359)', () => {
   const dk = deck('Dipplin', "N's Zorua", 'Dreepy', 'Festival Grounds', 'Adversity Policy');
   const g = scenario(dk, dk, [
     { active: 'Dipplin', bench: ['Dreepy'], energy: { active: [GRA] } },

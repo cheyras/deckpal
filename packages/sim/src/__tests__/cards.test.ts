@@ -215,7 +215,7 @@ test('Slowking, Seek Inspiration: copies an attack of a discarded non-Rule-Box P
   assert.ok(names(ex, ex.state.p[0].discard).includes('Latias ex'));
 });
 
-test('Metagross via Seek Inspiration: Metallic Hammer does 300 with no Metal Energy to discard (Compendium #2352)', () => {
+test('Metagross via Seek Inspiration: the extra 150 of Metallic Hammer can still be chosen with no Metal Energy to discard, making 300 in all (Compendium #2352)', () => {
   const g = S([{ active: 'Slowpoke', evolve: { active: ['Slowking'] }, energy: { active: [P, P] }, deckTop: ['Metagross'] }, { active: 'Dhelmise' }]);
   choose(g, 'Attack: Seek Inspiration');
   choose(g, 'Metallic Hammer');

@@ -310,7 +310,7 @@ export const STD_C32: CardScript[] = [
       },
       // "This attack does 30 damage for each Pokémon Tool attached to all of your Pokémon."
       // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/1077/): effects depending on Tool presence work; only the Tool's own effects are cancelled.
-      // (a Pokémon holds one Tool, so counting the Pokémon with a Tool counts the Tools)
+      // (each Pokémon normally holds one Tool, so counting the Pokémon with a Tool counts the Tools; a Tool's presence still counts although its effects are cancelled)
       'Gadget Show': { damage: { mul: [30, { pokemon: { zone: 'myPokemon', filter: { tool: true } } }] } },
     },
   },

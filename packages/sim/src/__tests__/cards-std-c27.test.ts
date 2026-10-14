@@ -152,7 +152,7 @@ test("Oranguru, Now You're in My Power: until the end of your next turn the Defe
   assert.equal(dmg(none, 1), 160 + 80);
 });
 
-test("Oranguru, Now You're in My Power: ruling 2056 — only {C} attackers are hit harder, not every type", () => {
+test("Oranguru, Now You're in My Power: ruling 2056 — the Defending Pokémon becomes Weak only to {C} attackers, not to every type", () => {
   // Ruling (TPCi Rules Team 2024-11-07, https://compendium.pokegym.net/ruling/2056/): only Colorless-type Pokémon trigger the Weakness increase.
   const g = mk([{ active: 'Oranguru', bench: ['Tapu Koko'], hand: ['Switch'], energy: { active: [W, W, W], 0: [L, L, W] } }, { active: DRA }]);
   choose(g, "Attack: Now You're in My Power");

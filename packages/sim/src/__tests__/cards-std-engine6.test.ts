@@ -152,7 +152,7 @@ test('Jellicent ex, Power Press: 80 damage, 80 more with at least 2 extra Energy
 
 // ------------------------------------------------------------------ Team Rocket's Arbok
 
-test("Team Rocket's Arbok, Potent Glare: no Pokémon that has an Ability from the hand, except for Team Rocket's Pokémon (ruling 2147)", () => {
+test("Team Rocket's Arbok, Potent Glare: while Arbok is Active, its opponent cannot play Pokémon that have an Ability from hand, except for Team Rocket's Pokémon (ruling 2147)", () => {
   const dk = deck('Dreepy', 'Magearna', "Arven's Skwovet", "Arven's Greedent", "Team Rocket's Zubat", "Team Rocket's Golbat", "Team Rocket's Ekans", "Team Rocket's Arbok", "Team Rocket's Watchtower");
   const mk = (arbokActive: boolean): Game =>
     scenario(
@@ -505,7 +505,7 @@ test("Team Rocket's Ampharos, Darkest Impulse: 4 damage counters on each Pokémo
   assert.equal(own.state.p[0].bench[0]!.damage, 0);
 });
 
-test("Team Rocket's Ampharos, Darkest Impulse: the owner of the evolving Pokémon uses their Abilities first, before it is Knocked Out (ruling 2146)", () => {
+test("Team Rocket's Ampharos, Darkest Impulse: when a damaged Pokémon evolves into Golbat, its owner chooses the order of the simultaneous Abilities, Sneaky Bite and Darkest Impulse, before the Knock Out is checked (ruling 2146)", () => {
   const dk = deck("Team Rocket's Mareep", "Team Rocket's Flaaffy", "Team Rocket's Ampharos", "Team Rocket's Zubat", "Team Rocket's Golbat", 'Dreepy');
   const g = scenario(
     dk,

@@ -36,7 +36,7 @@ export const STD_C16: CardScript[] = [
     // (Revealing the hand is an effect, so it needs a card in the opponent's hand.)
     playable: { gte: [{ handSize: 'opp' }, 1] },
     // "Your opponent reveals their hand, and you discard up to 2 Item cards you find there."
-    // ("up to 2" on a Supporter is 1 to 2: Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2376/): used as a Supporter requires at least 1; via attack, zero is allowed.)
+    // ("up to 2" on a Supporter is 1 to 2.) Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2376/): used as a Supporter it requires at least 1; used through an attack, zero is allowed.
     play: [
       { op: 'custom', fn: 'std.revealHand', args: { who: 'opp' } },
       {
@@ -100,7 +100,7 @@ export const STD_C16: CardScript[] = [
       // "The Retreat Cost of the Pokémon this card is attached to is {C} less."
       { effect: { k: 'retreatCost', delta: -1 }, scope: 'self' },
       // "If that Pokémon's remaining HP is 30 or less, it has no Retreat Cost."
-      // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1971/): Rescue Board removes the Retreat Cost, and Big Net cannot raise it back.
+      // Ruling (Twilight Masquerade FAQ; TPCi Rules Team 2024-05-23, https://compendium.pokegym.net/ruling/1971/): when the holder has 30 HP or less remaining, Rescue Board removes its Retreat Cost, and Big Net cannot raise it back.
       { effect: { k: 'retreatCost', set: 0 }, scope: 'self', when: { custom: 'c16.remainingHpAtMost', args: { n: 30 } } },
     ],
   },

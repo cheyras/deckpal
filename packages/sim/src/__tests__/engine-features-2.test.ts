@@ -182,7 +182,7 @@ test('oppActiveMovedToBench: only during the mover\'s own turn, and a Knock Out 
   assert.equal(ko.state.p[1].discard.length, 1);
 });
 
-test('oppActiveMovedToBench: Battle Cage stops the counters, because the Pokémon is on the Bench when the Ability applies (TPCi 2026-01-22, ruling 2286)', () => {
+test('Battle Cage stops the counters from an Ability that triggers when the opponent\'s Active Pokémon moves to the Bench, because the Pokémon is on the Bench when the Ability applies (TPCi 2026-01-22, ruling 2286)', () => {
   const dk = deck(DRA, DUG, SLO, REL, 'Battle Cage');
   const g = scenario(dk, dk, [{ active: DRA, bench: [DUG] }, { active: SLO, bench: [REL], energy: { active: [P, P] } }], { current: 1 });
   setStadium(g, 0, 'Battle Cage');

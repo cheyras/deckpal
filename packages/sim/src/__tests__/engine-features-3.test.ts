@@ -328,7 +328,7 @@ test('react (damagedByAttack): once per attack however many times it is hit; dam
   assert.equal(dmg(counters, 1), 70, 'damage counters placed by an attack are not damage: no reaction');
 });
 
-test('react (damagedByAttack): an attack\'s lasting effect -- "no Abilities" does not stop it, prevention of attack effects on the Attacking Pokémon does (rulings 1958, 2408)', () => {
+test('Counters put on the Attacking Pokémon after it damages a Pokémon with a lasting attack effect (Repulsor Axe, Shellnado Spin): turning Abilities off does not stop them, but protection from attack effects on the Attacking Pokémon (Mist Energy) does (rulings 1958, 2408)', () => {
   const dk = deck(DRA);
   const base = (): Game => {
     const g = scenario(dk, dk, [{ active: DRA, energy: { active: [P] } }, { active: DRA, energy: { active: [P] } }], { scripts: [leavesReaction(REACT_DAMAGED)] });
@@ -407,7 +407,7 @@ test('react (attachFromHand): attaching an Energy from the hand to the Defending
   assert.equal(dmg(c, 1), 70 + 20);
 });
 
-test('react (attachFromHand) + endTurn: "their turn ends"; retreating first clears the effect (ruling 2223)', () => {
+test('Electrified Incisors: the effect lasts until their turn ends, and retreating first clears it (ruling 2223)', () => {
   const dk = deck(DRA, REL);
   const mk = (): Game => {
     const g = scenario(dk, dk, [{ active: DRA, energy: { active: [P] } }, { active: DRA, bench: [REL], energy: { active: [P] }, hand: [F, F] }], { scripts: [leavesReaction(REACT_ATTACH_END, 'defender')] });
@@ -458,7 +458,7 @@ test('attackCoinFlip with coins: all the coins are flipped; if any is tails the 
   assert.equal(dmg(mk(1, [false]), 0), 0, 'one coin, as `coins` was always 1');
 });
 
-test('attackCoinFlip with coins: flipped before Confusion\'s coin (ruling 2326)', () => {
+test('A coin flip that decides whether the attack happens is flipped before the Confusion coin (ruling 2326)', () => {
   const dk = deck(DRA);
   const mk = (): Game => {
     const g = scenario(dk, dk, [{ active: DRA, energy: { active: [P] } }, { active: DRA, energy: { active: [P] }, cond: CONFUSED }], { scripts: [leavesReaction({ k: 'attackCoinFlip', coins: 2 }, 'defender')] });
@@ -508,7 +508,7 @@ test('look: sees the top cards and keeps those that match, without moving anythi
 
 // ------------------------------------------------------------------ Ability precedence (ruling 2309)
 
-test('noAbilities from an Ability does not take the Abilities of a Pokémon that prevents the effects of Abilities done to it (TPCi 2026-03-26, ruling 2309)', () => {
+test('An Ability that turns off Abilities does not take the Abilities of a Pokémon that prevents the effects of Abilities done to it (TPCi 2026-03-26, ruling 2309)', () => {
   const dk = deck('Iron Thorns ex', 'Mega Clefable ex', DRA);
   const g = scenario(dk, dk, [{ active: 'Iron Thorns ex' }, { active: 'Mega Clefable ex' }]);
   const [thorns, mega] = [g.state.p[0].active!, g.state.p[1].active!];

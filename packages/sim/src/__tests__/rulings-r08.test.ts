@@ -218,7 +218,7 @@ test("Ruling 2228: Acerola's Mischief keeps protecting a Pokémon that retreats 
 
 // https://compendium.pokegym.net/ruling/2132/ -- when the only Tera Pokémon is picked up from the Active Spot, the Bench is cut to 5 before a new Active Pokémon is chosen.
 // (Professor Turo's Scenario is not in the card snapshot: a Tool that returns its holder to the hand stands in for it.)
-test('Ruling 2132: a Tera Pokémon returned to the hand from the Active Spot: discard down to 5 first, then choose the new Active Pokémon', () => {
+test('Ruling 2132: your only Tera Pokémon returned to the hand from the Active Spot: discard down to 5 first, then choose the new Active Pokémon', () => {
   const dk = deck('Pikachu ex', 'Dreepy', 'Area Zero Underdepths', "Hero's Cape");
   const pickUp: CardScript = { id: 'sv05-152', name: "Hero's Cape", triggers: [{ on: 'endOfTurn', program: [{ op: 'custom', fn: 'returnSelfToHand' }] }] };
   const g = scenario(dk, dk, [{ active: 'Pikachu ex', bench: rep('Dreepy', 8), tools: { active: ["Hero's Cape"] } }, { active: 'Dreepy' }], { scripts: [pickUp] });
@@ -233,7 +233,7 @@ test('Ruling 2132: a Tera Pokémon returned to the hand from the Active Spot: di
 });
 
 // https://compendium.pokegym.net/ruling/2131/ -- when the only Tera Pokémon is Knocked Out in the Active Spot, the Bench is cut to 5 before a new Active Pokémon is chosen.
-test('Ruling 2131: a Knocked Out Active Tera Pokémon: discard down to 5 first, then choose the new Active Pokémon', () => {
+test('Ruling 2131: your only Tera Pokémon Knocked Out in the Active Spot: discard down to 5 first, then choose the new Active Pokémon', () => {
   const dk = deck('Pikachu ex', 'Dreepy', "N's Darumaka", 'Area Zero Underdepths');
   const g = scenario(
     dk,
@@ -268,7 +268,7 @@ test('Ruling 2039: a Stadium that replaces Area Zero Underdepths with the same B
 });
 
 // https://compendium.pokegym.net/ruling/2026/ -- the Active Tera Pokémon and Benched Pokémon Knocked Out together: Knock Outs and Prizes first, then discard to 5, then the new Active.
-test('Ruling 2026: Knock Outs and Prize cards come first, then one more Benched Pokémon is discarded, then the new Active Pokémon is chosen', () => {
+test('Ruling 2026: under Area Zero Underdepths with 8 on the Bench, when your only Tera Pokémon (Active) and Benched Pokémon are Knocked Out together, Knock Outs and Prize cards come first, then the Bench is discarded down to 5, then the new Active Pokémon is chosen', () => {
   const dk = deck('Pikachu ex', 'Dreepy', "N's Darumaka", 'Area Zero Underdepths');
   // 20 to the Defending Pokémon and 20 to each Benched Pokémon.
   const sweep: CardScript = {

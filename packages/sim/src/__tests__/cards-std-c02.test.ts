@@ -88,7 +88,7 @@ type Sides = [SideLayout, SideLayout];
 
 // ------------------------------------------------------------------ Garganacl
 
-test("Garganacl, Powerful a-Salt: +30 for each of your {F} Pokémon's attacks, and it stacks (Compendium #2215)", () => {
+test("Garganacl, Powerful a-Salt: each copy adds 30 damage to your {F} Pokémon's attacks against the opponent's Active Pokémon, and the copies stack (Compendium #2215)", () => {
   const dk = deck('me01-084', 'me01-093', TYR);
   const hit = (sides: Sides): number => {
     const g = scenario(dk, dk, sides);

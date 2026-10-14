@@ -85,7 +85,7 @@ export const STD_ENGINE5: CardScript[] = [
     name: 'Forest of Vitality',
     // "Each player's {G} Pokémon can evolve into {G} Pokémon during the turn they play those Pokémon, except during their first turn."
     // Ruling (TPCi Rules Team 2025-09-25, https://compendium.pokegym.net/ruling/2229/): yes, unless it is your first turn of the game: a Pokémon that evolved this turn can evolve again, so Bulbasaur can reach Venusaur in one turn.
-    // `justPlayed` covers both a Pokémon put into play and one that evolved this turn; without `firstTurn` the rules' ban on evolving on a
+    // This lifts the ban for both a Pokémon put into play this turn and one that evolved this turn; the rules' ban on evolving on a
     // player's first turn stays, which is the "except during their first turn".
     statics: [{ effect: { k: 'evolveTiming', justPlayed: true, into: { type: 'Grass' } }, scope: 'allPokemon', filter: { type: 'Grass' } }],
   },
@@ -164,7 +164,7 @@ export const STD_ENGINE5: CardScript[] = [
       {
         // "As long as this Pokémon is on your Bench, prevent all damage from and effects of attacks from your opponent's Pokémon done to this Pokémon."
         // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2155/): no, Drag Off's damage goes to the new Active Pokémon, and So Submerged stops Misty's Magikarp being brought up, so no damage happens.
-        // The switch step checks the Benched Pokémon it would bring up for protection from the effects of attacks (interp.ts switchStep), and
+        // The switch checks the Benched Pokémon it would bring up for protection from the effects of attacks, and
         // a switch that didn't happen leaves no new Active Pokémon to damage.
         name: 'So Submerged',
         statics: [{ effect: { k: 'preventDamage', andEffects: true }, scope: 'self', when: { onBench: 'self' } }],

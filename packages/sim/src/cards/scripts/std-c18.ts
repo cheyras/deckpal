@@ -218,7 +218,7 @@ export const STD_C18: CardScript[] = [
       {
         name: 'Adrena-Power',
         // "If this Pokémon has any {D} Energy attached, it gets +100 HP, and the attacks it uses do 100 more damage to your opponent's Active Pokémon (before applying Weakness and Resistance)."
-        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2170/): yes, Luminous Energy provides all types despite one unit. (Pinned with Legacy Energy, which provides every type too.)
+        // Ruling (TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2170/): yes, Luminous Energy counts as {D} for Adrena-Power even though it is a single unit of Energy, as long as no other Special Energy is attached to that Pokémon. (Pinned with Legacy Energy, which provides every type too.)
         statics: [
           { effect: { k: 'hp', delta: 100 }, scope: 'self', when: HAS_DARK_ENERGY },
           { effect: { k: 'damageOut', amount: 100 }, scope: 'self', when: HAS_DARK_ENERGY },

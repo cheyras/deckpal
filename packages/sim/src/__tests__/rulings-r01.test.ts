@@ -139,7 +139,7 @@ test('Compendium #2135: Amarys and Powerglass both resolve at end of turn; the p
 });
 
 // Compendium #2047 (Gouging Fire with 4 Prize cards each, as in a Prerelease): Blazing Charge counts the opponent's Prize cards remaining, so it is 100 + 70.
-test('Compendium #2047: Gouging Fire, Blazing Charge does 170 against an opponent who started with 4 Prize cards', () => {
+test('Compendium #2047: Gouging Fire, Blazing Charge does 70 more (170 in all) when the opponent has 4 or fewer Prize cards left, as in a 4-Prize game; with 5 left it does 100', () => {
   const dk = deck([GOUGING, TYR]);
   const hit = (prizes: number): number => {
     const g = scenario(dk, dk, [{ active: 'Gouging Fire', energy: { active: ['Fire Energy', 'Fire Energy', 'Fire Energy'] }, prizes: 4 }, { active: 'Tyranitar ex', prizes }]);
@@ -348,7 +348,7 @@ test('Compendium #1132: Rare Candy removes Special Conditions and marks the Poke
 });
 
 // Compendium #750 (Rare Candy errata, 2011): not on the first turn, not on a Basic put into play this turn.
-test('Compendium #750: Rare Candy errata: no first turn, no Basic put into play this turn; otherwise it works', () => {
+test('Compendium #750: Rare Candy errata: puts a Stage 2 from hand onto a Basic in play, but not on your first turn or on a Basic put into play this turn', () => {
   const first = scenario(CANDY_ALL, CANDY_ALL, [{ active: 'Duskull', hand: ['Rare Candy', 'Dusknoir'] }, { active: 'Slowpoke' }], { turn: 1 });
   assert.ok(!has(first, 'Play Rare Candy'), 'first turn');
   const fresh = scenario(CANDY_ALL, CANDY_ALL, [{ active: 'Slowpoke', hand: ['Rare Candy', 'Dusknoir', 'Duskull'] }, { active: 'Slowpoke' }]);

@@ -312,7 +312,7 @@ test("Munkidori, Adrena-Brain does not count as healing for Vileplume, Lively Fl
 // ------------------------------------------------------------------ Munkidori / healing locks
 
 // https://compendium.pokegym.net/ruling/1995/ : moving damage counters off a Pokémon is not healing, so Adrena-Brain still works while an opposing Ability stops healing (the ruling names Abomasnow, Freezing Disaster, which is not in the card snapshot; Yveltal, Life-Locked is the scripted "can't be healed" Ability).
-test("Munkidori, Adrena-Brain still moves counters while the opposing Active can't heal anything (ruling 1995)", () => {
+test("Munkidori, Adrena-Brain: moving counters off your Pokémon is not healing, so it still works while an opposing Ability stops healing (ruling 1995)", () => {
   const dk = deck('Munkidori', 'Yveltal', 'Dreepy', 'Super Potion');
   const mk = (): Game => {
     const g = scenario(dk, dk, [
@@ -389,7 +389,7 @@ test("Ethan's Quilava, Bonded by the Journey: usable with 4 Ethan's Adventure al
 // ------------------------------------------------------------------ Togekiss
 
 // https://compendium.pokegym.net/ruling/2083/ : several Togekiss in play still give one Wonder Kiss coin flip, since the flip is part of using the Ability and does not stack.
-test('Togekiss, Wonder Kiss: four Togekiss in play flip one coin, and take one extra Prize card (ruling 2083)', () => {
+test('Togekiss, Wonder Kiss: four Togekiss in play flip only one coin, and heads takes one extra Prize card (ruling 2083)', () => {
   const dk = deck('Togekiss', 'Dreepy');
   const g = scenario(dk, dk, [
     { active: 'Togekiss', bench: ['Togekiss', 'Togekiss', 'Togekiss'], energy: { active: [P, P, P] } },
@@ -403,7 +403,7 @@ test('Togekiss, Wonder Kiss: four Togekiss in play flip one coin, and take one e
 });
 
 // https://compendium.pokegym.net/ruling/2043/ : Wonder Kiss applies to any Knock Out of the opponent's Active Pokémon: during Pokémon Checkup, on either player's turn, and not only from an attack.
-test('Togekiss, Wonder Kiss: also for a Knock Out by Poison at Checkup, and for the opponent knocking itself out (ruling 2043)', () => {
+test('Togekiss, Wonder Kiss: also for a Knock Out by Poison at Checkup, and for the opponent knocking itself out; the extra Prize still needs heads (ruling 2043)', () => {
   const dk = deck('Togekiss', 'Dreepy', 'Slowpoke', 'Rattata');
   // Poisoned Active Pokémon with 10 HP left, Knocked Out at Pokémon Checkup after my turn.
   const poison = scenario(dk, dk, [

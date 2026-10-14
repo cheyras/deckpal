@@ -611,7 +611,7 @@ test('Arboliva ex, Oil Salvo: the damage to each Pokémon is totalled, then ever
   assert.equal(dmg(once, 1), 100);
 });
 
-test('Arboliva ex, Oil Salvo: all the damage is done before Knock Outs, so Benched Pokémon are still damaged (ruling 2160)', () => {
+test('Arboliva ex, Oil Salvo: all damage is done before Knock Outs, so a chosen Active Pokémon that will be Knocked Out still counts: a Shaymin still shields Benched non-Rule Box Pokémon with Flower Curtain (ruling 2160)', () => {
   // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2160/): all damage applies before KO resolution.
   const g = G([{ active: 'Arboliva ex', energy: { active: [GR] } }, { active: SLO, bench: [SUDO, REL], damage: { active: 60 } }]);
   choose(g, 'Attack: Oil Salvo');

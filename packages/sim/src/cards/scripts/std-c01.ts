@@ -122,7 +122,7 @@ export const STD_C01: CardScript[] = [
             optional: true,
             // "Once during your turn, when you play this Pokémon from your hand to evolve 1 of your Pokémon, you may use this Ability. Search your deck for a Shedinja and put it onto your Bench. Then, shuffle your deck."
             // Compendium #994 (TPCi Rules Team, https://compendium.pokegym.net/ruling/994/): no Eviolite help for the Shedinja put onto the Bench: it is an unevolved Stage 1, not a Basic Pokémon.
-            // -- it is put onto the Bench as the Stage 1 card it is (c01.benchCards), not as a Basic Pokémon.
+            // -- it is put onto the Bench as the Stage 1 card it is, not as a Basic Pokémon.
             program: [
               { op: 'chooseCards', from: 'deck', filter: { name: 'Shedinja' }, min: 0, max: { min: [1, BENCH_SPACE] }, as: 'found', prompt: 'Choose a Shedinja to put onto your Bench' },
               { op: 'custom', fn: 'c01.benchCards', args: { cards: 'found' } },
@@ -153,7 +153,7 @@ export const STD_C01: CardScript[] = [
       // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2227/): no, you cannot decline: once you use the attack, a revealed Supporter's effect must be used if you are able.
       // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2226/): yes, even when you may not play a Supporter: you are only using its effect, not playing it. (a Supporter can't normally be played this turn)
       // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2225/): yes, even after playing a Supporter this turn: it is not a second Supporter played, just its effect used via an attack. (the turn's Supporter drop is untouched)
-      // Ruling 2376 (https://compendium.pokegym.net/ruling/2376/, 2026-06-04): used through this attack, a Supporter's choice may be left at none (Eri: discard zero Items), unlike when played from hand, per the April 2026 Rulebook update.
+      // Ruling 2376 (https://compendium.pokegym.net/ruling/2376/, 2026-06-04): used through this attack, a Supporter's "up to" choice may be left at none (Eri: discard zero Items), unlike when played from hand, per the April 2026 Rulebook update.
       'Supernatural Shapeshifter': {
         program: [
           { op: 'move', cards: { top: 1 }, to: 'discard', as: 'x' },
@@ -174,7 +174,7 @@ export const STD_C01: CardScript[] = [
         // "As long as this Pokémon is in the Active Spot, attacks used by your opponent's Active Pokémon do 30 less damage (before applying Weakness and Resistance)."
         // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2213/): the ability names no Active or Benched target, so it takes 30 off the damage to every Pokémon the opponent's attack damages.
         // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2214/): yes, it reduces Shred too: the effect is on the attacking Pokémon, not on Pyroar, so Shred's ignore-effects clause does not apply.
-        // One damageOut takes 30 off every attack of the opponent's Active Pokémon, before Weakness and Resistance and even for an attack that ignores
+        // The reduction takes 30 off every attack of the opponent's Active Pokémon, before Weakness and Resistance and even for an attack that ignores
         // effects on the Defending Pokémon. It reaches Benched Pokémon and the opponent's own side (self-damage) too: rulings 158 and 1822.
         statics: [
           { effect: { k: 'damageOut', amount: -30 }, scope: 'oppActive', when: { inActive: 'self' } },
@@ -238,7 +238,7 @@ export const STD_C01: CardScript[] = [
       // "Choose a Pokémon in play (yours or your opponent's) that has the least HP remaining, except for this Pokémon, and it is Knocked Out."
       // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2220/): yes, it Knocks Out your own Pokémon if that one has the least HP remaining, and your opponent takes the Prize card(s). (it can be your own Pokémon)
       // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2221/): once announced, Bring Down must be used; an invalid target must be fixed to a valid one, even one of their own Pokémon.
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2222/): the Mist Energy Pokémon is still the one chosen but is not Knocked Out, since Mist Energy blocks every effect except damage.
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2222/): the Mist Energy Pokémon is still the one chosen but is not Knocked Out, since Mist Energy stops every effect of opposing attacks except damage.
       'Bring Down': {
         program: [
           { op: 'custom', fn: 'c01.leastHpRemaining', args: { as: 't' } },

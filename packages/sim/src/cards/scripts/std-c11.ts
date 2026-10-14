@@ -51,7 +51,7 @@ export const STD_C11: CardScript[] = [
     name: 'Mega Delphox ex',
     attacks: {
       // "Look at the top 9 cards of your deck, and you may put any number of Pokémon you find there onto your Bench. Shuffle the other cards back into your deck."
-      // Ruling (TPCi Rules Team 2024-03-21, https://compendium.pokegym.net/ruling/1962/) and #1959, as for Reuniclus's identical Summoning Gate: Pokémon of any Stage, as many as the Bench has room for.
+      // Rulings (TPCi Rules Team 2024-03-21, https://compendium.pokegym.net/ruling/1962/ and …/1959/), as for Reuniclus's identical Summoning Gate: Pokémon of any Stage, as many as the Bench has room for.
       'Trick Portal': { program: [{ op: 'custom', fn: 'seed4.summoningGate', args: { n: 9 } }] },
       // "Your opponent's Active Pokémon is now Burned and Confused."
       'Eerie Glow': {

@@ -165,7 +165,7 @@ test('Mega Lopunny ex, Gale Thrust: 60, or 170 more if it moved from the Bench t
   assert.equal(dmg(g, 1), 230, 'moved this turn');
 });
 
-test('Mega Lopunny ex, Gale Thrust: this-turn movement only (TPCi 2025-12-04, https://compendium.pokegym.net/ruling/2265/)', () => {
+test('Mega Lopunny ex, Gale Thrust: only a move into the Active Spot during this turn counts, and evolving afterwards resets it (TPCi 2025-12-04, ruling 2265)', () => {
   // Moved on an earlier turn of its owner.
   const g = lopunny();
   choose(g, 'Retreat');

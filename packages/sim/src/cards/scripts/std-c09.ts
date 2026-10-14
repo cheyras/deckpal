@@ -266,7 +266,7 @@ export const STD_C09: CardScript[] = [
     ],
     attacks: {
       // "You may put a {W} Energy attached to this Pokémon into your hand and have this attack do 80 more damage."
-      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2385/): the Energy return is chosen first but only happens after damage, so it still counts as attached when damage is done (Ancient Bulwark does not block it). So the 80 more is decided before the damage and the Energy moves after it.
+      // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2385/): the Energy return is chosen first but only happens after damage, so it still counts as attached when damage is done: with 3 Energy attached Ancient Bulwark does not block it, with only 2 it still does. So the 80 more is decided before the damage and the Energy moves after it.
       // Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2370/): the bonus damage is gotten even if an effect keeps the Energy attached.
       'Ninja Spinner': {
         pre: [

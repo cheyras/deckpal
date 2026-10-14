@@ -108,7 +108,7 @@ export const STD_C23: CardScript[] = [
     name: 'Deluxe Bomb',
     // "If the Pokémon this card is attached to is in the Active Spot and is damaged by an attack from your opponent's Pokémon (even if this
     //  Pokémon is Knocked Out), put 12 damage counters on the Attacking Pokémon. If you placed any damage counters in this way, discard this card."
-    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2028/): effects resolve before the game ends, so the Deluxe Bomb holder still takes its Prize.
+    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2028/): effects resolve before the game ends, so the Deluxe Bomb holder's player still takes a Prize card for the Knock Out its counters cause.
     // The Attacking Pokémon is the opponent's Active Pokémon. The counters from a Tool are not stopped by effects of attacks or Abilities,
     // so they are always placed and the Tool is always discarded.
     triggers: [
@@ -128,7 +128,8 @@ export const STD_C23: CardScript[] = [
     //  onto that Pokémon to evolve it. If that Pokémon was evolved in this way, that player may search their deck for a Stage 2 Pokémon that evolves
     //  from that Pokémon and put it onto that Pokémon to evolve it. Then, that player shuffles their deck. (Players can't evolve a Basic Pokémon during
     //  their first turn or a Basic Pokémon that was put into play this turn.)"
-    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2030/): needs a valid evolution path from a Basic in the deck. (offered only when a Basic can evolve into a Stage 1 in the deck)
+    // Engine simplification (not the ruling): the Ability is offered only when a Basic in play can evolve into a Stage 1 in the deck.
+    // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2030/): needs a valid evolution path in play, a Basic Pokémon of yours with a Stage 1 it could evolve into; that Stage 1 need not be in your deck, since a deck search may come up empty (ruling 841).
     // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2029/): can search for Stage 1 even if no Stage 2 exists.
     // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2037/): Infernal Reign is not usable when Grand Tree evolves into Charizard ex, since it was not played from the hand. (no "play from hand" trigger runs)
     stadiumAbility: {
@@ -141,7 +142,7 @@ export const STD_C23: CardScript[] = [
     name: 'Gravity Gemstone',
     // "As long as the Pokémon this card is attached to is in the Active Spot, the Retreat Cost of both Active Pokémon is {C} more."
     // Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2082/): fixed no Retreat Cost can't be increased.
-    // The engine caps the Retreat Cost at a `set` value after adding deltas.
+    // The increase is applied first, then the Retreat Cost is held at the fixed value.
     statics: [
       { effect: { k: 'retreatCost', delta: 1 }, scope: 'myActive', when: { inActive: 'self' } },
       { effect: { k: 'retreatCost', delta: 1 }, scope: 'oppActive', when: { inActive: 'self' } },

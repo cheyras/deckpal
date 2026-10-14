@@ -168,7 +168,7 @@ export const STD_ENGINE3: CardScript[] = [
       {
         // "As long as this Pokémon is in the Active Spot, Pokémon with a Rule Box in play (both yours and your opponent's) have no Abilities, except for Future Pokémon."
         // Ruling (TPCi Rules Team 2026-03-26, https://compendium.pokegym.net/ruling/2309/): Luminous Wing supersedes Initialization regardless of play order.
-        // (A Pokémon with an Ability that prevents the effects of Abilities done to it keeps its Abilities: see `lockBites` in query.ts.)
+        // (A Pokémon with an Ability that prevents the effects of Abilities done to it keeps its own Abilities.)
         name: 'Initialization',
         statics: [{ effect: { k: 'noAbilities' }, scope: 'allPokemon', filter: { ruleBox: true, not: FUTURE }, when: { inActive: 'self' } }],
       },

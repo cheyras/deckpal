@@ -283,6 +283,9 @@ test('card rules and research keep mutable facts in the right sources', () => {
   const rules = flat(pathwayText('card_rules'))
   assert.match(rules, /Card text and legality come from `get_card` or `search_cards`, never memory or the web/)
   assert.match(rules, /N's Zoroark ex is not Zoroark ex/)
+  // Game rules and rulings from the tool, not memory (2026-10-13: models invented rules in the owner's tests).
+  assert.match(rules, /official rulings come from `rules_lookup`, never memory/)
+  assert.match(rules, /Tera, Ancient or Future tag is in `get_card`/)
 
   const research = flat(pathwayText('research'))
   assert.match(research, /Every meta answer must state today's date.*date each source reports on.*“undated”/)

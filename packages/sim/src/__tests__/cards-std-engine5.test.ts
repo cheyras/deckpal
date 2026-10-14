@@ -584,7 +584,7 @@ test('Latios, Lustrous Assist: when your Mega Latias ex moves up, you may move a
 
 // ------------------------------------------------------------------ Yanmega ex
 
-test('Yanmega ex, Buzzing Boost: when it moves up you may attach up to 3 Basic {G} Energy from your deck to it; Surfer\'s draw comes first (ruling 2142)', () => {
+test('Yanmega ex, Buzzing Boost: when it moves from the Bench to the Active Spot you may attach up to 3 Basic {G} Energy from your deck to it; Surfer\'s draw comes first (ruling 2142)', () => {
   const dk = deck('Yanma', 'Yanmega ex', 'Dreepy', 'Surfer');
   const g = scenario(dk, dk, [
     { active: 'Dreepy', bench: ['Yanma', 'Dreepy'], evolve: { 0: ['Yanmega ex'] }, hand: ['Surfer', 'Dreepy'] },

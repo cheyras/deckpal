@@ -88,8 +88,8 @@ const BASIC_ENERGY: Filter = { basicEnergy: true };
  * gets each, then the controller does the same. A card goes to a Pokémon that can take Energy from the hand; the cards
  * of both players count as attached at the same time, so the attach triggers ("whenever your opponent attaches an Energy
  * card from their hand...") only fire after both players have finished.
- * Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2354/): the Energy a player puts on a Pokémon that is
- * protected from the effects of the attack (Skeledirge, Unaware) "are discarded, after they execute their choice".
+ * Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2354/): Energy a player attaches to a Pokémon that is
+ * protected from the attack's effects (Skeledirge, Unaware) is discarded once that player has made their choice.
  * Ruling (TPCi Rules Team, https://compendium.pokegym.net/ruling/2353/): the opponent chooses first.
  */
 registerCustom('c09.pleasingPresent', (env, s, f, args, answer) => {
