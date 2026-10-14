@@ -79,15 +79,19 @@ const capital = (w: string | undefined): boolean => !!w && w !== 'I' && /^[A-Z]/
  */
 function namesInQuery(query: string, passed: readonly string[] = []): string[] {
   const found = new Set<string>();
-  const passedWords = passed.map((p) => cased(p).split(' ').filter(Boolean)).filter((w) => w.length > 0);
+  // The names passed in `cards` are consumed whatever their case: "Switch cart" in the question is the "Switch Cart"
+  // the caller named, and must not leave "Switch" behind (Astra, #340 round 3).
+  const passedWords = passed.map((p) => cased(p).toLowerCase().split(' ').filter(Boolean)).filter((w) => w.length > 0);
   for (const sentence of query.split(/[.?!;:\n]+/)) {
     const words = cased(sentence).split(' ').filter(Boolean);
+    const lower = words.map((w) => w.toLowerCase());
     const used = new Array<boolean>(words.length).fill(false);
     const at = (i: number, phrase: readonly string[]): boolean => phrase.every((w, k) => words[i + k] === w && !used[i + k]);
+    const atAnyCase = (i: number, phrase: readonly string[]): boolean => phrase.every((w, k) => lower[i + k] === w && !used[i + k]);
     const take = (i: number, n: number): void => {
       for (let k = 0; k < n; k++) used[i + k] = true;
     };
-    for (const p of passedWords) for (let i = 0; i + p.length <= words.length; i++) if (at(i, p)) take(i, p.length);
+    for (const p of passedWords) for (let i = 0; i + p.length <= words.length; i++) if (atAnyCase(i, p)) take(i, p.length);
     for (const c of CASED_NAMES) {
       for (let i = 0; i + c.words.length <= words.length; i++) {
         if (!at(i, c.words)) continue;

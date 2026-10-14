@@ -104,6 +104,14 @@ test('a longer card name the index lacks is not matched by its first word, from 
   assert.match(await ask({ query: 'Does Hide n Sneak stop Cursed Blast?' }), /#2425/);
 });
 
+test('a name passed in cards is consumed from the question whatever its case (round 3)', async () => {
+  const out = await ask({ query: 'Can I use Switch cart when my Active is Asleep?', cards: ['Switch Cart'] });
+  assert.doesNotMatch(out, /· Switch \(/, 'rulings for plain "Switch" leaked in');
+  assert.doesNotMatch(out, /filed under Switch Cart, Switch/);
+  const upper = await ask({ query: 'CAN I USE CURSED BLAST?', cards: ['cursed blast'] });
+  assert.match(upper, /Official rulings filed under cursed blast/);
+});
+
 test('repeated whitespace in a name still matches it (round 2)', async () => {
   assert.match(await ask({ query: 'Does Nighttime  Mine   affect Dragapult ex?' }), /#2288/);
 });
