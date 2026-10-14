@@ -1,0 +1,26 @@
+{
+  "P1": {
+    "name": "Facts come from a source",
+    "rule": "Card text, the rules and the log are the sources. A fact is looked up, not remembered; when the player's account conflicts with what the reviewer believes, the conflict is a reason to check the card or rule, never to overrule the player from memory."
+  },
+  "P2": {
+    "name": "Every surprise has a mechanism",
+    "rule": "An unexpected damage number, a blocked attack or effect, or an odd ending was produced by a specific card or rule (an Ability, a Stadium, a Weakness change, a damage modifier, a Prize rule). The review names that mechanism."
+  },
+  "P3": {
+    "name": "Consequences cross the whole board",
+    "rule": "An action's effects reach past its target and across both players: a self-Knock Out gives up a Prize, Bench sizes and Pokemon ex counts feed the opponent's damage, healing undoes damage, counters left on a Pokemon can be turned against you."
+  },
+  "P4": {
+    "name": "The opponent is a decision-maker",
+    "rule": "The opponent's targets, tech cards, concessions and timeouts are choices or events with reasons. The review explains them from the board and says when hidden information makes the explanation a hypothesis."
+  },
+  "P5": {
+    "name": "All the evidence, numbers reconciled",
+    "rule": "The player's own notes, every turn, the Prize count and the way the game ended must agree with each other. Counts are recounted, not estimated, and the ending is named for what it was."
+  },
+  "P6": {
+    "name": "Judgments are calibrated",
+    "rule": "Certain facts, likely explanations and suggestions are kept apart. A line is not called a misplay when the hidden hand or the lack of an alternative could explain it, and a short or one-sided game is not over-read."
+  }
+}

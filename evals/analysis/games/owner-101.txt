@@ -1,0 +1,69 @@
+Setup
+PlayerA chose heads for the opening coin flip.
+PlayerA won the coin toss.
+PlayerA decided to go first.
+PlayerA drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • (sv6_128) Dreepy, (sv6_128) Dreepy, (me5_33_ph) Shuppet, (sv6_128) Dreepy, (sv6-5_61) Night Stretcher, (ec_2) Basic Fire Energy, (me5_33_ph) Shuppet
+PlayerB drew 7 cards for the opening hand.
+- 7 drawn cards.
+PlayerA played (me5_33_ph) Shuppet to the Active Spot.
+PlayerA played (sv6_128) Dreepy to the Bench.
+PlayerA played (sv6_128) Dreepy to the Bench.
+PlayerA played (me5_33_ph) Shuppet to the Bench.
+PlayerB played (sv6-5_40) Genesect to the Active Spot.
+PlayerB played (sv9_120) Dunsparce to the Bench.
+
+PlayerA's Turn
+PlayerA drew (mee_13) Basic Psychic Energy.
+PlayerA attached (mee_13) Basic Psychic Energy to (me5_33_ph) Shuppet in the Active Spot.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (me2_129) Dawn.
+- PlayerB drew 3 cards.
+   • (me1_54) Abra, (me1_55) Kadabra, (me1_56) Alakazam
+- PlayerB shuffled their deck.
+PlayerB played (me1_54) Abra to the Bench.
+PlayerB attached (zsv10-5_79) Air Balloon to (sv6-5_40) Genesect in the Active Spot.
+PlayerB ended their turn.
+
+PlayerA's Turn
+PlayerA drew (me1_119) Lillie's Determination.
+PlayerA attached (ec_2) Basic Fire Energy to (sv6_128) Dreepy on the Bench.
+PlayerA played (me1_119) Lillie's Determination.
+- PlayerA shuffled 2 cards into their deck.
+   • (sv6_128) Dreepy, (sv6-5_61) Night Stretcher
+- PlayerA drew 8 cards.
+   • (sv6-5_20) Dusknoir, (sv6-5_19) Dusclops, (me5_34_ph) Banette, (sv1_196) Ultra Ball, (me5_34_ph) Banette, (mee_13) Basic Psychic Energy, (sv2_172) Boss's Orders, (me5_33_ph) Shuppet
+PlayerA evolved (me5_33_ph) Shuppet to (me5_34_ph) Banette in the Active Spot.
+PlayerA's (me5_34_ph) Banette used Puppet Pull on PlayerB's (sv6-5_40) Genesect for 80 damage.
+- PlayerA drew (sv6_129) Drakloak.
+- PlayerA shuffled their deck.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (me1_125) Rare Candy.
+- PlayerB evolved (me1_54) Abra to (me1_56) Alakazam on the Bench.
+PlayerB's (me1_56) Alakazam used Psychic Draw.
+- PlayerB drew 3 cards.
+PlayerB played (rsv10-5_171) Hilda.
+- PlayerB drew 2 cards.
+   • (me1_56) Alakazam, (mee_5) Basic Psychic Energy
+- PlayerB shuffled their deck.
+PlayerB attached (mee_5) Basic Psychic Energy to (me1_56) Alakazam on the Bench.
+PlayerB played (me1_167) Buddy-Buddy Poffin.
+- PlayerB drew 2 cards and played them to the Bench.
+   • (me1_54) Abra, (me1_54) Abra
+- PlayerB shuffled their deck.
+PlayerB retreated (sv6-5_40) Genesect to the Bench.
+PlayerB's (me1_56) Alakazam is now in the Active Spot.
+PlayerB's (me1_56) Alakazam used Powerful Hand.
+PlayerA's (me5_34_ph) Banette used Hide 'n' Sneak.
+- Effects of Powerful Hand did not affect (me5_34_ph) Banette.
+
+PlayerA's Turn
+PlayerA drew (sv8-5_171) Crispin.
+PlayerA evolved (me5_33_ph) Shuppet to (me5_34_ph) Banette on the Bench.
+Opponent conceded. PlayerA wins.

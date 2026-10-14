@@ -1,0 +1,63 @@
+{
+  "id": "owner-94",
+  "split": "owner",
+  "log": "evals/analysis/games/owner-94.txt",
+  "deck": "phantom-puppeteer",
+  "facts": { "result": "loss", "prizes": [2, 6], "turns": 10, "ending": "prizes", "first": "PlayerA" },
+  "notes": "Opponent's Nighttime Mine (played T6) had already stopped Phantom Dive: in PTCG Live I couldn't select it with Fire + Psychic attached, and the game said it needed a third Colorless. In my words: I spent a whole turn getting another Dragapult ex online and forgot the Mine had already blocked me from attacking before, so it lost the game instead of turning the tide. Opponent's Smoochum (free attack, free retreat) attached 2 Psychic Energy to a Benched Slowpoke. Idea for a later version: a similar free-attack tech, or a swap for Budew.",
+  "rubric": [
+    {
+      "id": "mine-tera",
+      "principle": "P1",
+      "must": true,
+      "point": "Nighttime Mine makes attacks by Tera Pokemon cost one more Colorless, and Dragapult ex is a Tera Pokemon, so Phantom Dive needed a third Energy -- agreeing with the player's account rather than contradicting it."
+    },
+    {
+      "id": "fairy-zone",
+      "principle": "P2",
+      "must": true,
+      "point": "Lillie's Clefairy ex's Fairy Zone made Dragapult ex (a Dragon) weak to Psychic, so Full Moon Rondo's damage doubled: 320 on turn 8 and 440 on turn 10, each a one-hit Knock Out."
+    },
+    {
+      "id": "rondo-both-benches",
+      "principle": "P3",
+      "must": false,
+      "point": "Full Moon Rondo counts Benched Pokemon on both sides (7, then 10), so the player's own Bench added to the damage that Knocked Out their Dragapult ex."
+    },
+    {
+      "id": "cursed-blast-wasted",
+      "principle": "P3",
+      "must": false,
+      "point": "The turn-5 Dusclops Cursed Blast Knocked Out Dusclops itself and gave the opponent a Prize, for 5 damage counters on a Slowpoke that was not Knocked Out; it evolved into Mega Slowbro ex and Jumbo Ice Cream healed the damage."
+    },
+    {
+      "id": "smoochum-accel",
+      "principle": "P4",
+      "must": false,
+      "point": "The opponent's Smoochum used Delightful Kiss to attach 2 Psychic Energy to a Benched Slowpoke, powering Mega Slowbro ex a turn early."
+    },
+    {
+      "id": "shellnado-dodge",
+      "principle": "P2",
+      "must": false,
+      "point": "Mega Slowbro ex's Shellnado Spin would put 12 damage counters on a Pokemon that attacked it the next turn; Boss's Orders onto Latias ex avoided attacking into it."
+    },
+    {
+      "id": "timer-turn",
+      "principle": "P5",
+      "must": false,
+      "point": "The player's turn 9 ended with 'didn't take an action in time' after evolving the second Dragapult ex -- the turn produced no attack."
+    },
+    {
+      "id": "score",
+      "principle": "P5",
+      "must": true,
+      "point": "The game was lost 2-6 on Prizes."
+    }
+  ],
+  "false_claims": [
+    "Dragapult ex is not a Tera Pokemon, or Nighttime Mine did not affect Phantom Dive.",
+    "The player could have used Phantom Dive with only Fire and Psychic attached while Nighttime Mine was in play.",
+    "Dragapult ex was Knocked Out because of its printed Weakness (it has none; Fairy Zone gave it one)."
+  ]
+}

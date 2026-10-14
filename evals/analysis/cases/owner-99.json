@@ -1,0 +1,51 @@
+{
+  "id": "owner-99",
+  "split": "owner",
+  "log": "evals/analysis/games/owner-99.txt",
+  "deck": "phantom-puppeteer",
+  "facts": { "result": "loss", "prizes": [5, 6], "turns": 11, "ending": "prizes", "first": "PlayerA" },
+  "notes": null,
+  "rubric": [
+    {
+      "id": "last-cursed-blast",
+      "principle": "P3",
+      "must": true,
+      "point": "On the last turn Dusknoir's Cursed Blast Knocked Out Dhelmise (the player's 5th Prize) but also Knocked Out Dusknoir itself, which gave the opponent their 6th and winning Prize."
+    },
+    {
+      "id": "fairy-zone-340",
+      "principle": "P2",
+      "must": true,
+      "point": "Lillie's Clefairy ex, benched that turn, made Dragapult ex weak to Psychic through Fairy Zone, so Vengeful Anchor's 170 doubled to 340."
+    },
+    {
+      "id": "anchor-discard",
+      "principle": "P2",
+      "must": false,
+      "point": "Vengeful Anchor's +140 comes from 4 or more Hide 'n' Sneak Pokemon in the opponent's discard pile, which they filled with Prism Tower, Ultra Ball and Explorer's Guidance; Banette's own Hide 'n' Sneak does not stop it because damage is not an effect."
+    },
+    {
+      "id": "hns-blanks-spread",
+      "principle": "P2",
+      "must": false,
+      "point": "The opponent's Shuppet and Poltchageist have Hide 'n' Sneak, so Phantom Dive's and Cursed Blast's counters could not be placed on them ('did not affect'), limiting where the spread could go."
+    },
+    {
+      "id": "last-turn-calibrated",
+      "principle": "P6",
+      "must": false,
+      "point": "Judges the last-turn Cursed Blast against the alternatives: no 2-Prize Knock Out was available that turn and the opponent needed one Prize, so the game was very likely lost anyway; any other criticism (e.g. benching Fezandipiti ex) is offered as worth a look, not as a certain misplay."
+    },
+    {
+      "id": "score",
+      "principle": "P5",
+      "must": true,
+      "point": "The game was lost 5-6 on Prizes."
+    }
+  ],
+  "false_claims": [
+    "Banette's Hide 'n' Sneak prevents damage.",
+    "The player won the game or took 6 Prizes.",
+    "Cursed Blast does not Knock Out the Pokemon that uses it."
+  ]
+}

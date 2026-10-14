@@ -1,0 +1,45 @@
+{
+  "id": "owner-100",
+  "split": "owner",
+  "log": "evals/analysis/games/owner-100.txt",
+  "deck": "phantom-puppeteer",
+  "facts": { "result": "win", "prizes": [0, 4], "turns": 11, "ending": "timeout", "first": "PlayerB" },
+  "notes": null,
+  "rubric": [
+    {
+      "id": "prize-count",
+      "principle": "P5",
+      "must": true,
+      "point": "The Prize count is right: the player took 0 Prizes and the opponent took 4 (Drakloak 1, Dragapult ex 2, Dusknoir 1)."
+    },
+    {
+      "id": "ending-timeout",
+      "principle": "P4",
+      "must": true,
+      "point": "The game was won because the opponent was inactive for too long (after already letting one turn time out), not on Prizes or board position; the player was behind 0-4 when it ended."
+    },
+    {
+      "id": "cheer-on",
+      "principle": "P2",
+      "must": false,
+      "point": "Cynthia's Roserade's Cheer On to Glory adds 30 to Cynthia's Pokemon's attacks per Roserade in play: 160 = 100 + 2x30 on Drakloak, 350 = 260 + 3x30 on Dragapult ex."
+    },
+    {
+      "id": "dusknoir-prize",
+      "principle": "P3",
+      "must": false,
+      "point": "Dusknoir's Cursed Blast Knocked Out Dusknoir itself and gave the opponent a Prize."
+    },
+    {
+      "id": "no-false-ko",
+      "principle": "P5",
+      "must": false,
+      "point": "Does not claim the player Knocked Out Cynthia's Garchomp ex; no Knock Out of the opponent's Pokemon is recorded."
+    }
+  ],
+  "false_claims": [
+    "The player won by taking Prize cards, or took any Prizes.",
+    "Cynthia's Garchomp ex was Knocked Out.",
+    "The win shows the player was ahead in the matchup."
+  ]
+}

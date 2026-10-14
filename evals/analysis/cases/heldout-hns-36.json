@@ -1,0 +1,57 @@
+{
+  "id": "heldout-hns-36",
+  "split": "held-out",
+  "log": "packages/sim/src/__tests__/fixtures/live-logs/hns-36.txt",
+  "deck": "hide-n-sneak",
+  "facts": { "result": "loss", "prizes": [3, 6], "turns": 13, "ending": "prizes", "first": "PlayerB" },
+  "notes": null,
+  "rubric": [
+    {
+      "id": "tail-counts-ex",
+      "principle": "P3",
+      "must": true,
+      "point": "Dudunsparce ex's Tenacious Tail does 60 for each of the player's Pokemon ex in play, so the player's own Lillie's Clefairy ex and Fezandipiti ex raised it to 120, which Knocked Out Lillie's Clefairy ex over two attacks."
+    },
+    {
+      "id": "boss-targets",
+      "principle": "P4",
+      "must": true,
+      "point": "The opponent used Boss's Orders three times to choose their targets (Shuppet twice, Lillie's Clefairy ex), taking Prizes from Pokemon that could not hit back instead of attacking the Active."
+    },
+    {
+      "id": "score",
+      "principle": "P5",
+      "must": true,
+      "point": "The game was lost 3-6: all 3 of the player's Prizes came from one Mega Lucario ex (a Mega Evolution Pokemon ex gives 3), and the opponent took 1+2+1+1+1."
+    },
+    {
+      "id": "anchor-340",
+      "principle": "P2",
+      "must": false,
+      "point": "Vengeful Anchor's +140 (4 or more Hide 'n' Sneak Pokemon in the player's discard pile) and Mega Lucario ex's Psychic Weakness made 340; Banette's Puppet Pull did 160 to it for the same Weakness."
+    },
+    {
+      "id": "resistance-not-enough",
+      "principle": "P2",
+      "must": false,
+      "point": "Fighting Resistance (-30) on Banette and Dhelmise was not enough: Aura Jab's 100 still Knocked Out 80-HP Banette and Mega Brave's 240 Knocked Out 140-HP Dhelmise."
+    },
+    {
+      "id": "jamming-tower",
+      "principle": "P2",
+      "must": false,
+      "point": "Jamming Tower turned off Pokemon Tools (the Air Balloon on Fezandipiti ex) until the player replaced it with Prism Tower."
+    },
+    {
+      "id": "quiet-turn-evidence",
+      "principle": "P5",
+      "must": false,
+      "point": "The quiet turn (play Shuppet and end, with the damaged Lillie's Clefairy ex Active) is judged from the hand the log reveals: after Lillie's Determination's shown draw and the plays since, it held Dhelmise and Banette plus the drawn Shuppet. There was no Energy to attach, no Flip the Script (nothing was Knocked Out the turn before) and Full Moon Rondo needed a second Energy; the one live option was Prism Tower (discard 2 cards to draw 1), offered as worth a look rather than a certain misplay."
+    }
+  ],
+  "false_claims": [
+    "Tenacious Tail's damage depends on the opponent's own Pokemon ex or is a flat 120.",
+    "The player took 6 Prizes or won.",
+    "Knocking Out Mega Lucario ex gave 2 Prizes."
+  ]
+}

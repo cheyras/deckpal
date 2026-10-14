@@ -112,6 +112,11 @@ jobs:
       - name: Battle simulator tests (pure, no DB)
         run: pnpm --filter @deckpal/sim test
 
+      # The analysis eval's free half: its cases agree with their logs (through
+      # the sim's parser), and its QA guard, budget cap and scoring hold.
+      - name: Analysis eval cases + harness (pure, no network)
+        run: node --test scripts/__tests__/analysis-eval.test.mjs
+
       - name: Image path parsing + traversal rejection tests (pure, no DB)
         run: pnpm --filter deckpal-api test:images
 

@@ -1,0 +1,277 @@
+Setup
+PlayerA chose tails for the opening coin flip.
+PlayerB won the coin toss.
+PlayerB decided to go second.
+PlayerA drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • (me3_81) Poké Pad, (sv6-5_18) Duskull, (mee_13) Basic Psychic Energy, (me1_167) Buddy-Buddy Poffin, (sv6-5_61) Night Stretcher, (me1_119) Lillie's Determination, (me5_33_ph) Shuppet
+PlayerB drew 7 cards for the opening hand.
+- 7 drawn cards.
+PlayerA played (me5_33_ph) Shuppet to the Active Spot.
+PlayerA played (sv6-5_18) Duskull to the Bench.
+PlayerB played (me5_33) Shuppet to the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (me5_33_ph) Shuppet.
+PlayerA played (me3_81) Poké Pad.
+- PlayerA drew (me5_34_ph) Banette.
+- PlayerA shuffled their deck.
+PlayerA attached (mee_13) Basic Psychic Energy to (me5_33_ph) Shuppet in the Active Spot.
+PlayerA played (me1_167) Buddy-Buddy Poffin.
+- PlayerA drew 2 cards and played them to the Bench.
+   • (sv6_128) Dreepy, (sv6_128) Dreepy
+- PlayerA shuffled their deck.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (me3_81) Poké Pad.
+- PlayerB drew (me5_91) Dhelmise.
+- PlayerB shuffled their deck.
+PlayerB played (me5_91) Dhelmise to the Bench.
+PlayerB played (me1_131) Ultra Ball.
+- PlayerB discarded 2 cards.
+   • (me5_6) Sinistcha, (me2-5_196) Night Stretcher
+- PlayerB drew (sv8_76) Latias ex.
+- PlayerB shuffled their deck.
+PlayerB played (sv8_76) Latias ex to the Bench.
+PlayerB played (me1_184) Lillie's Determination.
+- PlayerB shuffled 2 cards into their deck.
+- PlayerB drew 8 cards.
+PlayerB played (me4_80) Prism Tower to the Stadium spot.
+PlayerB played Prism Tower.
+- PlayerB discarded 2 cards.
+   • (me5_33) Shuppet, (me5_34) Banette
+- PlayerB drew a card.
+PlayerB played (me3_72) Energy Search.
+- PlayerB drew (mee_5) Basic Psychic Energy.
+- PlayerB shuffled their deck.
+PlayerB attached (mee_5) Basic Psychic Energy to (me5_91) Dhelmise on the Bench.
+PlayerB retreated (me5_33) Shuppet to the Bench.
+PlayerB's (me5_91) Dhelmise is now in the Active Spot.
+PlayerB played (me5_91) Dhelmise to the Bench.
+PlayerB's (me5_91) Dhelmise used Vengeful Anchor on PlayerA’s (me5_33_ph) Shuppet for 30 damage.
+
+PlayerA's Turn
+PlayerA drew (me3_81) Poké Pad.
+PlayerA evolved (me5_33_ph) Shuppet to (me5_34_ph) Banette in the Active Spot.
+PlayerA played (me3_81) Poké Pad.
+- PlayerA drew (sv6_129) Drakloak.
+- PlayerA shuffled their deck.
+PlayerA evolved (sv6_128) Dreepy to (sv6_129) Drakloak on the Bench.
+PlayerA played (me1_119) Lillie's Determination.
+- PlayerA shuffled 2 cards into their deck.
+   • (sv6-5_61) Night Stretcher, (me5_33_ph) Shuppet
+- PlayerA drew 8 cards.
+   • (sv6_130) Dragapult ex, (me5_33_ph) Shuppet, (sv6_129) Drakloak, (sv2_172) Boss's Orders, (sv6_128) Dreepy, (mee_13) Basic Psychic Energy, (me1_119) Lillie's Determination, (mee_13) Basic Psychic Energy
+PlayerA evolved (sv6_128) Dreepy to (sv6_129) Drakloak on the Bench.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (ec_2) Basic Fire Energy.
+PlayerA attached (ec_2) Basic Fire Energy to (sv6_129) Drakloak on the Bench.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (me1_119) Lillie's Determination.
+PlayerA's (me5_34_ph) Banette used Puppet Pull on PlayerB’s (me5_91) Dhelmise for 80 damage.
+- PlayerA drew (rsv10-5_171) Hilda.
+- PlayerA shuffled their deck.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (me5_109) Gwynn.
+- PlayerB discarded (me5_39_ph) Dhelmise.
+- PlayerB drew 3 cards.
+PlayerB played Prism Tower.
+- PlayerB discarded 2 cards.
+   • (me4_70) Patrat, (me5_34) Banette
+- PlayerB drew a card.
+PlayerB played (me2-5_196) Night Stretcher.
+- PlayerB moved PlayerB's (me5_39_ph) Dhelmise to their hand.
+PlayerB attached (me3_88) Telepathic Psychic Energy to (me5_91) Dhelmise on the Bench.
+(me3_88) Telepathic Psychic Energy was activated.
+- PlayerB shuffled their deck.
+PlayerB played (me5_39_ph) Dhelmise to the Bench.
+PlayerB's (me5_91) Dhelmise used Vengeful Anchor on PlayerA’s (me5_34_ph) Banette for 170 damage.
+- Damage breakdown:
+   • Base damage: 30 damage
+   • 4 Pokémon with Abilities: 140 damage
+   • Total damage: 170 damage
+
+PlayerA's (me5_34_ph) Banette was Knocked Out!
+- 2 cards were discarded from PlayerA's (me5_34_ph) Banette.
+   • (mee_13) Basic Psychic Energy, (me5_33_ph) Shuppet
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's (sv6_129) Drakloak is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (me5_33_ph) Shuppet.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (me2-5_288) Fezandipiti ex.
+PlayerA played (me2-5_288) Fezandipiti ex to the Bench.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (mee_13) Basic Psychic Energy.
+PlayerA attached (mee_13) Basic Psychic Energy to (sv6_129) Drakloak in the Active Spot.
+PlayerA evolved (sv6_129) Drakloak to (sv6_130) Dragapult ex in the Active Spot.
+PlayerA played (rsv10-5_171) Hilda.
+- PlayerA drew 2 cards.
+   • (sv6_130) Dragapult ex, (ec_2) Basic Fire Energy
+- PlayerA shuffled their deck.
+PlayerA's (me2-5_288) Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
+   • (sv8-5_171) Crispin, (ec_2) Basic Fire Energy, (me3_81) Poké Pad
+PlayerA played (me3_81) Poké Pad.
+- PlayerA drew (sv6-5_20) Dusknoir.
+- PlayerA shuffled their deck.
+PlayerA evolved (sv6_129) Drakloak to (sv6_130) Dragapult ex on the Bench.
+PlayerA's (sv6_130) Dragapult ex used Phantom Dive on PlayerB’s (me5_91) Dhelmise for 200 damage.
+- PlayerA put a damage counter on PlayerA's (sv8_76) Latias ex.
+PlayerB's (me5_33) Shuppet used Hide 'n' Sneak.
+- Effects of Phantom Dive did not affect (me5_33) Shuppet.
+PlayerB's (me5_91) Dhelmise was Knocked Out!
+(mee_5) Basic Psychic Energy was discarded from PlayerB's (me5_91) Dhelmise.
+PlayerA took a Prize card.
+(rsv10-5_171) Hilda was added to PlayerA's hand.
+PlayerB's (me5_91) Dhelmise is now in the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB attached (sv6_167) Legacy Energy to (me5_39_ph) Dhelmise on the Bench.
+PlayerB played (sv5_147) Explorer's Guidance.
+- PlayerB drew 2 cards.
+- PlayerB discarded 4 cards.
+   • (sv9_121) Dudunsparce ex, (sv5_129) Dudunsparce, (me5_34) Banette, (me5_35) Spiritomb
+PlayerB played (me1_131) Ultra Ball.
+- PlayerB discarded 2 cards.
+   • (sv7_133) Crispin, (sv9_120) Dunsparce
+- PlayerB drew (me5_33) Shuppet.
+- PlayerB shuffled their deck.
+PlayerB's (me5_91) Dhelmise used Vengeful Anchor on PlayerA’s (sv6_130) Dragapult ex for 170 damage.
+- Damage breakdown:
+   • Base damage: 30 damage
+   • 5 Pokémon with Abilities: 140 damage
+   • Total damage: 170 damage
+
+
+PlayerA's Turn
+PlayerA drew (me1_167) Buddy-Buddy Poffin.
+PlayerA played (sv8-5_171) Crispin.
+- PlayerA drew (mee_13) Basic Psychic Energy.
+PlayerA attached (mee_13) Basic Psychic Energy to (sv6_130) Dragapult ex on the Bench.
+PlayerA played (sv6_128) Dreepy to the Bench.
+PlayerA's (sv6_130) Dragapult ex used Phantom Dive on PlayerB’s (me5_91) Dhelmise for 200 damage.
+- PlayerA put a damage counter on PlayerA's (sv8_76) Latias ex.
+PlayerB's (me5_33) Shuppet used Hide 'n' Sneak.
+- Effects of Phantom Dive did not affect (me5_33) Shuppet.
+PlayerB's (me5_91) Dhelmise was Knocked Out!
+(me3_88) Telepathic Psychic Energy was discarded from PlayerB's (me5_91) Dhelmise.
+PlayerA took a Prize card.
+(sv6-5_19) Dusclops was added to PlayerA's hand.
+PlayerB's (me5_39_ph) Dhelmise is now in the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (sv5_147) Explorer's Guidance.
+- PlayerB drew 2 cards.
+- PlayerB discarded 4 cards.
+   • (me5_33) Shuppet, (me3_81) Poké Pad, (sv5_147) Explorer's Guidance, (me5_34) Banette
+PlayerB played Prism Tower.
+- PlayerB discarded 2 cards.
+   • (me5_33) Shuppet, (me5_6) Sinistcha
+- PlayerB drew a card.
+PlayerB attached (me3_88) Telepathic Psychic Energy to (sv8_76) Latias ex on the Bench.
+(me3_88) Telepathic Psychic Energy was activated.
+- PlayerB shuffled their deck.
+PlayerB's (me5_39_ph) Dhelmise used Vengeful Anchor on PlayerA’s (sv6_130) Dragapult ex for 170 damage.
+- Damage breakdown:
+   • Base damage: 30 damage
+   • 9 Pokémon with Abilities: 140 damage
+   • Total damage: 170 damage
+
+PlayerA's (sv6_130) Dragapult ex was Knocked Out!
+- 4 cards were discarded from PlayerA's (sv6_130) Dragapult ex.
+   • (ec_2) Basic Fire Energy, (mee_13) Basic Psychic Energy, (sv6_129) Drakloak, (sv6_128) Dreepy
+PlayerB took 2 Prize cards.
+A card was added to PlayerB's hand.
+A card was added to PlayerB's hand.
+PlayerA's (sv6_130) Dragapult ex is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (sv6_128) Dreepy.
+PlayerA evolved (sv6-5_18) Duskull to (sv6-5_19) Dusclops on the Bench.
+PlayerA attached (ec_2) Basic Fire Energy to (sv6_130) Dragapult ex in the Active Spot.
+PlayerA's (me2-5_288) Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
+   • (svalt_24) Boss's Orders, (sv6_129) Drakloak, (sv6_130) Dragapult ex
+PlayerA evolved (sv6_128) Dreepy to (sv6_129) Drakloak on the Bench.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (sv6_129) Drakloak.
+PlayerA played (svalt_24) Boss's Orders.
+- PlayerB's (sv8_76) Latias ex was switched with PlayerB's (me5_39_ph) Dhelmise to become the Active Pokémon.
+PlayerB's (sv8_76) Latias ex is now in the Active Spot.
+PlayerA played (me1_167) Buddy-Buddy Poffin.
+- PlayerA drew (me2-5_16) Budew and played it to the Bench.
+- PlayerA shuffled their deck.
+PlayerA's (sv6_130) Dragapult ex used Phantom Dive on PlayerB’s (sv8_76) Latias ex for 200 damage.
+- PlayerA put a damage counter on PlayerA's (me5_39_ph) Dhelmise.
+PlayerB's (me5_33) Shuppet used Hide 'n' Sneak.
+- Effects of Phantom Dive did not affect (me5_33) Shuppet.
+PlayerB's (sv8_76) Latias ex was Knocked Out!
+(me3_88) Telepathic Psychic Energy was discarded from PlayerB's (sv8_76) Latias ex.
+PlayerA took 2 Prize cards.
+(mee_10) Basic Fire Energy was added to PlayerA's hand.
+(me5_34_ph) Banette was added to PlayerA's hand.
+PlayerB's (me5_39_ph) Dhelmise is now in the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (sv9_56) Lillie's Clefairy ex to the Bench.
+PlayerB played (me3_81) Poké Pad.
+- PlayerB drew (me5_5) Poltchageist.
+- PlayerB shuffled their deck.
+PlayerB played (me5_5) Poltchageist to the Bench.
+PlayerB attached (me3_88) Telepathic Psychic Energy to (sv9_56) Lillie's Clefairy ex on the Bench.
+(me3_88) Telepathic Psychic Energy was activated.
+- PlayerB shuffled their deck.
+PlayerB's (me5_39_ph) Dhelmise used Vengeful Anchor on PlayerA’s (sv6_130) Dragapult ex for 340 damage. PlayerA's (sv6_130) Dragapult ex took 170 more damage because of Psychic Weakness.
+- Damage breakdown:
+   • Base damage: 30 damage
+   • 9 Pokémon with Abilities: 140 damage
+   • Weakness to Psychic: 170 damage
+   • Total damage: 340 damage
+
+PlayerA's (sv6_130) Dragapult ex was Knocked Out!
+- 4 cards were discarded from PlayerA's (sv6_130) Dragapult ex.
+   • (mee_13) Basic Psychic Energy, (ec_2) Basic Fire Energy, (sv6_129) Drakloak, (sv6_128) Dreepy
+PlayerB took 2 Prize cards.
+A card was added to PlayerB's hand.
+A card was added to PlayerB's hand.
+PlayerA's (sv6_129) Drakloak is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (sv1_196) Ultra Ball.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (me3_81) Poké Pad.
+PlayerA's (me2-5_288) Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
+   • (sv6-5_61) Night Stretcher, (me1_119) Lillie's Determination, (sv6-5_61) Night Stretcher
+PlayerA played (me1_119) Lillie's Determination.
+- PlayerA shuffled 19 cards into their deck.
+   • (me5_33_ph) Shuppet, (sv2_172) Boss's Orders, (mee_13) Basic Psychic Energy, (me1_119) Lillie's Determination, (mee_13) Basic Psychic Energy, (me1_119) Lillie's Determination, (me5_33_ph) Shuppet, (ec_2) Basic Fire Energy, (sv6-5_20) Dusknoir, (rsv10-5_171) Hilda, (sv6_128) Dreepy, (sv6_130) Dragapult ex, (sv6_129) Drakloak, (mee_10) Basic Fire Energy, (me5_34_ph) Banette, (sv1_196) Ultra Ball, (me3_81) Poké Pad, (sv6-5_61) Night Stretcher, (sv6-5_61) Night Stretcher
+- PlayerA drew 6 cards.
+   • (sv6_129) Drakloak, (sv1_194) Switch, (sv6-5_20) Dusknoir, (sv6-5_61) Night Stretcher, (ec_2) Basic Fire Energy, (me1_119) Lillie's Determination
+PlayerA evolved (sv6-5_19) Dusclops to (sv6-5_20) Dusknoir on the Bench.
+PlayerA's (sv6-5_20) Dusknoir used Cursed Blast.
+- PlayerA put 13 damage counters on PlayerA's (me5_39_ph) Dhelmise.
+PlayerB's (me5_33) Shuppet used Hide 'n' Sneak.
+- Effects of Cursed Blast did not affect (me5_33) Shuppet.
+PlayerB's (me5_5) Poltchageist used Hide 'n' Sneak.
+- Effects of Cursed Blast did not affect (me5_5) Poltchageist.
+PlayerB's (me5_39_ph) Dhelmise was Knocked Out!
+(sv6_167) Legacy Energy was discarded from PlayerB's (me5_39_ph) Dhelmise.
+PlayerA's (sv6-5_20) Dusknoir was Knocked Out!
+- 2 cards were discarded from PlayerA's (sv6-5_20) Dusknoir.
+   • (sv6-5_19) Dusclops, (sv6-5_18) Duskull
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA took a Prize card.
+(sv6-5_19) Dusclops was added to PlayerA's hand.
+Opponent took all of their Prize cards. PlayerB wins.

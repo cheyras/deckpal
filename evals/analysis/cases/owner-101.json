@@ -1,0 +1,39 @@
+{
+  "id": "owner-101",
+  "split": "owner",
+  "log": "evals/analysis/games/owner-101.txt",
+  "deck": "phantom-puppeteer",
+  "facts": { "result": "win", "prizes": [0, 0], "turns": 5, "ending": "concede", "first": "PlayerA" },
+  "notes": "I think the opponent conceded because Banette was blocking their Alakazam's main attack.",
+  "rubric": [
+    {
+      "id": "hns-blocks-hand",
+      "principle": "P2",
+      "must": true,
+      "point": "Alakazam's Powerful Hand places damage counters, which is an effect, so Banette's Hide 'n' Sneak prevented it ('did not affect'); with a second Banette evolved the next turn, the opponent's main attack had no target."
+    },
+    {
+      "id": "concession-reason",
+      "principle": "P4",
+      "must": true,
+      "point": "Explains the concession from the board, consistent with the player's own reading, and presents it as the likely reason rather than a certainty."
+    },
+    {
+      "id": "ending",
+      "principle": "P5",
+      "must": true,
+      "point": "The opponent conceded on turn 5 with no Prizes taken by either player."
+    },
+    {
+      "id": "short-game",
+      "principle": "P6",
+      "must": false,
+      "point": "Does not over-read a 5-turn concession into matchup conclusions."
+    }
+  ],
+  "false_claims": [
+    "Hide 'n' Sneak prevents damage.",
+    "The opponent's Genesect is a Pokemon ex.",
+    "The player took Prize cards in this game."
+  ]
+}

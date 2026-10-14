@@ -1,0 +1,39 @@
+{
+  "id": "owner-95",
+  "split": "owner",
+  "log": "evals/analysis/games/owner-95.txt",
+  "deck": "phantom-puppeteer",
+  "facts": { "result": "win", "prizes": [1, 0], "turns": 6, "ending": "concede", "first": "PlayerA" },
+  "notes": null,
+  "rubric": [
+    {
+      "id": "ending",
+      "principle": "P5",
+      "must": true,
+      "point": "The opponent conceded on their turn 6 with the score 1-0; the game did not end on Prizes."
+    },
+    {
+      "id": "crustle-wall-fails",
+      "principle": "P4",
+      "must": true,
+      "point": "A concession explanation tied to the board: Crustle's Mysterious Rock Inn only prevents damage from attacks by Pokemon ex, and Banette (not an ex) had just hit Crustle for 80, so the opponent's wall did not wall this deck. Offered as a likely reason, not a certainty."
+    },
+    {
+      "id": "crustle-mechanism",
+      "principle": "P2",
+      "must": false,
+      "point": "States what Crustle actually blocks (damage from Pokemon ex attacks) after looking it up, rather than treating it as blocking everything."
+    },
+    {
+      "id": "short-game",
+      "principle": "P6",
+      "must": false,
+      "point": "Does not draw strong matchup or misplay conclusions from a 6-turn game that ended in a concession."
+    }
+  ],
+  "false_claims": [
+    "Crustle's Ability prevents all damage, including Banette's.",
+    "The game was won by taking all Prize cards.",
+    "Banette is a Pokemon ex."
+  ]
+}

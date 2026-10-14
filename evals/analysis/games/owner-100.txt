@@ -1,0 +1,221 @@
+Setup
+PlayerA chose tails for the opening coin flip.
+PlayerB won the coin toss.
+PlayerB decided to go first.
+PlayerA drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • (sv6_130) Dragapult ex, (me1_119) Lillie's Determination, (sv6_129) Drakloak, (sv6_128) Dreepy, (sv6-5_61) Night Stretcher, (sv6_130) Dragapult ex, (sv6_128) Dreepy
+PlayerB drew 7 cards for the opening hand.
+- 7 drawn cards.
+PlayerB took a mulligan.
+- Cards revealed from Mulligan 1
+   • (me1_168) Fighting Gong, (me1_167) Buddy-Buddy Poffin, (mee_14) Basic Fighting Energy, (me1_167) Buddy-Buddy Poffin, (sv10_184) Cynthia's Roserade, (sv10_162) Cynthia's Power Weight, (sv10_226) Team Rocket's Petrel
+PlayerA drew 1 more card because PlayerB took at least 1 mulligan.
+- PlayerA drew (rsv10-5_171) Hilda.
+PlayerA played (sv6_128) Dreepy to the Active Spot.
+PlayerA played (sv6_128) Dreepy to the Bench.
+PlayerB played (sv10_7) Cynthia's Roselia to the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (me3_113) Poké Pad.
+- PlayerB drew (sv10_102) Cynthia's Gible.
+- PlayerB shuffled their deck.
+PlayerB played (sv10_102) Cynthia's Gible to the Bench.
+PlayerB ended their turn.
+
+PlayerA's Turn
+PlayerA drew (me1_119) Lillie's Determination.
+PlayerA played (rsv10-5_171) Hilda.
+- PlayerA drew 2 cards.
+   • (sv6_129) Drakloak, (ec_2) Basic Fire Energy
+- PlayerA shuffled their deck.
+PlayerA attached (ec_2) Basic Fire Energy to (sv6_128) Dreepy in the Active Spot.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB evolved (sv10_102) Cynthia's Gible to (sv10_103) Cynthia's Gabite on the Bench.
+PlayerB attached (sv10_162) Cynthia's Power Weight to (sv10_103) Cynthia's Gabite on the Bench.
+PlayerB's (sv10_103) Cynthia's Gabite used Champion's Call.
+- PlayerB drew (sv10_102) Cynthia's Gible.
+- PlayerB shuffled their deck.
+PlayerB played (sv10_102) Cynthia's Gible to the Bench.
+PlayerB played (me3_113) Poké Pad.
+- PlayerB drew (sv10_7) Cynthia's Roselia.
+- PlayerB shuffled their deck.
+PlayerB played (sv10_7) Cynthia's Roselia to the Bench.
+PlayerB played (sv10_226) Team Rocket's Petrel.
+- PlayerB drew (me1_184) Lillie's Determination.
+- PlayerB shuffled their deck.
+PlayerB ended their turn.
+
+PlayerA's Turn
+PlayerA drew (sv6_129) Drakloak.
+PlayerA evolved (sv6_128) Dreepy to (sv6_129) Drakloak in the Active Spot.
+PlayerA evolved (sv6_128) Dreepy to (sv6_129) Drakloak on the Bench.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (sv1_194) Switch.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (me3_81) Poké Pad.
+PlayerA played (me3_81) Poké Pad.
+- PlayerA drew (sv6-5_18) Duskull.
+- PlayerA shuffled their deck.
+PlayerA played (sv6-5_18) Duskull to the Bench.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB evolved (sv10_7) Cynthia's Roselia to (sv10_184) Cynthia's Roserade on the Bench.
+PlayerB's (sv10_103) Cynthia's Gabite used Champion's Call.
+- PlayerB drew (sv10_232) Cynthia's Garchomp ex.
+- PlayerB shuffled their deck.
+PlayerB evolved (sv10_103) Cynthia's Gabite to (sv10_232) Cynthia's Garchomp ex on the Bench.
+PlayerB played (me1_184) Lillie's Determination.
+- PlayerB shuffled 3 cards into their deck.
+- PlayerB drew 8 cards.
+PlayerB evolved (sv10_102) Cynthia's Gible to (sv10_103) Cynthia's Gabite on the Bench.
+PlayerB played (sv10_7) Cynthia's Roselia to the Bench.
+PlayerB's (sv10_103) Cynthia's Gabite used Champion's Call.
+- PlayerB drew (sv10_184) Cynthia's Roserade.
+- PlayerB shuffled their deck.
+PlayerB evolved (sv10_7) Cynthia's Roselia to (sv10_184) Cynthia's Roserade in the Active Spot.
+PlayerB played (me3_113) Poké Pad.
+- PlayerB drew (sv10_184) Cynthia's Roserade.
+- PlayerB shuffled their deck.
+PlayerB played (me2_123) Switch.
+- PlayerB's (sv10_232) Cynthia's Garchomp ex was switched with PlayerB's (sv10_184) Cynthia's Roserade to become the Active Pokémon.
+PlayerB's (sv10_232) Cynthia's Garchomp ex is now in the Active Spot.
+PlayerB attached (mee_14) Basic Fighting Energy to (sv10_232) Cynthia's Garchomp ex in the Active Spot.
+PlayerB's (sv10_232) Cynthia's Garchomp ex used Corkscrew Dive on PlayerA's (sv6_129) Drakloak for 160 damage.
+- Damage breakdown:
+   • Base damage: 100 damage
+   • (Ability) Cheer On to Glory: 30 damage
+   • (Ability) Cheer On to Glory: 30 damage
+   • Total damage: 160 damage
+
+- PlayerB drew 2 cards.
+PlayerA's (sv6_129) Drakloak was Knocked Out!
+- 2 cards were discarded from PlayerA's (sv6_129) Drakloak.
+   • (ec_2) Basic Fire Energy, (sv6_128) Dreepy
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's (sv6_129) Drakloak is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (sv6-5_20) Dusknoir.
+PlayerA played (sv6-5_61) Night Stretcher.
+- PlayerA moved PlayerA's (sv6_128) Dreepy to their hand.
+PlayerA played (sv6_128) Dreepy to the Bench.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (sv1_196) Ultra Ball.
+PlayerA played (sv1_196) Ultra Ball.
+- PlayerA discarded 2 cards.
+   • (me1_119) Lillie's Determination, (sv1_194) Switch
+- PlayerA drew (sv6-5_19) Dusclops.
+- PlayerA shuffled their deck.
+PlayerA evolved (sv6-5_18) Duskull to (sv6-5_19) Dusclops on the Bench.
+PlayerA evolved (sv6_129) Drakloak to (sv6_130) Dragapult ex in the Active Spot.
+PlayerA played (me1_119) Lillie's Determination.
+- PlayerA shuffled 3 cards into their deck.
+   • (sv6_130) Dragapult ex, (sv6_129) Drakloak, (sv6-5_20) Dusknoir
+- PlayerA drew 8 cards.
+   • (me1_119) Lillie's Determination, (sv6-5_61) Night Stretcher, (me1_119) Lillie's Determination, (sv1_196) Ultra Ball, (mee_10) Basic Fire Energy, (sv6_130) Dragapult ex, (sv6_130) Dragapult ex, (sv6_128) Dreepy
+PlayerA attached (mee_10) Basic Fire Energy to (sv6_130) Dragapult ex in the Active Spot.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (me4_111) Prism Tower to the Stadium spot.
+PlayerB evolved (sv10_7) Cynthia's Roselia to (sv10_184) Cynthia's Roserade on the Bench.
+PlayerB played Prism Tower.
+- PlayerB discarded 2 cards.
+   • (me1_175) Rare Candy, (me1_175) Rare Candy
+- PlayerB drew a card.
+PlayerB played (me1_168) Fighting Gong.
+- PlayerB drew (mee_14) Basic Fighting Energy.
+- PlayerB shuffled their deck.
+PlayerB's (sv10_103) Cynthia's Gabite used Champion's Call.
+- PlayerB drew (sv10_232) Cynthia's Garchomp ex.
+- PlayerB shuffled their deck.
+PlayerB attached (mee_14) Basic Fighting Energy to (sv10_232) Cynthia's Garchomp ex in the Active Spot.
+PlayerB played (me1_184) Lillie's Determination.
+- PlayerB shuffled 4 cards into their deck.
+- PlayerB drew 6 cards.
+PlayerB attached (sv10_162) Cynthia's Power Weight to (sv10_103) Cynthia's Gabite on the Bench.
+PlayerB's (sv10_232) Cynthia's Garchomp ex used Draconic Buster on PlayerA's (sv6_130) Dragapult ex for 350 damage.
+- Damage breakdown:
+   • Base damage: 260 damage
+   • (Ability) Cheer On to Glory: 30 damage
+   • (Ability) Cheer On to Glory: 30 damage
+   • (Ability) Cheer On to Glory: 30 damage
+   • Total damage: 350 damage
+
+- 2 cards were discarded from PlayerB's (sv10_232) Cynthia's Garchomp ex.
+   • (mee_14) Basic Fighting Energy, (mee_14) Basic Fighting Energy
+PlayerA's (sv6_130) Dragapult ex was Knocked Out!
+- 3 cards were discarded from PlayerA's (sv6_130) Dragapult ex.
+   • (mee_10) Basic Fire Energy, (sv6_129) Drakloak, (sv6_128) Dreepy
+PlayerB took 2 Prize cards.
+A card was added to PlayerB's hand.
+A card was added to PlayerB's hand.
+PlayerA's (sv6-5_19) Dusclops is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (rsv10-5_171) Hilda.
+PlayerA played (rsv10-5_171) Hilda.
+- PlayerA drew 2 cards.
+   • (sv6_129) Drakloak, (mee_13) Basic Psychic Energy
+- PlayerA shuffled their deck.
+PlayerA evolved (sv6_128) Dreepy to (sv6_129) Drakloak on the Bench.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (me1_167) Buddy-Buddy Poffin.
+PlayerA played (me1_167) Buddy-Buddy Poffin.
+- PlayerA drew 2 cards and played them to the Bench.
+   • (me5_33_ph) Shuppet, (sv6_128) Dreepy
+- PlayerA shuffled their deck.
+PlayerA attached (mee_13) Basic Psychic Energy to (sv6_129) Drakloak on the Bench.
+PlayerA played (sv6-5_61) Night Stretcher.
+- PlayerA moved PlayerA's (mee_10) Basic Fire Energy to their hand.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB didn't take an action in time.
+
+PlayerA's Turn
+PlayerA drew (mee_13) Basic Psychic Energy.
+PlayerA played (sv1_196) Ultra Ball.
+- PlayerA discarded 2 cards.
+   • (me1_119) Lillie's Determination, (sv6_128) Dreepy
+- PlayerA drew (sv6-5_20) Dusknoir.
+- PlayerA shuffled their deck.
+PlayerA evolved (sv6-5_19) Dusclops to (sv6-5_20) Dusknoir in the Active Spot.
+PlayerA's (sv6-5_20) Dusknoir used Cursed Blast.
+- PlayerA put 13 damage counters on PlayerA's (sv10_232) Cynthia's Garchomp ex.
+PlayerA's (sv6-5_20) Dusknoir was Knocked Out!
+- 2 cards were discarded from PlayerA's (sv6-5_20) Dusknoir.
+   • (sv6-5_19) Dusclops, (sv6-5_18) Duskull
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's (sv6_129) Drakloak is now in the Active Spot.
+PlayerA evolved (sv6_129) Drakloak to (sv6_130) Dragapult ex in the Active Spot.
+PlayerA attached (mee_10) Basic Fire Energy to (sv6_130) Dragapult ex in the Active Spot.
+PlayerA played (me1_119) Lillie's Determination.
+- PlayerA shuffled 2 cards into their deck.
+   • (sv6_130) Dragapult ex, (mee_13) Basic Psychic Energy
+- PlayerA drew 8 cards.
+   • (me3_121) Meowth ex, (me1_167) Buddy-Buddy Poffin, (sv6_129) Drakloak, (sv1_194) Switch, (sv2_172) Boss's Orders, (sv7_133) Crispin, (sv6_130) Dragapult ex, (ec_2) Basic Fire Energy
+PlayerA evolved (sv6_128) Dreepy to (sv6_129) Drakloak on the Bench.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (me3_81) Poké Pad.
+PlayerA played (me1_167) Buddy-Buddy Poffin.
+- PlayerA drew 2 cards and played them to the Bench.
+   • (me5_33_ph) Shuppet, (me2-5_16) Budew
+- PlayerA shuffled their deck.
+PlayerA's (sv6_130) Dragapult ex used Phantom Dive on PlayerB's (sv10_232) Cynthia's Garchomp ex for 200 damage.
+- PlayerA put 6 damage counters on PlayerA's (sv10_184) Cynthia's Roserade.
+
+PlayerB's Turn
+PlayerB drew a card.
+Opponent was inactive for too long. PlayerA wins.

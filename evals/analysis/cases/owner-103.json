@@ -1,0 +1,45 @@
+{
+  "id": "owner-103",
+  "split": "owner",
+  "log": "evals/analysis/games/owner-103.txt",
+  "deck": "phantom-puppeteer",
+  "facts": { "result": "win", "prizes": [6, 5], "turns": 11, "ending": "prizes", "first": "PlayerA" },
+  "notes": null,
+  "rubric": [
+    {
+      "id": "counters-fuel-rage",
+      "principle": "P3",
+      "must": true,
+      "point": "The damage counters the player put on N's Zoroark ex (Cursed Blast's 13 plus Phantom Dive's) powered Night Joker copying N's Reshiram's Powerful Rage, 20 damage per counter on the attacker: 19 counters made 380 (760 on Shuppet), and 23 made 460 on Dragapult ex."
+    },
+    {
+      "id": "boss-shuppet",
+      "principle": "P4",
+      "must": true,
+      "point": "On their turn 6 the opponent used Boss's Orders to Knock Out Shuppet (1 Prize) instead of the Active Dragapult ex, which 380 would also have Knocked Out (2 Prizes); the review treats this as their choice and does not assume it was a mistake, since their hand is hidden."
+    },
+    {
+      "id": "dark-weakness",
+      "principle": "P2",
+      "must": false,
+      "point": "Shuppet's Darkness Weakness doubled the 380 to 760."
+    },
+    {
+      "id": "self-ko-prizes",
+      "principle": "P3",
+      "must": false,
+      "point": "The Dusknoir (turn 5) and Dusclops (turn 7) Cursed Blasts each Knocked Out their user and gave the opponent a Prize: 2 of the opponent's 5."
+    },
+    {
+      "id": "score",
+      "principle": "P5",
+      "must": true,
+      "point": "The game was won 6-5 on Prizes, the last two from Banette's Puppet Pull finishing the damaged N's Zoroark ex."
+    }
+  ],
+  "false_claims": [
+    "Night Joker's damage came from Weakness alone, or from counters on the Defending Pokemon.",
+    "The opponent took 6 Prizes.",
+    "Cursed Blast does not Knock Out the Pokemon that uses it."
+  ]
+}
