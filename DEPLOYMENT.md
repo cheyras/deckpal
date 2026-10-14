@@ -1235,6 +1235,13 @@ instance, and full-access tokens keep minting as before. To confirm on cloud:
 `SELECT has_column_privilege('authenticated', 'public.api_token', 'scope', 'INSERT')`
 returns `true`.
 
+The reader's PTCG Live name needs `086_ptcgl_name.sql` (two nullable columns
+on `user_settings` and a one-time backfill from existing battle logs). Apply it
+with the numbered runner on cloud and self-host; it adds no environment
+variable. Before it is applied the API ignores the name, settings still load,
+`PATCH /me/settings` with `ptcglName` answers `503`, and the API logs
+`migration 086_ptcgl_name is not applied` once per instance.
+
 Only 065 carries `@supabase-only` and is skipped by the normal runner on
 self-host. Do not skip 067 there: its cloud-role grants are conditional and its
 wallet/economy functions also support the current UUID self-host account.

@@ -14,6 +14,7 @@ import { browserSuites as askCardSuites } from './askCard.mjs'
 import { browserSuites as deepThinkCardSuites } from './deepThinkCard.mjs'
 import { browserSuites as battlesV2Suites } from './battlesV2.mjs'
 import { browserSuites as agentAccessSuites } from './agentAccessSuite.mjs'
+import { browserSuites as ptcglNameSuites } from './ptcglNameSuite.mjs'
 import { parseShard, shardSuites } from '../../scripts/browser-shards.mjs'
 
 const names = [
@@ -23,9 +24,9 @@ const names = [
   'cloud-feedback-primary-1280', 'cloud-feedback-primary-390', 'cloud-feedback-primary-428', 'cloud-feedback-lifecycle', 'cloud-a11y', 'cloud-writes', 'cloud-queue',
   'authreturn', 'chat', 'payment-history', 'decke-show', 'decke-chat-phone', 'error-boundary', 'list-table-virtualization', 'bug-report-selfhost', 'bug-report-cloud', 'profile-owned-cards',
   'payment-history-proof', 'scanner-voice-proof', 'cloud-labeler-formats', 'privacy', 'decke-deck-widget',
-  'ask-card', 'deep-think-card', 'battles-v2', 'agent-access',
+  'ask-card', 'deep-think-card', 'battles-v2', 'agent-access', 'ptcgl-name',
 ]
-const suites = [...browserSuites({}), ...deckeShowSuites({}), ...errorBoundarySuites({}), ...listTableSuites({}), ...bugReportSuites({}), ...profileOwnedCardsSuites({}), ...standaloneProofSuites({}), ...labelerFormatSuites({}), ...privacySuites({}), ...deckWidgetSuites({}), ...askCardSuites({}), ...deepThinkCardSuites({}), ...battlesV2Suites({}), ...agentAccessSuites({})]
+const suites = [...browserSuites({}), ...deckeShowSuites({}), ...errorBoundarySuites({}), ...listTableSuites({}), ...bugReportSuites({}), ...profileOwnedCardsSuites({}), ...standaloneProofSuites({}), ...labelerFormatSuites({}), ...privacySuites({}), ...deckWidgetSuites({}), ...askCardSuites({}), ...deepThinkCardSuites({}), ...battlesV2Suites({}), ...agentAccessSuites({}), ...ptcglNameSuites({})]
 
 test('all existing journeys remain named suites', () => {
   assert.deepEqual(suites.map(suite => suite.name), names)

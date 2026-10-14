@@ -40,8 +40,31 @@ export function storedNameFor(rawLog: string | null | undefined, stored: string 
   return rawLog.includes(`${stored}'s Turn`) || rawLog.includes(`${stored} drew`) ? stored : undefined;
 }
 
-/** The reader's stored name, or null. */
+let columnReady = false;
+let warned = false;
+
+/**
+ * Whether migration 086 is applied. Code that ships before it (a preview, a self-host install that has not run the
+ * migration) must keep logging games and serving settings, so every reader of the column checks first; true is cached
+ * for the instance's life, false is re-checked on the next call.
+ */
+export async function ptcglNameReady(db: Queryable): Promise<boolean> {
+  if (columnReady) return true;
+  const { rows } = await db.query<{ ready: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = 'user_settings' AND column_name = 'ptcgl_name') AS ready`,
+  );
+  columnReady = rows[0]?.ready === true;
+  if (!columnReady && !warned) {
+    warned = true;
+    console.warn('[deckpal-api] migration 086_ptcgl_name is not applied: the PTCG Live name is ignored until it is');
+  }
+  return columnReady;
+}
+
+/** The reader's stored name, or null (also when migration 086 is not applied). */
 export async function ptcglNameOf(db: Queryable, userId: string): Promise<string | null> {
+  if (!(await ptcglNameReady(db))) return null;
   const { rows } = await db.query<{ ptcgl_name: string | null }>(`SELECT ptcgl_name FROM user_settings WHERE user_id = $1`, [userId]);
   return rows[0]?.ptcgl_name ?? null;
 }
@@ -52,6 +75,7 @@ export async function ptcglNameOf(db: Queryable, userId: string): Promise<string
  * the reader saves at the same moment always wins. Returns the name it stored, or null.
  */
 export async function learnPtcglName(db: Queryable, userId: string): Promise<string | null> {
+  if (!(await ptcglNameReady(db))) return null;
   const current = await ptcglNameOf(db, userId);
   if (current) return null;
   const { rows } = await db.query<{ name: string; n: number }>(
@@ -64,7 +88,9 @@ export async function learnPtcglName(db: Queryable, userId: string): Promise<str
     [userId],
   );
   const name = chooseLearnedName(rows);
-  if (!name || name.length > PTCGL_NAME_MAX) return null;
+  // Only a name the column's CHECK accepts: this runs inside the add-log transaction, and a violation would roll the
+  // logged game back with it.
+  if (!name || name.length > PTCGL_NAME_MAX || name !== name.trim()) return null;
   const updated = await db.query(
     `UPDATE user_settings SET ptcgl_name = $2, ptcgl_name_source = 'auto'
       WHERE user_id = $1 AND ptcgl_name IS NULL`,

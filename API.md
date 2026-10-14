@@ -520,8 +520,17 @@ when the account never chose — the app default applies.
                 "deckeHidden": false, "deckeSharePrompts": true,
                 "skin": null, "topbar": null,
                 "seriesSortKey": "recency", "seriesSortDir": "desc",
-                "seriesGroupOwned": true } }
+                "seriesGroupOwned": true,
+                "ptcglName": "cheyras", "ptcglNameSource": "auto" } }
 ```
+`ptcglName` is the reader's PTCG Live screen name (migration 086), `null` until
+it is typed or learned. `ptcglNameSource` is `"manual"` when typed and
+`"auto"` when it filled itself in: once three logged PTCG Live games
+attribute the same name to the reader, strictly more than any other, an empty
+name is set to it after the next `POST /decks/:id/logs`. It is never changed
+automatically once set. When it is set and appears in a pasted log as a
+player, adding the log, ranking it (`/decks/log-preview`) and its digest read
+the log from that player's side unless the caller names one.
 
 ### PATCH /deckpal/api/me/settings
 Any subset of the fields above; returns the full updated row in the same
@@ -530,6 +539,9 @@ shape. Unknown values are a `400` (never a silent reset to the default);
 accept `null` to mean "follow the app default". A body with no known field is
 a `400`. `deckeSharePrompts` is a strict boolean (default `true`) controlling
 whether Deck-E may ask to share a chat; it does not itself share any content.
+`ptcglName` takes a string (trimmed, at most 100 characters) and makes the
+name `"manual"`; `null` or a blank string clears it, after which it can be
+learned again. Before migration 086 is applied it answers `503`.
 
 ### GET /deckpal/api/me/showcase
 The profile's featured cards in slot order (`user_showcase`, slots 1-based,

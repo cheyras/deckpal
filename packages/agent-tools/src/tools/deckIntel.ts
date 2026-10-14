@@ -425,6 +425,7 @@ const addBattleLogTool = defineTool({
     'scores) and writes nothing — call it again with deck_id set to the one you mean. ' +
     'dry_run defaults to TRUE: the first call only previews what would be logged without writing ' +
     '(with or without deck_id); re-call with dry_run: false to actually attach the log. ' +
+    "The user's PTCG Live name from their DeckPal profile decides their side automatically when it appears in the log. " +
     'If the parser cannot tell which player owns this deck it returns an error ' +
     'asking for player_name (the exact screen name in the log) or an explicit result — retry ' +
     'with one of those. Read logs back with battle_logs; to correct or remove an existing ' +

@@ -30,6 +30,7 @@ function fakeDb(state: { name: string | null; counts: Array<{ name: string; n: n
   const db = {
     async query(text: string, params: unknown[] = []) {
       sql.push(text);
+      if (/information_schema.columns/.test(text)) return { rows: [{ ready: true }], rowCount: 1 };
       if (/^SELECT ptcgl_name FROM user_settings/.test(text.trim())) return { rows: [{ ptcgl_name: state.name }], rowCount: 1 };
       if (/FROM battle_log/.test(text)) return { rows: state.counts, rowCount: state.counts.length };
       if (/^UPDATE user_settings/.test(text.trim())) {
@@ -45,6 +46,19 @@ function fakeDb(state: { name: string | null; counts: Array<{ name: string; n: n
   };
   return { db: db as never, sql, state };
 }
+
+test('before migration 086 the name is ignored: nothing but the readiness check runs', async () => {
+  const sql: string[] = [];
+  const notYet = {
+    async query(text: string) {
+      sql.push(text);
+      if (/information_schema.columns/.test(text)) return { rows: [{ ready: false }], rowCount: 1 };
+      throw new Error('touched the missing column: ' + text);
+    },
+  };
+  assert.equal(await learnPtcglName(notYet as never, 'user-1'), null);
+  assert.equal(sql.length, 1);
+});
 
 test('learnPtcglName fills an empty name once three games agree', async () => {
   const f = fakeDb({ name: null, counts: [{ name: 'cheyras', n: 3 }] });
@@ -63,4 +77,11 @@ test('learnPtcglName never touches a name that is already set, typed or learned'
 test('learnPtcglName waits for the third game, and for a clear winner', async () => {
   assert.equal(await learnPtcglName(fakeDb({ name: null, counts: [{ name: 'cheyras', n: 2 }] }).db, 'u'), null);
   assert.equal(await learnPtcglName(fakeDb({ name: null, counts: [{ name: 'a', n: 3 }, { name: 'b', n: 3 }] }).db, 'u'), null);
+});
+
+test('learnPtcglName never writes a name the column would reject: the UPDATE runs inside the add-log transaction', async () => {
+  const padded = fakeDb({ name: null, counts: [{ name: ' cheyras ', n: 5 }] });
+  assert.equal(await learnPtcglName(padded.db, 'u'), null);
+  assert.ok(!padded.sql.some((s) => /^UPDATE/.test(s.trim())), 'no UPDATE for a padded name');
+  assert.equal(await learnPtcglName(fakeDb({ name: null, counts: [{ name: 'x'.repeat(101), n: 5 }] }).db, 'u'), null);
 });

@@ -2,11 +2,11 @@ import { Router } from 'express';
 import type pg from 'pg';
 import { appDefaults, getAccessForUser, hasPermission } from '../admin/access.js';
 import { cardImages, q, q1, withTx } from '../db.js';
-import { asyncHandler, badRequest, clampInt, notFound, oneOf, str, userCache } from '../http.js';
+import { ApiError, asyncHandler, badRequest, clampInt, notFound, oneOf, str, userCache } from '../http.js';
 import { currentUserId } from '../identity.js';
 import { ownedCardsPage } from '../me/ownedCards.js';
 import { ownerGateStatus } from '../ownerGate.js';
-import { PTCGL_NAME_MAX } from '../deck/ptcglName.js';
+import { PTCGL_NAME_MAX, ptcglNameReady } from '../deck/ptcglName.js';
 
 /**
  * GET /me — the caller's own account identity. Currently just `username`
@@ -115,10 +115,22 @@ export interface SettingsRow {
   ptcgl_name_source: 'manual' | 'auto' | null;
 }
 
-const SETTINGS_COLS = `default_goal, display_currency, pricing_enabled, show_collection_value,
+const BASE_SETTINGS_COLS = `default_goal, display_currency, pricing_enabled, show_collection_value,
        binder_pocket_size, binder_stack_variants, binder_additional_variants,
-       decke_hidden, decke_share_prompts, decke_share_all, skin, topbar, series_sort_key, series_sort_dir, series_group_owned,
-       ptcgl_name, ptcgl_name_source`;
+       decke_hidden, decke_share_prompts, decke_share_all, skin, topbar, series_sort_key, series_sort_dir, series_group_owned`;
+
+/** The request-scoped `q` as the `{ query }` shape deck/ptcglName.ts takes. */
+const queryable = { query: async (text: string, params?: unknown[]) => ({ rows: await q(text, params ?? []) }) } as never;
+
+/**
+ * The settings columns, with the PTCG Live name (migration 086) only once it exists: settings must keep loading on a
+ * deployment that runs before the migration.
+ */
+async function settingsCols(): Promise<string> {
+  return (await ptcglNameReady(queryable))
+    ? `${BASE_SETTINGS_COLS}, ptcgl_name, ptcgl_name_source`
+    : `${BASE_SETTINGS_COLS}, NULL::text AS ptcgl_name, NULL::text AS ptcgl_name_source`;
+}
 
 export function shapeSettings(r: SettingsRow) {
   return {
@@ -146,6 +158,7 @@ async function settingsRow(userId: string): Promise<SettingsRow> {
   // Cloud accounts get their row from the signup trigger; self-host from the
   // seed. The upsert covers the one gap (an account created before either),
   // so GET can never 404 on a real user.
+  const SETTINGS_COLS = await settingsCols();
   const row = await q1<SettingsRow>(`SELECT ${SETTINGS_COLS} FROM user_settings WHERE user_id = $1`, [userId]);
   if (row) return row;
   await q(`INSERT INTO user_settings (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING`, [userId]);
@@ -211,6 +224,9 @@ meRouter.patch(
     // changes; null or blank clears it, after which three logged games under one name fill it in again
     // (deck/ptcglName.ts).
     if (body.ptcglName !== undefined) {
+      if (!(await ptcglNameReady(queryable))) {
+        throw new ApiError(503, 'unavailable', 'DeckPal is finishing an update. Try saving your PTCG Live name again in a few minutes.');
+      }
       if (body.ptcglName !== null && typeof body.ptcglName !== 'string') throw badRequest('ptcglName must be a string or null');
       const name = typeof body.ptcglName === 'string' ? body.ptcglName.trim() : '';
       if (name.length > PTCGL_NAME_MAX) throw badRequest(`ptcglName is at most ${PTCGL_NAME_MAX} characters`);
@@ -223,7 +239,7 @@ meRouter.patch(
     // Ensure the row exists first (same gap the GET covers), then update it.
     await settingsRow(userId);
     const updated = await q1<SettingsRow>(
-      `UPDATE user_settings SET ${sets.join(', ')} WHERE user_id = $1 RETURNING ${SETTINGS_COLS}`,
+      `UPDATE user_settings SET ${sets.join(', ')} WHERE user_id = $1 RETURNING ${await settingsCols()}`,
       params,
     );
     if (!updated) throw notFound('No such user');

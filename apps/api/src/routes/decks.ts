@@ -13,6 +13,9 @@ import {
 } from '../mutations.js';
 import { replayField, requestWriteKey, writeOnce } from '../writeOnce.js';
 import { learnPtcglName, ptcglNameOf, storedNameFor } from '../deck/ptcglName.js';
+
+/** The request-scoped `q` as the `{ query }` shape deck/ptcglName.ts takes. */
+const poolQueryable = { query: async (text: string, params?: unknown[]) => ({ rows: await q(text, params ?? []) }) } as never;
 import { buildCart, productIdLine, tokenLine, type CartInput } from '../tcgplayer/massentry.js';
 import {
   digestBattleLog, normalizeOpponentArchetype, parseBattleLog, prepareBattleLog, scoreDeckMatch,
@@ -2361,7 +2364,7 @@ decksRouter.post(
     // parsed.playerCards carries both players' extracted names + codes, which is
     // what scoreDeckMatch ranks decks on.
     // The stored name, when this log is one of the reader's games under it (deck/ptcglName.ts).
-    const ownName = playerName ?? storedNameFor(body.log, (await q1<{ ptcgl_name: string | null }>(`SELECT ptcgl_name FROM user_settings WHERE user_id = $1`, [userId]))?.ptcgl_name);
+    const ownName = playerName ?? storedNameFor(body.log, (await ptcglNameOf(poolQueryable, userId)));
     const parsed = parseBattleLog(body.log, [], ownName);
 
     // CAPPED at the recent decks (security finding B): the scoring set is the
@@ -2517,7 +2520,7 @@ decksRouter.get(
     );
     const digest = digestBattleLog(row.raw_log, names.map((r) => r.name), {
       playerName: playerName ?? (typeof storedMe === 'string' && storedMe ? storedMe : undefined)
-        ?? storedNameFor(row.raw_log, (await q1<{ ptcgl_name: string | null }>(`SELECT ptcgl_name FROM user_settings WHERE user_id = $1`, [userId]))?.ptcgl_name),
+        ?? storedNameFor(row.raw_log, (await ptcglNameOf(poolQueryable, userId))),
     });
     userCache(res);
     res.json({
