@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
-import { errText, pageArg } from '../shared.js';
+import { errText, pageArg, pageSizeArg } from '../shared.js';
 
 /**
  * card_price_history — OHLC price history for one card, via the REST API.
@@ -64,6 +64,8 @@ const cardPriceHistoryTool = defineTool({
       .default('USD')
       .describe('Currency: USD | EUR | JPY. Default USD. Values are in major units (dollars/euros/yen) — never cents.'),
     page: pageArg,
+    // Like every paged tool; a page also ends where the next complete record would pass 5,500 characters.
+    page_size: pageSizeArg(200).describe('Records per page (default 200, cap 200); a page also ends at 5,500 characters.'),
   }),
   annotations: { readOnlyHint: true, idempotentHint: true },
   handler: async (args, ctx) => {
@@ -77,6 +79,10 @@ const cardPriceHistoryTool = defineTool({
       }
 
       const page: unknown = args.page === undefined ? 1 : args.page;
+      const pageSize: unknown = args.page_size === undefined ? 200 : args.page_size;
+      if (typeof pageSize !== 'number' || !Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 200) {
+        return fail('card_price_history failed: page_size must be a whole number from 1 to 200.');
+      }
       // Checked here too, not only by the schema: a direct call (Deck-E's adapter, a test) may skip it.
       if (typeof page !== 'number' || !Number.isSafeInteger(page) || page < 1) {
         return fail('card_price_history failed: page must be a whole number from 1.');
@@ -162,30 +168,31 @@ const cardPriceHistoryTool = defineTool({
       };
       // Each page starts with its first record's variant line, so a page never shows a point
       // without saying whose it is.
-      const pages: Array<{ from: number; to: number }> = [];
-      // A record too big for any page stops the packing there: the pages before it stay readable,
-      // and only the page that would start with it is an error.
-      let oversized = false;
-      for (let from = 0; from < records.length && !oversized; ) {
+      // A page ends at page_size records or where the next would pass the character budget. A
+      // record too big for ANY page is a page of its own that is an error, and packing goes on
+      // after it, so the records before and after it stay readable (Astra, #346).
+      const pages: Array<{ from: number; to: number; oversized?: true }> = [];
+      for (let from = 0; from < records.length; ) {
         let used = reserve;
         let cursor = from;
         let previous: (typeof series)[number] | undefined;
-        while (cursor < records.length) {
+        while (cursor < records.length && cursor - from < pageSize) {
           const r = records[cursor]!;
           const text = recordText(r, r.variant !== previous);
-          if (used + text.length > PAGE_CHAR_LIMIT) {
-            if (cursor === from) oversized = true;
-            break;
-          }
+          if (used + text.length > PAGE_CHAR_LIMIT) break;
           used += text.length;
           previous = r.variant;
           cursor++;
         }
-        if (oversized) break;
-        pages.push({ from, to: cursor });
-        from = cursor;
+        if (cursor === from) {
+          pages.push({ from, to: from + 1, oversized: true });
+          from += 1;
+        } else {
+          pages.push({ from, to: cursor });
+          from = cursor;
+        }
       }
-      const pageCount = Math.max(1, pages.length + (oversized ? 1 : 0));
+      const pageCount = Math.max(1, pages.length);
       const pageSeries: typeof series = [];
       const pageResult = (text: string, returned: number) => {
         if (text.length > PAGE_CHAR_LIMIT) {
@@ -206,12 +213,13 @@ const cardPriceHistoryTool = defineTool({
       if (records.length === 0 && page === 1) {
         return pageResult(`${headerFor(page)}\nNo historical observations recorded for this card/range/currency.${footerFor(1, 1)}`, 0);
       }
-      if (oversized && page === pages.length + 1) {
+      const span = pages[page - 1];
+      if (span?.oversized) {
         return fail(
-          `card_price_history failed: page ${page} starts with one complete history record that, with its variant identity, cannot fit the ${PAGE_CHAR_LIMIT}-character page budget. No record was truncated; this record cannot be paginated.`,
+          `card_price_history failed: page ${page} is one complete history record that, with its variant identity, cannot fit the ${PAGE_CHAR_LIMIT}-character page budget. No record was truncated; this record cannot be paginated.` +
+            (page < pageCount ? ` The history continues on page ${page + 1}.` : ''),
         );
       }
-      const span = pages[page - 1];
       if (!span) {
         return pageResult(
           `${headerFor(page)}\nPage ${page} is past the end: this history has ${pageCount} page(s). Start again at page 1.`,

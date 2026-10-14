@@ -17,7 +17,7 @@ supersedes: []
   - `decks` was `page` alone;
   - `card_price_history` was an `offset` cursor with `next_offset`.
 - **Footer:** it names the call: "showing 1–50 of 312 — call again with page 2 for more".
-- **Price-history pages:** still as many complete records as fit 5,500 characters. They are packed from the first record with room reserved for the longest header and footer, so page N is always the same records. A record too large for any page makes only its own page an error; earlier pages stay readable.
+- **Price-history pages:** as many complete records as fit 5,500 characters, up to `page_size` (default 200). They are packed from the first record with room reserved for the longest header and footer, so page N is always the same records. A record too large for any page is a page of its own that is an error, and packing goes on after it (Astra, #346).
 - **Shared arguments:** `pageArg` and `pageSizeArg` in `shared.ts`.
 - **Exception:** the gated `decke_improvement_*` tools keep their cursor over an append-only feed.
 

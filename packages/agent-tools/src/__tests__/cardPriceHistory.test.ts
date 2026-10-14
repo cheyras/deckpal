@@ -827,7 +827,7 @@ test('a record too large to fit is an explicit error rather than a truncated poi
   response.series = [{ ...response.series[0]!, displayName: 'x'.repeat(5500), points: [response.series[0]!.points[0]!] }];
   const result = await t.handler({ card_id: 'base1-1' }, mockCtx(response));
   assert.equal(result.isError, true);
-  assert.match(result.text, /page 1 starts with one complete history record/);
+  assert.match(result.text, /page 1 is one complete history record/);
   assert.match(result.text, /cannot fit/);
   assert.ok(result.text.length <= 5500);
   assert.doesNotMatch(result.text, /grain=/);
@@ -847,7 +847,43 @@ test('an oversized later record leaves the earlier pages readable, and only its 
   assert.equal((first.structured as unknown as HistoryPage).series[0]!.points.length, 1);
   const second = await t.handler({ card_id: 'base1-1', page: 2 }, mockCtx(response));
   assert.equal(second.isError, true);
-  assert.match(second.text, /page 2 starts with one complete history record/);
+  assert.match(second.text, /page 2 is one complete history record/);
+});
+
+test('records after an oversized one stay reachable: it is a page of its own, and the history goes on (Astra, #346)', async () => {
+  const t = findTool('card_price_history', allTools());
+  const response = paginationResponse();
+  response.series = [
+    { ...response.series[0]!, points: [response.series[0]!.points[0]!] },
+    { ...response.series[1]!, displayName: 'x'.repeat(5500), points: [response.series[1]!.points[0]!] },
+    { ...response.series[2]!, points: [response.series[2]!.points[0]!] },
+  ];
+  const second = await t.handler({ card_id: 'base1-1', page: 2 }, mockCtx(response));
+  assert.equal(second.isError, true);
+  assert.match(second.text, /The history continues on page 3\./);
+  const third = await t.handler({ card_id: 'base1-1', page: 3 }, mockCtx(response));
+  assert.ok(!third.isError, third.text);
+  assert.match(third.text, /variant 3 \| kind normal \| Printing 3/);
+  assert.match(third.text, /page 3 of 3, the last/);
+});
+
+test('page_size caps the records on a page as well as the character budget, like every paged tool (Astra, #346)', async () => {
+  const t = findTool('card_price_history', allTools());
+  assert.equal(t.inputSchema!.parse({ card_id: 'base1-1' }).page_size, 200);
+  for (const page_size of [0, 201, 1.5, '5', null]) {
+    assert.equal(t.inputSchema!.safeParse({ card_id: 'base1-1', page_size }).success, false, `page_size ${String(page_size)}`);
+  }
+  const one = await t.handler({ card_id: 'base1-1', page_size: 1 }, mockCtx(paginationResponse()));
+  assert.ok(!one.isError, one.text);
+  const page = one.structured as unknown as HistoryPage;
+  assert.equal(page.pagination.returned_records, 1);
+  assert.equal(page.pagination.pages, 93, 'one record a page: 93 pages');
+  assert.match(one.text, /page 1 of 93 — call again with page 2/);
+  const last = await t.handler({ card_id: 'base1-1', page_size: 1, page: 93 }, mockCtx(paginationResponse()));
+  assert.match(last.text, /page 93 of 93, the last/);
+  const bad = await t.handler({ card_id: 'base1-1', page_size: 0 }, mockCtx(paginationResponse()));
+  assert.equal(bad.isError, true);
+  assert.match(bad.text, /page_size must be a whole number from 1 to 200/);
 });
 
 test('malformed variant points remain an error, not an invented empty history', async () => {

@@ -561,7 +561,7 @@ sees them in `tools/list`:
    route — implementer reads that file first and picks the thinner path; label results as
    estimates.
  7b. **`card_price_history`** — `{ card_id, range? = '3m' ∈ 30d|3m|6m|1y|18m|2y,
-     currency? = 'USD' ∈ USD|EUR|JPY, page? = 1 }`. Historical OHLC price series for one card by
+     currency? = 'USD' ∈ USD|EUR|JPY, page? = 1, page_size? = 200 (≤ 200) }`. Historical OHLC price series for one card by
      TCGdex id, one series per printing variant. Delegates a single read to
      `GET /cards/:cardId/prices` through `ctx.api.get` — no schema change, no new
      credential, no direct Postgres touch. `card_id` is the canonical TCGdex id
@@ -573,14 +573,14 @@ sees them in `tools/list`:
      **Pagination.** `page` is 1-based, default `1`, like every paged tool (it was an
      `offset` cursor until 2026-10-14). It is not sent to the REST endpoint. Each call makes
      one GET for the same card/range/currency. Pages are as many complete records (points in
-     API order, plus one record for each empty variant) as fit 5500 characters including
+     API order, plus one record for each empty variant), up to `page_size`, as fit 5500 characters including
      headers and continuation; they are packed from the first record every time, with room
      reserved for the longest header and footer, so page N is always the same records. Read
      the model-visible "call again with page N, the same card_id, range and currency" and
      follow it until the text says "page N of N, the last". Do not treat the first page as the
-     complete history. A record that cannot fit any page stops the packing there: earlier
-     pages stay readable and the page that would start with it is an explicit error; no record
-     is ever split or truncated.
+     complete history. A record that cannot fit any page is a page of its own that is an
+     explicit error ("the history continues on page N+1"), and packing goes on after it, so the
+     records before and after it stay readable; no record is ever split or truncated.
      Continuation is in text because MCP does not expose structured tool
      metadata. This also avoids conversational Deck-E's 6000-character cutoff.
 

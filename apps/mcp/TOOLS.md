@@ -194,6 +194,7 @@ Grounded on `grain`, an agent:
 | `range` | "30d" \| "3m" \| "6m" \| "1y" \| "18m" \| "2y" |  | `"3m"` | History window: 30d \| 3m \| 6m \| 1y \| 18m \| 2y. Default 3m. |
 | `currency` | "USD" \| "EUR" \| "JPY" |  | `"USD"` | Currency: USD \| EUR \| JPY. Default USD. Values are in major units (dollars/euros/yen) — never cents. |
 | `page` | integer |  | `1` | Page number, 1-based. |
+| `page_size` | integer |  | `200` | Records per page (default 200, cap 200); a page also ends at 5,500 characters. |
 
 <a id="rules_lookup"></a>
 
