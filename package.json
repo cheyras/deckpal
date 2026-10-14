@@ -2,7 +2,7 @@
   "name": "deckpal",
   "private": true,
   "version": "0.1.0",
-  "description": "Self-hosted, single-user TCG collection tracker — catalog, prices, deck builder, card scanner, MCP server, and React PWA.",
+  "description": "Pokémon TCG collection tracker and AI deck-building companion: the multi-user hosted product at deckpal.app, which can also be self-hosted. Catalog, prices, deck builder, battle simulator, MCP server and React PWA.",
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",

@@ -9,10 +9,11 @@
 </div>
 
 An open-source (AGPL-3.0) Pokemon TCG collection and agentic strategy platform. Browse a full card catalog, track your
-collection across printings, see prices, connect to Claude or GPT to collaboratively build decks with
-battle-log intelligence, scan cards with a perceptual-hash scanner, and set
-completion goals. Built for Pokemon but the data model, image storage, and
-scanner are **game-agnostic**.
+collection across printings, see prices, connect Claude (or another AI app that
+takes custom MCP connectors) to collaboratively build decks with battle-log
+intelligence, and set completion goals. A card scanner is in limited testing.
+Built for Pokemon but the data model, image storage, and scanner are
+**game-agnostic**.
 
 deckpal.app is the hosted service, on a pay-what-you-want basis (below). All of
 the code in this repository is AGPL-3.0 — anyone can fork and self-host. The
@@ -23,12 +24,13 @@ Postgres for self-hosters.
 
 ## Features
 
-- **Administration** — one tiered role per account, protected Owner controls, feature lifecycle/opt-ins, consent-based AI usage review and flat AI credit pricing/packs. Contributors use a separate Dev tools directory and retain personal self-service. See [the owner guide](ADMINISTRATION.md).
+- **Administration** — one tiered role per account, protected Owner controls, feature lifecycle/opt-ins, consent-based AI usage review, and metered AI credits (charged at the actual model cost plus a markup) with credit packs. Contributors use a separate Dev tools directory and retain personal self-service. See [the owner guide](ADMINISTRATION.md).
 
 - **Full card catalog** -- series, sets, cards, and variant-level detail
   (reverse holos, foils, stamps, promos), imported from TCGdex open data.
-- **Collection tracking** -- own/want/trade at the variant level with quantity,
-  condition, and notes.
+- **Collection tracking** -- quantity and condition per printing (a reverse
+  holo and a holo count separately), notes per card, and graded copies. Want
+  and trade piles are lists.
 - **Price history** -- daily prices from TCGCSV (TCGplayer) and Cardmarket bulk
   dumps. Every price in the UI shows "as of {date}" -- honest by construction.
   Agents can pull per-card OHLC history through the `card_price_history` tool
@@ -41,24 +43,31 @@ Postgres for self-hosters.
   ownership across legal gameplay-identical reprints and basic Energy of the
   same type, exact-printing pins, and battle-log intelligence (record matches,
   track win rates, get strategy analysis).
-- **Card scanner** -- perceptual-hash index against stored card art; identify a
-  card from a photo, or run **rip mode** to log a whole booster pack without
-  stopping between cards. The scanner matches artwork, so it names the card and
-  you say which printing -- a card and its reverse holo are the same picture.
-  An opt-in beta lets you say it out loud while you scan ("that one's a reverse
-  holo", "two of those", "remove it").
+- **Card scanner** (limited to accounts given access while it is tested) --
+  one capture flow: point the camera at cards and keep going, so a whole
+  booster pack goes in without stopping between cards. Captures are matched
+  against the stored card art (a perceptual-hash index, plus a pgvector
+  embedding index where `SCAN_EMBED_MATCH` is on), then you review them as a
+  list or card by card with swipes and save them in one write. The scanner
+  matches artwork, so it names the card and you say which printing -- a card
+  and its reverse holo are the same picture. An opt-in beta lets you say it out
+  loud while you scan ("that one's a reverse holo", "two of those", "remove
+  it").
 - **Completion goals** -- Complete Set, Master Set, Grandmaster tiers with
   accurate progress tracking.
 - **Pokedex** -- species data from PokeAPI, linked to the cards they appear on.
-- **Image storage** -- ~1.9 GB of WebP card art at two resolutions. Cloud
+- **Image storage** -- about 2 GB of WebP card art at two resolutions. Cloud
   deployments serve it straight off the Supabase Storage CDN (the browser
   addresses the object directly; the image function stays as the fallback that
   fills a cold asset); self-host uses a local disk cache with a dedicated image
   server. `warm:cloud` warms the whole catalog into the cloud tier.
-- **MCP server** ("deckpal-mcp") -- 28 tools (17 read, 11 write) for Claude, ChatGPT, Gemini, or any
-  MCP-speaking assistant to query the collection, catalog, prices, decks, and
+- **MCP server** ("deckpal-mcp") -- 28 tools (17 read, 11 write) for Claude
+  (tested end to end), or ChatGPT, Gemini and other apps with remote MCP
+  connectors (going by their docs; not yet tested), to query the collection,
+  catalog, prices, decks, battle logs and
   per-card price history, to work out a deck's opening-hand, draw and Prize
-  odds, and to log collection changes with attribution. Live
+  odds, to simulate games between decks, and to log collection changes with
+  attribution. Live
   and multi-user on cloud: connect with one click via OAuth 2.1
   (`https://deckpal.app/mcp`, choose "Connect"), or a personal access token for
   clients without MCP OAuth support. See [`apps/mcp/README.md`](apps/mcp/README.md)
@@ -75,17 +84,20 @@ Postgres for self-hosters.
   retrying after a timeout returns the original result instead of applying
   twice. Deleting a list or deck is reversible -- *Recently deleted* on each
   index restores it.
-- **PWA** -- installable, offline-capable (tiered: app shell always; visited
-  art LRU-cached; owned cards opt-in).
+- **PWA** -- installable, offline-capable (tiered: the app shell is
+  precached; visited card and set art is cached, about 2,000 images with the
+  least recently used dropped first; Deck-E's character assets are cached too).
 - **Pay what you want** — the hosted deckpal.app asks what you would like to pay
-  per month and takes **$0** for an answer. Nothing is gated on it: there is no
-  entitlement column in the schema and no locked feature anywhere in the app.
-  Cards and wallets — Link, Apple Pay, Google Pay — are handled entirely by
-  Stripe (the number never touches DeckPal), and the amount is changeable or
-  stoppable from your profile at any time. Self-host
-  builds have no billing tier at all.
-- **Multi-user with row-level security** -- Supabase Auth (email + OAuth) with
-  per-user RLS policies on all collection data. Catalog and pricing data is
+  per month and takes **$0** for an answer. Nothing is gated on payment: there
+  is no entitlement column in the schema, and paying more unlocks nothing. (A
+  few features, such as the card scanner and Deck-E, are limited to staff or
+  opted-in accounts while they are tested; that has nothing to do with
+  payment.) Payment is handled entirely by Stripe (the card number never
+  touches DeckPal), with cards and whichever wallets the Stripe account offers,
+  and the amount is changeable or stoppable from your profile at any time.
+  Self-host builds have no billing tier at all.
+- **Multi-user with row-level security** -- Supabase Auth (email and password)
+  with per-user RLS policies on all collection data. Catalog and pricing data is
   shared and world-readable.
 
 ---
@@ -130,7 +142,10 @@ runbook.
 Self-hosting runs the same code without Supabase. You provide your own Postgres
 15+ database and a reverse proxy for authentication.
 
-Prerequisites: Node >= 20, pnpm >= 10, Postgres >= 15.
+Prerequisites: Node 20.19+ (or 22.12+; Vite 8 needs one of those), pnpm 10,
+Postgres 15+ with the pgvector extension installed (`postgresql-<major>-pgvector`;
+migration 051 refuses to run without it), and Docker plus bash for the catalog
+extract.
 
 1. **Create a Postgres database and role** (see [`DEPLOYMENT.md`](DEPLOYMENT.md)
    for detailed instructions).
@@ -139,33 +154,58 @@ Prerequisites: Node >= 20, pnpm >= 10, Postgres >= 15.
    ```bash
    cp .env.example .env
    chmod 600 .env
-   # Edit .env -- fill in your Postgres credentials
+   # Edit .env -- fill in your Postgres credentials (PG*) and IMAGE_CACHE_ROOT.
+   # Then DELETE the API_BASE_PATH=/api line. A self-host build is served at
+   # /deckpal/ and calls the API at /deckpal/api, which is the API's default;
+   # /api is the cloud path. If you run the MCP server, set DECKPAL_API_BASE to
+   # http://127.0.0.1:3700/deckpal/api to match.
    ```
 
-3. **Install, migrate, and verify:**
+3. **Install, build the shared packages, migrate, and verify** (the build
+   order is CI's: other workspaces resolve these through their `dist/`):
    ```bash
    pnpm install
    pnpm --filter @deckpal/db build
-   pnpm --filter @deckpal/db migrate       # auto-skips `-- @supabase-only` files
+   pnpm --filter @deckpal/storage build
+   pnpm --filter @deckpal/agent-tools build
+   pnpm --filter @deckpal/matching build
+   pnpm --filter @deckpal/sim build
+   pnpm --filter @deckpal/db migrate       # skips `-- @supabase-only` files, printing SKIPPED
    pnpm --filter @deckpal/db migrate:status # [x] per applied migration
    ```
 
-4. **Import the card catalog:**
+4. **Fetch and import the card catalog.** The catalog JSON is not in the repo.
+   `scripts/refresh-catalog.sh` pulls TCGdex's published image, copies the
+   compiled English catalog into `data/catalog/en` (`docker create` +
+   `docker cp`; the container is never started), imports it, and then builds
+   the two indexes the importer cannot fill (`fingerprint:index` and
+   `identical-prints:index`, which only work once cards exist):
    ```bash
-   pnpm --filter deckpal-sync import:catalog   # optional arg: dataDir (default data/catalog/en)
+   scripts/refresh-catalog.sh
    ```
+   Re-running it later is safe: the import is idempotent.
 
-5. **Build and run:**
+5. **Build, then fill the card-art cache:**
    ```bash
-   pnpm --filter deckpal-web build
+   pnpm --filter deckpal-web build      # no VITE_SUPABASE_URL, so it builds for /deckpal/
    pnpm --filter deckpal-api build
-   node apps/api/dist/index.js
+   pnpm --filter deckpal-images build
+   pnpm --filter deckpal-images warm    # about 2 GB into IMAGE_CACHE_ROOT; resumable
+   ```
+   The self-host image server never fetches upstream on a miss (it serves a
+   placeholder), so the cache has to be warmed.
+
+6. **Run the API and the image server** (both bind 127.0.0.1):
+   ```bash
+   node apps/api/dist/index.js      # :3700 -- /deckpal/api, and the built SPA at /deckpal/
+   node apps/images/dist/index.js   # :3701 -- /deckpal/images
    ```
 
-6. **Configure a reverse proxy** with authentication (e.g., nginx + an SSO
-   gateway, Caddy with auth) in front of the API. The API has no built-in auth
-   in self-host mode -- the proxy is the auth boundary. See
-   [`SECURITY.md`](SECURITY.md).
+7. **Configure a reverse proxy** with authentication (e.g., nginx + an SSO
+   gateway, Caddy with auth) in front of both: `/deckpal/` and `/deckpal/api`
+   to :3700, `/deckpal/images` to :3701. The API has no built-in auth in
+   self-host mode -- the proxy is the auth boundary. See
+   [`SECURITY.md`](SECURITY.md) and [`DEPLOYMENT.md`](DEPLOYMENT.md).
 
 Self-host deployments skip the migrations marked `-- @supabase-only` (the
 runner skips them automatically when `SUPABASE_MODE` is unset) and use the

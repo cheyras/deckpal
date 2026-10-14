@@ -1,13 +1,18 @@
 # deckpal-api — read API contract
 
-The React frontend's contract. TypeScript/Express, ~55 routes.
+The React frontend's contract. TypeScript/Express, about 170 routes on the base
+path (a count of the route registrations under `apps/api/src` on 2026-10-12),
+plus the bare-origin OAuth and sitemap handlers. This file documents the share
+the frontend uses; see Scope.
 
 **Scope.** This documents the surface the web frontend's data layer consumes.
 Registered on the same app but documented elsewhere, not repeated here: OAuth
 2.1 + personal-access-token management (`/oauth`, `/tokens`) in
 `apps/mcp/SPEC.md`; Deck-E's history and permission/account routes (`/decke`,
 `/me`) — and his chat function (`api/chat.mjs`) — in `DECKE-AGENT-SPEC.md`;
-the profile-avatar routes (`/avatar`) in `DECISIONS.md` 2026-08-10. `GET /me`
+the profile-avatar routes (`/avatar`) in `DECISIONS.md` 2026-08-10. Short
+entries for `/avatar`, `GET /decke/history` and `/dev/scan-flags` are below
+too, so their request and response shapes are findable here. `GET /me`
 itself stays documented in `DECKE-AGENT-SPEC.md`; its `/me/settings` and
 `/me/showcase` and `/me/cards` sub-routes are frontend surface and documented here (§Account).
 
@@ -19,7 +24,10 @@ itself stays documented in `DECKE-AGENT-SPEC.md`; its `/me/settings` and
 | Cloud (Vercel) | `/api` | serverless | Supabase JWT (Bearer token) |
 
 The base path is set by `API_BASE_PATH` (defaults to `/deckpal/api`). On Vercel
-the Express app is mounted as a catch-all serverless function at `api/index.ts`.
+it is set to `/api`, and the Express app is mounted as a catch-all serverless
+function at `api/index.mjs`. A self-host behind nginx at `/deckpal/` leaves
+`API_BASE_PATH` unset, because the web app it serves calls `/deckpal/api`; set
+to `/api` there, the API answers on a path the web app never calls.
 
 Pure-catalog reads (`/series`, `/sets`, `/cards`, `/search`, `/dex`, the PDF
 exports), the **collection write endpoints** (§Collection) that mutate
@@ -65,7 +73,7 @@ omit the host.
   base **before** the `/decks`, `/lists`, `/sets` routers so the `…/pdf` and
   `checklist.pdf` paths resolve to the PDF renderer (those routers define no such
   routes — explicit ordering removes the ambiguity). Rendered with pdfkit
-  (pure-JS/ARM-safe); `private, no-cache`. Letter is the default; append
+  (pure-JS/ARM-safe); `private, no-store`. Letter is the default; append
   `?paper=a4` to any of the three routes for A4.
 - **Progress.** Read from `user_set_progress` for the requesting user. **Complete
   is a card fraction; Master and Grandmaster are `(card,variant)` pair fractions** —
@@ -125,8 +133,9 @@ omit the host.
   **read-only** connection (migration 075) is refused every method but `GET`,
   `HEAD` and `OPTIONS` on every route with **`403`**, `{ "error": { "code":
   "insufficient_scope" } }` and `WWW-Authenticate: Bearer error="insufficient_scope"`,
-  except `POST /massentry` (it builds cart links), `POST /decks/check` and
-  `POST /decks/odds`, which write nothing.
+  except `POST /massentry` (it builds cart links), `POST /decks/check`,
+  `POST /decks/odds` and `POST /decks/simulate`, which write nothing
+  (`READ_ONLY_POSTS` in `apps/api/src/auth.ts`).
 - **Body-size limits.** Per route, most-specific first, immediately after the
   ingress guard and ahead of authentication: `/bugs` 12mb (the screenshot),
   `/client-errors` 32kb (the crash beacon), `/dev/scan-queue` and
@@ -151,11 +160,21 @@ In **cloud mode** (`SUPABASE_URL` is set), the API verifies Supabase user JWTs:
 - All requests pass through `authMiddleware`, which verifies the `Authorization:
   Bearer <token>` header using Supabase's public JWKS for ES256, or
   `SUPABASE_JWT_SECRET` for legacy HS256, and attaches the user's UUID.
-- **Public routes** (no auth required): `GET /health`, `GET /`, `GET /search`.
-- **Protected routes** (require a valid JWT): everything else (series with
-  progress, sets, cards, collection mutations, lists, decks, insights, scan,
-  bugs, PDF exports). Returns `401 { "error": { "code": "unauthorized" } }`
-  without a valid token.
+- **Public routes** (no auth required): `GET /health`, `GET /public-config`,
+  `GET /`, `GET /search`, `POST /client-errors`, and the browsable catalog —
+  `/series` and `/series/:seriesSlug`, `/sets/:setId`, `/cards/:cardId` (with
+  its `/legality` and `/prices`), `/dex` and `/dex/:speciesId`, and
+  `/insights/pokedex` and `/insights/pokedex/:speciesId`. The catalog routes
+  still embed the caller's ownership when a valid credential is sent, and omit
+  every ownership field when none is (`resolveOptionalIdentity`,
+  `apps/api/src/index.ts`). Outside this router, the Stripe webhook is public
+  and authenticated by its signature, and the bare-origin OAuth discovery,
+  `/register` and `/token` handlers are public by design.
+- **Protected routes** (require a valid JWT or connector token): everything
+  else — collection reads and writes, lists, decks, the rest of `/insights`,
+  cart links (`/sets/:setId/massentry` included), PDF exports (the set
+  checklist included), scan, bugs, `/me`, `/decke`, `/admin`. Returns
+  `401 { "error": { "code": "unauthorized" } }` without a valid token.
 - The user UUID comes from the JWT `sub` claim. All SQL queries use this UUID
   as `user_id`.
 
@@ -183,6 +202,21 @@ DB liveness + latest run per sync job. Never cached.
                "sourceStamp": "2026-07-24T20:11:00+0000" } ] }
 ```
 `503 { "status": "degraded", "db": "down", "error": … }` if the DB is unreachable.
+
+## GET /deckpal/api/public-config
+Public, `Cache-Control: no-store`. The values a browser needs before it can
+talk to Supabase, plus the deployment mode — only values already public in the
+SPA bundle. `pnpm dev` reads it at startup to point a fresh clone at the live
+backend (`AGENTS.md` B12).
+```json
+{ "supabaseUrl": "https://<project>.supabase.co", "supabaseAnonKey": "sb_publishable_…",
+  "mode": "cloud", "bugReportsPublic": true,
+  "defaults": { "skin": "premium", "topbar": "cover" } }
+```
+Self-host answers empty strings for both Supabase fields and `"mode":
+"self-host"`. `bugReportsPublic` says whether a bug report becomes a public
+GitHub issue; `defaults` are the app-wide appearance defaults an administrator
+set (`/admin/settings`), falling back to the values shown.
 
 ## GET /deckpal/api/series
 The English-catalogue series list (newest-era ordering via `sortOrder`), each with
@@ -371,6 +405,23 @@ endpoint through `ctx.api.get`, registered in `packages/agent-tools` and served
 through both the MCP and Deck-E adapters); it carries the block above unchanged
 in its description. `get_card` continues to serve current prices only.
 
+## GET /deckpal/api/cards/:cardId/legality
+Public (legality is a property of the card), `private, no-store`. Per-format
+eligibility for one card, fetched when the card modal's TCG tab opens rather
+than carried on every `/cards/:cardId` read. Each format runs the deck engine's
+card-scoped checks on a one-card list; Standard also consults the reprint
+oracle, so a rotated printing with a legal reprint reads as legal.
+```json
+{ "checkedAt": "2026-…",
+  "formats": [ { "format": "standard", "legal": false,
+                 "reasons": [ "…" ] },
+               { "format": "expanded", "legal": true, "reasons": [] },
+               { "format": "glc", "legal": true, "reasons": [] },
+               { "format": "unlimited", "legal": true, "reasons": [] } ] }
+```
+`checkedAt` is the as-of date of the vendored format data. `404` for an unknown
+card id.
+
 ## GET /deckpal/api/search
 The 12-filter advanced search. AND across fields, OR within a multi-value field.
 
@@ -503,6 +554,26 @@ contains, case-insensitive), `sort=value|recent` (default `recent`), `page`
 `cardId`, `name`, `images: { low, high }`, `quantity`, and `price` (a USD market
 price or `null`). Only cards with a positive owned quantity are returned. Ties
 on price and name are ordered by card ID so page boundaries are stable.
+
+### GET / POST / DELETE /deckpal/api/avatar
+The profile photo (migration 029, `apps/api/src/routes/avatar.ts`). A
+signed-in session only — a connector token gets `403` — and 10 requests/min per
+account. All three answer `private, no-store`.
+
+- `GET` → `{ "avatarUrl": "https://…" | null, "enabled": true, "maxBytes":
+  3145728, "accept": ["image/jpeg", "image/png", "image/webp"] }`. A deployment
+  with no avatar storage answers `{ "avatarUrl": null, "enabled": false,
+  "maxBytes": 3145728 }`.
+- `POST` takes the raw image bytes as the body (not JSON or multipart), up to
+  3 MB. The type is decided from the bytes, never the declared content type;
+  JPEG, PNG and WebP are accepted. The image is decoded, cropped to a 256×256
+  square and re-encoded as WebP before it is stored, and the previous photo is
+  deleted. `201 { "avatarUrl": "https://…", "enabled": true }`. `400` for an
+  empty or unsupported upload, `413 too_large` over the limit.
+- `DELETE` clears the photo → `{ "avatarUrl": null, "enabled": true }`.
+
+`POST` and `DELETE` answer `501 avatar_unavailable` when the deployment has no
+avatar storage (self-host).
 
 ## Billing — the pay-what-you-want tier
 
@@ -782,7 +853,7 @@ The only writers against `collection_item`. Each mutation runs in
 `collection_event` for the non-zero delta, then **recompute the affected set's
 three `user_set_progress` rows** and return them authoritatively. Idempotent
 (setting the same quantity writes no event). Bodies are JSON; all queries
-parameterized. Responses are `private, no-cache`.
+parameterized. Responses are `private, no-store`.
 
 Tier drives which goals a variant advances (SCHEMA §5.3):
 **Complete** = own the card in ≥1 variant of any tier (card fraction); **Master** =
@@ -957,7 +1028,13 @@ integer or null), "itemOrder"? (array of itemIds — rewrites positions 0..n-1;
 items not named keep a high position, appended after) }`. Returns the summary.
 
 ### DELETE /deckpal/api/lists/:id
-`{ "deleted": "<uuid>" }`. `404` if the list doesn't exist.
+Soft by default (migration 038): the list moves to the recycle bin
+(`GET /lists?deleted=true`) and answers
+`{ "deleted": "<uuid>", "restorable": true, "batchId": … }`; deleting it again
+answers `"alreadyDeleted": true`. `POST /lists/:id/restore` brings it back.
+`?purge=true` destroys the list and its items and answers
+`{ "purged": "<uuid>", "deleted": "<uuid>", "restorable": false }`. `404` if
+the list doesn't exist.
 
 ### POST /deckpal/api/lists/:id/items
 Add a card/variant (or a species slot for a binder). Body depends on the list kind:
@@ -996,8 +1073,9 @@ gain `variantId`/`variantName`; the version diff aggregates to card level
 same-total printing swaps in its own `printings` array.
 
 Persistence + validation + interchange on top of the verified deck engine in
-`apps/api/src/deck`. `deck` is keyed by UUID; `deck_card` is **variant-agnostic**
-(keyed by `card.id`, a print — same print on two import lines is summed).
+`apps/api/src/deck`. `deck` is keyed by UUID; `deck_card` is keyed per
+printing, `(deck_id, card_variant_id)`, as above — the same card on two
+import lines is summed into one row for its primary printing.
 Unresolved import lines cannot be stored (`card_id NOT NULL`, FK) and are reported
 to the caller, never dropped silently. Every write carries
 optional `source` attribution and (for card ops + format-changing `PATCH`) a
@@ -1051,8 +1129,13 @@ path as a card edit; rename/favorite/cover changes never bump. Returns the detai
 payload.
 
 ### DELETE /deckpal/api/decks/:id
-`{ "deleted": "<uuid>" }`. Cascades to `deck_card`, `deck_version`,
-`battle_log`.
+Soft by default (migration 038): the deck moves to the recycle bin
+(`GET /decks?deleted=true`) with its cards, versions and battle logs intact,
+and answers `{ "deleted": "<uuid>", "restorable": true, "batchId": … }`;
+deleting it again answers `"alreadyDeleted": true`. `POST /decks/:id/restore`
+brings it back. `?purge=true` is the one hard delete: it cascades to
+`deck_card`, `deck_version` and `battle_log` and answers
+`{ "purged": "<uuid>", "deleted": "<uuid>", "restorable": false }`.
 
 ### POST /deckpal/api/decks/:id/cards
 Additive upsert of a card (quantity clamped to 60). Body `{ "cardId"|"card"
@@ -1455,10 +1538,11 @@ owner still ranks) — a per-user recency cap rather than a full scan.
 `candidates` is sorted by score descending, capped at 5, and `[]` when nothing
 scores above zero.
 ```json
-429 { "error": "rate_limited", "message": "Too many log-preview calls.", "retryAfterSeconds": 3 }
+429 { "error": { "code": "rate_limited",
+                 "message": "Too many log-preview requests — try again shortly." } }
 ```
-Rate-limited at **20 log-preview calls/min per user** — a JSON error envelope, not
-a bare status. The counter is **best-effort per instance** (not shared across
+Rate-limited at **20 log-preview calls/min per user** — the standard JSON error
+envelope, not a bare status, and with no `Retry-After` header. The counter is **best-effort per instance** (not shared across
 replicas), so a burst may slip through; retry after the pause rather than
 re-pasting the log. Consumed by the agent tool `add_battle_log` when `deck_id`
 is omitted.
@@ -1530,47 +1614,71 @@ Returns `{ "log": … }` (full shape).
 
 ## TCGplayer Mass Entry — cart deep links
 
-Both endpoints share one builder (`apps/api/src/tcgplayer/massentry.ts`): line
-grammar `<qty> <name> [<CODE>] <number>` (research/DECK-FORMATS.md §1.9 — a
-stored per-variant `tcgplayer_mass_entry` token wins, else the line is composed
-from TCGplayer's set-abbreviation vocabulary fetched from TCGCSV groups, 24h
-in-process cache; bare `<qty> <name>` only as last resort), collector numbers
-with leading zeros stripped, and the `c=` payload chunked at ~1800 encoded
-chars into an **ordered list of URLs** — opening each adds to the same cart.
-Printing and condition can never be preselected by link (chosen on TCGplayer's
-page); the response's `note` says so. Cards/variants with no TCGplayer product
-are returned in `unlinkable`, never silently dropped.
+Every cart route — these two, `GET /lists/:listId/massentry` and
+`POST /massentry` (§Cart routes) — shares one builder
+(`apps/api/src/tcgplayer/massentry.ts`). These are links, not a cart: the
+reader opens them on TCGplayer, chooses printing and condition there, and
+checks out there.
+
+- **Exact lines** are `<qty>-<productId>`, the TCGplayer product id from
+  `card_variant.tcgplayer_product_id`, aggregated per product id (a normal and
+  reverse printing that share one product become one line). TCGplayer resolves
+  these against its own catalog, so no name, set code or collector number is
+  involved.
+- **Best-effort lines** come from a curated per-variant
+  `tcgplayer_mass_entry` token (with its quantity replaced). The column is
+  empty in the shipped catalog; it exists for forks. These go in their **own**
+  URLs (`bestEffortUrls`), never mixed with exact lines, because Mass Entry is
+  all-or-nothing: one line that fails to match adds nothing at all.
+- **Unlinkable** — a needed card with neither — is returned in `unlinkable`
+  and counted in a warning, never dropped silently and never guessed by name.
+
+Lines are URL-encoded (spaces as `+`), joined with `||`, and chunked at 1800
+encoded characters per `c=` payload into an **ordered list of URLs**, exact
+first — opening each adds to the same cart. Printing (normal/foil/reverse) and
+condition can never be preselected by link; the response's `note` says so.
 
 ### GET /deckpal/api/sets/:setId/massentry
 Cart link(s) for every card still needed to finish the set.
 Query: `goal` = `complete` (default) | `master` | `grandmaster`; `finish`
-(repeatable, master/grandmaster only) = `normal`|`reverse`|`holo`|`lenticular`|`metal`.
+(repeatable) = `normal`|`reverse`|`holo`|`lenticular`|`metal` limits which
+printings are carted (on `complete`, which printing is picked for each missing
+card — linkable first, then cheapest); `rarity` / `rarity_exclude`
+(repeatable, case-insensitive).
 ```json
-{ "set": { "setId": "me05", "name": "Pitch Black" }, "goal": "complete",
-  "finishes": null, "setCode": "PBL",
-  "needed": { "cards": 81, "items": 81, "unlinkable": 0 },
-  "lines": [ "1 Lurantis ex [PBL] 4", … ],
-  "text": "1 Lurantis ex [PBL] 4\n…",
+{ "source": "set", "set": { "setId": "me05", "name": "Pitch Black" },
+  "goal": "complete", "finishes": null, "rarity": null, "rarityExclude": null,
+  "needed": { "cards": 81, "items": 81, "unlinkable": 0,
+              "exactLines": 81, "bestEffortLines": 0 },
+  "lines": [ "1-704758", … ],
+  "text": "1-704758\n…",
   "urls": [ "https://www.tcgplayer.com/massentry?productline=Pokemon&c=…" ],
-  "unlinkable": [ { "name": "…", "number": "…", "variant": "…" } ],
-  "warnings": [], "note": "Printing … Mass Entry page." }
+  "exactUrls": [ "…" ], "bestEffortUrls": [],
+  "unlinkable": [ { "name": "…", "number": "…", "setId": "…", "variant": null } ],
+  "warnings": [], "note": "Printing (normal/foil/reverse) and condition (NM/LP/…) cannot be preselected by link — …" }
 ```
+`needed.cards` counts Mass Entry lines (the name is kept for compatibility);
+`needed.items` counts copies.
 
 ### GET /deckpal/api/decks/:id/massentry
-Cart link(s) for the deck's **missing** cards — same math as `/decks/:id/pricing`
-(`deck_card.quantity` minus owned copies across all variants of the print).
+Cart link(s) for the deck's **missing** cards — same math as `/decks/:id/pricing`:
+each row's `deck_card.quantity` minus the copies the ownership allocation
+credits to that row (exact copies, then gameplay-identical printings; see
+`GET /decks/:id`).
 ```json
 { "deck": { "id": "47333f45-…", "name": "Hide 'n' Sneak (Dhelmise)" },
-  "needed": { "cards": 7, "items": 23, "unlinkable": 0 },
-  "lines": [ "3 Banette [PBL] 34", "4 Telepathic Psychic Energy [POR] 88", … ],
-  "text": "3 Banette [PBL] 34\n…",
+  "needed": { "cards": 7, "items": 23, "unlinkable": 0,
+              "exactLines": 7, "bestEffortLines": 0 },
+  "lines": [ "3-<productId>", "4-<productId>", … ],
+  "text": "3-<productId>\n…",
   "urls": [ "https://www.tcgplayer.com/massentry?productline=Pokemon&c=…" ],
-  "unlinkable": [ { "name": "…", "number": "…", "setId": "…", "variant": null } ],
+  "exactUrls": [ "…" ], "bestEffortUrls": [],
+  "unlinkable": [ { "name": "…", "number": "…", "setId": "…", "variant": "…" } ],
   "warnings": [], "note": "…" }
 ```
 `/decks/:id/pricing`'s per-missing-card `massEntry` field and `massEntryText`
-use the same line vocabulary (pricing keeps a bare-name line for unlinkable
-cards so its text lists everything; the cart URLs here carry linkable lines only).
+use the same line vocabulary. An unlinkable card's `massEntry` is `null` and it
+is left out of `massEntryText`.
 
 Tip surfaced by the UI/MCP, not the API: after the cart fills, TCGplayer's own
 **Cart Optimizer** (inside the cart) has a consolidation mode that finds the
@@ -1582,7 +1690,7 @@ fewest sellers — or one seller with everything — so it ships in one package.
 
 Read-only, parameterized (ids come from the URL), each streams
 `application/pdf` with a `Content-Disposition: attachment` filename and
-`private, no-cache`. Rendered with pdfkit (pure-JS/ARM-safe). Mounted at the
+`private, no-store`. Rendered with pdfkit (pure-JS/ARM-safe). Mounted at the
 `/deckpal/api` base **before** the `/decks`, `/lists`, `/sets` routers.
 
 ### GET /deckpal/api/decks/:id/pdf
@@ -1612,7 +1720,7 @@ separate labels. Header carries set name, id, series, release date, and a
 Mounted at `/insights`. Every GET is read-only over the collection; the one write
 is `POST /value/snapshot`, which the deckpal-sync daily cron calls over HTTP
 (sync must not import this app — its `db.ts` opens a 2-connection pool at module
-load). All `private, no-cache`.
+load). All `private, no-store`.
 
 ### GET /deckpal/api/insights/overview
 Trainer level + collection value + dex summary in one payload.
@@ -2162,7 +2270,7 @@ server-derived `actions` and `assignableRoleIds`.
 | GET `/me/features` | Session | `{features:FeatureAccess[]}`. |
 | PATCH `/me/features/:key` | Session + lifecycle eligibility | `{optedIn,expectedRevision}`; revision must be current positive safe integer. |
 | GET / PATCH `/admin/features[/:key]` | Superadmin/Owner | Read catalog; update `{lifecycle,expectedRevision,reason}`. |
-| GET / PUT `/me/decke-sharing` | Active session, independent of Deck-E access | Read `{enabled,revision,updatedAt}`; write `{enabled,expectedRevision}`. Default false/revision 0. |
+| GET / PUT `/me/decke-sharing` | Active session | Retired: both answer `{enabled:false,retired:true,mode:"per_chat",explanation}` and change nothing. Chats are shared one conversation at a time (`/decke/improvement/consent`, `/decke/feedback`). |
 | GET `/admin/users/:id/ai-override` | `credits.read` | `{userId,revision,unlimited,markupBps,effectiveMarkupBps,globalPolicyRevision,updatedAt,canEdit}`. |
 | PUT `/admin/users/:id/ai-override` | Owner only | `{expectedRevision,unlimited,markupBps,reason}`; markup null or integer0–100000bps; zero is valid. |
 
@@ -2181,14 +2289,16 @@ database Checkout quotas remain60 requests/hour and10 new orders/hour.
 | Method/path | Response |
 |---|---|
 | GET `/admin/ai-usage` | `{items,total,limit,offset,aggregate:{knownUsd,knownCount,unknownCount}}`; filters `userId,conversationId,category,status,from,to,modelId,buildSha,buildPr,costSource`. |
-| GET `/admin/ai-usage/requests/:id` | `{request,operations,contentStatus,content}`. |
+| GET `/admin/ai-usage/requests/:id` | `{request,operations,contentStatus:"retired",content:null}`: metadata only (migration 078). |
 | GET `/admin/ai-usage/conversations/:id` | Bounded `{items:requestDetails[],total,limit,offset}`. |
 | GET `/admin/ai-usage/conversations` | Cursor-paged all-chat cost rollup with no transcript content; filters `from,to,userId,model`, limit max 100. |
 | GET `/admin/ai-usage/observations` | `days=7|30|90` and optional `buildSha`; grouped complete/unknown sample counts, mean/p95 microUSD, model/build and notice. |
-| POST `/decke/history` | Existing personal `asked,answered,tools,finishReason` plus `conversationId,seq,exchangeId`. Supplied exchange must match an owned accepted request; duplicate position remains immutable. |
-| GET `/decke/history/:id` | Own turns add `exchangeId`, `usage:AiUsageRow[]`, personal `vote`/`comment`, and conversation `shared`. Legacy/unlinked usage is empty and generation build unknown. |
-| DELETE `/decke/history/:id` | Deletes own history and optional administrative excerpts; usage metadata remains. |
-| POST `/decke/improvement/consent` | `{conversationId,share,source}` grants or declines one-chat sharing; a grant backfills available redacted history. |
+| POST `/decke/history` | Existing personal `asked,answered,tools,finishReason` plus `conversationId,seq,exchangeId`. Supplied exchange must match an owned accepted request; duplicate position remains immutable. Returns `{ok,recorded,id,buildPr,buildSha}`. |
+| GET `/decke/history` | Own conversations, newest activity first: `{conversations:[{id,title,turns,startedAt,updatedAt,buildPrMin,buildPrMax,buildSha}]}`; `limit` 1–200, default 40. |
+| GET `/decke/history/:id` | `{id,title,startedAt,turns:[{seq,exchangeId,usage,asked,answered,tools,buildPr,buildSha,finishReason,at}]}`. `usage` is that turn's `AiUsageRow[]`, empty for legacy/unlinked turns. Votes are not here; read them from `GET /decke/feedback/:conversationId`. |
+| GET `/decke/feedback/:conversationId` | Own votes for one conversation: `{items:[{seq,vote,comment}]}`. |
+| DELETE `/decke/history/:id` | Deletes one own conversation and its turns → `{ok:true}`. If that conversation was shared, the same transaction revokes the share and deletes its improvement copy (migration 079 trigger). Usage metadata remains. |
+| POST `/decke/improvement/consent` | `{conversationId,share,source,shareAll?}` grants or declines one-chat sharing; `source` is `decke_ask`, `feedback` or `reader`. A grant backfills available redacted history. `shareAll:true` (only with `share:true` and `source:"decke_ask"`) also turns on the always-share preference. Returns `{status,source}`. |
 | DELETE `/decke/improvement/consent/:conversationId` | Stops sharing and deletes that conversation's saved improvement copy. |
 | GET `/decke/improvement/mine` | Own raw conversation ids currently shared, for History badges. |
 | POST `/decke/telemetry` | Shared-chat event batch (1–200, max 512 KiB); returns `202 {recorded}` and otherwise stores nothing. |
@@ -2196,6 +2306,10 @@ database Checkout quotas remain60 requests/hour and10 new orders/hour.
 | GET `/admin/decke-improvement` | Admin/capable-token corpus list; contract filters, cursor, limit max 100, JSON or NDJSON. |
 | GET `/admin/decke-improvement/:id` | Full pseudonymous detail; `?format=markdown` renders a readable transcript and telemetry timeline. |
 | GET `/admin/decke-improvement/search?q=` | Literal corpus search, query length 2–100 and limit max 50. |
+
+The `/decke/history` routes need a signed-in session and Deck-E access: an
+account without Deck-E gets `403 forbidden`, not an empty list. They answer
+`private, no-store`.
 
 Usage list/conversation page sizes default 25/max 100, offset max1000000.
 Categories are `response|research|planning`; status is
@@ -2214,33 +2328,52 @@ Aggregate knownCount/unknownCount count provider operations; the list total coun
 parent requests. Financial summary estimates support both historical flat and
 current effective-policy snapshots, and missing estimates count as unpriced.
 
-Usage is server-authored independently of client history. Lists/observations
-never include conversation content. Detail content is null unless both
-exchange-start consent and current active-account consent share the same
-enabled epoch. `contentStatus` is shared/not_shared/revoked/unavailable.
-Only current user text and visible assistant response may be shared; raw tool
-records, prior context and errors are excluded.
+Usage is server-authored independently of client history, and it is metadata
+only. Lists, observations, conversation pages and request details never carry
+conversation content: since migration 078, `decke_usage_detail` answers
+`contentStatus: "retired"` and `content: null` for every request. 078 retired
+migration 071's account-wide sharing switch in place (it turned the switch off
+for every account and deleted the excerpts it had collected), and
+`GET`/`PUT /me/decke-sharing` now only report that.
 Usage reads require an active application session, tier 40 or higher and current
-`admin.access`. Custom roles lose metadata and shared-content access immediately
-when that permission is removed; the capability projection uses the same rule.
-Contributor is denied. Disabling sharing remains available after Deck-E access
-is lost and does not delete personal history. Re-enable never restores old text.
+`admin.access`; a custom role loses them as soon as that permission is removed.
+Contributor is denied.
+
+Reading what a reader said is a separate mechanism, per conversation:
+
+- **Consent is per chat.** A reader shares one conversation when Deck-E asks
+  (`POST /decke/improvement/consent` with `source:"decke_ask"`, the only
+  source the web app sends there; the route also accepts `"reader"`) or with
+  feedback (`PUT /decke/feedback` with `share:true`). Nothing is shared
+  without one of those, except under the next point.
+- **Always share** is the `deckeShareAll` preference on `/me/settings`
+  (default `false`, migration 079). While it is on, each new conversation
+  with no recorded decision is shared automatically (source `always`); it
+  never overrides a decision already made. `deckeSharePrompts` (default
+  `true`) decides whether Deck-E asks at all.
+- **Stopping** is `DELETE /decke/improvement/consent/:conversationId`, or
+  deleting the conversation from History; either removes the saved
+  improvement copy.
+- **Reading** the shared, pseudonymised copies is `/admin/decke-improvement`,
+  which needs tier 40, `admin.access` and `decke.improvement.read`, from a
+  browser session or a token minted with the improvement capability. Copies
+  are kept 180 days.
 
 
 ### Credit economy endpoints
 
 | Method/path | Permission | Request / purpose |
 |---|---|---|
-| GET / PUT `/admin/credits/settings` | `credits.read` / `credits.manage` | Versioned policy and notices; write `{policy, expectedRevision}`. |
+| GET / PUT `/admin/credits/settings` | `credits.read` / `credits.manage` | GET → `{policy,revision,updatedAt,overageBuffer:{balance,coveredTotal},estimateNotice,chargeNotice}`; write `{policy, expectedRevision}`, where `policy` must be the same version as the stored one (see below). |
 | GET / POST `/admin/credits/packs` | `credits.read` / `credits.manage` | List packs; create `{name,credits,priceCents,currency:"usd",active}`. |
 | PATCH `/admin/credits/packs/:id` | `credits.manage` | Same pack fields plus `expectedRevision`. |
 | GET `/admin/credits/payment-status` | `credits.read` | `refresh=true` bypasses the 60-second readiness cache; returns ready/reason/requiredEvents/checkedAt. |
-| GET `/admin/credits/users/:id` | `credits.read` | Wallet, debt/hold and paginated events. |
+| GET `/admin/credits/users/:id` | `credits.read` | The raw wallet `{balance,heldCredits,debt,purchaseHold}` (`balance` a decimal string) plus paginated events. |
 | POST `/admin/credits/users/:id/adjustments` | `credits.manage` | `{delta,reason,idempotencyKey}`; nonzero integer delta, bounded ±1,000,000. |
 | POST `/admin/credits/users/:id/resolve-hold` | `credits.manage` | `{reason}`; only eligible closed lost-dispute holds. |
-| GET `/admin/credits/summary` | `credits.read` | `days=7|30|90` (default 30); cohort sales/refunds, estimated usage cost, current order/hold/debt counts. |
+| GET `/admin/credits/summary` | `credits.read` | `days=7|30|90` (default 30); credits spent and granted (metered replies counted at what they settled for), `providerCostUsd` reported for metered work, `estimatedProviderMicroUsd`/`unpricedSpends` for older flat spends, `overageCoveredCredits`, `overageBufferCredits`, sales/refunds and current order/hold/debt counts. |
 | GET `/admin/credits/orders` | `credits.read` | `status`, `user`, `limit`, `offset`. |
-| GET `/me/credits` | Session | Own balance, debt, purchaseHold, prices, unlimited, overrideRevision, lowAt, packs, pricingRevision and purchase availability/reason. |
+| GET `/me/credits` | Session | Own wallet and quote; shape below. |
 | GET `/me/credits/events` | Session | Own paginated credit/debt statement; finance-only provider estimates are excluded. |
 | GET `/me/credits/orders/:id` | Session | Own server-confirmed frozen order state. |
 | POST `/me/credits/checkout` | Session + eligible account | `{packId,idempotencyKey}` only; returns hosted `url` and `orderId`. |
@@ -2254,13 +2387,87 @@ letters, digits, underscores or hyphens; financial reasons contain 3–500
 characters. Checkout permits 60 requests/hour and 10 new order attempts/hour
 per account. Browser-supplied amounts/customer/session IDs are not accepted.
 
-Policy fields are `enabled`, `microUsdPerCredit`, `markupBps`,
-`estimatedMicroUsd:{chatTurn,analysis,planDeck}` and `lowBalance`.
-Values are bounded safe integers; operation prices use ceiling division and
-minimum one for paid work; unlimited explicitly spends zero. Historical balances/events and pending order terms are unchanged
-by policy edits. Credits use USD card-only Checkout, separate from support
+**The policy is metered (version 2) since migration 081.** Its fields
+(`normalizePolicy`, `apps/api/src/credits/policy.ts`, and
+`credit_validate_policy` in SQL) are exactly:
+
+```json
+{ "version": 2, "enabled": true, "microUsdPerCredit": 10000, "markupBps": 0,
+  "lowBalance": 100, "legHoldCredits": 25, "legHoldMinCredits": 3,
+  "overageBufferMaxCredits": 2000 }
+```
+
+All are whole numbers: `microUsdPerCredit` 1–1,000,000,000, `markupBps`
+0–100,000, `lowBalance` 0–1,000,000, `legHoldCredits` 1–10,000,
+`legHoldMinCredits` 1 up to `legHoldCredits`, `overageBufferMaxCredits`
+0–10,000,000. The values shown are what 081 seeds (it converted a stored flat
+policy by keeping `enabled`, `microUsdPerCredit`, `markupBps` and `lowBalance`
+and adding the last three). A reply settles at its reported model cost:
+`credits = costUsd × 1,000,000 × (10,000 + markupBps) / (microUsdPerCredit ×
+10,000)`, kept to 12 decimal places. Whole credits leave the wallet and the
+remainder (under one credit) is carried per user; an operation with no reported
+cost is charged nothing. Before a paid reply starts it holds
+`min(legHoldCredits, balance)` whole credits (Deep Think holds a multiple,
+migration 083) and is refused with `reason` `insufficient` below
+`legHoldMinCredits`, or `debt` / `payment_hold`. Settlement returns the unused
+hold at once; a cost beyond the wallet is covered by the overage buffer, never
+recorded as debt. A request's charge mode is `paid`, `unlimited` (an owner
+override, which spends zero) or `daily` (credit charging is off, so Deck-E's
+daily allowances apply instead of credits).
+
+**The flat (version 1) policy is legacy.** Its shape, `{enabled,
+microUsdPerCredit, markupBps, estimatedMicroUsd:{chatTurn,analysis,planDeck},
+lowBalance}`, priced each operation by ceiling division with a minimum of one
+credit. The code still reads it, but a deployment migrated past 081 stores
+version 2, and `PUT /admin/credits/settings` refuses a policy whose version
+differs from the stored one (`normalizePolicyUpdate`), so a flat policy cannot
+be saved over a metered one. The two paths refuse each other in SQL: a flat
+charge against a v2 revision fails with "Flat pricing retired", and metered
+accounting refuses a non-v2 revision.
+
+`GET /me/credits` answers, under a metered policy:
+
+```json
+{ "mode": "metered", "balance": 41.25, "balanceExact": "41.250000000000",
+  "heldCredits": 0, "holdCredits": 25, "holdMinCredits": 3,
+  "debt": 0, "purchaseHold": false, "enabled": true, "lowAt": 100,
+  "unlimited": false, "overrideRevision": 0, "packs": [ … ],
+  "purchasesEnabled": true, "purchaseUnavailableReason": null,
+  "pricingRevision": 7, "chargeNotice": "…" }
+```
+
+`balance` is the spendable balance rounded to four places for display;
+`balanceExact` is the exact decimal string; `heldCredits` is what open replies
+currently hold. Under a legacy flat policy the same route answers
+`mode: "flat"` with `prices:{chatTurn,analysis,planDeck}` and no hold fields
+(`shapeWalletAccounting`, `apps/api/src/credits/view.ts`).
+
+Historical balances/events and pending order terms are unchanged by policy
+edits. Credits use USD card-only Checkout, separate from support
 subscriptions/gifts; signed webhook reconciliation, never a return URL,
 fulfills an order. See ADMINISTRATION.md for charge/refund/debt semantics.
+
+### Scan-harness flagged frames: /deckpal/api/dev/scan-flags
+
+Frames flagged in the scan harness, with their metadata and an optional
+comment (`apps/api/src/dev/scanFlags.ts`). These routes require labeler access
+(the `scanner.label` permission) and answer `403` otherwise. Cloud uses the
+`/api` prefix. Without an object store (self-host) the list is empty and the
+writes answer `501 storage_unavailable`.
+
+- `POST /`: `{ png, meta }` — `png` is a base64 PNG and `meta` an object,
+  together at most 3 MB decoded (the route's parser accepts 4200 KB on the
+  wire). Stores `<id>.png` and `<id>.json`, where the id is the capture time in
+  epoch milliseconds → `{ ok: true, id }`.
+- `POST /:id/comment`: `{ comment }` (at most 4 KB) → `{ ok, id, comment,
+  updatedAt }`. Re-posting edits the comment; `404` if the flag doesn't exist.
+- `GET /`: `{ flags: [{ id, files, size, uploadedAt, comment, label }] }`,
+  newest first. `?limit=` (1–5000, default 1000) bounds the list; `?meta=1`
+  also reads each flag's metadata summary into `label` (otherwise `null`).
+- `GET /:file`: one stored object — `<id>.png`, `<id>.json` or
+  `<id>.comment.json` — with its own content type.
+- `DELETE /:id`: removes the frame, its metadata and its comment, permanently
+  → `{ ok, id, removed }`; `404` if nothing was there.
 
 ### Labeler pending-photo queue: /deckpal/api/dev/scan-queue
 

@@ -155,42 +155,59 @@ are presented as implemented defaults.
 
 ## Set AI credit economics
 
-A credit is an integer service unit, not a promise of cash redemption or exact
-provider spend. **USD value per credit**, **Provider-cost markup (%)**, three
-estimated operation costs and the low-balance threshold control future quotes.
-The policy uses:
+A credit is an integer service unit, not a promise of cash redemption. Since
+migration 081, Deck-E usage is **metered**: a reader pays the model cost the
+Gateway reports for each reply, plus markup. **Settings → AI credit economy**
+sets **USD value per credit**, **Provider-cost markup (%)**, **Reply hold
+(credits)**, **Minimum reply hold (credits)**, **Low-balance warning (credits)**
+and **Overage buffer maximum (credits)**. The old flat per-operation estimates
+(chat turn, analysis, deck plan) are retired: once a metered (version 2) policy
+is stored, a flat one cannot be saved, and the database refuses flat charges.
+A reply's charge is:
 
 ```text
-credits = max(1, ceil(estimated provider USD × (1 + markup % / 100)
-                      / USD value per credit))
+credits = reported provider USD × (1 + markup % / 100) / USD value per credit
 ```
 
-Pricing estimates store dollar amounts in microUSD (1 USD = 1,000,000 microUSD) and markup
-in basis points (1% = 100 bps); the UI accepts decimal USD and percentages.
-Paid calculations round up to whole credits with a minimum of one; an explicit unlimited reservation spends zero. Analysis/research
-uses the analysis price; deck plans/strategies and unrecognized deep operations
-use the deck-plan price.
+Pricing stores dollar amounts in microUSD (1 USD = 1,000,000 microUSD) and markup
+in basis points (1% = 100 bps); the UI accepts decimal USD and percentages. The
+charge is fractional: whole credits leave the balance as the fractions add up,
+and the remainder (always under one credit) is carried per user. A provider
+operation with no reported cost is not charged. An explicit unlimited
+reservation spends zero.
 
-Example: estimated cost **$0.02**, markup **50%**, credit value **$0.01** gives
-**3 credits**. The marked-up amount is $0.03; its estimated gross margin is
-33.3%, not 50%, before payment fees and other costs. That comparison assumes
-credits are actually sold at the nominal $0.01 each. A **100-credit pack for
-$1.00** has that effective unit price; pricing the same pack at $2.00 changes
-its sales economics independently. Usage markup is not added to the pack
-checkout price. None of these estimates measures realized profit.
+Example: a reply reported at **$0.02**, markup **50%**, credit value **$0.01**
+costs **3 credits**. The marked-up amount is $0.03; its gross margin is 33.3%,
+not 50%, before payment fees and other costs. That comparison assumes credits
+are actually sold at the nominal $0.01 each. A **100-credit pack for $1.00** has
+that effective unit price; pricing the same pack at $2.00 changes its sales
+economics independently. Usage markup is not added to the pack checkout price.
 
-Initial policy values preserve the former 1/4/75 quotes and existing balances.
-Review logged **Observed provider costs** before changing estimates. Complete
-samples, unknown counts, model/build and the 7/30/90-day window qualify the
-mean and p95 values. Applying an observation fills an estimate draft; only an
-explicit authorized pricing-revision save changes future quotes.
+Before a paid reply starts, the server holds up to **Reply hold** whole credits
+(fewer if the balance is smaller) and refuses the reply when less than **Minimum
+reply hold** is available, or while the account has debt or a refund/dispute
+hold. Deep Think holds a multiple of the reply hold (migration 083). At
+settlement the reply pays its metered cost out of the hold, returns the unused
+part in the same transaction, and takes any excess from the rest of the balance.
+A reply that costs more than the wallet holds still finishes: DeckPal's overage
+buffer covers the difference, and the reader never owes it. Migration 081 seeded
+the buffer at 2,000 credits. **Overage buffer maximum** caps future refills;
+nothing refills the buffer yet, and an empty buffer still covers an overshoot,
+its own balance going negative.
+
+Migration 081 converted the stored flat policy into a metered one, keeping its
+enablement, credit value, markup and low-balance threshold, and adding a
+25-credit reply hold, a 3-credit minimum and a 2,000-credit buffer maximum.
+Balances were not changed. The **Observed provider costs** panel served the flat
+estimates and is not shown for a metered policy; **AI usage** still reports
+known and unknown costs.
 
 Saving creates a prospective pricing revision. Existing integer balances and
 past charges are not recalculated; accepted work keeps its pricing snapshot.
-One HTTP chat leg and its deep work share a revision, while each priced
-operation has its own charge. Exact accepted-request replays are rejected
-rather than obtaining another free invocation; changed requests are charged
-independently.
+One HTTP chat leg is one hold and one settlement, and its deep work and retries
+are provider operations summed into that settlement. Exact accepted-request
+replays are rejected rather than obtaining another free invocation; changed
+requests are charged independently.
 
 Ensure eligible users have appropriate balances before enabling charging.
 Use **Users → AI credits → Adjust credits** with a signed whole-number delta
@@ -201,22 +218,16 @@ debt and hold restrictions. Neither mode erases the ledger.
 
 ### What cancellations cost
 
-The charge and ledger reservation are atomic and fail closed if accounting
-cannot establish the policy or balance. Cancellation or setup failure before
-provider invocation is refunded idempotently. The first credit start and provider-attempt row commit atomically after current
-authority and payment holds are checked under the relevant locks. The SDK call
-sets a synchronous invocation latch. A known cancellation or lost database
-acknowledgement before that call retains an exact-operation compensation path;
-it cannot refund completed/failed invocations or an earlier real retry attempt.
-Once provider work begins,
-failures and cancellations retain the quoted flat charge; there is no
-token-by-token settlement. Unstarted reservations expire after five minutes
-and are eligible for idempotent recovery on wallet reads. Recovery skips
-reservations currently locked by another transaction, avoiding a wait cycle
-with direct cancellation. That transaction may refund the reservation; otherwise
-a later wallet read recovers it after the lock is released. Refresh the wallet
-later if a refund has not appeared. Accounting connections are released across
-a model stream.
+The hold and its ledger entry are atomic and fail closed if accounting cannot
+establish the policy or balance. However a reply ends (completed, failed,
+cancelled or abandoned), it settles at the reported cost of the provider
+operations that actually ran, so a reply cancelled before any model call costs
+nothing and its whole hold comes back. Settlement is idempotent per request. A
+hold still unsettled after 15 minutes is settled as abandoned on the reader's
+next wallet read. Recovery skips holds currently locked by another transaction,
+avoiding a wait cycle with direct cancellation; a later wallet read recovers
+them after the lock is released. Refresh the wallet later if a returned hold has
+not appeared. Accounting connections are released across a model stream.
 
 ## Owner controls: user AI overrides
 
@@ -261,15 +272,17 @@ Usage reads require an active application session, tier 40 or higher and current
 `admin.access`. Custom roles lose metadata and shared-content access immediately
 when that permission is removed; the capability projection uses the same rule.
 
-Profile **Allow my conversations to improve Deck-E** is off by default. Consent
-is fixed at the first accepted leg of a human exchange. Every administrative
-content read also requires current enabled consent at that same epoch and an
-active account. Turning sharing off removes optional administrative excerpts
-immediately; turning it on again cannot resurrect older exchanges.
-An active user can withdraw even after losing Deck-E access or while the
-feature is disabled.
+The account-wide sharing switch from migration 071 is retired. Migration 078
+turned it off for every account and deleted the excerpts it had collected, so
+**AI usage** now shows usage metadata only. Sharing is per chat: a reader
+shares one chat when Deck-E asks or with feedback, or turns on Profile → **Always
+share my Deck-E chats** (off by default). **Let Deck-E ask to share chats** (on
+by default) only matters while always sharing is off. A shared copy is
+pseudonymised, kept 180 days unless the reader stops sharing it from Deck-E's
+History, and read on **Deck-E chats** with the `decke.improvement.read`
+permission. `/privacy` lists what a shared copy holds.
 
-Shared content contains only the current user message and visible assistant
+The retired excerpts held only the current user message and visible assistant
 response. Own history remains separate and may contain personal tool records;
 client-posted content/build/cost is never administrative telemetry authority.
 The browser sends the same conversation ID, sequence and exchange UUID on every
@@ -281,8 +294,8 @@ also withdraws its optional administrative excerpts while preserving metadata.
 Private responses are no-store. The browser clears sensitive state on identity
 and consent changes; open administrative detail refetches every ten seconds
 and on focus, withholding content while unavailable/refetching. Withdrawal
-cannot recall text already seen or copied. Observed costs inform explicit
-estimates only; flat quoted billing and refund semantics remain unchanged.
+cannot recall text already seen or copied. Observed costs are reporting only;
+they do not change past charges.
 
 ## Offer credit packs and diagnose payment setup
 
@@ -322,7 +335,9 @@ a separate product and do not purchase credits.
 describe the cohort of purchases paid in that window; the refund value is
 cumulative refunds on those purchases, not necessarily refunds issued inside
 the same window. Pending orders, held wallets and debt counts describe current
-state. This financial summary estimates cost for priced spends; the separate AI usage
+state. This financial summary reports metered credits spent with the provider
+cost reported for them, the credits the overage buffer covered and its current
+balance, plus estimated cost for older flat-priced spends; the separate AI usage
 view shows observed reported/unknown provider costs. Older unpriced spends are
 reported separately. Filter **Credit orders** by user ID/status.
 
