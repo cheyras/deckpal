@@ -784,7 +784,7 @@ archetype, so "new matchup" and "met three times" are counts rather than guesses
     3 a page whatever `page_size` asks (before 2026-10-12 a page of 200 measured 949,283
     characters) — to judge one game, `battle_digest` is the smaller read. Opponent and card
     names render through `untrusted`/`screenName` (format.ts). `readOnlyHint: true`.
-17a. **`battle_digest`** — `{ deck_id, log_id, player_name? }` (added 2026-10-10).
+17a. **`battle_digest`** — `{ deck_id, log_id, player_name?, detail? }` (added 2026-10-10).
     `GET /decks/:id/logs/:logId/digest?playerName=`: the API re-reads the stored, immutable raw
     log (`digestBattleLog` in `apps/api/src/deck/battlelog.ts`) into who went first, mulligans,
     turns per side, each side's first attack, the prize timeline turn by turn with the Knock Out
@@ -797,6 +797,19 @@ archetype, so "new matchup" and "met three times" are counts rather than guesses
     cards. An unidentified owner is said, with the names to choose from, never guessed. An in-person game has no log: the tool answers so (not a failure) and
     points at `battle_logs` `log_id`. Recomputed on every call, so every past game improves when
     the digest does, with no backfill. `readOnlyHint: true`, so read-only connections get it.
+    Since 2026-10-14 the battle simulator's replay of the same log follows (`replay` in the route,
+    rendered by `tools/battleReplay.ts`, at most 5,000 more characters):
+    - **review worth:** brief, standard or deep, with the reasons listed;
+    - **moments**, each a fact: a self-Knock-Out with the Prizes it gave away, an attack that did no damage, an
+      effect that did not affect a Pokémon, an attack that left its target on 30 HP or less, a turn
+      the timer ended, how it ended;
+    - **every attack:** its printed damage, Live's breakdown (Weakness, Resistance, bonuses) and the
+      HP its target had;
+    - **the board at the end;**
+    - **one line of card data** per opponent card, Tera marked.
+
+    `detail: 'turns'` adds the board as each turn began (at most 11,000 characters). Players are
+    "me"/"opp", or escaped screen names when the reader is unknown.
 18. **`deck_history`** — `{ deck_id, version?, revert_to?, include_strategy? = true, note?,
     dry_run? = true }`. No extra args: version timeline with per-version W/L, note, source, card
     count, current marker. `version`: full snapshot + card diff vs the previous version.

@@ -671,10 +671,26 @@ stored apart — `notes` (the player's words) and `review_md` (the assistant's
 markdown analysis) — and `opponent_archetype` is a normalized countable key, so
 `battle_logs` can open with the deck's record per archetype. The
 `battle_digest` read calls `GET /decks/:id/logs/:logId/digest`, which re-reads the
-stored, immutable raw log through `digestBattleLog` on every call: the prize
-race turn by turn, first attacks, mulligans, the opposing cards seen, the end
-reason and whether the game was close, rendered under 3,000 characters for a
-model (or a consult brief) to judge. On the Deck-E side, a declined pasted game
+stored, immutable raw log on every call, twice. The first reading is
+`digestBattleLog`: the prize race turn by turn, first attacks, mulligans, the
+opposing cards seen, the end reason and whether the game was close (under 3,000
+characters).
+
+The second, since 2026-10-14, is the battle simulator's replay (`replayInsights`
+in `packages/sim/src/replay/insights.ts`, via `apps/api/src/deck/replayDigest.ts`):
+- the board as each turn began, flagged approximate after any line where the
+  engine and the log disagree;
+- every attack with its printed damage, Live's breakdown and the HP its targets
+  had, copied and spread attacks included;
+- moments worth a look: a self-Knock-Out, an attack that did no damage, a near
+  miss, a timer turn, how it ended;
+- one line of card data for each card a side showed;
+- a review-worth assessment.
+
+`battle_digest` renders the replay in at most 5,000 more characters, or 11,000
+with `detail: 'turns'`, for a model (or a consult brief) to judge. Every log line
+is bounded before any parser pattern runs, because a stored log now reaches the
+simulator's parser from the API. On the Deck-E side, a declined pasted game
 is remembered by a hash of the game rather than by the `@pasted` sentinel
 (`declineCallKey`), and a message holding several games logs the last one and
 says so on the card and in the result (`pastedLogCount`). See

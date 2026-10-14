@@ -21,6 +21,7 @@ import {
   digestBattleLog, normalizeOpponentArchetype, parseBattleLog, prepareBattleLog, scoreDeckMatch,
   type BattleLogOrigin,
 } from '../deck/battlelog.js';
+import { replayDigest } from '../deck/replayDigest.js';
 import {
   validateDeck, resolveDeck, buildReprintOracle,
   parsePtcgl, parseMassEntry, serializeMassEntry,
@@ -2498,8 +2499,8 @@ decksRouter.get(
     if (!meta) throw notFound(`No deck '${deckId}'`);
     const logId = parseLogId(String(req.params.logId));
     const playerName = parseOptText(str(req.query.playerName), 100, 'playerName') ?? undefined;
-    const row = await q1<Pick<LogRow, 'id' | 'deck_version' | 'raw_log' | 'origin' | 'result' | 'parsed'>>(
-      `SELECT id, deck_version, raw_log, origin, result, parsed
+    const row = await q1<Pick<LogRow, 'id' | 'deck_version' | 'raw_log' | 'origin' | 'result' | 'parsed' | 'notes'>>(
+      `SELECT id, deck_version, raw_log, origin, result, parsed, notes
          FROM battle_log WHERE id = $1 AND deck_id = $2`,
       [logId, deckId],
     );
@@ -2527,6 +2528,10 @@ decksRouter.get(
         ?? storedNameFor(row.raw_log, (await ptcglNameOf(poolQueryable, userId)))
         ?? (typeof storedMe === 'string' && storedMe ? storedMe : undefined),
     });
+    // The simulator's reading of the same log: boards, attacks, moments, card lines, review worth (deck/replayDigest.ts).
+    // Pure and bounded (a whole game replays in well under a second); null when it cannot read the log, never an error.
+    const replay = replayDigest(row.raw_log, digest, { storedResult: row.result, notes: row.notes });
+    if (replay && replay.ms > 2_000) console.warn(`[deckpal-api] battle digest replay took ${replay.ms} ms (log ${row.id})`);
     userCache(res);
     res.json({
       logId: Number(row.id),
@@ -2536,6 +2541,7 @@ decksRouter.get(
       // digest's own `result` is what the log text alone says.
       result: row.result,
       digest,
+      replay,
     });
   }),
 );

@@ -4,6 +4,7 @@ import { fail, ok } from '../result.js';
 import { errText } from '../shared.js';
 import { needDeck } from '../entities.js';
 import { oneLine, row, screenName, untrusted } from '../format.js';
+import { renderReplay, type DigestDetail, type ReplayPayload } from './battleReplay.js';
 
 /**
  * `battle_digest` — one stored game, read into the shape a model can judge.
@@ -76,7 +77,12 @@ export interface DigestPayload {
   /** The STORED result — explicit corrections win over the log text. */
   result: 'win' | 'loss' | 'tie' | null;
   digest: Digest;
+  /** The simulator's replay of the same log (2026-10-14); absent from an older API, null when it could not read it. */
+  replay?: ReplayPayload | null;
 }
+
+/** The replay sections' ceilings: the summary every call gets, and `detail: 'turns'` with a board per turn. */
+export const REPLAY_TEXT_MAX: Record<DigestDetail, number> = { summary: 5_000, turns: 11_000 };
 
 // ── Rendering ────────────────────────────────────────────────────────────────
 
@@ -193,9 +199,12 @@ const battleDigestTool = defineTool({
     'Read ONE stored PTCG Live game as a compact digest: who went first, mulligans, turns, each ' +
     "side's first attack, the prize timeline turn by turn (with the Knock Out each prize paid " +
     'for), every card the opponent showed, how it ended, whether it was close, and what the log ' +
-    'cannot tell (their hand, the prized cards). Use it to judge or review a game — it is a small ' +
-    'fraction of the raw log that battle_logs include_raw returns. A game reported in person has ' +
-    'no log to digest; read its notes and review with battle_logs log_id instead. Read-only.',
+    'cannot tell (their hand, the prized cards). Then the battle simulator\'s replay of the game: ' +
+    'every attack with its printed damage, Weakness/Resistance and the HP its target had; moments ' +
+    'worth a look (a self-Knock-Out, an attack that did no damage, a near miss, a timer turn, a concession); ' +
+    'the board at the end; one line per opponent card; and how deep a review the game deserves. ' +
+    "detail 'turns' adds the board at the start of every turn. A game reported in person has no " +
+    'log to digest; read its notes and review with battle_logs log_id instead. Read-only.',
   inputSchema: z.object({
     deck_id: z.string().describe('The deck, by UUID or by NAME.'),
     log_id: z.number().int().positive().describe('Battle log id (the #N from battle_logs or add_battle_log).'),
@@ -204,9 +213,13 @@ const battleDigestTool = defineTool({
       .max(100)
       .optional()
       .describe("Only when a digest said it could not tell which player owns the deck: the owner's exact screen name in the log."),
+    detail: z
+      .enum(['summary', 'turns'])
+      .optional()
+      .describe("'turns' adds the board as each turn began (a deep review). Default 'summary'."),
   }),
   annotations: { readOnlyHint: true, idempotentHint: true },
-  handler: async ({ deck_id: deckRef, log_id, player_name }, ctx) => {
+  handler: async ({ deck_id: deckRef, log_id, player_name, detail }, ctx) => {
     try {
       // Loose — a read, like battle_logs; the resolved deck is named below.
       const picked = await needDeck(ctx, deckRef);
@@ -229,7 +242,9 @@ const battleDigestTool = defineTool({
         }
         throw err;
       }
-      return ok(renderBattleDigest(payload, picked.value.name, picked.note));
+      const head = renderBattleDigest(payload, picked.value.name, picked.note);
+      const mode: DigestDetail = detail ?? 'summary';
+      return ok(payload.replay ? `${head}\n${renderReplay(payload.replay, mode, REPLAY_TEXT_MAX[mode])}` : head);
     } catch (err) {
       return fail(`battle_digest failed: ${errText(err)}`);
     }

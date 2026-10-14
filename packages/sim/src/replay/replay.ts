@@ -259,6 +259,8 @@ export interface ReplayObservation {
 
 export interface ReplayObserver {
   decision(o: ReplayObservation): void;
+  /** The run's game once its last action has resolved (a copy), just before `finish`: the final board. */
+  end?(game: Game): void;
   finish(): unknown;
 }
 
@@ -1554,6 +1556,11 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
   result.engineTurns = s.turn;
   if (observer) {
     try {
+      if (observer.end) {
+        const last = g.clone();
+        last.state = structuredClone(g.state);
+        observer.end(last);
+      }
       result.observed = observer.finish();
     } catch (err) {
       (result.observerErrors ??= []).push(`finish: ${thrownText(err)}`);

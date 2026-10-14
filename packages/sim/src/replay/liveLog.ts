@@ -118,8 +118,14 @@ export interface ParseOptions {
 
 const MENTION = /^\(([A-Za-z0-9][A-Za-z0-9.-]*_\d+(?:_[A-Za-z][A-Za-z0-9]*)?)\)\s+(.+)$/;
 
+/** Longest action line read (Live's longest is about 210 characters); a longer one is skipped as not Live's. */
+export const LIVE_LINE_MAX = 500;
+/** Longest bullet line read (a revealed card list; Live's longest in the fixtures is about 330). */
+export const LIVE_BULLET_MAX = 2_000;
+
 function normLine(s: string): string {
-  return s.replace(/[‘’ʼ]/g, "'").replace(/\s+$/, '');
+  // trimEnd, not /\s+$/: that pattern rescans every run of spaces inside the line, quadratic on a crafted one.
+  return s.replace(/[‘’ʼ]/g, "'").trimEnd();
 }
 
 /** Split "(sv7_58) Slowking, (ec_5) Basic Psychic Energy" into mentions. */
@@ -136,7 +142,21 @@ export function parseLiveLog(raw: string, o: ParseOptions = {}): ParsedLiveLog {
     codes: { mentions: 0, mapped: 0 },
   };
   if (typeof raw !== 'string' || !raw.trim()) return out;
-  const lines = raw.split(/\r\n|\r|\n/).map(normLine);
+  // Bound every line BEFORE any pattern sees it (Astra and CodeQL on #342). Live's action lines are a couple of hundred
+  // characters and its bullet lists a few hundred; the player-discovery and action patterns hold several lazy groups
+  // between fixed words, which backtrack polynomially on a crafted line, and since 2026-10-14 a stored log reaches this
+  // parser from an API route. A longer line is not Live's: it is blanked and counted as unrecognised.
+  let overlong = 0;
+  const lines = raw.split(/\r\n|\r|\n/).map((l) => {
+    const cap = l.trimStart().startsWith('•') ? LIVE_BULLET_MAX : LIVE_LINE_MAX;
+    if (l.length > cap) {
+      overlong++;
+      return '';
+    }
+    return normLine(l);
+  });
+  out.unknown.count += overlong;
+  out.unknown.considered += overlong;
 
   // Pass 1: the two players.
   const found: string[] = [];
@@ -206,6 +226,12 @@ export function parseLiveLog(raw: string, o: ParseOptions = {}): ParsedLiveLog {
 
     const sub = /^-\s/.test(rawLine);
     const line = (sub ? rawLine.replace(/^-\s+/, '') : rawLine).trim();
+    // Over-long lines were blanked before any pattern ran (see `lines` above); this holds the bound for the patterns
+    // below whatever happens to the line on its way here.
+    if (line.length > LIVE_LINE_MAX) {
+      unknown(rawLine.slice(0, 120));
+      continue;
+    }
     if (line === 'Setup') {
       fold = null;
       continue;
