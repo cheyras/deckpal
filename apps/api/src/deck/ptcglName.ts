@@ -1,0 +1,74 @@
+/**
+ * The reader's PTCG Live screen name (`user_settings.ptcgl_name`, migration 086).
+ *
+ * WHY. A pasted PTCG Live log names both players and says nothing about which one is the reader. The parser guesses the
+ * reader's side from the deck's card overlap, and a short game shows few cards: on 2026-10-13 a five-turn game was read
+ * from the opponent's side and called a loss when the reader had won. Agents had to ask "which one is you?" every time.
+ *
+ * THE RULE (the owner's, 2026-10-13). The reader can set the name in their profile. While it is empty, it fills itself in
+ * once three logged PTCG Live games attribute the same name to the reader — and it is never changed automatically after
+ * that, least of all when the reader typed it. Nothing has to call a tool for it: logging a game does it.
+ */
+import type { PoolClient } from 'pg';
+
+/** Games under one name before it is learned. */
+export const LEARN_AFTER = 3;
+
+export const PTCGL_NAME_MAX = 100;
+
+interface Queryable {
+  query: PoolClient['query'];
+}
+
+/**
+ * The name to learn from the reader's per-name game counts (largest first), or null. It needs at least LEARN_AFTER games
+ * and strictly more than any other name, so a reader who plays two accounts equally is never guessed at.
+ */
+export function chooseLearnedName(counts: ReadonlyArray<{ name: string; n: number }>): string | null {
+  const [top, next] = counts;
+  if (!top || !top.name.trim() || top.n < LEARN_AFTER) return null;
+  if (next && next.n >= top.n) return null;
+  return top.name;
+}
+
+/**
+ * The stored name, but only for a log it actually appears in as a player. A reader logging a game played on another
+ * account must not have it parsed from the side of a name that is not in it.
+ */
+export function storedNameFor(rawLog: string | null | undefined, stored: string | null | undefined): string | undefined {
+  if (!rawLog || !stored) return undefined;
+  return rawLog.includes(`${stored}'s Turn`) || rawLog.includes(`${stored} drew`) ? stored : undefined;
+}
+
+/** The reader's stored name, or null. */
+export async function ptcglNameOf(db: Queryable, userId: string): Promise<string | null> {
+  const { rows } = await db.query<{ ptcgl_name: string | null }>(`SELECT ptcgl_name FROM user_settings WHERE user_id = $1`, [userId]);
+  return rows[0]?.ptcgl_name ?? null;
+}
+
+/**
+ * After a PTCG Live game is logged: when the reader has no name yet and LEARN_AFTER games attribute the same one to them,
+ * store it as 'auto'. The `ptcgl_name IS NULL` guard is the never-overwrite rule, applied in the UPDATE itself so a name
+ * the reader saves at the same moment always wins. Returns the name it stored, or null.
+ */
+export async function learnPtcglName(db: Queryable, userId: string): Promise<string | null> {
+  const current = await ptcglNameOf(db, userId);
+  if (current) return null;
+  const { rows } = await db.query<{ name: string; n: number }>(
+    `SELECT parsed->'players'->>'me' AS name, count(*)::int AS n
+       FROM battle_log
+      WHERE user_id = $1 AND origin = 'ptcgl' AND parsed->'players'->>'me' IS NOT NULL
+      GROUP BY 1
+      ORDER BY 2 DESC, 1
+      LIMIT 2`,
+    [userId],
+  );
+  const name = chooseLearnedName(rows);
+  if (!name || name.length > PTCGL_NAME_MAX) return null;
+  const updated = await db.query(
+    `UPDATE user_settings SET ptcgl_name = $2, ptcgl_name_source = 'auto'
+      WHERE user_id = $1 AND ptcgl_name IS NULL`,
+    [userId, name],
+  );
+  return (updated.rowCount ?? 0) > 0 ? name : null;
+}

@@ -1,4 +1,5 @@
 import { ConversationSharing } from '../components/ConversationSharing'
+import { PtcglName } from '../components/PtcglName'
 import { useAccess } from '../lib/access'
 import { FeaturePreferences } from '../components/FeaturePreferences'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -459,6 +460,7 @@ export function Profile() {
           {access.ready && <><CreditProfileCard /><SupportSettings /><PaymentHistory /></>}
           {isCloudMode && <ChangePassword />}
           <FeaturePreferences />
+          <PtcglName key={`ptcgl-${access.identity}`} />
           <ConversationSharing key={access.identity} />
           <DeckeVisibility />
           <AgentAccess />

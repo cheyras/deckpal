@@ -399,6 +399,7 @@ describe('Deck-E sharing preferences', () => {
       binder_additional_variants: 'inline', decke_hidden: false, decke_share_prompts: true,
       decke_share_all: false,
       skin: null, topbar: null, series_sort_key: 'recency', series_sort_dir: 'desc', series_group_owned: true,
+      ptcgl_name: null, ptcgl_name_source: null,
     };
     assert.equal(shapeSettings(base).deckeSharePrompts, true);
     assert.equal(shapeSettings({ ...base, decke_share_prompts: false }).deckeSharePrompts, false);

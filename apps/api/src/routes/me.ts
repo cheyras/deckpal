@@ -6,6 +6,7 @@ import { asyncHandler, badRequest, clampInt, notFound, oneOf, str, userCache } f
 import { currentUserId } from '../identity.js';
 import { ownedCardsPage } from '../me/ownedCards.js';
 import { ownerGateStatus } from '../ownerGate.js';
+import { PTCGL_NAME_MAX } from '../deck/ptcglName.js';
 
 /**
  * GET /me — the caller's own account identity. Currently just `username`
@@ -110,11 +111,14 @@ export interface SettingsRow {
   series_sort_key: string;
   series_sort_dir: string;
   series_group_owned: boolean;
+  ptcgl_name: string | null;
+  ptcgl_name_source: 'manual' | 'auto' | null;
 }
 
 const SETTINGS_COLS = `default_goal, display_currency, pricing_enabled, show_collection_value,
        binder_pocket_size, binder_stack_variants, binder_additional_variants,
-       decke_hidden, decke_share_prompts, decke_share_all, skin, topbar, series_sort_key, series_sort_dir, series_group_owned`;
+       decke_hidden, decke_share_prompts, decke_share_all, skin, topbar, series_sort_key, series_sort_dir, series_group_owned,
+       ptcgl_name, ptcgl_name_source`;
 
 export function shapeSettings(r: SettingsRow) {
   return {
@@ -133,6 +137,8 @@ export function shapeSettings(r: SettingsRow) {
     seriesSortKey: r.series_sort_key,
     seriesSortDir: r.series_sort_dir,
     seriesGroupOwned: r.series_group_owned,
+    ptcglName: r.ptcgl_name,
+    ptcglNameSource: r.ptcgl_name_source,
   };
 }
 
@@ -201,6 +207,16 @@ meRouter.patch(
     if (body.seriesSortKey !== undefined) push('series_sort_key', strictOneOf('seriesSortKey', body.seriesSortKey, SERIES_SORT_KEYS));
     if (body.seriesSortDir !== undefined) push('series_sort_dir', strictOneOf('seriesSortDir', body.seriesSortDir, SORT_DIRS));
     if (body.seriesGroupOwned !== undefined) push('series_group_owned', Boolean(body.seriesGroupOwned));
+    // The reader's PTCG Live name (migration 086). Typing one makes it 'manual', which automatic learning never
+    // changes; null or blank clears it, after which three logged games under one name fill it in again
+    // (deck/ptcglName.ts).
+    if (body.ptcglName !== undefined) {
+      if (body.ptcglName !== null && typeof body.ptcglName !== 'string') throw badRequest('ptcglName must be a string or null');
+      const name = typeof body.ptcglName === 'string' ? body.ptcglName.trim() : '';
+      if (name.length > PTCGL_NAME_MAX) throw badRequest(`ptcglName is at most ${PTCGL_NAME_MAX} characters`);
+      push('ptcgl_name', name || null);
+      push('ptcgl_name_source', name ? 'manual' : null);
+    }
 
     if (!sets.length) throw badRequest('nothing to update — no known settings field in the body');
 

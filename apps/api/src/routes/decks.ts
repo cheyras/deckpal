@@ -12,6 +12,7 @@ import {
   parseSource, recordEvents, ReplayError,
 } from '../mutations.js';
 import { replayField, requestWriteKey, writeOnce } from '../writeOnce.js';
+import { learnPtcglName, ptcglNameOf, storedNameFor } from '../deck/ptcglName.js';
 import { buildCart, productIdLine, tokenLine, type CartInput } from '../tcgplayer/massentry.js';
 import {
   digestBattleLog, normalizeOpponentArchetype, parseBattleLog, prepareBattleLog, scoreDeckMatch,
@@ -2203,11 +2204,14 @@ decksRouter.post(
             [deckId],
           )
         : { rows: [] as { name: string }[] };
+      // The reader's stored PTCG Live name decides their side when they did not name one and it appears in this log
+      // (deck/ptcglName.ts); otherwise the parser scores card overlap as before.
+      const effectivePlayer = playerName ?? (origin === 'ptcgl' ? storedNameFor(rawLog, await ptcglNameOf(client, userId)) : undefined);
       let prepared;
       try {
         prepared = prepareBattleLog(rawLog, names.rows.map((r) => r.name), {
           origin,
-          playerName,
+          playerName: effectivePlayer,
           result: explicitResult,
           opponent,
           opponentDeck,
@@ -2261,6 +2265,8 @@ decksRouter.post(
         ],
       );
       const log = row.rows[0]!;
+      // Three PTCG Live games under one name fill in an empty profile name (never a set one): deck/ptcglName.ts.
+      if (origin === 'ptcgl') await learnPtcglName(client, userId);
       if (keyed) {
         await recordEvents(client, keyed, userId, [{
           entityType: 'battle_log', entityId: String(log.id), operation: OPS.battleLogCreate,
@@ -2354,7 +2360,9 @@ decksRouter.post(
     // resolve "me" (and the drift tripwire is suppressed for an empty deck).
     // parsed.playerCards carries both players' extracted names + codes, which is
     // what scoreDeckMatch ranks decks on.
-    const parsed = parseBattleLog(body.log, [], playerName);
+    // The stored name, when this log is one of the reader's games under it (deck/ptcglName.ts).
+    const ownName = playerName ?? storedNameFor(body.log, (await q1<{ ptcgl_name: string | null }>(`SELECT ptcgl_name FROM user_settings WHERE user_id = $1`, [userId]))?.ptcgl_name);
+    const parsed = parseBattleLog(body.log, [], ownName);
 
     // CAPPED at the recent decks (security finding B): the scoring set is the
     // recent decks — 40 is far above any real collection and bounds the fan-out
@@ -2419,7 +2427,7 @@ decksRouter.post(
     // and the deck-agnostic parse stands (see the response-contract comment
     // above for which fields are null in that case).
     const responseParsed = bestDeckNames
-      ? parseBattleLog(body.log, bestDeckNames, playerName)
+      ? parseBattleLog(body.log, bestDeckNames, ownName)
       : parsed;
 
     userCache(res);
@@ -2508,7 +2516,8 @@ decksRouter.get(
       [deckId],
     );
     const digest = digestBattleLog(row.raw_log, names.map((r) => r.name), {
-      playerName: playerName ?? (typeof storedMe === 'string' && storedMe ? storedMe : undefined),
+      playerName: playerName ?? (typeof storedMe === 'string' && storedMe ? storedMe : undefined)
+        ?? storedNameFor(row.raw_log, (await q1<{ ptcgl_name: string | null }>(`SELECT ptcgl_name FROM user_settings WHERE user_id = $1`, [userId]))?.ptcgl_name),
     });
     userCache(res);
     res.json({
