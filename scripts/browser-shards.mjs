@@ -48,6 +48,7 @@ export const durations = {
   // Measured 12s locally (a 3s cloud build, then two widths of static pages);
   // padded for hosted runners until it has its own CI timing.
   'privacy': 40,
+  'skill-page': 35,
   // Measured 25s locally (a 7s fixture build, Chromium at 1440 and 390, WebKit
   // at 390); padded for hosted runners until it has its own CI timing.
   'decke-deck-widget': 50,

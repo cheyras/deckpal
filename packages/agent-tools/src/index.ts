@@ -1,6 +1,7 @@
 import type { ToolDefinition } from './registry.js';
 import { battleDigestTools } from './tools/battleDigest.js';
 import { battleTurnReviewTools } from './tools/battleTurnReview.js';
+import { playbookTools } from './tools/playbook.js';
 import { catalogTools } from './tools/catalog.js';
 import { rulesTools } from './tools/rules.js';
 import { collectionTools } from './tools/collection.js';
@@ -44,6 +45,8 @@ import { statusTools } from './tools/status.js';
  */
 const ALL: ToolDefinition[] = [
   ...statusTools,
+  // How to do a job with the rest (2026-10-14): the guide an agent opens first, so it sits right after health.
+  ...playbookTools,
   ...collectionTools,
   ...catalogTools,
   // The game's rules sit with the card catalog: get_card is a card's text, rules_lookup is what the game does with it (2026-10-13).
@@ -120,3 +123,5 @@ export {
  * the endpoint removed, not a bare SQLSTATE.
  */
 export { redactEndpoints } from './shared.js';
+export { PLAYBOOK_NAMES, type PlaybookName } from './tools/playbook.js';
+export { PLAYBOOK_INDEX_TEXT, PLAYBOOK_TEXT } from './playbooks/texts.js';

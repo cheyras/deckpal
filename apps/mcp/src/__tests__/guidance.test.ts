@@ -126,6 +126,11 @@ describe('server instructions: content', () => {
     assert.ok(SERVER_INSTRUCTIONS.length <= 4_000, `${SERVER_INSTRUCTIONS.length} characters exceeds 4,000`);
   });
 
+  test('points at the playbook tool first: the instructions are its summary (2026-10-14)', () => {
+    assert.match(SERVER_INSTRUCTIONS, /Before a job, call `playbook` \(no name: which fits\)\. DeckPal's step-by-step guide; below is a summary\./);
+    assert.ok(SERVER_INSTRUCTIONS.indexOf('`playbook`') < SERVER_INSTRUCTIONS.indexOf('LOGGING A BATTLE'), 'before the job sections');
+  });
+
   test('DeckPal data over memory, and dry run before every write', () => {
     assert.match(SERVER_INSTRUCTIONS, /source of truth for card text.*legality.*prices.*never from memory/s);
     assert.match(SERVER_INSTRUCTIONS, /previews by default.*get the user's yes.*`dry_run`: false/s);

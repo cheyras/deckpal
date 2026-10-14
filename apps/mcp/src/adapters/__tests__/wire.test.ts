@@ -26,7 +26,7 @@ import { RESULT_TEXT_MAX, toCallToolResult } from '../mcp.js';
 
 test('every advertised tool is closed-world and carries its title for old and new clients', async () => {
   const { tools } = await listTools({ deckeImprovementRead: true });
-  assert.equal(tools.length, 33);
+  assert.equal(tools.length, 34);
   for (const t of tools) {
     assert.equal(t.annotations?.openWorldHint, false, `${t.name}: openWorldHint must be stated (the spec default is true)`);
     assert.ok(t.title, `${t.name}: top-level title`);

@@ -79,6 +79,7 @@ const Profile = lazyRoute('./routes/Profile', () => import('./routes/Profile'), 
 const Credits = lazyRoute('./routes/credits/Credits', () => import('./routes/credits/Credits'), 'Credits')
 const Privacy = lazyRoute('./routes/Privacy', () => import('./routes/Privacy'), 'Privacy')
 const Connect = lazyRoute('./routes/Connect', () => import('./routes/Connect'), 'Connect')
+const Skill = lazyRoute('./routes/Skill', () => import('./routes/Skill'), 'Skill')
 const Scan = lazyRoute('./routes/Scan', () => import('./routes/Scan'), 'Scan')
 const Devtools = lazyRoute('./routes/Devtools', () => import('./routes/Devtools'), 'Devtools')
 const Admin = lazyRoute('./routes/admin/Admin', () => import('./routes/admin/Admin'))
@@ -607,6 +608,14 @@ const connectRoute = createRoute({
   component: Connect,
 })
 
+// The agent playbooks (2026-10-14): what a connected AI app follows, linked from /connect. Cloud-only like /connect.
+const skillRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/skill',
+  beforeLoad: cloudOnly,
+  component: Skill,
+})
+
 const coreRoutes = [
   indexRoute,
   authRoute,
@@ -615,6 +624,7 @@ const coreRoutes = [
   signedOutRoute,
   privacyRoute,
   connectRoute,
+  skillRoute,
   seriesIndexRoute,
   seriesDetailRoute,
   setDetailRoute,

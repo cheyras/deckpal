@@ -332,5 +332,9 @@
   "{\"case\":\"writes-list\",\"label\":\"cloud\",\"width\":1280}",
   "{\"case\":\"writes-list\",\"label\":\"cloud\",\"width\":390}",
   "{\"case\":\"writes-list-virtualized-remove\",\"label\":\"cloud\",\"width\":1280}",
-  "{\"case\":\"writes-list-virtualized-remove\",\"label\":\"cloud\",\"width\":390}"
+  "{\"case\":\"writes-list-virtualized-remove\",\"label\":\"cloud\",\"width\":390}",
+  "{\"case\":\"skill-page\",\"label\":\"cloud\",\"width\":1280}",
+  "{\"case\":\"skill-page\",\"label\":\"cloud\",\"width\":390}",
+  "{\"case\":\"skill-page-from-connect\",\"label\":\"cloud\",\"width\":1280}",
+  "{\"case\":\"skill-page-from-connect\",\"label\":\"cloud\",\"width\":390}"
 ]

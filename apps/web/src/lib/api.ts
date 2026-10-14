@@ -1786,6 +1786,8 @@ export interface DeckeFeedbackMine {
 export const api = {
   // Administration and credit wallet share the authenticated, tier-aware transport.
   publicDefaults: (signal?: AbortSignal) => get<{ defaults?: AppDefaults; bugReportsPublic?: boolean }>('/public-config', signal),
+  // The agent playbooks (public): the same texts DeckPal's `playbook` tool returns, shown at /skill.
+  playbooks: (signal?: AbortSignal) => get<{ index: string; playbooks: Array<{ name: string; text: string }> }>('/playbooks', signal),
   adminOverview: (signal?: AbortSignal) => get<{ adminReady: boolean; counts: { users?: number; suspended?: number; roles?: number; auditEvents?: number }; status: { bootstrap: string; mode: string } }>('/admin/overview', signal),
   adminUsers: (query: string, signal?: AbortSignal) => get<PageResult & { users: AdminUser[] }>('/admin/users?' + query, signal),
   adminUser: (id: string, signal?: AbortSignal) => get<{ user: AdminUser; permissions: string[]; stats: { collectionItems: number; decks: number; connectors: number } }>('/admin/users/' + encodeURIComponent(id), signal),
