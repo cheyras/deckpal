@@ -2603,11 +2603,11 @@ decksRouter.get(
     const { me, opponent } = digest.players;
     // The list the game was logged against: the search rebuilds the reader's deck from it, count for count, instead of
     // the replay's reservoir of every card the log showed (Astra, #343).
-    const version = await q1<{ cards: Array<{ name: string; quantity: number }> | null }>(
+    const version = await q1<{ cards: Array<{ name: string; quantity: number; tcgdexId?: string }> | null }>(
       `SELECT cards FROM deck_version WHERE deck_id = $1 AND version = $2`,
       [deckId, row.deck_version],
     );
-    const deckList = (version?.cards ?? []).map((c) => ({ name: c.name, count: c.quantity }));
+    const deckList = (version?.cards ?? []).map((c) => ({ name: c.name, id: c.tcgdexId ?? null, count: c.quantity }));
     const review = me && opponent
       ? reviewTurn(row.raw_log, turn, { players: [me, opponent], me: 0, ...(deckList.length ? { deckList } : {}) })
       : null;

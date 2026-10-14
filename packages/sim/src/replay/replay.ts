@@ -241,6 +241,12 @@ export interface ReplayOptions extends ParseOptions {
    * returned as `ReplayResult.observed` of the run that is kept.
    */
   observe?: () => ReplayObserver;
+  /**
+   * One side's decklist (the battle's recorded deck version). Listed cards the log never names join that side's
+   * reservoir, as many as the list has, so a search from a replayed position (turnReview.ts) can draw them; the
+   * replay itself never asks for a card the log does not show. Resolved by code, else by name; unresolved stay out.
+   */
+  deckList?: { side: Side; cards: ReadonlyArray<{ name: string; id?: string | null; count: number }> };
 }
 
 /** One decision as the log answered it. `choice` is the logged answer; `known` is false when the replay had to guess it. */
@@ -579,6 +585,14 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       cards.push({ frame, count: Math.max(n, basicEnergy ? 20 : 4) });
     }
     cards.push({ frame: HIDDEN_FRAME, count: 80 });
+    // After the fillers, so every card the log shows keeps the instance it has without a list.
+    if (o.deckList?.side === side) {
+      for (const e of o.deckList.cards) {
+        if (e.count <= 0 || names[side].has(norm(e.name))) continue;
+        const frame = (e.id ? resolveFrame(e.name, e.id).frame : null) ?? resolveFrame(e.name).frame;
+        if (frame) cards.push({ frame, count: e.count });
+      }
+    }
     return { name: `${parsed.players[side]} (from the log)`, cards };
   });
   result.missingFrames = [...missing];
