@@ -36,8 +36,13 @@ export class RateLimitStore {
     this.sweepTimer.unref();
   }
 
-  /** Check and increment. Returns seconds until reset if over limit, or 0 if allowed. */
-  check(key: string, max: number, windowMs: number, now = Date.now()): number {
+  /**
+   * Check and increment. Returns seconds until reset if over limit, or 0 if allowed.
+   * `whenFull`: what a NEW key gets when the map is at capacity. 'refuse' (the default) suits keys an attacker can
+   * mint for free (IPs, guesses); 'admit' suits keys only a legitimate holder can present (a verified grant), where
+   * refusing would let a full map lock out everyone else's valid requests (Astra, #339).
+   */
+  check(key: string, max: number, windowMs: number, now = Date.now(), whenFull: 'refuse' | 'admit' = 'refuse'): number {
     let b = this.buckets.get(key);
     if (!b || b.resetAt <= now) {
       // Enforce cardinality bound: if at capacity and this is a new key, reject
@@ -53,8 +58,8 @@ export class RateLimitStore {
           this.sweep(now);
         }
         if (this.buckets.size >= MAX_KEYS) {
-          // Still full — reject cheaply. Return a short retry window.
-          return Math.ceil(windowMs / 1000);
+          // Still full — reject cheaply (or, for verified keys, admit untracked).
+          return whenFull === 'admit' ? 0 : Math.ceil(windowMs / 1000);
         }
       }
       b = { count: 0, resetAt: now + windowMs };
@@ -275,10 +280,14 @@ function boundedOptions(
   max: number,
   windowMs: number,
   keyGenerator: (req: Request) => string,
+  // `backend`: a store other than the shared one (the OAuth limiters below own
+  // theirs). `refuse`: a different 429 body for routes whose callers are not
+  // DeckPal's own clients; Retry-After and no-store are set either way.
+  { backend, refuse }: { backend?: RateLimitStore; refuse?: (res: Response, retryAfter: number) => void } = {},
 ): Partial<Options> {
   return {
     windowMs, limit: max, keyGenerator,
-    store: new BoundedExpressStore(tag, max, windowMs),
+    store: new BoundedExpressStore(tag, max, windowMs, backend),
     legacyHeaders: false,
     standardHeaders: false,
     passOnStoreError: false,
@@ -287,6 +296,10 @@ function boundedOptions(
       const retryAfter = Math.max(1, Math.ceil(((info.resetTime?.getTime() ?? Date.now() + windowMs) - Date.now()) / 1000));
       res.setHeader('Retry-After', String(retryAfter));
       res.setHeader('Cache-Control', 'no-store');
+      if (refuse) {
+        refuse(res, retryAfter);
+        return;
+      }
       res.status(429).json({
         error: {
           code: 'rate_limited',
@@ -340,26 +353,157 @@ export const bugsRateLimit: RequestHandler = perUserRateLimit('bugs', 10, 60 * 6
  */
 export const simulateRateLimit: RequestHandler = perUserRateLimit('simulate', 6, 60_000);
 
+// ── The public OAuth endpoints (SEC-09; limits raised 2026-10-12) ───────────
+
 /**
- * The public half of the OAuth "Connect" flow (SEC-09): `/register`,
- * `/token` and the two `.well-known` discovery documents. These are mounted
- * on the bare origin, ahead of the ordinary `/api` router, so none of the
- * limiters above ever see them — `POST /register` in particular is an
- * unauthenticated `oauth_client` INSERT with no limiter at all upstream of it.
+ * The public half of the OAuth "Connect" flow: `/register`, `/token` and the
+ * two `.well-known` discovery documents (oauthServer.ts). They are mounted on
+ * the bare origin, ahead of the ordinary `/api` router, so none of the
+ * limiters above ever see them.
  *
- * Keyed the same way `preAuthFloodGuard` is (validated platform IP on Vercel,
- * raw socket peer on self-host — see `resolveClientKey`), because none of
- * these four requests carries a credential yet: there is no user or token to
- * key on. 30/min/IP is generous for a real client's discovery + register +
- * token-exchange sequence (a handful of requests) while still bounding an
- * unauthenticated INSERT loop and the token-exchange advisory lock it shares
- * with `/token`. A distinct tag from `preauth` — sharing that prefix with
- * `preAuthFloodGuard`'s 600/min budget would mean two different limits
- * fighting over one bucket.
+ * `/token` is where hosted connectors live: claude.ai, ChatGPT and the rest do
+ * discovery, registration, the code exchange and every refresh from the
+ * provider's own egress IPs, and an access token lasts an hour
+ * (`ACCESS_TOKEN_TTL_SECONDS`, packages/db/src/grants.ts). Until 2026-10-12 the
+ * limit was 30 a minute per source IP — under two thousand connections
+ * refreshing through one IP — and the refusal came in DeckPal's
+ * `{"error":{"code":…}}` shape, which an OAuth client reads as a failed
+ * refresh: a disconnect.
+ *
+ * WHAT THE BUDGET IS KEYED ON, AND WHY. Three designs were reviewed and each
+ * reproduced as a lockout (decisions/2026/2026-10-13-oauth-token-limits-keyed-on-the-verified-grant.md):
+ * a global ceiling is a bucket any sender can empty for everybody; a
+ * `client_id` is public, so a per-client budget is one anyone can empty for a
+ * named client without a grant; and a per-IP budget at hosted-connector size
+ * is one any OTHER sender on the same egress IP can empty. So `/token` keys
+ * its real budget on what only the grant's holder has:
+ *
+ * 1. `tokenPerIpCeiling`: 6,000 a minute per source IP, first, before any body
+ *    is read. It bounds the database work one address can cause; it is not
+ *    the budget a client runs into. 6,000 is ten times the busiest minute of
+ *    12,000 connections refreshing hourly behind one IP.
+ * 2. `oauthGrantWait`, in the handler, after a read-only lookup of the
+ *    presented secret (`peekGrantKey`) and BEFORE the grant's transaction:
+ *    - a live refresh token spends its CONNECTION's budget, `tokenPerGrant`
+ *      (30 a minute; a connection refreshes about once an hour). Only the
+ *      refresh token's holder can spend it, and a refusal here leaves the
+ *      token unrotated, so the client's retry still works;
+ *    - a secret that matches nothing spends its source IP's
+ *      `tokenInvalidPerIp` (120 a minute). That bucket only ever refuses
+ *      requests that were going to fail anyway, so a neighbour's garbage
+ *      cannot refuse a valid grant.
+ *
+ * Accepted limit: one sender can still refuse others on its own egress IP by
+ * exceeding the 6,000 ceiling there, and a flood spread across many IPs can
+ * load the database, as it always could. There is deliberately no global
+ * ceiling.
+ *
+ * `/register` and the two `.well-known` documents keep per-IP limits:
+ * registration happens once per connection (60 a minute), and discovery is
+ * static JSON (1,200 a minute, both documents together, two per refresh).
+ *
+ * Every refusal is an RFC 6749 §5.2 error body; see `refuseOAuth`. Each bucket
+ * lives in a store of its own, bounded like every RateLimitStore (a full map
+ * refuses new keys rather than evicting live ones). Per-instance, like every
+ * limiter in this file: each serverless instance counts for itself, and the
+ * figures are sized as if one instance served everything.
  */
-export const oauthPublicRateLimit: RequestHandler = rateLimit(
-  boundedOptions('oauth-public', 30, 60_000, req => ipKeyGenerator(resolveClientKey(req), false)),
+export const OAUTH_LIMITS = {
+  windowMs: 60_000,
+  tokenPerIpCeiling: 6_000,
+  tokenPerGrant: 30,
+  tokenInvalidPerIp: 120,
+  registerPerIp: 60,
+  discoveryPerIp: 1_200,
+} as const;
+
+/**
+ * The 429 these endpoints answer: RFC 6749 §5.2's `{error, error_description}`
+ * shape, which every OAuth client parses, instead of DeckPal's own.
+ *
+ * `temporarily_unavailable` on purpose. RFC 6749 defines it for the
+ * authorization endpoint ("temporary overloading or maintenance"), and its
+ * token-endpoint list (§5.2) has no rate-limit code at all. `slow_down`
+ * belongs to device-flow polling (RFC 8628) and `too_many_requests` is the
+ * MCP SDK's own, non-standard code. This is the standard word for "try again
+ * later", and `/token` already answers its own 503 with it, so a client that
+ * handles one handles both. Above all it is none of the codes that tell a
+ * client its grant or registration is dead (`invalid_grant`,
+ * `invalid_client`). Those make it throw its tokens away, which is the
+ * disconnect this exists to stop.
+ *
+ * `error_description` stays inside the characters §5.2 allows (printable
+ * ASCII without `"` or `\`).
+ */
+function refuseOAuth(res: Response, retryAfter: number): void {
+  res.status(429).json({
+    error: 'temporarily_unavailable',
+    error_description: `Too many requests. Try again in ${retryAfter} seconds.`,
+  });
+}
+
+// One store per bucket (see above), bounded like every RateLimitStore: a full
+// map refuses new keys rather than evicting live ones.
+const oauthTokenStore = new RateLimitStore();
+const oauthGrantStore = new RateLimitStore();
+const oauthInvalidGrantStore = new RateLimitStore();
+const oauthRegisterStore = new RateLimitStore();
+const oauthDiscoveryStore = new RateLimitStore();
+
+const sourceIp = (req: Request): string => ipKeyGenerator(resolveClientKey(req), false);
+
+/** `/token` layer 1: the per-IP ceiling, first, before the body is read. */
+export const oauthTokenRateLimit: RequestHandler = rateLimit(
+  boundedOptions('oauth-token', OAUTH_LIMITS.tokenPerIpCeiling, OAUTH_LIMITS.windowMs, sourceIp, { backend: oauthTokenStore, refuse: refuseOAuth }),
 );
+
+/**
+ * `/token` layer 2: seconds to wait before this grant may be tried, or 0.
+ * `grant` is `peekGrantKey`'s answer: a live grant's own identity (its
+ * connection, or its code), or `null` for a secret that matches nothing live,
+ * which is counted against the source IP's invalid-grant bucket instead.
+ *
+ * Two exemptions, both from Astra's third review (#339):
+ * - a replay that will revoke (a used refresh token, for its own client,
+ *   outside the race grace) always passes: whoever spent the connection's 30
+ *   a minute could otherwise suppress that tripwire. Other used-token
+ *   presentations revoke nothing and stay metered (round 4);
+ * - a full grant store ADMITS a new key rather than refusing it. Its keys can
+ *   only be presented by their holders, so refusing there would let a full map
+ *   lock out every other valid grant.
+ */
+export function oauthGrantWait(grant: { key: string; reuse: boolean } | null, req: Request): number {
+  if (grant?.reuse) return 0;
+  return grant
+    ? oauthGrantStore.check(grant.key, OAUTH_LIMITS.tokenPerGrant, OAUTH_LIMITS.windowMs, Date.now(), 'admit')
+    : oauthInvalidGrantStore.check(sourceIp(req), OAUTH_LIMITS.tokenInvalidPerIp, OAUTH_LIMITS.windowMs);
+}
+
+/** The layer-2 refusal: the same 429 the express limiters answer. */
+export function refuseOAuthGrant(res: Response, retryAfter: number): void {
+  res.setHeader('Retry-After', String(retryAfter));
+  res.setHeader('Cache-Control', 'no-store');
+  refuseOAuth(res, retryAfter);
+}
+
+/** `/register`: per source IP, first, before the body is read. */
+export const oauthRegisterRateLimit: RequestHandler = rateLimit(
+  boundedOptions('oauth-register', OAUTH_LIMITS.registerPerIp, OAUTH_LIMITS.windowMs, sourceIp, { backend: oauthRegisterStore, refuse: refuseOAuth }),
+);
+
+/** Both `.well-known` documents, one bucket per source IP between them. */
+export const oauthDiscoveryRateLimit: RequestHandler = rateLimit(
+  boundedOptions('oauth-discovery', OAUTH_LIMITS.discoveryPerIp, OAUTH_LIMITS.windowMs, sourceIp, { backend: oauthDiscoveryStore, refuse: refuseOAuth }),
+);
+
+/** Test seam: empties every OAuth store so cases don't leak into each other. */
+export function __resetOAuthRateLimitsForTests(): void {
+  oauthTokenStore.clear();
+  oauthGrantStore.clear();
+  oauthInvalidGrantStore.clear();
+  oauthRegisterStore.clear();
+  oauthDiscoveryStore.clear();
+}
 
 /**
  * Pre-auth ingress guard: 600 requests per 60s per source IP per process.

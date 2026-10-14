@@ -398,9 +398,20 @@ order attempts per user/hour are unchanged.
 **The Stripe raw-body webhook** is still mounted separately on `app` ahead of
 that router and is outside this guard (unchanged). **The bare-origin OAuth
 discovery / `/register` / `/token` handlers** are also still mounted
-separately on `app` ahead of that router, but each of the four now carries its
-own limiter — `oauthPublicRateLimit`, 30 requests/min per source IP, checked
-first, before the host allowlist or any body parsing. **The MCP transport at
+separately on `app` ahead of that router, each with its own limits. Per
+source IP, checked first, before any body parsing: `/token` 6,000 requests/min
+(a ceiling, ten times the busiest minute of 12,000 users refreshing hourly
+behind one egress IP), `/register` 60/min, and both discovery documents
+1,200/min between them. `/token` also budgets each verified grant, after a
+read-only lookup of the presented secret: 30/min per connection, and 120/min
+per IP for secrets that match nothing. These were 30/min per IP until
+2026-10-12, which refused hosted connectors such as claude.ai, whose users all
+refresh from the provider's egress IPs. There is deliberately no global or
+per-`client_id` budget, because either is a bucket one sender can empty for
+everybody else.
+Refusals are `429` + `Retry-After` with an OAuth-shaped body
+(`{"error":"temporarily_unavailable",…}`); SECURITY.md → Rate limiting has
+the reasoning. No env variable. **The MCP transport at
 `/mcp`** is still a separate function, but it too now carries two limiters:
 a global 300 requests/min-per-instance admission counter, checked before
 `resolveToken`'s database lookup, and a 60 requests/min-per-token budget,
