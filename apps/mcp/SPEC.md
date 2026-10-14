@@ -245,11 +245,39 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
     immediate 401, no DB) and is metered by neither layer.
   - The bare-origin **OAuth discovery / `/register` / `/token` handlers**
     (cloud-only, `apps/api/src/oauthServer.ts`), still mounted on `app` ahead
-    of the base-path router. Each of the four now carries `oauthPublicRateLimit`
-    (30 req/min per source IP, `apps/api/src/rateLimit.ts`), checked before the
-    host allowlist or any body parsing. `POST /register` in particular is an
+    of the base-path router. `POST /register` in particular is an
     unauthenticated `oauth_client` INSERT and had no limiter anywhere upstream
-    of it before this.
+    of it before SEC-09. Each route carries its own limits
+    (`apps/api/src/rateLimit.ts`, `OAUTH_LIMITS`). The per-IP ones are checked
+    first, before any body parsing. Until 2026-10-12 it was 30 req/min per IP,
+    which refused hosted connectors: they send every user's discovery,
+    registration and hourly refresh from the provider's egress IPs.
+    - `/token`, layer 1: a ceiling of 6,000 req/min per IP, ten times the
+      busiest minute of 12,000 users refreshing hourly behind one egress IP.
+    - `/token`, layer 2: a budget per verified grant. A read-only lookup of the
+      presented secret (`peekGrantKey`) finds its connection (or code), which
+      gets 30 req/min; a secret that matches nothing counts against its IP at
+      120 req/min. Checked before either grant transaction, so a refusal
+      rotates nothing.
+    - `/register`: 60 req/min per IP.
+    - Both `.well-known` documents: 1,200 req/min per IP between them, two per
+      `/token` request.
+
+    There is deliberately no global or per-`client_id` budget. Unlike
+    `mcpRateOk`'s `tokenId`, a `client_id` is public and no grant is needed to
+    send one, so a per-client budget is one anyone can drain for a named
+    client; and a global one is spent by any single sender for everybody. A
+    per-IP budget at hosted-connector size was tried too, and any other sender
+    behind the same egress IP could empty it. All three reproduced as
+    cross-client lockouts in review. The key is the verified grant: only the
+    holder of a refresh token can spend its 30/min. One sender can still
+    refuse others on its own egress IP by exceeding 6,000/min there, and a
+    flood spread across many IPs can load the database, as it always could.
+
+    A refusal is `429`, `Retry-After`, `Cache-Control: no-store` and an
+    RFC 6749 §5.2 body, `{"error":"temporarily_unavailable","error_description":"…"}`,
+    which an OAuth client can parse; never a code (`invalid_grant`,
+    `invalid_client`) that tells a client to discard its tokens.
   - The **Stripe raw-body webhook** (signature-verified) remains outside every
     application rate limiter, unchanged — Stripe's own retry/backoff and
     signature verification are the controls there.

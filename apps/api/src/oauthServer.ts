@@ -2,7 +2,7 @@ import type { Express, Request, Response } from 'express';
 import express from 'express';
 import { pool, withTx } from './db.js';
 import { MAX_ACTIVE_TOKENS } from './routes/tokens.js';
-import { oauthPublicRateLimit } from './rateLimit.js';
+import { oauthDiscoveryRateLimit, oauthGrantWait, oauthRegisterRateLimit, oauthTokenRateLimit, refuseOAuthGrant } from './rateLimit.js';
 import {
   OAuthValidationError,
   connectionName,
@@ -11,6 +11,7 @@ import {
   getClient,
   grantSchemaReady,
   openConnection,
+  peekGrantKey,
   refreshConnection,
   registerClient,
   verifyPkceS256,
@@ -42,8 +43,11 @@ import {
  * All four are mounted ahead of the ordinary `/api` router (see index.ts), so
  * none of that router's limiters — not `preAuthFloodGuard`, not any
  * per-route body-size parser — ever run for them (SEC-08, SEC-09). Each
- * route below therefore carries its own `oauthPublicRateLimit` (first, before
- * any body is read) and its own appropriately-sized body parser.
+ * route below therefore carries its own limiter, first, before any body is
+ * read, and its own appropriately-sized body parser. Each limiter is keyed on
+ * the source IP and nothing else, with room for hosted connectors that send
+ * many users' refreshes through one egress IP, and no bucket one sender can
+ * empty for another; rateLimit.ts's OAuth section has the numbers and reasons.
  */
 
 function originFor(req: Request): string {
@@ -75,7 +79,7 @@ function oauthError(res: Response, status: number, error: string, description?: 
 
 /** Mount the four public OAuth endpoints directly on `app` (root, not under basePath). Call only when SUPABASE_MODE. */
 export function mountOAuthServer(app: Express): void {
-  app.get('/.well-known/oauth-authorization-server', oauthPublicRateLimit, (req, res) => {
+  app.get('/.well-known/oauth-authorization-server', oauthDiscoveryRateLimit, (req, res) => {
     if (!hostAllowed(req)) {
       res.status(421).json({ error: { code: 'bad_host', message: 'Host not allowed' } });
       return;
@@ -97,7 +101,7 @@ export function mountOAuthServer(app: Express): void {
     });
   });
 
-  app.get('/.well-known/oauth-protected-resource', oauthPublicRateLimit, (req, res) => {
+  app.get('/.well-known/oauth-protected-resource', oauthDiscoveryRateLimit, (req, res) => {
     if (!hostAllowed(req)) {
       res.status(421).json({ error: { code: 'bad_host', message: 'Host not allowed' } });
       return;
@@ -111,7 +115,7 @@ export function mountOAuthServer(app: Express): void {
 
   // POST /register — RFC 7591 dynamic client registration. Public by design:
   // any MCP client self-registers before it has ever seen a DeckPal user.
-  app.post('/register', oauthPublicRateLimit, express.json({ limit: '16kb' }), (req, res) => {
+  app.post('/register', oauthRegisterRateLimit, express.json({ limit: '16kb' }), (req, res) => {
     void (async () => {
       if (!hostAllowed(req)) {
         res.status(421).json({ error: { code: 'bad_host', message: 'Host not allowed' } });
@@ -149,7 +153,7 @@ export function mountOAuthServer(app: Express): void {
   // the first exchange of a consent code, and every renewal after it.
   app.post(
     '/token',
-    oauthPublicRateLimit,
+    oauthTokenRateLimit,
     express.urlencoded({ extended: false, limit: '16kb' }),
     express.json({ limit: '16kb' }),
     (req, res) => {
@@ -184,6 +188,19 @@ export function mountOAuthServer(app: Express): void {
           res.setHeader('Cache-Control', 'no-store');
           if (!(await grantSchemaReady(pool))) {
             oauthError(res, 503, 'temporarily_unavailable', 'DeckPal is finishing an update. Try connecting again in a few minutes.');
+            return;
+          }
+          // The grant's own budget, BEFORE its transaction: a refusal here
+          // rotates nothing, so the client's retry with the same refresh token
+          // still works. Keyed on the grant, not the client_id or the IP; see
+          // rateLimit.ts for why each of those was a lockout.
+          const grant = await peekGrantKey(
+            pool,
+            grantType === 'refresh_token' ? { grantType, refreshToken, clientId } : { grantType, code },
+          );
+          const wait = oauthGrantWait(grant, req);
+          if (wait > 0) {
+            refuseOAuthGrant(res, wait);
             return;
           }
           const outcome: { tokens?: IssuedTokens; error?: string } =
