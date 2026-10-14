@@ -163,6 +163,23 @@ test("a damage-clause attack keeps its copied name and every Pokémon it hit on 
   );
 });
 
+test('a Benched Pokémon sharing the Active target\'s name is its own hit, not a repeat (Astra, #342)', () => {
+  const raw = log('tbs-57.txt').replace(
+    "- PlayerB's Genesect ex took 110 damage.\n",
+    "- PlayerB's Genesect ex took 110 damage.\n- PlayerB's Mega Excadrill ex took 110 damage.\n",
+  );
+  assert.notEqual(raw, log('tbs-57.txt'));
+  const t13 = replayInsights(raw, { players: AB }).attacks.filter((a) => a.turn === 13);
+  assert.deepEqual(t13.map((a) => a.target?.name), ['Mega Excadrill ex', 'Metang', 'Genesect ex', 'Mega Excadrill ex']);
+});
+
+test('cards shown without being played count too: drawn face up, revealed, discarded, put into the hand (Astra, #342)', () => {
+  // As PlayerB sees it: the cards Seek Inspiration copied from (Kyurem, Metagross) and a Pokémon a draw benched.
+  const ins = replayInsights(log('tbs-57.txt'), { players: ['PlayerB', 'PlayerA'] });
+  const theirs = ins.cards[1].map((c) => c.name);
+  for (const name of ['Kyurem', 'Metagross', "Lillie's Clefairy ex"]) assert.ok(theirs.includes(name), `${name}: ${theirs.join(', ')}`);
+});
+
 test('a codeless card is described by the printing its logged moves fit, or said to be ambiguous (Astra, #342: Metang)', () => {
   const ins = replayInsights(log('tbs-57.txt'), { players: AB });
   const metang = ins.cards[1].find((c) => c.name === 'Metang')!;

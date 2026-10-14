@@ -456,16 +456,10 @@ function insightsInner(raw: string, o: { players?: [string, string] }): ReplayIn
           });
         }
         pushNear(e.target.player, e.target.card.name, e.damage, ko, before?.hp ?? null, move);
-        // The other Pokémon it hit (a spread or copied attack: Trifrost's two Benched hits). A detail line repeating the
-        // primary target is that same hit, not another.
-        let primarySeen = false;
-        for (const h of hitsAfter) {
-          if (!primarySeen && h.p === e.target.player && same(h.target.name, e.target.card.name)) {
-            primarySeen = true;
-            continue;
-          }
-          pushHit(e.attacker.name, move, printed, h);
-        }
+        // The other Pokémon it hit (a spread or copied attack: Trifrost's two Benched hits). Live never repeats the damage
+        // clause's own hit on a detail line (none of 55 attacks in the fixtures), so every detail-line hit is another one,
+        // a Benched Pokémon with the Active one's name included (Astra, #342).
+        for (const h of hitsAfter) pushHit(e.attacker.name, move, printed, h);
       } else if (e.t === 'use') {
         const move = copied ? `${e.move} (${copied})` : e.move;
         const printed = printedDamage(e.user, e.move);
@@ -571,6 +565,31 @@ function insightsInner(raw: string, o: { players?: [string, string] }): ReplayIn
         break;
       case 'use':
         show(e.p, e.user);
+        break;
+      // Cards shown without being played (Astra, #342): drawn face up, revealed in a list, discarded, put into the hand
+      // or the deck from somewhere public. A card on a public move is its owner's.
+      case 'draw':
+      case 'mulligan':
+      case 'opening_hand':
+      case 'shuffle':
+        for (const c of 'cards' in e && e.cards ? e.cards : []) show(e.p, c);
+        if ('card' in e && e.card) show(e.p, e.card as CardMention);
+        break;
+      case 'hand_add':
+        show(e.p, e.card);
+        break;
+      case 'discard':
+        for (const c of e.cards ?? []) show(e.from?.player ?? e.p, c);
+        if (e.card) show(e.from?.player ?? e.p, e.card);
+        break;
+      case 'move_cards':
+        for (const c of e.cards ?? []) show(e.owner ?? e.p, c);
+        if (e.card) show(e.owner ?? e.p, e.card);
+        break;
+      case 'knockout':
+      case 'promote':
+      case 'retreat':
+        show(e.p, e.card);
         break;
       default:
         break;
