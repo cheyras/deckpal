@@ -81,7 +81,7 @@ test('default conversational adapter can retrieve all price-history variants thr
         points++;
       }
       assert.ok(points > 0, 'each page of this nonempty fixture must advance');
-      const more = visible.match(/call again with page (\d+), the same card_id, range and currency/);
+      const more = visible.match(/call again with page (\d+), page_size \d+, and the same card_id, range and currency/);
       if (!more) {
         assert.match(visible, /page \d+ of \d+, the last/, 'the model must receive continuation in text, without structured metadata');
         finished = true;

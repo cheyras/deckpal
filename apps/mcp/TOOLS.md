@@ -171,7 +171,7 @@ Completion progress toward the three goals (complete = one of any variant per ca
 
 read · annotations `{"title":"Historical prices for one card (OHLC)","readOnlyHint":true,"openWorldHint":false}`
 
-Historical OHLC price series for one card by TCGdex id (e.g. sv03.5-151 or base1-1). Returns bounded pages of complete price points across every printing variant. Start with page 1 and, while the result TEXT says to, call again with the next page, keeping the same card_id, range and currency, until it says the last page. For CURRENT prices use get_card instead. range: 30d|3m|6m|1y|18m|2y (default 3m). currency: USD|EUR|JPY (default USD). An empty series means there are no recorded observations for that card/range/currency — not that the price is zero, not a fabricated trend, not current price.
+Historical OHLC price series for one card by TCGdex id (e.g. sv03.5-151 or base1-1). Returns bounded pages of complete price points across every printing variant. Start with page 1 and, while the result TEXT says to, call again with the next page, keeping the same card_id, range, currency and page_size, until it says the last page. For CURRENT prices use get_card instead. range: 30d|3m|6m|1y|18m|2y (default 3m). currency: USD|EUR|JPY (default USD). An empty series means there are no recorded observations for that card/range/currency — not that the price is zero, not a fabricated trend, not current price.
 
 Grounded on `grain`, an agent:
 

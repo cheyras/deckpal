@@ -29,7 +29,7 @@ const cardPriceHistoryTool = defineTool({
     'Historical OHLC price series for one card by TCGdex id (e.g. sv03.5-151 or base1-1). ' +
     'Returns bounded pages of complete price points across every printing variant. ' +
     'Start with page 1 and, while the result TEXT says to, call again with the next page, ' +
-    'keeping the same card_id, range and currency, until it says the last page. ' +
+    'keeping the same card_id, range, currency and page_size, until it says the last page. ' +
     'For CURRENT prices use get_card instead. ' +
     'range: 30d|3m|6m|1y|18m|2y (default 3m). currency: USD|EUR|JPY (default USD). ' +
     'An empty series means there are no recorded observations for that card/range/currency — ' +
@@ -145,7 +145,7 @@ const cardPriceHistoryTool = defineTool({
       const headerFor = (k: number) => `card_price_history: ${cardId} | range ${range} | currency ${currency} | page ${k}`;
       const footerFor = (k: number, pages: number) =>
         k < pages
-          ? `\npage ${k} of ${pages} — call again with page ${k + 1}, the same card_id, range and currency`
+          ? `\npage ${k} of ${pages} — call again with page ${k + 1}, page_size ${pageSize}, and the same card_id, range and currency`
           : `\npage ${k} of ${pages}, the last`;
       const reserve = headerFor(99_999).length + footerFor(99_998, 99_999).length;
       const recordText = (r: (typeof records)[number], startsVariant: boolean): string => {

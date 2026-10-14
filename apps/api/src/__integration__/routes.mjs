@@ -289,7 +289,7 @@ try {
       count++;
     }
     assert.ok(count > 0, 'nonempty history page must advance');
-    const more = visible.match(/call again with page (\d+), the same card_id, range and currency/);
+    const more = visible.match(/call again with page (\d+), page_size \d+, and the same card_id, range and currency/);
     const last = /page \d+ of \d+, the last/.test(visible);
     assert.ok(more || last, 'text-only callers require continuation');
     pages.push({ page: pageNumber, characters: visible.length, points: count, nextPage: more ? Number(more[1]) : null });

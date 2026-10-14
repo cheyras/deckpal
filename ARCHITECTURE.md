@@ -625,8 +625,8 @@ every paged tool since 2026-10-14 (it was an `offset` cursor). Each invocation m
 unchanged REST request and returns a text page of at most 5500 characters, including
 headers and continuation, with complete OHLC records and their printing identity. Pages
 are packed from the first record every time with room reserved for the longest header and
-footer, so page N is always the same records. The model-visible "call again with page N,
-the same card_id, range and currency" resumes the traversal; "page N of N, the last" ends
+footer, so page N at a given `page_size` is always the same records. The model-visible "call
+again with page N, page_size S, and the same card_id, range and currency" resumes the traversal; "page N of N, the last" ends
 it. This keeps each page below conversational Deck-E's 6000-character limit and also works
 through MCP's text-only response. The global adapter limit and REST API are unchanged;
 empty history and a page past the last are distinct results. Records are points in API

@@ -665,7 +665,7 @@ type HistoryPage = {
 
 /** The page the text says to call next, or null when it says this is the last. */
 function nextPageFromText(text: string): number | null {
-  const more = text.match(/call again with page (\d+), the same card_id, range and currency/);
+  const more = text.match(/call again with page (\d+), page_size \d+, and the same card_id, range and currency/);
   if (more) return Number(more[1]);
   assert.match(text, /page \d+ of \d+, the last/, 'every page says whether there is another');
   return null;
@@ -680,7 +680,7 @@ test('pages like every other tool: page defaults to 1, invalid pages are rejecte
   assert.equal(t.inputSchema!.safeParse({ card_id: 'base1-1', offset: 3 }).success, true, 'an old offset is not an error here...');
   assert.equal(t.inputSchema!.parse({ card_id: 'base1-1', offset: 3 }).offset, undefined, '...and is not an argument (MCP reports it as ignored)');
   assert.match(t.description, /Start with page 1/);
-  assert.match(t.description, /same card_id, range and currency/);
+  assert.match(t.description, /same card_id, range, currency and page_size/);
   assert.doesNotMatch(t.description, /offset/);
 });
 
@@ -878,12 +878,36 @@ test('page_size caps the records on a page as well as the character budget, like
   const page = one.structured as unknown as HistoryPage;
   assert.equal(page.pagination.returned_records, 1);
   assert.equal(page.pagination.pages, 93, 'one record a page: 93 pages');
-  assert.match(one.text, /page 1 of 93 — call again with page 2/);
+  assert.match(one.text, /page 1 of 93 — call again with page 2, page_size 1, and the same card_id/);
   const last = await t.handler({ card_id: 'base1-1', page_size: 1, page: 93 }, mockCtx(paginationResponse()));
   assert.match(last.text, /page 93 of 93, the last/);
   const bad = await t.handler({ card_id: 'base1-1', page_size: 0 }, mockCtx(paginationResponse()));
   assert.equal(bad.isError, true);
   assert.match(bad.text, /page_size must be a whole number from 1 to 200/);
+});
+
+test('following only the text at a non-default page_size reaches every record once: the continuation names the size (Astra, #346)', async () => {
+  const t = findTool('card_price_history', allTools());
+  const seen = new Set<string>();
+  let args: Record<string, unknown> = { card_id: 'base1-1', page_size: 7 };
+  let pagesRead = 0;
+  for (; pagesRead < 30; pagesRead++) {
+    const result = await t.handler(args, mockCtx(paginationResponse()));
+    assert.ok(!result.isError, result.text);
+    for (const line of result.text.split('\n')) {
+      const start = line.match(/start=(\S+).* high=(\d+) /);
+      if (!start) continue;
+      const key = `${start[1]}:${start[2]}`;
+      assert.ok(!seen.has(key), `record ${key} read twice`);
+      seen.add(key);
+    }
+    // Only what the text says: the page AND the page_size it names.
+    const more = result.text.match(/call again with page (\d+), page_size (\d+), and the same card_id, range and currency/);
+    if (!more) break;
+    args = { card_id: 'base1-1', page: Number(more[1]), page_size: Number(more[2]) };
+  }
+  assert.equal(seen.size, 93, 'no record skipped');
+  assert.equal(pagesRead + 1, 14, '93 records, 7 a page');
 });
 
 test('malformed variant points remain an error, not an invented empty history', async () => {

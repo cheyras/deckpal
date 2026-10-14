@@ -234,7 +234,7 @@ const textPagingFooter = (page: number, pageSize: number, total: number): string
   if (page === 1 && to >= total) return `${total} cards match; all shown`;
   const shown = Math.max(0, to - from + 1);
   return `${total} cards match; showing ${shown} on page ${page}` +
-    (to < total ? ` — call again with page ${page + 1}` : '; no more pages');
+    (to < total ? ` — call again with page ${page + 1}, page_size ${pageSize}` : '; no more pages');
 };
 
 /**

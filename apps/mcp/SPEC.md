@@ -338,7 +338,8 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   e.g. `Charizard ex | me05-084 | Double Rare | holo x2 | $31.20` — not JSON dumps. Every
   truncated response states the total and how to page.
 - **Paging is the same in every paged tool** (2026-10-14, Phase 4): `page` + `page_size`, and a
-  footer naming the next call ("showing 1–50 of 312 — call again with page 2 for more").
+  footer naming the next call with its page size ("showing 1–50 of 312 — call again with page 2,
+  page_size 50, for more": page 2 is other rows at another size).
   `collection_log` (was `limit` alone), `mutation_history` (was `limit`), `decks` (was `page`
   alone) and `card_price_history` (was `offset`/`next_offset`) were brought in line, because a
   paging argument learned on one tool was being sent to another and silently dropped. The
@@ -576,7 +577,7 @@ sees them in `tools/list`:
      API order, plus one record for each empty variant), up to `page_size`, as fit 5500 characters including
      headers and continuation; they are packed from the first record every time, with room
      reserved for the longest header and footer, so page N is always the same records. Read
-     the model-visible "call again with page N, the same card_id, range and currency" and
+     the model-visible "call again with page N, page_size S, and the same card_id, range and currency" and
      follow it until the text says "page N of N, the last". Do not treat the first page as the
      complete history. A record that cannot fit any page is a page of its own that is an
      explicit error ("the history continues on page N+1"), and packing goes on after it, so the
