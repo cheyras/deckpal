@@ -1,7 +1,7 @@
 {
   "id": "owner-100",
   "split": "owner",
-  "log": "evals/analysis/logs/owner-100.txt",
+  "log": "evals/analysis/games/owner-100.txt",
   "deck": "phantom-puppeteer",
   "facts": { "result": "win", "prizes": [0, 4], "turns": 11, "ending": "timeout", "first": "PlayerB" },
   "notes": null,

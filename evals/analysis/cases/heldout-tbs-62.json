@@ -28,7 +28,7 @@
       "id": "okidogi-investment",
       "principle": "P3",
       "must": false,
-      "point": "The opponent spent a whole turn building Okidogi ex (Toxtricity's Sinister Surge, Pecharunt ex's Subjugating Chains for the Poison that powers Chain-Crazed, Poisonous Musculature) and it was Knocked Out before it attacked."
+      "point": "The opponent spent a whole turn building Okidogi ex (Toxtricity's Sinister Surge, Pecharunt ex's Subjugating Chains for the Poison that powers Chain-Crazed, Poisonous Musculature) and it was Knocked Out before it could use Chain-Crazed: its one attack had been Poisonous Musculature, loading Energy."
     },
     {
       "id": "short-game",

@@ -10,10 +10,13 @@
  * What it does, all against https://deckpal.app (DECKPAL_BASE overrides):
  *   1. reads QA_EMAIL / QA_PASSWORD from `.qa-account` (gitignored);
  *   2. asks /api/public-config for the Supabase URL and public anon key, and signs in as QA;
- *   3. mints a token with POST /api/tokens ("Analysis eval (QA)");
- *   4. writes QA_MCP_TOKEN=… into `.qa-account`, replacing an older one;
- *   5. proves it: an MCP initialize + tools/list on /mcp with that token.
- * The token is never printed. The eval (scripts/analysis-eval.mjs) reads it from `.qa-account`.
+ *   3. reads /api/me with that sign-in and REFUSES to go on unless the account is explicitly
+ *      not the owner; its username is the identity the eval pins;
+ *   4. mints a token with POST /api/tokens ("Analysis eval (QA)");
+ *   5. writes QA_MCP_TOKEN=… and QA_USERNAME=… into `.qa-account`, replacing older lines;
+ *   6. proves it: /api/me with the token names the same user, and MCP initialize + tools/list work.
+ * The token is never printed. The eval (scripts/analysis-eval.mjs) reads both lines and refuses
+ * any token whose /api/me does not name QA_USERNAME as a non-owner.
  * Revoke it any time from the QA account's Profile → Agent access ("Analysis eval (QA)").
  */
 import fs from 'node:fs';
@@ -29,7 +32,7 @@ function readAccount() {
   if (!fs.existsSync(FILE)) throw new Error('.qa-account is missing (it is gitignored; get it from the maintainer).');
   const raw = fs.readFileSync(FILE, 'utf8');
   const get = (k) => raw.match(new RegExp(`^${k}=(.*)$`, 'm'))?.[1]?.trim() || '';
-  return { raw, email: get('QA_EMAIL'), password: get('QA_PASSWORD'), token: get('QA_MCP_TOKEN') };
+  return { raw, email: get('QA_EMAIL'), password: get('QA_PASSWORD'), token: get('QA_MCP_TOKEN'), username: get('QA_USERNAME') };
 }
 
 async function json(res, what) {
@@ -41,6 +44,14 @@ async function json(res, what) {
     throw new Error(`${what} failed: ${msg}`);
   }
   return body;
+}
+
+/** /api/me for a bearer (a sign-in JWT or a token); refuses anything not provably a non-owner. */
+async function nonOwner(bearer, what) {
+  const me = await json(await fetch(`${BASE}/api/me`, { headers: { authorization: `Bearer ${bearer}` } }), `${what} /api/me`);
+  if (me.isOwner !== false || me.owner !== false) throw new Error(`${what}: this account is not provably a non-owner account. Stopping; nothing was written.`);
+  if (typeof me.username !== 'string' || !me.username) throw new Error(`${what}: /api/me returned no username. Stopping; nothing was written.`);
+  return me.username;
 }
 
 /** MCP over streamable HTTP: initialize, then tools/list. Returns the tool count. */
@@ -62,11 +73,21 @@ async function proveToken(token) {
   return list.reply.result?.tools?.length ?? 0;
 }
 
+/** Replace a KEY=… line, or append it under a comment; the file keeps its other lines. */
+function setLine(raw, key, value, comment) {
+  const line = `${key}=${value}`;
+  const re = new RegExp(`^${key}=.*$`, 'm');
+  return re.test(raw) ? raw.replace(re, line) : `${raw.replace(/\s*$/, '')}\n\n# ${comment}\n${line}\n`;
+}
+
 async function main() {
   const acct = readAccount();
   if (args.has('--check')) {
     if (!acct.token) throw new Error('No QA_MCP_TOKEN in .qa-account yet. Run without --check to mint one.');
-    console.log(`QA_MCP_TOKEN works: ${await proveToken(acct.token)} tools on ${BASE}/mcp.`);
+    if (!acct.username) throw new Error('No QA_USERNAME in .qa-account. Run without --check to mint a token; it records the username.');
+    const who = await nonOwner(acct.token, 'The stored token');
+    if (who !== acct.username) throw new Error('The stored token does not belong to QA_USERNAME.');
+    console.log(`QA_MCP_TOKEN works for ${who} (not the owner): ${await proveToken(acct.token)} tools on ${BASE}/mcp.`);
     return;
   }
   if (!acct.email || !acct.password) throw new Error('.qa-account has no QA_EMAIL / QA_PASSWORD.');
@@ -82,6 +103,8 @@ async function main() {
     'QA sign-in',
   );
   if (!session.access_token) throw new Error('QA sign-in returned no session.');
+  // Before minting anything: the signed-in account must be explicitly not the owner.
+  const username = await nonOwner(session.access_token, 'The QA sign-in');
 
   const scope = args.has('--read') ? 'read' : 'full';
   const minted = await json(
@@ -94,15 +117,13 @@ async function main() {
   );
   if (!minted.secret) throw new Error('The token API returned no secret.');
 
-  // Replace an older line, or append; the file keeps its other lines and its mode.
-  const line = `QA_MCP_TOKEN=${minted.secret}`;
-  const next = /^QA_MCP_TOKEN=.*$/m.test(acct.raw)
-    ? acct.raw.replace(/^QA_MCP_TOKEN=.*$/m, line)
-    : `${acct.raw.replace(/\s*$/, '')}\n\n# Personal access token for the analysis eval (scripts/qa-token.mjs). Never print it.\n${line}\n`;
+  let next = setLine(acct.raw, 'QA_MCP_TOKEN', minted.secret, 'Personal access token for the analysis eval (scripts/qa-token.mjs). Never print it.');
+  next = setLine(next, 'QA_USERNAME', username, 'The QA account the eval pins its token to (scripts/qa-token.mjs).');
   fs.writeFileSync(FILE, next);
 
+  if ((await nonOwner(minted.secret, 'The new token')) !== username) throw new Error('The new token names a different account than the QA sign-in.');
   const tools = await proveToken(minted.secret);
-  console.log(`Done: a ${scope} token is in .qa-account as QA_MCP_TOKEN, and it works (${tools} tools on ${BASE}/mcp).`);
+  console.log(`Done: a ${scope} token for ${username} (not the owner) is in .qa-account as QA_MCP_TOKEN, with QA_USERNAME, and it works (${tools} tools on ${BASE}/mcp).`);
   if (acct.token) console.log('The previous QA_MCP_TOKEN was replaced; revoke the old "Analysis eval (QA)" token in the QA account if you like.');
 }
 

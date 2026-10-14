@@ -5,28 +5,40 @@
  * parser is read from its dist/). No network, no model, no money.
  */
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import test from 'node:test'
 import {
   BudgetExceeded,
   CONFIGS,
+  Ceiling,
   Mcp,
+  ROOT,
   aggregate,
   allowCall,
   assertQaAccount,
   cacheNewest,
   checkLog,
   evidenceText,
+  formatReport,
   loadEval,
   loadParser,
+  maxCallUsd,
   metered,
   parseArgs,
   readLog,
+  readRows,
   reviewText,
   runCase,
   scoreRun,
   validateEval,
 } from '../analysis-eval.mjs'
-import { Budget } from '../decke-triage-eval.mjs'
+
+/** Per-token prices for the mocks: $1 in, $5 out per million. */
+const PRICE = { input: 1e-6, output: 5e-6 }
+const PRICES = { 'anthropic/claude-haiku-5.5': PRICE, 'anthropic/claude-sonnet-5.5': PRICE }
 
 const data = loadEval()
 const clone = (x) => JSON.parse(JSON.stringify(x))
@@ -68,16 +80,38 @@ test('a case whose facts disagree with its log is reported, not trusted', async 
 test('the guard: reads pass, edit_battle_log only on this case\'s log, other writes never leave', () => {
   const ids = { logId: 41, deckId: 'd' }
   assert.equal(allowCall({ name: 'battle_digest', annotations: { readOnlyHint: true } }, {}, ids), true)
-  assert.equal(allowCall({ name: 'edit_battle_log', annotations: { readOnlyHint: false } }, { log_id: 41 }, ids), true)
-  assert.equal(allowCall({ name: 'edit_battle_log', annotations: { readOnlyHint: false } }, { log_id: 40 }, ids), false)
+  const edit = { name: 'edit_battle_log', annotations: { readOnlyHint: false } }
+  assert.equal(allowCall(edit, { deck_id: 'd', log_id: 41, review: 'r', dry_run: false }, ids), true)
+  assert.equal(allowCall(edit, { log_id: 40, review: 'r' }, ids), false, 'another log')
+  // Fields a later config would read are never the agent's to change (Astra, #347).
+  assert.equal(allowCall(edit, { log_id: 41, review: 'r', result: 'win' }, ids), false)
+  assert.equal(allowCall(edit, { log_id: 41, notes: 'mine now' }, ids), false)
+  assert.equal(allowCall(edit, { log_id: 41, opponent_deck: 'x' }, ids), false)
   assert.equal(allowCall({ name: 'delete_deck', annotations: { readOnlyHint: false } }, {}, ids), false)
   assert.equal(allowCall({ name: 'save_deck' }, {}, ids), false, 'no annotation is not read-only')
 })
 
-test('an owner token is refused before anything runs', async () => {
+test('only THE QA account passes: pinned username, explicitly not the owner, nothing missing', async () => {
   const fake = (body) => async () => ({ ok: true, json: async () => body })
-  await assert.rejects(assertQaAccount({ base: 'x', token: 't' }, fake({ username: 'o', isOwner: true })), /OWNER/)
-  assert.equal(await assertQaAccount({ base: 'x', token: 't' }, fake({ username: 'qa', isOwner: false, owner: false })), 'qa')
+  const qa = { base: 'x', token: 't', username: 'qa' }
+  assert.equal(await assertQaAccount(qa, fake({ username: 'qa', isOwner: false, owner: false })), 'qa')
+  await assert.rejects(assertQaAccount(qa, fake({ username: 'qa', isOwner: true, owner: true })), /not provably a non-owner/)
+  await assert.rejects(assertQaAccount(qa, fake({ username: 'qa' })), /not provably a non-owner/, 'missing flags are a refusal')
+  await assert.rejects(assertQaAccount(qa, fake({ username: 'someone', isOwner: false, owner: false })), /does not belong to the QA account/)
+  await assert.rejects(assertQaAccount(qa, fake({ isOwner: false, owner: false })), /does not belong to the QA account/)
+  await assert.rejects(assertQaAccount({ base: 'x', token: 't', username: '' }, fake({ username: 'qa', isOwner: false, owner: false })), /QA_USERNAME/)
+})
+
+test('every case log is committed, not ignored', () => {
+  for (const c of data.cases) {
+    let ignored = true
+    try {
+      execFileSync('git', ['check-ignore', '-q', c.log], { cwd: ROOT, stdio: 'ignore' })
+    } catch {
+      ignored = false
+    }
+    assert.equal(ignored, false, `${c.log} is gitignored, so a clean checkout would not have it`)
+  }
 })
 
 test('MCP replies are read from JSON and from an event stream, with the session kept', async () => {
@@ -118,15 +152,41 @@ test('one cache breakpoint, on the newest non-system message', () => {
 const usage = { inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 5, text: 5, reasoning: 0 } }
 const reply = (content, finish = 'stop') => ({ content, finishReason: { unified: finish, raw: finish }, usage, providerMetadata: { gateway: { cost: '0.01' } }, warnings: [] })
 
-test('the budget stops a call before it is made', async () => {
+test('a call\'s ceiling: every input token at the dearest rate, plus the whole output cap', () => {
+  const params = { prompt: [{ role: 'user', content: 'x'.repeat(1000) }], tools: [], maxOutputTokens: 1000 }
+  const chars = JSON.stringify(params.prompt).length + JSON.stringify([]).length
+  assert.equal(maxCallUsd(PRICE, params), Math.ceil(chars / 2) * 1e-6 + 1000 * 5e-6)
+  assert.equal(maxCallUsd({ ...PRICE, cacheWrite: 2e-6 }, params), Math.ceil(chars / 2) * 2e-6 + 1000 * 5e-6)
+})
+
+test('the ceiling holds: a call that COULD exceed what is left is refused before it is made', async () => {
   const { MockLanguageModelV4 } = await import('ai/test')
-  let called = 0
-  const base = new MockLanguageModelV4({ doGenerate: async () => { called++; return reply([{ type: 'text', text: 'x' }]) } })
-  const calls = []
-  const model = await metered(base, new Budget(0.001, { priorCallUsd: 0.05 }), calls, 't')
   const { generateText } = await import('ai')
-  await assert.rejects(generateText({ model, prompt: 'p' }), BudgetExceeded)
+  let called = 0
+  // Astra's case on #347: this call settles at $0.20 under a $0.08 budget. It must never be sent.
+  const base = new MockLanguageModelV4({ doGenerate: async () => { called++; return { ...reply([{ type: 'text', text: 'x' }]), providerMetadata: { gateway: { cost: '0.20' } } } } })
+  const dear = { input: 1e-6, output: 15e-6 } // 16k output cap alone is $0.24
+  const model = await metered(base, dear, new Ceiling(0.08), [], 't')
+  await assert.rejects(generateText({ model, prompt: 'p', maxOutputTokens: 16_000 }), BudgetExceeded)
   assert.equal(called, 0)
+
+  // Within the ceiling it runs, and settles at the Gateway's figure.
+  const budget = new Ceiling(1)
+  const calls = []
+  const ok = await metered(base, dear, budget, calls, 't')
+  await generateText({ model: ok, prompt: 'p', maxOutputTokens: 16_000 })
+  assert.equal(called, 1)
+  assert.equal(budget.spentUsd, 0.2)
+  assert.equal(budget.reservedUsd, 0)
+})
+
+test('a call with no reported cost counts its whole reservation', () => {
+  const b = new Ceiling(1)
+  const r = b.reserve(0.3)
+  b.settle(r, null)
+  assert.equal(b.spentUsd, 0.3)
+  assert.equal(b.unknownCost, 1)
+  assert.equal(b.reserve(0.71), null)
 })
 
 function fakeSession() {
@@ -162,7 +222,7 @@ test('a run: tool results come from the account, a refused write never reaches i
     })
   }
   const calls = []
-  const run = await runCase({ gateway, mcp, session: fakeSession(), config: { key: 'B', ...CONFIGS.B }, c, ids, deckName: 'Deck (eval)', budget: new Budget(1), calls })
+  const run = await runCase({ gateway, prices: PRICES, mcp, session: fakeSession(), config: { key: 'B', ...CONFIGS.B }, c, ids, deckName: 'Deck (eval)', budget: new Ceiling(1), calls })
   assert.equal(run.error, null)
   assert.deepEqual(reached, ['battle_digest'])
   assert.equal(run.toolCalls.length, 2)
@@ -195,6 +255,36 @@ test('scores: verdicts per item, per principle, per split, must items apart', ()
   assert.equal(agg.A.principle.P4, 50)
   assert.equal(agg.A.principle.P1, null)
   assert.equal(agg.A.falseClaimsPerReview, 1)
+})
+
+test('an errored or unjudged run is counted apart, never scored as a review that missed everything', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'analysis-eval-'))
+  try {
+    const put = (f, x) => fs.writeFileSync(path.join(dir, f), JSON.stringify(x))
+    const run = (id, k, extra = {}) => ({ case: id, config: k, steps: 3, costUsd: 0.1, error: null, ...extra })
+    const all = (c) => ({ items: c.rubric.map((r) => ({ id: r.id, verdict: 'caught' })), false_claims: [] })
+    const c101 = data.cases.find((x) => x.id === 'owner-101')
+    put('owner-101.A.run.json', run('owner-101', 'A'))
+    put('owner-101.A.judge.json', { status: 'ok', output: all(c101), costUsd: 0.05 })
+    put('owner-95.A.run.json', run('owner-95', 'A'))
+    put('owner-95.A.judge.json', { status: 'failed', error: { message: 'budget' }, costUsd: 0 })
+    put('owner-99.A.run.json', run('owner-99', 'A'))
+    put('owner-100.A.run.json', run('owner-100', 'A', { error: { message: 'boom' } }))
+    const rows = readRows(dir, data.cases)
+    const agg = aggregate(rows, data.principles)
+    assert.equal(agg.A.runs, 4)
+    assert.equal(agg.A.judged, 1)
+    assert.equal(agg.A.unjudged, 2)
+    assert.equal(agg.A.errors, 1)
+    assert.equal(agg.A.overall, 100, 'only the judged run is scored')
+    assert.equal(agg.A.costUsd, 0.45)
+    const report = formatReport(agg, data.principles, rows)
+    assert.match(report, /\| owner-95 \| A \| not judged/)
+    assert.match(report, /\| owner-100 \| A \| error: boom/)
+    assert.match(report, /1 \/ 1 \/ 2/)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('a paid run demands a cap; unknown configs and options are refused', () => {

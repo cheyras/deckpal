@@ -1,7 +1,7 @@
 {
   "id": "owner-94",
   "split": "owner",
-  "log": "evals/analysis/logs/owner-94.txt",
+  "log": "evals/analysis/games/owner-94.txt",
   "deck": "phantom-puppeteer",
   "facts": { "result": "loss", "prizes": [2, 6], "turns": 10, "ending": "prizes", "first": "PlayerA" },
   "notes": "Opponent's Nighttime Mine (played T6) had already stopped Phantom Dive: in PTCG Live I couldn't select it with Fire + Psychic attached, and the game said it needed a third Colorless. In my words: I spent a whole turn getting another Dragapult ex online and forgot the Mine had already blocked me from attacking before, so it lost the game instead of turning the tide. Opponent's Smoochum (free attack, free retreat) attached 2 Psychic Energy to a Benched Slowpoke. Idea for a later version: a similar free-attack tech, or a swap for Budew.",

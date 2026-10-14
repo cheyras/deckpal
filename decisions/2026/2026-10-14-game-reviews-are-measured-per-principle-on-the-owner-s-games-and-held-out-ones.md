@@ -46,13 +46,16 @@ supersedes: []
 
 **4. It runs on the QA account and cannot spend past its cap.**
 - **The token:** `QA_MCP_TOKEN` in `.qa-account`, minted by `scripts/qa-token.mjs`. The maintainer runs that script; an agent never signs in with the password.
-- **Owner refusal:** the token's account is read from `/api/me`, and an owner account is refused.
-- **The tool guard:** the agent's calls reach QA only for read tools, plus `edit_battle_log` on the case's own log. Any other write is answered "not run in this evaluation" without leaving the process.
+- **The identity is pinned.** `qa-token.mjs` reads `/api/me` right after signing in with the QA password. It refuses to mint unless the account is explicitly not the owner, and records that account's username as `QA_USERNAME`. Before anything is written, the eval requires the token's `/api/me` to name exactly that user, with `isOwner` and `owner` both false. A missing field is a refusal (Astra, #347).
+- **The tool guard:** the agent's calls reach QA only for read tools, plus `edit_battle_log` saving a `review` on the case's own log. A call that also tries to change the result, opponent or notes is refused, so no config can change what the next one reads (Astra, #347). Any other write is answered "not run in this evaluation" without leaving the process.
 - **No leaks between runs:** each case's log is reset (review cleared, notes restored) before every run.
-- **Spend:**
+- **Spend has a ceiling, not an estimate.**
   - `--budget` is required.
-  - It is checked before every model call against the Gateway's own reported cost.
-  - Output is capped at Deck-E's 16k.
+  - Each model call first reserves the most it could cost: its input at two characters a token and the dearest input rate, plus the full 16k output cap. Prices come from the Gateway's own model list.
+  - A call is refused unless that maximum fits in what is left. It then settles at the Gateway's reported cost, or at the full reservation if no cost comes back (Astra, #347).
+- **Only judged runs are scored.**
+  - A run that errored, or whose judging failed or never happened, is counted apart, never scored as a review that missed everything.
+  - Resuming the same `--out` reruns errored runs and re-judges unjudged ones (Astra, #347).
   - `report` re-reads a finished run for free.
 
 **Why:** The owner's Haiku review runs (2026-10-13) missed specific things: the Mine on a Tera Pokémon, Fairy Zone's Weakness, a self-Knock Out's Prize, a concession's reason, a miscounted Prize score. The owner asked for those not to become "a butt-ton of specific rules": they are instances of a few principles, and the fixes should be principles too.

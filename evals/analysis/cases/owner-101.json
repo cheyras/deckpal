@@ -1,7 +1,7 @@
 {
   "id": "owner-101",
   "split": "owner",
-  "log": "evals/analysis/logs/owner-101.txt",
+  "log": "evals/analysis/games/owner-101.txt",
   "deck": "phantom-puppeteer",
   "facts": { "result": "win", "prizes": [0, 0], "turns": 5, "ending": "concede", "first": "PlayerA" },
   "notes": "I think the opponent conceded because Banette was blocking their Alakazam's main attack.",

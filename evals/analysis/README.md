@@ -41,7 +41,7 @@ it moves only the owner's, it learnt the instance.
 | heldout-hns-36 | Loss 3–6: Tenacious Tail counts your Pokémon ex | held-out |
 
 Logs:
-- **Owner cases:** under `logs/`, anonymised (PlayerA is the player).
+- **Owner cases:** under `games/`, anonymised (PlayerA is the player).
 - **Held-out cases:** they reuse the sim's fixtures in `packages/sim/src/__tests__/fixtures/live-logs/`.
 
 Decks: `decks.json` holds the lists the logs are filed under on the QA account.
@@ -64,7 +64,7 @@ node scripts/analysis-eval.mjs run --budget 1 --configs A --cases owner-101
 node scripts/analysis-eval.mjs report --out evals/analysis/runs/<time>   # free
 ```
 
-- **QA token:** `.qa-account` must hold `QA_MCP_TOKEN`. The maintainer runs `node scripts/qa-token.mjs` to mint one.
+- **QA token:** `.qa-account` must hold `QA_MCP_TOKEN` and `QA_USERNAME`. The maintainer runs `node scripts/qa-token.mjs` to mint the token; it records the username, and the eval refuses any token whose account is not that one.
 - **Gateway key:** set `AI_GATEWAY_API_KEY`. It is never printed.
 - **Output:** runs land in `runs/`, which is gitignored. They hold every tool call and result, the reply, the judge's verdicts and the cost.
-- **Resuming:** a rerun with the same `--out` skips the cases already done.
+- **Resuming:** a rerun with the same `--out` skips the judged pairs, reruns errored runs and re-judges unjudged ones. Scores count judged runs only.

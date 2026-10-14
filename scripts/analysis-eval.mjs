@@ -21,20 +21,26 @@
  * ── IT RUNS AGAINST THE QA ACCOUNT, NEVER THE OWNER'S ───────────────────────
  *
  * The MCP token comes from `.qa-account` (QA_MCP_TOKEN, minted by
- * `scripts/qa-token.mjs`, which the maintainer runs). Before anything else the
- * token's account is read from /api/me and the run REFUSES an owner account.
- * The agent's tool calls run for real on the QA account, but only read tools
- * and `edit_battle_log` on the case's own log; any other write is answered
- * "not run in this eval" without reaching the server. Before each run the
- * case's log is reset (review cleared, notes restored) so one config's saved
- * review cannot leak into the next.
+ * `scripts/qa-token.mjs`, which the maintainer runs; it also records
+ * QA_USERNAME, read from /api/me right after signing in with the QA password).
+ * Before anything is written, the token's /api/me must name exactly that user
+ * and say it is not the owner; anything else, a missing field included, is a
+ * refusal. The agent's tool calls run for real on the QA account, but only
+ * read tools and `edit_battle_log` saving a review on the case's own log; any
+ * other write is answered "not run in this eval" without reaching the server.
+ * Before each run the case's log is reset (review cleared, notes restored) so
+ * one config's saved review cannot leak into the next.
  *
- * ── IT SPENDS MONEY, SO IT HAS A CAP ─────────────────────────────────────────
+ * ── IT SPENDS MONEY, SO IT HAS A CEILING ─────────────────────────────────────
  *
- * `--budget` (required for `run`) is a hard stop checked before EVERY model
- * call against the Gateway's own reported cost. The key is read from
- * AI_GATEWAY_API_KEY (or DECKE_VERCEL_AI_GATEWAY_KEY) and never printed.
- * `report` re-reads a finished run for free.
+ * `--budget` (required for `run`) is a ceiling, not an estimate: every model
+ * call first reserves the MOST it could cost (its input at two characters a
+ * token at the dearest input rate, plus the whole output cap, at the Gateway's
+ * own listed prices) and is refused unless that fits in what is left. It then
+ * settles at the Gateway's reported cost. The key is read from
+ * AI_GATEWAY_API_KEY (or DECKE_VERCEL_AI_GATEWAY_KEY) and never printed. Only
+ * judged runs are scored; resuming the same --out reruns errored runs and
+ * re-judges unjudged ones. `report` re-reads a finished run for free.
  *
  *   node scripts/analysis-eval.mjs check                   # free: cases + logs
  *   node scripts/analysis-eval.mjs setup                   # QA decks + logs
@@ -47,7 +53,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { Budget, gatewayCost, safeError } from './decke-triage-eval.mjs'
+import { gatewayCost, safeError } from './decke-triage-eval.mjs'
 
 export const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 export const EVAL_DIR = path.join(ROOT, 'evals/analysis')
@@ -65,8 +71,6 @@ export const JUDGE = { model: SONNET, effort: 'medium' }
 export const MAX_STEPS = 24
 /** Deck-E's own all-in ceiling for Haiku and Sonnet 5.5 (adaptive thinking counts toward it). */
 export const MAX_OUTPUT_TOKENS = 16_000
-/** A first call's reservation before any real cost is known: an agent step with ~20K tokens of tools. */
-const FIRST_CALL_USD = 0.08
 
 export const USAGE = `Usage: node scripts/analysis-eval.mjs <check|setup|run|report> [options]
   check                     validate the cases and parse every log (free)
@@ -176,7 +180,7 @@ export function readAccount(file) {
   const get = (k) => raw.match(new RegExp(`^${k}=(.*)$`, 'm'))?.[1]?.trim() || ''
   const token = get('QA_MCP_TOKEN')
   if (!token) throw new Error('No QA_MCP_TOKEN in the QA account file. The maintainer runs: node scripts/qa-token.mjs')
-  return { token, base: (process.env.DECKPAL_BASE ?? 'https://deckpal.app').replace(/\/$/, '') }
+  return { token, username: get('QA_USERNAME'), base: (process.env.DECKPAL_BASE ?? 'https://deckpal.app').replace(/\/$/, '') }
 }
 
 /** Streamable-HTTP MCP: JSON or SSE replies, one session. */
@@ -230,12 +234,19 @@ export class Mcp {
   }
 }
 
-/** Refuse any account but a non-owner one: the eval writes logs and reviews. */
-export async function assertQaAccount({ base, token }, fetchImpl = fetch) {
+/**
+ * The token must belong to THE QA account, before anything is written: its
+ * username equals QA_USERNAME (recorded by qa-token.mjs right after signing in
+ * with the QA password) and the account is explicitly not the owner. A missing
+ * field is a refusal, never a pass.
+ */
+export async function assertQaAccount({ base, token, username }, fetchImpl = fetch) {
+  if (!username) throw new Error('No QA_USERNAME in the QA account file. The maintainer reruns: node scripts/qa-token.mjs (it records it).')
   const res = await fetchImpl(`${base}/api/me`, { headers: { authorization: `Bearer ${token}` } })
   if (!res.ok) throw new Error(`/api/me: HTTP ${res.status}`)
   const me = await res.json()
-  if (me.isOwner === true || me.owner === true) throw new Error('This token belongs to the OWNER account. The eval runs on the QA account only.')
+  if (me.isOwner !== false || me.owner !== false) throw new Error('This token is not provably a non-owner account (isOwner/owner not false). The eval runs on the QA account only.')
+  if (typeof me.username !== 'string' || me.username !== username) throw new Error('This token does not belong to the QA account named in QA_USERNAME.')
   return me.username
 }
 
@@ -311,10 +322,15 @@ export const WRITER_SYSTEM =
   'You write the game review. Another agent already called DeckPal\'s tools for you; their calls and results follow. ' +
   'You cannot call tools yourself. Write the review the player asked for, from that evidence and the instructions above.'
 
-/** May this tool call reach the QA account? Reads always; one write, on this case's log. */
+/** The only fields the agent may send to edit_battle_log: saving its review, nothing a later run would read. */
+export const REVIEW_EDIT_FIELDS = new Set(['deck_id', 'log_id', 'review', 'dry_run'])
+
+/** May this tool call reach the QA account? Reads always; one write: the review, on this case's log. */
 export function allowCall(tool, args, ids) {
   if (tool.annotations?.readOnlyHint === true) return true
-  return tool.name === 'edit_battle_log' && Number(args?.log_id) === ids.logId
+  return tool.name === 'edit_battle_log'
+    && Number(args?.log_id) === ids.logId
+    && Object.keys(args ?? {}).every((k) => REVIEW_EDIT_FIELDS.has(k))
 }
 
 const CACHE = { anthropic: { cacheControl: { type: 'ephemeral' } } }
@@ -336,16 +352,79 @@ export function cacheNewest(messages) {
 
 export class BudgetExceeded extends Error {}
 
-/** A model whose every call is reserved against the budget first and settled at the Gateway's cost. */
-export async function metered(base, budget, calls, label) {
+/**
+ * A spending CEILING, not an estimate. Each call reserves the most it could
+ * cost (`maxCallUsd`) and is refused unless that fits in what is left; it
+ * settles at the Gateway's reported cost, or at the full reservation when no
+ * cost comes back (a failed call may still have been billed).
+ */
+export class Ceiling {
+  constructor(capUsd) {
+    this.capUsd = capUsd
+    this.spentUsd = 0
+    this.reservedUsd = 0
+    this.calls = 0
+    this.unknownCost = 0
+    this.overruns = 0
+  }
+  remaining() {
+    return this.capUsd - this.spentUsd - this.reservedUsd
+  }
+  reserve(maxUsd) {
+    if (!(maxUsd > 0) || maxUsd > this.remaining()) return null
+    this.reservedUsd += maxUsd
+    return maxUsd
+  }
+  settle(reserved, actualUsd) {
+    this.reservedUsd = Math.max(0, this.reservedUsd - reserved)
+    this.calls += 1
+    if (typeof actualUsd === 'number' && Number.isFinite(actualUsd)) {
+      this.spentUsd += actualUsd
+      if (actualUsd > reserved) this.overruns += 1
+    } else {
+      this.spentUsd += reserved
+      this.unknownCost += 1
+    }
+  }
+}
+
+/** Fewer characters per token than any real prompt has, so the input estimate is high. */
+export const CHARS_PER_TOKEN_FLOOR = 2
+
+/** The most one call can cost: every input token at the dearest input rate (cache writes), plus the full output cap. */
+export function maxCallUsd(price, params) {
+  const chars = JSON.stringify(params.prompt ?? '').length + JSON.stringify(params.tools ?? []).length
+  const inputTokens = Math.ceil(chars / CHARS_PER_TOKEN_FLOOR)
+  const outputTokens = params.maxOutputTokens ?? MAX_OUTPUT_TOKENS
+  return inputTokens * Math.max(price.input, price.cacheWrite ?? 0) + outputTokens * price.output
+}
+
+/** Per-token USD prices from the Gateway's own model list; a model without them is refused. */
+export async function loadPrices(gateway, ids) {
+  const { models } = await gateway.getAvailableModels()
+  const prices = {}
+  for (const id of ids) {
+    const p = models.find((m) => m.id === id)?.pricing
+    const input = Number(p?.input)
+    const output = Number(p?.output)
+    if (!(input > 0) || !(output > 0)) throw new Error(`The Gateway lists no price for ${id}; refusing to run without a ceiling.`)
+    const cacheWrite = Number(p.cacheCreationInputTokens)
+    prices[id] = { input, output, ...(cacheWrite > 0 ? { cacheWrite } : {}) }
+  }
+  return prices
+}
+
+/** A model whose every call is reserved at its maximum cost first and settled at the Gateway's cost. */
+export async function metered(base, price, budget, calls, label) {
   const { wrapLanguageModel } = await import('ai')
   return wrapLanguageModel({
     model: base,
     middleware: {
       specificationVersion: 'v4',
-      wrapGenerate: async ({ doGenerate }) => {
-        const reserved = budget.tryReserve()
-        if (reserved === null) throw new BudgetExceeded(`budget of $${budget.capUsd} reached`)
+      wrapGenerate: async ({ doGenerate, params }) => {
+        const maxUsd = maxCallUsd(price, params)
+        const reserved = budget.reserve(maxUsd)
+        if (reserved === null) throw new BudgetExceeded(`budget of $${budget.capUsd} reached: the next call could cost up to $${maxUsd.toFixed(3)} and $${budget.remaining().toFixed(3)} is left`)
         const t0 = Date.now()
         let result
         try {
@@ -376,7 +455,7 @@ export async function agentTools(session, mcp, ids, record) {
       const t0 = Date.now()
       let out
       if (!allowCall(t, args, ids)) {
-        out = { text: `${t.name} is not run in this evaluation: only read tools and edit_battle_log on battle log #${ids.logId} reach the account.`, isError: true }
+        out = { text: `${t.name} is not run in this evaluation: only read tools, and edit_battle_log saving a review on battle log #${ids.logId}, reach the account.`, isError: true }
       } else {
         try {
           out = await mcp.call(t.name, args)
@@ -397,13 +476,13 @@ export function evidenceText(toolCalls) {
 }
 
 /** One config on one case: the agent loop (and for B the writer call). */
-export async function runCase({ gateway, mcp, session, config, c, ids, deckName, budget, calls }) {
+export async function runCase({ gateway, prices, mcp, session, config, c, ids, deckName, budget, calls }) {
   const { generateText, stepCountIs } = await import('ai')
   const record = { case: c.id, config: config.key, logId: ids.logId, toolCalls: [], savedReview: null, reply: '', error: null }
   const t0 = Date.now()
   const ask = askFor(deckName, ids.logId)
   try {
-    const agent = await metered(gateway(config.agent.model), budget, calls, `${c.id}:${config.key}:agent`)
+    const agent = await metered(gateway(config.agent.model), prices[config.agent.model], budget, calls, `${c.id}:${config.key}:agent`)
     const system = config.agent.gatherOnly ? `${session.instructions}\n\n${GATHER_ONLY}` : session.instructions
     const out = await generateText({
       model: agent,
@@ -418,7 +497,7 @@ export async function runCase({ gateway, mcp, session, config, c, ids, deckName,
     record.steps = out.steps.length
     record.reply = out.text
     if (config.writer) {
-      const writer = await metered(gateway(config.writer.model), budget, calls, `${c.id}:${config.key}:writer`)
+      const writer = await metered(gateway(config.writer.model), prices[config.writer.model], budget, calls, `${c.id}:${config.key}:writer`)
       const w = await generateText({
         model: writer,
         instructions: [{ role: 'system', content: `${session.instructions}\n\n${WRITER_SYSTEM}`, providerOptions: CACHE }],
@@ -497,9 +576,9 @@ export function judgeMessages(c, principles, logText, review) {
   return { instructions: [{ role: 'system', content: system }], messages: [{ role: 'user', content: user }] }
 }
 
-export async function judgeRun({ gateway, c, principles, logText, run, budget, calls }) {
+export async function judgeRun({ gateway, prices, c, principles, logText, run, budget, calls }) {
   const { generateText, Output, jsonSchema } = await import('ai')
-  const model = await metered(gateway(JUDGE.model), budget, calls, `${c.id}:${run.config}:judge`)
+  const model = await metered(gateway(JUDGE.model), prices[JUDGE.model], budget, calls, `${c.id}:${run.config}:judge`)
   const out = await generateText({
     model,
     ...judgeMessages(c, principles, logText, reviewText(run)),
@@ -524,14 +603,26 @@ export function scoreRun(c, judgment) {
 
 const pct = (got, of) => (of ? Math.round((100 * got) / of) : null)
 
-/** Rows of { config, scored, run } → the report's numbers. */
+/**
+ * Rows of { config, run, scored, costUsd } → the report's numbers. Only JUDGED
+ * runs count toward quality; a run that errored or was never judged is counted
+ * apart, never scored as a review that missed everything.
+ */
 export function aggregate(rows, principles) {
   const byConfig = {}
   for (const row of rows) {
-    const a = (byConfig[row.config] ??= { runs: 0, errors: 0, costUsd: 0, steps: 0, falseClaims: 0, principle: {}, split: {}, must: [0, 0], all: [0, 0] })
+    const a = (byConfig[row.config] ??= { runs: 0, judged: 0, errors: 0, unjudged: 0, costUsd: 0, steps: 0, falseClaims: 0, principle: {}, split: {}, must: [0, 0], all: [0, 0] })
     a.runs++
-    if (row.run.error) a.errors++
     a.costUsd += row.costUsd ?? 0
+    if (row.run.error) {
+      a.errors++
+      continue
+    }
+    if (!row.scored) {
+      a.unjudged++
+      continue
+    }
+    a.judged++
     a.steps += row.run.steps ?? 0
     a.falseClaims += row.scored.falseClaims
     for (const it of row.scored.items) {
@@ -551,10 +642,12 @@ export function aggregate(rows, principles) {
   }
   return Object.fromEntries(Object.entries(byConfig).map(([k, a]) => [k, {
     runs: a.runs,
+    judged: a.judged,
     errors: a.errors,
+    unjudged: a.unjudged,
     costUsd: Number(a.costUsd.toFixed(4)),
-    meanSteps: a.runs ? Number((a.steps / a.runs).toFixed(1)) : 0,
-    falseClaimsPerReview: a.runs ? Number((a.falseClaims / a.runs).toFixed(2)) : 0,
+    meanSteps: a.judged ? Number((a.steps / a.judged).toFixed(1)) : null,
+    falseClaimsPerReview: a.judged ? Number((a.falseClaims / a.judged).toFixed(2)) : null,
     overall: pct(...a.all),
     must: pct(...a.must),
     split: Object.fromEntries(Object.entries(a.split).map(([s, v]) => [s, pct(...v)])),
@@ -572,14 +665,20 @@ export function formatReport(agg, principles, rows) {
   lines.push(`| Owner cases | ${configs.map((k) => cell(agg[k].split.owner)).join(' | ')} |`)
   lines.push(`| Held-out cases | ${configs.map((k) => cell(agg[k].split['held-out'])).join(' | ')} |`)
   for (const [p, def] of Object.entries(principles)) lines.push(`| ${p} ${def.name} | ${configs.map((k) => cell(agg[k].principle[p])).join(' | ')} |`)
-  lines.push(`| False claims per review | ${configs.map((k) => agg[k].falseClaimsPerReview).join(' | ')} |`)
-  lines.push(`| Mean agent steps | ${configs.map((k) => agg[k].meanSteps).join(' | ')} |`)
+  const num = (v) => (v === null || v === undefined ? '—' : v)
+  lines.push(`| False claims per review | ${configs.map((k) => num(agg[k].falseClaimsPerReview)).join(' | ')} |`)
+  lines.push(`| Mean agent steps | ${configs.map((k) => num(agg[k].meanSteps)).join(' | ')} |`)
   lines.push(`| Cost (runs + judge) | ${configs.map((k) => `$${agg[k].costUsd.toFixed(2)}`).join(' | ')} |`)
-  lines.push(`| Runs (errors) | ${configs.map((k) => `${agg[k].runs} (${agg[k].errors})`).join(' | ')} |`, '')
+  lines.push(`| Runs: judged / errored / unjudged | ${configs.map((k) => `${agg[k].judged} / ${agg[k].errors} / ${agg[k].unjudged}`).join(' | ')} |`, '')
+  lines.push('Scores count judged runs only.', '')
   lines.push('## Per case', '', '| Case | Config | Missed | Partial | False claims |', '|---|---|---|---|---|')
-  for (const r of [...rows].sort((a, b) => a.scored.case.localeCompare(b.scored.case) || a.config.localeCompare(b.config))) {
+  for (const r of [...rows].sort((a, b) => a.run.case.localeCompare(b.run.case) || a.config.localeCompare(b.config))) {
+    if (!r.scored || r.run.error) {
+      lines.push(`| ${r.run.case} | ${r.config} | ${r.run.error ? `error: ${r.run.error.message}` : 'not judged'} | | |`)
+      continue
+    }
     const ids = (v) => r.scored.items.filter((i) => i.verdict === v).map((i) => `${i.id}${i.must ? '*' : ''}`).join(', ') || '—'
-    lines.push(`| ${r.scored.case} | ${r.config} | ${ids('missed')} | ${ids('partial')} | ${r.scored.falseClaims} |`)
+    lines.push(`| ${r.run.case} | ${r.config} | ${ids('missed')} | ${ids('partial')} | ${r.scored.falseClaims} |`)
   }
   lines.push('', '`*` marks a must item.')
   return `${lines.join('\n')}\n`
@@ -592,11 +691,17 @@ export function readRows(dir, cases) {
     const run = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))
     const c = cases.find((x) => x.id === run.case)
     if (!c) continue
-    const judgeFile = path.join(dir, f.replace('.run.json', '.judge.json'))
-    const judgment = fs.existsSync(judgeFile) ? JSON.parse(fs.readFileSync(judgeFile, 'utf8')) : null
-    rows.push({ config: run.config, run, scored: scoreRun(c, judgment?.output ?? null), costUsd: (run.costUsd ?? 0) + (judgment?.costUsd ?? 0) })
+    const judgment = readJudgment(path.join(dir, f))
+    const scored = !run.error && judgment?.status === 'ok' ? scoreRun(c, judgment.output) : null
+    rows.push({ config: run.config, run, scored, costUsd: (run.costUsd ?? 0) + (judgment?.costUsd ?? 0) })
   }
   return rows
+}
+
+const judgeFileOf = (runFile) => runFile.replace('.run.json', '.judge.json')
+export function readJudgment(runFile) {
+  const f = judgeFileOf(runFile)
+  return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : null
 }
 
 // ─── Command line ───────────────────────────────────────────────────────────
@@ -668,41 +773,65 @@ export async function main(argv = process.argv.slice(2)) {
   if (!key) throw new Error('Set AI_GATEWAY_API_KEY (or DECKE_VERCEL_AI_GATEWAY_KEY). It is never printed.')
   const { createGateway } = await import('@ai-sdk/gateway')
   const gateway = createGateway({ apiKey: key })
+  const models = [...new Set(opts.configs.flatMap((k) => [CONFIGS[k].agent.model, CONFIGS[k].writer?.model]).concat(JUDGE.model).filter(Boolean))]
+  const prices = await loadPrices(gateway, models)
   const out = opts.out ?? path.join(EVAL_DIR, 'runs', new Date().toISOString().replace(/[:.]/g, '-'))
   fs.mkdirSync(out, { recursive: true })
-  const budget = new Budget(opts.budget, { priorCallUsd: FIRST_CALL_USD })
+  const budget = new Ceiling(opts.budget)
   const calls = []
   const cost = (prefix) => calls.filter((x) => x.label.startsWith(prefix)).reduce((n, x) => n + (x.costUsd ?? 0), 0)
-
-  outer: for (const c of cases) {
-    const ids = state.logs[c.id]
-    const logText = readLog(c)
-    for (const k of opts.configs) {
-      const runFile = path.join(out, `${c.id}.${k}.run.json`)
-      if (fs.existsSync(runFile)) continue
-      await resetLog(mcp, c, ids)
-      const run = await runCase({ gateway, mcp, session, config: { key: k, ...CONFIGS[k] }, c, ids, deckName: data.decks[c.deck].name, budget, calls })
-      run.costUsd = Number((cost(`${c.id}:${k}:agent`) + cost(`${c.id}:${k}:writer`)).toFixed(6))
-      fs.writeFileSync(runFile, `${JSON.stringify(run, null, 2)}\n`)
-      console.log(`${c.id} ${k}: ${run.error ? `error ${run.error.message}` : `${run.steps} steps, ${run.toolCalls.length} tool calls`}, $${run.costUsd.toFixed(3)} (spent $${budget.spentUsd.toFixed(2)})`)
-      if (run.budgetStop) break outer
-      if (run.error) continue
-      try {
-        const output = await judgeRun({ gateway, c, principles: data.principles, logText, run, budget, calls })
-        fs.writeFileSync(runFile.replace('.run.json', '.judge.json'), `${JSON.stringify({ output, costUsd: Number(cost(`${c.id}:${k}:judge`).toFixed(6)) }, null, 2)}\n`)
-      } catch (e) {
-        console.log(`${c.id} ${k}: judge failed, ${safeError(e).message}`)
-        if (e instanceof BudgetExceeded) break outer
-      }
-    }
+  try {
+    await runAll({ gateway, prices, mcp, session, data, cases, state, configs: opts.configs, out, budget, calls, cost })
+  } finally {
+    await resetLogs(mcp, cases, state)
+    // Every invocation's calls, appended: a resumed run keeps the earlier ones.
+    const callsFile = path.join(out, 'calls.json')
+    const earlier = fs.existsSync(callsFile) ? JSON.parse(fs.readFileSync(callsFile, 'utf8')) : []
+    fs.writeFileSync(callsFile, `${JSON.stringify([...earlier, ...calls], null, 2)}\n`)
   }
-  await resetLogs(mcp, cases, state)
-  fs.writeFileSync(path.join(out, 'calls.json'), `${JSON.stringify(calls, null, 2)}\n`)
   const rows = readRows(out, data.cases)
   const report = formatReport(aggregate(rows, data.principles), data.principles, rows)
   fs.writeFileSync(path.join(out, 'report.md'), report)
-  console.log(`\n${report}\nSpent $${budget.spentUsd.toFixed(2)} of $${budget.capUsd} in ${budget.calls} calls (${budget.unknownCost} with no reported cost). Runs in ${path.relative(ROOT, out)}.`)
+  console.log(`\n${report}\nSpent $${budget.spentUsd.toFixed(2)} of $${budget.capUsd} in ${budget.calls} calls (${budget.unknownCost} with no reported cost, ${budget.overruns} over their reservation). Runs in ${path.relative(ROOT, out)}.`)
   return 0
+}
+
+/**
+ * Each (case, config) once. Resuming the same --out: a finished, judged pair is
+ * skipped; a run that errored is run again; a run whose judging failed or never
+ * happened is judged again, never scored as empty.
+ */
+async function runAll({ gateway, prices, mcp, session, data, cases, state, configs, out, budget, calls, cost }) {
+  for (const c of cases) {
+    const ids = state.logs[c.id]
+    const logText = readLog(c)
+    for (const k of configs) {
+      const runFile = path.join(out, `${c.id}.${k}.run.json`)
+      let run = fs.existsSync(runFile) ? JSON.parse(fs.readFileSync(runFile, 'utf8')) : null
+      if (run && !run.error && readJudgment(runFile)?.status === 'ok') continue
+      if (!run || run.error) {
+        await resetLog(mcp, c, ids)
+        run = await runCase({ gateway, prices, mcp, session, config: { key: k, ...CONFIGS[k] }, c, ids, deckName: data.decks[c.deck].name, budget, calls })
+        run.costUsd = Number((cost(`${c.id}:${k}:agent`) + cost(`${c.id}:${k}:writer`)).toFixed(6))
+        fs.writeFileSync(runFile, `${JSON.stringify(run, null, 2)}\n`)
+        console.log(`${c.id} ${k}: ${run.error ? `error ${run.error.message}` : `${run.steps} steps, ${run.toolCalls.length} tool calls`}, $${run.costUsd.toFixed(3)} (spent $${budget.spentUsd.toFixed(2)})`)
+        if (run.budgetStop) return
+        if (run.error) continue
+      }
+      try {
+        const output = await judgeRun({ gateway, prices, c, principles: data.principles, logText, run, budget, calls })
+        writeJudgment(runFile, { status: 'ok', output, costUsd: Number(cost(`${c.id}:${k}:judge`).toFixed(6)) })
+      } catch (e) {
+        writeJudgment(runFile, { status: 'failed', error: safeError(e), costUsd: Number(cost(`${c.id}:${k}:judge`).toFixed(6)) })
+        console.log(`${c.id} ${k}: judge failed, ${safeError(e).message}`)
+        if (e instanceof BudgetExceeded) return
+      }
+    }
+  }
+}
+
+function writeJudgment(runFile, judgment) {
+  fs.writeFileSync(judgeFileOf(runFile), `${JSON.stringify(judgment, null, 2)}\n`)
 }
 
 /** Leave the QA logs as setup made them: no review, the player's notes. */

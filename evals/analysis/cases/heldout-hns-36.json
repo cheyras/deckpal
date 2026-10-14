@@ -43,10 +43,10 @@
       "point": "Jamming Tower turned off Pokemon Tools (the Air Balloon on Fezandipiti ex) until the player replaced it with Prism Tower."
     },
     {
-      "id": "quiet-turn-calibrated",
-      "principle": "P6",
+      "id": "quiet-turn-evidence",
+      "principle": "P5",
       "must": false,
-      "point": "The quiet turn (play Shuppet and end, with a damaged Lillie's Clefairy ex Active) is raised as worth a look, acknowledging that the hand was hidden, not called a certain misplay."
+      "point": "The quiet turn (play Shuppet and end, with the damaged Lillie's Clefairy ex Active) is judged from the hand the log reveals: after Lillie's Determination's shown draw and the plays since, it held Dhelmise and Banette plus the drawn Shuppet. There was no Energy to attach, no Flip the Script (nothing was Knocked Out the turn before) and Full Moon Rondo needed a second Energy; the one live option was Prism Tower (discard 2 cards to draw 1), offered as worth a look rather than a certain misplay."
     }
   ],
   "false_claims": [

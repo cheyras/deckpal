@@ -1,0 +1,101 @@
+Setup
+PlayerB chose tails for the opening coin flip.
+PlayerA won the coin toss.
+PlayerA decided to go first.
+PlayerB drew 7 cards for the opening hand.
+- 7 drawn cards.
+PlayerA drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • (sv1_194) Switch, (svalt_24) Boss's Orders, (sv6_129) Drakloak, (me1_167) Buddy-Buddy Poffin, (sv6_128) Dreepy, (sv1_196) Ultra Ball, (sv6-5_61) Night Stretcher
+PlayerB played (me2-5_8) Chikorita to the Active Spot.
+PlayerA played (sv6_128) Dreepy to the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (rsv10-5_171) Hilda.
+PlayerA played (me1_167) Buddy-Buddy Poffin.
+- PlayerA drew 2 cards and played them to the Bench.
+   • (sv6_128) Dreepy, (me5_33_ph) Shuppet
+- PlayerA shuffled their deck.
+PlayerA played (sv1_196) Ultra Ball.
+- PlayerA discarded 2 cards.
+   • (sv6-5_61) Night Stretcher, (svalt_24) Boss's Orders
+- PlayerA drew (me5_34_ph) Banette.
+- PlayerA shuffled their deck.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (me1_184) Lillie's Determination.
+- PlayerB shuffled 6 cards into their deck.
+- PlayerB drew 8 cards.
+PlayerB played (sv10_11) Dwebble to the Bench.
+PlayerB ended their turn.
+
+PlayerA's Turn
+PlayerA drew (rsv10-5_171) Hilda.
+PlayerA evolved (me5_33_ph) Shuppet to (me5_34_ph) Banette on the Bench.
+PlayerA evolved (sv6_128) Dreepy to (sv6_129) Drakloak in the Active Spot.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (sv6-5_18) Duskull.
+PlayerA played (sv6-5_18) Duskull to the Bench.
+PlayerA played (sv1_194) Switch.
+- PlayerA's (me5_34_ph) Banette was switched with PlayerA's (sv6_129) Drakloak to become the Active Pokémon.
+PlayerA's (me5_34_ph) Banette is now in the Active Spot.
+PlayerA played (rsv10-5_171) Hilda.
+- PlayerA drew 2 cards.
+   • (sv6_130) Dragapult ex, (mee_13) Basic Psychic Energy
+- PlayerA shuffled their deck.
+PlayerA attached (mee_13) Basic Psychic Energy to (me5_34_ph) Banette in the Active Spot.
+PlayerA's (me5_34_ph) Banette used Puppet Pull on PlayerB’s (me2-5_8) Chikorita for 80 damage.
+- PlayerA drew (sv8-5_171) Crispin.
+- PlayerA shuffled their deck.
+PlayerB's (me2-5_8) Chikorita was Knocked Out!
+PlayerA took a Prize card.
+(ec_2) Basic Fire Energy was added to PlayerA's hand.
+PlayerB's (sv10_11) Dwebble is now in the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB attached (rsv10-5_80) Brave Bangle to (sv10_11) Dwebble in the Active Spot.
+PlayerB played (me1_184) Lillie's Determination.
+- PlayerB shuffled 6 cards into their deck.
+- PlayerB drew 8 cards.
+PlayerB attached (mee_9) Basic Grass Energy to (sv10_11) Dwebble in the Active Spot.
+PlayerB evolved (sv10_11) Dwebble to (sv10_186) Crustle in the Active Spot.
+PlayerB played (me3_113) Poké Pad.
+- PlayerB drew (me2-5_8) Chikorita.
+- PlayerB shuffled their deck.
+PlayerB played (me2-5_8) Chikorita to the Bench.
+PlayerB ended their turn.
+
+PlayerA's Turn
+PlayerA drew (sv6_129) Drakloak.
+PlayerA evolved (sv6_128) Dreepy to (sv6_129) Drakloak on the Bench.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (sv2_172) Boss's Orders.
+PlayerA evolved (sv6_129) Drakloak to (sv6_130) Dragapult ex on the Bench.
+PlayerA played (sv8-5_171) Crispin.
+- PlayerA drew (ec_2) Basic Fire Energy.
+- PlayerA attached (mee_13) Basic Psychic Energy to (sv6_130) Dragapult ex on the Bench.
+- PlayerA shuffled their deck.
+PlayerA attached (ec_2) Basic Fire Energy to (sv6_130) Dragapult ex on the Bench.
+PlayerA's (me5_34_ph) Banette used Puppet Pull on PlayerB’s (sv10_186) Crustle for 80 damage.
+- PlayerA drew (sv6-5_19) Dusclops.
+- PlayerA shuffled their deck.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (sv10_176_ph) Team Rocket's Petrel.
+- PlayerB drew (sv6_163) Secret Box.
+- PlayerB shuffled their deck.
+PlayerB played (sv6_163) Secret Box.
+- PlayerB discarded 3 cards.
+   • (swsh2_200) Boss's Orders, (sv6_211) Teal Mask Ogerpon ex, (me4_82) Special Red Card
+- PlayerB drew 3 cards.
+   • (sv8-5_102_ph) Bug Catching Set, (sv7_164) Crispin, (me2_116) Battle Cage
+- PlayerB shuffled their deck.
+PlayerB played (sv8-5_102_ph) Bug Catching Set.
+- PlayerB drew 2 cards.
+   • (mee_9) Basic Grass Energy, (mee_9) Basic Grass Energy
+- PlayerB shuffled their deck.
+Opponent conceded. PlayerA wins.

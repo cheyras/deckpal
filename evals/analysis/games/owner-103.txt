@@ -1,0 +1,230 @@
+Setup
+PlayerA chose tails for the opening coin flip.
+PlayerB won the coin toss.
+PlayerB decided to go second.
+PlayerA drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • (sv6_129) Drakloak, (rsv10-5_171) Hilda, (sv6_128) Dreepy, (sv6_129) Drakloak, (me3_81) Poké Pad, (me1_167) Buddy-Buddy Poffin, (sv1_196) Ultra Ball
+PlayerB drew 7 cards for the opening hand.
+- 7 drawn cards.
+PlayerA played (sv6_128) Dreepy to the Active Spot.
+PlayerB played (sv9_97) N's Zorua to the Active Spot.
+PlayerB played (sv9_97) N's Zorua to the Bench.
+
+PlayerA's Turn
+PlayerA drew (me1_119) Lillie's Determination.
+PlayerA played (me1_167) Buddy-Buddy Poffin.
+- PlayerA drew 2 cards and played them to the Bench.
+   • (me5_33_ph) Shuppet, (sv6-5_18) Duskull
+- PlayerA shuffled their deck.
+PlayerA played (me3_81) Poké Pad.
+- PlayerA drew (sv6-5_19) Dusclops.
+- PlayerA shuffled their deck.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (sv5_144) Buddy-Buddy Poffin.
+- PlayerB drew (sv9_97) N's Zorua and played it to the Bench.
+- PlayerB shuffled their deck.
+PlayerB played (me3_81) Poké Pad.
+- PlayerB drew (sv9_116) N's Reshiram.
+- PlayerB shuffled their deck.
+PlayerB played (sv9_116) N's Reshiram to the Bench.
+PlayerB attached (mee_15) Basic Darkness Energy to (sv9_97) N's Zorua on the Bench.
+PlayerB played (me3_81) Poké Pad.
+- PlayerB drew (me2-5_155) N's Zekrom.
+- PlayerB shuffled their deck.
+PlayerB played (me2-5_155) N's Zekrom to the Bench.
+PlayerB ended their turn.
+
+PlayerA's Turn
+PlayerA drew (mee_13) Basic Psychic Energy.
+PlayerA attached (mee_13) Basic Psychic Energy to (sv6_128) Dreepy in the Active Spot.
+PlayerA evolved (sv6-5_18) Duskull to (sv6-5_19) Dusclops on the Bench.
+PlayerA evolved (sv6_128) Dreepy to (sv6_129) Drakloak in the Active Spot.
+PlayerA played (rsv10-5_171) Hilda.
+- PlayerA drew 2 cards.
+   • (sv6_130) Dragapult ex, (ec_2) Basic Fire Energy
+- PlayerA shuffled their deck.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (me5_33_ph) Shuppet.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB evolved (sv9_97) N's Zorua to (sv9_98) N's Zoroark ex on the Bench.
+PlayerB ended their turn.
+
+PlayerA's Turn
+PlayerA drew (sv6-5_61) Night Stretcher.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (me1_167) Buddy-Buddy Poffin.
+PlayerA played (me1_167) Buddy-Buddy Poffin.
+- PlayerA drew 2 cards and played them to the Bench.
+   • (sv6_128) Dreepy, (sv6-5_18) Duskull
+- PlayerA shuffled their deck.
+PlayerA evolved (sv6_129) Drakloak to (sv6_130) Dragapult ex in the Active Spot.
+PlayerA attached (ec_2) Basic Fire Energy to (sv6_130) Dragapult ex in the Active Spot.
+PlayerA played (sv1_196) Ultra Ball.
+- PlayerA discarded 2 cards.
+   • (sv6-5_61) Night Stretcher, (me5_33_ph) Shuppet
+- PlayerA drew (sv6-5_20) Dusknoir.
+- PlayerA shuffled their deck.
+PlayerA evolved (sv6-5_19) Dusclops to (sv6-5_20) Dusknoir on the Bench.
+PlayerA played (me1_119) Lillie's Determination.
+- PlayerA shuffled (sv6_129) Drakloak into their deck.
+- PlayerA drew 8 cards.
+   • (me2-5_16) Budew, (sv6_129) Drakloak, (mee_10) Basic Fire Energy, (mee_13) Basic Psychic Energy, (sv6-5_19) Dusclops, (ec_2) Basic Fire Energy, (sv6-5_61) Night Stretcher, (me3_81) Poké Pad
+PlayerA's (sv6-5_20) Dusknoir used Cursed Blast.
+- PlayerA put 13 damage counters on PlayerA's (sv9_98) N's Zoroark ex.
+PlayerA's (sv6-5_20) Dusknoir was Knocked Out!
+- 2 cards were discarded from PlayerA's (sv6-5_20) Dusknoir.
+   • (sv6-5_19) Dusclops, (sv6-5_18) Duskull
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA played (sv6-5_61) Night Stretcher.
+- PlayerA moved PlayerA's (sv6-5_20) Dusknoir to their hand.
+PlayerA's (sv6_130) Dragapult ex used Phantom Dive on PlayerB’s (sv9_97) N's Zorua for 200 damage.
+- PlayerA put 6 damage counters on PlayerA's (sv9_98) N's Zoroark ex.
+PlayerB's (sv9_97) N's Zorua was Knocked Out!
+PlayerA took a Prize card.
+(me3_81) Poké Pad was added to PlayerA's hand.
+PlayerB's (sv9_98) N's Zoroark ex is now in the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (sv5_144) Buddy-Buddy Poffin.
+- PlayerB shuffled their deck.
+PlayerB played (me1_114) Boss's Orders.
+- PlayerA's (me5_33_ph) Shuppet was switched with PlayerA's (sv6_130) Dragapult ex to become the Active Pokémon.
+PlayerA's (me5_33_ph) Shuppet is now in the Active Spot.
+PlayerB's (sv9_98) N's Zoroark ex used Trade.
+- PlayerB discarded (me1_88) Yveltal.
+- PlayerB drew 2 cards.
+PlayerB evolved (sv9_97) N's Zorua to (sv9_98) N's Zoroark ex on the Bench.
+PlayerB's (sv9_98) N's Zoroark ex used Trade.
+- PlayerB discarded (sv9_153) N's PP Up.
+- PlayerB drew 2 cards.
+PlayerB played (me3_81) Poké Pad.
+- PlayerB drew (sv6_95) Munkidori.
+- PlayerB shuffled their deck.
+PlayerB attached (mee_15) Basic Darkness Energy to (sv9_98) N's Zoroark ex in the Active Spot.
+PlayerB's (sv9_98) N's Zoroark ex used Night Joker on PlayerA’s (me5_33_ph) Shuppet for 760 damage. PlayerA's (me5_33_ph) Shuppet took 380 more damage because of Darkness Weakness.
+- Damage breakdown:
+   • 19 damage counters: 380 damage
+   • Weakness to Darkness: 380 damage
+
+- PlayerB chose Powerful Rage
+PlayerA's (me5_33_ph) Shuppet was Knocked Out!
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's (sv6_130) Dragapult ex is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (me3_121) Meowth ex.
+PlayerA evolved (sv6-5_18) Duskull to (sv6-5_19) Dusclops on the Bench.
+PlayerA played (me3_81) Poké Pad.
+- PlayerA drew (me5_33_ph) Shuppet.
+- PlayerA shuffled their deck.
+PlayerA played (me3_121) Meowth ex to the Bench.
+PlayerA's (me3_121) Meowth ex used Last-Ditch Catch.
+- PlayerA drew (sv2_172) Boss's Orders.
+- PlayerA shuffled their deck.
+PlayerA played (sv2_172) Boss's Orders.
+- PlayerB's (sv9_98) N's Zoroark ex was switched with PlayerB's (sv9_98) N's Zoroark ex to become the Active Pokémon.
+PlayerB's (sv9_98) N's Zoroark ex is now in the Active Spot.
+PlayerA's (sv6-5_19) Dusclops used Cursed Blast.
+- PlayerA put 5 damage counters on PlayerA's (sv9_98) N's Zoroark ex.
+PlayerA's (sv6-5_19) Dusclops was Knocked Out!
+(sv6-5_18) Duskull was discarded from PlayerA's (sv6-5_19) Dusclops.
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA evolved (sv6_128) Dreepy to (sv6_129) Drakloak on the Bench.
+PlayerA attached (mee_13) Basic Psychic Energy to (sv6_129) Drakloak on the Bench.
+PlayerA played (me5_33_ph) Shuppet to the Bench.
+PlayerA's (sv6_130) Dragapult ex used Phantom Dive on PlayerB’s (sv9_98) N's Zoroark ex for 200 damage.
+- PlayerA put 2 damage counters on PlayerA's (me2-5_155) N's Zekrom.
+- PlayerA put 4 damage counters on PlayerA's (sv9_98) N's Zoroark ex.
+PlayerB's (sv9_98) N's Zoroark ex was Knocked Out!
+- 3 cards were discarded from PlayerB's (sv9_98) N's Zoroark ex.
+   • (mee_15) Basic Darkness Energy, (mee_15) Basic Darkness Energy, (sv9_97) N's Zorua
+PlayerA took 2 Prize cards.
+(sv7_133) Crispin was added to PlayerA's hand.
+(me2-5_288) Fezandipiti ex was added to PlayerA's hand.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (me2-5_196) Night Stretcher.
+- PlayerB moved PlayerB's (mee_15) Basic Darkness Energy to their hand.
+PlayerB attached (mee_15) Basic Darkness Energy to (sv9_98) N's Zoroark ex in the Active Spot.
+PlayerB played (me1_119) Lillie's Determination.
+- PlayerB shuffled 3 cards into their deck.
+- PlayerB drew 6 cards.
+PlayerB played (sv9_152) N's Castle to the Stadium spot.
+PlayerB played (sv6_165) Unfair Stamp.
+- PlayerB shuffled 4 cards into their deck.
+- PlayerA shuffled 7 cards into their deck.
+   • (me2-5_16) Budew, (mee_10) Basic Fire Energy, (ec_2) Basic Fire Energy, (me3_81) Poké Pad, (sv6-5_20) Dusknoir, (sv7_133) Crispin, (me2-5_288) Fezandipiti ex
+- PlayerB drew 5 cards.
+- PlayerA drew 2 cards.
+   • (sv1_196) Ultra Ball, (mee_13) Basic Psychic Energy
+PlayerB played (sv5_144) Buddy-Buddy Poffin.
+- PlayerB drew (sv9_97) N's Zorua and played it to the Bench.
+- PlayerB shuffled their deck.
+PlayerB retreated (sv9_98) N's Zoroark ex to the Bench.
+PlayerB's (sv9_97) N's Zorua is now in the Active Spot.
+PlayerB ended their turn.
+
+PlayerA's Turn
+PlayerA drew (sv6_128) Dreepy.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (me5_34_ph) Banette.
+PlayerA evolved (me5_33_ph) Shuppet to (me5_34_ph) Banette on the Bench.
+PlayerA attached (mee_13) Basic Psychic Energy to (me5_34_ph) Banette on the Bench.
+PlayerA's (sv6_130) Dragapult ex used Phantom Dive on PlayerB’s (sv9_97) N's Zorua for 200 damage.
+- PlayerA put 3 damage counters on PlayerA's (me2-5_155) N's Zekrom.
+- PlayerA put 3 damage counters on PlayerA's (sv9_98) N's Zoroark ex.
+PlayerB's (sv9_97) N's Zorua was Knocked Out!
+PlayerA took a Prize card.
+(mee_13) Basic Psychic Energy was added to PlayerA's hand.
+PlayerB's (sv9_98) N's Zoroark ex is now in the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (me1_131) Ultra Ball.
+- PlayerB discarded 2 cards.
+   • (me1_114) Boss's Orders, (sv6-5_39) Pecharunt ex
+- PlayerB drew (me2-5_142) Fezandipiti ex.
+- PlayerB shuffled their deck.
+PlayerB played (me2-5_142) Fezandipiti ex to the Bench.
+PlayerB's (me2-5_142) Fezandipiti ex used Flip the Script.
+- PlayerB drew 3 cards.
+PlayerB attached (mee_15) Basic Darkness Energy to (sv9_98) N's Zoroark ex in the Active Spot.
+PlayerB's (sv9_98) N's Zoroark ex used Night Joker on PlayerA’s (sv6_130) Dragapult ex for 460 damage.
+- Damage breakdown:
+   • 23 damage counters: 460 damage
+
+- PlayerB chose Powerful Rage
+PlayerA's (sv6_130) Dragapult ex was Knocked Out!
+- 4 cards were discarded from PlayerA's (sv6_130) Dragapult ex.
+   • (mee_13) Basic Psychic Energy, (ec_2) Basic Fire Energy, (sv6_129) Drakloak, (sv6_128) Dreepy
+PlayerB took 2 Prize cards.
+A card was added to PlayerB's hand.
+A card was added to PlayerB's hand.
+PlayerA's (me5_34_ph) Banette is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (me2-5_16) Budew.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (mee_13) Basic Psychic Energy.
+PlayerA's (me5_34_ph) Banette used Puppet Pull on PlayerB’s (sv9_98) N's Zoroark ex for 80 damage.
+- PlayerA drew (rsv10-5_171) Hilda.
+- PlayerA shuffled their deck.
+PlayerB's (sv9_98) N's Zoroark ex was Knocked Out!
+- 3 cards were discarded from PlayerB's (sv9_98) N's Zoroark ex.
+   • (mee_15) Basic Darkness Energy, (mee_15) Basic Darkness Energy, (sv9_97) N's Zorua
+PlayerA took 2 Prize cards.
+(sv6_130) Dragapult ex was added to PlayerA's hand.
+(sv6_130) Dragapult ex was added to PlayerA's hand.
+All Prize cards taken. PlayerA wins.
