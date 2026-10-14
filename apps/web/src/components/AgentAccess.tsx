@@ -227,8 +227,21 @@ export function AgentAccess() {
       // Never hand over a full-access secret for a read-only request: discard
       // it unseen and revoke the row it belongs to.
       if (scope === 'read' && res.token.scope !== 'read') {
-        await api.revokeApiToken(res.token.id).catch(() => undefined)
-        setFormError('This server can’t make read-only tokens yet, so the token was discarded without being shown. Try again later.')
+        // One retry after a short wait: the likeliest failure is the token
+        // routes' shared rate limit (429), which a second later lets it through.
+        // If both fail, the full-access token is still live — say so and name
+        // it, rather than claim it was discarded (Astra, #338).
+        const revoke = () => api.revokeApiToken(res.token.id).then(() => true, () => false)
+        let revoked = await revoke()
+        if (!revoked) {
+          await new Promise((resolve) => setTimeout(resolve, 1500))
+          revoked = await revoke()
+        }
+        setFormError(
+          revoked
+            ? 'This server can’t make read-only tokens yet, so the token was discarded without being shown. Try again later.'
+            : `This server can’t make read-only tokens yet and made a full-access token instead. Its secret was not shown, but it could not be revoked automatically: revoke “${res.token.name}” in the list below.`,
+        )
         await refresh()
         return
       }

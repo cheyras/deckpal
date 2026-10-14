@@ -17,7 +17,10 @@ import { signIn } from './admin.mjs'
  *  - choosing Read only sends `scope: "read"`, and the new row is labelled;
  *  - leaving the default sends `scope: "full"`;
  *  - an API that ignores scope (older than 085) and mints full access anyway
- *    gets that token revoked at once, and its secret is never shown.
+ *    gets that token revoked at once, and its secret is never shown;
+ *  - if that revoke fails twice (the shared token rate limit, say), the page
+ *    says the full-access token is still live and names it, instead of
+ *    claiming it was discarded.
  *
  * Every request is answered by the local fixture below; an /api call it does
  * not name is a failure (support.mjs `serve`), and so is any mutation other
@@ -63,6 +66,8 @@ const state = {
   deletes: [] as string[],
   /** An API older than 085: ignores `scope` and mints full access. */
   ignoreScope: false,
+  /** DELETEs to answer 429 before revoking succeeds again. */
+  failRevokes: 0,
   next: 100,
 }
 
@@ -71,6 +76,7 @@ function reset() {
   state.posts = []
   state.deletes = []
   state.ignoreScope = false
+  state.failRevokes = 0
 }
 
 function fixture(rel: string, url: URL, req: { method: string; body?: Record<string, unknown> }) {
@@ -85,6 +91,10 @@ function fixture(rel: string, url: URL, req: { method: string; body?: Record<str
   const revoke = /^\/api\/tokens\/([0-9a-f-]{36})$/.exec(rel)
   if (revoke && req.method === 'DELETE') {
     state.deletes.push(revoke[1]!)
+    if (state.failRevokes > 0) {
+      state.failRevokes--
+      return { status: 429, body: { error: { code: 'rate_limited', message: 'Too many requests — slow down.' } } }
+    }
     const row = state.tokens.find((t) => t.id === revoke[1])
     if (!row) return { status: 404, body: { error: { code: 'not_found', message: 'No such token' } } }
     row.revokedAt = '2026-09-12T18:00:01Z'
@@ -210,8 +220,24 @@ try {
         assert.equal(await page.getByText(/dsk_fixtureSecret/).count(), 0)
         await shot(page, `agent-access-old-server-${width}.png`)
 
+        // The same, but the revoke fails twice: the page must not say "discarded".
+        // The form stays open after that error, with Read only still chosen.
+        state.failRevokes = 2
+        const fourth = page.getByRole('group', { name: 'What it can do' })
+        await fourth.getByText('Read only', { exact: true }).click()
+        await page.getByLabel('Token name').fill('Old server two')
+        await section.getByRole('button', { name: 'Create token' }).click()
+        await section.getByText('could not be revoked automatically', { exact: false }).waitFor({ timeout: 10_000 })
+        await section.getByText('revoke “Old server two” in the list below', { exact: false }).waitFor()
+        const stuck = state.tokens.find((t) => t.name === 'Old server two')!
+        assert.equal(state.deletes.filter((d) => d === stuck.id).length, 2, `${width}px: one retry, no more`)
+        assert.equal(stuck.revokedAt, null, `${width}px: the fixture left it live`)
+        assert.equal(await page.getByText(/dsk_fixtureSecret/).count(), 0, `${width}px: its secret is still never shown`)
+        await row(page, 'Old server two').getByRole('button', { name: /Revoke/ }).waitFor()
+        await shot(page, `agent-access-revoke-failed-${width}.png`)
+
         assert.deepEqual(server.unexpected, [], `${width}px: unexpected browser requests or page errors`)
-        results[width] = { posts: state.posts.map((p) => p.scope), deletes: state.deletes.length }
+        results[width] = { posts: state.posts.map((p) => p.scope), deletes: state.deletes.length, failedRevokeShown: true }
       } finally {
         await context.close()
       }
