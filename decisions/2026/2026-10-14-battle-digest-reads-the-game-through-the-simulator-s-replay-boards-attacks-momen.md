@@ -14,7 +14,7 @@ supersedes: []
 
 **Moments.** From those two readings the digest lists the moments worth a look. Each is a fact, not a judgement:
 - `self_ko`: a Pokémon Knocked Out on its owner's own turn, with the Prizes that gave away;
-- `prevented`: an attack that printed damage and did none;
+- `no_damage`: an attack that prints damage and did none, without a failed coin flip (its cause is not asserted);
 - `blocked`: "Effects of X did not affect Y";
 - `near_ko`: an attack that left its target on 30 HP or less;
 - `timer`: a turn that ended because a player "didn't take an action in time";

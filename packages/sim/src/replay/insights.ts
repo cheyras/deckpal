@@ -12,7 +12,7 @@
  *
  * From those it lists the MOMENTS worth a look, each one a fact rather than a judgement:
  *  - self_ko: a Pokémon Knocked Out on its owner's own turn (its own attack or effect), and the Prizes that gave away;
- *  - prevented: an attack that printed damage and did none; blocked: an effect Live says did not affect a Pokémon;
+ *  - no_damage: an attack that prints damage and did none, with no failed coin flip (its cause is not asserted); blocked: an effect Live says did not affect a Pokémon;
  *  - near_ko: an attack that left its target on 30 HP or less;
  *  - timer: a turn the timer ended; ending: a concession, a timeout loss, an empty Bench, the last Prize.
  * and an `assess`ment of how much a review is worth (assessReview), from closeness, those moments and the reader's notes.
@@ -27,7 +27,7 @@ import { maxHp } from '../query.js';
 import { topCard } from '../state.js';
 import { ASLEEP, BURNED, CONFUSED, PARALYZED, POISONED, type CardFrame, type Slot } from '../types.js';
 import { TERA_PRINTINGS } from '../cards/tera.js';
-import { resolveFrame } from './cardCodes.js';
+import { framesNamed, resolveFrame } from './cardCodes.js';
 import { parseLiveLog, type CardMention, type LiveEvent, type Side } from './liveLog.js';
 import { replayLog, type ReplayObservation } from './replay.js';
 
@@ -56,6 +56,9 @@ export interface TurnStart {
   side: Side;
   /** The board as that player's turn began (after their draw), or null where the replay had stopped. */
   board: Board | null;
+  /** The engine had already disagreed with the log by this turn (a draw, damage, a Knock Out): the board is the
+   *  engine's best reading, not a fact (`replay.mismatches`). */
+  approximate: boolean;
 }
 
 export interface AttackFact {
@@ -64,7 +67,8 @@ export interface AttackFact {
   side: Side;
   attacker: string;
   move: string;
-  target: { side: Side; name: string };
+  /** Whom it damaged; null for an attack that damaged nothing (a search attack, a copied attack that missed). */
+  target: { side: Side; name: string } | null;
   /** The printed damage ("200", "30+", "70×"), or null when the card text is unknown. */
   printed: string | null;
   dealt: number;
@@ -75,7 +79,7 @@ export interface AttackFact {
   knockedOut: boolean;
 }
 
-export type MomentKind = 'self_ko' | 'prevented' | 'blocked' | 'near_ko' | 'timer' | 'ending';
+export type MomentKind = 'self_ko' | 'no_damage' | 'blocked' | 'near_ko' | 'timer' | 'ending';
 
 export interface Moment {
   turn: number;
@@ -100,12 +104,25 @@ export interface CardLine {
 export interface ReplayInsights {
   players: [string, string];
   /** How far the engine replayed the game: boards exist up to `stoppedTurn`. */
-  replay: { completed: boolean; replayed: number; actions: number; stoppedTurn: number | null; reason: string | null; unscripted: string[] };
+  replay: {
+    completed: boolean;
+    replayed: number;
+    actions: number;
+    stoppedTurn: number | null;
+    reason: string | null;
+    unscripted: string[];
+    /** Where the engine's consequences differed from the log's (damage, draws, a Knock Out…), first 10. */
+    mismatches: Array<{ turn: number; what: string }>;
+    /** The first turn whose boards are approximate because of a mismatch, or null. */
+    approximateFrom: number | null;
+  };
   turns: TurnStart[];
   attacks: AttackFact[];
   moments: Moment[];
   /** The board when the log ends (or where the replay stopped). */
   finalBoard: Board | null;
+  /** The engine disagreed with the log somewhere before the end: the final board is its best reading, not a fact. */
+  finalApproximate: boolean;
   /** Every card each side showed, with a one-line description. */
   cards: [CardLine[], CardLine[]];
   ending: { winner: Side | null; reason: 'prizes' | 'timeout' | 'no_bench' | 'concede' | 'deck_out' | 'unknown'; turn: number; note: string | null } | null;
@@ -113,11 +130,12 @@ export interface ReplayInsights {
 
 const EMPTY: ReplayInsights = {
   players: ['', ''],
-  replay: { completed: false, replayed: 0, actions: 0, stoppedTurn: null, reason: null, unscripted: [] },
+  replay: { completed: false, replayed: 0, actions: 0, stoppedTurn: null, reason: null, unscripted: [], mismatches: [], approximateFrom: null },
   turns: [],
   attacks: [],
   moments: [],
   finalBoard: null,
+  finalApproximate: false,
   cards: [[], []],
   ending: null,
 };
@@ -206,6 +224,20 @@ function printedDamage(attacker: CardMention, move: string): string | null {
 
 const leadingNumber = (printed: string | null): number => Number(/^\d+/.exec(printed ?? '')?.[0] ?? 0);
 
+/** Events that open a new action: what follows an attack up to the next of these belongs to it. */
+const ACTION_EVENTS = new Set(['attack', 'use', 'play_active', 'play_bench', 'play_stadium', 'play_card', 'evolve', 'attach', 'retreat', 'end_turn', 'turn_start', 'concede', 'game_end']);
+
+/** The events that resolve the action at `i`: its detail lines, Knock Outs and Prizes, up to the next action. */
+function following(ev: readonly LiveEvent[], i: number): LiveEvent[] {
+  const out: LiveEvent[] = [];
+  for (let j = i + 1; j < ev.length; j++) {
+    const n = ev[j]!;
+    if (ACTION_EVENTS.has(n.t) && !n.sub) break;
+    out.push(n);
+  }
+  return out;
+}
+
 /**
  * Read one PTCG Live log into insights. `players` fixes the side order when the caller knows it (side 0 = the first
  * name); otherwise sides follow the log.
@@ -264,6 +296,13 @@ function insightsInner(raw: string, o: { players?: [string, string] }): ReplayIn
   const lastBoard = kept.finalBoard;
   // The replay's players are the parser's (it parses the same text the same way).
   const stoppedTurn = r.divergence ? r.divergence.turn : null;
+  // A consequence the engine worked out differently from the log (two extra draws, other damage) makes every board
+  // AFTER that log line the engine's reading rather than the game's: those boards are flagged, and no HP-based moment
+  // is drawn from them (Astra, #342: hns-34's final hand of 16, after a difference on an unscripted card — those count
+  // too). A board from before the line is still a fact.
+  const mismatchLines = r.mismatches.map((m) => m.line);
+  const disagreeAfterLine: number | null = mismatchLines.length ? Math.min(...mismatchLines) : null;
+  const factAt = (line: number): boolean => disagreeAfterLine === null || line <= disagreeAfterLine;
 
   // ── Turns ───────────────────────────────────────────────────────────────────────────────────────────────────────────
   const turns: TurnStart[] = [];
@@ -271,8 +310,9 @@ function insightsInner(raw: string, o: { players?: [string, string] }): ReplayIn
   for (const e of ev) {
     if (e.t !== 'turn_start') continue;
     turnNo = e.turn;
-    turns.push({ turn: e.turn, side: e.p, board: turnBoards.get(e.turn) ?? null });
+    turns.push({ turn: e.turn, side: e.p, board: turnBoards.get(e.turn) ?? null, approximate: !factAt(e.line) });
   }
+  const boardsDisagreeFrom = turns.find((t) => t.approximate)?.turn ?? null;
   void turnNo;
 
   // ── Attacks, Knock Outs, Prizes ─────────────────────────────────────────────────────────────────────────────────────
@@ -289,54 +329,91 @@ function insightsInner(raw: string, o: { players?: [string, string] }): ReplayIn
     if (e.t === 'turn_start') inCheckup = false;
     if (e.t === 'checkup') inCheckup = true;
 
-    if (e.t === 'attack') {
-      // The Knock Out this attack caused: a KO line for its target before the next action or turn.
-      let ko = false;
-      for (let j = i + 1; j < ev.length; j++) {
-        const n = ev[j]!;
-        if (n.t === 'turn_start' || n.t === 'attack' || (n.t === 'use' && !n.sub)) break;
-        if (n.t === 'knockout' && n.p === e.target.player && same(n.card.name, e.target.card.name)) {
-          ko = true;
-          break;
-        }
-      }
-      const before = findMon(beforeLine.get(e.line)?.[e.target.player], e.target.card.name);
-      const printed = printedDamage(e.attacker, e.move);
-      const modifiers = [
-        ...(e.breakdown ?? []).filter((b) => !/^(?:base|total) damage/i.test(b.label)).map((b) => `${b.label}: ${b.amount}`),
-        ...(e.breakdown?.length ? [] : e.riders.map((rd) => `${rd.kind === 'weakness' ? 'Weakness' : 'Resistance'} (${rd.type}) ${rd.amount > 0 ? '+' : ''}${rd.amount}`)),
-      ];
-      const fact: AttackFact = {
-        turn: e.turn,
-        line: e.line,
-        side: e.p,
-        attacker: e.attacker.name,
-        move: e.move,
-        target: { side: e.target.player, name: e.target.card.name },
-        printed,
-        dealt: e.damage,
-        modifiers,
-        hpBefore: before?.hp ?? null,
-        knockedOut: ko,
-      };
-      attacks.push(fact);
-      if (e.damage === 0 && leadingNumber(printed) > 0) {
-        moments.push({
-          turn: e.turn,
-          side: e.p,
-          kind: 'prevented',
-          text: `${name(e.p)}'s ${e.attacker.name} used ${e.move} (printed ${printed}) on ${name(e.target.player)}'s ${e.target.card.name} and did no damage: an effect prevented it`,
-        });
-      }
-      if (!ko && before && e.damage > 0) {
-        const left = before.hp - e.damage;
+    // An attack is logged either with its damage clause ("used X on Y for N damage", an `attack` event) or as a bare
+    // "used X." whose damage, if any, follows on detail lines (a copied attack: "chose Trifrost", "Metang took 110
+    // damage"; a search attack: Call for Family). The second kind is a `use` event whose move is one of the card's
+    // attacks (Astra, #342: Seek Inspiration's three Knock Outs were missing).
+    // A codeless mention may match several printings: the move is an attack if any printing of that name has it.
+    const isAttackUse = e.t === 'use' && !e.sub && (frameOf(e.user) ? [frameOf(e.user)!] : framesNamed(e.user.name)).some((f) => !!f.attacks?.some((a) => same(a.name, e.move)));
+    if (e.t === 'attack' || isAttackUse) {
+      const after = following(ev, i);
+      const kos = after.filter((n): n is LiveEvent & { t: 'knockout' } => n.t === 'knockout');
+      const koOf = (side: Side, card: string) => kos.some((n) => n.p === side && same(n.card.name, card));
+      const tails = after.some((n) => n.t === 'coin_flip' && !n.heads);
+      const negated = after.some((n) => n.t === 'effect_negated');
+      const board = beforeLine.get(e.line);
+      // The board before the attack is a fact only where the engine and the log still agree.
+      const trusted = factAt(e.line);
+      const pushNear = (side: Side, target: string, dealt: number, ko: boolean, hpBefore: number | null, move: string) => {
+        if (ko || !trusted || hpBefore === null || dealt <= 0) return;
+        const left = hpBefore - dealt;
         if (left > 0 && left <= NEAR_KO_HP) {
           moments.push({
             turn: e.turn,
             side: e.p,
             kind: 'near_ko',
-            text: `${name(e.p)}'s ${e.move} left ${name(e.target.player)}'s ${e.target.card.name} on ${left} HP (${e.damage} of the ${before.hp} it needed)`,
+            text: `${name(e.p)}'s ${move} left ${name(side)}'s ${target} on ${left} HP (${dealt} of the ${hpBefore} it needed)`,
           });
+        }
+      };
+      if (e.t === 'attack') {
+        const printed = printedDamage(e.attacker, e.move);
+        const modifiers = [
+          ...(e.breakdown ?? []).filter((b) => !/^(?:base|total) damage/i.test(b.label)).map((b) => `${b.label}: ${b.amount}`),
+          ...(e.breakdown?.length ? [] : e.riders.map((rd) => `${rd.kind === 'weakness' ? 'Weakness' : 'Resistance'} (${rd.type}) ${rd.amount > 0 ? '+' : ''}${rd.amount}`)),
+        ];
+        const ko = koOf(e.target.player, e.target.card.name);
+        const before = findMon(board?.[e.target.player], e.target.card.name);
+        attacks.push({
+          turn: e.turn,
+          line: e.line,
+          side: e.p,
+          attacker: e.attacker.name,
+          move: e.move,
+          target: { side: e.target.player, name: e.target.card.name },
+          printed,
+          dealt: e.damage,
+          modifiers,
+          hpBefore: trusted ? (before?.hp ?? null) : null,
+          knockedOut: ko,
+        });
+        // Zero damage from an attack that prints a fixed or "+" amount, with no failed coin flip: worth a look. Its cause
+        // is not asserted (a condition in the attack's own text can make it do nothing too): a "×" attack on tails
+        // simply does nothing (Astra, #342).
+        if (e.damage === 0 && leadingNumber(printed) > 0 && !/×|x/i.test(printed ?? '') && !tails) {
+          moments.push({
+            turn: e.turn,
+            side: e.p,
+            kind: 'no_damage',
+            text: `${name(e.p)}'s ${e.attacker.name} used ${e.move} (it prints ${printed}) on ${name(e.target.player)}'s ${e.target.card.name} and did no damage${negated ? '; Live says an effect did not affect it' : ''}`,
+          });
+        }
+        pushNear(e.target.player, e.target.card.name, e.damage, ko, before?.hp ?? null, e.move);
+      } else if (e.t === 'use') {
+        const copied = after.find((n): n is LiveEvent & { t: 'chose' } => n.t === 'chose' && !!frameOf(e.user))?.option;
+        const move = copied ? `${e.move} (${copied})` : e.move;
+        const printed = printedDamage(e.user, e.move);
+        const hits = after.filter((n): n is LiveEvent & { t: 'damage' } => n.t === 'damage');
+        if (!hits.length) {
+          attacks.push({ turn: e.turn, line: e.line, side: e.p, attacker: e.user.name, move, target: null, printed, dealt: 0, modifiers: [], hpBefore: null, knockedOut: false });
+        }
+        for (const h of hits) {
+          const ko = koOf(h.p, h.target.name);
+          const before = findMon(board?.[h.p], h.target.name);
+          attacks.push({
+            turn: e.turn,
+            line: e.line,
+            side: e.p,
+            attacker: e.user.name,
+            move,
+            target: { side: h.p, name: h.target.name },
+            printed,
+            dealt: h.amount,
+            modifiers: [],
+            hpBefore: trusted ? (before?.hp ?? null) : null,
+            knockedOut: ko,
+          });
+          pushNear(h.p, h.target.name, h.amount, ko, before?.hp ?? null, move);
         }
       }
     }
@@ -465,11 +542,14 @@ function insightsInner(raw: string, o: { players?: [string, string] }): ReplayIn
       stoppedTurn,
       reason: r.divergence ? `${r.divergence.reason} (log line ${r.divergence.line})` : null,
       unscripted: r.partialCoverage.slice(0, 12),
+      mismatches: r.mismatches.slice(0, 10).map((m) => ({ turn: m.turn, what: m.unscripted?.length ? `${m.what} (unscripted card)` : m.what })),
+      approximateFrom: boardsDisagreeFrom,
     },
     turns,
     attacks,
     moments,
     finalBoard: lastBoard,
+    finalApproximate: disagreeAfterLine !== null,
     cards,
     ending,
   };
@@ -513,8 +593,8 @@ export function assessReview(
   const theirs = (k: MomentKind) => ins.moments.filter((m) => m.kind === k && m.side !== null && m.side !== me).length;
   if (mine('self_ko')) add(2, 'a Pokémon of yours was Knocked Out on your own turn');
   if (theirs('self_ko')) add(1, "the opponent's Pokémon was Knocked Out on their own turn");
-  const blocked = ins.moments.filter((m) => m.kind === 'prevented' || m.kind === 'blocked').length;
-  if (blocked) add(Math.min(2, blocked), 'damage or an effect was prevented');
+  const blocked = ins.moments.filter((m) => m.kind === 'no_damage' || m.kind === 'blocked').length;
+  if (blocked) add(Math.min(2, blocked), 'an attack did no damage, or an effect did not apply');
   const near = ins.moments.filter((m) => m.kind === 'near_ko').length;
   if (near) add(Math.min(2, near), 'an attack fell just short of a Knock Out');
   if (mine('timer')) add(1, 'the timer ended one of your turns');

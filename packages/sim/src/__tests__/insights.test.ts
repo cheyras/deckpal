@@ -1,7 +1,7 @@
 /**
  * replayInsights (replay/insights.ts): the battle digest's reading of a real PTCG Live log — boards from the engine's
  * replay, attacks and moments from Live's own lines. The fixture logs are anonymised real games; the variants below edit
- * one of them to make the moments the fixtures do not contain (a self-Knock-Out, prevented damage, a near miss).
+ * one of them to make the moments the fixtures do not contain (a self-Knock-Out, an attack that did no damage, a near miss).
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -79,17 +79,21 @@ test("a Pokémon Knocked Out on its owner's own turn is a self_ko, with the Priz
   assert.ok(assessReview(ins, 0, {}).reasons.some((r) => /Knocked Out on your own turn/.test(r)));
 });
 
-test('an attack that printed damage and did none is prevented; one that left its target on 30 HP or less is near_ko', () => {
+test('an attack that prints damage and did none is no_damage (its cause not asserted); one that left its target on 30 HP or less is near_ko', () => {
+  const zero = "PlayerB's (me1_77) Mega Lucario ex used Aura Jab on PlayerA’s (me5_5) Poltchageist for 0 damage.\n";
   const raw = log('hns-11.txt')
     // Turn 3: Aura Jab did nothing to Poltchageist (and so did not Knock it Out).
     .replace(
       "PlayerB's (me1_77) Mega Lucario ex used Aura Jab on PlayerA’s (me5_5) Poltchageist for 130 damage.\nPlayerA's (me5_5) Poltchageist was Knocked Out!\nPlayerB took a Prize card.\nA card was added to PlayerB's hand.\nPlayerA's (me5_5) Poltchageist is now in the Active Spot.\n",
-      "PlayerB's (me1_77) Mega Lucario ex used Aura Jab on PlayerA’s (me5_5) Poltchageist for 0 damage.\n",
+      zero,
     );
   const ins = replayInsights(raw, { players: AB });
-  const prevented = ins.moments.find((m) => m.kind === 'prevented')!;
-  assert.ok(prevented, ins.moments.map((m) => m.kind).join(','));
-  assert.match(momentText(prevented, label), /^opp's Mega Lucario ex used Aura Jab \(printed 130\) on me's Poltchageist and did no damage/);
+  const nothing = ins.moments.find((m) => m.kind === 'no_damage')!;
+  assert.ok(nothing, ins.moments.map((m) => m.kind).join(','));
+  assert.match(momentText(nothing, label), /^opp's Mega Lucario ex used Aura Jab \(it prints 130\) on me's Poltchageist and did no damage$/);
+  // A failed coin flip explains a zero: no moment then (Astra, #342: Continuous Spin on tails).
+  const tails = replayInsights(raw.replace(zero, zero + "- PlayerB flipped a coin and it landed on tails.\n"), { players: AB });
+  assert.equal(tails.moments.filter((m) => m.kind === 'no_damage').length, 0);
 
   const near = log('hns-11.txt').replace(
     "PlayerA's (me5_39) Dhelmise used Vengeful Anchor on PlayerB’s (me1_77) Mega Lucario ex for 340 damage.",
@@ -106,7 +110,7 @@ test('review worth: close games, notes and surprises raise it; the reasons are l
   const a = assessReview(ins, 0, { finalPrizes: { me: 5, opponent: 6 }, leadChanged: true, result: 'loss', hasNotes: true });
   assert.equal(a.depth, 'deep');
   assert.ok(a.score >= 6 && a.score <= 10);
-  for (const why of [/close/, /lead changed/, /notes/, /prevented/]) assert.ok(a.reasons.some((r) => why.test(r)), `${why}: ${a.reasons.join(', ')}`);
+  for (const why of [/close/, /lead changed/, /notes/, /did not apply/]) assert.ok(a.reasons.some((r) => why.test(r)), `${why}: ${a.reasons.join(', ')}`);
 });
 
 test('boards come from the run the replay keeps, not a rejected backtracking attempt (Astra, #342)', () => {
@@ -129,6 +133,32 @@ test('two printings that share a name are two cards, each with its own line (Ast
   const riolus = [...ins.cards[0], ...ins.cards[1]].filter((c) => c.name === 'Riolu');
   assert.equal(riolus.length, 2, JSON.stringify(riolus));
   assert.notEqual(riolus[0]!.line, riolus[1]!.line, 'different HP and attacks');
+});
+
+test('an attack logged as a bare "used X." is an attack too: a copied attack and its Knock Outs, a search attack (Astra, #342)', () => {
+  const ins = replayInsights(log('tbs-57.txt'), { players: AB });
+  const trifrost = ins.attacks.filter((a) => a.move === 'Seek Inspiration (Trifrost)');
+  assert.ok(trifrost.length >= 2, JSON.stringify(ins.attacks.map((a) => a.move)));
+  assert.ok(trifrost.every((a) => a.dealt === 110 && a.target?.side === 1));
+  assert.ok(trifrost.some((a) => a.knockedOut), 'Trifrost Knocked Out a Metang');
+  const call = ins.attacks.find((a) => a.move === 'Call for Family')!;
+  assert.ok(call, 'a damage-less attack is listed');
+  assert.equal(call.target, null);
+  assert.equal(call.dealt, 0);
+});
+
+test("where the engine disagrees with the log, boards after that line are flagged, never presented as facts (Astra, #342)", () => {
+  const ins = replayInsights(log('hns-34.txt'), { players: AB });
+  assert.ok(ins.replay.mismatches.length > 0, 'the engine reports differences on this game');
+  assert.ok(ins.replay.mismatches.some((m) => /draws/.test(m.what)), JSON.stringify(ins.replay.mismatches));
+  // The difference is on the last turn: every turn's starting board came before it, the final board after it.
+  assert.equal(ins.finalApproximate, true, "the final board (a hand of 16) is the engine's reading");
+  assert.ok(ins.turns.every((t) => !t.approximate), 'boards from before the difference stay facts');
+  assert.equal(ins.replay.approximateFrom, null);
+  // A game the engine replays without a difference has nothing flagged.
+  const clean = replayInsights(log('hns-11.txt'), { players: AB });
+  assert.deepEqual(clean.replay.mismatches, []);
+  assert.equal(clean.finalApproximate, false);
 });
 
 test('text that is not a log gives the empty reading, never a throw', () => {

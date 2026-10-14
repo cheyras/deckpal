@@ -1661,7 +1661,7 @@ digest named them, and `me` says which side that is (`null` when unknown).
   and `modifiers` is Live's damage breakdown without the base and total lines.
 - **`moments`** (`kind`):
   - `self_ko`: Knocked Out on its owner's own turn;
-  - `prevented`: printed damage, did none;
+  - `no_damage`: an attack that prints damage did none (no failed coin flip; the cause is not asserted);
   - `blocked`: "Effects of X did not affect Y";
   - `near_ko`: left on 30 HP or less;
   - `timer`: "didn't take an action in time";
