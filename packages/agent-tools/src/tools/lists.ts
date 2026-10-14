@@ -267,13 +267,27 @@ const addSearchSchema = z.object({
     .min(1)
     .optional()
     .describe("Only cards printed in one of these, each added in the first it has: ['holo','reverse'] = holo, else reverse."),
-});
+  // STRICT: a filter it does not take (search_cards' `text`, `damage`) is an error, never dropped —
+  // dropped, it widened the write to every card the other filters match (Astra, #345).
+}).strict();
 type AddSearch = z.infer<typeof addSearchSchema>;
 
 interface SearchAdd {
   variantId: number;
   label: string;
   finish: string;
+}
+
+/** "12 card(s) the search finds (…): 9 holo, 3 reverse; 4 already in the list, skipped", finishes in the order asked. */
+function searchSummary(adds: readonly SearchAdd[], filters: string, skipped: number, asked: readonly string[] = []): string {
+  const byFinish = new Map<string, number>(asked.map((f) => [f, 0]));
+  for (const a of adds) byFinish.set(a.finish, (byFinish.get(a.finish) ?? 0) + 1);
+  for (const [f, count] of byFinish) if (count === 0) byFinish.delete(f);
+  return (
+    `${adds.length} card(s) the search finds (${filters})` +
+    (byFinish.size ? `: ${[...byFinish].map(([f, n]) => `${n} ${f}`).join(', ')}` : '') +
+    (skipped ? `; ${skipped} already in the list, skipped` : '')
+  );
 }
 
 /**
@@ -614,6 +628,38 @@ const editListTool = defineTool({
         }
       }
 
+      // ── AN ITEM REMOVED AND ADDED BACK AS THE SAME PRINTING IS KEPT ──────
+      //
+      // Adds run before removals. A dynamic list's bulk add skips a printing the list already holds,
+      // so "remove this item, add the search" where the search chose that SAME printing (no holo,
+      // so its reverse) skipped the add and then the removal deleted the card, reported as done
+      // (Astra, #345). Such an item is now kept and both halves dropped. On a static list only
+      // add_search's re-adds are: they are one copy, and keeping the item keeps its quantity,
+      // while remove plus add_cards is how a static quantity is changed.
+      const itemsById = new Map((current?.items ?? []).map((i) => [i.itemId, i]));
+      const searchVariants = new Set((searched?.adds ?? []).map((a) => a.variantId));
+      const cardVariants = new Set(
+        adds.filter((a): a is ResolvedAdd => a.ok && a.body.cardVariantId !== undefined).map((a) => Number(a.body.cardVariantId)),
+      );
+      const keptVariants = new Set<number>();
+      const keptItems: string[] = [];
+      const removals = (remove_item_ids ?? []).filter((id) => {
+        const it = itemsById.get(id);
+        const v = it?.kind === 'card' && it.variantId != null ? Number(it.variantId) : null;
+        if (v !== null && (searchVariants.has(v) || (listKind === 'dynamic' && cardVariants.has(v)))) {
+          keptItems.push(id);
+          keptVariants.add(v);
+          return false;
+        }
+        return true;
+      });
+      if (searched && keptVariants.size) {
+        searched = { ...searched, adds: searched.adds.filter((a) => !keptVariants.has(a.variantId)) };
+      }
+      const cardAdds = listKind === 'dynamic'
+        ? adds.filter((a) => !(a.ok && keptVariants.has(Number(a.body.cardVariantId))))
+        : adds;
+
       // add_missing is resolved by the API — ask it for the preview so the
       // dry run reports exactly what the execute call will add.
       let missingPreview: { wouldAdd: number; items: Array<{ label: string }> } | null = null;
@@ -665,7 +711,7 @@ const editListTool = defineTool({
         plan.push(`ADD TO your existing list '${current.list.name}' (${current.items.length} item(s) already in it)`);
         if (name !== undefined && name !== current.list.name) plan.push(`rename '${current.list.name}' → '${name}'`);
       }
-      for (const a of adds) {
+      for (const a of cardAdds) {
         const qty = a.ok && listKind === 'static' && typeof a.body.staticQuantity === 'number'
           ? a.body.staticQuantity
           : 1;
@@ -675,15 +721,7 @@ const editListTool = defineTool({
         if (!a.ok && a.detail) for (const d of a.detail) plan.push(`     ${d}`);
       }
       if (searched) {
-        // Counted in the order the finishes were asked for ("2 holo, 1 reverse"), not found.
-        const byFinish = new Map<string, number>((add_search?.finish ?? []).map((f) => [f, 0]));
-        for (const a of searched.adds) byFinish.set(a.finish, (byFinish.get(a.finish) ?? 0) + 1);
-        for (const [f, count] of byFinish) if (count === 0) byFinish.delete(f);
-        plan.push(
-          `add ${searched.adds.length} card(s) the search finds (${searched.filters})` +
-            (byFinish.size ? `: ${[...byFinish].map(([f, n]) => `${n} ${f}`).join(', ')}` : '') +
-            (searched.skipped ? `; ${searched.skipped} already in the list, skipped` : ''),
-        );
+        plan.push(`add ${searchSummary(searched.adds, searched.filters, searched.skipped, add_search?.finish)}`);
         for (const a of searched.adds.slice(0, 15)) plan.push(`     ${a.label}`);
         if (searched.adds.length > 15) plan.push(`     …and ${searched.adds.length - 15} more`);
         if (searched.setNote) plan.push(`     (${searched.setNote})`);
@@ -694,7 +732,11 @@ const editListTool = defineTool({
         if (missingPreview.items.length > 15) plan.push(`     …and ${missingPreview.items.length - 15} more`);
       }
       const knownItems = new Set((current?.items ?? []).map((i) => i.itemId));
-      for (const id of remove_item_ids ?? []) {
+      for (const id of keptItems) {
+        const item = itemsById.get(id);
+        plan.push(`keep item ${id} (${item?.name ?? item?.cardId ?? '?'}): it would be added back as the same printing`);
+      }
+      for (const id of removals) {
         const item = current?.items.find((i) => i.itemId === id);
         if (item?.kind === 'card') {
           plan.push(`remove item ${id}`);
@@ -741,8 +783,8 @@ const editListTool = defineTool({
 
       // Adds go through the bulk endpoint: one transaction, one round trip,
       // whatever the count. Unresolvable entries never leave this process.
-      const resolvedAdds = adds.filter((a): a is ResolvedAdd => a.ok);
-      for (const a of adds) {
+      const resolvedAdds = cardAdds.filter((a): a is ResolvedAdd => a.ok);
+      for (const a of cardAdds) {
         if (!a.ok) {
           failures++;
           lines.push(`  FAILED: add ${a.label} — ${a.error}`);
@@ -781,6 +823,7 @@ const editListTool = defineTool({
               (res.alreadyPresent ? `, ${res.alreadyPresent} already in the list` : '') +
               (res.unresolved.length ? `, ${res.unresolved.length} unresolved` : ''),
           );
+          if (searched) lines.push(`  from the search: ${searchSummary(searched.adds, searched.filters, searched.skipped, add_search?.finish)}`);
           if (res.batchId) lines.push(`  undo with revert(batch_id: "${res.batchId}")`);
         } catch (err) {
           failures++;
@@ -788,7 +831,8 @@ const editListTool = defineTool({
         }
       }
 
-      for (const id of remove_item_ids ?? []) {
+      for (const id of keptItems) lines.push(`  kept item ${id}: already that printing`);
+      for (const id of removals) {
         try {
           // `source` attributes the removal in mutation_history; without it the
           // route recorded the agent's removals as made in the web UI.

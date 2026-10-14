@@ -53,6 +53,8 @@ async function test(name, fn) {
 const db = new pg.Client(config);
 await db.connect();
 let pool;
+let server;
+let apiPool;
 try {
   const { migrateUp } = await import('../../../../packages/db/src/migrate.ts');
   const migrator = new pg.Pool({ ...config, max: 1 });
@@ -217,6 +219,71 @@ try {
     assert.match(none.text, /needs at least one filter/);
   });
 
+  await test('add_search takes no filter it cannot apply: text and damage are refused, never dropped', async () => {
+    const parsed = editList.inputSchema.safeParse({ add_search: { query: 'pikachu', text: ['draw'], damage: '+' } });
+    assert.equal(parsed.success, false, 'dropped, they widened the write to every Pikachu');
+  });
+
+  // ── the REAL list routes (dedupe, bags, deletes), on a loopback server ────────────────────────
+  const { default: express } = await import('express');
+  const database = await import('../db.ts');
+  apiPool = database.pool;
+  const { listsRouter } = await import('../routes/lists.ts');
+  const { errorMiddleware } = await import('../http.ts');
+  const app = express();
+  app.use(express.json({ limit: '1mb' }));
+  app.use((req, _res, next) => { req.user = { id: userId }; next(); });
+  app.use('/api/lists', listsRouter);
+  app.use(errorMiddleware);
+  server = await new Promise((resolveServer, reject) => {
+    const listening = app.listen(0, '127.0.0.1', () => resolveServer(listening));
+    listening.once('error', reject);
+  });
+  const base = `http://127.0.0.1:${server.address().port}/api`;
+  const http = async (method, path, body) => {
+    const r = await fetch(base + path, {
+      method,
+      headers: { 'content-type': 'application/json' },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const text = await r.text();
+    if (!r.ok) throw new Error(`${method} ${path} → ${r.status} ${text}`);
+    return text ? JSON.parse(text) : undefined;
+  };
+  const real = { db: pool, userId, api: { get: (path) => http('GET', path), send: (method, path, body) => http(method, path, body) } };
+  const editReal = (args) => editList.handler({ kind: 'dynamic', restore: false, dry_run: false, ...args }, real);
+  const itemsOf = async (listName) => (await db.query(
+    `SELECT li.id, li.card_variant_id::int AS variant, li.static_quantity AS qty
+       FROM list_item li JOIN card_list l ON l.id = li.list_id
+      WHERE l.name = $1 AND l.user_id = $2 ORDER BY li.position`, [listName, userId])).rows;
+
+  await test('real routes, dynamic list: an item removed and chosen again as the same printing is kept, not deleted (Astra, #345)', async () => {
+    const made = await editReal({ mode: 'create', name: 'Dyn Pikachus', add_cards: [{ variant_id: pk1.reverse }] });
+    assert.equal(made.isError, undefined, made.text);
+    const [item] = await itemsOf('Dyn Pikachus');
+    assert.equal(item.variant, pk1.reverse);
+    // pk-1 has no holo, so ['holo','reverse'] chooses its reverse: the very item being removed.
+    const r = await editReal({ mode: 'edit', list_id: 'Dyn Pikachus', add_search: { query: 'pikachu', finish: ['holo', 'reverse'] }, remove_item_ids: [item.id] });
+    assert.equal(r.isError, undefined, r.text);
+    assert.match(r.text, /kept item .*: already that printing/);
+    const after = (await itemsOf('Dyn Pikachus')).map((i) => i.variant).sort((a, b) => a - b);
+    assert.deepEqual(after, [pk1.reverse, pk2.holo, pk4.holo, pk5.holo, (await one(`SELECT cv.id::int AS id FROM card_variant cv JOIN card c ON c.id = cv.card_id WHERE c.tcgdex_id = 'pk-6' AND cv.variant_kind_code = 'holo'`)).id].sort((a, b) => a - b));
+    assert.match(r.text, /from the search: 4 card\(s\) the search finds \(name contains 'pikachu' AND finish holo\/reverse\): 4 holo/, 'the counts are in the reply that wrote them');
+  });
+
+  await test('real routes, static list: a swap brings the card back holo; an item already that printing keeps its quantity', async () => {
+    const made = await editReal({ mode: 'create', name: 'Bag of Pikachus', kind: 'static', add_cards: [{ variant_id: pk4.normal, quantity: 2 }, { variant_id: pk2.holo, quantity: 3 }] });
+    assert.equal(made.isError, undefined, made.text);
+    const before = await itemsOf('Bag of Pikachus');
+    const r = await editReal({ mode: 'edit', list_id: 'Bag of Pikachus', add_search: { query: 'pikachu', finish: ['holo'] }, remove_item_ids: before.map((i) => i.id) });
+    assert.equal(r.isError, undefined, r.text);
+    const after = await itemsOf('Bag of Pikachus');
+    assert.ok(!after.some((i) => i.variant === pk4.normal), 'the normal pk-4 is gone');
+    assert.equal(after.filter((i) => i.variant === pk4.holo).length, 1, 'pk-4 is back, holo');
+    assert.deepEqual(after.filter((i) => i.variant === pk2.holo).map((i) => i.qty), [3], 'pk-2 was already holo: kept, quantity 3');
+  });
+
   results.status = 'passed';
 } catch (err) {
   results.status = 'failed';
@@ -225,6 +292,8 @@ try {
   process.exitCode = 1;
 } finally {
   writeFileSync(process.env.DECKPAL_TEST_RESULT, JSON.stringify(results, null, 2));
+  await new Promise((done) => (server ? server.close(() => done()) : done()));
+  await apiPool?.end().catch(() => {});
   await pool?.end();
   await db.end();
 }

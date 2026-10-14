@@ -361,7 +361,8 @@ const searchCardsTool = defineTool({
     'USD value. Rows show finishes, owned quantity and best USD price; same-name rows sort cheapest first. ' +
     'Prefer the cheapest printing of the SAME card, but SAME NAME IS NOT SAME CARD (218 Standard-legal names ' +
     'are several cards with different text): when a page has several, it says so and groups the ' +
-    'interchangeable ids. To put every match in a list, use edit_list add_search. One card in full: ' +
+    'interchangeable ids. To put every match of a search without text/damage in a list, use edit_list ' +
+    'add_search. One card in full: ' +
     'get_card; set completion: set_progress.',
   inputSchema: z.object({
     // ── IT IS A SUBSTRING, NOT A SEARCH ENGINE, AND THAT WAS NOT SAID ───────

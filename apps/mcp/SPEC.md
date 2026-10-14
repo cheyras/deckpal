@@ -694,8 +694,12 @@ routes are the contract (`GET/POST /decks`, `GET/PATCH/DELETE /decks/:id`, `POST
     `finish`, each card in the first listed finish it has (the plainest printing of it: primary,
     then standard tier, then catalog order), otherwise its primary printing. Cards already in the
     list are skipped, except items this call removes, so a remove plus an add_search swaps a
-    card's printing. It needs at least one filter, refuses a match over 500 with the count, and
-    can fill a list in the call that creates it;
+    card's printing; an item it would add back as the SAME printing is kept and both halves
+    dropped (on a dynamic list for any add, on a static list for add_search's, which keeps the
+    item's quantity), because adds run before removals and a dynamic list's add skips a printing
+    it holds. Its filters are strict: `text`/`damage` are refused, never dropped. It needs at
+    least one filter, refuses a match over 500 with the count, reports the per-finish counts in
+    the executing reply too, and can fill a list in the call that creates it;
     `restore: true` restores a deleted list. Item payload shape comes from `lists.ts`.
     `mode` is the explicit
     choice: `create` never touches an existing list even when the name is already taken,

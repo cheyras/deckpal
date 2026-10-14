@@ -17,6 +17,9 @@ supersedes: []
   - **Scope:** every page, up to 500 cards.
   - **Which printing:** with `finish`, each card goes in under the first listed finish it has. Within a finish it takes the plainest printing: primary, then standard tier, then catalog order, so a holo rather than its cosmos-foil cousin. Without `finish`, the primary printing.
   - **Already listed:** cards in the list are skipped, unless this same call removes their item, so "swap my normals for holos" is one call.
+  - **Kept, not churned:** an item this call removes and the search would add back as the same printing is kept, and both steps dropped. Adds run before removals, and a dynamic list's add skips a printing it already holds, so otherwise the removal deleted the card (Astra, #345). On a static list this applies to add_search's re-adds, which keeps the item's quantity.
+  - **Strict:** its filters are strict. `text` and `damage` are refused, never silently dropped, because dropping them widened the write.
+  - **Counts:** the per-finish counts come back in the executing reply as well as the dry run.
   - **Guards:** it needs at least one filter, and a match over 500 is refused with the count. It can fill a list in the call that creates it.
 - **One filter builder:** `search_cards` and `add_search` build their filters with one function, `cardFilters` in `catalog.ts`, so a search and "add everything it found" cannot disagree.
 - **Playbooks:** the collection playbook does these jobs in one call, and asks in one line whether reverse holos count when the player only said "holo".
