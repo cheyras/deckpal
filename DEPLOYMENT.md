@@ -2104,13 +2104,13 @@ row-level-security context, so it cannot see another user's rows. It cannot
 change your password, preferences or public showcase, read your Deck-E
 conversations, spend money, or create or revoke tokens (all of that needs a real
 browser session). A **Read only** connection or token is served
-only the 18 read tools, inside a read-only database transaction, and the REST API refuses
+only the 19 read tools, inside a read-only database transaction, and the REST API refuses
 its every write with `403 insufficient_scope`. Treat any token like a password, and revoke
 it the moment a client no longer needs it.
 
 ### Tools
 
-29 tools (18 read, 11 write), plus three `decke_improvement_*` reads served
+30 tools (19 read, 11 write), plus three `decke_improvement_*` reads served
 only to a connection holding the Deck-E improvement capability. Every tool's
 name, arguments, defaults and annotations are in `apps/mcp/TOOLS.md`, which is
 generated from the registry and so cannot drift; `apps/mcp/README.md` is the

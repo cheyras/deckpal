@@ -157,8 +157,9 @@ test('the stable core stays below the cacheable-prefix budget', () => {
   const core = buildCorePrompt({ signedIn: true, dataTools: currentTools })
   // 16,000 when the core shipped at 15.8k (was 29.6k); 16,500 once deck_odds
   // and simulate_battles joined the data-tool list, which grows a line per
-  // tool. Job-specific guidance belongs in a pathway, not here.
-  assert.ok(core.length <= 16_500, `core is ${core.length} characters`)
+  // tool; 16,750 once rules_lookup and battle_turn_review joined (2026-10-14).
+  // Job-specific guidance belongs in a pathway, not here.
+  assert.ok(core.length <= 16_750, `core is ${core.length} characters`)
 })
 
 test('signed-out readers are not promised collection access', () => {

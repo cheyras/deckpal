@@ -2,7 +2,7 @@
 
 # DeckPal MCP tools
 
-**29 tools: 18 read, 11 write**, in the order `tools/list` returns them, plus 3 capability-gated read tools shown only to a token holding the Deck-E improvement capability. A read-only connection is shown the 18 read tools and none of the writes.
+**30 tools: 19 read, 11 write**, in the order `tools/list` returns them, plus 3 capability-gated read tools shown only to a token holding the Deck-E improvement capability. A read-only connection is shown the 19 read tools and none of the writes.
 
 Every write previews by default (`dry_run` defaults to true) except `deck_strategy`, whose description says it writes at once. "destructive" is MCP's meaning: the tool may change or remove existing data, not only add to it. What can be undone, and how, is in `decisions/2026/2026-10-12-mcp-tool-surface-and-write-safety.md`.
 
@@ -30,6 +30,7 @@ Every write previews by default (`dry_run` defaults to true) except `deck_strate
 | [`edit_battle_log`](#edit_battle_log) | Correct a battle log entry | write, destructive, idempotent | Fix a battle log's metadata after the fact: result (e.g. the parser missed a non-standard ending and left NO RESULT), opponent name, opponent-deck label, countable archetype, notes, review, or played_at. |
 | [`delete_battle_log`](#delete_battle_log) | Delete a battle log entry | write, destructive, idempotent | Permanently remove one battle log from a deck (e.g. a duplicate paste or a log attached to the wrong deck). |
 | [`battle_digest`](#battle_digest) | Read one game as a digest | read | Read ONE stored PTCG Live game as a compact digest: who went first, mulligans, turns, each side's first attack, the prize timeline turn by turn (with the Knock Out each prize paid for), every card the opponent showed, how it ended, whether it was close, and what the log cannot tell (their hand, the prized cards). |
+| [`battle_turn_review`](#battle_turn_review) | Simulator review of one turn | read | Ask the battle simulator's strongest pilot what it would have done on one of the reader's turns of a stored PTCG Live game: its best first actions, the line each leads to and the Prizes it takes, ranked beside what the reader did. |
 | [`lists`](#lists) | Browse card lists | read | Read card lists (dynamic lists track collection ownership live; static lists are fixed bags with quantities; pokedex_binder lists track one slot per species). |
 | [`edit_list`](#edit_list) | Create or edit a card list | write, destructive | Create a list (omit list_id) or edit one (pass list_id): rename, add cards, remove items, or restore a deleted list. add_cards takes the same card reference as log_cards — a TCGdex card_id, or name + set_id/number, plus an optional variant_kind ('reverse', 'holo', …) — so you do NOT need to look up variant ids first. add_missing does the whole job server-side: "everything missing for this goal in this set, optionally minus certain rarities or above a price" in one call. remove_item_ids are the item UUIDs shown by the lists tool. |
 | [`delete_list`](#delete_list) | Delete a card list | write, destructive, idempotent | Delete a list. |
@@ -416,6 +417,21 @@ Read ONE stored PTCG Live game as a compact digest: who went first, mulligans, t
 | `log_id` | integer | yes |  | Battle log id (the #N from battle_logs or add_battle_log). |
 | `player_name` | string |  |  | Only when a digest said it could not tell which player owns the deck: the owner's exact screen name in the log. |
 | `detail` | "summary" \| "turns" |  |  | 'turns' adds the board as each turn began (a deep review). Default 'summary'. |
+
+<a id="battle_turn_review"></a>
+
+### `battle_turn_review` — Simulator review of one turn
+
+read · annotations `{"title":"Simulator review of one turn","readOnlyHint":true,"openWorldHint":false}`
+
+Ask the battle simulator's strongest pilot what it would have done on one of the reader's turns of a stored PTCG Live game: its best first actions, the line each leads to and the Prizes it takes, ranked beside what the reader did. Use it in a game review on the turns that decided the game (battle_digest shows them). Read-only.
+
+| argument | type | required | default | description |
+|---|---|---|---|---|
+| `deck_id` | string | yes |  | The deck, by UUID or by NAME. |
+| `log_id` | integer | yes |  | Battle log id (the #N from battle_logs). |
+| `turn` | integer | yes |  | The game's turn number (both players counted), one of the reader's turns. |
+| `player_name` | string |  |  | Only when told the owner could not be identified: their screen name in the log. |
 
 <a id="lists"></a>
 

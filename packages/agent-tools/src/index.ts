@@ -1,5 +1,6 @@
 import type { ToolDefinition } from './registry.js';
 import { battleDigestTools } from './tools/battleDigest.js';
+import { battleTurnReviewTools } from './tools/battleTurnReview.js';
 import { catalogTools } from './tools/catalog.js';
 import { rulesTools } from './tools/rules.js';
 import { collectionTools } from './tools/collection.js';
@@ -56,6 +57,7 @@ const ALL: ToolDefinition[] = [
   // than at the end; every later tool moves down one, a one-off change to the
   // advertised order on the deploy that adds it.
   ...battleDigestTools,
+  ...battleTurnReviewTools,
   ...listTools,
   ...loggingTools,
   ...shoppingTools,

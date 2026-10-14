@@ -47,11 +47,11 @@ import type { Action, CardFrame, Decision, GameEvent, GameState, Player, Slot } 
 import { scriptFor } from '../cards/registry.js';
 import { transcript } from '../transcript.js';
 import { FRAMES } from '../cards/frames-all.js';
-import { textKey } from '../cards/frame.js';
+import { defKey, textKey } from '../cards/frame.js';
 import { withPrintedWR } from '../cards/printed-wr.js';
 import { withEvolvesFrom } from '../cards/evolves-from.js';
 import { withCleanText } from '../cards/clean-text.js';
-import { canonicalName, resolveFrame } from './cardCodes.js';
+import { canonicalName, listedFrame, resolveFrame } from './cardCodes.js';
 import { parseLiveLog, type CardMention, type LiveEvent, type ParseOptions, type Side } from './liveLog.js';
 
 export const HIDDEN = 'Hidden card';
@@ -241,6 +241,12 @@ export interface ReplayOptions extends ParseOptions {
    * returned as `ReplayResult.observed` of the run that is kept.
    */
   observe?: () => ReplayObserver;
+  /**
+   * One side's decklist (the battle's recorded deck version). Listed cards the log never names join that side's
+   * reservoir, as many as the list has, so a search from a replayed position (turnReview.ts) can draw them; the
+   * replay itself never asks for a card the log does not show. Resolved by code, else by name; unresolved stay out.
+   */
+  deckList?: { side: Side; cards: ReadonlyArray<{ name: string; id?: string | null; count: number }> };
 }
 
 /** One decision as the log answered it. `choice` is the logged answer; `known` is false when the replay had to guess it. */
@@ -369,18 +375,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       const fits = Object.values(FRAMES).filter((f) => same(f.name, m.name) && hasMoves(f));
       frame = fits.find((f) => scriptFor(f)) ?? fits[0] ?? frame;
     }
-    // An older Trainer or Energy printing (Air Balloon swsh1-213) is legal only as a reprint of a current
-    // card with the same effect, but its wording can differ cosmetically; play it as the scripted current
-    // printing. Not Pokémon: two Gastly can have different attacks.
-    // A Pokémon reprint qualifies only when it is the same card in play: HP, stage, type, Weakness,
-    // Resistance, Retreat, and every attack's name, cost and damage and every Ability's name.
-    if (frame && !scriptFor(frame)) {
-      const f0 = frame;
-      const scripted = Object.values(FRAMES).find(
-        (f) => same(f.name, f0.name) && f.category === f0.category && scriptFor(f) && (f0.category !== 'Pokemon' || samePokemon(f, f0)),
-      );
-      if (scripted) frame = scripted;
-    }
+    if (frame) frame = playableFrame(frame);
     frameCache.set(ck, frame);
     return frame;
   };
@@ -579,6 +574,27 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       cards.push({ frame, count: Math.max(n, basicEnergy ? 20 : 4) });
     }
     cards.push({ frame: HIDDEN_FRAME, count: 80 });
+    // After the fillers, so every card the log shows keeps the instance it has without a list.
+    // A card is its game text, not its name or printing (Astra, #343): two Riolu printings are two cards, and two
+    // entries of one reprinted text are one card with both quantities. Whatever the list has beyond the copies the
+    // reservoir holds is added (an entry of the same definition just adds instances).
+    if (o.deckList?.side === side) {
+      const want = new Map<string, { frame: CardFrame; count: number }>();
+      for (const e of o.deckList.cards) {
+        const listed = e.count > 0 ? listedFrame(e.name, e.id) : null;
+        const frame = listed ? playableFrame(listed) : null;
+        if (!frame) continue;
+        const w = want.get(defKey(frame));
+        if (w) w.count += e.count;
+        else want.set(defKey(frame), { frame, count: e.count });
+      }
+      const held = new Map<string, number>();
+      for (const c of cards) held.set(defKey(c.frame), (held.get(defKey(c.frame)) ?? 0) + c.count);
+      for (const [k, { frame, count }] of want) {
+        const short = count - (held.get(k) ?? 0);
+        if (short > 0) cards.push({ frame, count: short });
+      }
+    }
     return { name: `${parsed.players[side]} (from the log)`, cards };
   });
   result.missingFrames = [...missing];
@@ -1573,6 +1589,21 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
     result.mismatches.push({ line: end?.line ?? 0, turn: s.turn, what: 'winner', log: [`P${result.winner.log}`], engine: [`P${s.winner} (${s.winReason})`] });
   }
   return { result, ambiguous };
+}
+
+/**
+ * The frame a printing plays as. An older Trainer or Energy printing (Air Balloon swsh1-213) is legal only as a reprint
+ * of a current card with the same effect, but its wording can differ cosmetically: it plays as the scripted current
+ * printing. Not Pokémon: two Gastly can have different attacks. A Pokémon reprint qualifies only when it is the same
+ * card in play: HP, stage, type, Weakness, Resistance, Retreat, and every attack's name, cost and damage and every
+ * Ability's name. Shared by the replay's log mentions and the decklists a review rebuilds a deck from (turnReview.ts).
+ */
+export function playableFrame(frame: CardFrame): CardFrame {
+  if (scriptFor(frame)) return frame;
+  const scripted = Object.values(FRAMES).find(
+    (f) => same(f.name, frame.name) && f.category === frame.category && scriptFor(f) && (frame.category !== 'Pokemon' || samePokemon(f, frame)),
+  );
+  return scripted ?? frame;
 }
 
 function samePokemon(a: CardFrame, b: CardFrame): boolean {

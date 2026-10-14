@@ -97,3 +97,8 @@ export function resolveFrame(name: string, id?: string | null): { frame: CardFra
   if (base.length && base.length < list.length && new Set(base.map(keyOf)).size === 1) return { frame: base[0]!, via: 'name' };
   return { frame: null, via: 'none' };
 }
+
+/** The frame a decklist entry plays as: its printing's code, else a name with one game text; null when neither resolves. */
+export function listedFrame(name: string, id?: string | null): CardFrame | null {
+  return (id ? resolveFrame(name, id).frame : null) ?? resolveFrame(name).frame;
+}

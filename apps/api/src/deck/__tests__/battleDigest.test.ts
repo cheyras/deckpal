@@ -369,6 +369,27 @@ test('route: GET /decks/:id/logs/:logId/digest keeps the detail route\'s ownersh
   assert.match(route, /digestBattleLog\(row\.raw_log,/);
 });
 
+test("route: GET /decks/:id/logs/:logId/turns/:turn/review — the digest's ownership gate and side order, read-only, rate-limited", () => {
+  const source = readFileSync(fileURLToPath(new URL('../../routes/decks.ts', import.meta.url)), 'utf8');
+  const start = source.indexOf("'/:id/logs/:logId/turns/:turn/review'");
+  assert.ok(start > 0, 'the turn review route is not registered');
+  const route = source.slice(source.lastIndexOf('decksRouter.get(', start), source.indexOf('// PATCH /decks/:id/logs/:logId', start));
+  assert.match(route, /const meta = await loadMeta\(deckId, userId\);\s*if \(!meta\) throw notFound/);
+  assert.match(route, /FROM battle_log WHERE id = \$1 AND deck_id = \$2/);
+  assert.doesNotMatch(route, /\b(?:INSERT|UPDATE|DELETE)\b/);
+  // CPU-bound: its own per-user bucket, checked before any work.
+  assert.match(route, /rateLimitCheck\(turnReviewBuckets\.get\(userId\), Date\.now\(\), TURN_REVIEW_RATE_MAX\)/);
+  assert.ok(route.indexOf('rateLimitCheck(') < route.indexOf('reviewTurn('), 'the limit is checked before the review runs');
+  // Same side order as the digest.
+  assert.match(
+    route,
+    /playerName: playerName\s*\?\? storedNameFor\(row\.raw_log, \(await ptcglNameOf\(poolQueryable, userId\)\)\)\s*\?\? \(typeof storedMe === 'string' && storedMe \? storedMe : undefined\)/,
+  );
+  assert.match(route, /reviewTurn\(row\.raw_log, turn, \{ players: \[me, opponent\], me: 0, \.\.\.\(deckList\.length \? \{ deckList \} : \{\}\) \}\)/);
+  // The reader's deck is rebuilt from the version the game was logged against (Astra, #343).
+  assert.match(route, /FROM deck_version WHERE deck_id = \$1 AND version = \$2`,\s*\[deckId, row\.deck_version\]/);
+});
+
 test('never throws on arbitrary text — worst case is the empty digest', () => {
   for (const junk of ['', 'hello', '\n\n•\n- \n', "Bob's Turn\nBob wins.", 'x'.repeat(10_000)]) {
     const d = digestBattleLog(junk, DECK_NAMES);
