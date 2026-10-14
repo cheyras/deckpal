@@ -55,3 +55,8 @@ export {
   type CompareTotals, type CumulativeCompareInput, type CumulativeRunInput, type MatchupTotals, type SideSetupTotals,
 } from './continue.js';
 export { CUMULATIVE_DROPPED, cumulativeHead } from './report.js';
+export {
+  NEAR_KO_HP, assessReview, cardLine, momentText, replayInsights,
+  type AttackFact, type Board, type BoardMon, type CardLine, type Moment, type MomentKind, type ReplayInsights,
+  type ReviewAssessment, type ReviewDepth, type SideBoard, type TurnStart,
+} from './replay/insights.js';
