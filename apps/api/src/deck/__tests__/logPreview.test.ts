@@ -100,6 +100,23 @@ test('scoreDeckMatch picks the better-matching player (the deck is one player\'s
   assert.ok(m.matchedCodes >= 5, `PlayerA's code overlap should be substantial, got ${m.matchedCodes}`);
 });
 
+test("scoreDeckMatch with the reader known scores only the reader's cards: a deck matching the opponent does not rank first (#341)", () => {
+  const parsed = parseBattleLog(CODED, []);
+  const a = parsed.playerCards.find((p) => p.name === 'PlayerA')!;
+  const b = parsed.playerCards.find((p) => p.name === 'PlayerB')!;
+  // A saved deck built from the cards PlayerB showed (none of PlayerA's), and a small deck of PlayerA's.
+  const opponentLike = b.cardNameKeys.filter((k) => !a.cardNameKeys.includes(k)).map((name) => ({ name, cardId: null }));
+  assert.ok(opponentLike.length >= 3, 'the fixture shows enough of PlayerB to build the decoy');
+  const mine = [{ name: 'Slowking', cardId: 'sv07-058' }];
+  const unknown = [opponentLike, mine].map((cards) => scoreDeckMatch(parsed, cards).score);
+  assert.ok(unknown[0]! > unknown[1]!, 'without a known reader the decoy outranks the real deck (the case being fixed)');
+  const known = [opponentLike, mine].map((cards) => scoreDeckMatch(parsed, cards, 'PlayerA').score);
+  assert.equal(known[0], 0, "the decoy shares none of PlayerA's cards");
+  assert.ok(known[1]! > 0, "PlayerA's own deck still scores");
+  // A name that is not a player in the log falls back to the best-scoring player, as before.
+  assert.equal(scoreDeckMatch(parsed, opponentLike, 'Nobody').score, unknown[0]);
+});
+
 test('scoreDeckMatch: ranking across multiple deck lists (mirrors the route)', () => {
   const parsed = parseBattleLog(CODED, []);
   const decks = [

@@ -360,8 +360,12 @@ test('route: GET /decks/:id/logs/:logId/digest keeps the detail route\'s ownersh
   assert.doesNotMatch(route, /\b(?:INSERT|UPDATE|DELETE)\b/);
   // An in-person game is a 404 with words a model can act on.
   assert.match(route, /throw notFound\(\s*row\.origin === 'in_person'\s*\? 'no game log to digest — this game was reported in person'/);
-  // Whose side: an explicit name, then the owner the row was STORED with.
-  assert.match(route, /playerName: playerName \?\? \(typeof storedMe === 'string' && storedMe \? storedMe : undefined\)/);
+  // Whose side: an explicit name, then the reader's PTCG Live name when it plays in the log, then the owner the row was
+  // STORED with (#341: the stored side may be an old overlap guess that setting the profile name corrects).
+  assert.match(
+    route,
+    /playerName: playerName\s*\?\? storedNameFor\(row\.raw_log, \(await ptcglNameOf\(poolQueryable, userId\)\)\)\s*\?\? \(typeof storedMe === 'string' && storedMe \? storedMe : undefined\)/,
+  );
   assert.match(route, /digestBattleLog\(row\.raw_log,/);
 });
 

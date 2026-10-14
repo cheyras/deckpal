@@ -55,7 +55,16 @@ CREATE TABLE deck_version (
 );
 CREATE TABLE battle_log (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, deck_id uuid NOT NULL, deck_version integer NOT NULL,
+  -- For the PTCG Live name case (#341): who logged it, from where, and the side the parse gave the reader.
+  user_id uuid, origin text, parsed jsonb,
   FOREIGN KEY (deck_id, deck_version) REFERENCES deck_version (deck_id, version) ON DELETE CASCADE
+);
+-- The columns migration 086 adds, with its constraints.
+CREATE TABLE user_settings (
+  user_id uuid PRIMARY KEY,
+  ptcgl_name text CHECK (ptcgl_name IS NULL OR (char_length(ptcgl_name) BETWEEN 1 AND 100 AND ptcgl_name = btrim(ptcgl_name))),
+  ptcgl_name_source text CHECK (ptcgl_name_source IN ('manual', 'auto')),
+  CONSTRAINT user_settings_ptcgl_name_pair CHECK ((ptcgl_name IS NULL) = (ptcgl_name_source IS NULL))
 );
 
 INSERT INTO series VALUES

@@ -1477,6 +1477,10 @@ export interface UserSettings {
   seriesSortKey: 'recency' | 'az' | 'pct'
   seriesSortDir: 'asc' | 'desc'
   seriesGroupOwned: boolean
+  /** The reader's PTCG Live screen name (migration 086); null until typed or learned from three logged games. */
+  ptcglName?: string | null
+  /** 'manual' when typed in the profile, 'auto' when learned; null when empty. */
+  ptcglNameSource?: 'manual' | 'auto' | null
 }
 
 export type DeckeImprovementConsentRequest = {
