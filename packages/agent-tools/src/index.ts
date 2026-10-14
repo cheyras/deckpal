@@ -1,6 +1,7 @@
 import type { ToolDefinition } from './registry.js';
 import { battleDigestTools } from './tools/battleDigest.js';
 import { catalogTools } from './tools/catalog.js';
+import { rulesTools } from './tools/rules.js';
 import { collectionTools } from './tools/collection.js';
 import { deckIntelTools } from './tools/deckIntel.js';
 import { deckTools } from './tools/decks.js';
@@ -44,6 +45,8 @@ const ALL: ToolDefinition[] = [
   ...statusTools,
   ...collectionTools,
   ...catalogTools,
+  // The game's rules sit with the card catalog: get_card is a card's text, rules_lookup is what the game does with it (2026-10-13).
+  ...rulesTools,
   ...deckTools,
   ...deckCheckTools,
   ...deckOddsTools,
