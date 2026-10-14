@@ -1,9 +1,10 @@
 # deckpal-mcp
 
-DeckPal's MCP server: 28 tools (17 read, 11 write) that let Claude, ChatGPT or
-any MCP client read and change a DeckPal collection, its decks, lists and
-battle logs. The tools are defined once in `@deckpal/agent-tools` and shared
-with Deck-E, the in-app assistant.
+DeckPal's MCP server: 28 tools (17 read, 11 write) that let an AI app read and
+change a DeckPal collection, its decks, lists and battle logs. Claude is tested
+end to end; ChatGPT and other apps with remote MCP connectors should work from
+what their docs say, but have not been tested. The tools are defined once in
+`@deckpal/agent-tools` and shared with Deck-E, the in-app assistant.
 
 - **Cloud:** `https://deckpal.app/mcp`, multi-user, OAuth 2.1 or a personal
   access token. Entry point `src/cloud.ts`.
@@ -41,7 +42,8 @@ access token instead (below).
 In a ChatGPT plan that allows custom connectors, add a connector (developer
 mode) with the URL `https://deckpal.app/mcp` and OAuth authentication. ChatGPT
 registers itself, and DeckPal's consent page shows its callback host as
-**Unverified** — only claude.ai's callback is on DeckPal's verified list — so
+**Unverified** — only Claude's callbacks (on claude.ai and claude.com) are on
+DeckPal's verified list — so
 check that the host is ChatGPT's before allowing. This path has not been tested
 end to end; report what you see.
 
@@ -72,6 +74,12 @@ Run the API, then the server with a shared key, and send the key as
 pnpm --filter @deckpal/db build && pnpm --filter @deckpal/agent-tools build && pnpm --filter deckpal-mcp build
 DECKPAL_MCP_KEY=<a long random string you keep> DECKPAL_API_BASE=http://127.0.0.1:3700/deckpal/api node apps/mcp/dist/index.js
 ```
+
+`DECKPAL_API_BASE` must name the path the API actually mounts on. A self-host
+behind nginx at `/deckpal/` deletes `API_BASE_PATH` from the `.env` copied from
+`.env.example`, so the API uses its default `/deckpal/api` (as above). If you
+keep `.env.example`'s `API_BASE_PATH=/api`, use
+`DECKPAL_API_BASE=http://127.0.0.1:3700/api` instead.
 
 The socket only binds 127.0.0.1, and only `MCP_ALLOWED_HOSTS` (default
 `127.0.0.1,localhost`) pass the host check, so a hosted client reaches it

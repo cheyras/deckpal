@@ -51,8 +51,13 @@ Load `.env` before any DB work: `set -a && . ./.env && set +a`
 # Build a single app
 pnpm --filter deckpal-web build
 
-# Typecheck (build db first -- others depend on its dist/)
+# Typecheck (build the shared packages first, in CI's order -- others
+# resolve them through their dist/; see AGENTS.md)
 pnpm --filter @deckpal/db build
+pnpm --filter @deckpal/storage build
+pnpm --filter @deckpal/agent-tools build
+pnpm --filter @deckpal/matching build
+pnpm --filter @deckpal/sim build
 pnpm -r --workspace-concurrency=1 exec tsc --noEmit
 
 # Run pure tests (no DB)

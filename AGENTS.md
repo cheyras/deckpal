@@ -12,8 +12,8 @@ Vercel + Supabase. It also supports a self-host tier (plain Postgres, no built-i
 auth) for other people who want to run their own copy — a supported deployment
 target, not the mode you are working in. See B12.
 
-pnpm monorepo (ESM, Node >=20, TypeScript strict). Five apps + three shared
-packages:
+pnpm monorepo (ESM, Node 20.19+ or 22.12+ (Vite 8's range), TypeScript
+strict). Five apps + five shared packages:
 
 | Package | Filter name | Role |
 |---|---|---|
@@ -66,6 +66,8 @@ pnpm --filter deckpal-web build
 pnpm --filter @deckpal/db build
 pnpm --filter @deckpal/storage build
 pnpm --filter @deckpal/agent-tools build
+pnpm --filter @deckpal/matching build
+pnpm --filter @deckpal/sim build
 pnpm -r --workspace-concurrency=1 exec tsc --noEmit
 
 # Run the pure test suite (no DB required)
@@ -77,8 +79,9 @@ pnpm test:deploy-assets
 pnpm test:browser
 ```
 
-Build `@deckpal/db`, `@deckpal/storage` and `@deckpal/agent-tools` before
-typechecking -- other packages resolve each through its `dist/` output. See
+Build `@deckpal/db`, `@deckpal/storage`, `@deckpal/agent-tools`,
+`@deckpal/matching` and `@deckpal/sim` before typechecking -- other packages
+resolve each through its `dist/` output. See
 `packages/*/package.json` for the `main` field. `@deckpal/agent-tools` also has
 to be built before `scripts/check-functions.mjs` (CI's "serverless functions
 load" step), since `api/mcp.mjs` pulls `apps/mcp/dist/cloud.js`, which pulls
@@ -188,10 +191,13 @@ Supabase CLI is not used for schema management; our runner is more rigorous
 
 ### B5 — Scanner index (the table IS the index)
 
-**Rule:** `card_image_phash` is the scanner's only index. The match query ranks it
-in SQL with `bit_count(hash_bits # probe)`; nothing is cached in process memory.
-So `pnpm --filter deckpal-api scan:index` takes effect immediately, on both
-deployments, with no restart.
+**Rule:** the scanner's indexes are tables, ranked in SQL, and nothing is cached
+in process memory. `card_image_phash` is always on; the match query ranks it with
+`bit_count(hash_bits # probe)`. `card_embedding` (pgvector, migrations 051/082)
+is consulted only when `SCAN_EMBED_MATCH=true`; its query ranks by pgvector
+distance (`embedding <=> probe`). So `pnpm --filter deckpal-api scan:index` (and
+a `tools/embed-catalog` load) takes effect immediately, on both deployments,
+with no restart.
 
 **Why:** The original scanner read all ~23k hashes into typed arrays at first use
 and kept them for the process lifetime. That is invisible on a server that boots
@@ -210,18 +216,23 @@ function (that is what broke the hosted scanner in issue #20).
 identifiers.
 
 **Cloud (Supabase Storage):**
-`card-art/images/<lang>/<serie>/<set>/<localId>/low.webp`
+`card-art/images/<lang>/<serie>/<set>/<localId>.<low|high>.webp`
 
 **Self-host (local disk):**
 `<IMAGE_CACHE_ROOT>/images/<lang>/<serie>/<set>/<localId>.<low|high>.webp`
 
 Set imagery: `sets/<setId>/<logo|symbol>.webp` in both.
 
+The public URL keeps upstream's shape
+(`/deckpal/images/<lang>/<serie>/<set>/<localId>/<low|high>.webp`); the stored
+path is derived from it.
+
 **Why:** The image service/CDN, warmers, and manifest all assume this layout.
 A miss serves a placeholder (never an error).
 
-**Where enforced:** `apps/images/src/layout.ts` is authoritative for path
-derivation (a pure function of the upstream identifiers). The cache/bucket
+**Where enforced:** `packages/storage/src/paths.ts` is authoritative for path
+derivation (a pure function of the upstream identifiers); `apps/images/src/layout.ts`
+re-exports it for the disk tier. The cache/bucket
 directory is gitignored -- never commit card art or bulk catalog dumps.
 
 ### B7 — Database CI uses only a runner-created disposable cluster
@@ -337,7 +348,7 @@ system. The PR that added `/dev/decke` even asserted in its own description that
 the variable "should be set, since /design works in production today" — an
 inference, never checked, and wrong.
 
-**Where enforced:** `ownerGateStatus()` in `apps/api/src/routes/me.ts`, reported
+**Where enforced:** `ownerGateStatus()` in `apps/api/src/ownerGate.ts`, reported
 on `GET /health` as `ownerGate` and warned about on boot in `createApp()`.
 Environment variables are tabulated in `DEPLOYMENT.md`.
 

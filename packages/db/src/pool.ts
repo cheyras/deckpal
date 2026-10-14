@@ -16,7 +16,7 @@ const { Pool } = pg;
  * (`PGSSLMODE=require pnpm --filter @deckpal/db migrate`) died with
  * `self-signed certificate in certificate chain` against Supabase's pooler.
  * Deferring to pg here would mean either lying in DEPLOYMENT.md or telling
- * every open-core deployer to set a pg-only value (`no-verify`).
+ * everyone deploying their own copy to set a pg-only value (`no-verify`).
  *
  * The mapping below matches libpq, including the nuance that `require` *does*
  * verify the chain (like `verify-ca`) when a root certificate is supplied:
