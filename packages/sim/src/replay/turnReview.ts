@@ -125,20 +125,28 @@ export function reviewTurn(raw: string, turn: number, o: TurnReviewOptions): Tur
     if (!header || header.t !== 'turn_start') return empty(`the log has no turn ${turn} (it has ${parsed.turns})`);
     if (header.p !== o.me) return empty(`turn ${turn} is the opponent's; pick one of your own turns`);
 
-    let start: ReplayObservation | null = null;
-    const readerDid: string[] = [];
+    // Per run: the replay backtracks over ambiguous choices, and only the run it keeps may speak (#342's leak).
+    interface Seen {
+      start: ReplayObservation | null;
+      readerDid: string[];
+    }
     const r = replayLog(raw, {
       ...(o.players ? { players: o.players } : {}),
-      observe: () => ({
-        decision(obs: ReplayObservation) {
-          if (obs.decision.kind !== 'main' || obs.decision.player !== o.me || obs.event?.turn !== turn) return;
-          if (!start) start = obs;
-          if (obs.event) readerDid.push(obs.event.text);
-        },
-        finish: () => null,
-      }),
+      observe: () => {
+        const seen: Seen = { start: null, readerDid: [] };
+        return {
+          decision(obs: ReplayObservation) {
+            if (obs.decision.kind !== 'main' || obs.decision.player !== o.me || obs.event?.turn !== turn) return;
+            if (!seen.start) seen.start = obs;
+            if (obs.event) seen.readerDid.push(obs.event.text);
+          },
+          finish: () => seen,
+        };
+      },
     });
-    const first = start as ReplayObservation | null;
+    const kept = (r.observed as Seen | undefined) ?? { start: null, readerDid: [] };
+    const first = kept.start;
+    const readerDid = kept.readerDid;
     if (!first) {
       return empty(
         r.divergence && r.divergence.turn <= turn
