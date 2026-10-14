@@ -201,7 +201,7 @@ const battleDigestTool = defineTool({
     'for), every card the opponent showed, how it ended, whether it was close, and what the log ' +
     'cannot tell (their hand, the prized cards). Then the battle simulator\'s replay of the game: ' +
     'every attack with its printed damage, Weakness/Resistance and the HP its target had; moments ' +
-    'worth a look (a self-Knock-Out, prevented damage, a near miss, a timer turn, a concession); ' +
+    'worth a look (a self-Knock-Out, an attack that did no damage, a near miss, a timer turn, a concession); ' +
     'the board at the end; one line per opponent card; and how deep a review the game deserves. ' +
     "detail 'turns' adds the board at the start of every turn. A game reported in person has no " +
     'log to digest; read its notes and review with battle_logs log_id instead. Read-only.',

@@ -154,7 +154,7 @@ test('battle review digests the games that matter before it concludes — not ev
 
 test("the digest's replay is named where games are reviewed: moments are facts to explain, review worth confirms depth (2026-10-14)", () => {
   const log = flat(pathwayText('battle_log'))
-  assert.match(log, /moments worth a look \(a Pokémon Knocked Out on its own turn, prevented damage, a near miss, a timer turn, a concession\)/)
+  assert.match(log, /moments worth a look \(a Pokémon Knocked Out on its own turn, an attack that did no damage, a near miss, a timer turn, a concession\)/)
   assert.match(log, /Treat those moments as facts to explain, and let `review worth` confirm the depth, unless the reader asked for a full review/)
   assert.match(log, /`detail: 'turns'` for the board as each turn began/)
   assert.match(log, /call `battle_turn_review` on the one or two of the reader's turns that decided it/)

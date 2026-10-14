@@ -31,14 +31,24 @@ export interface WireSideBoard {
 export interface ReplayPayload {
   players: [string, string];
   me: ReplaySide | null;
-  replay: { completed: boolean; replayed: number; actions: number; stoppedTurn: number | null; reason: string | null; unscripted: string[] };
-  turns: Array<{ turn: number; side: ReplaySide; board: [WireSideBoard, WireSideBoard] | null }>;
+  replay: {
+    completed: boolean;
+    replayed: number;
+    actions: number;
+    stoppedTurn: number | null;
+    reason: string | null;
+    unscripted: string[];
+    /** Absent from a payload made before 2026-10-14's round-2 fixes. */
+    mismatches?: Array<{ turn: number; what: string }>;
+    approximateFrom?: number | null;
+  };
+  turns: Array<{ turn: number; side: ReplaySide; board: [WireSideBoard, WireSideBoard] | null; approximate?: boolean }>;
   attacks: Array<{
     turn: number;
     side: ReplaySide;
     attacker: string;
     move: string;
-    target: { side: ReplaySide; name: string };
+    target: { side: ReplaySide; name: string } | null;
     printed: string | null;
     dealt: number;
     modifiers: string[];
@@ -47,6 +57,7 @@ export interface ReplayPayload {
   }>;
   moments: Array<{ turn: number; side: ReplaySide | null; kind: string; text: string }>;
   finalBoard: [WireSideBoard, WireSideBoard] | null;
+  finalApproximate?: boolean;
   cards: [Array<{ name: string; line: string }>, Array<{ name: string; line: string }>];
   ending: { winner: ReplaySide | null; reason: string; turn: number; note: string | null } | null;
   assessment: { score: number; depth: 'brief' | 'standard' | 'deep'; reasons: string[] } | null;
@@ -98,13 +109,18 @@ export function renderReplay(r: ReplayPayload, detail: DigestDetail, max: number
         ? `replay: complete (${rp.replayed}/${rp.actions} actions); the boards below are the engine's`
         : `replay: stopped at turn ${rp.stoppedTurn ?? '?'} (${oneLine(rp.reason ?? 'unknown', 160)}): boards end there; attacks and moments still cover the whole game`,
     );
+    if (rp.mismatches?.length) {
+      out.push(
+        `the engine disagreed with the log ${rp.mismatches.length} time(s) (${rp.mismatches.slice(0, 4).map((m) => `T${m.turn} ${oneLine(m.what, 40)}`).join(', ')}): ≈ marks a board after that point, the engine's reading rather than a fact; the attacks and moments come from the log`,
+      );
+    }
     if (rp.unscripted.length) out.push(`cards the engine does not fully script (their effects came from the log): ${rp.unscripted.slice(0, 8).map((n) => untrusted(n)).join(', ')}`);
 
     if (r.moments.length) {
       out.push('moments (facts, not judgements):');
       for (const m of r.moments) out.push(`- T${m.turn} ${m.kind}: ${sub(m.text)}`);
     } else {
-      out.push('moments: none (no self-Knock-Out, prevented damage, near miss or timer turn)');
+      out.push('moments: none (no self-Knock-Out, attack that did no damage, near miss or timer turn)');
     }
 
     if (r.attacks.length) {
@@ -119,7 +135,7 @@ export function renderReplay(r: ReplayPayload, detail: DigestDetail, max: number
         }
         const mods = a.modifiers.length ? `; ${a.modifiers.map((x) => oneLine(x, 60)).join('; ')}` : '';
         out.push(
-          `- T${a.turn} ${label(a.side)} ${untrusted(a.attacker)} ${untrusted(a.move, 40)} → ${label(a.target.side)} ${untrusted(a.target.name)}: ` +
+          `- T${a.turn} ${label(a.side)} ${untrusted(a.attacker)} ${untrusted(a.move, 60)}${a.target ? ` → ${label(a.target.side)} ${untrusted(a.target.name)}` : ''}: ` +
             `${a.dealt}${a.printed !== null ? ` (printed ${a.printed}${mods})` : mods ? ` (${mods.slice(2)})` : ''}` +
             `${a.hpBefore !== null ? ` · had ${a.hpBefore} HP` : ''}${a.knockedOut ? ' · KO' : ''}`,
         );
@@ -135,14 +151,14 @@ export function renderReplay(r: ReplayPayload, detail: DigestDetail, max: number
           continue;
         }
         const order: ReplaySide[] = r.me === null ? [0, 1] : [r.me, opp as ReplaySide];
-        out.push(`- T${t.turn} ${label(t.side)}'s turn · ${order.map((s) => `${label(s)}: ${sideLine(t.board![s], benchCap)}`).join(' | ')}`);
+        out.push(`- T${t.turn} ${label(t.side)}'s turn${t.approximate ? ' ≈' : ''} · ${order.map((s) => `${label(s)}: ${sideLine(t.board![s], benchCap)}`).join(' | ')}`);
       }
       if (r.turns.length > turns.length) out.push(`- … ${r.turns.length - turns.length} more turns (ask for one turn with battle_logs include_raw if needed)`);
     }
 
     if (r.finalBoard) {
       const order: ReplaySide[] = r.me === null ? [0, 1] : [r.me, opp as ReplaySide];
-      out.push(`board at the end: ${order.map((s) => `${label(s)}: ${sideLine(r.finalBoard![s], benchCap)}`).join(' | ')}`);
+      out.push(`board at the end${r.finalApproximate ? ' ≈' : ''}: ${order.map((s) => `${label(s)}: ${sideLine(r.finalBoard![s], benchCap)}`).join(' | ')}`);
     }
 
     const theirCards = opp === null ? [] : r.cards[opp];

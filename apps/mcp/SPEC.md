@@ -800,7 +800,7 @@ archetype, so "new matchup" and "met three times" are counts rather than guesses
     Since 2026-10-14 the battle simulator's replay of the same log follows (`replay` in the route,
     rendered by `tools/battleReplay.ts`, at most 5,000 more characters):
     - **review worth:** brief, standard or deep, with the reasons listed;
-    - **moments**, each a fact: a self-Knock-Out with the Prizes it gave away, prevented damage, an
+    - **moments**, each a fact: a self-Knock-Out with the Prizes it gave away, an attack that did no damage, an
       effect that did not affect a Pokémon, an attack that left its target on 30 HP or less, a turn
       the timer ended, how it ended;
     - **every attack:** its printed damage, Live's breakdown (Weakness, Resistance, bonuses) and the

@@ -66,6 +66,11 @@ function nameIndex(): Map<string, CardFrame[]> {
   return byName;
 }
 
+/** Every printing in the snapshot with this name (any text): for questions any of them answers, like an attack name. */
+export function framesNamed(name: string): readonly CardFrame[] {
+  return nameIndex().get(canonicalName(name)) ?? [];
+}
+
 export type Resolution = 'code' | 'name' | 'none';
 
 /**
