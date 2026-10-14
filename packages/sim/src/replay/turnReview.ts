@@ -159,15 +159,25 @@ function normaliseDeck(game: Game, side: Player, deckList?: ReadonlyArray<DeckLi
       const iid = (pool.get(k) ?? out.get(k) ?? [])[0];
       return iid === undefined ? '' : canonicalName(def(ctx, iid).name).toLowerCase();
     };
-    // Each entry's identities: its printing's; or, when the catalog cannot say which printing, every one of that name.
+    // Each entry's identities: its printing's (entries of one text add up); or, when the catalog cannot say which
+    // printing, every one of that name no resolved entry claims.
     const listed = new Map<string, { keys: string[]; count: number }>();
+    const add = (keys: string[], count: number) => {
+      if (!keys.length) return;
+      const g = JSON.stringify(keys);
+      listed.set(g, { keys, count: (listed.get(g)?.count ?? 0) + count });
+    };
+    const unresolved: DeckListEntry[] = [];
     for (const e of deckList) {
       const f = listedFrame(e.name, e.id);
+      if (f) add([defKey(f)], e.count);
+      else unresolved.push(e);
+    }
+    const claimed = new Set([...listed.values()].flatMap((l) => l.keys));
+    const known = [...new Set([...pool.keys(), ...out.keys()])].filter((k) => k !== HIDDEN && !claimed.has(k));
+    for (const e of unresolved) {
       const name = canonicalName(e.name).toLowerCase();
-      const keys = f ? [defKey(f)] : [...new Set([...pool.keys(), ...out.keys()])].filter((k) => k !== HIDDEN && nameOf(k) === name);
-      if (!keys.length) continue;
-      const g = JSON.stringify(keys);
-      listed.set(g, { keys, count: (listed.get(g)?.count ?? 0) + e.count });
+      add(known.filter((k) => nameOf(k) === name), e.count);
     }
     for (const [g, { keys, count }] of listed) {
       const already = keys.reduce((n, k) => n + (out.get(k)?.length ?? 0), 0);

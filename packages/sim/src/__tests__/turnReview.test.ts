@@ -76,6 +76,27 @@ test("two printings of one name are two cards: the rebuild keeps each printing's
   assert.equal(deck.filter((d) => d.hp === 70).length, 2, 'the other printing is its own card, both copies');
 });
 
+test("entries of one reprinted text are one card with both quantities, logged or not (Astra, #343)", () => {
+  // Turn 8. Rare Candy never appears in the log; Buddy-Buddy Poffin does, under both of these printings.
+  const deckList = [
+    { name: 'Rare Candy', id: 'me01-125', count: 2 },
+    { name: 'Rare Candy', id: 'sv01-191', count: 2 },
+    { name: 'Buddy-Buddy Poffin', id: 'me02.5-184', count: 2 },
+    { name: 'Buddy-Buddy Poffin', id: 'sv08.5-101', count: 2 },
+  ];
+  const pos = turnPosition(raw, 8, { players: AB, me: 0, deckList });
+  assert.ok(!('reason' in pos), 'reason' in pos ? pos.reason : '');
+  const { game } = pos;
+  const ps = game.state.p[0];
+  const out = [...ps.hand, ...ps.discard, ...ps.lost, ...ps.prizes];
+  for (const sl of [ps.active, ...ps.bench]) if (sl) out.push(...sl.cards, ...sl.energy, ...sl.tools);
+  const copies = (ids: number[], n: string) => ids.filter((i) => def(game.ctx, i).name === n).length;
+  assert.equal(copies(ps.deck, 'Rare Candy'), 4, 'two entries of two, never only the first');
+  const poffinsOut = copies(out, 'Buddy-Buddy Poffin');
+  assert.ok(poffinsOut >= 1, 'the log shows Poffin before turn 8');
+  assert.equal(copies(ps.deck, 'Buddy-Buddy Poffin') + poffinsOut, 4, 'four listed, counted once across both printings');
+});
+
 test('wins are counted in the worlds that ranked the option, never the larger of two samples (Astra, #343)', () => {
   const r = reviewTurn(readFileSync(join(dir, 'hns-34.txt'), 'utf8'), 6, { players: AB, me: 0 });
   assert.equal(r.found, true, r.reason ?? '');
