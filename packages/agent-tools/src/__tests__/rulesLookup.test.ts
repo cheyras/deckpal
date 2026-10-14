@@ -59,6 +59,48 @@ test('a card with no ruling says so instead of inventing one, and an empty call 
   assert.match(empty, /Pass query/);
 });
 
+// ── Astra's review of #340 ──────────────────────────────────────────────────
+
+test('a self-KO is not always a loss: simultaneous Knock Outs are resolved before anyone wins (#2239, #2240)', async () => {
+  const out = await ask({ query: 'if my Dusknoir knocks itself out with cursed blast does my opponent take a prize' });
+  assert.match(out, /OPPONENT takes the Prize cards/);
+  assert.match(out, /every Knock Out is resolved before anyone wins/);
+  assert.match(out, /both or neither is a draw/);
+});
+
+test('mulligans: only the DIFFERENCE is drawn, and equal mulligans draw nothing extra', async () => {
+  const out = await ask({ query: 'both players took a mulligan, how many extra cards do I draw' });
+  assert.match(out, /may draw up to the DIFFERENCE/);
+  assert.match(out, /both mulliganed equally, nobody draws extra/);
+});
+
+test('names match exactly: Switch Cart does not return the rulings filed under Switch', async () => {
+  const cart = await ask({ cards: ['Switch Cart'] });
+  assert.doesNotMatch(cart, /· Switch \(/, 'a ruling filed under plain "Switch" leaked in');
+  const sw = await ask({ cards: ['Switch'] });
+  assert.match(sw, /Official rulings filed under Switch/);
+});
+
+test('a card named in the QUESTION finds its rulings, and the relevant one ranks in (#2240)', async () => {
+  const out = await ask({ query: 'Can I use Cursed Blast when my opponent has one prize left?' });
+  assert.match(out, /Official rulings filed under Cursed Blast/);
+  assert.match(out, /#2240 ·/);
+});
+
+test('"Hide n Sneak" in a question does not also pull the Supporter N, and a plain word is not a card', async () => {
+  const out = await ask({ query: 'does Hide n Sneak stop Phantom Dive damage counters' });
+  assert.match(out, /Hide 'n' Sneak|Hide n Sneak/);
+  assert.doesNotMatch(out, /· N \(/);
+  const plain = await ask({ query: 'should I switch my active pokemon before attacking' });
+  assert.doesNotMatch(plain, /Official rulings filed under/);
+});
+
+test('an unknown card with a generic question gets no topic-matched rulings presented as "filed under" it', async () => {
+  const out = await ask({ query: 'when does damage happen and who takes prizes', cards: ['Zzz Not A Real Card'] });
+  assert.doesNotMatch(out, /Official rulings filed under/);
+  assert.match(out, /No official ruling is filed under Zzz Not A Real Card/);
+});
+
 test('output stays bounded: a broad query lists at most 4 rules and 8 rulings', async () => {
   const out = await ask({ query: 'damage weakness prize ability energy attack bench', cards: ['Hide n Sneak'] });
   assert.ok((out.match(/^- /gm) ?? []).length <= 4);

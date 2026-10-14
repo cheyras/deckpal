@@ -168,7 +168,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   only because Claude requests a refresh token when it sees it; DeckPal checks no OAuth scope
   string). The consent screen offers a scope choice only when `GET /oauth/client`
   includes `trust`, which the older scope-ignoring API omits. Its **read-only** connection resolves with
-  `scope: 'read'`, is built a server with only the 18 `readOnlyHint` tools (20 with the Deck-E
+  `scope: 'read'`, is built a server with only the 18 `readOnlyHint` tools (21 with the Deck-E
   improvement capability), runs in `BEGIN READ
   ONLY`, and is refused every non-GET REST call (`403 insufficient_scope`) except `POST /massentry`,
   `POST /decks/check`, `POST /decks/odds` and `POST /decks/simulate` (2026-10-10: `/decks/check` had

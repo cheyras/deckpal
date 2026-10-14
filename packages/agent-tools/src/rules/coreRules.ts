@@ -148,8 +148,11 @@ export const CORE_RULES: readonly CoreRule[] = [
     keywords: ['self ko', 'self-ko', 'knocks itself out', 'cursed blast', 'recoil', 'gives a prize', 'own pokemon knocked out'],
     text:
       'If your own Pokémon is Knocked Out — by its own Ability (Cursed Blast), recoil or any other effect — your ' +
-      'OPPONENT takes the Prize cards for it, exactly as if they had Knocked it Out. A self-Knock Out when the ' +
-      'opponent needs only that many Prizes ends the game in their favour.',
+      'OPPONENT takes the Prize cards for it, exactly as if they had Knocked it Out — so with the opponent on their ' +
+      'last Prizes it usually hands them the game. Not always: when one effect Knocks Out Pokémon on both sides (a ' +
+      'Cursed Blast that also KOs its target), every Knock Out is resolved before anyone wins. Both players take ' +
+      'Prizes, the player whose turn is next first; if both take their last Prize, the player who can still promote ' +
+      'a new Active Pokémon wins, and both or neither is a draw (tiebreaker game).',
     checked: 'sim rulings-r03.test.ts (Compendium #2425, #2239, #2240)',
   },
   {
@@ -180,8 +183,9 @@ export const CORE_RULES: readonly CoreRule[] = [
     keywords: ['60 cards', 'four copies', '4 copies', 'ace spec', 'mulligan', 'bench size', 'basic energy', 'deck rules'],
     text:
       'A deck is exactly 60 cards, with at most 4 copies of any card name (basic Energy excepted) and at most one ACE ' +
-      'SPEC card. Each player draws 7 and must have a Basic Pokémon; for each mulligan the opponent may draw an extra ' +
-      'card. Each player has 6 Prize cards and a Bench of up to 5 Pokémon unless a card says otherwise.',
+      'SPEC card. Each player draws 7 and must have a Basic Pokémon. Mulligans are compared after setup: the player ' +
+      'who mulliganed fewer times may draw up to the DIFFERENCE (if both mulliganed equally, nobody draws extra). ' +
+      'Each player has 6 Prize cards and a Bench of up to 5 Pokémon unless a card says otherwise.',
     checked: 'sim rules.test.ts (rulebook p.8, 18); check_deck',
   },
   {

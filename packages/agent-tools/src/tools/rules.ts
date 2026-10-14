@@ -45,22 +45,40 @@ function scoreRule(rule: CoreRule, query: string, qWords: string[]): number {
   return score;
 }
 
-/** A ruling matches a named card when one of its filed names is that name (or contains it, for "X ex" / "Mega X ex"). */
-function rulingMatches(r: RulingIndexEntry, cards: string[], qWords: string[]): number {
-  let score = 0;
-  const cats = r.categories.map(loose);
-  // Whole words only, and at least 3 letters for a partial match: the Supporter "N" must not match "Not a real card".
-  const within = (outer: string, inner: string): boolean => inner.length >= 3 && ` ${outer} `.includes(` ${inner} `);
-  for (const c of cards) {
-    if (cats.some((x) => x === c)) score += 6;
-    else if (cats.some((x) => within(x, c) || within(c, x))) score += 3;
+/**
+ * Names a ruling is filed under, matched EXACTLY (case, accents and apostrophes aside). Containment is not identity:
+ * "Switch Cart" is not "Switch", and "N" is not every word with an n in it (Astra, #340).
+ */
+const RULINGS_BY_NAME = new Map<string, RulingIndexEntry[]>();
+for (const r of RULING_INDEX) {
+  for (const c of r.categories) {
+    const key = loose(c);
+    const list = RULINGS_BY_NAME.get(key) ?? [];
+    list.push(r);
+    RULINGS_BY_NAME.set(key, list);
   }
-  if (qWords.length) {
-    const hay = loose(`${r.categories.join(' ')} ${r.summaries.join(' ')}`);
-    const hits = qWords.filter((w) => hay.includes(w)).length;
-    score += hits >= 2 ? hits : 0;
+}
+
+/** Case kept: a card name in a question is written with capitals ("Cursed Blast"), a plain word is not ("switch"). */
+const cased = (s: string): string =>
+  s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[’']/g, '').replace(/[^A-Za-z0-9 ]/g, ' ').replace(/s+/g, ' ').trim();
+const CASED_NAMES = [...new Set(RULING_INDEX.flatMap((r) => r.categories))]
+  .map((c) => ({ name: c, cased: cased(c) }))
+  .filter((c) => c.cased.length >= 3 && /[A-Z]/.test(c.cased))
+  .sort((a, b) => b.cased.length - a.cased.length);
+
+/** Ruling names written in the question itself, longest first, each consuming its words so "Hide n Sneak" does not also yield "N". */
+function namesInQuery(query: string): string[] {
+  let text = ` ${cased(query)} `;
+  const found: string[] = [];
+  for (const c of CASED_NAMES) {
+    const needle = ` ${c.cased} `;
+    if (text.includes(needle)) {
+      found.push(c.name);
+      text = text.split(needle).join(' ');
+    }
   }
-  return score;
+  return found;
 }
 
 function renderRuling(r: RulingIndexEntry): string {
@@ -102,10 +120,26 @@ const rulesLookupTool = defineTool({
       .filter((x) => x.s >= 2)
       .sort((a, b) => b.s - a.s)
       .slice(0, MAX_RULES);
-    const rulings = RULING_INDEX.map((r) => ({ r, s: rulingMatches(r, cards, qWords) }))
-      .filter((x) => x.s > 0)
-      // Pinned rulings (with a DeckPal summary) and newer ones first among equals.
-      .sort((a, b) => b.s - a.s || b.r.summaries.length - a.r.summaries.length || b.r.id - a.r.id);
+    // Rulings only for NAMES: the ones passed in `cards`, and card/attack/Ability names written in the question.
+    // A topic-only match ("prize", "damage") is what the core rules are for, and it buried the ruling that mattered.
+    const named = [...new Set([...cards, ...namesInQuery(query).map(loose)])];
+    const hits = new Map<number, { r: RulingIndexEntry; names: number; words: number }>();
+    for (const n of named) {
+      for (const r of RULINGS_BY_NAME.get(n) ?? []) {
+        const hit = hits.get(r.id) ?? { r, names: 0, words: 0 };
+        hit.names++;
+        hits.set(r.id, hit);
+      }
+    }
+    for (const hit of hits.values()) {
+      const hay = loose(`${hit.r.categories.join(' ')} ${hit.r.summaries.join(' ')}`);
+      hit.words = qWords.filter((w) => hay.includes(w)).length;
+    }
+    // Most of the named things first (a ruling filed under BOTH names beats one under either), then the question's
+    // words, then rulings the simulator pins, then newest.
+    const rulings = [...hits.values()].sort(
+      (a, b) => b.names - a.names || b.words - a.words || b.r.summaries.length - a.r.summaries.length || b.r.id - a.r.id,
+    );
 
     const lines: string[] = [];
     if (rules.length) {
@@ -114,11 +148,12 @@ const rulesLookupTool = defineTool({
     } else if (query) {
       lines.push('No core rule matched those words. Core rules available: ' + CORE_RULES.map((r) => r.title).join('; ') + '.');
     }
+    const namedLabel = [...new Set([...(args.cards ?? []), ...namesInQuery(query)])].join(', ');
     if (rulings.length) {
-      lines.push(`Official rulings (${rulings.length} filed under those names${rulings.length > MAX_RULINGS ? `, showing ${MAX_RULINGS}` : ''}):`);
+      lines.push(`Official rulings filed under ${namedLabel} (${rulings.length}${rulings.length > MAX_RULINGS ? `, showing ${MAX_RULINGS}` : ''}):`);
       for (const { r } of rulings.slice(0, MAX_RULINGS)) lines.push(renderRuling(r));
-    } else if (cards.length) {
-      lines.push('No official ruling is filed under ' + (args.cards ?? []).join(', ') + '. The card text (get_card) and the core rules decide it.');
+    } else if (named.length) {
+      lines.push(`No official ruling is filed under ${namedLabel}. The card text (get_card) and the core rules decide it.`);
     }
     lines.push('If these leave two answers, say what is unclear rather than guessing; a ruling link is the authority.');
     return ok(lines.join('\n'), { rules: rules.map((x) => x.r.id), rulings: rulings.slice(0, MAX_RULINGS).map((x) => x.r.id) });
