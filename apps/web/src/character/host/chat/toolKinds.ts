@@ -37,6 +37,7 @@ const KIND: Record<string, ToolKind> = {
   mutation_history: 'logs',
   battle_logs: 'logs',
   battle_digest: 'logs',
+  battle_turn_review: 'logs',
   card_price_history: 'prices',
   log_cards: 'write',
   save_deck: 'write',
@@ -195,6 +196,8 @@ export function labelFor(chip: Chip): string {
       return pair('Reading your history', 'Read your history')
     case 'battle_digest':
       return pair('Reading the game', 'Read the game')
+    case 'battle_turn_review':
+      return pair('Replaying the turn', 'Replayed the turn')
     case 'consult':
       return pair('Thinking it through', 'Thought it through')
     case 'card_price_history':
