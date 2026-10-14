@@ -212,6 +212,18 @@ DB liveness + latest run per sync job. Never cached.
 ```
 `503 { "status": "degraded", "db": "down", "error": … }` if the DB is unreachable.
 
+## GET /deckpal/api/playbooks
+Added 2026-10-14. Public (no auth) and cacheable (`Cache-Control: public, max-age=300`). The agent playbooks: DeckPal's
+step-by-step guides for an AI app, the same texts the `playbook` MCP tool returns
+(`packages/agent-tools/src/playbooks/texts.ts`, served by `apps/api/src/playbooks.ts`). The /skill page renders them.
+`?format=markdown` returns the same texts as one `text/markdown` document (the index, then each playbook, separated
+by `---`): the downloadable pointer skill's fallback for a client without the `playbook` tool, readable by a plain
+fetch (the page needs JavaScript).
+```json
+200 { "index": "# DeckPal coach: rules for every job\n…",
+      "playbooks": [ { "name": "battle-log", "text": "# Log a PTCG Live game…" }, "…" ] }
+```
+
 ## GET /deckpal/api/public-config
 Public, `Cache-Control: no-store`. The values a browser needs before it can
 talk to Supabase, plus the deployment mode — only values already public in the

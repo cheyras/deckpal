@@ -341,7 +341,7 @@ test('battle_logs puts the per-archetype record first and labels every row origi
   assert.match(res.text, /in_person/);
 });
 
-test('battle_logs detail renders saved review and an honest no-raw marker', async () => {
+test('battle_logs detail renders saved review, an honest no-raw marker and the full played_at timestamp', async () => {
   const api = stubApi({
     get: (path) => {
       if (path === '/decks') return DECKS;
@@ -350,7 +350,7 @@ test('battle_logs detail renders saved review and an honest no-raw marker', asyn
           id: 12, deckVersion: 2, result: 'loss', opponent: null,
           opponentDeck: 'Dragapult ex', opponentArchetype: 'dragapult-ex', origin: 'in_person',
           turns: null, prizes: null, notes: 'Missed the gust.', reviewMd: '## Review\nSequence gust before draw.',
-          playedAt: '2026-10-10T12:00:00.000Z', source: 'deck-e', rawLog: null,
+          playedAt: '2026-10-13T19:37:42.123Z', source: 'deck-e', rawLog: null,
           parsed: null, createdAt: '2026-10-10T12:00:00.000Z',
         },
       };
@@ -365,6 +365,8 @@ test('battle_logs detail renders saved review and an honest no-raw marker', asyn
   assert.equal(res.isError, undefined, res.text);
   assert.match(res.text, /--- review ---\n## Review/);
   assert.match(res.text, /no raw log — in_person game/);
+  // To the millisecond: moving a log to another deck copies played_at from here (Astra, #344).
+  assert.match(res.text, /played 2026-10-13T19:37:42\.123Z/);
 });
 
 test('battle_logs keeps the deck-wide archetype record above an empty version and labels unclassified rows', async () => {

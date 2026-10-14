@@ -161,24 +161,17 @@ export async function simulateBattles(ctx: Ctx, input: SimulateBattlesInput): Pr
 export const simulateBattlesTool: ToolDefinition = defineTool({
   name: 'simulate_battles',
   title: 'Simulate battles',
+  // Trimmed 2026-10-14 to make room in tools/list for `playbook`; how to use it in a job is in the deck-tune playbook.
   description:
     "Play simulated games between one of the user's decks (or an unsaved list) and other decks in DeckPal's rules engine, " +
-    'with a heuristic CPU playing both sides, and get the numbers back. Use it to test a list against a field of opponents, ' +
-    "to find a deck's weak matchups, or to check a change: pass the new version as compare_with (or compare_cards / compare_ptcgl_text) " +
-    'and both versions play the same opponents on the same seeds, and the result leads with the paired difference and a verdict. ' +
-    'Returns, per opponent: wins, losses, draws and time-outs; win rate with its 95% interval and sample size; going-first and ' +
-    'going-second splits; game length and how games were won or lost; how fast each side starts attacking; which Pokémon took ' +
-    'and gave up the most Prizes; and patterns in the losses. Also: which cards played early go with winning (an association, ' +
-    'not a cause), and which cards the engine only approximates or cannot play, which skews any matchup they are in. ' +
-    'These are simulations by a bot, not real games. When you report them, say so, give the n and the interval with every rate, ' +
-    'treat differences whose intervals overlap as noise, and never present them as real-world or ladder win rates. ' +
-    "Opponents can be the user's saved decks or the built-in Standard meta pool ('meta', or 'meta:<archetype>'): one representative list per current archetype, " +
-    "refreshed by hand from online tournament results (the report shows each list's source, date and record, and the pool's as-of date) — so a user with one deck still has opponents. " +
-    'A run takes up to about 25 seconds and plays only a few dozen games, so a single result is a small sample: to tighten the intervals ' +
-    "or settle a 'no clear difference', call again with the same inputs and the continue_token the result ends with — the games add up " +
-    'across calls (cumulative n, same seeds a longer run would use). Do that when the user wants more certainty or the verdict is still ' +
-    'open, a few times at most, and stop when the verdict is clear or the intervals are narrow enough; the result says how many calls are used. ' +
-    'Editing a deck between calls starts a fresh run.',
+    'a heuristic CPU on both sides. Test a list against a field, find weak matchups, or check a change: pass the new ' +
+    'version as compare_with (or compare_cards / compare_ptcgl_text) and both play the same opponents on the same seeds; ' +
+    'the result leads with the paired difference and a verdict. Per opponent: wins, losses, draws, time-outs, win rate ' +
+    'with its 95% interval and n, going-first/second splits, game length, Prize takers, loss patterns, and the cards the ' +
+    "engine approximates. Opponents: the user's saved decks or the built-in Standard meta pool ('meta', 'meta:<archetype>'). " +
+    "These are a bot's games: say so, give n and the interval with every rate, treat overlapping intervals as noise, never " +
+    'call them real-world win rates. A run is a few dozen games in up to ~25 s; for more certainty call again with the ' +
+    'continue_token it ends with (games add up; editing the deck starts afresh), a few times at most.',
   inputSchema: simulateBattlesInputSchema,
   annotations: { readOnlyHint: true, idempotentHint: true },
   handler: async (input, ctx): Promise<ToolResult> => {

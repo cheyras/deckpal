@@ -83,7 +83,7 @@ const LLMS_TXT = [
   '## Connect an AI app',
   '- [MCP endpoint](' +
     MCP_URL +
-    '): remote Streamable HTTP, OAuth 2.1 with PKCE and dynamic client registration, 30 tools (19 read, 11 write), Read only option at consent',
+    '): remote Streamable HTTP, OAuth 2.1 with PKCE and dynamic client registration, 31 tools (20 read, 11 write), Read only option at consent',
   '- Claude: add a custom connector with the URL ' + MCP_URL + ' (works on the free plan, one custom connector)',
   '- Claude Code: ' + CLAUDE_CODE_CMD,
   '- Other apps: compatibility by plan is on the home page, last checked ' + COMPAT_CHECKED,
@@ -95,6 +95,7 @@ const LLMS_TXT = [
   '- Battle logs: battle_logs, battle_digest, battle_turn_review, add_battle_log, edit_battle_log, delete_battle_log',
   '- Lists and shopping: lists, edit_list, delete_list, set_cart',
   '- Safety: health, mutation_history, revert',
+  '- Guides: playbook',
   '',
   '## Product',
   '- [Home](https://deckpal.app/): the loop (plan, playtest, tune, build), compatibility table and FAQ',
@@ -692,10 +693,11 @@ export const COPY = {
       },
       access: {
         title: 'Read only, or read and change',
-        body: 'You choose when you approve. Read only gives your AI the 19 tools that look things up. Read and change adds the 11 that edit your collection, decks, lists and battle logs. Most changes are previewed before they are saved, most can be reverted later, and you can disconnect any time in Profile, then Agent access.',
+        body: 'You choose when you approve. Read only gives your AI the 20 tools that look things up. Read and change adds the 11 that edit your collection, decks, lists and battle logs. Most changes are previewed before they are saved, most can be reverted later, and you can disconnect any time in Profile, then Agent access.',
       },
       tools: {
         title: 'What your AI can do',
+        playbooks: 'Read the playbooks your AI follows with these tools',
         groups: [
           { name: 'Collection', tools: 'collection_summary, collection_log, collection_value, log_cards, set_progress' },
           { name: 'Catalog, prices and rules', tools: 'search_cards, get_card, card_price_history, rules_lookup' },
@@ -703,6 +705,7 @@ export const COPY = {
           { name: 'Battle logs', tools: 'battle_logs, battle_digest, battle_turn_review, add_battle_log, edit_battle_log, delete_battle_log' },
           { name: 'Lists and shopping', tools: 'lists, edit_list, delete_list, set_cart' },
           { name: 'Safety', tools: 'health, mutation_history, revert' },
+          { name: 'Guides', tools: 'playbook' },
         ],
       },
       compat: {

@@ -2,13 +2,14 @@
 
 # DeckPal MCP tools
 
-**30 tools: 19 read, 11 write**, in the order `tools/list` returns them, plus 3 capability-gated read tools shown only to a token holding the Deck-E improvement capability. A read-only connection is shown the 19 read tools and none of the writes.
+**31 tools: 20 read, 11 write**, in the order `tools/list` returns them, plus 3 capability-gated read tools shown only to a token holding the Deck-E improvement capability. A read-only connection is shown the 20 read tools and none of the writes.
 
 Every write previews by default (`dry_run` defaults to true) except `deck_strategy`, whose description says it writes at once. "destructive" is MCP's meaning: the tool may change or remove existing data, not only add to it. What can be undone, and how, is in `decisions/2026/2026-10-12-mcp-tool-surface-and-write-safety.md`.
 
 | tool | title | kind | purpose |
 |---|---|---|---|
 | [`health`](#health) | DeckPal health & data freshness | read | Check that deckpal-mcp can reach Postgres and deckpal-api, how fast those hops are, and how fresh the data is: catalog counts (cards/variants/sets), owned totals, the last sync run per job with its status, and price freshness per source. |
+| [`playbook`](#playbook) | Playbook for a job | read | DeckPal's step-by-step guide for a job: which tools to call, with what, and how to reply. |
 | [`collection_summary`](#collection_summary) | Collection summary | read | The default entry point for collection questions: distinct cards owned, total copies, sets with ownership, estimated USD value (with the unpriced-variant count), the top-N owned cards by value, and the 5 nearest-complete sets for your default goal. |
 | [`collection_log`](#collection_log) | Collection change log | read | The audit trail of collection changes (collection_event), newest first: when, which card/variant, the quantity delta and resulting quantity, who wrote it (source: web UI, deckpal-mcp, imports) and any note. |
 | [`collection_value`](#collection_value) | Collection value & movers | read | Estimated collection value right now (per currency, best market price × quantity), how it changed over a window (from the daily value snapshots), and the biggest owned price movers vs their 30-day average. |
@@ -22,7 +23,7 @@ Every write previews by default (`dry_run` defaults to true) except `deck_strate
 | [`delete_deck`](#delete_deck) | Delete a deck | write, destructive, idempotent | Delete a deck and its card list (the collection is NOT touched — decks only reference cards). |
 | [`check_deck`](#check_deck) | Check a deck list | read | Run this on every complete deck list before showing or saving it. |
 | [`deck_odds`](#deck_odds) | Deck odds | read | Opening-hand, Prize and draw odds for a deck, from tens of thousands of seeded shuffles (a repeat call gives the same numbers). |
-| [`simulate_battles`](#simulate_battles) | Simulate battles | read | Play simulated games between one of the user's decks (or an unsaved list) and other decks in DeckPal's rules engine, with a heuristic CPU playing both sides, and get the numbers back. |
+| [`simulate_battles`](#simulate_battles) | Simulate battles | read | Play simulated games between one of the user's decks (or an unsaved list) and other decks in DeckPal's rules engine, a heuristic CPU on both sides. |
 | [`deck_strategy`](#deck_strategy) | Read or write a deck strategy guide | write, destructive, idempotent | Read or replace a deck's strategy guide (markdown). |
 | [`add_battle_log`](#add_battle_log) | Add a battle log to a deck | write, additive | Attach a PTCG Live or in-person battle to a deck. |
 | [`battle_logs`](#battle_logs) | Read battle logs | read | Read a deck's battle logs. |
@@ -53,6 +54,18 @@ read · annotations `{"title":"DeckPal health & data freshness","readOnlyHint":t
 Check that deckpal-mcp can reach Postgres and deckpal-api, how fast those hops are, and how fresh the data is: catalog counts (cards/variants/sets), owned totals, the last sync run per job with its status, and price freshness per source. Use this to answer "is the system up / is my data fresh / is it slow right now". Not for collection statistics — use collection_summary for that.
 
 No arguments.
+
+<a id="playbook"></a>
+
+### `playbook` — Playbook for a job
+
+read · annotations `{"title":"Playbook for a job","readOnlyHint":true,"openWorldHint":false}`
+
+DeckPal's step-by-step guide for a job: which tools to call, with what, and how to reply. Open it before the first DeckPal call of a job; with no name it gives the rules for every job and which playbook fits. Read-only.
+
+| argument | type | required | default | description |
+|---|---|---|---|---|
+| `name` | "battle-log" \| "game-analysis" \| "record-review" \| "deck-build" \| "deck-tune" \| "strategy-guide" \| "rules" \| "collection" \| "prices" \| "undo-and-history" \| "tools" |  |  |  |
 
 <a id="collection_summary"></a>
 
@@ -280,7 +293,7 @@ Opening-hand, Prize and draw odds for a deck, from tens of thousands of seeded s
 
 read · annotations `{"title":"Simulate battles","readOnlyHint":true,"openWorldHint":false}`
 
-Play simulated games between one of the user's decks (or an unsaved list) and other decks in DeckPal's rules engine, with a heuristic CPU playing both sides, and get the numbers back. Use it to test a list against a field of opponents, to find a deck's weak matchups, or to check a change: pass the new version as compare_with (or compare_cards / compare_ptcgl_text) and both versions play the same opponents on the same seeds, and the result leads with the paired difference and a verdict. Returns, per opponent: wins, losses, draws and time-outs; win rate with its 95% interval and sample size; going-first and going-second splits; game length and how games were won or lost; how fast each side starts attacking; which Pokémon took and gave up the most Prizes; and patterns in the losses. Also: which cards played early go with winning (an association, not a cause), and which cards the engine only approximates or cannot play, which skews any matchup they are in. These are simulations by a bot, not real games. When you report them, say so, give the n and the interval with every rate, treat differences whose intervals overlap as noise, and never present them as real-world or ladder win rates. Opponents can be the user's saved decks or the built-in Standard meta pool ('meta', or 'meta:<archetype>'): one representative list per current archetype, refreshed by hand from online tournament results (the report shows each list's source, date and record, and the pool's as-of date) — so a user with one deck still has opponents. A run takes up to about 25 seconds and plays only a few dozen games, so a single result is a small sample: to tighten the intervals or settle a 'no clear difference', call again with the same inputs and the continue_token the result ends with — the games add up across calls (cumulative n, same seeds a longer run would use). Do that when the user wants more certainty or the verdict is still open, a few times at most, and stop when the verdict is clear or the intervals are narrow enough; the result says how many calls are used. Editing a deck between calls starts a fresh run.
+Play simulated games between one of the user's decks (or an unsaved list) and other decks in DeckPal's rules engine, a heuristic CPU on both sides. Test a list against a field, find weak matchups, or check a change: pass the new version as compare_with (or compare_cards / compare_ptcgl_text) and both play the same opponents on the same seeds; the result leads with the paired difference and a verdict. Per opponent: wins, losses, draws, time-outs, win rate with its 95% interval and n, going-first/second splits, game length, Prize takers, loss patterns, and the cards the engine approximates. Opponents: the user's saved decks or the built-in Standard meta pool ('meta', 'meta:<archetype>'). These are a bot's games: say so, give n and the interval with every rate, treat overlapping intervals as noise, never call them real-world win rates. A run is a few dozen games in up to ~25 s; for more certainty call again with the continue_token it ends with (games add up; editing the deck starts afresh), a few times at most.
 
 | argument | type | required | default | description |
 |---|---|---|---|---|

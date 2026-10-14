@@ -154,6 +154,11 @@ export function Connect() {
                 </div>
               ))}
             </dl>
+            <p>
+              <Link to="/skill" className="lp-link">
+                {s.tools.playbooks}
+              </Link>
+            </p>
           </section>
 
           <section className="lp-doc-sec lp-doc-wide" aria-labelledby="compat">

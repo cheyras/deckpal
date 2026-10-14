@@ -1,4 +1,5 @@
 import { adminBootstrapStatus, appDefaults, ensureAdminBootstrap, requireActiveAccount, requestAccessStore } from './admin/access.js';
+import { playbooksHandler } from './playbooks.js';
 import { adminRouter } from './routes/admin.js';
 import { adminFeatureRouter, meFeatureRouter } from './routes/features.js';
 import { selfSharingRouter, adminUsageRouter } from './decke/usageRoutes.js';
@@ -518,6 +519,9 @@ export function createApp(): express.Express {
   }
 
   api.use(requireActiveAccount);
+
+  // The agent playbooks (playbooks.ts): public — no requireAuth — and static, so cacheable.
+  api.get('/playbooks', playbooksHandler);
 
   // Health: DB liveness + per-sync freshness (cheap; single grouped query).
   // Public — no requireAuth.
