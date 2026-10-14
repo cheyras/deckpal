@@ -101,6 +101,16 @@ try {
   const pk5 = await mkCard('pk-5', 'Pikachu V', ['holo-cosmos', 'holo'], 1);
   await mkCard('pk-6', 'Pikachu', ['reverse', 'holo']);
   await mkCard('rc-1', 'Raichu', ['holo']);
+  const fillSet = (await one(
+    `INSERT INTO card_set (series_id, tcgdex_id, slug, name, released_on, card_count_official, card_count_total)
+     VALUES ($1,'fill','fill','Filler','2026-02-01',500,500) RETURNING id`, [series])).id;
+  await db.query(
+    `WITH c AS (
+       INSERT INTO card (set_id, tcgdex_id, local_id, local_id_numeric, number_sort, name, name_normalized, category, rarity)
+       SELECT $1, 'fill-' || g, g::text, g, lpad(g::text, 4, '0'), 'Filler ' || g, 'filler ' || g, 'Pokemon', 'Common'
+         FROM generate_series(1, 500) g RETURNING id)
+     INSERT INTO card_variant (card_id, variant_kind_code, sort_order, is_primary) SELECT id, 'normal', 0, true FROM c`,
+    [fillSet]);
   // 501 cards for the limit, in one statement.
   await db.query(
     `WITH c AS (
@@ -117,6 +127,7 @@ try {
     { itemId: 'i-4n', position: 1, kind: 'card', cardId: 'pk-4', name: 'Pikachu', staticQuantity: 1 },
   ];
   let calls = [];
+  let failBulk = false;
   const api = {
     async get(path) {
       calls.push(['GET', path]);
@@ -127,6 +138,7 @@ try {
     async send(method, path, body) {
       calls.push([method, path, body]);
       if (method === 'POST' && path === '/lists') return { list: { ...LIST, id: 'new-list', name: body.name, itemCount: 0 } };
+      if (method === 'POST' && path.endsWith('/items/bulk') && failBulk) throw new Error('500 bulk write refused');
       if (method === 'POST' && path.endsWith('/items/bulk')) return { added: body.items.length, alreadyPresent: 0, unresolved: [], batchId: 'b-1' };
       if (method === 'DELETE') return {};
       throw new Error(`unexpected ${method} ${path}`);
@@ -219,6 +231,19 @@ try {
     assert.match(none.text, /needs at least one filter/);
   });
 
+  await test('a failed add takes nothing out: the removals that were its other half are not run (Astra, #345)', async () => {
+    calls = [];
+    failBulk = true;
+    try {
+      const r = await edit({ mode: 'edit', list_id: 'Holo Pikachus', add_search: { query: 'pikachu', finish: ['holo'] }, remove_item_ids: ['i-4n'], dry_run: false });
+      assert.match(r.text, /FAILED: bulk add — 500 bulk write refused/);
+      assert.match(r.text, /NOT DONE: 1 removal\(s\), because the add failed — nothing was taken out of the list/);
+      assert.ok(!calls.some(([m]) => m === 'DELETE'), 'no DELETE was sent');
+    } finally {
+      failBulk = false;
+    }
+  });
+
   await test('add_search takes no filter it cannot apply: text and damage are refused, never dropped', async () => {
     const parsed = editList.inputSchema.safeParse({ add_search: { query: 'pikachu', text: ['draw'], damage: '+' } });
     assert.equal(parsed.success, false, 'dropped, they widened the write to every Pikachu');
@@ -282,6 +307,28 @@ try {
     assert.ok(!after.some((i) => i.variant === pk4.normal), 'the normal pk-4 is gone');
     assert.equal(after.filter((i) => i.variant === pk4.holo).length, 1, 'pk-4 is back, holo');
     assert.deepEqual(after.filter((i) => i.variant === pk2.holo).map((i) => i.qty), [3], 'pk-2 was already holo: kept, quantity 3');
+  });
+
+  await test('real routes: the search line is in the reply when nothing is added — all already listed, or no match', async () => {
+    const all = await editReal({ mode: 'edit', list_id: 'Dyn Pikachus', add_search: { query: 'pikachu', finish: ['holo', 'reverse'] } });
+    assert.equal(all.isError, undefined, all.text);
+    assert.match(all.text, /from the search: 0 card\(s\) the search finds \(name contains 'pikachu' AND finish holo\/reverse\); 5 already in the list, skipped/);
+    const none = await editReal({ mode: 'edit', list_id: 'Dyn Pikachus', add_search: { query: 'zzz-no-such-card' } });
+    assert.equal(none.isError, undefined, none.text);
+    assert.match(none.text, /from the search: 0 card\(s\) the search finds \(name contains 'zzz-no-such-card'\)/);
+  });
+
+  await test('real routes: add_cards, add_search and add_missing count against ONE limit, checked before anything is written (Astra, #345)', async () => {
+    const before = await itemsOf('Dyn Pikachus');
+    const r = await editReal({
+      mode: 'edit', list_id: 'Dyn Pikachus',
+      add_missing: { set_id: 'fill', goal: 'complete' },
+      add_search: { query: 'raichu' },
+      remove_item_ids: [before[0].id],
+    });
+    assert.equal(r.isError, true, r.text);
+    assert.match(r.text, /That is 501 cards in one call \(add_cards, add_search and add_missing together\); one call adds at most 500/);
+    assert.deepEqual(await itemsOf('Dyn Pikachus'), before, 'nothing added, nothing removed');
   });
 
   results.status = 'passed';

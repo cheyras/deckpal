@@ -622,10 +622,6 @@ const editListTool = defineTool({
         const s = await searchForList(ctx, add_search, listed);
         if (!s.ok) return fail(s.message);
         searched = s;
-        const resolvedCount = adds.filter((a) => a.ok).length;
-        if (resolvedCount + s.adds.length > SEARCH_ADD_MAX) {
-          return fail(`That is ${resolvedCount + s.adds.length} cards in one call; the limit is ${SEARCH_ADD_MAX}. Split it.`);
-        }
       }
 
       // ── AN ITEM REMOVED AND ADDED BACK AS THE SAME PRINTING IS KEPT ──────
@@ -680,6 +676,20 @@ const editListTool = defineTool({
           dryRun: true,
           source: SOURCE,
         })) as { wouldAdd: number; items: Array<{ label: string }> };
+      }
+
+      // ── ONE LIMIT OVER EVERY ADD, CHECKED BEFORE ANYTHING IS WRITTEN ─────
+      //
+      // add_cards, add_search and add_missing go out as ONE bulk request, which the API refuses
+      // over its limit. Counting only two of them let a 500-card add_missing plus one search card
+      // through this check, and the refused write was followed by the removals it was meant to
+      // replace (Astra, #345).
+      const totalAdds = cardAdds.filter((a) => a.ok).length + (searched?.adds.length ?? 0) + (missingPreview?.wouldAdd ?? 0);
+      if (totalAdds > SEARCH_ADD_MAX) {
+        return fail(
+          `That is ${totalAdds} cards in one call (add_cards, add_search and add_missing together); one call adds at most ` +
+            `${SEARCH_ADD_MAX}. Split it.`,
+        );
       }
 
       // ── Plan ─────────────────────────────────────────────────────────────
@@ -791,6 +801,7 @@ const editListTool = defineTool({
         }
       }
       const searchItems = (searched?.adds ?? []).map((a) => ({ cardVariantId: a.variantId, quantity: 1 }));
+      let addFailed = false;
       if (resolvedAdds.length > 0 || add_missing || searchItems.length > 0) {
         try {
           const res = (await ctx.api.send('POST', `/lists/${encodeURIComponent(targetId)}/items/bulk`, {
@@ -823,16 +834,23 @@ const editListTool = defineTool({
               (res.alreadyPresent ? `, ${res.alreadyPresent} already in the list` : '') +
               (res.unresolved.length ? `, ${res.unresolved.length} unresolved` : ''),
           );
-          if (searched) lines.push(`  from the search: ${searchSummary(searched.adds, searched.filters, searched.skipped, add_search?.finish)}`);
           if (res.batchId) lines.push(`  undo with revert(batch_id: "${res.batchId}")`);
         } catch (err) {
           failures++;
+          addFailed = true;
           lines.push(`  FAILED: bulk add — ${errText(err)}`);
         }
       }
+      // Always, written or not: "nothing new to add, 12 already in the list" is an answer too.
+      if (searched) lines.push(`  from the search: ${searchSummary(searched.adds, searched.filters, searched.skipped, add_search?.finish)}`);
 
       for (const id of keptItems) lines.push(`  kept item ${id}: already that printing`);
-      for (const id of removals) {
+      // A removal in the same call as an add is usually the other half of a swap: if the add
+      // failed, taking the old items out would leave neither. Nothing is removed; say so.
+      if (addFailed && removals.length) {
+        lines.push(`  NOT DONE: ${removals.length} removal(s), because the add failed — nothing was taken out of the list`);
+      }
+      for (const id of addFailed ? [] : removals) {
         try {
           // `source` attributes the removal in mutation_history; without it the
           // route recorded the agent's removals as made in the web UI.
