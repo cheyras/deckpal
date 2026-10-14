@@ -2420,8 +2420,10 @@ export const api = {
   // Personal access tokens (Profile → Agent access). `secret` comes back on
   // create and NOWHERE else — the server stores only a hash of it.
   apiTokens: (signal?: AbortSignal) => get<{ tokens: ApiTokenRow[]; canGrantDeckeImprovementRead: boolean }>('/tokens', signal),
-  createApiToken: (name: string, deckeImprovementRead = false) =>
-    send<{ token: ApiTokenRow; secret: string }>('POST', '/tokens', { name, deckeImprovementRead }),
+  // `scope` 'read' mints a read-only token (migration 085); the server treats
+  // an absent scope as 'full', so it is always sent rather than defaulted here.
+  createApiToken: (name: string, scope: 'full' | 'read', deckeImprovementRead = false) =>
+    send<{ token: ApiTokenRow; secret: string }>('POST', '/tokens', { name, scope, deckeImprovementRead }),
   revokeApiToken: (id: string) => send<{ token: ApiTokenRow }>('DELETE', `/tokens/${encodeURIComponent(id)}`),
 
   // OAuth "Connect" flow (/authorize consent screen). See apps/api/src/routes/oauth.ts.

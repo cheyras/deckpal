@@ -12,7 +12,9 @@ import { createHash } from 'node:crypto';
  * and checks them again, then drives the whole connection lifecycle through
  * the real Express routes: consent with a scope, the code exchange, refresh
  * rotation, reuse revoking the connection, read-only refusals, expiry, and
- * which columns a signed-in user may still write directly.
+ * which columns a signed-in user may still write directly. Last, it applies
+ * 085 and mints a read-only personal access token through the real POST
+ * /tokens, which before 085 must refuse rather than mint full access.
  */
 
 const sha = (raw) => createHash('sha256').update(raw, 'utf8').digest('hex');
@@ -32,7 +34,7 @@ export async function legacyTokensBefore075({ db, id, test }) {
   return legacy;
 }
 
-export async function runOAuthIntegration({ db, as, id, test, legacy }) {
+export async function runOAuthIntegration({ db, as, id, test, legacy, migration }) {
   const tokens = await import('@deckpal/db');
   const { resolveToken, listTokens, countActiveTokens } = tokens;
 
@@ -243,11 +245,98 @@ export async function runOAuthIntegration({ db, as, id, test, legacy }) {
       await denied("UPDATE api_token SET scope='full' WHERE id=$1", [row.id]);
       await denied("UPDATE api_token SET expires_at=now()+interval '10 years' WHERE id=$1", [row.id]);
       await denied("UPDATE api_token SET oauth_redirect_uri='https://claude.ai/api/mcp/auth_callback' WHERE id=$1", [row.id]);
+      // Until 085, not even scope may be named on a mint (085 grants that one column).
       await denied("INSERT INTO api_token(user_id,name,token_hash,prefix,scope) VALUES($1,'x',repeat('c',64),'dsk_cccccccc','full')", [id(5)]);
       await denied('SELECT * FROM oauth_token', []);
       // What the app itself does as the user still works: minting and revoking.
       await as(id(5), (c) => c.query("INSERT INTO api_token(user_id,name,token_hash,prefix) VALUES($1,'direct',repeat('d',64),'dsk_dddddddd')", [id(5)]));
       await as(id(5), (c) => c.query('UPDATE api_token SET revoked_at=COALESCE(revoked_at,now()), last_used_at=now() WHERE user_id=$1', [id(5)]));
+    });
+
+    // ── Migration 085: a personal access token can be minted read-only ──────
+    const named = async (name) => (await db.query('SELECT count(*)::int n FROM api_token WHERE name=$1', [name])).rows[0].n;
+
+    await test('before 085, POST /tokens refuses a read-only token rather than mint full access; a full one still mints', async () => {
+      const refused = await request('/s/tokens', json({ name: 'Reader before 085', scope: 'read' }));
+      assert.equal(refused.status, 503);
+      assert.equal((await refused.json()).error.code, 'unavailable');
+      assert.equal(await named('Reader before 085'), 0, 'nothing was minted, full or otherwise');
+      const full = await request('/s/tokens', json({ name: 'Full before 085' }));
+      assert.equal(full.status, 201);
+      assert.equal((await full.json()).token.scope, 'full');
+    });
+
+    await migration('085_read_only_tokens.sql');
+
+    await test('085: a read-only token minted through POST /tokens resolves read, is listed read, and is refused every write', async () => {
+      const created = await request('/s/tokens', json({ name: 'Read-only laptop', scope: 'read' }));
+      assert.equal(created.status, 201);
+      const { token, secret } = await created.json();
+      assert.match(secret, /^dsk_/);
+      assert.equal(token.scope, 'read');
+      assert.equal(token.expiresAt, null, 'a hand-made token never expires, read-only or not');
+      assert.equal(token.oauthClientId, null);
+      const row = (await db.query('SELECT user_id, scope, expires_at, oauth_client_id, token_hash FROM api_token WHERE id=$1', [token.id])).rows[0];
+      assert.deepEqual({ user: row.user_id, scope: row.scope, expires: row.expires_at, client: row.oauth_client_id }, { user: id(5), scope: 'read', expires: null, client: null });
+      assert.equal(row.token_hash, sha(secret), 'its own hash is the bearer secret, unlike a connection\'s sealed one');
+      assert.deepEqual(await resolveToken(db, secret), { tokenId: token.id, userId: id(5), scope: 'read', deckeImprovementRead: false });
+
+      // Through the real credential middleware and enforceTokenScope.
+      assert.deepEqual(await (await bearer(secret)).json(), { user: id(5), kind: 'token', scope: 'read' });
+      for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+        const refused = await bearer(secret, method);
+        assert.equal(refused.status, 403, method);
+        assert.equal(refused.headers.get('www-authenticate'), 'Bearer error="insufficient_scope"', method);
+        assert.equal((await refused.json()).error.code, 'insufficient_scope', method);
+      }
+      const cart = await request('/t/massentry', { method: 'POST', headers: { authorization: 'Bearer ' + secret } });
+      assert.equal(cart.status, 200, 'the POSTs that write nothing still get through');
+
+      const listed = (await (await request('/s/tokens')).json()).tokens.find((t) => t.id === token.id);
+      assert.equal(listed.scope, 'read');
+      assert.equal(listed.redirect, null);
+
+      // Absent is still full, and a full token still writes.
+      const full = await request('/s/tokens', json({ name: 'Full after 085' }));
+      assert.equal(full.status, 201);
+      const fullBody = await full.json();
+      assert.equal(fullBody.token.scope, 'full');
+      assert.equal((await bearer(fullBody.secret, 'POST')).status, 200);
+      assert.equal((await resolveToken(db, fullBody.secret))?.scope, 'full');
+
+      const bogus = await request('/s/tokens', json({ name: 'Bogus scope', scope: 'admin' }));
+      assert.equal(bogus.status, 400);
+      assert.equal(await named('Bogus scope'), 0);
+    });
+
+    await test('085 grants a signed-in user INSERT (scope) and nothing more: no UPDATE of scope, no other server-owned column', async () => {
+      const deniedAs = (role, sql, args, code = '42501') =>
+        assert.rejects(as(id(5), (c) => c.query(sql, args), { role }), (e) => e.code === code, role + ': ' + sql);
+      // Naming scope directly over PostgREST now works, for either value: both are within the user's own reach.
+      const direct = (await as(id(5), (c) => c.query(
+        "INSERT INTO api_token(user_id,name,token_hash,prefix,scope) VALUES($1,'direct read',repeat('e',64),'dsk_eeeeeeee','read') RETURNING id", [id(5)]))).rows[0].id;
+      assert.equal((await db.query('SELECT scope FROM api_token WHERE id=$1', [direct])).rows[0].scope, 'read');
+      await as(id(5), (c) => c.query("INSERT INTO api_token(user_id,name,token_hash,prefix,scope) VALUES($1,'direct full',repeat('f',64),'dsk_ffffffff','full')", [id(5)]));
+      // A read token still cannot be widened, by its owner or anyone.
+      await deniedAs('authenticated', "UPDATE api_token SET scope='full' WHERE id=$1", [direct]);
+      assert.equal((await db.query('SELECT scope FROM api_token WHERE id=$1', [direct])).rows[0].scope, 'read');
+      // 075's CHECK still holds, and the other server-owned columns stay ungranted.
+      await deniedAs('authenticated', "INSERT INTO api_token(user_id,name,token_hash,prefix,scope) VALUES($1,'x',repeat('1',64),'dsk_11111111','admin')", [id(5)], '23514');
+      await deniedAs('authenticated', "INSERT INTO api_token(user_id,name,token_hash,prefix,scope,expires_at) VALUES($1,'x',repeat('2',64),'dsk_22222222','read',now())", [id(5)]);
+      await deniedAs('authenticated', "INSERT INTO api_token(user_id,name,token_hash,prefix,scope,oauth_client_id) VALUES($1,'x',repeat('3',64),'dsk_33333333','read','c')", [id(5)]);
+      await deniedAs('authenticated', "INSERT INTO api_token(user_id,name,token_hash,prefix,scope,oauth_redirect_uri) VALUES($1,'x',repeat('4',64),'dsk_44444444','read','https://claude.ai/api/mcp/auth_callback')", [id(5)]);
+      // Own rows only, as ever (027), and anon still mints nothing.
+      await deniedAs('authenticated', "INSERT INTO api_token(user_id,name,token_hash,prefix,scope) VALUES($1,'x',repeat('5',64),'dsk_55555555','read')", [id(6)]);
+      await deniedAs('anon', "INSERT INTO api_token(user_id,name,token_hash,prefix,scope) VALUES($1,'x',repeat('6',64),'dsk_66666666','read')", [id(5)]);
+      const grants = (await db.query(
+        `SELECT privilege_type, column_name FROM information_schema.column_privileges
+          WHERE table_schema='public' AND table_name='api_token' AND grantee='authenticated' AND privilege_type IN ('INSERT','UPDATE')
+          ORDER BY 1, 2`)).rows.map((r) => r.privilege_type + ' ' + r.column_name);
+      assert.deepEqual(grants, [
+        'INSERT name', 'INSERT prefix', 'INSERT scope', 'INSERT token_hash', 'INSERT user_id',
+        'UPDATE last_used_at', 'UPDATE name', 'UPDATE revoked_at',
+      ]);
+      await as(id(5), (c) => c.query('UPDATE api_token SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1', [id(5)]));
     });
   } finally {
     await new Promise((resolve) => server.close(resolve));

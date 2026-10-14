@@ -396,7 +396,9 @@ try{
     assert.equal((await db.query('SELECT count(*)::int n FROM api_token WHERE user_id=$1 AND revoked_at IS NULL',[id(4)])).rows[0].n,0);
    }finally{await db.query('ROLLBACK');await new Promise(resolve=>server.close(resolve));}
   });
-  await oauth.runOAuthIntegration({db,as,id,test,legacy:legacyTokens});
+  // runOAuthIntegration applies 085 itself, between the checks that need the
+  // schema before it and the read-only personal tokens that need it after.
+  await oauth.runOAuthIntegration({db,as,id,test,legacy:legacyTokens,migration});
   // The peer-owned economics tests use this SAME runner-owned database and
   // actual migration functions, never a URL supplied by a caller.
   for(const name of ['066_credit_economy.sql','067_credit_economy_security.sql']) await migration(name);

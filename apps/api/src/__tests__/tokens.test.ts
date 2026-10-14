@@ -9,6 +9,7 @@ import {
   hashToken,
   listTokens,
   looksLikeApiToken,
+  readOnlyTokensReady,
   resolveToken,
   revokeToken,
   tokenPrefix,
@@ -59,21 +60,32 @@ const live = (r: Row): boolean =>
  */
 function fakeDb(
   rows: Row[] = [],
-  { migrated = true, secrets = [] as Secret[] }: { migrated?: boolean; secrets?: Secret[] } = {},
-): Queryable & { rows: Row[] } {
+  {
+    migrated = true,
+    secrets = [] as Secret[],
+    scopeGrant = true,
+  }: { migrated?: boolean; secrets?: Secret[]; scopeGrant?: boolean } = {},
+): Queryable & { rows: Row[]; sqls: string[] } {
   let seq = rows.length;
+  const sqls: string[] = [];
   const out = (r: Row) => (migrated ? { expires_at: null, scope: 'full', oauth_client_id: null, oauth_redirect_uri: null, decke_improvement_read: false, ...r } : r);
   const db = {
     rows,
+    sqls,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async query(text: string, params: unknown[] = []): Promise<any> {
       const sql = text.replace(/\s+/g, ' ').trim();
-      if (!migrated && /expires_at|oauth_token|oauth_client_id|oauth_redirect_uri|\bt\.scope\b/.test(sql) && !sql.includes('to_regclass')) {
+      sqls.push(sql);
+      if (!migrated && /expires_at|oauth_token|oauth_client_id|oauth_redirect_uri|\bscope\b/.test(sql) && !sql.includes('to_regclass') && !sql.startsWith("SELECT id, user_id, 'full' AS scope")) {
         throw new Error(`fakeDb: pre-075 database has no such column or table: ${sql}`);
       }
 
       if (sql.startsWith("SELECT to_regclass('public.oauth_token')")) {
         return { rows: [{ ready: migrated }] };
+      }
+      // Migration 085: whether the inserting role holds INSERT (scope).
+      if (sql.startsWith("SELECT has_column_privilege('public.api_token', 'scope', 'INSERT')")) {
+        return { rows: [{ ready: scopeGrant }] };
       }
       if (sql.includes('information_schema.columns')) {
         return { rows: [{ ready: migrated }] };
@@ -108,7 +120,12 @@ function fakeDb(
         return { rows: rows.filter((r) => r.user_id === userId).map(out) };
       }
       if (sql.startsWith('INSERT INTO api_token')) {
-        const [user_id, name, token_hash, prefix] = params as [string, string, string, string];
+        const [user_id, name, token_hash, prefix, scope] = params as [string, string, string, string, 'full' | 'read' | undefined];
+        const namesScope = sql.startsWith('INSERT INTO api_token (user_id, name, token_hash, prefix, scope)');
+        // 075's column grant without 085: the role may not name the column.
+        if (namesScope && !scopeGrant) throw Object.assign(new Error('permission denied for table api_token'), { code: '42501' });
+        // 075's CHECK constraint.
+        if (namesScope && scope !== 'full' && scope !== 'read') throw Object.assign(new Error('api_token_scope_check'), { code: '23514' });
         const row: Row = {
           id: `id-${++seq}`,
           user_id,
@@ -118,6 +135,7 @@ function fakeDb(
           created_at: new Date().toISOString(),
           last_used_at: null,
           revoked_at: null,
+          ...(namesScope ? { scope } : {}),
         };
         rows.push(row);
         return { rows: [out(row)] };
@@ -318,5 +336,70 @@ describe('tokens across migration 075', () => {
     secrets[0]!.expires_at = soon;
     await revokeToken(db, USER_A, token.id);
     assert.equal(await resolveToken(db, access), null);
+  });
+});
+
+// ── Migration 085: a hand-made token can be read-only ────────────────────────
+
+describe('read-only personal access tokens (migration 085)', () => {
+  const inserts = (db: { sqls: string[] }) => db.sqls.filter((s) => s.startsWith('INSERT INTO api_token'));
+
+  test('a token is full by default, inserted without naming scope, so it never needs 085', async () => {
+    // scopeGrant: false is a Supabase database 085 has not reached yet.
+    const db = fakeDb([], { scopeGrant: false });
+    const { raw, token } = await createToken(db, USER_A, 'laptop');
+    assert.equal(token.scope, 'full');
+    assert.equal((await resolveToken(db, raw))?.scope, 'full');
+    // An explicit 'full' takes the same statement.
+    await createToken(db, USER_A, 'desktop', 'full');
+    assert.equal(inserts(db).length, 2);
+    for (const sql of inserts(db)) {
+      assert.ok(sql.startsWith('INSERT INTO api_token (user_id, name, token_hash, prefix) VALUES'), sql);
+    }
+  });
+
+  test('a read token stores its scope, says so when minted and listed, and resolves read', async () => {
+    const db = fakeDb();
+    const { raw, token } = await createToken(db, USER_A, 'reader', 'read');
+    assert.equal(token.scope, 'read');
+    assert.equal(db.rows[0]!.scope, 'read', 'the scope is on the row, not only in the response');
+    assert.equal(token.expiresAt, null, 'a hand-made token still never expires');
+    assert.equal(token.oauthClientId, null);
+    assert.deepEqual(await resolveToken(db, raw), { tokenId: token.id, userId: USER_A, scope: 'read', deckeImprovementRead: false });
+    await createToken(db, USER_A, 'writer');
+    const listed = await listTokens(db, USER_A);
+    assert.deepEqual(listed.map((t) => [t.name, t.scope]).sort(), [['reader', 'read'], ['writer', 'full']]);
+  });
+
+  test('revoking a read token works exactly as for a full one', async () => {
+    const db = fakeDb();
+    const { raw, token } = await createToken(db, USER_A, 'reader', 'read');
+    const revoked = await revokeToken(db, USER_A, token.id);
+    assert.ok(revoked?.revokedAt);
+    assert.equal(revoked?.scope, 'read');
+    assert.equal(await resolveToken(db, raw), null);
+  });
+
+  test('before 075 a read token is refused, never minted full', async () => {
+    const db = fakeDb([], { migrated: false });
+    await assert.rejects(createToken(db, USER_A, 'reader', 'read'), /migration 075/);
+    assert.equal(db.rows.length, 0);
+    assert.equal(inserts(db).length, 0);
+  });
+
+  test('an unknown scope is refused before anything is written', async () => {
+    const db = fakeDb();
+    for (const scope of ['admin', 'READ', '', null, true]) {
+      await assert.rejects(createToken(db, USER_A, 'x', scope as 'read'), /unknown token scope/, String(scope));
+    }
+    assert.equal(db.rows.length, 0);
+  });
+
+  test('readOnlyTokensReady: not before 075, not without the 085 grant, then yes', async () => {
+    const pre075 = fakeDb([], { migrated: false });
+    assert.equal(await readOnlyTokensReady(pre075), false);
+    assert.ok(!pre075.sqls.some((s) => s.includes('has_column_privilege')), 'never asks about a column that does not exist yet');
+    assert.equal(await readOnlyTokensReady(fakeDb([], { scopeGrant: false })), false);
+    assert.equal(await readOnlyTokensReady(fakeDb()), true);
   });
 });

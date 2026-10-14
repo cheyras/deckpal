@@ -1222,6 +1222,19 @@ Think is off entirely — never offered, never routed — and the boot warning s
 so. It is offered only to metered credits (a paid wallet or an unlimited
 account), never under the daily allowance, credits off or flat v1 pricing.
 
+Read-only personal access tokens need `085_read_only_tokens.sql`. Apply it
+**before** the code that offers them ships, with the numbered runner on both
+cloud and self-host; it adds no environment variable or infrastructure setting.
+075 let a signed-in user insert only `user_id, name, token_hash, prefix` into
+`api_token`; 085 grants `authenticated` INSERT on `scope` as well (INSERT only:
+a token's scope still cannot be updated), and on plain Postgres, where no
+`authenticated` role exists, it changes nothing. If the code runs before 085,
+`POST /tokens` with `scope: "read"` is refused with a 503 and mints nothing,
+the API logs `migration 085_read_only_tokens is not applied` once per
+instance, and full-access tokens keep minting as before. To confirm on cloud:
+`SELECT has_column_privilege('authenticated', 'public.api_token', 'scope', 'INSERT')`
+returns `true`.
+
 Only 065 carries `@supabase-only` and is skipped by the normal runner on
 self-host. Do not skip 067 there: its cloud-role grants are conditional and its
 wallet/economy functions also support the current UUID self-host account.
@@ -1967,16 +1980,21 @@ header. For those:
 1. Sign in at <https://deckpal.app> and open **Profile** (the avatar, top
    right).
 2. Scroll to **Agent access** and press **New token**.
-3. Name it after the client — e.g. `claude.ai` or `Claude on my laptop` — and
-   press **Create token**.
-4. Copy the value **immediately.** DeckPal stores only a SHA-256 hash, so the
+3. Name it after the client — e.g. `claude.ai` or `Claude on my laptop`.
+4. Choose what it can do: **Read and change** (the default) or **Read only**,
+   the same choice and wording as the consent screen in §1. A read-only token
+   can look at everything your account can and change nothing; pick it for a
+   client that only needs to read. Press **Create token**.
+5. Copy the value **immediately.** DeckPal stores only a SHA-256 hash, so the
    token is shown exactly once and can never be recovered.
 
 Tokens are listed afterwards by their `dsk_…` prefix with their creation and
-last-used dates, and can be revoked from the same panel at any time — same as
-an OAuth-connected client, because it's the same underlying credential. A token
-made here never expires, because a client that needs one has no way to renew
-it; revoke it when you are done.
+last-used dates (a read-only one is labelled **Read only**), and can be revoked
+from the same panel at any time — same as an OAuth-connected client, because
+it's the same underlying credential. A token made here never expires, because a
+client that needs one has no way to renew it; revoke it when you are done. Its
+scope is fixed when it is made: to change it, create a new token and revoke
+the old one.
 
 The client sends it as `Authorization: Bearer <your token>` on every request.
 In claude.ai, that means the **Request headers** section of the custom
@@ -2067,9 +2085,9 @@ can do while signed in — and nothing else: every query it makes runs inside yo
 row-level-security context, so it cannot see another user's rows. It cannot
 change your password, preferences or public showcase, read your Deck-E
 conversations, spend money, or create or revoke tokens (all of that needs a real
-browser session). A **Read only** connection is served only the 17 read tools,
-inside a read-only database transaction, and the REST API refuses its every
-write with `403 insufficient_scope`. Treat any token like a password, and revoke
+browser session). A **Read only** connection or token is served
+only the 17 read tools, inside a read-only database transaction, and the REST API refuses
+its every write with `403 insufficient_scope`. Treat any token like a password, and revoke
 it the moment a client no longer needs it.
 
 ### Tools

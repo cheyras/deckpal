@@ -456,8 +456,9 @@ const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const READ_ONLY_POSTS = new Set(['/massentry', '/decks/check', '/decks/odds', '/decks/simulate']);
 
 /**
- * A read-only connection (chosen on the consent screen, migration 075) may
- * look at everything its account can and change nothing. Mounted once, right
+ * A read-only connection (chosen on the consent screen, migration 075, or when
+ * minting a token in Profile, 085) may look at everything its account can and
+ * change nothing. Mounted once, right
  * after authMiddleware, so no route has to remember it and a refused write
  * never reaches the RLS connection. Every read-only MCP tool reads over GET,
  * straight from Postgres, or through one of READ_ONLY_POSTS, so this refuses
@@ -473,7 +474,9 @@ export function enforceTokenScope(req: Request, res: Response, next: NextFunctio
     res.status(403).json({
       error: {
         code: 'insufficient_scope',
-        message: 'This connection is read-only. To let it make changes, reconnect it and choose "Read and change".',
+        // A read-only token minted in Profile (085) cannot be reconnected, only
+        // replaced, so the sentence names both ways back to "Read and change".
+        message: 'This connection is read-only. To let it make changes, reconnect it, or create a new token, and choose "Read and change".',
       },
     });
     return;
