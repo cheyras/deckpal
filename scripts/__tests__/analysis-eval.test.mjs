@@ -267,7 +267,7 @@ test('a run: tool results come from the account, a refused write never reaches i
   const writerPrompt = JSON.stringify(prompts.find((p) => p.id.includes('sonnet')).prompt)
   assert.match(writerPrompt, /digest of #7/)
   assert.match(writerPrompt, /server instructions/)
-  assert.equal(calls.length, 3)
+  assert.deepEqual(calls.map((e) => e.kind), ['reserve', 'settle', 'reserve', 'settle', 'reserve', 'settle'], 'each call reserved before it is sent')
   assert.match(evidenceText(run.toolCalls), /### \d\. battle_digest\(\{"log_id":7\}\)\ndigest of #7/)
 })
 
@@ -303,16 +303,22 @@ test('an errored or unjudged run is counted apart, never scored as a review that
     put('owner-95.A.judge.json', { status: 'failed', error: { message: 'budget' } })
     put('owner-99.A.run.json', run('owner-99', 'A'))
     put('owner-100.A.run.json', run('owner-100', 'A', { error: { message: 'boom' } }))
-    // Two invocations into the same directory: every attempt stays in the ledger.
+    // Invocations into the same directory: every attempt stays in the ledger.
+    const call = (ledger, id, label, reservedUsd, costUsd) => {
+      ledger.push({ kind: 'reserve', id, label, reservedUsd })
+      if (costUsd !== undefined) ledger.push({ kind: 'settle', id, label, ok: costUsd !== null, costUsd, reservedUsd })
+    }
     const first = new Ledger(path.join(dir, LEDGER_FILE))
-    first.push({ label: 'owner-101:A:agent', costUsd: 0.2, reservedUsd: 0.5 }) // an attempt that later errored
-    first.push({ label: 'owner-101:A:judge', costUsd: null, reservedUsd: 0.04 }) // a judge call with no reported cost
+    call(first, 'a1', 'owner-101:A:agent', 0.5, 0.2) // an attempt that later errored
+    call(first, 'j1', 'owner-101:A:judge', 0.04, null) // a judge call with no reported cost
+    call(first, 'k1', 'owner-99:B:agent', 0.3) // killed mid-call: reserved, never settled, no run file
     const resumed = new Ledger(path.join(dir, LEDGER_FILE))
-    assert.equal(resumed.entries.length, 2, 'a resumed ledger starts from the file')
-    resumed.push({ label: 'owner-101:A:agent', costUsd: 0.3, reservedUsd: 0.5 }) // the retry
-    resumed.push({ label: 'owner-101:A:judge', costUsd: 0.05, reservedUsd: 0.1 }) // the re-judge
-    resumed.push({ label: 'owner-95:A:agent', costUsd: 0.1, reservedUsd: 0.5 })
-    assert.equal(Number(resumed.countedUsd().toFixed(6)), 0.69, 'reported charges plus unpriced reservations')
+    assert.equal(resumed.entries.length, 5, 'a resumed ledger starts from the file')
+    call(resumed, 'a2', 'owner-101:A:agent', 0.5, 0.3) // the retry
+    call(resumed, 'j2', 'owner-101:A:judge', 0.1, 0.05) // the re-judge
+    call(resumed, 'a3', 'owner-95:A:agent', 0.5, 0.1)
+    assert.equal(Number(resumed.countedUsd().toFixed(6)), 0.99, 'reported charges, plus unpriced and in-flight reservations at their bound')
+    assert.equal(resumed.overruns(), 0)
     const rows = readRows(dir, data.cases)
     const agg = aggregate(rows, data.principles)
     assert.equal(agg.A.runs, 4)
@@ -322,10 +328,28 @@ test('an errored or unjudged run is counted apart, never scored as a review that
     assert.equal(agg.A.overall, 100, 'only the judged run is scored')
     assert.equal(agg.A.costUsd, 0.65, 'every attempt is paid for: 0.2 + 0.3 + 0.05 + 0.1')
     assert.equal(agg.A.unpricedUsd, 0.04)
+    assert.equal(agg.B.runs, 1, 'spend with no run file is an interrupted run')
+    assert.equal(agg.B.errors, 1)
+    assert.equal(agg.B.unpricedUsd, 0.3, 'counted at its whole reservation')
     const report = formatReport(agg, data.principles, rows)
     assert.match(report, /\| owner-95 \| A \| not judged/)
     assert.match(report, /\| owner-100 \| A \| error: boom/)
+    assert.match(report, /\| owner-99 \| B \| error: interrupted/)
     assert.match(report, /1 \/ 1 \/ 2/)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('an overrun in the ledger survives a restart', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'analysis-eval-'))
+  try {
+    const l = new Ledger(path.join(dir, LEDGER_FILE))
+    l.push({ kind: 'reserve', id: 'x', label: 'owner-94:C:agent', reservedUsd: 0.1 })
+    l.push({ kind: 'settle', id: 'x', label: 'owner-94:C:agent', ok: true, costUsd: 0.12, reservedUsd: 0.1 })
+    const again = new Ledger(path.join(dir, LEDGER_FILE))
+    assert.equal(again.overruns(), 1)
+    assert.equal(new Ceiling(10, again.countedUsd(), again.overruns()).reserve(0.01), null)
   } finally {
     fs.rmSync(dir, { recursive: true, force: true })
   }

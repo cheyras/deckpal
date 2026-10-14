@@ -40,7 +40,9 @@
  * cap, all at the Gateway's own listed prices — and is refused unless that fits
  * in what is left. It settles at the Gateway's reported cost, or at the full
  * reservation when none comes back, and a call ever costing more than its bound
- * stops the run. Every call is appended to `calls.jsonl` as it settles; reports
+ * stops the run. Every call is written to `calls.jsonl` as a reservation BEFORE
+ * it is sent and a settlement after, so a call cut off mid-flight still counts
+ * at its bound; reports
  * and the ceiling read spend from there, every attempt included. The key is
  * read from AI_GATEWAY_API_KEY (or DECKE_VERCEL_AI_GATEWAY_KEY) and never
  * printed. Only judged runs are scored; resuming the same --out reruns errored
@@ -363,15 +365,19 @@ export class BudgetExceeded extends Error {}
  * cost comes back (a failed call may still have been billed).
  */
 export class Ceiling {
-  /** `priorUsd`: what earlier invocations into the same --out already spent (the ledger's total). */
-  constructor(capUsd, priorUsd = 0) {
+  /**
+   * `priorUsd`: what earlier invocations into the same --out already spent (the
+   * ledger's total). `priorOverruns`: calls of theirs that cost more than their
+   * bound — a resume inherits the stop.
+   */
+  constructor(capUsd, priorUsd = 0, priorOverruns = 0) {
     this.capUsd = capUsd
     this.priorUsd = priorUsd
     this.spentUsd = 0
     this.reservedUsd = 0
     this.calls = 0
     this.unknownCost = 0
-    this.overruns = 0
+    this.overruns = priorOverruns
   }
   remaining() {
     return this.capUsd - this.priorUsd - this.spentUsd - this.reservedUsd
@@ -418,24 +424,30 @@ export function maxCallUsd(price, params) {
 }
 
 /**
- * Every model call, appended to `calls.jsonl` the moment it settles, so no
- * attempt's cost is lost to a crash, a retry or a resume. Reports and the
- * ceiling read their spend from here, not from run files.
+ * Every model call, in `calls.jsonl`: a `reserve` line written BEFORE the call
+ * is sent, and a `settle` line when it returns or fails. A process killed mid
+ * call leaves its reservation unsettled, and an unsettled reservation counts
+ * at its full bound. So no attempt's cost is lost to a crash, a retry or a
+ * resume. Reports and the ceiling read their spend from here, not from run
+ * files.
  */
 export class Ledger {
   constructor(file = null) {
     this.file = file
     this.entries = file && fs.existsSync(file) ? readLedger(file) : []
-    this.priorCount = this.entries.length
   }
   push(entry) {
     const e = { at: new Date().toISOString(), ...entry }
     this.entries.push(e)
     if (this.file) fs.appendFileSync(this.file, `${JSON.stringify(e)}\n`)
   }
-  /** What a ceiling must count: reported charges, plus the whole reservation of any call with no reported cost. */
+  /** What a ceiling must count: reported charges, plus the whole reservation of any call unpriced or never settled. */
   countedUsd(entries = this.entries) {
-    return entries.reduce((n, e) => n + (typeof e.costUsd === 'number' ? e.costUsd : (e.reservedUsd ?? 0)), 0)
+    return ledgerCalls(entries).reduce((n, c) => n + countedCost(c), 0)
+  }
+  /** Calls that cost more than their bound: once there is one, no further call is trusted. */
+  overruns() {
+    return ledgerCalls(this.entries).filter((c) => c.settled && typeof c.costUsd === 'number' && c.costUsd > c.reservedUsd).length
   }
 }
 
@@ -443,15 +455,33 @@ export function readLedger(file) {
   return fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l))
 }
 
-/** Spend per "case:config" across every attempt: Gateway-reported charges, and reservations of calls that reported none. */
+/** One record per call: its reservation, and its settlement if there was one. */
+export function ledgerCalls(entries) {
+  const byId = new Map()
+  for (const e of entries) {
+    const key = e.id ?? Symbol('call') // a line with no id stands alone
+    const c = byId.get(key) ?? { id: e.id, label: e.label, reservedUsd: e.reservedUsd ?? 0, settled: false, costUsd: null }
+    if (e.kind !== 'reserve') Object.assign(c, { settled: true, costUsd: typeof e.costUsd === 'number' ? e.costUsd : null, ok: e.ok })
+    byId.set(key, c)
+  }
+  return [...byId.values()]
+}
+
+const countedCost = (c) => (c.settled && typeof c.costUsd === 'number' ? c.costUsd : c.reservedUsd)
+
+/**
+ * Spend per "case:config" across every attempt: Gateway-reported charges, and
+ * apart from them the reservations of calls that reported no cost or never
+ * settled (an interrupted call is counted at its bound).
+ */
 export function costsByRun(entries) {
   const out = {}
-  for (const e of entries) {
-    const key = e.label.split(':').slice(0, 2).join(':')
-    const c = (out[key] ??= { reportedUsd: 0, unpricedUsd: 0, calls: 0 })
-    c.calls++
-    if (typeof e.costUsd === 'number') c.reportedUsd += e.costUsd
-    else c.unpricedUsd += e.reservedUsd ?? 0
+  for (const c of ledgerCalls(entries)) {
+    const key = c.label.split(':').slice(0, 2).join(':')
+    const r = (out[key] ??= { reportedUsd: 0, unpricedUsd: 0, calls: 0 })
+    r.calls++
+    if (c.settled && typeof c.costUsd === 'number') r.reportedUsd += c.costUsd
+    else r.unpricedUsd += c.reservedUsd
   }
   return out
 }
@@ -481,19 +511,25 @@ export async function metered(base, price, budget, calls, label) {
       wrapGenerate: async ({ doGenerate, params }) => {
         const maxUsd = maxCallUsd(price, params)
         const reserved = budget.reserve(maxUsd)
-        if (reserved === null) throw new BudgetExceeded(`budget of $${budget.capUsd} reached: the next call could cost up to $${maxUsd.toFixed(3)} and $${budget.remaining().toFixed(3)} is left`)
+        if (reserved === null) {
+          const why = budget.overruns > 0 ? 'a call has cost more than its bound, so no bound is trusted' : `the next call could cost up to $${maxUsd.toFixed(3)} and $${budget.remaining().toFixed(3)} is left`
+          throw new BudgetExceeded(`budget of $${budget.capUsd}: ${why}`)
+        }
+        // On disk before the request leaves: a kill mid-call still counts this reservation.
+        const id = crypto.randomUUID()
+        calls.push({ kind: 'reserve', id, label, reservedUsd: reserved })
         const t0 = Date.now()
         let result
         try {
           result = await doGenerate()
         } catch (e) {
           budget.settle(reserved, null)
-          calls.push({ label, ok: false, costUsd: null, reservedUsd: reserved, error: safeError(e), ms: Date.now() - t0 })
+          calls.push({ kind: 'settle', id, label, ok: false, costUsd: null, reservedUsd: reserved, error: safeError(e), ms: Date.now() - t0 })
           throw e
         }
         const costUsd = gatewayCost(result.providerMetadata)
         budget.settle(reserved, costUsd)
-        calls.push({ label, ok: true, costUsd, reservedUsd: reserved, ms: Date.now() - t0, usage: result.usage ?? null })
+        calls.push({ kind: 'settle', id, label, ok: true, costUsd, reservedUsd: reserved, ms: Date.now() - t0, usage: result.usage ?? null })
         return result
       },
     },
@@ -752,14 +788,23 @@ export function readRows(dir, cases) {
   const ledger = path.join(dir, LEDGER_FILE)
   const costs = costsByRun(fs.existsSync(ledger) ? readLedger(ledger) : [])
   const rows = []
+  const seen = new Set()
   for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.run.json'))) {
     const run = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))
     const c = cases.find((x) => x.id === run.case)
     if (!c) continue
     const judgment = readJudgment(path.join(dir, f))
     const scored = !run.error && judgment?.status === 'ok' ? scoreRun(c, judgment.output) : null
-    const cost = costs[`${run.case}:${run.config}`] ?? { reportedUsd: 0, unpricedUsd: 0 }
+    const key = `${run.case}:${run.config}`
+    seen.add(key)
+    const cost = costs[key] ?? { reportedUsd: 0, unpricedUsd: 0 }
     rows.push({ config: run.config, run, scored, costUsd: cost.reportedUsd, unpricedUsd: cost.unpricedUsd })
+  }
+  // Spend with no run file is an interrupted run: it is paid for and counted, as an error.
+  for (const [key, cost] of Object.entries(costs)) {
+    if (seen.has(key)) continue
+    const [caseId, config] = key.split(':')
+    rows.push({ config, run: { case: caseId, config, error: { message: 'interrupted before its run file was written' } }, scored: null, costUsd: cost.reportedUsd, unpricedUsd: cost.unpricedUsd })
   }
   return rows
 }
@@ -848,7 +893,9 @@ export async function main(argv = process.argv.slice(2)) {
   // --budget caps the whole --out directory: a resumed run starts from what earlier invocations spent.
   const calls = new Ledger(path.join(out, LEDGER_FILE))
   const prior = calls.countedUsd()
-  const budget = new Ceiling(opts.budget, prior)
+  const priorOverruns = calls.overruns()
+  if (priorOverruns > 0) throw new Error(`${path.relative(ROOT, out)}/${LEDGER_FILE} records ${priorOverruns} call(s) that cost more than their bound. Fix the bound (maxCallUsd) before spending more; use a new --out.`)
+  const budget = new Ceiling(opts.budget, prior, priorOverruns)
   if (prior > 0) console.log(`Resuming ${path.relative(ROOT, out)}: $${prior.toFixed(2)} already counted against the $${opts.budget} budget.`)
   const cost = (prefix) => calls.countedUsd(calls.entries.filter((x) => x.label.startsWith(prefix)))
   try {

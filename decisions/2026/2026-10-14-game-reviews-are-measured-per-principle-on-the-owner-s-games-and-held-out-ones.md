@@ -56,7 +56,8 @@ supersedes: []
     - Output: the full 16k cap.
     - Prices come from the Gateway's own model list.
   - A call is refused unless that maximum fits in what is left. It settles at the Gateway's reported cost, or at the full reservation if no cost comes back. A call that ever costs more than its bound stops the run (Astra, #347).
-  - The cap covers the whole `--out` directory. Every call is appended to `calls.jsonl` as it settles, and the report and a resumed run read spend from there, every retry and re-judge included (Astra, #347).
+  - The cap covers the whole `--out` directory. Every call is written to `calls.jsonl` as a reservation before it is sent and a settlement after. A call cut off mid-flight counts at its bound, and an overrun stops any resume. The report and a resumed run read spend from there, every retry, re-judge and interrupted run included (Astra, #347).
+- **Settings** are documented in `DEPLOYMENT.md` (B11): the Gateway key, `DECKPAL_BASE`, and the four `.qa-account` lines.
 - **Only judged runs are scored.**
   - A run that errored, or whose judging failed or never happened, is counted apart, never scored as a review that missed everything.
   - Resuming the same `--out` reruns errored runs and re-judges unjudged ones (Astra, #347).

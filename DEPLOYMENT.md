@@ -2267,3 +2267,20 @@ reader, and restoring it restores the leak. Everything else is additive
 `(id)` to `(id, user_id)`, narrower grants) and no app path depends on the old
 shape, so a constraint that refuses a write has found a write that was crossing
 accounts. Report it rather than dropping the constraint.
+
+---
+
+## Analysis eval (2026-10-14): maintainer-run, against the QA account
+
+`scripts/analysis-eval.mjs` (with `evals/analysis/`) runs on a maintainer's
+machine, never in a deployment. `scripts/qa-token.mjs` mints its token. Both
+read their settings from the shell and from `.qa-account` (gitignored), and both
+fail loudly when a setting is missing.
+
+| Setting | Where | Meaning |
+|---|---|---|
+| `AI_GATEWAY_API_KEY` | shell | **Required by `run`.** The Gateway key that pays for the agent, writer and judge calls. `DECKE_VERCEL_AI_GATEWAY_KEY` is used when it is unset. When neither is set, `run` stops before any call. Never printed. |
+| `DECKPAL_BASE` | shell | The backend both scripts talk to. Default `https://deckpal.app`. |
+| `QA_EMAIL`, `QA_PASSWORD` | `.qa-account` | Read only by `qa-token.mjs`, which the maintainer runs. An agent never signs in with them. |
+| `QA_MCP_TOKEN` | `.qa-account` | Written by `qa-token.mjs`: a personal access token named "Analysis eval (QA)". `setup` and `run` refuse to start without it. |
+| `QA_USERNAME` | `.qa-account` | Written by `qa-token.mjs` from `/api/me`, read right after signing in with the QA password. The eval refuses any token whose `/api/me` does not name exactly this user, with `isOwner` and `owner` both false. |
