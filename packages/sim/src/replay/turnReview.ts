@@ -28,7 +28,9 @@ import { DEFAULT_WEIGHTS, evaluate } from '../pilot/eval.js';
 import { optionCount, settle } from '../pilot/lookahead.js';
 import { DEFAULT_PROFILE } from '../pilot/policy.js';
 import { DEFAULT_SEARCH, searchWorld } from '../pilot/search.js';
-import { canonicalName } from './cardCodes.js';
+import { defKey } from '../cards/frame.js';
+import { FRAMES } from '../cards/frames-all.js';
+import { canonicalName, listedFrame } from './cardCodes.js';
 import { parseLiveLog } from './liveLog.js';
 import { HIDDEN, replayLog, type ReplayObservation } from './replay.js';
 
@@ -114,39 +116,63 @@ function outOfDeck(game: Game, side: Player): number[] {
 /**
  * Make one side's deck the size the real one is (60 less every card already out of it) and, with the decklist, the
  * composition it can be: each listed card as many times as the list has it less the copies already out of the deck.
- * Listed cards the catalog cannot build stay blank fillers; without a list, the replay's revealed copies go first and
- * are cut to size from the largest groups, then fillers, so no card appears more than the reservoir allows.
+ * A card is its game text (the engine's definition), never its name: two printings of a name can be different cards
+ * (Riolu me01-076 and sv08.5-050; Astra, #343). Listed cards the catalog cannot build stay blank fillers; without a
+ * list, the replay's revealed copies go first and are cut to size from the largest groups, then fillers, so no card
+ * appears more than the reservoir allows.
  */
 function normaliseDeck(game: Game, side: Player, deckList?: ReadonlyArray<DeckListEntry>): 'list' | 'estimate' {
   const ctx = game.ctx;
   const ps = game.state.p[side];
   const outside = outOfDeck(game, side);
   const size = Math.max(0, DECK_SIZE - outside.length);
-  const key = (iid: number) => canonicalName(def(ctx, iid).name).toLowerCase();
-  const hidden = canonicalName(HIDDEN).toLowerCase();
-  const pool = new Map<string, number[]>();
-  for (const iid of ps.deck) {
-    const k = key(iid);
-    pool.set(k, [...(pool.get(k) ?? []), iid]);
-  }
-  const fillers = pool.get(hidden) ?? [];
-  pool.delete(hidden);
-  // The cards the deck may hold, by name.
+  const byDef = new Map<number, string>();
+  const identity = (iid: number): string => {
+    const di = ctx.cardDef[iid] as number;
+    let k = byDef.get(di);
+    if (k === undefined) {
+      const d = def(ctx, iid);
+      const f = FRAMES[d.id];
+      k = d.name === HIDDEN ? HIDDEN : f ? defKey(f) : `name:${canonicalName(d.name).toLowerCase()}`;
+      byDef.set(di, k);
+    }
+    return k;
+  };
+  const group = (ids: readonly number[]): Map<string, number[]> => {
+    const m = new Map<string, number[]>();
+    for (const iid of ids) {
+      const k = identity(iid);
+      const l = m.get(k);
+      if (l) l.push(iid);
+      else m.set(k, [iid]);
+    }
+    return m;
+  };
+  const pool = group(ps.deck);
+  const fillers = pool.get(HIDDEN) ?? [];
+  pool.delete(HIDDEN);
+  // The cards the deck may hold, by identity.
   const kept = new Map<string, number[]>();
   if (deckList?.length) {
-    const seen = new Map<string, number>();
-    for (const iid of outside) {
-      const k = key(iid);
-      if (k !== hidden) seen.set(k, (seen.get(k) ?? 0) + 1);
-    }
-    const listed = new Map<string, number>();
+    const out = group(outside);
+    const nameOf = (k: string): string => {
+      const iid = (pool.get(k) ?? out.get(k) ?? [])[0];
+      return iid === undefined ? '' : canonicalName(def(ctx, iid).name).toLowerCase();
+    };
+    // Each entry's identities: its printing's; or, when the catalog cannot say which printing, every one of that name.
+    const listed = new Map<string, { keys: string[]; count: number }>();
     for (const e of deckList) {
-      const k = canonicalName(e.name).toLowerCase();
-      listed.set(k, (listed.get(k) ?? 0) + e.count);
+      const f = listedFrame(e.name, e.id);
+      const name = canonicalName(e.name).toLowerCase();
+      const keys = f ? [defKey(f)] : [...new Set([...pool.keys(), ...out.keys()])].filter((k) => k !== HIDDEN && nameOf(k) === name);
+      if (!keys.length) continue;
+      const g = JSON.stringify(keys);
+      listed.set(g, { keys, count: (listed.get(g)?.count ?? 0) + e.count });
     }
-    for (const [k, count] of listed) {
-      const avail = (pool.get(k) ?? []).slice(0, Math.max(0, count - (seen.get(k) ?? 0)));
-      if (avail.length) kept.set(k, avail);
+    for (const [g, { keys, count }] of listed) {
+      const already = keys.reduce((n, k) => n + (out.get(k)?.length ?? 0), 0);
+      const avail = keys.flatMap((k) => pool.get(k) ?? []).slice(0, Math.max(0, count - already));
+      if (avail.length) kept.set(g, avail);
     }
   } else {
     for (const [k, ids] of pool) kept.set(k, ids.slice());
