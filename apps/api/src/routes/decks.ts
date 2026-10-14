@@ -22,6 +22,7 @@ import {
   type BattleLogOrigin,
 } from '../deck/battlelog.js';
 import { replayDigest } from '../deck/replayDigest.js';
+import { reviewTurn } from '@deckpal/sim';
 import {
   validateDeck, resolveDeck, buildReprintOracle,
   parsePtcgl, parseMassEntry, serializeMassEntry,
@@ -2542,6 +2543,76 @@ decksRouter.get(
       result: row.result,
       digest,
       replay,
+    });
+  }),
+);
+
+// GET /decks/:id/logs/:logId/turns/:turn/review?playerName= — "what would the strongest simulator pilot have done on
+// this turn?" (packages/sim/src/replay/turnReview.ts, 2026-10-14). The stored log is replayed to the reader's first
+// decision of the turn and the own-turn search ranks the first actions, the reader's among them, each with the line it
+// leads to and the Prizes it takes. Read-only, the digest's ownership gate and side order. CPU-bound (about a second at
+// most), so rate-limited per user like log-preview, on its own bucket.
+const turnReviewBuckets = new Map<string, RateBucket>();
+setInterval(() => {
+  const now = Date.now();
+  for (const [user, b] of turnReviewBuckets) if (b.resetAt <= now) turnReviewBuckets.delete(user);
+}, LOG_PREVIEW_RATE_SWEEP_MS).unref();
+export const TURN_REVIEW_RATE_MAX = 20;
+
+decksRouter.get(
+  '/:id/logs/:logId/turns/:turn/review',
+  asyncHandler(async (req, res) => {
+    const deckId = parseDeckId(String(req.params.id));
+    const userId = currentUserId(req);
+    const meta = await loadMeta(deckId, userId);
+    if (!meta) throw notFound(`No deck '${deckId}'`);
+    const logId = parseLogId(String(req.params.logId));
+    const turnText = String(req.params.turn);
+    if (!/^\d{1,3}$/.test(turnText) || Number(turnText) < 1) throw badRequest('turn must be a turn number from 1');
+    const turn = Number(turnText);
+    const playerName = parseOptText(str(req.query.playerName), 100, 'playerName') ?? undefined;
+    const limited = rateLimitCheck(turnReviewBuckets.get(userId), Date.now(), TURN_REVIEW_RATE_MAX);
+    turnReviewBuckets.set(userId, limited.bucket);
+    if (!limited.ok) {
+      res.status(429).json({ error: { code: 'rate_limited', message: 'Too many turn reviews — try again shortly.' } });
+      return;
+    }
+    const row = await q1<Pick<LogRow, 'id' | 'raw_log' | 'origin' | 'parsed'>>(
+      `SELECT id, raw_log, origin, parsed FROM battle_log WHERE id = $1 AND deck_id = $2`,
+      [logId, deckId],
+    );
+    if (!row) throw notFound(`No battle log '${logId}'`);
+    if (row.raw_log === null || !row.raw_log.trim()) {
+      throw notFound(
+        row.origin === 'in_person'
+          ? 'no game log to review — this game was reported in person'
+          : 'no game log to review — this game was logged without one',
+      );
+    }
+    // Whose turn is "yours": the digest's own side order (explicit name, PTCG Live name, stored owner, deck).
+    const storedMe = (row.parsed as { players?: { me?: unknown } } | null)?.players?.me;
+    const names = await q<{ name: string }>(
+      `SELECT c.name FROM deck_card dc JOIN card c ON c.id = dc.card_id WHERE dc.deck_id = $1`,
+      [deckId],
+    );
+    const digest = digestBattleLog(row.raw_log, names.map((r) => r.name), {
+      playerName: playerName
+        ?? storedNameFor(row.raw_log, (await ptcglNameOf(poolQueryable, userId)))
+        ?? (typeof storedMe === 'string' && storedMe ? storedMe : undefined),
+    });
+    const { me, opponent } = digest.players;
+    const review = me && opponent
+      ? reviewTurn(row.raw_log, turn, { players: [me, opponent], me: 0 })
+      : null;
+    if (review && review.ms > 3_000) console.warn(`[deckpal-api] turn review took ${review.ms} ms (log ${row.id}, turn ${turn})`);
+    userCache(res);
+    res.json({
+      logId: Number(row.id),
+      turn,
+      players: { me, opponent },
+      review,
+      // Without a side there is nothing to review; the caller can name the reader.
+      ...(review ? {} : { reason: `could not tell which player owns this deck — the log names ${digest.playerNames.join(' and ') || 'nobody'}; pass playerName` }),
     });
   }),
 );

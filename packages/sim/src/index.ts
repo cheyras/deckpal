@@ -60,3 +60,4 @@ export {
   type AttackFact, type Board, type BoardMon, type CardLine, type Moment, type MomentKind, type ReplayInsights,
   type ReviewAssessment, type ReviewDepth, type SideBoard, type TurnStart,
 } from './replay/insights.js';
+export { reviewTurn, type TurnOption, type TurnReview, type TurnReviewOptions } from './replay/turnReview.js';
