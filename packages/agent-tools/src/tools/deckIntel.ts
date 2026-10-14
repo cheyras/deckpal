@@ -224,8 +224,8 @@ const rawBlock = (id: number, raw: string): string[] =>
   untrustedBlock(`raw log #${id}`, raw, randomBytes(3).toString('hex'));
 
 /**
- * A PTCG Live game the winner won without taking the last Prize ended another way: a concession, the timer, an empty
- * Bench. A record read off such games says something different from one decided on Prizes (the owner, 2026-10-13: split
+ * A PTCG Live game the winner won without taking the last Prize ended another way: a concession, a deck-out, the timer,
+ * or no Pokémon left in play. A record read off such games says something different from one decided on Prizes (the owner, 2026-10-13: split
  * records by how games ended); battle_digest says which way it ended.
  */
 export function endedEarly(l: Pick<LogSummary, 'origin' | 'prizes' | 'result'>): boolean {
@@ -242,7 +242,7 @@ function logRow(l: LogSummary): string {
     `origin ${l.origin}`,
     l.turns != null ? `${l.turns} turns` : null,
     l.prizes ? `prizes ${l.prizes.me}-${l.prizes.opponent}` : null,
-    endedEarly(l) ? 'ended before the last Prize (concession, timer or empty Bench)' : null,
+    endedEarly(l) ? 'ended before the last Prize (concession, deck-out, the timer or no Pokémon left)' : null,
     day(l.playedAt),
     l.source !== 'web' ? l.source : null,
     l.notes ? `note: ${trunc(l.notes, 40)}` : null,

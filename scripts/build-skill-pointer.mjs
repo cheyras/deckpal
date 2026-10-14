@@ -32,7 +32,7 @@ DeckPal keeps its own step-by-step playbooks for every job, current with the too
 1. Before your first DeckPal tool call for a job, call DeckPal's \`playbook\` tool with no name. It returns the rules for every job and which playbook fits the request.
 2. Call \`playbook\` again with that playbook's name, and follow it.
 3. If the DeckPal connector is not connected, say so: these jobs need it (deckpal.app/connect).
-4. If the connector has no \`playbook\` tool, read the same playbooks at https://deckpal.app/skill.
+4. If the connector has no \`playbook\` tool, fetch the same playbooks as one Markdown document from https://deckpal.app/api/playbooks?format=markdown (people can read them at https://deckpal.app/skill).
 `;
 
 /** CRC-32 (IEEE), as the zip format needs. */

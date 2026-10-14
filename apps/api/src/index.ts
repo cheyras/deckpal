@@ -1,5 +1,5 @@
-import { PLAYBOOK_INDEX_TEXT, PLAYBOOK_NAMES, PLAYBOOK_TEXT } from '@deckpal/agent-tools';
 import { adminBootstrapStatus, appDefaults, ensureAdminBootstrap, requireActiveAccount, requestAccessStore } from './admin/access.js';
+import { playbooksHandler } from './playbooks.js';
 import { adminRouter } from './routes/admin.js';
 import { adminFeatureRouter, meFeatureRouter } from './routes/features.js';
 import { selfSharingRouter, adminUsageRouter } from './decke/usageRoutes.js';
@@ -520,13 +520,8 @@ export function createApp(): express.Express {
 
   api.use(requireActiveAccount);
 
-  // The playbooks (agent-tools playbooks/texts.ts): DeckPal's step-by-step guides for AI agents, the same texts the
-  // `playbook` tool returns, for the public page that shows them (deckpal.app/skill). Public — no requireAuth — and
-  // static, so cacheable.
-  api.get('/playbooks', (_req, res) => {
-    res.set('Cache-Control', 'public, max-age=300');
-    res.json({ index: PLAYBOOK_INDEX_TEXT, playbooks: PLAYBOOK_NAMES.map((name) => ({ name, text: PLAYBOOK_TEXT[name] })) });
-  });
+  // The agent playbooks (playbooks.ts): public — no requireAuth — and static, so cacheable.
+  api.get('/playbooks', playbooksHandler);
 
   // Health: DB liveness + per-sync freshness (cheap; single grouped query).
   // Public — no requireAuth.
