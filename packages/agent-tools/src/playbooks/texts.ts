@@ -444,6 +444,10 @@ A request to make a list is the go-ahead; do not ask again.
   2. Then \`edit_list\` with \`mode: "edit"\`, \`list_id\`, \`add_missing: { set_id, goal, max_price_usd }\`, \`dry_run: false\`. Here \`set_id\` is the exact set id (for example \`me05\`, not the set's name): take it from \`set_progress\` or \`get_card\`.
 
   \`add_missing\` cannot fill a list in the call that creates it.
+- **Every card of a name, kind or finish** ("all my holo Pikachus", "every Tera ex I own"): ONE call, never a card at a time. \`edit_list\` with \`mode\`, the list (or \`name\` to create it), \`add_search\` and \`dry_run: false\`. \`add_search\` takes \`search_cards\`' filters except \`text\` and \`damage\` (\`query\`, \`set_id\`, \`rarity\`, \`tag\`, \`owned_only\`, \`exclude_owned\`, \`finish\`…), covers every page, up to 500 cards, and can fill a list in the call that creates it.
+  - \`finish: ["holo"]\` adds only cards printed in holo, in holo. \`["holo", "reverse"]\` adds holo where a card has it, else reverse. If their words do not say whether reverse holos count, ask that in one line.
+  - Cards already in the list are skipped. To swap a card's printing, pass its item in \`remove_item_ids\` in the same call.
+  - Report the reply's counts ("12 card(s) the search finds: 9 holo, 3 reverse; 4 already in the list, skipped"), and any item it kept because it was already that printing.
 - **Specific cards:** \`edit_list\` with \`mode: "edit"\`, \`list_id\`, \`add_cards\` (\`card_id\`, or \`name\` plus \`set_id\`/\`number\`).
 - **Remove items:** read the list with \`lists\` and \`list_id\` for the item ids, then \`edit_list\` with \`remove_item_ids\`.
 - **Dynamic or static:** dynamic ticks off cards as owned and does NOT re-filter by its name ("under $5" holds what was added). Use \`static\` for fixed quantities, like a trade binder.
@@ -524,7 +528,7 @@ A deck, list or card can usually be named by its name. Writes preview by default
 |---|---|---|
 | \`decks\` | Deck index, or one deck in detail | \`deck_id\`; \`include\`: \`cards\`, \`validate\`, \`pricing\`, \`testhand\`, \`strategy\`; \`deleted: true\` = recycle bin |
 | \`get_card\` | One card: full text, HP, Weakness, tags (Tera, Ancient, Future), legality, printings, prices | \`card_id\`, or \`name\` + \`set_id\` / \`number\` |
-| \`search_cards\` | Find cards by name or printed text; owned slices; cheapest printing | \`query\` = NAME only; \`text\`, \`tag\`, \`set_id\`, \`owned_only\`, \`exclude_owned\`, \`standard_legal\`. Same name is not the same card |
+| \`search_cards\` | Find cards by name or printed text; owned slices; cheapest printing | \`query\` = NAME only; \`text\`, \`tag\`, \`finish\`, \`set_id\`, \`owned_only\`, \`exclude_owned\`, \`standard_legal\`. Rows show finishes. Same name is not the same card |
 | \`rules_lookup\` | Rules and official rulings | \`query\`, \`cards\`. Then \`get_card\`. See \`rules\` |
 | \`battle_logs\` | A deck's games and record by archetype; one game in full | \`deck_id\`; \`version\`; \`log_id\` for full notes. \`include_raw\` only to move a log or confirm a duplicate |
 | \`battle_digest\` | One game, compact, with review worth and moments | \`deck_id\`, \`log_id\`; \`detail: 'turns'\` for deep reviews |
@@ -555,7 +559,7 @@ A deck, list or card can usually be named by its name. Writes preview by default
 | \`delete_deck\` | Reversible delete, or \`restore: true\` to bring one back | Never \`purge\` unless asked |
 | \`delete_list\` | Reversible delete | Restore a list with \`edit_list\` and \`restore: true\`. Never \`purge\` unless asked |
 | \`log_cards\` | Add or remove collection cards | \`items\` with \`delta\` or \`quantity\`; safe to retry |
-| \`edit_list\` | Create or edit a list | Say \`mode\`. \`add_missing\` needs an existing list |
+| \`edit_list\` | Create or edit a list | Say \`mode\`. \`add_search\` adds a whole search in one call; \`add_missing\` needs an existing list |
 | \`revert\` | Undo an operation | Dry run first; read conflicts |
 | \`set_cart\` | TCGplayer links for a cart | Builds links only |
 

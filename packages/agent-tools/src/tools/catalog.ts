@@ -4,9 +4,10 @@ import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
 import { money, nfmt, pagingFooter, row } from '../format.js';
 import { describeCard, resolveCard } from '../resolve.js';
+import type { Ctx } from '../ctx.js';
 import type { RarityPeel } from '../entities.js';
 import { explainMiss, peelRarity, presentRef, resolveSet, resolvedNote } from '../entities.js';
-import { GOALS, defaultGoal, errText, type Goal } from '../shared.js';
+import { FINISHES, GOALS, defaultGoal, errText, type Goal } from '../shared.js';
 import { CARD_TAG_MEANING, cardTags, idsWithTag } from '@deckpal/sim/card-tags';
 
 /** The search-row cell for a printing's tags ('Tera'), or nothing. */
@@ -20,6 +21,165 @@ import { cardPriceHistoryTools } from './cardPriceHistory.js';
  * (apps/api/src/routes/search.ts). "Best" price = MAX(market_minor) USD across
  * sources; "cheapest" (cost-to-complete) = MIN. NULL price = unpriced, never $0.
  */
+
+// ── SHARED CARD FILTERS: search_cards, and edit_list's add_search ──────────
+//
+// One builder, so "add everything this search finds" can never mean a
+// different set of cards from the search the agent just read (Phase 4,
+// 2026-10-14: a holo-Pikachu list took about 150 calls one card at a time).
+
+/** One labelled WHERE clause; the label is what the zero-result diagnosis names. */
+export interface CardFilter {
+  label: string;
+  sql: (p: (v: unknown) => string) => string;
+}
+
+/** The filters search_cards and add_search share. */
+export interface CardFilterArgs {
+  query?: string;
+  set_id?: string;
+  category?: 'Pokemon' | 'Trainer' | 'Energy';
+  rarity?: string;
+  owned_only?: boolean;
+  exclude_owned?: boolean;
+  standard_legal?: boolean;
+  tag?: 'Tera' | 'Ancient' | 'Future';
+  min_value_usd?: number;
+  finish?: ReadonlyArray<(typeof FINISHES)[number]>;
+}
+
+/** The finish order cells are printed in (the sync's FINISH_RANK). */
+const FINISH_ORDER: readonly string[] = ['normal', 'holo', 'reverse', 'lenticular', 'metal'];
+export const finishesCell = (finishes: readonly string[] | null | undefined): string | null =>
+  finishes?.length
+    ? `finishes ${[...new Set(finishes)].sort((a, b) => FINISH_ORDER.indexOf(a) - FINISH_ORDER.indexOf(b)).join('/')}`
+    : null;
+/**
+ * The finishes each of these cards is printed in: ONE query for the page's cards. Not a column in
+ * the search itself: as a correlated subquery it ran for every text-search candidate before the
+ * page LIMIT, and a broad term ('energy') failed outright (the MCP response audit caught it).
+ */
+export async function finishesFor(ctx: Ctx, cardIds: readonly (string | number)[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (!cardIds.length) return out;
+  const rows = await q<{ card_id: string; finishes: string[] }>(
+    ctx.db,
+    `SELECT cv.card_id, array_agg(DISTINCT vk.finish) AS finishes
+       FROM card_variant cv JOIN variant_kind vk ON vk.code = cv.variant_kind_code
+      WHERE cv.card_id = ANY($1::bigint[])
+      GROUP BY cv.card_id`,
+    [[...new Set(cardIds.map(Number))]],
+  );
+  for (const r of rows) out.set(String(r.card_id), r.finishes);
+  return out;
+}
+
+/**
+ * `owned` (the reader's copies, $1 = their user id) and `best` (best USD market price), which the
+ * filters read as `o` and `b`.
+ */
+export const SEARCH_CTES = `
+        WITH owned AS (
+          SELECT cv.card_id, sum(ci.quantity)::int AS qty
+            FROM collection_item ci
+            JOIN card_variant cv ON cv.id = ci.card_variant_id
+           WHERE ci.user_id = $1 AND ci.quantity > 0
+           GROUP BY cv.card_id),
+        best AS (
+          SELECT cv.card_id, max(pc.market_minor)::int AS best_minor
+            FROM price_current pc
+            JOIN card_variant cv ON cv.id = pc.card_variant_id
+           WHERE pc.currency_code = 'USD' AND pc.market_minor IS NOT NULL
+           GROUP BY cv.card_id)`;
+
+/**
+ * The labelled filters for a card search, with the set resolved by id or name. A set that does not
+ * resolve is a FAILURE with its recovery, never an empty result (see search_cards).
+ */
+export async function cardFilters(
+  ctx: Ctx,
+  args: CardFilterArgs,
+): Promise<{ ok: true; filters: CardFilter[]; nameFilter: CardFilter | null; setNote: string | null } | { ok: false; message: string }> {
+  const query = args.query?.trim();
+  // owned_only AND exclude_owned together is `qty > 0 AND qty = 0` — always false, so it silently
+  // returns zero rows. Fail loudly before any query rather than read as an empty catalog.
+  if (args.owned_only && args.exclude_owned) {
+    return { ok: false, message: 'owned_only and exclude_owned are contradictory — pass one or the other.' };
+  }
+  // RESOLVED, NOT COMPARED. `cs.tcgdex_id = 'sv3pt5'` matched nothing and said nothing about why;
+  // the filter accepts the name, the near-miss spellings, and reports a real choice when the name
+  // is ambiguous.
+  let setNote: string | null = null;
+  let setTid: string | null = null;
+  if (presentRef(args.set_id)) {
+    const found = await resolveSet(ctx, args.set_id);
+    if (found.kind !== 'found') {
+      // A FAILURE, not an empty result: an unresolvable set filter could never have matched, and
+      // "no cards found" would stand as evidence that the CARD does not exist — the defect that
+      // made him tell somebody their own 120-card set was imaginary.
+      return {
+        ok: false,
+        message: explainMiss(
+          'set',
+          args.set_id,
+          found,
+          'Drop set_id and search by card name alone, or call set_progress to see the sets you have progress in.',
+        ),
+      };
+    }
+    setTid = found.value.tcgdexId;
+    setNote = resolvedNote('set', args.set_id, found.value.tcgdexId, found.value.name, found.matchedBy);
+  }
+
+  // ── FILTERS AS A LABELLED LIST, SO ONE CAN BE DROPPED AND RE-COUNTED ───
+  //
+  // These used to be pushed straight into `conds` with positional params, which made "which filter
+  // emptied this?" unanswerable without rebuilding the query by hand. Naming them costs nothing on
+  // the happy path and is what lets the zero-result branch say something useful instead of
+  // "loosen the query or drop a filter" — advice the model followed 41 times in this corpus, blind,
+  // because nothing told it WHICH.
+  const filters: CardFilter[] = [];
+  // Held by reference so the zero-result branch can swap THIS one out without matching on its
+  // label — same identity compare the drop-one diagnosis uses.
+  let nameFilter: CardFilter | null = null;
+  if (query) {
+    nameFilter = { label: `name contains '${query}'`, sql: (p) => `unaccent(c.name) ILIKE unaccent(${p(`%${query}%`)})` };
+    filters.push(nameFilter);
+  }
+  if (setTid) filters.push({ label: `set ${setTid}`, sql: (p) => `cs.tcgdex_id = ${p(setTid)}` });
+  if (args.category) filters.push({ label: `category ${args.category}`, sql: (p) => `c.category = ${p(args.category)}` });
+  if (args.rarity) {
+    const rarity = args.rarity.trim();
+    filters.push({ label: `rarity '${rarity}'`, sql: (p) => `lower(c.rarity) = lower(${p(rarity)})` });
+  }
+  if (args.standard_legal !== undefined) {
+    filters.push({ label: `standard_legal ${args.standard_legal}`, sql: (p) => `c.legal_standard = ${p(args.standard_legal)}` });
+  }
+  if (args.tag) {
+    const ids = idsWithTag(args.tag);
+    filters.push({ label: `tag ${args.tag}`, sql: (p) => `c.tcgdex_id = ANY(${p(ids)}::text[])` });
+  }
+  if (args.owned_only) filters.push({ label: 'owned_only', sql: () => `COALESCE(o.qty, 0) > 0` });
+  if (args.exclude_owned) filters.push({ label: 'exclude_owned', sql: () => `COALESCE(o.qty, 0) = 0` });
+  // `> 0`, not `!== undefined`: a zero minimum is not a filter, and treating it as one cost a third
+  // of the catalogue on every call of the turn that failed.
+  if (args.min_value_usd !== undefined && args.min_value_usd > 0) {
+    const minor = Math.round(args.min_value_usd * 100);
+    filters.push({ label: `min_value_usd ${args.min_value_usd}`, sql: (p) => `b.best_minor >= ${p(minor)}` });
+  }
+  // A card qualifies when ANY of its printings has one of the finishes: the card is
+  // collectible in that finish, which is what "holo Pikachus" asks about.
+  if (args.finish?.length) {
+    const finishes = [...new Set(args.finish)];
+    filters.push({
+      label: `finish ${finishes.join('/')}`,
+      sql: (p) =>
+        `EXISTS (SELECT 1 FROM card_variant xcv JOIN variant_kind xvk ON xvk.code = xcv.variant_kind_code
+                  WHERE xcv.card_id = c.id AND xvk.finish = ANY(${p(finishes)}::text[]))`,
+    });
+  }
+  return { ok: true, filters, nameFilter, setNote };
+}
 
 const pageArg = z.number().int().min(1).default(1).describe('Page number, 1-based.');
 const pageSizeArg = z
@@ -42,6 +202,8 @@ export interface SearchRow {
   /** Which rows are the SAME CARD. See {@link sameNameDifferentCard}. */
   playable_fingerprint: string | null;
   hp: number | null;
+  /** The catalog card id, for the page's finishes lookup (Phase 4). */
+  card_id?: string;
 }
 
 interface TextSearchRow extends SearchRow {
@@ -189,25 +351,19 @@ const searchCardsTool = defineTool({
     //
     // `set_id` now takes the NAME as well, so the recovery is one argument
     // rather than another tool.
-    'Search cards by NAME or by their PRINTED RULES TEXT. `query` matches CARD names only — never a set name, ' +
-    'a series name or an artist. To narrow to a set, put the set in `set_id` — ' +
-    'it takes the set NAME as readily as the id. Searching for a set name in ' +
-    '`query` always returns nothing, however many ways you spell it. ' +
-    'Accent-insensitive substring, with ' +
-    '`text` searches attack names/effects and Ability names/effects. This — not web research — is how to answer ' +
-    '"which cards do X"; combine it with `damage` for attack damage modifiers. Optional filters: set, category, ' +
-    'rarity, Standard legality, owned-only, not-owned (exclude_owned), ' +
-    'and minimum ' +
-    'USD market value. Each row shows owned quantity and best USD market price. Rows sharing a ' +
-    'name sort cheapest first. PREFER THE CHEAPEST PRINTING OF THE SAME CARD — a regular and a ' +
-    'Special Illustration Rare play identically and can differ by hundreds of dollars — but ' +
-    'SAME NAME IS NOT SAME CARD: this game reuses names across sets for cards with different HP ' +
-    'and different text, and 218 Standard-legal names here are more than one card. When a page ' +
-    'contains several cards under one name this tool says so, and groups the ids that really ' +
-    'are interchangeable; swap only within one of those groups. Use this to find cards or list ' +
-    'slices of the collection; for ' +
-    'full detail on ONE card (variants, tiers, per-source prices) use get_card instead, and ' +
-    'for set completion use set_progress.',
+    //
+    // Tightened 2026-10-14 (Phase 4) to make room for `finish` and edit_list's add_search inside
+    // the tools/list budget; every warning above is still here, in fewer words.
+    'Search cards by NAME (`query`: CARD names only, never a set, series or artist — a set name there ' +
+    'finds nothing however it is spelled; put the set, by name or id, in `set_id`) or by PRINTED RULES ' +
+    'TEXT (`text`, plus `damage` for attack modifiers): this, not web research, answers "which cards do X". ' +
+    'Filters: set, category, rarity, Standard legality, tag, finish, owned or not (exclude_owned), minimum ' +
+    'USD value. Rows show finishes, owned quantity and best USD price; same-name rows sort cheapest first. ' +
+    'Prefer the cheapest printing of the SAME card, but SAME NAME IS NOT SAME CARD (218 Standard-legal names ' +
+    'are several cards with different text): when a page has several, it says so and groups the ' +
+    'interchangeable ids. To put every match of a search without text/damage in a list, use edit_list ' +
+    'add_search. One card in full: ' +
+    'get_card; set completion: set_progress.',
   inputSchema: z.object({
     // ── IT IS A SUBSTRING, NOT A SEARCH ENGINE, AND THAT WAS NOT SAID ───────
     //
@@ -282,6 +438,11 @@ const searchCardsTool = defineTool({
       ),
     standard_legal: z.boolean().optional().describe('Filter on Standard-format legality (card.legal_standard).'),
     tag: z.enum(['Tera', 'Ancient', 'Future']).optional().describe('Only printings with this tag. Rows show tags too.'),
+    finish: z
+      .array(z.enum(FINISHES))
+      .min(1)
+      .optional()
+      .describe("Only cards printed in one of these finishes ('reverse' = reverse holo). Rows show each card's finishes."),
     // ── `0` IS NOT A NO-OP, AND IT WAS BEING SENT AS ONE ────────────────────
     //
     // This compiles to `b.best_minor >= 0` against a LEFT JOIN, so a card with
@@ -320,92 +481,10 @@ const searchCardsTool = defineTool({
       // characters (~4.6k tokens) for one broad term; the footer pages on.
       const pageSize = args.page_size ?? 50;
 
-      // owned_only AND exclude_owned together is `qty > 0 AND qty = 0` — always
-      // false, so it silently returns zero rows. The descriptions say "do not
-      // pass both"; this makes it fail loudly before any query rather than read
-      // as an empty catalog.
-      if (args.owned_only && args.exclude_owned) {
-        return fail('owned_only and exclude_owned are contradictory — pass one or the other.');
-      }
-
-      // RESOLVED, NOT COMPARED. `cs.tcgdex_id = 'sv3pt5'` matched nothing and
-      // said nothing about why; the filter now accepts the name, the near-miss
-      // spellings, and reports a real choice when the name is ambiguous.
-      let setNote: string | null = null;
-      let setTid: string | null = null;
-      if (presentRef(args.set_id)) {
-        const found = await resolveSet(ctx, args.set_id);
-        if (found.kind !== 'found') {
-          // A FAILURE, not an empty result. An unresolvable set filter means
-          // this search could never have matched, and returning `ok` with no
-          // rows would let "no cards found" stand as evidence that the CARD
-          // does not exist — the defect that made him tell somebody their own
-          // 120-card set was imaginary.
-          return fail(
-            explainMiss(
-              'set',
-              args.set_id,
-              found,
-              'Drop set_id and search by card name alone, or call set_progress to see the sets you have progress in.',
-            ),
-          );
-        }
-        setTid = found.value.tcgdexId;
-        setNote = resolvedNote('set', args.set_id, found.value.tcgdexId, found.value.name, found.matchedBy);
-      }
-
-      // ── FILTERS AS A LABELLED LIST, SO ONE CAN BE DROPPED AND RE-COUNTED ───
-      //
-      // These used to be pushed straight into `conds` with positional params,
-      // which made "which filter emptied this?" unanswerable without rebuilding
-      // the query by hand. Naming them costs nothing on the happy path and is
-      // what lets the zero-result branch below say something useful instead of
-      // "loosen the query or drop a filter" — advice the model followed 41 times
-      // in this corpus, blind, because nothing told it WHICH.
-      type Filter = { label: string; sql: (p: (v: unknown) => string) => string };
-      const filters: Filter[] = [];
-      // Held by reference so the zero-result branch can swap THIS one out
-      // without matching on its label — same identity compare the drop-one
-      // diagnosis below uses.
-      let nameFilter: Filter | null = null;
-      if (query) {
-        nameFilter = {
-          label: `name contains '${query}'`,
-          sql: (p) => `unaccent(c.name) ILIKE unaccent(${p(`%${query}%`)})`,
-        };
-        filters.push(nameFilter);
-      }
-      if (setTid) filters.push({ label: `set ${setTid}`, sql: (p) => `cs.tcgdex_id = ${p(setTid)}` });
-      if (args.category) {
-        filters.push({ label: `category ${args.category}`, sql: (p) => `c.category = ${p(args.category)}` });
-      }
-      if (args.rarity) {
-        filters.push({
-          label: `rarity '${args.rarity.trim()}'`,
-          sql: (p) => `lower(c.rarity) = lower(${p(args.rarity!.trim())})`,
-        });
-      }
-      if (args.standard_legal !== undefined) {
-        filters.push({
-          label: `standard_legal ${args.standard_legal}`,
-          sql: (p) => `c.legal_standard = ${p(args.standard_legal)}`,
-        });
-      }
-      if (args.tag) {
-        const ids = idsWithTag(args.tag);
-        filters.push({ label: `tag ${args.tag}`, sql: (p) => `c.tcgdex_id = ANY(${p(ids)}::text[])` });
-      }
-      if (args.owned_only) filters.push({ label: 'owned_only', sql: () => `COALESCE(o.qty, 0) > 0` });
-      if (args.exclude_owned) filters.push({ label: 'exclude_owned', sql: () => `COALESCE(o.qty, 0) = 0` });
-      // `> 0`, not `!== undefined` — see the schema. A zero minimum is not a
-      // filter, and treating it as one cost a third of the catalogue on every
-      // call of the turn that failed.
-      if (args.min_value_usd !== undefined && args.min_value_usd > 0) {
-        filters.push({
-          label: `min_value_usd ${args.min_value_usd}`,
-          sql: (p) => `b.best_minor >= ${p(Math.round(args.min_value_usd! * 100))}`,
-        });
-      }
+      const shared = await cardFilters(ctx, args);
+      if (!shared.ok) return fail(shared.message);
+      type Filter = CardFilter;
+      const { filters, nameFilter, setNote } = shared;
       const textClause = (alias: string, p: (v: unknown) => string): string => {
         const body = `concat_ws(' ', ${alias}.name, ${alias}.effect)`;
         return textTerms
@@ -513,19 +592,7 @@ const searchCardsTool = defineTool({
         return `$${params.length}`;
       };
       const fromWhere = built.fromWhere;
-      const ctes = `
-        WITH owned AS (
-          SELECT cv.card_id, sum(ci.quantity)::int AS qty
-            FROM collection_item ci
-            JOIN card_variant cv ON cv.id = ci.card_variant_id
-           WHERE ci.user_id = $1 AND ci.quantity > 0
-           GROUP BY cv.card_id),
-        best AS (
-          SELECT cv.card_id, max(pc.market_minor)::int AS best_minor
-            FROM price_current pc
-            JOIN card_variant cv ON cv.id = pc.card_variant_id
-           WHERE pc.currency_code = 'USD' AND pc.market_minor IS NOT NULL
-           GROUP BY cv.card_id)`;
+      const ctes = SEARCH_CTES;
 
       // Count first, with exactly the filter params bound so far.
       const totalSql = textSearch
@@ -546,7 +613,7 @@ const searchCardsTool = defineTool({
             ctx.db,
             `${ctes}, candidates AS (
               SELECT c.name, c.tcgdex_id, c.rarity, o.qty AS owned_qty, b.best_minor,
-                     se.slug AS series_slug, c.playable_fingerprint, c.hp,
+                     se.slug AS series_slug, c.playable_fingerprint, c.hp, c.id AS card_id,
                      mt.match_kind, mt.match_name, mt.match_damage, mt.match_effect, mt.match_cost,
                      count(*) OVER (PARTITION BY coalesce(c.playable_fingerprint::text, 'card:' || c.id::text))::int AS printings,
                      array_agg(c.tcgdex_id) OVER (
@@ -560,7 +627,7 @@ const searchCardsTool = defineTool({
                                 c.released_on DESC NULLS LAST, c.tcgdex_id) AS pick
                 ${fromWhere})
              SELECT name, tcgdex_id, rarity, owned_qty, best_minor, series_slug,
-                    playable_fingerprint, hp, match_kind, match_name, match_damage,
+                    playable_fingerprint, hp, card_id, match_kind, match_name, match_damage,
                     match_effect, match_cost, printings, all_ids[2:4] AS other_ids
                FROM candidates WHERE pick = 1
                ORDER BY lower(name), tcgdex_id
@@ -571,7 +638,7 @@ const searchCardsTool = defineTool({
             ctx.db,
             `${ctes}
          SELECT c.name, c.tcgdex_id, c.rarity, o.qty AS owned_qty, b.best_minor, se.slug AS series_slug,
-                c.playable_fingerprint, c.hp
+                c.playable_fingerprint, c.hp, c.id AS card_id
          ${fromWhere}
          ${orderBy}
          LIMIT ${p(pageSize)} OFFSET ${p((args.page - 1) * pageSize)}`,
@@ -709,6 +776,7 @@ const searchCardsTool = defineTool({
             .join('\n'),
         );
       }
+      const finishes = await finishesFor(ctx, rows.map((r) => r.card_id ?? '').filter(Boolean));
       const lines = rows.map((r) => {
         if (textSearch) {
           const tr = r as TextSearchRow;
@@ -720,6 +788,7 @@ const searchCardsTool = defineTool({
             tr.tcgdex_id,
             tagCell(tr.tcgdex_id),
             tr.rarity,
+            finishesCell(finishes.get(String(tr.card_id))),
             tr.owned_qty !== null && Number(tr.owned_qty) > 0 ? `owned x${tr.owned_qty}` : null,
             line,
             tr.printings > 1 ? `printings: ${tr.printings}` : null,
@@ -731,6 +800,7 @@ const searchCardsTool = defineTool({
           r.tcgdex_id,
           tagCell(r.tcgdex_id),
           r.rarity,
+          finishesCell(finishes.get(String(r.card_id))),
           r.owned_qty !== null && Number(r.owned_qty) > 0 ? `owned x${r.owned_qty}` : null,
           money(r.best_minor),
           `series ${r.series_slug}`,
