@@ -32,7 +32,7 @@ import { defKey } from '../cards/frame.js';
 import { FRAMES } from '../cards/frames-all.js';
 import { canonicalName, listedFrame } from './cardCodes.js';
 import { parseLiveLog } from './liveLog.js';
-import { HIDDEN, replayLog, type ReplayObservation } from './replay.js';
+import { HIDDEN, playableFrame, replayLog, type ReplayObservation } from './replay.js';
 
 export interface TurnOption {
   /** 1 = the search's choice. */
@@ -174,7 +174,8 @@ function normaliseDeck(game: Game, side: Player, deckList?: ReadonlyArray<DeckLi
     const listed = new Map<string, Map<string, number>>();
     for (const e of deckList) {
       if (e.count <= 0) continue;
-      const f = listedFrame(e.name, e.id);
+      const listedAs = listedFrame(e.name, e.id);
+      const f = listedAs ? playableFrame(listedAs) : null;
       const name = canonicalName(e.name).toLowerCase();
       const inner = listed.get(name) ?? new Map<string, number>();
       const k = f ? defKey(f) : '?';
