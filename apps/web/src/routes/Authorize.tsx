@@ -23,8 +23,9 @@ import { useNavigate, useSearch } from '@tanstack/react-router'
 import { supabase, isCloudMode } from '../lib/supabase'
 import { readSession } from '../lib/authSession'
 import { api, type OAuthClientInfo } from '../lib/api'
-import { consentView, SCOPE_OPTIONS, supportsScopedConsent, type ConsentScope, type ConsentView } from '../lib/oauthConsent'
+import { consentView, supportsScopedConsent, type ConsentScope, type ConsentView } from '../lib/oauthConsent'
 import { Icon } from '../components/Icon'
+import { ScopeChoice } from '../components/ScopeChoice'
 import { Spinner } from '../components/ui'
 import { AuthCard, AuthPage, CTA_GHOST, SubmitButton } from './auth/authUi'
 import { FormAlert } from '../components/ui/FormAlert'
@@ -206,34 +207,14 @@ export function Authorize() {
       <AuthCard title="Connect to DeckPal" subtitle="Check who is asking before you approve.">
         <ClientIdentity view={view} />
 
-        <fieldset className="mb-[16px]" disabled={busy !== null}>
-          <legend className="mb-[8px] text-[14px] font-bold text-text-primary">What it can do</legend>
-          <div className="flex flex-col gap-[8px]">
-            {SCOPE_OPTIONS.filter((option) => option.value === 'full' || scopedConsent).map((option) => (
-              <label
-                key={option.value}
-                className={`flex cursor-pointer items-start gap-[10px] rounded-[12px] border p-[12px] transition-colors ${
-                  displayedScope === option.value
-                    ? 'border-action-primary bg-halo-neutral'
-                    : 'border-action-ghost-border bg-surface-tertiary hover:border-text-muted'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="scope"
-                  value={option.value}
-                  checked={displayedScope === option.value}
-                  onChange={() => setScope(option.value)}
-                  className="mt-[3px] h-[16px] w-[16px] shrink-0 accent-[var(--color-action-primary)]"
-                />
-                <span className="min-w-0">
-                  <span className="block text-[14px] font-bold text-text-primary">{option.label}</span>
-                  <span className="block text-[14px] leading-[1.5] text-text-body">{option.detail}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        <ScopeChoice
+          name="scope"
+          value={displayedScope}
+          onChange={setScope}
+          disabled={busy !== null}
+          readOnlyOffered={scopedConsent}
+          className="mb-[16px]"
+        />
 
         {client.canGrantDeckeImprovementRead && (
           <label className="mb-[16px] flex cursor-pointer items-start gap-[10px] rounded-[12px] border border-action-ghost-border bg-surface-tertiary p-[12px]">

@@ -181,6 +181,18 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   `verifiedName`; `POST /oauth/authorize/decision` accepts `scope: "full" | "read"` (absent = full,
   anything else 400; 503 until 075 is applied); `GET /tokens` rows add `expiresAt`, `scope`,
   `oauthClientId`, `oauthRedirectUri` and `redirect` (`{ host, trust, verifiedName }` or null).
+- **Personal access tokens may be read-only too (migration 085, 2026-10-12).** Profile → Agent
+  access offers the consent screen's choice (Read and change by default, or Read only) when a token
+  is made. `POST /tokens` takes `{ name, scope?, deckeImprovementRead? }`: `scope` is `"full"` or
+  `"read"`, absent means `"full"` (so every older client is unchanged), and anything else present is
+  a `400` (`scope must be "full" or "read"`). `"read"` answers `503 unavailable` and mints nothing
+  until 085 is applied, because before it the signed-in role may not insert the column; a full token
+  is inserted without naming `scope` and so never depends on 085. The `201` response's `token` and
+  every `GET /tokens` row carry `scope`. A read token is `scope = 'read'` on its own `api_token`
+  row, so it resolves, lists and is enforced exactly like a read-only OAuth connection (17 read
+  tools, `BEGIN READ ONLY`, `403 insufficient_scope` on REST writes), with no expiry and no
+  `redirect`, like any hand-made token. Revocation is unchanged, and a token's scope cannot be
+  changed after it is made: 085 grants `authenticated` INSERT on `scope` and never UPDATE.
 - **Deck-E improvement capability (migration 078, 2026-09-28).** PATs and OAuth authorization
   codes carry `decke_improvement_read`, default false. An eligible signed-in administrator must
   explicitly tick **Read the anonymised Deck-E chat collection** when creating or approving the

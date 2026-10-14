@@ -12,6 +12,7 @@ export {
   hashToken,
   listTokens,
   looksLikeApiToken,
+  readOnlyTokensReady,
   resolveToken,
   revokeToken,
   tokenPrefix,

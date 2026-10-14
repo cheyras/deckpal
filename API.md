@@ -130,7 +130,9 @@ omit the host.
   does, except the session-only ones: `/tokens`, `/avatar`, `/oauth`, `/admin`,
   `/me/billing`, `/me/credits`, `/me/features`, `/me/decke-sharing` and, since
   2026-09-26, `/decke`, `/me/showcase` and `/me/settings` (`403 forbidden`). A
-  **read-only** connection (migration 075) is refused every method but `GET`,
+  **read-only** connection (migration 075) or read-only personal access token
+  (085; `POST /tokens` takes `scope: "full" | "read"`, contract in
+  `apps/mcp/SPEC.md` §3b) is refused every method but `GET`,
   `HEAD` and `OPTIONS` on every route with **`403`**, `{ "error": { "code":
   "insufficient_scope" } }` and `WWW-Authenticate: Bearer error="insufficient_scope"`,
   except `POST /massentry` (it builds cart links), `POST /decks/check`,
