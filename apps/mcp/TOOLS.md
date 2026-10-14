@@ -91,7 +91,8 @@ The audit trail of collection changes (collection_event), newest first: when, wh
 |---|---|---|---|---|
 | `since` | string |  |  | Only events at/after this ISO 8601 timestamp, e.g. '2026-07-01' or '2026-07-28T15:00:00Z'. |
 | `source` | string |  |  | Only events written by this source, e.g. 'web', 'deckpal-mcp', an import script name. |
-| `limit` | integer |  | `50` | Maximum events to return (1–200, default 50, newest first). |
+| `page` | integer |  | `1` | Page number, 1-based. |
+| `page_size` | integer |  | `50` | Rows per page (default 50, cap 200). |
 
 <a id="collection_value"></a>
 
@@ -170,7 +171,7 @@ Completion progress toward the three goals (complete = one of any variant per ca
 
 read · annotations `{"title":"Historical prices for one card (OHLC)","readOnlyHint":true,"openWorldHint":false}`
 
-Historical OHLC price series for one card by TCGdex id (e.g. sv03.5-151 or base1-1). Returns bounded pages of complete price points across every printing variant. Start with offset=0, then continue with the next_offset shown in the result TEXT, keeping the same card_id, range and currency, until next_offset=none. Offsets count points in API order, with one record for each empty variant. For CURRENT prices use get_card instead. range: 30d|3m|6m|1y|18m|2y (default 3m). currency: USD|EUR|JPY (default USD). An empty series means there are no recorded observations for that card/range/currency — not that the price is zero, not a fabricated trend, not current price.
+Historical OHLC price series for one card by TCGdex id (e.g. sv03.5-151 or base1-1). Returns bounded pages of complete price points across every printing variant. Start with page 1 and, while the result TEXT says to, call again with the next page, keeping the same card_id, range, currency and page_size, until it says the last page. For CURRENT prices use get_card instead. range: 30d|3m|6m|1y|18m|2y (default 3m). currency: USD|EUR|JPY (default USD). An empty series means there are no recorded observations for that card/range/currency — not that the price is zero, not a fabricated trend, not current price.
 
 Grounded on `grain`, an agent:
 
@@ -192,7 +193,8 @@ Grounded on `grain`, an agent:
 | `card_id` | string | yes |  | TCGdex canonical card id, e.g. 'sv03.5-151' or 'base1-1'. Required, non-blank. |
 | `range` | "30d" \| "3m" \| "6m" \| "1y" \| "18m" \| "2y" |  | `"3m"` | History window: 30d \| 3m \| 6m \| 1y \| 18m \| 2y. Default 3m. |
 | `currency` | "USD" \| "EUR" \| "JPY" |  | `"USD"` | Currency: USD \| EUR \| JPY. Default USD. Values are in major units (dollars/euros/yen) — never cents. |
-| `offset` | integer |  | `0` | Start at 0. Continue with next_offset from the result text, using the same card_id, range and currency. Counts complete points, plus one record per empty variant. |
+| `page` | integer |  | `1` | Page number, 1-based. |
+| `page_size` | integer |  | `200` | Records per page (default 200, cap 200); a page also ends at 5,500 characters. |
 
 <a id="rules_lookup"></a>
 
@@ -220,7 +222,8 @@ Read decks. Without deck_id: the deck index (id, name, format, version, card cou
 | `deck_id` | string |  |  | One deck, by UUID or by NAME. Omit to list all decks with their ids. |
 | `deleted` | boolean |  | `false` | true → show DELETED decks (the recycle bin) instead of live ones. Restore one with delete_deck(restore:true). |
 | `include` | "cards" \| "validate" \| "pricing" \| "testhand" \| "strategy"[] |  |  | Extra sections to fetch for one deck: 'cards', 'validate', 'pricing', 'testhand', 'strategy' (the whole guide text). Ignored without deck_id. |
-| `page` | integer |  | `1` | Without deck_id: page of the index, 100 decks a page. |
+| `page` | integer |  | `1` | Page number, 1-based. |
+| `page_size` | integer |  | `100` | Without deck_id: decks per page (default 100, cap 200). |
 
 <a id="save_deck"></a>
 
@@ -549,8 +552,8 @@ The audit trail of every CHANGE made through DeckPal — collection quantities, 
 | `note` | string |  |  | Only operations whose note contains this text (case-insensitive substring). |
 | `entity_type` | "collection_item" \| "card_list" \| "list_item" \| "deck" \| "deck_card" \| "deck_strategy" \| "battle_log" |  |  | Only operations that touched this kind of thing. |
 | `entity_id` | string |  |  | Only operations that touched this exact thing (a numeric card_variant id, or a list/deck UUID). |
-| `limit` | integer |  |  | Per page (1–200): operations (default 25), or with batch_id that operation's changes (default 50). |
 | `page` | integer |  | `1` | Page number, 1-based. |
+| `page_size` | integer |  |  | Rows per page (cap 200): operations (default 25), or with batch_id its changes (default 50). |
 
 <a id="revert"></a>
 

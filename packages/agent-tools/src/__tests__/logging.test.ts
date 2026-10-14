@@ -285,7 +285,7 @@ test('log_cards applies a single delta item and renders before → after', async
   assert.equal(res.isError, undefined);
   assert.match(res.text, /Pikachu \| sv01-25 \| normal \| 2 → 3 \(Δ\+1\)/);
   assert.match(res.text, /applied 1, unchanged 0, skipped 0/);
-  assert.match(res.text, /undo with revert\(batch_id: "batch-abc"\)/);
+  assert.match(res.text, /can be undone \(for the tool, never the reply: revert batch_id "batch-abc"\)/);
 
   const [sent] = batchSends(sends);
   assert.equal(sent!.body.dryRun, false);

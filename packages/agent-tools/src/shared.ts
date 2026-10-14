@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { Ctx } from './ctx.js';
 import { q1 } from './db.js';
 
@@ -12,6 +13,19 @@ export const GOALS = ['complete', 'master', 'grandmaster'] as const;
 export const FINISHES = ['normal', 'reverse', 'holo', 'lenticular', 'metal'] as const;
 
 export type Goal = 'complete' | 'master' | 'grandmaster';
+
+// ── PAGING, THE SAME WAY IN EVERY TOOL (Phase 4, 2026-10-14) ───────────────
+//
+// Five ways to page across the tools (page + page_size, page + limit, limit alone, page alone,
+// offset + next_offset) taught a model that a paging argument from one tool works in another:
+// in the owner's Haiku test it sent card_price_history's `offset` to search_cards, which dropped
+// it silently and returned page 1 again. Every paged tool now takes these two.
+
+/** The page, 1-based. */
+export const pageArg = z.number().int().min(1).default(1).describe('Page number, 1-based.');
+/** Rows per page; `def` is the tool's default. */
+export const pageSizeArg = (def: number, max = 200) =>
+  z.number().int().min(1).max(max).default(def).describe(`Rows per page (default ${def}, cap ${max}).`);
 
 /** The user's default completion goal (user_settings.default_goal). */
 export async function defaultGoal(ctx: Ctx): Promise<Goal> {

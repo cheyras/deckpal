@@ -155,6 +155,17 @@ export function untrustedBlock(label: string, text: string, tag: string): string
   ];
 }
 
+// ── AN ID IS FOR THE NEXT TOOL CALL, AND SAYS SO (Phase 4, 2026-10-14) ──
+//
+// Results used to hand ids over in the sentence itself ("undo with revert(batch_id: \"…\")",
+// "Created deck 'X' — id …"), and in the owner's Haiku test the model passed them on to the player.
+// Ids now come last, in a parenthesis that says who they are for.
+
+/** "(for the tool, never the reply: revert batch_id \"b-1\")" */
+export const forTools = (what: string): string => `(for the tool, never the reply: ${what})`;
+/** The line a write ends with when it can be undone. */
+export const undoHint = (batchId: string): string => `can be undone ${forTools(`revert batch_id "${batchId}"`)}`;
+
 /** Battle record footer: {wins:3, losses:1, ties:0} → "3W–1L–0T". */
 export function winLoss(r: { wins: number; losses: number; ties: number }): string {
   return `${r.wins}W–${r.losses}L–${r.ties}T`;
@@ -162,8 +173,10 @@ export function winLoss(r: { wins: number; losses: number; ties: number }): stri
 
 /**
  * Paging footer for list-returning tools, e.g.
- * "showing 1–50 of 312 — page 2 for more". States the total on every
- * truncated response (SPEC §4).
+ * "showing 1–50 of 312 — call again with page 2, page_size 50, for more". States the total on
+ * every truncated response (SPEC §4), and names the arguments to page with: "page 2 for more" was
+ * read as a hint to invent one (`offset`, Phase 4), and the page size because page 2 means other
+ * rows at another size (a caller that dropped it skipped rows; Astra, #346).
  */
 export function pagingFooter(page: number, pageSize: number, total: number): string {
   if (total === 0) return 'no results';
@@ -174,6 +187,6 @@ export function pagingFooter(page: number, pageSize: number, total: number): str
   if (from > total) return `page ${page} is past the end: ${total} in all, last page ${Math.ceil(total / pageSize)}`;
   const to = Math.min(page * pageSize, total);
   if (page === 1 && to >= total) return `showing all ${total}`;
-  const more = to < total ? ` — page ${page + 1} for more` : '';
+  const more = to < total ? ` — call again with page ${page + 1}, page_size ${pageSize}, for more` : '';
   return `showing ${from}–${to} of ${total}${more}`;
 }

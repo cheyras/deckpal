@@ -116,7 +116,7 @@ test('save_deck create makes a brand new deck even when a same-named one already
   );
 
   assert.equal(res.isError, undefined);
-  assert.match(res.text, /Created deck 'Toolbox Slowking' \(standard\) — id deck-2/);
+  assert.match(res.text, /Created deck 'Toolbox Slowking' \(standard\) \(for the tool, never the reply: deck_id "deck-2"\)/);
   assert.ok(api.sends.some((s) => s.method === 'POST' && s.path === '/decks'), 'must create a NEW deck');
   assert.equal(api.sends.some((s) => s.path === 'deck-1' || s.path.includes('deck-1')), false, 'must never touch the existing deck of the same name');
 });
@@ -311,8 +311,8 @@ test('delete_deck dry_run:false soft-deletes with the plain DELETE (no ?purge=tr
 
   assert.equal(res.isError, undefined);
   assert.match(res.text, /Deleted deck 'Toolbox Slowking'/);
-  assert.match(res.text, /restore with delete_deck\(deck_id: "deck-1", restore: true, dry_run: false\)/);
-  assert.match(res.text, /revert\(batch_id: "batch-del-1"\)/);
+  assert.match(res.text, /can be restored \(for the tool, never the reply: delete_deck deck_id "deck-1", restore true, dry_run false/);
+  assert.match(res.text, /revert batch_id "batch-del-1"/);
 });
 
 test('delete_deck purge:true dry_run:false sends ?purge=true and reports PURGED with no restore offer', async () => {

@@ -256,9 +256,9 @@ try {
   };
   const seen = new Set();
   const pages = [];
-  let offset = 0;
+  let pageNumber = 1;
   for (let page = 0; page < 20; page++) {
-    const input = tool.inputSchema.parse({ card_id: 'base1-1', range: '30d', currency: 'JPY', offset });
+    const input = tool.inputSchema.parse({ card_id: 'base1-1', range: '30d', currency: 'JPY', page: pageNumber });
     const before = requests.length;
     const visible = await tools.card_price_history.execute(input, {
       toolCallId: 'real-history-' + page, messages: [], context: undefined,
@@ -289,16 +289,17 @@ try {
       count++;
     }
     assert.ok(count > 0, 'nonempty history page must advance');
-    const next = visible.match(/next_offset=(\d+|none)\b/);
-    assert.ok(next, 'text-only callers require continuation');
-    pages.push({ offset, characters: visible.length, points: count, nextOffset: next[1] });
-    if (next[1] === 'none') break;
-    assert.ok(Number(next[1]) > offset);
-    offset = Number(next[1]);
+    const more = visible.match(/call again with page (\d+), page_size \d+, and the same card_id, range and currency/);
+    const last = /page \d+ of \d+, the last/.test(visible);
+    assert.ok(more || last, 'text-only callers require continuation');
+    pages.push({ page: pageNumber, characters: visible.length, points: count, nextPage: more ? Number(more[1]) : null });
+    if (!more) break;
+    assert.equal(Number(more[1]), pageNumber + 1);
+    pageNumber = Number(more[1]);
   }
   assert.equal(seen.size, 93, 'all observations, including the final variant, must reach the real chat adapter');
   assert.ok(pages.length > 1);
-  assert.equal(pages.at(-1).nextOffset, 'none');
+  assert.equal(pages.at(-1).nextPage, null);
   evidence.cases.push({
     name: 'real_postgres_prices_shared_tool_chat_and_mcp_text',
     variants: 3, observations: seen.size, pages, globalChatLimit: DEFAULT_MAX_TOOL_CHARS,

@@ -3,8 +3,8 @@ import { createHash } from 'node:crypto';
 import type { Ctx } from '../ctx.js';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
-import { errText } from '../shared.js';
-import { pagingFooter, row, untrusted, usd, winLoss } from '../format.js';
+import { errText, pageArg, pageSizeArg } from '../shared.js';
+import { forTools, pagingFooter, row, untrusted, usd, winLoss } from '../format.js';
 import { meansCreate, needDeck, presentRef } from '../entities.js';
 import { strategyLabel } from './deckIntel.js';
 
@@ -376,10 +376,11 @@ const decksTool = defineTool({
         "Extra sections to fetch for one deck: 'cards', 'validate', 'pricing', 'testhand', " +
           "'strategy' (the whole guide text). Ignored without deck_id.",
       ),
-    page: z.number().int().min(1).default(1).describe(`Without deck_id: page of the index, ${INDEX_PAGE} decks a page.`),
+    page: pageArg,
+    page_size: pageSizeArg(INDEX_PAGE).describe(`Without deck_id: decks per page (default ${INDEX_PAGE}, cap 200).`),
   }),
   annotations: { readOnlyHint: true, idempotentHint: true },
-  handler: async ({ deck_id, deleted, include, page = 1 }, ctx) => {
+  handler: async ({ deck_id, deleted, include, page = 1, page_size = INDEX_PAGE }, ctx) => {
     try {
       // `presentRef`, so a model filling the field with 'none' or 'None' gets
       // the index it was reaching for rather than a lookup failure. 'None' is
@@ -392,8 +393,8 @@ const decksTool = defineTool({
         }
         // Paged at INDEX_PAGE: the index had no bound, and scouting lists make
         // three-figure deck counts realistic (30 decks measured 3,564 chars).
-        const from = (page - 1) * INDEX_PAGE;
-        const lines = res.decks.slice(from, from + INDEX_PAGE).map((d) => {
+        const from = (page - 1) * page_size;
+        const lines = res.decks.slice(from, from + page_size).map((d) => {
           const games = d.record.wins + d.record.losses + d.record.ties;
           return row(
             d.name,
@@ -407,8 +408,8 @@ const decksTool = defineTool({
           );
         });
         lines.push(
-          res.decks.length > INDEX_PAGE || page > 1
-            ? `${res.decks.length} deck(s); ${pagingFooter(page, INDEX_PAGE, res.decks.length)}`
+          res.decks.length > page_size || page > 1
+            ? `${res.decks.length} deck(s); ${pagingFooter(page, page_size, res.decks.length)}`
             : `${res.decks.length} deck(s)`,
         );
         return ok(lines.join('\n'));
@@ -706,7 +707,7 @@ const saveDeckTool = defineTool({
             idempotencyKey: saveDeckIdempotencyKey({ name, format, ptcgl: ptcgl_text }),
           })) as ImportResult;
           const lines = [
-            `${res.replayed ? 'Deck was already imported' : 'Imported deck'} '${res.deck.name}' (${res.deck.formatCode}) — id ${res.deck.id}`,
+            `${res.replayed ? 'Deck was already imported' : 'Imported deck'} '${res.deck.name}' (${res.deck.formatCode}) ${forTools(`deck_id "${res.deck.id}"`)}`,
             `  resolved ${res.import.resolvedEntries} line(s) → ${res.import.distinctCards} distinct card(s), ${res.counts.total} cards total`,
           ];
           // A pasted decklist can come from anywhere on the web; a line that
@@ -755,7 +756,7 @@ const saveDeckTool = defineTool({
           created = { ...loaded, deck: { ...loaded.deck, ...shell.deck } };
         }
         const lines = [
-          `${created.replayed ? 'Deck was already saved' : 'Created deck'} '${created.deck.name}' (${created.deck.formatCode}) — id ${created.deck.id}`,
+          `${created.replayed ? 'Deck was already saved' : 'Created deck'} '${created.deck.name}' (${created.deck.formatCode}) ${forTools(`deck_id "${created.deck.id}"`)}`,
           `Deck has ${created.counts.total} card(s) and is ${created.validation.legal ? 'format-legal' : 'NOT format-legal'}.`,
         ];
         if (!created.validation.legal) lines.push(...validationLines(created.validation));
@@ -912,8 +913,8 @@ const deleteDeckTool = defineTool({
           // `deck_id`, which is the field's real name. It said `deckId` — so a
           // model following this instruction verbatim failed schema validation
           // on the one call that undoes a deletion.
-          ? `Deleted ${what}. It is in the recycle bin — restore with delete_deck(deck_id: "${deckId}", restore: true, dry_run: false)` +
-              (r.batchId ? `, or revert(batch_id: "${r.batchId}")` : '') +
+          ? `Deleted ${what}. It is in the recycle bin and can be restored ` +
+              forTools(`delete_deck deck_id "${deckId}", restore true, dry_run false${r.batchId ? `; or revert batch_id "${r.batchId}"` : ''}`) +
               '.'
           : `PURGED ${what}. This is gone for good.`,
       );

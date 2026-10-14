@@ -3,8 +3,8 @@ import type { Ctx } from '../ctx.js';
 import { q, q1 } from '../db.js';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok } from '../result.js';
-import { money, nfmt, row, stamp } from '../format.js';
-import { defaultGoal, errText } from '../shared.js';
+import { money, nfmt, pagingFooter, row, stamp } from '../format.js';
+import { defaultGoal, errText, pageArg, pageSizeArg } from '../shared.js';
 
 /**
  * Collection tools — SPEC §5 #2 collection_summary (+ the collection://summary
@@ -238,16 +238,11 @@ const collectionLogTool = defineTool({
       .string()
       .optional()
       .describe("Only events written by this source, e.g. 'web', 'deckpal-mcp', an import script name."),
-    limit: z
-      .number()
-      .int()
-      .min(1)
-      .max(200)
-      .default(50)
-      .describe('Maximum events to return (1–200, default 50, newest first).'),
+    page: pageArg,
+    page_size: pageSizeArg(50),
   }),
   annotations: { readOnlyHint: true, idempotentHint: true },
-  handler: async ({ since, source, limit }, ctx) => {
+  handler: async ({ since, source, page = 1, page_size = 50 }, ctx) => {
     try {
       const conds: string[] = ['ce.user_id = $1'];
       const params: unknown[] = [ctx.userId];
@@ -280,11 +275,11 @@ const collectionLogTool = defineTool({
            JOIN card_set cs     ON cs.id = c.set_id
           WHERE ${where}
           ORDER BY ce.occurred_at DESC, ce.id DESC
-          LIMIT ${p(limit)}`,
+          LIMIT ${p(page_size)} OFFSET ${p((page - 1) * page_size)}`,
         params,
       );
 
-      if (rows.length === 0) return ok('No collection events match.');
+      if (total === 0) return ok('No collection events match.');
       const lines = rows.map((r) =>
         row(
           stamp(r.occurred_at),
@@ -295,9 +290,7 @@ const collectionLogTool = defineTool({
           r.note,
         ),
       );
-      const footer =
-        rows.length < total ? `showing latest ${rows.length} of ${total} — raise limit or filter with since/source` : `all ${total} matching events`;
-      return ok([...lines, footer].join('\n'), { total, returned: rows.length });
+      return ok([...lines, pagingFooter(page, page_size, total)].join('\n'), { total, page, returned: rows.length });
     } catch (err) {
       return fail(`collection_log failed: ${errText(err)}`);
     }

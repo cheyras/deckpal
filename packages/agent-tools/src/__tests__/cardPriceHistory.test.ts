@@ -655,57 +655,64 @@ function paginationResponse() {
 type HistoryPage = {
   series: ReturnType<typeof paginationResponse>['series'];
   pagination: {
-    offset: number;
-    next_offset: number | null;
+    page: number;
+    pages: number;
+    next_page: number | null;
     total_records: number;
     returned_records: number;
   };
 };
 
-test('offset schema defaults to zero and rejects invalid cursors', () => {
+/** The page the text says to call next, or null when it says this is the last. */
+function nextPageFromText(text: string): number | null {
+  const more = text.match(/call again with page (\d+), page_size \d+, and the same card_id, range and currency/);
+  if (more) return Number(more[1]);
+  assert.match(text, /page \d+ of \d+, the last/, 'every page says whether there is another');
+  return null;
+}
+
+test('pages like every other tool: page defaults to 1, invalid pages are rejected, and the description says how (Phase 4)', () => {
   const t = findTool('card_price_history', allTools());
-  assert.equal(t.inputSchema!.parse({ card_id: 'base1-1' }).offset, 0);
-  for (const offset of [-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, '1', null]) {
-    assert.equal(
-      t.inputSchema!.safeParse({ card_id: 'base1-1', offset }).success,
-      false,
-      `invalid offset ${String(offset)} must be rejected`,
-    );
+  assert.equal(t.inputSchema!.parse({ card_id: 'base1-1' }).page, 1);
+  for (const page of [-1, 0, 0.5, NaN, Infinity, '1', null]) {
+    assert.equal(t.inputSchema!.safeParse({ card_id: 'base1-1', page }).success, false, `invalid page ${String(page)} must be rejected`);
   }
-  assert.equal(t.inputSchema!.safeParse({ card_id: 'base1-1', offset: Number.MAX_SAFE_INTEGER }).success, true);
-  assert.match(t.description, /next_offset/);
-  assert.match(t.description, /same card_id, range and currency/);
+  assert.equal(t.inputSchema!.safeParse({ card_id: 'base1-1', offset: 3 }).success, true, 'an old offset is not an error here...');
+  assert.equal(t.inputSchema!.parse({ card_id: 'base1-1', offset: 3 }).offset, undefined, '...and is not an argument (MCP reports it as ignored)');
+  assert.match(t.description, /Start with page 1/);
+  assert.match(t.description, /same card_id, range, currency and page_size/);
+  assert.doesNotMatch(t.description, /offset/);
 });
 
-test('handler rejects invalid offsets before reading the API', async () => {
+test('handler rejects invalid pages before reading the API', async () => {
   const t = findTool('card_price_history', allTools());
   const { ctx, calls } = captureCtx(paginationResponse());
-  for (const offset of [-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, '1', null]) {
-    const result = await t.handler({ card_id: 'base1-1', offset }, ctx);
-    assert.equal(result.isError, true, `invalid direct-handler offset ${String(offset)}`);
-    assert.match(result.text, /offset must be a nonnegative safe integer/);
+  for (const page of [-1, 0, 0.5, NaN, Infinity, '1', null]) {
+    const result = await t.handler({ card_id: 'base1-1', page }, ctx);
+    assert.equal(result.isError, true, `invalid direct-handler page ${String(page)}`);
+    assert.match(result.text, /page must be a whole number from 1/);
   }
   assert.equal(calls.length, 0);
 });
 
-test('following text cursors retrieves every complete point and variant without duplication', async () => {
+test('following the pages the text names retrieves every complete point and variant without duplication', async () => {
   const t = findTool('card_price_history', allTools());
   const response = paginationResponse();
   const original = structuredClone(response);
   const { ctx, calls } = captureCtx(response);
   const collected = response.series.map((variant) => ({ ...variant, points: [] as typeof variant.points }));
-  let offset = 0;
-  let pages = 0;
+  let pageNumber = 1;
+  let pagesRead = 0;
   let finished = false;
 
-  for (; pages < 20; pages++) {
-    const result = await t.handler({ card_id: 'base1-1', range: '30d', currency: 'JPY', offset }, ctx);
+  for (; pagesRead < 20; pagesRead++) {
+    const result = await t.handler({ card_id: 'base1-1', range: '30d', currency: 'JPY', page: pageNumber }, ctx);
     assert.ok(!result.isError, result.text);
-    assert.ok(result.text.length <= 5500, `page ${pages} is too long: ${result.text.length}`);
+    assert.ok(result.text.length <= 5500, `page ${pageNumber} is too long: ${result.text.length}`);
     const page = result.structured as unknown as HistoryPage;
     const returned = page.series.reduce((count, variant) => count + variant.points.length, 0);
     assert.ok(returned > 0, 'every nonempty page advances');
-    assert.equal(page.pagination.offset, offset);
+    assert.equal(page.pagination.page, pageNumber);
     assert.equal(page.pagination.returned_records, returned);
     assert.equal(page.pagination.total_records, 93);
     for (const variant of page.series) {
@@ -720,39 +727,45 @@ test('following text cursors retrieves every complete point and variant without 
         }
       }
     }
-    const cursor = result.text.match(/next_offset=(\d+|none)\b/);
-    assert.ok(cursor, 'continuation must be usable from text alone');
-    if (cursor[1] === 'none') {
-      assert.equal(page.pagination.next_offset, null);
+    const next = nextPageFromText(result.text);
+    assert.equal(page.pagination.next_page, next);
+    if (next === null) {
+      assert.equal(page.pagination.pages, pageNumber);
       finished = true;
       break;
     }
-    const next = Number(cursor[1]);
-    assert.equal(next, offset + returned);
-    assert.equal(page.pagination.next_offset, next);
-    offset = next;
+    assert.equal(next, pageNumber + 1);
+    pageNumber = next;
   }
 
   assert.ok(finished, 'pagination must terminate');
-  assert.ok(pages > 1, 'fixture must exercise several pages and split variants');
+  assert.ok(pagesRead > 0, 'fixture must exercise several pages and split variants');
   assert.deepEqual(collected, original.series, 'complete ordered history, including the last variant, must survive');
   assert.deepEqual(response, original, 'pagination must not mutate the API response');
-  assert.equal(calls.length, pages + 1, 'one REST GET per page');
+  assert.equal(calls.length, pagesRead + 1, 'one REST GET per page');
   for (const path of calls) {
-    assert.equal(path, '/cards/base1-1/prices?range=30d&currency=JPY', 'offset never leaks into the REST query');
+    assert.equal(path, '/cards/base1-1/prices?range=30d&currency=JPY', 'the page never leaks into the REST query');
   }
+});
+
+test('a page is the same records whichever page was asked for first', async () => {
+  const t = findTool('card_price_history', allTools());
+  const second = await t.handler({ card_id: 'base1-1', page: 2 }, mockCtx(paginationResponse()));
+  await t.handler({ card_id: 'base1-1', page: 1 }, mockCtx(paginationResponse()));
+  const again = await t.handler({ card_id: 'base1-1', page: 2 }, mockCtx(paginationResponse()));
+  assert.equal(second.text, again.text);
 });
 
 test('empty variants remain reachable records alongside observed variants', async () => {
   const t = findTool('card_price_history', allTools());
   const response = paginationResponse();
   response.series.splice(1, 0, { variantId: 99, kind: 'reverse', displayName: 'No observations', tier: null, points: [] });
-  let offset = 0;
+  let pageNumber = 1;
   let emptyRecords = 0;
   let returned = 0;
   let complete = false;
-  for (let pageNumber = 0; pageNumber < 20; pageNumber++) {
-    const result = await t.handler({ card_id: 'base1-1', offset }, mockCtx(response));
+  for (let guard = 0; guard < 20; guard++) {
+    const result = await t.handler({ card_id: 'base1-1', page: pageNumber }, mockCtx(response));
     assert.ok(!result.isError, result.text);
     assert.ok(result.text.length <= 5500);
     const page = result.structured as unknown as HistoryPage;
@@ -765,9 +778,9 @@ test('empty variants remain reachable records alongside observed variants', asyn
       }
     }
     returned += page.pagination.returned_records;
-    if (page.pagination.next_offset === null) { complete = true; break; }
-    assert.ok(page.pagination.next_offset > offset);
-    offset = page.pagination.next_offset;
+    if (page.pagination.next_page === null) { complete = true; break; }
+    assert.equal(page.pagination.next_page, pageNumber + 1);
+    pageNumber = page.pagination.next_page;
   }
   assert.ok(complete);
   assert.equal(emptyRecords, 1, 'empty printing identity must appear once');
@@ -782,47 +795,46 @@ test('a history containing only an empty variant is different from an empty seri
   assert.ok(!result.isError);
   assert.match(result.text, /variant 1/);
   assert.match(result.text, /No historical observations recorded for this variant/);
-  assert.match(result.text, /next_offset=none/);
+  assert.match(result.text, /page 1 of 1, the last/);
   const page = result.structured as unknown as HistoryPage;
   assert.equal(page.pagination.returned_records, 1);
   assert.deepEqual(page.series, response.series);
 });
 
-test('past-end offsets do not claim the card has no historical observations', async () => {
+test('past-end pages do not claim the card has no historical observations', async () => {
   const t = findTool('card_price_history', allTools());
-  for (const offset of [93, 100000]) {
-    const result = await t.handler({ card_id: 'base1-1', offset }, mockCtx(paginationResponse()));
+  for (const pageNumber of [50, 100000]) {
+    const result = await t.handler({ card_id: 'base1-1', page: pageNumber }, mockCtx(paginationResponse()));
     assert.ok(!result.isError);
-    assert.match(result.text, /at or past the end/);
+    assert.match(result.text, /is past the end: this history has \d+ page\(s\)\. Start again at page 1\./);
     assert.doesNotMatch(result.text, /No historical observations recorded for this card/);
-    assert.match(result.text, /next_offset=none/);
     const page = result.structured as unknown as HistoryPage;
     assert.deepEqual(page.series, []);
     assert.equal(page.pagination.returned_records, 0);
-    assert.equal(page.pagination.next_offset, null);
+    assert.equal(page.pagination.next_page, null);
   }
   const empty = await t.handler({ card_id: 'base1-1' }, mockCtx(sampleResponse({ seriesEmpty: true })));
   assert.match(empty.text, /No historical observations recorded for this card/);
-  assert.match(empty.text, /next_offset=none/);
-  const emptyPast = await t.handler({ card_id: 'base1-1', offset: 1 }, mockCtx(sampleResponse({ seriesEmpty: true })));
-  assert.match(emptyPast.text, /at or past the end/);
+  assert.match(empty.text, /page 1 of 1, the last/);
+  const emptyPast = await t.handler({ card_id: 'base1-1', page: 2 }, mockCtx(sampleResponse({ seriesEmpty: true })));
+  assert.match(emptyPast.text, /is past the end/);
   assert.doesNotMatch(emptyPast.text, /No historical observations recorded for this card/);
 });
 
-test('a record too large to fit is an explicit error rather than a truncated point or stuck cursor', async () => {
+test('a record too large to fit is an explicit error rather than a truncated point or stuck page', async () => {
   const t = findTool('card_price_history', allTools());
   const response = paginationResponse();
   response.series = [{ ...response.series[0]!, displayName: 'x'.repeat(5500), points: [response.series[0]!.points[0]!] }];
   const result = await t.handler({ card_id: 'base1-1' }, mockCtx(response));
   assert.equal(result.isError, true);
-  assert.match(result.text, /complete history record at offset=0/);
+  assert.match(result.text, /page 1 is one complete history record/);
   assert.match(result.text, /cannot fit/);
   assert.ok(result.text.length <= 5500);
-  assert.doesNotMatch(result.text, /grain=|next_offset=0/);
+  assert.doesNotMatch(result.text, /grain=/);
   assert.equal(result.structured, undefined);
 });
 
-test('an oversized later record leaves earlier complete records reachable before reporting its offset', async () => {
+test('an oversized later record leaves the earlier pages readable, and only its own page is the error', async () => {
   const t = findTool('card_price_history', allTools());
   const response = paginationResponse();
   response.series = [
@@ -830,12 +842,74 @@ test('an oversized later record leaves earlier complete records reachable before
     { ...response.series[1]!, displayName: 'x'.repeat(5500), points: [response.series[1]!.points[0]!] },
   ];
   const first = await t.handler({ card_id: 'base1-1' }, mockCtx(response));
-  assert.ok(!first.isError);
-  assert.match(first.text, /next_offset=1/);
+  assert.ok(!first.isError, first.text);
+  assert.match(first.text, /call again with page 2/);
   assert.equal((first.structured as unknown as HistoryPage).series[0]!.points.length, 1);
-  const second = await t.handler({ card_id: 'base1-1', offset: 1 }, mockCtx(response));
+  const second = await t.handler({ card_id: 'base1-1', page: 2 }, mockCtx(response));
   assert.equal(second.isError, true);
-  assert.match(second.text, /complete history record at offset=1/);
+  assert.match(second.text, /page 2 is one complete history record/);
+});
+
+test('records after an oversized one stay reachable: it is a page of its own, and the history goes on (Astra, #346)', async () => {
+  const t = findTool('card_price_history', allTools());
+  const response = paginationResponse();
+  response.series = [
+    { ...response.series[0]!, points: [response.series[0]!.points[0]!] },
+    { ...response.series[1]!, displayName: 'x'.repeat(5500), points: [response.series[1]!.points[0]!] },
+    { ...response.series[2]!, points: [response.series[2]!.points[0]!] },
+  ];
+  const second = await t.handler({ card_id: 'base1-1', page: 2 }, mockCtx(response));
+  assert.equal(second.isError, true);
+  assert.match(second.text, /The history continues: call again with page 3, page_size 200, and the same card_id, range and currency\./);
+  const sized = await t.handler({ card_id: 'base1-1', page: 2, page_size: 7 }, mockCtx(response));
+  assert.match(sized.text, /call again with page 3, page_size 7,/, 'the size it was cut with');
+  const third = await t.handler({ card_id: 'base1-1', page: 3 }, mockCtx(response));
+  assert.ok(!third.isError, third.text);
+  assert.match(third.text, /variant 3 \| kind normal \| Printing 3/);
+  assert.match(third.text, /page 3 of 3, the last/);
+});
+
+test('page_size caps the records on a page as well as the character budget, like every paged tool (Astra, #346)', async () => {
+  const t = findTool('card_price_history', allTools());
+  assert.equal(t.inputSchema!.parse({ card_id: 'base1-1' }).page_size, 200);
+  for (const page_size of [0, 201, 1.5, '5', null]) {
+    assert.equal(t.inputSchema!.safeParse({ card_id: 'base1-1', page_size }).success, false, `page_size ${String(page_size)}`);
+  }
+  const one = await t.handler({ card_id: 'base1-1', page_size: 1 }, mockCtx(paginationResponse()));
+  assert.ok(!one.isError, one.text);
+  const page = one.structured as unknown as HistoryPage;
+  assert.equal(page.pagination.returned_records, 1);
+  assert.equal(page.pagination.pages, 93, 'one record a page: 93 pages');
+  assert.match(one.text, /page 1 of 93 — call again with page 2, page_size 1, and the same card_id/);
+  const last = await t.handler({ card_id: 'base1-1', page_size: 1, page: 93 }, mockCtx(paginationResponse()));
+  assert.match(last.text, /page 93 of 93, the last/);
+  const bad = await t.handler({ card_id: 'base1-1', page_size: 0 }, mockCtx(paginationResponse()));
+  assert.equal(bad.isError, true);
+  assert.match(bad.text, /page_size must be a whole number from 1 to 200/);
+});
+
+test('following only the text at a non-default page_size reaches every record once: the continuation names the size (Astra, #346)', async () => {
+  const t = findTool('card_price_history', allTools());
+  const seen = new Set<string>();
+  let args: Record<string, unknown> = { card_id: 'base1-1', page_size: 7 };
+  let pagesRead = 0;
+  for (; pagesRead < 30; pagesRead++) {
+    const result = await t.handler(args, mockCtx(paginationResponse()));
+    assert.ok(!result.isError, result.text);
+    for (const line of result.text.split('\n')) {
+      const start = line.match(/start=(\S+).* high=(\d+) /);
+      if (!start) continue;
+      const key = `${start[1]}:${start[2]}`;
+      assert.ok(!seen.has(key), `record ${key} read twice`);
+      seen.add(key);
+    }
+    // Only what the text says: the page AND the page_size it names.
+    const more = result.text.match(/call again with page (\d+), page_size (\d+), and the same card_id, range and currency/);
+    if (!more) break;
+    args = { card_id: 'base1-1', page: Number(more[1]), page_size: Number(more[2]) };
+  }
+  assert.equal(seen.size, 93, 'no record skipped');
+  assert.equal(pagesRead + 1, 14, '93 records, 7 a page');
 });
 
 test('malformed variant points remain an error, not an invented empty history', async () => {

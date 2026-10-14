@@ -48,7 +48,7 @@ test('lists: one list reads 100 items a page and says how to reach the rest', as
   const first = await tool('lists').handler({ list_id: listId, deleted: false, page: 1, page_size: 100 }, ctx);
   const rows = (t: string) => t.split('\n').filter((l) => l.startsWith('  x'));
   assert.equal(rows(first.text).length, 100);
-  assert.match(first.text, /showing 1–100 of 250 — page 2 for more/);
+  assert.match(first.text, /showing 1–100 of 250 — call again with page 2, page_size \d+, for more/);
   const last = await tool('lists').handler({ list_id: listId, deleted: false, page: 3, page_size: 100 }, ctx);
   assert.equal(rows(last.text).length, 50);
   assert.match(last.text, /showing 201–250 of 250$/m);
@@ -66,7 +66,7 @@ test('decks: the index pages at 100 decks', async () => {
   });
   const first = await tool('decks').handler({ deleted: false, page: 1 }, ctx);
   assert.equal(first.text.split('\n').filter((l) => l.startsWith('Deck ')).length, 100);
-  assert.match(first.text, /150 deck\(s\); showing 1–100 of 150 — page 2 for more/);
+  assert.match(first.text, /150 deck\(s\); showing 1–100 of 150 — call again with page 2, page_size \d+, for more/);
   const second = await tool('decks').handler({ deleted: false, page: 2 }, ctx);
   assert.equal(second.text.split('\n').filter((l) => l.startsWith('Deck ')).length, 50);
 });
@@ -118,7 +118,7 @@ const batch = (events: number) => ({
   })),
 });
 
-test('mutation_history: one operation lists its changes 50 a page, and limit/page move through them', async () => {
+test('mutation_history: one operation lists its changes 50 a page, and page_size/page move through them', async () => {
   const ctx = ctxWith((path) => {
     if (path === `/mutations/${uuid(9)}`) return batch(250);
     throw new Error(`unexpected get ${path}`);
@@ -127,9 +127,9 @@ test('mutation_history: one operation lists its changes 50 a page, and limit/pag
   const lines = (t: string) => t.split('\n').filter((l) => /^ {2}#\d+ \|/.test(l));
   assert.equal(lines(first.text).length, 50);
   assert.match(first.text, /250 change\(s\):/);
-  assert.match(first.text, /showing 1–50 of 250 — page 2 for more \(same batch_id\)/);
-  assert.match(first.text, /revert\(batch_id: /, 'the undo hint survives paging');
-  const page3 = await tool('mutation_history').handler({ batch_id: uuid(9), page: 3, limit: 100 }, ctx);
+  assert.match(first.text, /showing 1–50 of 250 — call again with page 2, page_size \d+, for more \(same batch_id\)/);
+  assert.match(first.text, /can be undone, dry run first \(for the tool, never the reply: revert batch_id /, 'the undo hint survives paging');
+  const page3 = await tool('mutation_history').handler({ batch_id: uuid(9), page: 3, page_size: 100 }, ctx);
   assert.equal(lines(page3.text).length, 50);
   assert.ok(lines(page3.text)[0]!.startsWith('  #201 |'));
 });

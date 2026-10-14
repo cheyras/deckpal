@@ -46,12 +46,12 @@ test('default conversational adapter can retrieve all price-history variants thr
     const schema = allTools().find((tool) => tool.name === 'card_price_history')!.inputSchema!;
     assert.ok(history?.execute);
     assert.equal(DEFAULT_MAX_TOOL_CHARS, 6000, 'the global chat ceiling remains unchanged');
-    let offset = 0;
+    let pageNumber = 1;
     let pages = 0;
     let finished = false;
     for (; pages < 20; pages++) {
-      const args = schema.parse({ card_id: 'base1-1', range: '30d', currency: 'JPY', offset });
-      assert.equal(args.offset, offset, 'cursor must survive the advertised schema');
+      const args = schema.parse({ card_id: 'base1-1', range: '30d', currency: 'JPY', page: pageNumber });
+      assert.equal(args.page, pageNumber, 'the page must survive the advertised schema');
       const before = calls.length;
       const visible: unknown = await history.execute(args as never, { toolCallId: `history-page-${pages}`, messages: [], context: undefined });
       assert.equal(typeof visible, 'string');
@@ -81,14 +81,17 @@ test('default conversational adapter can retrieve all price-history variants thr
         points++;
       }
       assert.ok(points > 0, 'each page of this nonempty fixture must advance');
-      const cursor = visible.match(/next_offset=(\d+|none)\b/);
-      assert.ok(cursor, 'the model must receive continuation in text, without structured metadata');
-      if (cursor[1] === 'none') { finished = true; break; }
-      const next = Number(cursor[1]);
-      assert.ok(next > offset);
-      offset = next;
+      const more = visible.match(/call again with page (\d+), page_size \d+, and the same card_id, range and currency/);
+      if (!more) {
+        assert.match(visible, /page \d+ of \d+, the last/, 'the model must receive continuation in text, without structured metadata');
+        finished = true;
+        break;
+      }
+      const next = Number(more[1]);
+      assert.equal(next, pageNumber + 1);
+      pageNumber = next;
     }
-    assert.ok(finished, 'pagination must reach next_offset=none');
+    assert.ok(finished, 'pagination must reach the last page');
     assert.ok(pages > 1, 'the regression fixture must require multiple pages');
     assert.equal(seen.size, 93, 'the last variant and all observations must reach the model');
     assert.equal(calls.length, pages + 1);

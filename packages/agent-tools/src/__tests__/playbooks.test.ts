@@ -36,8 +36,8 @@ function schemaKeys(): Set<string> {
 }
 
 const ALL_TEXT = [PLAYBOOK_INDEX_TEXT, ...Object.values(PLAYBOOK_TEXT)];
-/** Names a playbook quotes from a tool's RESULT text, not its arguments (card_price_history pages by next_offset). */
-const RESULT_FIELDS = new Set(['next_offset']);
+/** Names a playbook quotes from a tool's RESULT text, not its arguments. None since every tool pages with `page` (Phase 4). */
+const RESULT_FIELDS = new Set<string>();
 
 test('every tool a playbook names is a real DeckPal tool', () => {
   const missing = new Set<string>();
