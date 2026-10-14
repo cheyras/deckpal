@@ -170,8 +170,8 @@ test('Compendium #2264: Cursed Blast onto a Benched Pokémon under Battle Cage -
 
 // ------------------------------------------------------------------ Cursed Blast timing and winners
 
-// https://compendium.pokegym.net/ruling/2240/ : after a Cursed Blast Knock Out with both players on their last Prize, whoever has a Pokémon to promote wins; if both or neither do, it is a tiebreaker game (a draw).
-test('Compendium #2240: Cursed Blast with both players on 1 Prize - the player who can promote wins; both or neither means a draw', () => {
+// https://compendium.pokegym.net/ruling/2240/ : when an Active Dusknoir's Cursed Blast Knocks Out both Active Pokémon with both players on their last Prize, whoever has a Pokémon to promote wins; if both or neither do, it is a tiebreaker game (a draw).
+test('Compendium #2240: Cursed Blast Knocking Out both Active Pokémon with both players on 1 Prize - the player who can promote wins; both or neither means a draw', () => {
   const game = (mineBench: boolean, theirBench: boolean): Game => {
     const g = at([
       { active: 'Duskull', evolve: { active: ['Dusclops', 'Dusknoir'] }, ...(mineBench ? { bench: ['Dreepy'] } : {}), prizes: 1 },
@@ -189,6 +189,20 @@ test('Compendium #2240: Cursed Blast with both players on 1 Prize - the player w
   assert.ok(both.over && both.state.winner === null && both.state.draw, 'both can promote: tiebreaker game');
   const neither = game(false, false);
   assert.ok(neither.over && neither.state.winner === null && neither.state.draw, 'neither can promote: tiebreaker game');
+});
+
+test('Cursed Blast from the Bench with both players on 1 Prize: your Active stays in play, so it is a draw whenever they can promote (win conditions counted)', () => {
+  // Both take their last Prize (one win condition each); neither is left with no Pokémon in play, so the count is equal.
+  const g = at([
+    { active: 'Snorlax', bench: ['Duskull'], evolve: { 0: ['Dusclops', 'Dusknoir'] }, prizes: 1 },
+    { active: 'Slowpoke', bench: ['Snorlax'], prizes: 1 },
+  ]);
+  choose(g, 'Cursed Blast');
+  if (g.decision?.kind === 'slots') choose(g, 'Slowpoke');
+  while (g.decision?.kind === 'promote') g.submit([0]);
+  assert.ok(g.over, 'the game is over');
+  assert.equal(g.state.winner, null, 'not a win for the player who could promote');
+  assert.ok(g.state.draw, 'a tiebreaker game');
 });
 
 // https://compendium.pokegym.net/ruling/2239/ : after an Active Dusknoir's Cursed Blast Knocks Out the opposing Active, the player whose turn is next takes Prizes first, then the other; promotions go in the same order.

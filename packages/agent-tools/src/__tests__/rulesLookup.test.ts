@@ -125,6 +125,14 @@ test('Bellowing Thunder vs Ancient Bulwark keeps its Energy condition (round 5)'
   assert.doesNotMatch(out, /Ancient Bulwark has nothing to prevent/);
 });
 
+test('a Benched Cursed Blast on both players\' last Prize is a draw when they can promote: win conditions are counted (round 6)', async () => {
+  const out = await ask({ query: 'my benched dusknoir uses cursed blast, we both have one prize left, who wins', cards: ['Cursed Blast'] });
+  assert.match(out, /count win conditions: a player also meets one when the opponent has no Pokémon left in play/);
+  assert.match(out, /a Benched Dusknoir that leaves your Active in play is a draw whenever the opponent can promote/);
+  assert.match(out, /Cursed Blast Knocking Out both Active Pokémon/, 'the #2240 summary keeps its both-Active condition');
+  assert.doesNotMatch(out, /the player who can still promote a new Active Pokémon wins/);
+});
+
 test('repeated whitespace in a name still matches it (round 2)', async () => {
   assert.match(await ask({ query: 'Does Nighttime  Mine   affect Dragapult ex?' }), /#2288/);
 });

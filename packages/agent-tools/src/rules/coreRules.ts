@@ -152,8 +152,11 @@ export const CORE_RULES: readonly CoreRule[] = [
       'OPPONENT takes the Prize cards for it, exactly as if they had Knocked it Out — so with the opponent on their ' +
       'last Prizes it usually hands them the game. Not always: when one effect Knocks Out Pokémon on both sides (a ' +
       'Cursed Blast that also KOs its target), every Knock Out is resolved before anyone wins. Both players take ' +
-      'Prizes, the player whose turn is next first; if both take their last Prize, the player who can still promote ' +
-      'a new Active Pokémon wins, and both or neither is a draw (tiebreaker game).',
+      'Prizes, the player whose turn is next first. If both take their last Prize, count win conditions: a player also ' +
+      'meets one when the opponent has no Pokémon left in play. More conditions wins; equal is a draw (tiebreaker ' +
+      'game). So when a Cursed Blast Knocks Out BOTH Active Pokémon, the player who can promote from the Bench wins and ' +
+      'both or neither is a draw; but a Benched Dusknoir that leaves your Active in play is a draw whenever the ' +
+      'opponent can promote.',
     checked: 'sim rulings-r03.test.ts (Compendium #2425, #2239, #2240)',
   },
   {
