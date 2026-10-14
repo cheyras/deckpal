@@ -111,7 +111,7 @@ test("Thievul, Skill Thief: with an empty hand, use an attack of any of your opp
   assert.equal(h.state.p[0].hand.length, 1);
 });
 
-test('Thievul, Skill Thief: Thievul is the attacker, so Bronzong\'s "from Evolution Pokémon" reduction applies (Compendium #2402)', () => {
+test('Thievul, Skill Thief: Thievul is the attacker and an Evolution Pokémon, so damage effects aimed at attacks from Evolution Pokémon apply to it (Flashing Barrier in the ruling; Bronzong\'s Metal Block in this test) (Compendium #2402)', () => {
   const dk = deck('me05-054', 'me05-064', 'me05-063', URSA, SLO, CAPE);
   const g = scenario(dk, dk, [{ active: 'Bronzor', evolve: { active: ['Bronzong'] }, energy: { active: [M, M, M] } }, { active: 'Thievul', tools: { active: [`Hero's Cape`] }, energy: { active: [D, D] } }]);
   choose(g, 'Attack: Metal Block');
@@ -277,7 +277,7 @@ test('Bombirdier, Challenging Delivery: 2 heads search the deck for a Pokémon (
 
 // ------------------------------------------------------------------ Antique Skull Fossil
 
-test('Antique Skull Fossil, Spiny Skull: 3 damage counters on the Attacking Pokémon, even if the Fossil is Knocked Out (Compendium #2386: no Retreat)', () => {
+test('Antique Skull Fossil, Spiny Skull: 3 damage counters on the Attacking Pokémon, even if the Fossil is Knocked Out; an Antique fossil has no Retreat Cost, so it can never retreat (Compendium #2386)', () => {
   const dk = deck('me05-073', SLO, TYR);
   const hit = (attacker: SideLayout): Game => {
     const g = scenario(dk, dk, [{ active: 'Antique Skull Fossil', bench: ['Slowpoke'] }, attacker], { current: 1 });

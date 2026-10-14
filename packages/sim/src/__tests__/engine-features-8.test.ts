@@ -400,7 +400,7 @@ test("borrowAttacks: the attack is this Pokémon's: its Energy are discarded, it
   assert.ok(has(cheap, 'Attack: Razor Leaf'));
 });
 
-test("borrowAttacks: \"can't use this attack\" is kept by attack name on the Pokémon that used it, not on the Pokémon the attack is printed on (rulings 295, 293)", () => {
+test("When a Pokémon borrows another Pokémon's attack, \"can't use this attack\" is kept by attack name on the Pokémon that used it, not on the Pokémon the attack is printed on (rulings 295, 293)", () => {
   const dk = deck('Dreepy', 'Chikorita');
   const locking: CardScript[] = [
     {

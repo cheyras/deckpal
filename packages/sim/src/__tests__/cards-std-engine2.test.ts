@@ -189,7 +189,7 @@ test('Mismagius ex, Swirling Prose: while Active, the opponent\'s Pokémon that 
   assert.equal(benched.state.p[1].active!.cond & CONFUSED, 0, 'Mismagius ex is not in the Active Spot');
 });
 
-test('Mismagius ex, Swirling Prose: rulings 2339 (Team Rocket\'s Giovanni) and 2247 (a Knock Out is not a move to the Bench)', () => {
+test('Mismagius ex, Swirling Prose: Team Rocket\'s Giovanni leaves the new Active Pokémon Confused only when Mismagius ex was already Active before the switch (ruling 2339); a Knock Out and the promotion after it is not a move to the Bench (ruling 2247)', () => {
   const dk = deck('Mismagius ex', TR_GIO, TR_DUG, TR_DIG, SLO, REL, DRA);
   const giovanni = (theirs: SideLayout): Game => {
     const g = scenario(dk, dk, [{ active: TR_DUG, bench: [TR_DIG], hand: [TR_GIO] }, theirs]);

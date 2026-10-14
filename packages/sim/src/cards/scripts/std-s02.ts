@@ -72,7 +72,7 @@ export const STD_S02: CardScript[] = [
     attacks: {
       // "During your opponent's next turn, if this Pokémon is damaged by an attack (even if this Pokémon is Knocked Out), put damage counters on the Attacking Pokémon equal to the damage done to this Pokémon."
       // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2165/), on a Zamazenta with no damage hit for 200 (13 or 20 counters?): 20 counters are placed for 200 damage; damage can exceed the Pokémon's remaining HP.
-      // -- the damage done is counted before it is capped at the Pokémon's HP (s02.damageDoneAsCounters).
+      // -- the damage done is counted before it is capped at the Pokémon's HP.
       'Strong Bash': {
         post: [
           {

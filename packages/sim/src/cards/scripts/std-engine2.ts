@@ -218,7 +218,7 @@ export const STD_ENGINE2: CardScript[] = [
       {
         // "If 1 of your {D} Pokémon is Knocked Out by damage from an attack from your opponent's Pokémon ex, that player takes 1 fewer Prize card. The effect of Shadowy Concealment doesn't stack."
         // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2262/): Shadowy Concealment triggers on KO and reduces prizes even if Mega Gengar ex is discarded.
-        // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2244/): Mega ex = 1 prize; regular ex = 0 prizes; non-ex = 0 prizes; Legacy Energy is consumed.
+        // Ruling (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2244/): when the Knocked Out {D} Pokémon has Legacy Energy and Shadowy Concealment applies, the opponent takes 1 Prize for a Mega Evolution ex, 0 for a regular Pokémon ex and 0 for a non-ex; Legacy Energy counts as used and cannot cut Prizes again later.
         // Ruling (Phantasmal Flames FAQ, TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2245/): a Pokemon KO'd with its Prize prevented was still Knocked Out, so Krookodile's Vengeful Fang gets its bonus.
         name: 'Shadowy Concealment',
         statics: [

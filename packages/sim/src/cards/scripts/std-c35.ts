@@ -36,7 +36,7 @@ export const STD_C35: CardScript[] = [
     abilities: [
       {
         // "Attacks used by your Pokémon do 20 more damage to your opponent's Active Pokémon (before applying Weakness and Resistance)."
-        // Ruling (Black Bolt/White Flare FAQ; TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2186/): this Ability stacks with copies. (stacks: no `noStack` key)
+        // Ruling (Black Bolt/White Flare FAQ; TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2186/): this Ability stacks with copies.
         name: 'Regal Cheer',
         statics: [{ effect: { k: 'damageOut', amount: 20 }, scope: 'myPokemon' }],
       },
@@ -336,7 +336,7 @@ export const STD_C35: CardScript[] = [
       {
         // "If you go first, this Pokémon can use attacks during your first turn."
         // Ruling (Black Bolt/White Flare FAQ; TPCi Rules Team 2025-07-17, https://compendium.pokegym.net/ruling/2181/): Debut Performance lets Meloetta ex use any attack available to it on the first turn, even one from an attached TM.
-        // -- carried by `firstTurn` on its only attack, Echoed Voice (no Tool or TM attacks exist yet to be "accessed").
+        // -- it applies to Echoed Voice, its only attack (no Tool or TM attacks exist yet to be accessed).
         name: 'Debut Performance',
       },
     ],

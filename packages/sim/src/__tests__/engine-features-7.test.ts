@@ -222,7 +222,7 @@ test('damageCoinFlip: no flip when no damage is done, when something else alread
   assert.equal(counters.state.p[1].active!.damage, 30);
 });
 
-test('damageCoinFlip is an effect on the Defending Pokémon: an attack that is not affected by those effects does its damage and does not flip (ruling 2040)', () => {
+test('A coin flip when the Pokémon is damaged is an effect on the Defending Pokémon: an attack that is not affected by those effects does its damage and does not flip (ruling 2040)', () => {
   const dk = deck("N's Darumaka", 'Dreepy');
   const g = scenario(dk, dk, [{ active: "N's Darumaka", energy: { active: rep(FIR, 2) } }, { active: 'Dreepy' }], {
     scripts: darumaka([{ op: 'damage', amount: 60, to: 'defender', ignore: { defenderEffects: true } }]),
@@ -414,7 +414,7 @@ test('energyProvides: Energy of that kind provides what the static says, in ever
   assert.equal(energyUnits(h.env, h.state.p[0].active!, h.state).length, 2);
 });
 
-test('energyProvides is a replacement: a second source does not add to the first (ruling 2236); it pays attack costs and Retreat Costs (rulings 2237, 2288)', () => {
+test('Extra Energy from Wild Growth replaces, it does not add: a second source does not add to the first (ruling 2236); the extra Energy pays attack costs and Retreat Costs (rulings 2237, 2288)', () => {
   const dk = deck('Chikorita', 'Bayleef', 'Dreepy');
   const two = (): CardScript[] => [{ id: 'me01-008', name: 'Chikorita', ...WILD }, { id: 'me01-009', name: 'Bayleef', ...WILD }];
   const g = scenario(dk, dk, [{ active: 'Bayleef', bench: ['Chikorita'], energy: { active: [GRS, GRS] } }, { active: 'Dreepy' }], { scripts: two() });

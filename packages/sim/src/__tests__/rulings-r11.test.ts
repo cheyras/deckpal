@@ -539,7 +539,7 @@ test('Sky Return: Emolga goes to the hand with its Energy before Repulsor Axe pu
 });
 
 // Control for the test above: the same reaction does put its 8 counters on an attacker that stays in play.
-test('Repulsor Axe: an attacker that stays in play does get the 8 damage counters (control for Sky Return, https://compendium.pokegym.net/ruling/588/)', () => {
+test('Repulsor Axe: an attacker that stays in play does get the 8 damage counters (the control case for Sky Return, ruling 588)', () => {
   const g = scenario(DK, DK, [
     { active: 'Iron Boulder ex', energy: { active: [FGT, FGT, FGT] } },
     { active: 'Dragapult ex', energy: { active: [PSY] } },

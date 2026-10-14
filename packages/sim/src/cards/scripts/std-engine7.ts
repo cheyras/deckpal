@@ -42,9 +42,9 @@ export const STD_ENGINE7: CardScript[] = [
       {
         // "Each of your Pokémon that has "Rotom" in its name may have up to 2 Pokémon Tool cards attached. If this Ability goes away,
         //  discard Pokémon Tools from those Pokémon until only 1 remains on each."
+        // The owner chooses which Tools to discard when the Ability goes away (nothing says otherwise).
         // Rulings (TPCi Rules Team 2025-11-13, https://compendium.pokegym.net/ruling/2242/): Pokémon containing "Rotom" in their names qualify.
         //  (2026-01-22, https://compendium.pokegym.net/ruling/2292/): Pokémon names like Fan Rotom and Rotom ex count as having "Rotom" in them.
-        // The owner chooses which Tools to discard when the Ability goes away (nothing says otherwise).
         name: 'Multi Adapter',
         statics: [{ effect: { k: 'toolSlots', n: 2 }, scope: 'myPokemon', filter: { nameIncludes: 'Rotom' } }],
       },

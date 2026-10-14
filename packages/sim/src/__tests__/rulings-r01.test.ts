@@ -139,7 +139,7 @@ test('Compendium #2135: Amarys and Powerglass both resolve at end of turn; the p
 });
 
 // Compendium #2047 (Gouging Fire with 4 Prize cards each, as in a Prerelease): Blazing Charge counts the opponent's Prize cards remaining, so it is 100 + 70.
-test('Compendium #2047: Gouging Fire, Blazing Charge does 170 against an opponent who started with 4 Prize cards', () => {
+test('Compendium #2047: Gouging Fire, Blazing Charge does 70 more (170 in all) when the opponent has 4 or fewer Prize cards left, as in a 4-Prize game; with 5 left it does 100', () => {
   const dk = deck([GOUGING, TYR]);
   const hit = (prizes: number): number => {
     const g = scenario(dk, dk, [{ active: 'Gouging Fire', energy: { active: ['Fire Energy', 'Fire Energy', 'Fire Energy'] }, prizes: 4 }, { active: 'Tyranitar ex', prizes }]);

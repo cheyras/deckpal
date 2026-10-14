@@ -122,7 +122,7 @@ export const STD_C01: CardScript[] = [
             optional: true,
             // "Once during your turn, when you play this Pokémon from your hand to evolve 1 of your Pokémon, you may use this Ability. Search your deck for a Shedinja and put it onto your Bench. Then, shuffle your deck."
             // Compendium #994 (TPCi Rules Team, https://compendium.pokegym.net/ruling/994/): no Eviolite help for the Shedinja put onto the Bench: it is an unevolved Stage 1, not a Basic Pokémon.
-            // -- it is put onto the Bench as the Stage 1 card it is (c01.benchCards), not as a Basic Pokémon.
+            // -- it is put onto the Bench as the Stage 1 card it is, not as a Basic Pokémon.
             program: [
               { op: 'chooseCards', from: 'deck', filter: { name: 'Shedinja' }, min: 0, max: { min: [1, BENCH_SPACE] }, as: 'found', prompt: 'Choose a Shedinja to put onto your Bench' },
               { op: 'custom', fn: 'c01.benchCards', args: { cards: 'found' } },
@@ -174,7 +174,7 @@ export const STD_C01: CardScript[] = [
         // "As long as this Pokémon is in the Active Spot, attacks used by your opponent's Active Pokémon do 30 less damage (before applying Weakness and Resistance)."
         // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2213/): the ability names no Active or Benched target, so it takes 30 off the damage to every Pokémon the opponent's attack damages.
         // Ruling (TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2214/): yes, it reduces Shred too: the effect is on the attacking Pokémon, not on Pyroar, so Shred's ignore-effects clause does not apply.
-        // One damageOut takes 30 off every attack of the opponent's Active Pokémon, before Weakness and Resistance and even for an attack that ignores
+        // The reduction takes 30 off every attack of the opponent's Active Pokémon, before Weakness and Resistance and even for an attack that ignores
         // effects on the Defending Pokémon. It reaches Benched Pokémon and the opponent's own side (self-damage) too: rulings 158 and 1822.
         statics: [
           { effect: { k: 'damageOut', amount: -30 }, scope: 'oppActive', when: { inActive: 'self' } },

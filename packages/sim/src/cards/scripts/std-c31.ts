@@ -229,7 +229,7 @@ export const STD_C31: CardScript[] = [
       // "Choose 1 of your opponent's Pokémon 6 times. (You can choose the same Pokémon more than once.) For each time you chose a Pokémon, do 20 damage to it. This damage isn't affected by Weakness or Resistance."
       // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2161/): Oil Salvo is one attack; damage is totalled after all choices, then modifiers apply.
       // Ruling (Destined Rivals FAQ, TPCi Rules Team 2025-05-29, https://compendium.pokegym.net/ruling/2160/): all damage resolves before KOs; Shaymin still protects non-Rule Box bench.
-      // -- the six choices come first and are totalled per Pokémon (c31.tallyChoices), then each Pokémon is damaged once with its total; Knock Outs are checked after.
+      // -- the six choices come first and are totalled per Pokémon, then each Pokémon is damaged once with its total; Knock Outs are checked after.
       'Oil Salvo': {
         program: [...OIL_SALVO_CHOICES, { op: 'custom', fn: 'c31.tallyChoices', args: { n: 6, per: 20 } }, ...OIL_SALVO_HITS],
       },

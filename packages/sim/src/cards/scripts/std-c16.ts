@@ -36,7 +36,7 @@ export const STD_C16: CardScript[] = [
     // (Revealing the hand is an effect, so it needs a card in the opponent's hand.)
     playable: { gte: [{ handSize: 'opp' }, 1] },
     // "Your opponent reveals their hand, and you discard up to 2 Item cards you find there."
-    // ("up to 2" on a Supporter is 1 to 2: Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2376/): used as a Supporter requires at least 1; via attack, zero is allowed.)
+    // ("up to 2" on a Supporter is 1 to 2.) Ruling (TPCi Rules Team 2026-06-04, https://compendium.pokegym.net/ruling/2376/): used as a Supporter it requires at least 1; used through an attack, zero is allowed.
     play: [
       { op: 'custom', fn: 'std.revealHand', args: { who: 'opp' } },
       {

@@ -219,7 +219,7 @@ test("Compendium #2147: Team Rocket's Watchtower does not lift Potent Glare from
 
 // ------------------------------------------------------------------ N's Zoroark ex, Trade
 
-test("Compendium #2115 / #1654 / #2114: N's Zoroark ex can't use Trade with no cards in the deck (the discard is a cost, the drawing the effect)", () => {
+test("Compendium #2115: N's Zoroark ex can't use Trade with no cards in the deck (the discard is a cost, the drawing the effect)", () => {
   // https://compendium.pokegym.net/ruling/2115/ -- with an empty deck, Trade can't be used just to get rid of a card.
   // https://compendium.pokegym.net/ruling/1654/ -- the same answer for Liepard's Trade, which has the same wording.
   // https://compendium.pokegym.net/ruling/2114/ -- this wording is not Zoroark-GX's Trade, and it works differently (there the discard is free).

@@ -30,7 +30,7 @@ const PHOTON_CORD: AbilityScript = {
     // "If this Pokémon is in the Active Spot and is Knocked Out by damage from an attack from your opponent's Pokémon, move up to 2
     //  Basic {L} Energy cards from this Pokémon to 1 of your Benched Pokémon."
     // Ruling (Pitch Black FAQ, TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2400/): Photon Cord can still be used after Push Down benched Miraidon, but the Energy must move to a different Pokémon.
-    // Ruling (Pitch Black FAQ, TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2399/): at least one Basic {L} Energy must be moved; only attacks may choose zero for "up to".
+    // Ruling (Pitch Black FAQ, TPCi Rules Team 2026-07-16, https://compendium.pokegym.net/ruling/2399/): if any Basic {L} Energy is attached to Miraidon, at least one must be moved; only attacks may choose zero for "up to".
     {
       on: 'knockedOutByAttack',
       when: { or: [{ inActive: 'self' }, { custom: 's01.hitWhileActive' }] },

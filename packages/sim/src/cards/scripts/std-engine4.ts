@@ -294,8 +294,7 @@ export const STD_ENGINE4: CardScript[] = [
     id: 'sv07-142',
     name: 'Sparkling Crystal',
     // "When the Tera Pokémon this card is attached to uses an attack, that attack costs 1 Energy less. (The Energy can be of any type.)"
-    // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2031/) is about Wellspring Mask Ogerpon ex's Torrential Pump ("do as much as you can"); it
-    // changes nothing here: the reduction only changes what has to be paid, not what an attack's effects count.
+    // Ruling (TPCi Rules Team 2024-09-12, https://compendium.pokegym.net/ruling/2031/): an attack-cost reduction like this one only changes what has to be paid, not what the attack's own effects count (the ruling is about Wellspring Mask Ogerpon ex's Torrential Pump, which shuffles 3 Energy).
     statics: [{ effect: { k: 'attackCostLess', n: 1 }, scope: 'self', filter: { tera: true } }],
   },
   {

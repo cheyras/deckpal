@@ -244,7 +244,7 @@ test('preventDamage with andEffects and no attacker still prevents effects from 
 const hit = (amount: number): CardScript[] => [{ id: 'me02.5-032', name: "N's Darumaka", attacks: { 'Rolling Tackle': { damage: amount } } }];
 const THUNDER = (amount: number): CardScript[] => [{ id: 'sv08.5-028', name: 'Pikachu ex', attacks: { 'Tail Whap': { damage: amount } } }];
 
-test('preventDamage ifAtMost: damage of that amount or less is prevented, measured after Weakness (ruling 2197)', () => {
+test('Harden-style protection: damage of that amount or less is prevented, measured after Weakness (ruling 2197)', () => {
   const dk = deck("N's Darumaka", 'Metapod', 'Dreepy');
   const hitMetapod = (base: number): number => {
     const g = scenario(dk, dk, [{ active: 'Metapod' }, { active: "N's Darumaka", energy: { active: [FIR, FIR] } }], { current: 1, turn: 4, scripts: hit(base) });

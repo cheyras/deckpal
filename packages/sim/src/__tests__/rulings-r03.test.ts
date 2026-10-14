@@ -403,7 +403,7 @@ const NO_ENERGY_DECK = fromIds('r03-no-energy', [
 ]);
 
 // https://compendium.pokegym.net/ruling/991/ and https://compendium.pokegym.net/ruling/990/ : Energy Search can be played with no Basic Energy in the deck, is discarded as usual, and a second one can then be played too.
-test('Compendium #991 and #990: Energy Search with no Basic Energy in the deck is still playable and goes to the discard pile; so can a second', () => {
+test('Compendium #991: Energy Search with no Basic Energy in the deck is still playable and goes to the discard pile; a second copy can be played the same way (also #990)', () => {
   const g = scenario(NO_ENERGY_DECK, NO_ENERGY_DECK, [{ active: 'Dreepy', hand: ['Energy Search', 'Energy Search'] }, { active: 'Dreepy' }]);
   assert.ok(g.state.p[0].deck.length > 0);
   assert.ok(has(g, 'Energy Search'), 'Energy Search was not offered with no Basic Energy in the deck');
