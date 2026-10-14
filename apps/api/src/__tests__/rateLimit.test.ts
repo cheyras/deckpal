@@ -912,7 +912,7 @@ describe('oauthGrantWait — the budget belongs to the grant, not the client_id 
   beforeEach(() => __resetOAuthRateLimitsForTests());
   const from = (ip: string) => mockReq({ ip, socket: { remoteAddress: ip } as Request['socket'] });
 
-  const live = (key: string) => ({ key, used: false });
+  const live = (key: string) => ({ key, reuse: false });
 
   it('a live connection gets tokenPerGrant a minute, and another connection behind the same IP is untouched', () => {
     const req = from('203.0.113.10');
@@ -922,14 +922,33 @@ describe('oauthGrantWait — the budget belongs to the grant, not the client_id 
     assert.equal(oauthGrantWait(live('connection:b'), req), 0, 'connection b, same IP, is not refused');
   });
 
-  it('a USED refresh token always reaches reuse detection, even with its connection budget spent (Astra round 3, P1)', () => {
+  it('a replay that will revoke always reaches reuse detection, even with its connection budget spent (Astra round 3, P1)', () => {
     const req = from('203.0.113.11');
     // Whoever holds a compromised refresh token spends the connection's budget with wrong-client requests...
     for (let i = 0; i < OAUTH_LIMITS.tokenPerGrant; i++) oauthGrantWait(live('connection:stolen'), req);
     assert.ok(oauthGrantWait(live('connection:stolen'), req) >= 1, 'the budget is spent');
-    // ...and the replay of a used token must still go through to refreshConnection, which revokes the connection.
-    assert.equal(oauthGrantWait({ key: 'connection:stolen', used: true }, req), 0);
-    assert.equal(oauthGrantWait({ key: 'connection:stolen', used: true }, from('198.51.100.9')), 0, 'from any IP');
+    // ...and a replay that refreshConnection will revoke on must still go through.
+    assert.equal(oauthGrantWait({ key: 'connection:stolen', reuse: true }, req), 0);
+    assert.equal(oauthGrantWait({ key: 'connection:stolen', reuse: true }, from('198.51.100.9')), 0, 'from any IP');
+  });
+
+  it('lookup + limit together: a used token for the WRONG client, or inside the race grace, revokes nothing and stays metered (Astra round 4)', async () => {
+    const { peekGrantKey } = await import('@deckpal/db');
+    const row = { token_id: 'tok-9', used: true, racing: false, oauth_client_id: 'dscl_right', live: true };
+    const db = (r: Record<string, unknown>) => ({ async query(sql: string) { return sql.includes('FROM oauth_token') ? { rows: [r] } : { rows: [] }; } }) as never;
+    const wrongClient = await peekGrantKey(db(row), { grantType: 'refresh_token', refreshToken: 'dsr_x', clientId: 'dscl_wrong' });
+    const racing = await peekGrantKey(db({ ...row, racing: true }), { grantType: 'refresh_token', refreshToken: 'dsr_x', clientId: 'dscl_right' });
+    const revoking = await peekGrantKey(db(row), { grantType: 'refresh_token', refreshToken: 'dsr_x', clientId: 'dscl_right' });
+    assert.deepEqual(wrongClient, { key: 'connection:tok-9', reuse: false });
+    assert.deepEqual(racing, { key: 'connection:tok-9', reuse: false });
+    assert.deepEqual(revoking, { key: 'connection:tok-9', reuse: true });
+    // The non-revoking replays share the connection's budget like any request: 30, then refused.
+    const req = from('203.0.113.13');
+    for (let i = 0; i < OAUTH_LIMITS.tokenPerGrant; i++) assert.equal(oauthGrantWait(i % 2 ? wrongClient : racing, req), 0);
+    assert.ok(oauthGrantWait(wrongClient, req) >= 1, 'a wrong-client replay is refused once the budget is spent');
+    assert.ok(oauthGrantWait(racing, req) >= 1, 'a race-grace replay is refused once the budget is spent');
+    // The replay that revokes is the one exemption.
+    assert.equal(oauthGrantWait(revoking, req), 0);
   });
 
   it('a full grant store admits new verified grants instead of refusing them; the invalid bucket still refuses (Astra round 3, P2)', () => {
@@ -950,7 +969,7 @@ describe('oauthGrantWait — the budget belongs to the grant, not the client_id 
   it('peekGrantKey reads without locking or writing, keys only LIVE grants, flags a used token, and never echoes a code', async () => {
     const { peekGrantKey } = await import('@deckpal/db');
     const seen: string[] = [];
-    let refreshRow: Record<string, unknown> = { token_id: 'tok-1', used: false, live: true };
+    let refreshRow: Record<string, unknown> = { token_id: 'tok-1', used: false, racing: false, oauth_client_id: null, live: true };
     const db = {
       async query(sql: string) {
         seen.push(sql);
@@ -961,12 +980,12 @@ describe('oauthGrantWait — the budget belongs to the grant, not the client_id 
     };
     assert.equal(await peekGrantKey(db as never, { grantType: 'refresh_token', refreshToken: 'not-a-refresh-token' }), null);
     assert.equal(seen.length, 0, 'a secret without the refresh prefix costs no query');
-    assert.deepEqual(await peekGrantKey(db as never, { grantType: 'refresh_token', refreshToken: 'dsr_abc' }), { key: 'connection:tok-1', used: false });
+    assert.deepEqual(await peekGrantKey(db as never, { grantType: 'refresh_token', refreshToken: 'dsr_abc' }), { key: 'connection:tok-1', reuse: false });
     // A used token on a live connection keeps its key and says so: the reuse tripwire must see it.
-    refreshRow = { token_id: 'tok-1', used: true, live: true };
-    assert.deepEqual(await peekGrantKey(db as never, { grantType: 'refresh_token', refreshToken: 'dsr_abc' }), { key: 'connection:tok-1', used: true });
+    refreshRow = { token_id: 'tok-1', used: true, racing: false, oauth_client_id: null, live: true };
+    assert.deepEqual(await peekGrantKey(db as never, { grantType: 'refresh_token', refreshToken: 'dsr_abc' }), { key: 'connection:tok-1', reuse: true });
     // A revoked, expired or suspended connection is not a live grant: no key, so it counts per IP (Astra round 3, P2).
-    refreshRow = { token_id: 'tok-1', used: false, live: false };
+    refreshRow = { token_id: 'tok-1', used: false, racing: false, oauth_client_id: null, live: false };
     assert.equal(await peekGrantKey(db as never, { grantType: 'refresh_token', refreshToken: 'dsr_abc' }), null);
     const code = await peekGrantKey(db as never, { grantType: 'authorization_code', code: 'dsac_secret_code' });
     assert.match(code?.key ?? '', /^code:[0-9a-f]{32}$/);

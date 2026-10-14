@@ -196,7 +196,7 @@ export function mountOAuthServer(app: Express): void {
           // rateLimit.ts for why each of those was a lockout.
           const grant = await peekGrantKey(
             pool,
-            grantType === 'refresh_token' ? { grantType, refreshToken } : { grantType, code },
+            grantType === 'refresh_token' ? { grantType, refreshToken, clientId } : { grantType, code },
           );
           const wait = oauthGrantWait(grant, req);
           if (wait > 0) {

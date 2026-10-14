@@ -764,8 +764,9 @@ any body is read:
   before the transaction, so nothing is rotated or consumed and the client's
   retry with the same refresh token still works. Only LIVE grants get a key
   (a revoked, expired or suspended connection's refresh token counts as
-  matching nothing), a used refresh token always passes so reuse detection
-  can revoke its connection, and a full grant store admits a new key rather
+  matching nothing), a replay that will revoke (a used refresh token for its
+  own client, outside the race grace) always passes so reuse detection can
+  revoke its connection, while other used-token replays stay metered, and a full grant store admits a new key rather
   than refusing it, since only a grant's holder can present one.
 - **`/register`: 60/minute per IP.** A client registers once per connection,
   not once per refresh.

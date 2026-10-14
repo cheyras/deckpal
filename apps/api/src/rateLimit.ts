@@ -464,15 +464,16 @@ export const oauthTokenRateLimit: RequestHandler = rateLimit(
  * which is counted against the source IP's invalid-grant bucket instead.
  *
  * Two exemptions, both from Astra's third review (#339):
- * - a USED refresh token always passes. It is the reuse signal
- *   `refreshConnection` revokes the connection on; whoever spent the
- *   connection's 30 a minute could otherwise suppress that tripwire;
+ * - a replay that will revoke (a used refresh token, for its own client,
+ *   outside the race grace) always passes: whoever spent the connection's 30
+ *   a minute could otherwise suppress that tripwire. Other used-token
+ *   presentations revoke nothing and stay metered (round 4);
  * - a full grant store ADMITS a new key rather than refusing it. Its keys can
  *   only be presented by their holders, so refusing there would let a full map
  *   lock out every other valid grant.
  */
-export function oauthGrantWait(grant: { key: string; used: boolean } | null, req: Request): number {
-  if (grant?.used) return 0;
+export function oauthGrantWait(grant: { key: string; reuse: boolean } | null, req: Request): number {
+  if (grant?.reuse) return 0;
   return grant
     ? oauthGrantStore.check(grant.key, OAUTH_LIMITS.tokenPerGrant, OAUTH_LIMITS.windowMs, Date.now(), 'admit')
     : oauthInvalidGrantStore.check(sourceIp(req), OAUTH_LIMITS.tokenInvalidPerIp, OAUTH_LIMITS.windowMs);
