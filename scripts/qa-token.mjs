@@ -11,9 +11,12 @@
  *   1. reads QA_EMAIL / QA_PASSWORD from `.qa-account` (gitignored);
  *   2. asks /api/public-config for the Supabase URL and public anon key, and signs in as QA;
  *   3. reads /api/me with that sign-in and REFUSES to go on unless the account is explicitly
- *      not the owner; its username is the identity the eval pins;
+ *      not the owner; its username is the identity the eval pins. When `.qa-account` already
+ *      has a QA_USERNAME (the maintainer keeps one), the signed-in user must BE it, or nothing
+ *      is minted; that line is never overwritten;
  *   4. mints a token with POST /api/tokens ("Analysis eval (QA)");
- *   5. writes QA_MCP_TOKEN=… and QA_USERNAME=… into `.qa-account`, replacing older lines;
+ *   5. writes QA_MCP_TOKEN=… into `.qa-account` (replacing an older one), and QA_USERNAME=…
+ *      only when there was none;
  *   6. proves it: /api/me with the token names the same user, and MCP initialize + tools/list work.
  * The token is never printed. The eval (scripts/analysis-eval.mjs) reads both lines and refuses
  * any token whose /api/me does not name QA_USERNAME as a non-owner.
@@ -105,6 +108,10 @@ async function main() {
   if (!session.access_token) throw new Error('QA sign-in returned no session.');
   // Before minting anything: the signed-in account must be explicitly not the owner.
   const username = await nonOwner(session.access_token, 'The QA sign-in');
+  // A QA_USERNAME the maintainer already recorded is a second pin, checked, never replaced.
+  if (acct.username && acct.username !== username) {
+    throw new Error('.qa-account already names a QA_USERNAME, and the signed-in account is a different user. Stopping before minting; nothing was written.');
+  }
 
   const scope = args.has('--read') ? 'read' : 'full';
   const minted = await json(
@@ -118,7 +125,7 @@ async function main() {
   if (!minted.secret) throw new Error('The token API returned no secret.');
 
   let next = setLine(acct.raw, 'QA_MCP_TOKEN', minted.secret, 'Personal access token for the analysis eval (scripts/qa-token.mjs). Never print it.');
-  next = setLine(next, 'QA_USERNAME', username, 'The QA account the eval pins its token to (scripts/qa-token.mjs).');
+  if (!acct.username) next = setLine(next, 'QA_USERNAME', username, 'The QA account the eval pins its token to (scripts/qa-token.mjs).');
   fs.writeFileSync(FILE, next);
 
   if ((await nonOwner(minted.secret, 'The new token')) !== username) throw new Error('The new token names a different account than the QA sign-in.');

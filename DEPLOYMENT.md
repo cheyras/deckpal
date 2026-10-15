@@ -2283,4 +2283,4 @@ fail loudly when a setting is missing.
 | `DECKPAL_BASE` | shell | The backend both scripts talk to. Default `https://deckpal.app`. |
 | `QA_EMAIL`, `QA_PASSWORD` | `.qa-account` | Read only by `qa-token.mjs`, which the maintainer runs. An agent never signs in with them. |
 | `QA_MCP_TOKEN` | `.qa-account` | Written by `qa-token.mjs`: a personal access token named "Analysis eval (QA)". `setup` and `run` refuse to start without it. |
-| `QA_USERNAME` | `.qa-account` | Written by `qa-token.mjs` from `/api/me`, read right after signing in with the QA password. The eval refuses any token whose `/api/me` does not name exactly this user, with `isOwner` and `owner` both false. |
+| `QA_USERNAME` | `.qa-account` | The QA account's username. If the maintainer has already recorded it, `qa-token.mjs` requires the signed-in account to be that user before minting, and never overwrites the line; otherwise it writes the line from `/api/me`, read right after signing in with the QA password. The eval refuses any token whose `/api/me` does not name exactly this user, with `isOwner` and `owner` both false. |
