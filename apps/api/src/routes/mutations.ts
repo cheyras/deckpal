@@ -812,10 +812,19 @@ async function guideOf(client: pg.PoolClient, deckId: string, userId: string): P
  * plan reads them (2026-10-12). The conflict checks and the apply share one
  * transaction, but without these locks a save or a log edit committing between
  * the check and the apply would be overwritten with no conflict reported.
- * Decks before logs, the order every route that touches both takes them.
+ *
+ * A battle-log event locks its PARENT DECK too, and first: every battle-log
+ * write takes its deck's lock before the log (routes/decks.ts lockDeckForLogs),
+ * so holding the deck shuts out a restore or an edit that would otherwise slip
+ * between the two log queries below, and the one order (deck, then log) leaves
+ * no cycle for a deadlock.
  */
 async function lockStructuralTargets(client: pg.PoolClient, userId: string, events: readonly EventRow[]): Promise<void> {
-  const decks = [...new Set(events.filter((e) => e.operation === 'deck.cards').map((e) => e.entity_id))].sort();
+  const deckOfLog = (e: EventRow) =>
+    String((e.after as { deckId?: unknown } | null)?.deckId ?? (e.before as { deckId?: unknown } | null)?.deckId ?? '');
+  const decks = [...new Set(events.flatMap((e) =>
+    e.operation === 'deck.cards' ? [e.entity_id] : e.operation.startsWith('battle_log.') ? [deckOfLog(e)] : [],
+  ).filter(Boolean))].sort();
   const logs = [...new Set(events.filter((e) => e.operation.startsWith('battle_log.')).map((e) => Number(e.entity_id)))]
     .filter((n) => Number.isSafeInteger(n)).sort((a, b) => a - b);
   if (decks.length) {

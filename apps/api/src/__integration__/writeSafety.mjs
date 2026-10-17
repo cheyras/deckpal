@@ -311,6 +311,58 @@ try {
     assert.deepEqual(await deckCards(id), ['3x sv01-026'], 'the revert overwrote a change that committed while it waited');
   });
 
+  // One lock order for every battle-log writer: the deck, then the log (Astra r2).
+  const stillRunning = async (promise, ms = 400) =>
+    (await Promise.race([promise.then(() => false, () => false), new Promise((r) => setTimeout(() => r(true), ms))]));
+  const holdingDeck = async (id, fn) => {
+    const other = new pg.Client(config);
+    await other.connect();
+    try {
+      await other.query('BEGIN');
+      await other.query('SELECT 1 FROM deck WHERE id = $1 FOR UPDATE', [id]);
+      return await fn(other);
+    } finally {
+      await other.query('ROLLBACK').catch(() => {});
+      await other.end();
+    }
+  };
+
+  await test('every battle-log write waits for its deck\'s lock before touching the log', async () => {
+    const made = await ok('POST', '/decks/save', { name: 'Locked deck', cards: [{ cardId: 'sv01-025', quantity: 4 }], source: 'test-suite' });
+    const id = made.deck.id;
+    const log = (await ok('POST', `/decks/${id}/logs`, { rawLog: LOG, source: 'test-suite' })).log;
+    for (const [method, path, body] of [
+      ['PATCH', `/decks/${id}/logs/${log.id}`, { notes: 'edited' }],
+      ['DELETE', `/decks/${id}/logs/${log.id}`, {}],
+      ['POST', `/decks/${id}/logs/${log.id}/restore`, {}],
+    ]) {
+      await holdingDeck(id, async (other) => {
+        const pending = ok(method, path, body);
+        assert.equal(await stillRunning(pending), true, `${method} ${path} did not wait for the deck`);
+        await other.query('COMMIT');
+        await pending;
+      });
+    }
+    assert.deepEqual([await live(log.id), await binned(log.id)], [1, 0]);
+  });
+
+  await test('a revert of a battle-log edit waits for the log\'s deck, so an edit committing first is a conflict', async () => {
+    const made = await ok('POST', '/decks/save', { name: 'Log race deck', cards: [{ cardId: 'sv01-025', quantity: 4 }], source: 'test-suite' });
+    const id = made.deck.id;
+    const log = (await ok('POST', `/decks/${id}/logs`, { rawLog: LOG, source: 'test-suite' })).log;
+    await ok('PATCH', `/decks/${id}/logs/${log.id}`, { notes: 'first', source: 'test-suite' });
+    const edit = await latestBatch('battle_log.edit', log.id);
+    const r = await holdingDeck(id, async (other) => {
+      const pending = revert(edit.batchId, { dryRun: false });
+      assert.equal(await stillRunning(pending), true, 'the revert did not wait for the deck of the log it undoes');
+      await other.query(`UPDATE battle_log SET notes = 'concurrent' WHERE id = $1`, [log.id]);
+      await other.query('COMMIT');
+      return await pending;
+    });
+    assert.deepEqual([r.applied, r.conflicts], [0, 1], JSON.stringify(r.plan));
+    assert.equal((await ok('GET', `/decks/${id}/logs/${log.id}`)).log.notes, 'concurrent');
+  });
+
   await test('undoing a save puts an exact-printing pin back with the card', async () => {
     const made = await ok('POST', '/decks/save', { name: 'Pinned deck', cards: [{ cardId: 'sv01-025', quantity: 4 }, { cardId: 'sv01-026', quantity: 2 }], source: 'test-suite' });
     const id = made.deck.id;

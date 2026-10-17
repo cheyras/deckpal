@@ -1153,6 +1153,20 @@ async function assertDeck(client: pg.PoolClient, deckId: string, userId: string)
   if (!r.rows[0]) throw notFound(`No deck '${deckId}'`);
 }
 
+/**
+ * The lock every battle-log write takes before it touches a log (2026-10-12):
+ * the parent deck's row. One order — deck, then log — for every writer:
+ * adding a log (assertDeck), editing, deleting, purging and restoring one, and
+ * `revert`, which locks the decks of every event it may undo before it checks
+ * them (routes/mutations.ts lockStructuralTargets). Without it a revert could
+ * check a log, see a restore or an edit commit, and overwrite it; and a delete
+ * (log row, then the deck through the bin row's foreign key) could deadlock
+ * against a revert holding the deck.
+ */
+async function lockDeckForLogs(client: pg.PoolClient, deckId: string, userId: string): Promise<void> {
+  await assertDeck(client, deckId, userId);
+}
+
 // POST /decks/:id/cards {cardId, quantity=1} — additive upsert (clamped to 60).
 decksRouter.post(
   '/:id/cards',
@@ -2307,6 +2321,8 @@ decksRouter.post(
     const source = parseSource((req.body ?? {}).source);
     const key = requestWriteKey(req);
     const once = await writeOnce(userId, key, { source, tool: 'battle_log.restore' }, async (client, keyed) => {
+      // The deck first, as every battle-log write takes it (lockDeckForLogs).
+      await lockDeckForLogs(client, deckId, userId);
       const batchId = keyed ?? await openBatch(client, { userId, source, tool: 'battle_log.restore' });
       const row = await unbinBattleLog(client, deckId, userId, logId);
       if (!row) throw notFound(`No deleted battle log '${logId}' on this deck — it was restored already, purged, or never deleted`);
@@ -2845,6 +2861,7 @@ decksRouter.patch(
     const key = requestWriteKey(req);
     const source = parseSource(body.source);
     const once = await writeOnce(userId, key, { source, tool: 'battle_log.edit' }, async (client, keyed) => {
+      await lockDeckForLogs(client, deckId, userId);
       const was = await client.query<LogFields>(
         `SELECT ${LOG_FIELDS} FROM battle_log WHERE id = $1 AND deck_id = $2 FOR UPDATE`, [logId, deckId]);
       if (!was.rows[0]) throw notFound(`No battle log '${logId}'`);
@@ -2884,6 +2901,9 @@ decksRouter.delete(
     const source = parseSource((req.body ?? {}).source);
     const key = requestWriteKey(req);
     const once = await writeOnce(userId, key, { source, tool: purge ? 'battle_log.purge' : 'battle_log.delete' }, async (client, keyed) => {
+      // The deck first: binning inserts a row whose foreign key locks the deck,
+      // and taking it after the log would deadlock against a revert.
+      await lockDeckForLogs(client, deckId, userId);
       let was: LogRow | null;
       if (purge) {
         const live = await client.query<LogRow>(
