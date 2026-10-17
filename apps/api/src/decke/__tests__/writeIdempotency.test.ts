@@ -192,15 +192,18 @@ test('a different signed call with identical input is a new write', async () => 
   } finally { api.restore(); }
 });
 
-test('only a call held and signed here is keyed: upstream approvals and the MCP client send no key', async () => {
+test('only a call held and signed here gets a signed-call key: upstream approvals keep the tool\'s own retry key, a bare client sends none', async () => {
   const api = fakeApi();
   try {
     const tools = build({ approvals: 'upstream' });
     await tools.add_battle_log.execute(INPUT, { toolCallId: 'sub-agent-1' });
     assert.equal(api.writes(), 1);
-    assert.equal(writesTo(api.seen)[0]?.key, null);
+    // Not a decke-call key: nothing here was signed. The tool derives its own
+    // retry key from the request (packages/agent-tools/src/writeKey.ts,
+    // 2026-10-12), the same one the MCP server sends.
+    assert.match(writesTo(api.seen)[0]?.key ?? '', /^retry:add_battle_log:[0-9a-f]{64}:\d+$/);
 
-    // The MCP server's client: makeApi with no write key.
+    // A client used directly, outside any tool: makeApi with no write key.
     await makeApi('https://example.test/api', 'token').send('POST', `/decks/${DECK}/logs`, { rawLog: 'x' });
     assert.equal(writesTo(api.seen)[1]?.key, null);
   } finally { api.restore(); }

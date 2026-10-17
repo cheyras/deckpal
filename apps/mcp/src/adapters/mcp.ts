@@ -261,7 +261,10 @@ export function registerAllTools(server: McpServer, ctx: Ctx, { readOnly = false
   }
 }
 
-function register(server: McpServer, ctx: Ctx, tool: ToolDefinition): void {
+function register(server: McpServer, ctx: Ctx, definition: ToolDefinition): void {
+  // A tool may carry an MCP-only contract (registry.ts `mcp`): deck_strategy
+  // previews by default here, where Deck-E's approval card already is one.
+  const tool: ToolDefinition = definition.mcp ? { ...definition, ...definition.mcp } : definition;
   const base = {
     title: tool.title,
     description: tool.description,

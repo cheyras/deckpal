@@ -29,6 +29,8 @@
   "{\"case\":\"ask-card\",\"width\":390}",
   "{\"case\":\"battles-v2\",\"width\":1440}",
   "{\"case\":\"battles-v2\",\"width\":390}",
+  "{\"case\":\"battles-bin\",\"width\":1280}",
+  "{\"case\":\"battles-bin\",\"width\":390}",
   "{\"case\":\"admin-audit-table-exact-filters-safe-keyboard-details\",\"label\":\"cloud\",\"width\":1280}",
   "{\"case\":\"admin-audit-table-exact-filters-safe-keyboard-details\",\"label\":\"cloud\",\"width\":390}",
   "{\"case\":\"admin-audit-table-exact-filters-safe-keyboard-details\",\"label\":\"selfhost\",\"width\":1280}",

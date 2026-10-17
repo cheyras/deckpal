@@ -128,24 +128,33 @@ How the writes behave:
 
 - **Every write previews first.** `dry_run` defaults to true, so the first call
   shows what would change and writes nothing; the model shows that to the user
-  and repeats the call with `dry_run: false` after a yes. The one exception is
-  `deck_strategy`, which has no preview and says so in its description.
+  and repeats the call with `dry_run: false` after a yes. That includes
+  `deck_strategy`, whose preview reports the old and new heading and the lines
+  added and removed. (Deck-E runs the same tool without one: its approval card
+  shows the whole new guide.)
 - **A preview is a default, not a gate.** A client that sends `dry_run: false`
   on the first call writes on the first call. What stands between a model and a
   write is the client's approval prompt; every write tool is advertised with
   `readOnlyHint: false` and an explicit `destructiveHint`, so clients that ask
   before writes will ask.
-- **Undo.** Collection changes, list changes, deck deletes and strategy-guide
-  rewrites are recorded in `mutation_history` and can be undone with `revert`
-  (dry run first; an item that cannot be undone exactly is reported, never
-  half-applied). Decks and lists go to a recycle bin when deleted; `purge`
-  skips it.
-- **What cannot be undone.** A deck's card list is versioned once it has battle
-  logs (`deck_history` restores a version); an edit to a version with no logs
-  replaces it in place. Battle-log edits and deletes cannot be undone, and
-  battle-log writes made over MCP are not in `mutation_history`. The
-  2026-10-12 decision `decisions/2026/2026-10-12-mcp-tool-surface-and-write-safety.md`
-  has the full table and the options for closing these gaps.
+- **Undo.** Every write these tools make is recorded in `mutation_history`, and almost every one
+  can be undone with `revert` (dry run first; an item that cannot be undone
+  exactly is reported, never half-applied). That covers collection and list
+  changes, deck deletes, strategy-guide rewrites, deck card-list changes (the
+  old list comes back as a new version, even when the edit amended a version
+  in place), `deck_history` reverts, and battle-log adds, edits and deletes.
+  Decks, lists and battle logs go to a recycle bin when deleted
+  (`battle_logs deleted: true` lists a deck's); `purge` skips it.
+- **What cannot be undone.** A purge. Changes recorded before 2026-10-12 to a
+  deck's card list or a battle log's fields did not keep the old values, so
+  `revert` reports them as skipped rather than guessing.
+- **A retried write lands once.** Writes that a retry would double —
+  `add_battle_log`, a `deck_history` revert, an `edit_list` create or bulk add,
+  a forced `revert` — send an `Idempotency-Key` derived from the request, good
+  for 30 minutes (up to an hour when the repeat falls in the next window).
+  The repeat gets the first run's result and says so.
+  `log_cards` and `save_deck` carry their own key. The details are in
+  `decisions/2026/2026-10-12-write-safety-battle-log-recycle-bin-deck-list-undo-retry-keys-strategy-preview.md`.
 - **Text from other people.** Opponent screen names and card names come out of
   pasted battle logs and are written by the other player's client. Tools print
   them as quoted values when they do not look like ordinary names, fence raw

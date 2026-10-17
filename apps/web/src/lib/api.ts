@@ -1286,6 +1286,10 @@ export interface BattleLog extends BattleLogSummary {
   parsed: ParsedBattleLog | null
   createdAt: string
 }
+/** A log in the deck's recycle bin (migration 087): restorable until purged. */
+export interface DeletedBattleLog extends BattleLogSummary {
+  deletedAt: string
+}
 export interface BattleLogsResponse {
   version: number | null
   logs: BattleLogSummary[]
@@ -2268,8 +2272,18 @@ export const api = {
     send<{ log: BattleLog; attachedToVersion: number }>('POST', `/decks/${encodeURIComponent(id)}/logs`, body),
   patchBattleLog: (id: string, logId: number, body: { result?: BattleResult | null; opponent?: string | null; opponentDeck?: string | null; notes?: string | null; playedAt?: string }) =>
     send<{ log: BattleLog }>('PATCH', `/decks/${encodeURIComponent(id)}/logs/${logId}`, body),
+  /** Reversible since migration 087: the log moves to the deck's recycle bin. */
   deleteBattleLog: (id: string, logId: number) =>
-    send<{ deleted: number }>('DELETE', `/decks/${encodeURIComponent(id)}/logs/${logId}`),
+    send<{ deleted: number; restorable: boolean }>('DELETE', `/decks/${encodeURIComponent(id)}/logs/${logId}`),
+  /** The deck's recycle bin, newest first (at most 200). */
+  deletedBattleLogs: (id: string, signal?: AbortSignal) =>
+    get<{ logs: DeletedBattleLog[] }>(`/decks/${encodeURIComponent(id)}/logs/deleted`, signal),
+  /** Back with the same id, on the same deck version. */
+  restoreBattleLog: (id: string, logId: number, signal?: AbortSignal) =>
+    send<{ log: BattleLog }>('POST', `/decks/${encodeURIComponent(id)}/logs/${logId}/restore`, undefined, signal),
+  /** The no-undo path: a live log or one in the bin, gone for good. */
+  purgeBattleLog: (id: string, logId: number, signal?: AbortSignal) =>
+    send<{ deleted: number; restorable: false }>('DELETE', `/decks/${encodeURIComponent(id)}/logs/${logId}?purge=true`, undefined, signal),
 
   // Signed-in identity — real username, not the JWT's (often-empty) metadata.
   adminAiOverride: (id: string, signal?: AbortSignal) => get<AiOverride>('/admin/users/' + encodeURIComponent(id) + '/ai-override', signal),

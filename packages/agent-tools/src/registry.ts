@@ -107,6 +107,22 @@ export interface ToolDefinition {
   annotations: ToolAnnotations;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   handler: (args: any, ctx: Ctx) => Promise<ToolResult>;
+  /**
+   * What the MCP server advertises and runs INSTEAD, for the rare tool whose
+   * two front-ends need different contracts. Deck-E ignores it.
+   *
+   * One user today: `deck_strategy`. In Deck-E the reader's approval card
+   * shows the whole new guide before anything is saved, so the approval IS the
+   * preview, and a dry run would only send a 40,000-character guide twice. An
+   * MCP client's approval prompt may show nothing of the sort, so over MCP the
+   * tool previews by default like every other write (`dry_run`, 2026-10-12).
+   */
+  mcp?: {
+    description: string;
+    inputSchema: AnyZodObject;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    handler: (args: any, ctx: Ctx) => Promise<ToolResult>;
+  };
 }
 
 /** Everything a tool declares, with its argument type still attached. */
@@ -117,6 +133,7 @@ interface ToolSpec<S extends AnyZodObject> {
   inputSchema: S;
   annotations: ToolAnnotations;
   handler: (args: z.output<S>, ctx: Ctx) => Promise<ToolResult>;
+  mcp?: ToolDefinition['mcp'];
 }
 
 /** The same, for a tool that takes no arguments at all. */

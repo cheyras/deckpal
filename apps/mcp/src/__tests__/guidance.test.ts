@@ -248,9 +248,9 @@ describe('guidance names only what an MCP client has', () => {
       fieldsOf('check_deck');
       fieldsOf('deck_history');
       fieldsOf('set_progress');
-      // deck_strategy is the one write the instructions single out as having
-      // no preview. If it grows a dry_run, that sentence becomes wrong.
-      assert.equal('dry_run' in fieldsOf('deck_strategy'), false);
+      // "a tool with dry_run previews by default" covers deck_strategy too
+      // since 2026-10-12: over MCP it previews a rewrite like every other write.
+      assert.ok('dry_run' in fieldsOf('deck_strategy'), 'deck_strategy over MCP must preview');
     });
   });
 });

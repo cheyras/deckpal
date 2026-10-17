@@ -1404,17 +1404,21 @@ There is no automatic sweeper. That is a deliberate choice over an unenforced
 forever — but it means a user who deletes something and expects it destroyed has
 to say so:
 
-- **Web:** *Recently deleted* on the Lists and Decks pages → **Delete forever**.
-- **REST:** `DELETE /lists/:id?purge=true`, `DELETE /decks/:id?purge=true`.
-- **MCP:** `delete_list(purge: true)`, `delete_deck(purge: true)`.
+- **Web:** *Recently deleted* on the Lists and Decks pages, and under a deck's
+  battle logs → **Delete forever**.
+- **REST:** `DELETE /lists/:id?purge=true`, `DELETE /decks/:id?purge=true`,
+  `DELETE /decks/:id/logs/:logId?purge=true`.
+- **MCP:** `delete_list(purge: true)`, `delete_deck(purge: true)`,
+  `delete_battle_log(purge: true)`.
 
 A purge is a real `DELETE` and cascades exactly as the old behaviour did — for a
-deck that means its version history and every battle log. It has no undo, and
-it is not the only path without one: deleting a battle log is permanent (logs
-have no recycle bin), an `edit_battle_log` change cannot be reverted, and a
-`save_deck` edit to a version with no battle logs amends that version in place,
-so the replaced list is gone (`revert` skips deck card changes, and
-`deck_history` can only restore versions that exist).
+deck that means its version history, every battle log and every log in its
+recycle bin. It has no undo. Battle logs got their recycle bin on 2026-10-12
+(migration 087, a separate `battle_log_bin` table so no read of `battle_log` can
+count a deleted game); the mutation events that record a battle-log write keep
+a summary and never the raw log, so a purge still removes the text. Since the
+same date a battle-log edit records the old values and a deck card-list write
+records the whole list on both sides, so `revert` can undo either.
 
 **Account deletion is unaffected.** Every one of these tables cascades from
 `app_user`, so removing a user still removes their soft-deleted rows.

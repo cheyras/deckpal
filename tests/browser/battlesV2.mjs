@@ -78,15 +78,58 @@ const DIGEST_101 = {
 }
 const RAW_101 = 'Setup\nRobni16 chose tails for the opening coin flip.\ncheyras won the coin toss.\n\nTurn # 1 - Robni16\'s Turn\nRobni16 drew a card.'
 
+// Already in the deck's recycle bin when the page opens (migration 087).
+const BINNED = [
+  { id: 106, deckVersion: 2, result: 'win', opponent: 'Mira', opponentDeck: null, opponentArchetype: null,
+    origin: 'ptcgl', turns: 9, prizes: { me: 6, opponent: 2 }, notes: null, reviewMd: null,
+    playedAt: '2026-09-12T18:00:00Z', source: 'web', deletedAt: '2026-10-11T15:00:00Z' },
+  { id: 107, deckVersion: 1, result: 'loss', opponent: 'Duplicate paste', opponentDeck: null, opponentArchetype: null,
+    origin: 'ptcgl', turns: 11, prizes: { me: 3, opponent: 6 }, notes: null, reviewMd: null,
+    playedAt: '2026-09-08T19:00:00Z', source: 'web', deletedAt: '2026-10-10T15:00:00Z' },
+]
+const LOG_WRITE = new RegExp(`^${API}/logs/\\d+(/restore)?$`)
+
 function battlesApi() {
-  const calls = [], unexpected = []
+  const calls = [], unexpected = [], writes = []
+  // Live logs and the bin, changed by the delete/restore/purge routes and put
+  // back by reset() so each width starts from the same page.
+  const state = { live: [], bin: [] }
+  const reset = () => { state.live = LOGS.map(l => ({ ...l })); state.bin = BINNED.map(l => ({ ...l })) }
+  reset()
   const record = (status, body) => ({ status, body, headers: { 'Cache-Control': 'no-store, private' } })
-  function respond(rel, url) {
+  function respond(rel, url, req = { method: 'GET' }) {
     if (!rel.startsWith('/deckpal/api/') && !rel.startsWith('/api/')) return null
     calls.push(rel + url.search)
+    const write = rel.match(new RegExp(`^${API}/logs/(\\d+)(/restore)?$`))
+    if (write && req.method !== 'GET') {
+      const id = Number(write[1])
+      writes.push(`${req.method} ${rel}${url.search}`)
+      if (req.method === 'POST' && write[2]) {
+        const i = state.bin.findIndex(l => l.id === id)
+        if (i < 0) return record(404, { error: { code: 'not_found', message: `No deleted battle log '${id}' on this deck` } })
+        const [{ deletedAt: _d, ...log }] = state.bin.splice(i, 1)
+        state.live.push(log)
+        state.live.sort((a, b) => b.playedAt.localeCompare(a.playedAt))
+        return record(200, { log: { ...log, rawLog: null, parsed: null, createdAt: log.playedAt }, batchId: 'b-restore' })
+      }
+      if (req.method === 'DELETE') {
+        const purge = url.searchParams.get('purge') === 'true'
+        const li = state.live.findIndex(l => l.id === id)
+        if (li >= 0) {
+          const [log] = state.live.splice(li, 1)
+          if (!purge) state.bin.unshift({ ...log, deletedAt: '2026-10-12T18:00:00Z' })
+        } else {
+          const bi = state.bin.findIndex(l => l.id === id)
+          if (bi < 0 || !purge) return record(404, { error: { code: 'not_found', message: `No battle log '${id}'` } })
+          state.bin.splice(bi, 1)
+        }
+        return record(200, { deleted: id, restorable: !purge, batchId: 'b-delete' })
+      }
+    }
+    if (rel === API + '/logs/deleted') return record(200, { logs: state.bin })
     if (rel === API + '/logs') {
       const version = url.searchParams.get('version')
-      const logs = version ? LOGS.filter(l => l.deckVersion === Number(version)) : LOGS
+      const logs = version ? state.live.filter(l => l.deckVersion === Number(version)) : state.live
       const count = r => logs.filter(l => l.result === r).length
       return record(200, {
         version: version ? Number(version) : null, logs,
@@ -111,7 +154,8 @@ function battlesApi() {
     unexpected.push('Unexpected API: ' + rel + url.search)
     return record(404, { error: { message: 'Not a fixture route' } })
   }
-  return { calls, unexpected, respond }
+  const allowMutation = (pathname, method) => (method === 'DELETE' || method === 'POST') && LOG_WRITE.test(pathname)
+  return { calls, unexpected, writes, state, reset, respond, allowMutation }
 }
 
 const rowToggle = (page, id) => page.locator(`button[aria-controls="battle-log-${id}"]`)
@@ -127,6 +171,7 @@ export async function checkBattlesV2(browser, server, fixture, out) {
   const results = []
   for (const width of [1440, 390]) {
     fixture.calls.length = 0
+    fixture.reset()
     const { context, page } = await contextFor(browser, server, width)
     try {
       await page.goto(server.origin + '/fixture.html?battles', { waitUntil: 'networkidle' })
@@ -283,6 +328,86 @@ export async function checkBattlesV2(browser, server, fixture, out) {
   return results
 }
 
+// ── Recycle bin (migration 087): delete → Undo, then Restore and Delete forever ─
+export async function checkBattleBin(browser, server, fixture, out) {
+  const results = []
+  for (const width of [1280, 390]) {
+    fixture.reset()
+    fixture.writes.length = 0
+    const { context, page } = await contextFor(browser, server, width)
+    try {
+      await page.goto(server.origin + '/fixture.html?battles', { waitUntil: 'networkidle' })
+      await page.evaluate(() => { document.documentElement.dataset.skin = 'premium' })
+      const rows = page.locator('section[aria-labelledby="battles-games"] > ul > li')
+      const rowCount = n => page.waitForFunction(n => document.querySelectorAll('section[aria-labelledby="battles-games"] > ul > li').length === n, n)
+      await rows.first().waitFor()
+      assert.equal(await rows.count(), 5)
+      const bin = page.getByRole('button', { name: /Recently deleted/ })
+      await bin.waitFor()
+      assert.match(await bin.innerText(), /Recently deleted\s*2/)
+      assert.equal(await bin.getAttribute('aria-expanded'), 'false', 'the bin starts collapsed')
+
+      // ── Delete: the confirm says where it goes, the toast offers Undo ───────
+      await rowToggle(page, 103).click()
+      await panel(page, 103).getByRole('button', { name: 'Delete Log' }).click()
+      const dialog = page.getByRole('dialog')
+      await dialog.waitFor()
+      const ask = await dialog.innerText()
+      assert.match(ask, /Delete Loss vs TrainerKai \(.+\)\? It moves to Recently deleted, where you can restore it\./)
+      assert.doesNotMatch(ask, /can't be undone|cannot be undone/i, 'a restorable delete must not claim it is permanent')
+      await dialog.getByRole('button', { name: 'Delete Log' }).click()
+      await rowCount(4)
+      const toast = page.locator('[data-toaster]')
+      await toast.getByText('Moved Loss vs TrainerKai to Recently deleted.').waitFor()
+      // Held open by the pointer, the way a person reaching for Undo would.
+      await toast.hover()
+      await page.waitForFunction(() => /Recently deleted\s*3/.test(document.body.innerText))
+      await noHorizontalScroll(page, `deleted ${width}`)
+      await page.screenshot({ path: path.join(out, `battles-bin-undo-${width}.png`) })
+      assert.deepEqual(fixture.writes, [`DELETE ${API}/logs/103`])
+
+      // ── Undo puts it back, same id, and the bin shrinks again ──────────────
+      await toast.getByRole('button', { name: 'Undo' }).click()
+      await rowCount(5)
+      await rowToggle(page, 103).waitFor()
+      await page.waitForFunction(() => /Recently deleted\s*2/.test(document.body.innerText))
+      assert.deepEqual(fixture.writes.slice(1), [`POST ${API}/logs/103/restore`])
+
+      // ── The bin: every version, Restore and Delete forever per row ─────────
+      await bin.click()
+      assert.equal(await bin.getAttribute('aria-expanded'), 'true')
+      const binRows = page.locator('section:has(> button[aria-expanded="true"]) ul > li')
+      assert.equal(await binRows.count(), 2)
+      assert.match(await binRows.nth(0).innerText(), /Win vs Mira[\s\S]*v2 · played .+ · deleted /)
+      assert.match(await binRows.nth(1).innerText(), /Loss vs Duplicate paste[\s\S]*v1 · played /)
+      await noHorizontalScroll(page, `bin ${width}`)
+      await bin.locator('xpath=..').screenshot({ path: path.join(out, `battles-bin-open-${width}.png`) })
+      await page.screenshot({ path: path.join(out, `battles-bin-page-${width}.png`), fullPage: true })
+
+      await binRows.nth(0).getByRole('button', { name: 'Restore' }).click()
+      await rowCount(6)
+      await rowToggle(page, 106).waitFor()
+      assert.equal(await binRows.count(), 1)
+
+      // Delete forever is two steps: the row asks first, then purges.
+      await binRows.nth(0).getByRole('button', { name: 'Delete forever' }).click()
+      await binRows.nth(0).getByText('Delete forever?').waitFor()
+      assert.equal(fixture.writes.filter(w => w.includes('purge')).length, 0, 'the first click must only ask')
+      await binRows.nth(0).getByRole('button', { name: 'Yes, delete' }).click()
+      // An empty bin says nothing at all.
+      await page.getByRole('button', { name: /Recently deleted/ }).waitFor({ state: 'detached' })
+      assert.deepEqual(fixture.writes.slice(2), [`POST ${API}/logs/106/restore`, `DELETE ${API}/logs/107?purge=true`])
+      assert.equal(await rows.count(), 6, 'a purge from the bin leaves the live list alone')
+      await noHorizontalScroll(page, `after purge ${width}`)
+
+      results.push({ case: 'battles-bin', width })
+    } finally {
+      await context.close()
+    }
+  }
+  return results
+}
+
 export function browserSuites({ browser, out, scratch, results, logs }) {
   return [{
     name: 'battles-v2',
@@ -292,9 +417,10 @@ export function browserSuites({ browser, out, scratch, results, logs }) {
         '--config', path.join(ROOT, 'tests/browser/vite.config.mjs'), '--outDir', fixtureDist],
       { env: isolatedEnv() }))
       const fixture = battlesApi()
-      const server = await serve(fixtureDist, '', fixture.respond, 'fixture.html')
+      const server = await serve(fixtureDist, '', fixture.respond, 'fixture.html', { allowMutation: fixture.allowMutation })
       try {
         results.push(...await checkBattlesV2(browser, server, fixture, out))
+        results.push(...await checkBattleBin(browser, server, fixture, out))
         assert.deepEqual(fixture.unexpected, [], 'Battles v2 fixture: unexpected API calls')
         assert.deepEqual(server.unexpected, [], 'Battles v2 fixture: unexpected network/error events')
       } finally {

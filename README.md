@@ -74,16 +74,16 @@ Postgres for self-hosters.
   for connecting, tokens and which tools write; the full tool reference,
   [`apps/mcp/TOOLS.md`](apps/mcp/TOOLS.md), is generated from the registry.
 - **Changes are logged, and most are undoable.** Collection quantities, list
-  changes, deck deletes and strategy-guide rewrites record a before/after
-  snapshot; `mutation_history` shows what an operation did and `revert` undoes
-  it (dry-run first; an item it cannot undo exactly is reported as a conflict
-  and skipped, never half-applied). A deck's card list is versioned once it has
-  battle logs, and `deck_history` restores an earlier version; an edit to a
-  version with no logs replaces it in place. Battle-log edits and deletes
-  cannot be undone. `log_cards` and `save_deck` carry an idempotency key, so
-  retrying after a timeout returns the original result instead of applying
-  twice. Deleting a list or deck is reversible -- *Recently deleted* on each
-  index restores it.
+  changes, deck deletes and card lists, strategy-guide rewrites and battle-log
+  adds, edits and deletes record a before/after snapshot; `mutation_history`
+  shows what an operation did and `revert` undoes it (dry-run first; an item it
+  cannot undo exactly is reported as a conflict and skipped, never
+  half-applied). A deck's earlier card list comes back as a new version, even
+  when the edit amended a version that had no battle logs. Retrying a write
+  after a timeout returns the original result instead of applying twice:
+  `log_cards` and `save_deck` carry an idempotency key, and the other writes a
+  retry would double send one. Deleting a list, deck or battle log is reversible
+  -- *Recently deleted* restores it; only *Delete forever* cannot be undone.
 - **PWA** -- installable, offline-capable (tiered: the app shell is
   precached; visited card and set art is cached, about 2,000 images with the
   least recently used dropped first; Deck-E's character assets are cached too).
