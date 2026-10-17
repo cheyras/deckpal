@@ -273,6 +273,72 @@ try {
     assert.deepEqual(await deckCards(deckId), before);
   });
 
+  // ── 3b. Astra round 1 (2026-10-12): the cases it found ────────────────────
+  await test('a log in the bin still holds its version: an edit after deleting the last log makes a new version', async () => {
+    const made = await ok('POST', '/decks/save', { name: 'Bin holds version', cards: [{ cardId: 'sv01-025', quantity: 4 }], source: 'test-suite' });
+    const id = made.deck.id;
+    const log = (await ok('POST', `/decks/${id}/logs`, { rawLog: LOG, source: 'test-suite' })).log;
+    await ok('DELETE', `/decks/${id}/logs/${log.id}`, { source: 'test-suite' });
+    await ok('POST', '/decks/save', { deckId: id, cards: [{ cardId: 'sv01-026', quantity: 2 }], source: 'test-suite' });
+    assert.equal(await versions(id), 2, 'the edit amended the version a binned log was played on');
+    const restored = await ok('POST', `/decks/${id}/logs/${log.id}/restore`, { source: 'test-suite' });
+    assert.equal(restored.log.deckVersion, 1);
+    const v1 = await one('SELECT cards FROM deck_version WHERE deck_id = $1 AND version = 1', [id]);
+    assert.deepEqual(v1.cards.map((c) => `${c.quantity}x ${c.tcgdexId}`), ['4x sv01-025'], 'the restored game no longer points at the list it was played with');
+  });
+
+  await test('a deck save committing while a revert waits is a conflict, not overwritten', async () => {
+    const made = await ok('POST', '/decks/save', { name: 'Raced deck', cards: [{ cardId: 'sv01-025', quantity: 4 }], source: 'test-suite' });
+    const id = made.deck.id;
+    await ok('POST', '/decks/save', { deckId: id, cards: [{ cardId: 'sv01-026', quantity: 2 }], source: 'test-suite' });
+    const save = await latestBatch('deck.save', id);
+    // Another writer holds the deck and changes its list; the revert starts,
+    // then that writer commits.
+    const other = new pg.Client(config);
+    await other.connect();
+    try {
+      await other.query('BEGIN');
+      await other.query('SELECT 1 FROM deck WHERE id = $1 FOR UPDATE', [id]);
+      await other.query(`UPDATE deck_card SET quantity = 3 WHERE deck_id = $1`, [id]);
+      const pending = revert(save.batchId, { dryRun: false });
+      await new Promise((r) => setTimeout(r, 400));
+      await other.query('COMMIT');
+      const r = await pending;
+      assert.deepEqual([r.applied, r.conflicts], [0, 1], JSON.stringify(r.plan));
+    } finally {
+      await other.end();
+    }
+    assert.deepEqual(await deckCards(id), ['3x sv01-026'], 'the revert overwrote a change that committed while it waited');
+  });
+
+  await test('undoing a save puts an exact-printing pin back with the card', async () => {
+    const made = await ok('POST', '/decks/save', { name: 'Pinned deck', cards: [{ cardId: 'sv01-025', quantity: 4 }, { cardId: 'sv01-026', quantity: 2 }], source: 'test-suite' });
+    const id = made.deck.id;
+    await ok('PATCH', `/decks/${id}/cards/sv01-026`, { pinExact: true });
+    await ok('POST', '/decks/save', { deckId: id, cards: [{ cardId: 'sv01-025', quantity: 4 }], source: 'test-suite' });
+    await revert((await latestBatch('deck.save', id)).batchId, { dryRun: false });
+    const pinned = await db.query(
+      `SELECT c.tcgdex_id FROM deck_card dc JOIN card c ON c.id = dc.card_id WHERE dc.deck_id = $1 AND dc.pin_exact`, [id]);
+    assert.deepEqual(pinned.rows.map((r) => r.tcgdex_id), ['sv01-026'], 'the card came back without its pin');
+  });
+
+  await test('undoing the undo of a deck_history revert puts the guide back too', async () => {
+    const made = await ok('POST', '/decks/save', { name: 'Guided deck', cards: [{ cardId: 'sv01-025', quantity: 4 }], source: 'test-suite' });
+    const id = made.deck.id;
+    await ok('PUT', `/decks/${id}/strategy`, { strategyMd: '# Guide one' });
+    await ok('POST', `/decks/${id}/logs`, { rawLog: LOG, source: 'test-suite' });
+    await ok('POST', '/decks/save', { deckId: id, cards: [{ cardId: 'sv01-026', quantity: 2 }], source: 'test-suite' });
+    await ok('PUT', `/decks/${id}/strategy`, { strategyMd: '# Guide two' });
+    await ok('POST', `/decks/${id}/revert`, { toVersion: 1, includeStrategy: true, source: 'test-suite' });
+    const guide = async () => (await one('SELECT strategy_md FROM deck WHERE id = $1', [id])).strategy_md;
+    assert.equal(await guide(), '# Guide one');
+    const undo = await revert((await latestBatch('deck.revert', id)).batchId, { dryRun: false });
+    assert.equal(await guide(), '# Guide two', 'undoing the revert left its guide');
+    await revert(undo.batchId, { dryRun: false });
+    assert.equal(await guide(), '# Guide one', 'undoing the undo restored the list but not the guide');
+    assert.deepEqual(await deckCards(id), ['4x sv01-025']);
+  });
+
   // ── 4. Through the agent tools the MCP server runs ────────────────────────
   await test('over the agent tools: a retried add_battle_log or deck revert lands once; delete, bin and restore work end to end', async () => {
     const { allTools, makeApi } = await import('@deckpal/agent-tools');

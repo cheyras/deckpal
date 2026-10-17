@@ -692,6 +692,18 @@ export interface DeckState {
   formatCode: string;
   glcType: string | null;
   cards: SnapshotEntry[];
+  /**
+   * The printings pinned exactly (`deck_card.pin_exact`, migration 076),
+   * ascending. Not part of a deck_version snapshot, so it rides here: undoing
+   * a save that removed a pinned card must bring the pin back with it.
+   */
+  pinned: number[];
+  /**
+   * The strategy guide, present only on an event whose operation also changed
+   * the guide (a deck_history revert with includeStrategy, or the undo of one),
+   * so undoing that event puts the guide back too.
+   */
+  strategyMd?: string | null;
 }
 
 export async function deckState(client: pg.PoolClient, deckId: string, userId: string): Promise<DeckState> {
@@ -702,7 +714,14 @@ export async function deckState(client: pg.PoolClient, deckId: string, userId: s
     `SELECT name, format_code, glc_type FROM deck WHERE id = $1 AND user_id = $2`, [deckId, userId],
   )).rows[0];
   if (!row) throw notFound(`No deck '${deckId}'`);
-  return { v: 2, name: row.name, formatCode: row.format_code, glcType: row.glc_type, cards: await loadSnapshotCards(client, deckId) };
+  const pins = await client.query<{ card_variant_id: string }>(
+    `SELECT card_variant_id FROM deck_card WHERE deck_id = $1 AND pin_exact ORDER BY card_variant_id`, [deckId],
+  );
+  return {
+    v: 2, name: row.name, formatCode: row.format_code, glcType: row.glc_type,
+    cards: await loadSnapshotCards(client, deckId),
+    pinned: pins.rows.map((r) => Number(r.card_variant_id)),
+  };
 }
 
 decksRouter.post(

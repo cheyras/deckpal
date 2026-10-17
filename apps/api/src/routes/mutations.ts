@@ -437,6 +437,7 @@ mutationsRouter.post(
       // real operation, but it should be asked for explicitly.
       const plan: PlanEntry[] = [];
       const collectionEvents: EventRow[] = [];
+      let lockedStructural = false;
 
       // A window can contain both a change and the revert that already undid
       // it. The change is skipped (it has an `undone_by`) but its revert is
@@ -483,6 +484,10 @@ mutationsRouter.post(
         if (e.entity_type === 'collection_item') {
           collectionEvents.push(e);
           continue;
+        }
+        if (!dryRun && !lockedStructural) {
+          await lockStructuralTargets(client, userId, target.events);
+          lockedStructural = true;
         }
         const entry = planStructural(e, strategy);
         // Decks and battle logs are checked against what is there NOW, so a
@@ -783,10 +788,44 @@ function cardsKey(cards: readonly SnapshotEntry[]): string {
   return cards.map((c) => `${c.cardId}:${c.variantId ?? '-'}:${c.quantity}`).sort().join('|');
 }
 
-/** True when two deck states hold the same name, format and printings. */
-function sameDeckState(a: DeckState, b: Partial<DeckState>): boolean {
+/**
+ * True when the live deck still holds what an event left: name, format,
+ * printings and pins, and the guide when the event recorded one.
+ */
+function sameDeckState(a: DeckState, b: Partial<DeckState>, guideNow: string | null): boolean {
   return a.name === b.name && a.formatCode === b.formatCode && (a.glcType ?? null) === (b.glcType ?? null)
-    && cardsKey(a.cards) === cardsKey(b.cards ?? []);
+    && cardsKey(a.cards) === cardsKey(b.cards ?? [])
+    && (!Array.isArray(b.pinned) || a.pinned.join(',') === [...b.pinned].sort((x, y) => x - y).join(','))
+    && (!Object.prototype.hasOwnProperty.call(b, 'strategyMd') || (b.strategyMd ?? null) === guideNow);
+}
+
+/** The deck's guide, read for a conflict check or an event. */
+async function guideOf(client: pg.PoolClient, deckId: string, userId: string): Promise<string | null> {
+  // soft-delete-exempt: called only on a deck already checked live and locked.
+  const r = await client.query<{ strategy_md: string | null }>(
+    `SELECT strategy_md FROM deck WHERE id = $1 AND user_id = $2`, [deckId, userId]);
+  return r.rows[0]?.strategy_md ?? null;
+}
+
+/**
+ * Lock every deck and battle log a revert may change, in id order, before its
+ * plan reads them (2026-10-12). The conflict checks and the apply share one
+ * transaction, but without these locks a save or a log edit committing between
+ * the check and the apply would be overwritten with no conflict reported.
+ * Decks before logs, the order every route that touches both takes them.
+ */
+async function lockStructuralTargets(client: pg.PoolClient, userId: string, events: readonly EventRow[]): Promise<void> {
+  const decks = [...new Set(events.filter((e) => e.operation === 'deck.cards').map((e) => e.entity_id))].sort();
+  const logs = [...new Set(events.filter((e) => e.operation.startsWith('battle_log.')).map((e) => Number(e.entity_id)))]
+    .filter((n) => Number.isSafeInteger(n)).sort((a, b) => a - b);
+  if (decks.length) {
+    // soft-delete-exempt: a lock only; each check below decides liveness itself.
+    await client.query(`SELECT id FROM deck WHERE user_id = $1 AND id::text = ANY($2::text[]) ORDER BY id FOR UPDATE`, [userId, decks]);
+  }
+  if (logs.length) {
+    await client.query(`SELECT id FROM battle_log WHERE user_id = $1 AND id = ANY($2::bigint[]) ORDER BY id FOR UPDATE`, [userId, logs]);
+    await client.query(`SELECT id FROM battle_log_bin WHERE user_id = $1 AND id = ANY($2::bigint[]) ORDER BY id FOR UPDATE`, [userId, logs]);
+  }
 }
 
 /** The fields a v2 battle_log.edit event records, compared as the database returns them. */
@@ -822,7 +861,7 @@ async function structuralConflicts(client: pg.PoolClient, userId: string, e: Eve
       if (!alive.rows[0]) return ['the deck no longer exists, or is in Recently deleted — restore it first'];
       if (e.before === null) return [];
       const now = await deckState(client, e.entity_id, userId);
-      return sameDeckState(now, e.after as unknown as DeckState)
+      return sameDeckState(now, e.after as unknown as DeckState, await guideOf(client, e.entity_id, userId))
         ? []
         : ['the deck has changed since this change — putting the earlier list back would discard the later edits too. Revert the later change first, or pass force'];
     }
@@ -1006,6 +1045,7 @@ async function applyStructural(
         );
       }
       const restoresGuide = Object.prototype.hasOwnProperty.call(target, 'strategyMd');
+      const guideNow = restoresGuide ? await guideOf(client, e.entity_id, userId) : undefined;
       if (cardsKey(now.cards) !== cardsKey(target.cards) || restoresGuide) {
         // The same path deck_history's revert takes: the earlier list lands as
         // a NEW version, so the list being replaced stays in history too.
@@ -1018,7 +1058,21 @@ async function applyStructural(
         // A format change alone still changes what the list means.
         await recordDeckChange(client, e.entity_id, { source: opts.source, note: opts.note.slice(0, 500) });
       }
-      return log(now, await deckState(client, e.entity_id, userId), OPS.deckCards);
+      // Pins are not in a version snapshot, so restoreSnapshot leaves them as
+      // they were (and a re-added card unpinned): set them to the target's.
+      if (Array.isArray(target.pinned)) {
+        await client.query(
+          `UPDATE deck_card SET pin_exact = (card_variant_id = ANY($2::bigint[]))
+            WHERE deck_id = $1 AND pin_exact IS DISTINCT FROM (card_variant_id = ANY($2::bigint[]))`,
+          [e.entity_id, target.pinned],
+        );
+      }
+      // When the guide moved, both sides of this event carry it, so undoing
+      // this undo puts the guide back as well as the list.
+      const after = await deckState(client, e.entity_id, userId);
+      return restoresGuide
+        ? log({ ...now, strategyMd: guideNow ?? null }, { ...after, strategyMd: target.strategyMd ?? null }, OPS.deckCards)
+        : log(now, after, OPS.deckCards);
     }
     case 'battle_log.create':
     case 'battle_log.restore': {

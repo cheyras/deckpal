@@ -8,8 +8,9 @@ import type pg from 'pg';
  * transaction, AFTER the deck_card writes (the deck row is already locked by the
  * caller's `SELECT … FOR UPDATE`). The auto-bump rule:
  *
- *   • current version has ≥1 battle_log rows → increment deck.version and insert
- *     a NEW deck_version snapshot (post-change state);
+ *   • current version has ≥1 battle_log rows, live or in the recycle bin →
+ *     increment deck.version and insert a NEW deck_version snapshot
+ *     (post-change state);
  *   • no battle logs yet → amend the current snapshot in place (upsert), so a
  *     burst of UI stepper calls with no intervening battles stays ONE version.
  *
@@ -108,8 +109,13 @@ export async function recordDeckChange(
 
   let bump = opts.forceBump === true;
   if (!bump) {
+    // A log in the recycle bin (087) counts: it can be restored onto this
+    // version, and it must come back to the list it was played with. Counting
+    // only live logs let "delete the version's last log, edit, restore" attach
+    // the game to a list it never saw.
     const logs = await client.query<{ n: string }>(
-      `SELECT count(*) AS n FROM battle_log WHERE deck_id = $1 AND deck_version = $2`,
+      `SELECT (SELECT count(*) FROM battle_log WHERE deck_id = $1 AND deck_version = $2)
+            + (SELECT count(*) FROM battle_log_bin WHERE deck_id = $1 AND deck_version = $2) AS n`,
       [deckId, d.version],
     );
     bump = Number(logs.rows[0]?.n ?? 0) > 0;
