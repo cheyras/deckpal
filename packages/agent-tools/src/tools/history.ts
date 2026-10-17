@@ -112,7 +112,7 @@ const mutationHistoryTool = defineTool({
   title: 'What changed, and which operation changed it',
   description:
     'The audit trail of every CHANGE made through DeckPal — collection quantities, lists, ' +
-    'decks and their card lists, strategy guides, battle logs — grouped by the operation that ' +
+    'decks, strategy guides, battle logs — grouped by the operation that ' +
     'made them, newest first. Each ' +
     'operation carries who wrote it (web UI, deckpal-mcp, an import), an optional note, and ' +
     'one line per thing it touched (with the quantity before → after where there is one). ' +
@@ -219,9 +219,8 @@ const revertTool = defineTool({
     'applying the opposite change, so unrelated later edits survive; pass strategy:"restore" ' +
     'to force the old value back instead. Where an exact undo is impossible (the original ' +
     'change hit the zero floor, or a later call asserted an absolute quantity for that card) ' +
-    'the item is reported as a CONFLICT and skipped rather than half-applied. A deck\'s card ' +
-    'list comes back as a new deck version; a deleted battle log comes back from the recycle ' +
-    'bin, an edited one gets its old values. The revert is ' +
+    'the item is reported as a CONFLICT and skipped rather than half-applied. A deck list ' +
+    'comes back as a new version, a deleted battle log from the recycle bin. The revert is ' +
     'itself logged, so it can be reverted. Use mutation_history first to find what to undo.',
   inputSchema: z.object({
     batch_id: z.string().optional().describe('Undo this whole operation (from mutation_history or a log_cards result).'),

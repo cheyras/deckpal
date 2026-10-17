@@ -535,8 +535,7 @@ const saveDeckTool = defineTool({
     'Versioning is automatic: card and format changes to a deck version that already has battle ' +
     'logs create a NEW version (its snapshot is kept forever — see deck_history); changes to a ' +
     'logless version just amend the current snapshot, so a burst of edits stays one version. ' +
-    'Either way the list a save replaced is kept in mutation_history, and revert with the ' +
-    "save's batch_id puts it back (as a new version). " +
+    'revert can put a replaced list back. ' +
     "Pass version_note to record WHY the list changed (e.g. 'cut Switch for Jet Energy after v2 " +
     "losses to Dragapult') — future agents read it in deck_history. Strategy guides are edited " +
     'with deck_strategy, not here. Not for reading (use decks) or deleting (use delete_deck).',

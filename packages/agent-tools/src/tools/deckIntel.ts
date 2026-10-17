@@ -389,15 +389,10 @@ function lineChanges(before: string, after: string): { added: number; removed: n
 const strategyMcp = {
   description:
     "Read or replace a deck's strategy guide (markdown). Omit markdown to READ the current " +
-    'guide in full. Pass markdown to REPLACE the whole guide (empty string clears it). dry_run ' +
-    'defaults to TRUE: the first call says what would change (old and new heading, length, lines ' +
-    'added and removed) and saves nothing; show the user, then re-call with dry_run: false. The ' +
-    'previous guide can be put back with revert (entity_type deck_strategy). ' + STRATEGY_TAIL,
+    'guide in full. Pass markdown to REPLACE the whole guide (empty string clears it); that ' +
+    'previews first: re-call with dry_run: false to save. ' + STRATEGY_TAIL,
   inputSchema: strategySchema.extend({
-    dry_run: z
-      .boolean()
-      .default(true)
-      .describe('With markdown. true (default): preview the replacement, save nothing. false: save it.'),
+    dry_run: z.boolean().default(true).describe('false: save.'),
   }),
   handler: async (
     { deck_id: deckRef, markdown, dry_run }: { deck_id: string; markdown?: string; dry_run?: boolean },
@@ -681,8 +676,7 @@ const battleLogsTool = defineTool({
     'synthesis read path ("how did v2 do?"). With log_id: full detail for one log including all ' +
     'parsed fields plus the saved review. include_raw: true appends the raw PTCG Live log text when one exists — raw logs are LARGE ' +
     '(4–15k characters each), so list mode returns at most 3 a page; to judge a game, battle_digest ' +
-    'is a small fraction of the size. deleted: true lists the recycle bin instead (logs removed ' +
-    'with delete_battle_log, restorable with its restore flag). Read-only. To record a ' +
+    'is a small fraction of the size. Read-only. To record a ' +
     'game use add_battle_log; for version history use deck_history.',
   inputSchema: z.object({
     deck_id: z.string().describe('The deck, by UUID or by NAME.'),
@@ -708,7 +702,7 @@ const battleLogsTool = defineTool({
     deleted: z
       .boolean()
       .default(false)
-      .describe("true: list the deck's recycle bin (deleted logs, newest first) instead. Ignores the other options."),
+      .describe("List the deck's recycle bin instead."),
   }),
   annotations: { readOnlyHint: true, idempotentHint: true },
   handler: async ({ deck_id: deckRef, log_id, version, include_raw, page, page_size, deleted }, ctx) => {
@@ -1121,18 +1115,16 @@ const deleteBattleLogTool = defineTool({
   name: 'delete_battle_log',
   title: 'Delete or restore a battle log entry',
   description:
-    'Remove one battle log from a deck (e.g. a duplicate paste or a log attached to the wrong ' +
-    "deck). The deck, its versions, and other logs are untouched; the version's win/loss record " +
-    'recomputes without it. A delete moves the log to the deck\'s recycle bin: restore: true puts ' +
-    'it back with the same #id and version, and battle_logs with deleted: true lists the bin. ' +
-    'purge: true deletes it for good (a live log or one already in the bin) and cannot be undone. ' +
-    'Defaults to a dry run describing what would happen; re-run with dry_run: false. To fix a ' +
-    'wrong result/opponent instead, use edit_battle_log.',
+    'Remove one battle log from a deck (a duplicate paste, a log on the wrong deck). ' +
+    "A delete moves it to the deck's recycle bin " +
+    '(battle_logs deleted: true lists it); restore: true puts it back with the same #id and ' +
+    'version; purge: true deletes it for good, live or binned. Dry run by default; re-run with ' +
+    'dry_run: false. To fix a wrong result or opponent, use edit_battle_log.',
   inputSchema: z.object({
     deck_id: z.string().describe('The deck, by UUID or by its exact name.'),
-    log_id: z.number().int().positive().describe('Battle log id (the #N from battle_logs, or from battle_logs deleted: true).'),
-    restore: z.boolean().default(false).describe('true: put a deleted log back from the recycle bin instead of deleting.'),
-    purge: z.boolean().default(false).describe('true: delete for good — no recycle bin, no undo. Not combinable with restore.'),
+    log_id: z.number().int().positive().describe('Battle log id (the #N from battle_logs).'),
+    restore: z.boolean().default(false).describe('Put a deleted log back from the recycle bin.'),
+    purge: z.boolean().default(false).describe('Delete for good: no recycle bin, no undo.'),
     dry_run: z.boolean().default(true).describe('true (default): only report what would happen. false: do it.'),
   }),
   // destructiveHint stays: purge is the one write here nothing can bring back.

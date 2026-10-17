@@ -99,7 +99,7 @@ test('over MCP, deck_strategy is advertised with its preview contract and previe
   const { tools } = await listTools();
   const strategy = tools.find((t) => t.name === 'deck_strategy')!;
   assert.ok('dry_run' in ((strategy.inputSchema as { properties?: object }).properties ?? {}));
-  assert.match(strategy.description ?? '', /dry_run defaults to TRUE/);
+  assert.match(strategy.description ?? '', /previews first: re-call with dry_run: false to save/);
 
   const conn = await connectInMemory(ctx);
   try {

@@ -147,6 +147,11 @@ try {
   const logs = liveLogs(REPO);
   assert.ok(logs.length >= 10, 'the repo carries at least ten real Live logs');
   let logCount = 0;
+  // Each game gets its own time, as real games do. The seed reuses a handful
+  // of real Live logs, and since 2026-10-12 add_battle_log treats a repeat of
+  // an identical request as a retry (writeKey.ts): without a distinct
+  // played_at the repeats would land once, exactly as a re-pasted log should.
+  const playedAt = (n) => new Date(Date.UTC(2026, 6, 1) + n * 6 * 3_600_000).toISOString();
   for (let version = 1; version <= 6; version++) {
     for (let g = 0; g < 20; g++, logCount++) {
       if (g % 5 === 4) {
@@ -154,11 +159,12 @@ try {
           deck_id: main, origin: 'in_person', result: g % 2 ? 'win' : 'loss',
           opponent_archetype: POOL_DATA.decks[1 + (logCount % 6)].id,
           notes: 'Locals round — opened slow, stabilised on turn three, lost the prize race by one. '.repeat(3),
-          review: review(logCount),
+          review: review(logCount), played_at: playedAt(logCount),
         });
       } else {
         await write('add_battle_log', {
           deck_id: main, log: asOwner(logs[logCount % logs.length].text, logCount), player_name: OWNER_NAME,
+          played_at: playedAt(logCount),
           ...(g % 3 === 0 ? { review: review(logCount) } : {}),
         });
       }
@@ -171,7 +177,8 @@ try {
       await write('save_deck', { mode: 'edit', deck_id: main, cards: list, version_note: `v${version + 1}: tuned after ${20 * version} games` });
     }
   }
-  await call('deck_strategy', { deck_id: main, markdown: strategyGuide(main) });
+  // dry_run: false — over MCP a guide rewrite previews by default (2026-10-12).
+  await write('deck_strategy', { deck_id: main, markdown: strategyGuide(main) });
   const logRows = Number((await db.query('SELECT count(*) AS n FROM battle_log WHERE user_id = $1', [USER])).rows[0].n);
   assert.equal(logRows, logCount, 'add_battle_log dry_run:false must attach every log');
   const firstLogId = Number((await db.query('SELECT min(id) AS id FROM battle_log WHERE user_id = $1 AND raw_log IS NOT NULL', [USER])).rows[0].id);
