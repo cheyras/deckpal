@@ -794,10 +794,14 @@ chars) is the assistant's markdown analysis. `opponent_archetype` is a countable
 (`N's Zoroark ex` → `ns-zoroark-ex`), and `battle_logs` opens with the deck's record per
 archetype, so "new matchup" and "met three times" are counts rather than guesses.
 
-15. **`deck_strategy`** — `{ deck_id, markdown? }`. Omit `markdown` → the full guide. Provide it →
+15. **`deck_strategy`** — `{ deck_id, markdown?, dry_run? = true }`. Omit `markdown` → the full guide. Provide it →
     `PUT /decks/:id/strategy` replaces the whole guide (empty string clears); the response names
     the previous guide's first heading + length so an accidental overwrite is visible. Strategy
-    edits NEVER bump the deck version (§6b) and the descriptions say so.
+    edits NEVER bump the deck version (§6b) and the descriptions say so. Since 2026-10-12 a
+    write previews by default over MCP (the old and new heading, length, lines added and
+    removed); `dry_run: false` saves. This is the tool's MCP contract (`ToolDefinition.mcp` in
+    `packages/agent-tools/src/registry.ts`): Deck-E runs it without `dry_run`, because its
+    approval card already shows the whole new guide.
 16. **`add_battle_log`** — `{ deck_id?, log?, origin?, result?, player_name?, opponent_deck?,
     opponent_archetype?, notes?, review?, played_at?, dry_run? = true }`. `log` is required for
     `origin: "ptcgl"` (the default when a log is present); `in_person` / `other` omit it and pass
@@ -809,7 +813,10 @@ archetype, so "new matchup" and "met three times" are counts rather than guesses
     (exact screen name) or an explicit `result`. In the DeckPal app, Deck-E passes
     `log: "@pasted"` and the server substitutes the pasted text; over MCP pass the raw log.
     Defaults to a dry run — "Nothing was logged." leads that render; re-run with
-    `dry_run: false` to attach the log.
+    `dry_run: false` to attach the log. The write carries a retry key derived from the request
+    (`writeKey.ts`, 2026-10-12): the same call repeated within 30 minutes gets the first log
+    back ("Already logged as battle #N … nothing new was written") instead of a second one;
+    `played_at` or `notes` tell a genuinely separate game apart.
 
     **`deck_id` omitted (2026-08-29): a pure read.** The tool calls `POST /decks/log-preview`,
     which parses the log and scores it against every deck's current-version card list
@@ -818,7 +825,8 @@ archetype, so "new matchup" and "met three times" are counts rather than guesses
     is written, whatever the candidate count; the agent re-calls with the chosen `deck_id`.
     Zero candidates lists NONE (never an invented id). "Nothing was logged." leads the dry-run
     render, with or without `deck_id`.
-17. **`battle_logs`** — `{ deck_id, log_id?, version?, include_raw? = false, page?, page_size? }`.
+17. **`battle_logs`** — `{ deck_id, log_id?, version?, include_raw? = false, page?, page_size?, deleted? = false }`.
+    `deleted: true` (2026-10-12) lists the deck's recycle bin instead (`GET /decks/:id/logs/deleted`).
     List mode: the per-archetype record first (`archetype record: dragapult-ex 2W–1L–0T (3, last
     …)`, or `none classified`), then one compact row per game, newest first, W/L footer
     (`3W–1L–0T`) over the filter scope plus a per-version breakdown when unfiltered. `log_id`:
@@ -873,7 +881,9 @@ archetype, so "new matchup" and "met three times" are counts rather than guesses
     dry run fetches the target and current snapshots itself and prints the exact diff (and
     the version number the revert will create) before anything is written. Non-destructive by
     design — a revert always creates a new version and history is never deleted — hence
-    `destructiveHint: false`.
+    `destructiveHint: false`. Since 2026-10-12 the revert is keyed (a retried one makes one
+    version, not two) and recorded in `mutation_history` with the whole list on both sides,
+    so `revert` can undo it.
 19. **`edit_battle_log`** — `{ deck_id, log_id, result?|null, opponent?|null, opponent_deck?|null,
     opponent_archetype?|null, notes?|null, review?|null, played_at?, dry_run? = true }`. A new
     analysis of an old game goes in `review`, never over `notes`. Defaults to a dry run (2026-08-29) — a
@@ -882,10 +892,16 @@ archetype, so "new matchup" and "met three times" are counts rather than guesses
     `PATCH /decks/:id/logs/:logId` — classification-only corrections
     (e.g. the parser left NO RESULT on a non-standard ending); raw log + attached version are
     immutable; nulls clear (not `played_at`); per-version records recompute immediately. Added
-    2026-07-31 after an agent had no way to correct a timeout-win misparse (battle #8).
-20. **`delete_battle_log`** — `{ deck_id, log_id, dry_run? = true }`. `DELETE
-    /decks/:id/logs/:logId` for duplicate/wrong-deck pastes; dry-run gated,
-    `destructiveHint: true`, not undoable — descriptions steer corrections to edit_battle_log.
+    2026-07-31 after an agent had no way to correct a timeout-win misparse (battle #8). Since
+    2026-10-12 every edit is recorded with the old and new values of every editable field, so
+    `revert` puts them back (and reports a conflict if the log was edited again since).
+20. **`delete_battle_log`** — `{ deck_id, log_id, restore? = false, purge? = false, dry_run? = true }`.
+    For duplicate/wrong-deck pastes. Since 2026-10-12 a delete moves the log to the deck's
+    recycle bin (`battle_log_bin`, migration 087): `DELETE /decks/:id/logs/:logId`.
+    `restore: true` puts it back under the same id and version
+    (`POST /decks/:id/logs/:logId/restore`); `purge: true` deletes a live or binned log for
+    good (`?purge=true`). Dry-run gated; `destructiveHint: true` because a purge has no undo.
+    A delete of a log already in the bin, or a restore of a live one, says so and changes nothing.
 
 ### Shopping — via deckpal-api (`readOnlyHint: true`)
 
@@ -927,7 +943,22 @@ archetype, so "new matchup" and "met three times" are counts rather than guesses
     original change clamped at zero, the inverse would clamp, or a later call asserted an
     absolute quantity — the item is reported as a CONFLICT and skipped rather than half-applied,
     and the original is never marked reverted. The revert is itself a logged batch, so it can be
-    reverted. `destructiveHint: true`, dry-run by default.
+    reverted. `destructiveHint: true`, dry-run by default. `entity_type` takes `battle_log` too
+    (2026-10-12). Deck card-list events and battle-log events recorded since 2026-10-12 carry
+    full state: a deck's list comes back as a new version, a deleted log comes back from the
+    bin, an added one goes into it, an edit gets its old values. Older events of those kinds,
+    and purges, are reported as skipped. A forced revert is keyed (writeKey.ts), because a
+    forced undo is not marked as done and would otherwise apply twice on a retry; an
+    ordinary one is not, so "undo since 2pm" can be re-run on purpose.
+
+    **Retry keys (2026-10-12).** Besides `log_cards` and `save_deck`, which carry their own key,
+    the writes a retry would double send an `Idempotency-Key` derived from the tool, method,
+    path and body (not `source`) in a 30-minute window: `add_battle_log`, a `deck_history`
+    revert, an `edit_list` create or bulk add, and a forced `revert`. A retry just past a window
+    boundary reuses the previous window's key when that write committed. Writes that set a state
+    (edits, deletes, restores, renames, removals) are not keyed: repeating one changes nothing,
+    and a key would turn a deliberate delete → restore → delete into a silent no-op. Deck-E's
+    signed per-call key uses the same header name and replaces the derived one.
 
 ### Resource
 
@@ -951,8 +982,9 @@ characters** (tested) and every connection, read-only included, gets the same te
 
 - DeckPal is the source of truth for card text, printings, legality, ownership, decks, battle logs
   and prices; only changing metagame facts come from outside, with an as-of date.
-- Writes preview first (`dry_run` defaults true) and run with `dry_run: false` only after the
-  user agrees; `deck_strategy`, which has no preview, is shown and asked about first. If
+- A request is the go-ahead for a write (`dry_run: false`); a write previews by default, and the
+  preview is shown and agreed first only to replace a strategy guide, change a deck's card list,
+  delete, revert, or change more than 10 collection cards. `revert` undoes most writes. If
   `add_battle_log` / `save_deck` are absent, the connection is read-only — say so and hand the
   user the text instead.
 - **Logging a battle.** A PTCG Live paste goes verbatim into `add_battle_log`'s `log` (omit

@@ -95,11 +95,11 @@ omit the host.
   accept a free-text `note`/`versionNote` (trimmed, length-capped). The one
   exception is `POST /decks/import`, where `source` was already the decklist syntax,
   so attribution rides as `writeSource`.
-- **Idempotency-Key.** The deck, list, battle-log and revert writes Deck-E makes
-  accept an optional `Idempotency-Key` header (≤200 characters, else `400`). The
+- **Idempotency-Key.** The deck, list, battle-log and revert writes accept an
+  optional `Idempotency-Key` header (≤200 characters, else `400`). The
   write runs at most once per key for the requesting user, and a repeat answers
-  with the first run's result plus `"replayed": true`. Without the header, a
-  route behaves and responds exactly as it did before the header existed. Routes
+  with the first run's result plus `"replayed": true`. Without the header there
+  is no replay and no `replayed` field. Deck-E and the agent tools send one; routes
   and rules: "`Idempotency-Key` — at most once per approved write", below.
 - **Errors.** `{ "error": { "code", "message" } }` with status 400 (bad request),
   404 (not found), 500/503 (server/DB). Success bodies are documented per route.
@@ -1722,10 +1722,28 @@ Body: any of `{ "result", "opponent", "opponentDeck", "opponentArchetype",
 "notes", "reviewMd", "playedAt" }`.
 Metadata only — the raw log and its version attachment are immutable. Explicit
 `null` clears everything except `playedAt`; archetypes are normalized when set.
-Returns `{ "log": … }` (full shape).
+Returns `{ "log": … }` (full shape). Every edit is recorded (2026-10-12) as a
+`battle_log.edit` batch whose event holds the old and new value of every
+editable field, so `POST /mutations/revert` can put them back.
 
 ### DELETE /deckpal/api/decks/:id/logs/:logId
-`{ "deleted": 7 }`.
+Moves the log to the deck's recycle bin (`battle_log_bin`, migration 087;
+2026-10-12 — before that a delete was permanent): `{ "deleted": 7,
+"restorable": true, "batchId": "…" }`. `?purge=true` deletes a live log or one
+already in the bin for good: `"restorable": false`. Recorded as a
+`battle_log.delete` or `battle_log.purge` batch; the event keeps a summary
+(version, result, opponent, archetype, date), never the raw log. `404` if the
+log is in neither place.
+
+### GET /deckpal/api/decks/:id/logs/deleted
+The deck's recycle bin, newest deletion first, at most 200:
+`{ "logs": [ { …summary row, "deletedAt": "…" } ] }`.
+
+### POST /deckpal/api/decks/:id/logs/:logId/restore
+Puts a deleted log back under the same id and the same deck version:
+`{ "log": … (full shape), "batchId": "…" }`, recorded as `battle_log.restore`.
+`404` when the log is not in the bin (restored already, purged, or never
+deleted).
 
 ---
 
@@ -2272,22 +2290,35 @@ skipped unless `force`. Conflicts are raised when the original change clamped,
 when the inverse would clamp, or when a later event asserted an absolute quantity
 on the same entity. The revert is itself a logged batch.
 
+Deck card-list and battle-log events recorded since 2026-10-12 (`deck.cards`
+with `"v": 2`, `battle_log.*`) carry full state. Undoing a `deck.cards` change
+puts the earlier name, format and card list back as a new deck version (a
+deck's creation is undone by moving the deck to Recently deleted). Undoing a
+battle-log create moves the log to the bin, a delete restores it, a restore
+bins it again, and an edit puts the old field values back. A conflict is
+raised when the deck or log has changed since the event. Older events of those
+kinds, and purges, come back with `skipped` and a reason; nothing is guessed.
+
 ## `Idempotency-Key` — at most once per approved write (added 2026-10-10)
 
 Deck-E sends this header on every write of a tool call the reader approved. It
 derives the value from the SDK-signed tool call, the requesting user and the
 signed input. A tool call that makes several writes sends one key per write
-request. Any client may send its own. A key names one write, scoped to the
-requesting user, and is honoured indefinitely. It is never bucketed and never
-reinterpreted.
+request. Since 2026-10-12 the shared agent tools (the MCP server, and Deck-E
+calls that were not signed here) also send one on the writes a retry would
+double — `add_battle_log`, a `deck_history` revert, an `edit_list` create or
+bulk add, a forced `revert` — derived from the request in a 30-minute window
+(`packages/agent-tools/src/writeKey.ts`); Deck-E's signed key replaces it. Any
+client may send its own. A key names one write, scoped to the requesting user,
+and is honoured indefinitely. It is never bucketed and never reinterpreted.
 
 | Route | Notes |
 |---|---|
 | `POST /decks/save`, `POST /decks/import` | Wins over the body `idempotencyKey` and never moves to a new generation. |
 | `PUT /decks/:id/strategy` | A replay leaves a guide written since then alone. |
-| `POST /decks/:id/revert` | A replay makes no further version. Keyed requests record a `deck.revert` batch. |
+| `POST /decks/:id/revert` | A replay makes no further version. Every revert records a `deck.revert` batch, keyed or not (2026-10-12). |
 | `POST /decks/:id/logs` | Ignored on `dryRun`. A replay re-reads the stored log; `410 gone` if it has been deleted since. |
-| `PATCH /decks/:id/logs/:logId`, `DELETE /decks/:id/logs/:logId` | Keyed requests record a `battle_log.*` batch. Its events never hold the raw log. |
+| `PATCH /decks/:id/logs/:logId`, `DELETE /decks/:id/logs/:logId`, `POST /decks/:id/logs/:logId/restore` | Every request records a `battle_log.*` batch, keyed or not (2026-10-12). Its events never hold the raw log. |
 | `DELETE /decks/:id`, `POST /decks/:id/restore` | |
 | `POST /lists`, `PATCH /lists/:id`, `DELETE /lists/:id`, `POST /lists/:id/restore` | `POST /lists` answers `410 gone` on a replay whose list has been deleted since. |
 | `POST /lists/:id/items/bulk`, `DELETE /lists/:id/items/:itemId` | Ignored on `dryRun`. A static list is a bag, so this is what stops a replay doubling it. |
