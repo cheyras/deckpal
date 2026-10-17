@@ -17,12 +17,15 @@ import type { Ctx } from './ctx.js';
  * server above all — a key of its own: a hash of the exact request (method,
  * path and body), in a 30-minute window. The same call repeated inside the
  * window is answered from the first run; the same call made deliberately later
- * (a second identical in-person game logged an hour on) is a new write.
+ * (a second identical in-person game logged more than an hour on) is a new write.
  *
  * A retry that straddles a window boundary would otherwise get a fresh key, so
  * the previous window's key is looked up first and reused when it committed.
- * A keyed write is also what puts battle-log changes and deck reverts in
- * `mutation_history`, so the key buys the history as well as the safety.
+ * The effective span is therefore 30 to 60 minutes: a repeat within 30 minutes
+ * of the first run is always absorbed, one 30-60 minutes later is absorbed
+ * when it falls in the very next window, and one more than an hour later never
+ * is. A replay says so, and names the argument that makes a deliberate repeat
+ * distinct.
  *
  * The header name is lowercase on purpose: Deck-E's `keyedApi` sets the same
  * name for an approved call, and it must REPLACE this one, not sit beside it

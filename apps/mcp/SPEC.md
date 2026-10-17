@@ -814,7 +814,8 @@ archetype, so "new matchup" and "met three times" are counts rather than guesses
     `log: "@pasted"` and the server substitutes the pasted text; over MCP pass the raw log.
     Defaults to a dry run — "Nothing was logged." leads that render; re-run with
     `dry_run: false` to attach the log. The write carries a retry key derived from the request
-    (`writeKey.ts`, 2026-10-12): the same call repeated within 30 minutes gets the first log
+    (`writeKey.ts`, 2026-10-12): the same call repeated within 30 minutes (up to an hour, see
+    "Retry keys" under `revert`) gets the first log
     back ("Already logged as battle #N … nothing new was written") instead of a second one;
     `played_at` or `notes` tell a genuinely separate game apart.
 
@@ -955,7 +956,9 @@ archetype, so "new matchup" and "met three times" are counts rather than guesses
     the writes a retry would double send an `Idempotency-Key` derived from the tool, method,
     path and body (not `source`) in a 30-minute window: `add_battle_log`, a `deck_history`
     revert, an `edit_list` create or bulk add, and a forced `revert`. A retry just past a window
-    boundary reuses the previous window's key when that write committed. Writes that set a state
+    boundary reuses the previous window's key when that write committed, so a repeat within 30
+    minutes is always absorbed, one 30–60 minutes later is when it falls in the next window, and
+    one more than an hour later never is. Writes that set a state
     (edits, deletes, restores, renames, removals) are not keyed: repeating one changes nothing,
     and a key would turn a deliberate delete → restore → delete into a silent no-op. Deck-E's
     signed per-call key uses the same header name and replaces the derived one.

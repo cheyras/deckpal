@@ -2308,6 +2308,7 @@ request. Since 2026-10-12 the shared agent tools (the MCP server, and Deck-E
 calls that were not signed here) also send one on the writes a retry would
 double — `add_battle_log`, a `deck_history` revert, an `edit_list` create or
 bulk add, a forced `revert` — derived from the request in a 30-minute window
+(a repeat in the next window reuses a committed key, so up to an hour)
 (`packages/agent-tools/src/writeKey.ts`); Deck-E's signed key replaces it. Any
 client may send its own. A key names one write, scoped to the requesting user,
 and is honoured indefinitely. It is never bucketed and never reinterpreted.

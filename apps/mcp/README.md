@@ -151,7 +151,8 @@ How the writes behave:
 - **A retried write lands once.** Writes that a retry would double —
   `add_battle_log`, a `deck_history` revert, an `edit_list` create or bulk add,
   a forced `revert` — send an `Idempotency-Key` derived from the request, good
-  for 30 minutes. The repeat gets the first run's result and says so.
+  for 30 minutes (up to an hour when the repeat falls in the next window).
+  The repeat gets the first run's result and says so.
   `log_cards` and `save_deck` carry their own key. The details are in
   `decisions/2026/2026-10-12-write-safety-battle-log-recycle-bin-deck-list-undo-retry-keys-strategy-preview.md`.
 - **Text from other people.** Opponent screen names and card names come out of
