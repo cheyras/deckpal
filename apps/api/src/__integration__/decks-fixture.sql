@@ -59,6 +59,12 @@ CREATE TABLE battle_log (
   user_id uuid, origin text, parsed jsonb,
   FOREIGN KEY (deck_id, deck_version) REFERENCES deck_version (deck_id, version) ON DELETE CASCADE
 );
+-- The recycle bin (migration 087), as far as the versioning rule reads it: a
+-- binned log still holds its version, so recordDeckChange counts these rows.
+CREATE TABLE battle_log_bin (
+  id bigint PRIMARY KEY, deck_id uuid NOT NULL REFERENCES deck(id) ON DELETE CASCADE,
+  deck_version integer NOT NULL, user_id uuid NOT NULL
+);
 -- The columns migration 086 adds, with its constraints.
 CREATE TABLE user_settings (
   user_id uuid PRIMARY KEY,

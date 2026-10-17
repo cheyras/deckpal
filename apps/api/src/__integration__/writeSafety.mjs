@@ -363,6 +363,32 @@ try {
     assert.equal((await ok('GET', `/decks/${id}/logs/${log.id}`)).log.notes, 'concurrent');
   });
 
+  await test('a revert locks every deck it may write before any collection row (no deadlock between overlapping reverts)', async () => {
+    const made = await ok('POST', '/decks/save', { name: 'Mixed window deck', cards: [{ cardId: 'sv01-025', quantity: 4 }], source: 'test-suite' });
+    const id = made.deck.id;
+    const since = new Date(Date.now() - 1000).toISOString();
+    // One strategy change on the deck and one collection change, both by 'race-a'.
+    await ok('PUT', `/decks/${id}/strategy`, { strategyMd: '# Mixed', source: 'race-a' });
+    const variantId = (await one(`SELECT cv.id FROM card_variant cv JOIN card c ON c.id = cv.card_id WHERE c.tcgdex_id = 'sv01-026'`)).id;
+    await db.query(`INSERT INTO collection_item (user_id, card_variant_id, quantity) VALUES ($1, $2, 1)`, [USER, variantId]);
+    const batch = (await one(`INSERT INTO mutation_batch (user_id, source, tool, status) VALUES ($1, 'race-a', 'collection.batch', 'committed') RETURNING id`, [USER])).id;
+    await db.query(
+      `INSERT INTO mutation_event (batch_id, user_id, entity_type, entity_id, operation, before, after, requested_delta, effective_delta)
+       VALUES ($1, $2, 'collection_item', $3, 'quantity.delta', '{"quantity":0}', '{"quantity":1}', 1, 1)`,
+      [batch, USER, String(variantId)],
+    );
+    await holdingDeck(id, async (other) => {
+      const pending = revert(undefined, { since, filterSource: 'race-a', dryRun: false });
+      assert.equal(await stillRunning(pending), true, 'the revert did not wait for the deck');
+      // While it waits on the deck it must not already hold the collection row,
+      // or a revert holding the deck and wanting that row would deadlock with it.
+      await other.query('SELECT 1 FROM collection_item WHERE user_id = $1 AND card_variant_id = $2 FOR UPDATE NOWAIT', [USER, variantId]);
+      await other.query('COMMIT');
+      const r = await pending;
+      assert.equal(r.applied, 2, JSON.stringify(r.plan));
+    });
+  });
+
   await test('undoing a save puts an exact-printing pin back with the card', async () => {
     const made = await ok('POST', '/decks/save', { name: 'Pinned deck', cards: [{ cardId: 'sv01-025', quantity: 4 }, { cardId: 'sv01-026', quantity: 2 }], source: 'test-suite' });
     const id = made.deck.id;

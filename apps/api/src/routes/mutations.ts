@@ -437,7 +437,9 @@ mutationsRouter.post(
       // real operation, but it should be asked for explicitly.
       const plan: PlanEntry[] = [];
       const collectionEvents: EventRow[] = [];
-      let lockedStructural = false;
+      // Decks and battle logs first, before any check reads them and before
+      // the collection rows below: one order for every revert.
+      if (!dryRun) await lockStructuralTargets(client, userId, target.events);
 
       // A window can contain both a change and the revert that already undid
       // it. The change is skipped (it has an `undone_by`) but its revert is
@@ -484,10 +486,6 @@ mutationsRouter.post(
         if (e.entity_type === 'collection_item') {
           collectionEvents.push(e);
           continue;
-        }
-        if (!dryRun && !lockedStructural) {
-          await lockStructuralTargets(client, userId, target.events);
-          lockedStructural = true;
         }
         const entry = planStructural(e, strategy);
         // Decks and battle logs are checked against what is there NOW, so a
@@ -818,12 +816,19 @@ async function guideOf(client: pg.PoolClient, deckId: string, userId: string): P
  * so holding the deck shuts out a restore or an edit that would otherwise slip
  * between the two log queries below, and the one order (deck, then log) leaves
  * no cycle for a deadlock.
+ *
+ * EVERY deck any undo here may write is in the set — card lists, deletes,
+ * restores, strategy guides — not only the ones with a conflict check: the
+ * locks come before the collection rows' (taken later, in variant order), so a
+ * deck locked only at apply time, after those, would let two reverts over
+ * overlapping windows wait on each other.
  */
 async function lockStructuralTargets(client: pg.PoolClient, userId: string, events: readonly EventRow[]): Promise<void> {
   const deckOfLog = (e: EventRow) =>
     String((e.after as { deckId?: unknown } | null)?.deckId ?? (e.before as { deckId?: unknown } | null)?.deckId ?? '');
   const decks = [...new Set(events.flatMap((e) =>
-    e.operation === 'deck.cards' ? [e.entity_id] : e.operation.startsWith('battle_log.') ? [deckOfLog(e)] : [],
+    e.entity_type === 'deck' || e.entity_type === 'deck_strategy' ? [e.entity_id]
+      : e.operation.startsWith('battle_log.') ? [deckOfLog(e)] : [],
   ).filter(Boolean))].sort();
   const logs = [...new Set(events.filter((e) => e.operation.startsWith('battle_log.')).map((e) => Number(e.entity_id)))]
     .filter((n) => Number.isSafeInteger(n)).sort((a, b) => a - b);
