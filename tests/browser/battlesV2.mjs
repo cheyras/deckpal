@@ -78,7 +78,7 @@ const DIGEST_101 = {
 }
 const RAW_101 = 'Setup\nRobni16 chose tails for the opening coin flip.\ncheyras won the coin toss.\n\nTurn # 1 - Robni16\'s Turn\nRobni16 drew a card.'
 
-// Already in the deck's recycle bin when the page opens (migration 086).
+// Already in the deck's recycle bin when the page opens (migration 087).
 const BINNED = [
   { id: 106, deckVersion: 2, result: 'win', opponent: 'Mira', opponentDeck: null, opponentArchetype: null,
     origin: 'ptcgl', turns: 9, prizes: { me: 6, opponent: 2 }, notes: null, reviewMd: null,
@@ -328,7 +328,7 @@ export async function checkBattlesV2(browser, server, fixture, out) {
   return results
 }
 
-// ── Recycle bin (migration 086): delete → Undo, then Restore and Delete forever ─
+// ── Recycle bin (migration 087): delete → Undo, then Restore and Delete forever ─
 export async function checkBattleBin(browser, server, fixture, out) {
   const results = []
   for (const width of [1280, 390]) {

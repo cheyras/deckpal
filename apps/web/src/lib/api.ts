@@ -1286,7 +1286,7 @@ export interface BattleLog extends BattleLogSummary {
   parsed: ParsedBattleLog | null
   createdAt: string
 }
-/** A log in the deck's recycle bin (migration 086): restorable until purged. */
+/** A log in the deck's recycle bin (migration 087): restorable until purged. */
 export interface DeletedBattleLog extends BattleLogSummary {
   deletedAt: string
 }
@@ -2272,7 +2272,7 @@ export const api = {
     send<{ log: BattleLog; attachedToVersion: number }>('POST', `/decks/${encodeURIComponent(id)}/logs`, body),
   patchBattleLog: (id: string, logId: number, body: { result?: BattleResult | null; opponent?: string | null; opponentDeck?: string | null; notes?: string | null; playedAt?: string }) =>
     send<{ log: BattleLog }>('PATCH', `/decks/${encodeURIComponent(id)}/logs/${logId}`, body),
-  /** Reversible since migration 086: the log moves to the deck's recycle bin. */
+  /** Reversible since migration 087: the log moves to the deck's recycle bin. */
   deleteBattleLog: (id: string, logId: number) =>
     send<{ deleted: number; restorable: boolean }>('DELETE', `/decks/${encodeURIComponent(id)}/logs/${logId}`),
   /** The deck's recycle bin, newest first (at most 200). */

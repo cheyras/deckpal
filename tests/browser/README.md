@@ -163,7 +163,7 @@ review's injected `<script>`, `<img onerror>`, `javascript:` link and remote
 image stay inert text; a visible keyboard focus ring; no shift after the detail
 paints; and no sideways scroll.
 
-The `battles-bin` case (1280 and 390px) runs the recycle bin (migration 086)
+The `battles-bin` case (1280 and 390px) runs the recycle bin (migration 087)
 against the same fixture, which keeps live logs and a bin of two and allows only
 the battle-log DELETE and restore routes. It deletes a game and asserts that the
 confirm says where it goes, not "can't be undone"; that the toast's Undo restores

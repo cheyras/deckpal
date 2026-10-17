@@ -13,7 +13,7 @@ import { ApiError } from '../lib/api'
  * something the user cannot is a worse deal, not a better one.
  *
  * So this sits under both indexes, and in a deck's Battles tab for its battle
- * logs (migration 086), collapsed and quiet when the bin is empty. It is also
+ * logs (migration 087), collapsed and quiet when the bin is empty. It is also
  * where "delete forever" lives — the one no-undo action in the app,
  * deliberately two steps away from the ordinary delete button and behind its
  * own confirmation.

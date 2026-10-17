@@ -4,7 +4,7 @@
 // respect the version filter. A row expands to the game's detail: the digest's
 // prize race and turning points (Live logs, fetched on open), Deck-E's review,
 // and the raw log behind "View log" (fetched only when asked for). A delete is
-// reversible (migration 086): Undo on the toast, or Recently deleted below the
+// reversible (migration 087): Undo on the toast, or Recently deleted below the
 // list, which is also the one place a game can be deleted for good.
 
 import { lazy, Suspense, useEffect, useState } from 'react'
@@ -373,7 +373,7 @@ export function BattlesTab({ deckId, currentVersion }: { deckId: string; current
     qc.invalidateQueries({ queryKey: ['decks'] })
   }
 
-  // A delete moves the game to the recycle bin (migration 086), so it says where
+  // A delete moves the game to the recycle bin (migration 087), so it says where
   // it went and offers the way back; the bin below lists it too, and the Battles
   // query key covers the bin's, so one invalidate refreshes both.
   const restoreLog = (log: BattleLogSummary) =>

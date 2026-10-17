@@ -1,4 +1,4 @@
--- 086 · Recently deleted battle logs.
+-- 087 · Recently deleted battle logs.
 --
 -- Deleting a battle log was a hard DELETE: the raw log, the parse, the notes and
 -- the review were gone, with no undo from the web, Deck-E or the MCP server.
@@ -17,7 +17,7 @@
 -- cascades here as it does to battle_log, and a purge of the log itself never
 -- writes a row here at all.
 --
--- Forward-only (B4). RLS for Supabase is 087 (@supabase-only), the same split
+-- Forward-only (B4). RLS for Supabase is 088 (@supabase-only), the same split
 -- as 036/037.
 
 CREATE TABLE public.battle_log_bin (
@@ -47,6 +47,6 @@ CREATE TABLE public.battle_log_bin (
 );
 
 COMMENT ON TABLE public.battle_log_bin IS
-  'Recently deleted battle logs (086). A delete moves the row here; a restore moves it back to battle_log under the same id; purging the deck removes it.';
+  'Recently deleted battle logs (087). A delete moves the row here; a restore moves it back to battle_log under the same id; purging the deck removes it.';
 
 CREATE INDEX battle_log_bin_user_deck ON public.battle_log_bin (user_id, deck_id, deleted_at DESC);

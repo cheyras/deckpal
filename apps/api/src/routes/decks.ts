@@ -2186,11 +2186,11 @@ decksRouter.get(
   }),
 );
 
-// ── Recently deleted battle logs (migration 086) ─────────────────────────────
+// ── Recently deleted battle logs (migration 087) ─────────────────────────────
 //
 // A delete MOVES the row to battle_log_bin and a restore moves it back under
 // the same id, so no read of battle_log ever has to know the bin exists (see
-// 086 for why that is the design). Purging the deck takes the bin rows with it.
+// 087 for why that is the design). Purging the deck takes the bin rows with it.
 
 const LOG_COLUMNS =
   'id, deck_id, user_id, deck_version, raw_log, origin, result, opponent, opponent_deck, opponent_archetype, notes, review_md, parsed, source, played_at, created_at';
@@ -2858,7 +2858,7 @@ decksRouter.delete(
     const logId = parseLogId(String(req.params.logId));
     // ?purge=true is the one real DELETE: a live log or one already in the bin
     // is gone for good. Without it (2026-10-12) a delete moves the log to the
-    // recycle bin (086), restorable from the web, Deck-E, the MCP server or
+    // recycle bin (087), restorable from the web, Deck-E, the MCP server or
     // revert. Either way the event keeps a summary, never the raw log, so a
     // purge still deletes the text.
     const purge = req.query.purge === 'true';

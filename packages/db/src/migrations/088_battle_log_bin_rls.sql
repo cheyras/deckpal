@@ -1,5 +1,5 @@
 -- @supabase-only
--- 087 · Row-Level Security for recently deleted battle logs (086).
+-- 088 · Row-Level Security for recently deleted battle logs (087).
 --
 -- ONLY runs on Supabase (the runner skips this file unless SUPABASE_MODE is
 -- set). Self-host has no auth schema; there, every query's own
