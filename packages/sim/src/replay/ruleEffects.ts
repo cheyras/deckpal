@@ -154,7 +154,9 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
   const monSpans = new Map<string, Span[]>(); // side|name → when at least one copy was in play
   const abilitiesOf = new Map<string, Tracked[]>(); // side|name → its rule-changing Abilities
   // One record per ATTACHMENT: two Air Balloons are two lifetimes (Astra, #351).
-  interface ToolCopy { side: Side; name: string; holders: string[]; span: Span }
+  // `uncertain`: its holder could not be told apart from another Pokémon of the same name in play, so it is never
+  // evidence (a missed line is better than a wrong one: Astra, #351).
+  interface ToolCopy { side: Side; name: string; holders: string[]; span: Span; uncertain: boolean }
   const toolsOn = new Map<string, ToolCopy[]>(); // side|holder name → the Tools attached to it
   const toolCopies: ToolCopy[] = [];
   const endCopy = (t: ToolCopy, e: LiveEvent): void => {
@@ -185,16 +187,38 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
       if (stadium) open(stadium, e);
       continue;
     }
-    // Evolving keeps the Tools attached: they move to the evolved Pokémon (Astra, #351).
+    // Evolving keeps the Tools attached: they move to the evolved Pokémon (Astra, #351). With another Pokémon of the
+    // same name in play the log does not say whose Tools moved: they stay, marked uncertain.
     if (e.t === 'evolve') {
       const from = monKey(e.p, e.from.name);
       const to = monKey(e.p, e.to.name);
-      const moving = toolsOn.get(from) ?? [];
-      toolsOn.delete(from);
-      if (moving.length) toolsOn.set(to, [...(toolsOn.get(to) ?? []), ...moving]);
-      for (const t of moving) if (!t.holders.includes(e.to.name)) t.holders.push(e.to.name);
+      const on = toolsOn.get(from) ?? [];
+      if ((inPlay.get(from) ?? 0) > 1) {
+        for (const t of on) t.uncertain = true;
+      } else {
+        toolsOn.delete(from);
+        if (on.length) toolsOn.set(to, [...(toolsOn.get(to) ?? []), ...on]);
+        for (const t of on) if (!t.holders.includes(e.to.name)) t.holders.push(e.to.name);
+      }
     }
-    for (const { side, name } of leaving(e)) {
+    // A Pokémon put back into its owner's hand or deck by an action whose text takes Pokémon OFF THE BOARD ("Put 1 of
+    // your Pokémon and all attached cards into your hand": Scoop Up Cyclone) leaves play with its Tools. The same log
+    // line under a card that takes Pokémon from the discard pile (Night Stretcher) is not a board return.
+    const returned: Array<{ side: Side; name: string }> = [];
+    if (e.t === 'move_cards' && e.sub && e.to !== 'discard' && (lastAction?.t === 'play_card' || lastAction?.t === 'use')) {
+      let text = '';
+      if (lastAction.t === 'play_card') text = frameOf(lastAction.card)?.effect ?? '';
+      else if (lastAction.t === 'use') {
+        const use = lastAction;
+        text = (frameOf(use.user)?.abilities ?? []).find((x) => same(x.name, use.move))?.effect ?? '';
+      }
+      const boardReturn = /\bPokémon\b[^.]*\b(?:and all attached cards|in play)\b[^.]*\binto (?:your|their) (?:hand|deck)\b/i.test(text) && !/\bdiscard pile\b/i.test(text);
+      if (boardReturn) {
+        const side = e.owner ?? e.p;
+        for (const c of [...(e.cards ?? []), ...(e.card ? [e.card] : [])]) if ((inPlay.get(monKey(side, c.name)) ?? 0) > 0) returned.push({ side, name: c.name });
+      }
+    }
+    for (const { side, name } of [...leaving(e), ...returned]) {
       const k = monKey(side, name);
       const n = Math.max(0, (inPlay.get(k) ?? 0) - 1);
       inPlay.set(k, n);
@@ -246,7 +270,7 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
         // EVERY Tool is tracked (a rule switching Tools off touches Lucky Helmet too); only one that changes a rule
         // itself becomes an effect of its own.
         record(e.p, e.card.name, 'Tool', e.card.name, f.effect ?? '');
-        const copy: ToolCopy = { side: e.p, name: e.card.name, holders: [e.to.name], span: { from: e.seq, to: null, fromTurn: e.turn, toTurn: null } };
+        const copy: ToolCopy = { side: e.p, name: e.card.name, holders: [e.to.name], span: { from: e.seq, to: null, fromTurn: e.turn, toTurn: null }, uncertain: (inPlay.get(monKey(e.p, e.to.name)) ?? 0) > 1 };
         toolCopies.push(copy);
         const k = monKey(e.p, e.to.name);
         toolsOn.set(k, [...(toolsOn.get(k) ?? []), copy]);
@@ -344,6 +368,7 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
   for (const r of live) {
     if (!r.kinds.includes('tools_off')) continue;
     for (const t of toolCopies) {
+      if (t.uncertain) continue;
       const at = overlaps([t.span], r.spans);
       if (at) push(r, `T${at.fromTurn}: ${who(t.side)}'s ${t.name} on ${t.holders.join('/')} had no effect`);
     }
