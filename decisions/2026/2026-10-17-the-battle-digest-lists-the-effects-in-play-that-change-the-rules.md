@@ -19,9 +19,14 @@ supersedes: []
 - Retreat Costs;
 - HP.
 
-The kind is read from the WORDING of the card's text (`ruleKinds`), never from a list of card names. A card nobody has thought about yet is caught by what it does. "(before applying Weakness and Resistance)" orders a damage change, so it does not count as a Weakness change.
+The kind is read from the OPERATIVE wording of the card's text (`ruleKinds`), never from a list of card names. "The Weakness of … is now" counts; a text that only mentions Weakness (Adversity Policy) does not. "(before applying Weakness and Resistance)" orders a damage change, so it does not count as a Weakness change. A Retreat Cost change is not an attack-cost change. A card nobody has thought about yet is caught by what it does.
 
-**2. The evidence for each effect, from the log.**
+**2. The evidence for each effect, from the log.** Evidence is claimed only by an effect that was its OWNER's and IN PLAY at that point in the event order (Astra, #351):
+- a Stadium from each time it is played until another replaces it;
+- an Ability while a Pokémon of that name is in play (played, evolved into, or searched onto the Bench; until Knocked Out or evolved);
+- a Tool while it is on a Pokémon in play.
+
+When two effects could equally explain one fact, neither claims it.
 - **Weakness:** Weakness that Live applied to a target that does not print it is credited to the attacker's effects in play.
 - **Damage:** breakdown lines that name the effect, two copies shown as "30 ×2".
 - **Tera:** the Tera Pokémon in play while a rule naming Tera Pokémon was up.

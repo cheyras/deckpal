@@ -642,7 +642,7 @@ function insightsInner(raw: string, o: { players?: [string, string] }): ReplayIn
     finalApproximate: disagreeAfterLine !== null,
     cards,
     ending,
-    ruleEffects: ruleEffects(ev, turns),
+    ruleEffects: ruleEffects(ev),
   };
 }
 

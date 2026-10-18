@@ -58,3 +58,80 @@ test('Tools switched off are listed; a printed Weakness is not blamed on an effe
   // PlayerA's own Fairy Zone: Mega Lucario ex prints Psychic Weakness, so nothing is attributed to it.
   assert.deepEqual(effect(r, 'Fairy Zone', 0)?.touched, []);
 });
+
+// ── Astra, #351: each finding as a small log ─────────────────────────────────────────────────────────────────────────
+const HEAD = [
+  'Setup',
+  'PlayerA chose heads for the opening coin flip.',
+  'PlayerA won the coin toss.',
+  'PlayerA decided to go first.',
+  'PlayerA drew 7 cards for the opening hand.',
+  '- 7 drawn cards.',
+  'PlayerB drew 7 cards for the opening hand.',
+  '- 7 drawn cards.',
+];
+const turn = (who: 'PlayerA' | 'PlayerB', ...lines: string[]) => ['', `${who}'s Turn`, `${who} drew a card.`, ...lines];
+const effectsOf = (lines: string[]) => replayInsights([...HEAD, ...lines].join('\n') + '\n', { players: ['PlayerA', 'PlayerB'] }).ruleEffects;
+
+test('a damage bonus is the attacker\'s own: in a mirror, the defender\'s copy claims nothing', () => {
+  const fx = effectsOf([
+    'PlayerA played (sv10_184) Cynthia\'s Roserade to the Active Spot.',
+    'PlayerB played (sv10_184) Cynthia\'s Roserade to the Active Spot.',
+    ...turn('PlayerA'),
+    ...turn('PlayerB', "PlayerB's (sv10_184) Cynthia's Roserade used Leaf Step on PlayerA's (sv10_184) Cynthia's Roserade for 110 damage.", '- Damage breakdown:', '   • Base damage: 80 damage', '   • (Ability) Cheer On to Glory: 30 damage', '   • Total damage: 110 damage'),
+  ]);
+  const a = fx.find((e) => e.name === 'Cheer On to Glory' && e.side === 0)!;
+  const b = fx.find((e) => e.name === 'Cheer On to Glory' && e.side === 1)!;
+  assert.deepEqual(a.touched, []);
+  assert.equal(b.touched.length, 1);
+});
+
+test('a Stadium played, replaced and played again: Tools in play only while it was out are not claimed', () => {
+  const fx = effectsOf([
+    'PlayerA played (sv6-5_38) Fezandipiti ex to the Active Spot.',
+    'PlayerB played (sv6-5_38) Fezandipiti ex to the Active Spot.',
+    ...turn('PlayerA', 'PlayerA played (me2-5_261) Jamming Tower to the Stadium spot.'),
+    ...turn('PlayerB', 'PlayerB played (me4_80) Prism Tower to the Stadium spot.', '- PlayerB discarded (me2-5_261) Jamming Tower.'),
+    ...turn('PlayerA', "PlayerA attached (zsv10-5_79) Air Balloon to (sv6-5_38) Fezandipiti ex in the Active Spot.", "PlayerA's (sv6-5_38) Fezandipiti ex was Knocked Out!"),
+    ...turn('PlayerB', 'PlayerB played (me2-5_261) Jamming Tower to the Stadium spot.', '- PlayerB discarded (me4_80) Prism Tower.'),
+  ]);
+  const jt = fx.find((e) => e.name === 'Jamming Tower')!;
+  assert.ok(jt, JSON.stringify(fx.map((e) => e.name)));
+  assert.deepEqual(jt.touched, [], 'the Air Balloon came and went while Prism Tower was out');
+});
+
+test('a Tera Pokémon Knocked Out before a Tera rule arrives is not evidence for it', () => {
+  const fx = effectsOf([
+    'PlayerA played (sv6_128) Dreepy to the Active Spot.',
+    'PlayerB played (sv6-5_38) Fezandipiti ex to the Active Spot.',
+    ...turn('PlayerA', 'PlayerA evolved (sv6_128) Dreepy to (sv6_129) Drakloak in the Active Spot.'),
+    ...turn('PlayerB'),
+    ...turn('PlayerA', 'PlayerA evolved (sv6_129) Drakloak to (sv6_130) Dragapult ex in the Active Spot.'),
+    ...turn('PlayerB', "PlayerA's (sv6_130) Dragapult ex was Knocked Out!"),
+    ...turn('PlayerA'),
+    ...turn('PlayerB', 'PlayerB played (me2-5_197) Nighttime Mine to the Stadium spot.'),
+  ]);
+  assert.deepEqual(fx.find((e) => e.name === 'Nighttime Mine')!.touched, []);
+});
+
+test('mentioning Weakness is not changing it; real wordings for HP, costs and prevention are caught', () => {
+  assert.deepEqual(
+    ruleKinds("If the Pokémon this card is attached to has Weakness to your opponent's Active Pokémon's type, is in the Active Spot, and is damaged by an attack from your opponent's Pokémon (even if this Pokémon is Knocked Out), draw 3 cards."),
+    [],
+    'Adversity Policy draws cards',
+  );
+  assert.deepEqual(ruleKinds("Each Stage 2 Pokémon in play (both yours and your opponent's) gets -30 HP."), ['hp']);
+  assert.deepEqual(ruleKinds('If your opponent has any cards in their discard pile that have "Colress" in the name, this Pokémon can use the Trifrost attack for {C}.'), ['cost']);
+  assert.deepEqual(ruleKinds('If your opponent has exactly 4 cards in their hand, ignore all {C} Energy in the costs of attacks used by this Pokémon.'), ['cost']);
+  assert.deepEqual(ruleKinds('If any damage is done to this Pokémon by attacks, flip a coin. If heads, prevent that damage.'), ['prevent']);
+  assert.deepEqual(ruleKinds('The Retreat Cost of the Pokémon this card is attached to is {C}{C} less.'), ['retreat'], 'a Retreat Cost is not an attack cost');
+});
+
+test('a Pokémon searched straight onto the Bench brings its Ability into play', () => {
+  const fx = effectsOf([
+    'PlayerA played (sv6_128) Dreepy to the Active Spot.',
+    'PlayerB played (sv6-5_38) Fezandipiti ex to the Active Spot.',
+    ...turn('PlayerA', 'PlayerA played (me1_167) Buddy-Buddy Poffin.', '- PlayerA drew 2 cards and played them to the Bench.', '   • (me5_33_ph) Shuppet, (sv6_128) Dreepy', '- PlayerA shuffled their deck.'),
+  ]);
+  assert.ok(fx.some((e) => e.name === "Hide 'n' Sneak" && e.side === 0 && e.from === 1), JSON.stringify(fx));
+});
