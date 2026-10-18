@@ -20,14 +20,14 @@ import { TERA_PRINTINGS } from '../cards/tera.js';
 import { framesNamed, resolveFrame } from './cardCodes.js';
 import type { CardMention, LiveEvent, Side } from './liveLog.js';
 
-export type RuleEffectKind = 'weakness' | 'resistance' | 'cost' | 'tools_off' | 'damage' | 'prevent' | 'retreat' | 'hp';
+export type RuleEffectKind = 'weakness' | 'resistance' | 'cost' | 'tools_off' | 'damage' | 'prevent' | 'retreat' | 'hp' | 'next_turn';
 
 export interface RuleEffect {
   /** Whose card it is. */
   side: Side;
   /** The card that carries it: the Stadium or Tool itself, or the Pokémon with the Ability. */
   card: string;
-  source: 'Stadium' | 'Ability' | 'Tool';
+  source: 'Stadium' | 'Ability' | 'Tool' | 'Attack';
   /** The Ability's name, or the Stadium's or Tool's. */
   name: string;
   kinds: RuleEffectKind[];
@@ -128,11 +128,11 @@ export function ruleEffects(ev: readonly LiveEvent[]): RuleEffect[] {
 function inner(ev: readonly LiveEvent[]): RuleEffect[] {
   const effects: Tracked[] = [];
   const byKey = new Map<string, Tracked>();
-  const record = (side: Side, card: string, source: RuleEffect['source'], name: string, text: string): Tracked | null => {
+  const record = (side: Side, card: string, source: RuleEffect['source'], name: string, text: string, extra: RuleEffectKind[] = []): Tracked | null => {
     const k = `${source}|${side}|${card.toLowerCase()}|${name.toLowerCase()}`;
     const had = byKey.get(k);
     if (had) return had;
-    const kinds = ruleKinds(text);
+    const kinds = [...new Set([...extra, ...ruleKinds(text)])];
     if (!kinds.length) return null;
     const r: Tracked = { side, card, source, name, kinds, text: short(text, 200), from: 0, until: null, touched: [], spans: [], holders: [] };
     byKey.set(k, r);
@@ -151,6 +151,7 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
 
   // ── When each Pokémon, Ability, Stadium and Tool was in play, in event order ─────────────────────────────────────────
   const inPlay = new Map<string, number>(); // side|name → copies in play
+  const copies: Array<{ seq: number; key: string; n: number }> = []; // every change to those counts, in order
   const monSpans = new Map<string, Span[]>(); // side|name → when at least one copy was in play
   const abilitiesOf = new Map<string, Tracked[]>(); // side|name → its rule-changing Abilities
   // One record per ATTACHMENT: two Air Balloons are two lifetimes (Astra, #351).
@@ -222,6 +223,7 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
       const k = monKey(side, name);
       const n = Math.max(0, (inPlay.get(k) ?? 0) - 1);
       inPlay.set(k, n);
+      copies.push({ seq: e.seq, key: k, n });
       // One of several same-named Pokémon left: the log does not say whose Tools went with it (Astra, #351).
       if (n > 0) {
         for (const t of toolsOn.get(k) ?? []) t.uncertain = true;
@@ -238,6 +240,7 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
       const k = monKey(side, card.name);
       const n = (inPlay.get(k) ?? 0) + 1;
       inPlay.set(k, n);
+      copies.push({ seq: e.seq, key: k, n });
       // A second Pokémon of that name: from now on the log cannot tell their Tools apart.
       if (n > 1) for (const t of toolsOn.get(k) ?? []) t.uncertain = true;
       const f = frameOf(card);
@@ -289,6 +292,28 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
     r.spans = toolCopies.filter((t) => t.side === r.side && same(t.name, r.card)).map((t) => t.span).sort((a, b) => a.from - b.from);
     r.holders = [...new Set(toolCopies.filter((t) => t.side === r.side && same(t.name, r.card)).flatMap((t) => t.holders))];
   }
+  // Attacks whose text carries into a later turn ("During your opponent's next turn, …", "During your next turn, …":
+  // Shellnado Spin, Shadow Bind, Mega Brave). Each use opens a window from the attack to the end of the turn the text
+  // names, read from the wording, never the attack's name. Copied attacks are left out: the log does not always say
+  // whose text was copied.
+  const turnStarts = ev.filter((x): x is LiveEvent & { t: 'turn_start' } => x.t === 'turn_start');
+  const opponentWindows = new Map<Tracked, Span[]>();
+  for (const e of ev) {
+    if (e.t !== 'attack' || e.sub) continue;
+    const text = frameOf(e.attacker)?.attacks?.find((a) => same(a.name, e.move))?.effect ?? '';
+    const m = /\bDuring your (opponent's )?next turn\b/i.exec(text);
+    if (!m) continue;
+    const r = record(e.p, e.attacker.name, 'Attack', e.move, text, ['next_turn']);
+    if (!r) continue;
+    const after = turnStarts.filter((t) => t.seq > e.seq);
+    const target = after.findIndex((t) => (m[1] ? t.p !== e.p : t.p === e.p));
+    const end = target >= 0 ? after[target + 1] : undefined;
+    const named = target >= 0 ? after[target] : undefined;
+    const span: Span = { from: e.seq, to: end ? end.seq : null, fromTurn: e.turn, toTurn: end && named ? named.turn : null };
+    r.spans.push(span);
+    if (m[1]) opponentWindows.set(r, [...(opponentWindows.get(r) ?? []), span]);
+  }
+
   const live = effects.filter((r) => r.spans.length);
   if (!live.length) return [];
 
@@ -355,6 +380,36 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
     for (const r of live) {
       if (r.kinds.includes('prevent') && r.source === 'Ability' && r.side === owner && same(r.card, e.card.name) && inSpans(r.spans, e.seq)) {
         push(r, `T${e.turn}: ${e.effect} did not affect ${who(owner)}'s ${e.card.name}`);
+      }
+    }
+  }
+  // During an opponent's-next-turn window: what the opponent attacked. Into the Pokémon that set it up, or around it
+  // (a Boss's Orders onto something else is a decision worth seeing).
+  // Identity is claimed only when the log settles it (Astra, #356): the Pokémon that set the window up was the only one
+  // of its name on its side for the whole window, and the window closes if it leaves play. Otherwise nothing is said.
+  for (const [r, spans] of opponentWindows) {
+    const key = `${r.side}|${r.card.toLowerCase()}`;
+    for (const w of spans) {
+      const before = [...copies].reverse().find((c) => c.key === key && c.seq <= w.from)?.n ?? 0;
+      const during = copies.filter((c) => c.key === key && c.seq > w.from && (w.to === null || c.seq < w.to));
+      if (before > 1 || during.some((c) => c.n > 1)) continue;
+      const leftAt = during.find((c) => c.n === 0)?.seq ?? null;
+      for (let i = 0; i < ev.length; i++) {
+        const e = ev[i]!;
+        if (e.t !== 'attack' || e.p === r.side || e.seq < w.from || (w.to !== null && e.seq >= w.to) || (leftAt !== null && e.seq >= leftAt)) continue;
+        // Every Pokémon this attack hit: its target and the hits on its detail lines (a spread attack).
+        const hit: Array<{ side: Side; name: string }> = [{ side: e.target.player, name: e.target.card.name }];
+        // Damage counters the attack put on Pokémon (Phantom Dive's six): they touch it, but they are not damage.
+        let countersOnIt = 0;
+        for (let j = i + 1; j < ev.length && ev[j]!.sub; j++) {
+          const d = ev[j]!;
+          if (d.t === 'damage') hit.push({ side: d.p, name: d.target.name });
+          if (d.t === 'counters' && d.target.player === r.side && same(d.target.card.name, r.card)) countersOnIt += d.count;
+        }
+        const intoIt = hit.some((h) => h.side === r.side && same(h.name, r.card));
+        if (intoIt) push(r, `T${e.turn}: ${who(e.p)}'s ${e.attacker.name} attacked it with ${e.move}`);
+        else if (countersOnIt) push(r, `T${e.turn}: ${who(e.p)}'s ${e.move} put ${countersOnIt} damage counters on it (counters, not damage)`);
+        else push(r, `T${e.turn}: ${who(e.p)} attacked ${hit.map((h) => `${who(h.side)}'s ${h.name}`).join(' and ')}, not ${r.card}`);
       }
     }
   }
