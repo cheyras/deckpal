@@ -309,3 +309,13 @@ test('a spread attack that hit the Pokémon is "attacked it", never "not it" (As
   );
   assert.deepEqual(fx.find((e) => e.name === 'Shellnado Spin')!.touched, ["T3: {p0}'s Latias ex attacked it with Eon Blade"]);
 });
+
+test('damage counters an attack puts on the Pokémon are reported as counters, never as "not it" (Astra, #356)', () => {
+  const fx = slowbroGame(
+    'PlayerB played (sv6-5_38) Fezandipiti ex to the Bench.',
+    ...turn('PlayerA'),
+    ...turn('PlayerB', "PlayerB's (me5_31) Mega Slowbro ex used Shellnado Spin on PlayerA's (sv6-5_38) Fezandipiti ex for 180 damage."),
+    ...turn('PlayerA', "PlayerA's (sv8_76) Latias ex used Phantom Dive on PlayerB's (sv6-5_38) Fezandipiti ex for 200 damage.", "- PlayerA put 6 damage counters on PlayerB's (me5_31) Mega Slowbro ex."),
+  );
+  assert.deepEqual(fx.find((e) => e.name === 'Shellnado Spin')!.touched, ["T3: {p0}'s Phantom Dive put 6 damage counters on it (counters, not damage)"]);
+});

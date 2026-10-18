@@ -399,14 +399,17 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
         if (e.t !== 'attack' || e.p === r.side || e.seq < w.from || (w.to !== null && e.seq >= w.to) || (leftAt !== null && e.seq >= leftAt)) continue;
         // Every Pokémon this attack hit: its target and the hits on its detail lines (a spread attack).
         const hit: Array<{ side: Side; name: string }> = [{ side: e.target.player, name: e.target.card.name }];
+        // Damage counters the attack put on Pokémon (Phantom Dive's six): they touch it, but they are not damage.
+        let countersOnIt = 0;
         for (let j = i + 1; j < ev.length && ev[j]!.sub; j++) {
           const d = ev[j]!;
           if (d.t === 'damage') hit.push({ side: d.p, name: d.target.name });
+          if (d.t === 'counters' && d.target.player === r.side && same(d.target.card.name, r.card)) countersOnIt += d.count;
         }
         const intoIt = hit.some((h) => h.side === r.side && same(h.name, r.card));
-        push(r, intoIt
-          ? `T${e.turn}: ${who(e.p)}'s ${e.attacker.name} attacked it with ${e.move}`
-          : `T${e.turn}: ${who(e.p)} attacked ${hit.map((h) => `${who(h.side)}'s ${h.name}`).join(' and ')}, not ${r.card}`);
+        if (intoIt) push(r, `T${e.turn}: ${who(e.p)}'s ${e.attacker.name} attacked it with ${e.move}`);
+        else if (countersOnIt) push(r, `T${e.turn}: ${who(e.p)}'s ${e.move} put ${countersOnIt} damage counters on it (counters, not damage)`);
+        else push(r, `T${e.turn}: ${who(e.p)} attacked ${hit.map((h) => `${who(h.side)}'s ${h.name}`).join(' and ')}, not ${r.card}`);
       }
     }
   }
