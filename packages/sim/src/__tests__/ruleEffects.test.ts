@@ -267,3 +267,45 @@ test('attacking INTO the Pokémon during its window is evidence too', () => {
   const spin = fx.find((e) => e.name === 'Shellnado Spin')!;
   assert.deepEqual(spin.touched, ["T3: {p0}'s Fezandipiti ex attacked it with Cruel Arrow"]);
 });
+
+test('a window ends on the turn its text names (Astra, #356)', () => {
+  const spin = insights('rule-effects', 'mine-fairy-zone.txt').ruleEffects.find((e) => e.name === 'Shellnado Spin')!;
+  assert.equal(spin.from, 6);
+  assert.equal(spin.until, 7, "the opponent's next turn is T7");
+});
+
+const slowbroGame = (...mid: string[]) => effectsOf([
+  'PlayerA played (sv6-5_38) Fezandipiti ex to the Active Spot.',
+  'PlayerA played (sv8_76) Latias ex to the Bench.',
+  'PlayerB played (me5_31) Mega Slowbro ex to the Active Spot.',
+  ...mid,
+]);
+
+test('two Pokémon of the window\'s name: no identity claim at all (Astra, #356)', () => {
+  const fx = slowbroGame(
+    'PlayerB played (me5_31) Mega Slowbro ex to the Bench.',
+    ...turn('PlayerA'),
+    ...turn('PlayerB', "PlayerB's (me5_31) Mega Slowbro ex used Shellnado Spin on PlayerA's (sv6-5_38) Fezandipiti ex for 180 damage."),
+    ...turn('PlayerA', "PlayerA's (sv6-5_38) Fezandipiti ex used Cruel Arrow on PlayerB's (me5_31) Mega Slowbro ex for 100 damage."),
+  );
+  assert.deepEqual(fx.find((e) => e.name === 'Shellnado Spin')!.touched, []);
+});
+
+test('a window closes when its Pokémon leaves play (Astra, #356)', () => {
+  const fx = slowbroGame(
+    ...turn('PlayerA'),
+    ...turn('PlayerB', "PlayerB's (me5_31) Mega Slowbro ex used Shellnado Spin on PlayerA's (sv6-5_38) Fezandipiti ex for 180 damage.", "PlayerB's (me5_31) Mega Slowbro ex was Knocked Out!"),
+    ...turn('PlayerA', "PlayerA's (sv6-5_38) Fezandipiti ex used Cruel Arrow on PlayerB's (sv6-5_38) Fezandipiti ex for 100 damage."),
+  );
+  assert.deepEqual(fx.find((e) => e.name === 'Shellnado Spin')!.touched, []);
+});
+
+test('a spread attack that hit the Pokémon is "attacked it", never "not it" (Astra, #356)', () => {
+  const fx = slowbroGame(
+    'PlayerB played (sv6-5_38) Fezandipiti ex to the Bench.',
+    ...turn('PlayerA'),
+    ...turn('PlayerB', "PlayerB's (me5_31) Mega Slowbro ex used Shellnado Spin on PlayerA's (sv6-5_38) Fezandipiti ex for 180 damage."),
+    ...turn('PlayerA', "PlayerA's (sv8_76) Latias ex used Eon Blade on PlayerB's (sv6-5_38) Fezandipiti ex for 200 damage.", "- PlayerB's (me5_31) Mega Slowbro ex took 30 damage."),
+  );
+  assert.deepEqual(fx.find((e) => e.name === 'Shellnado Spin')!.touched, ["T3: {p0}'s Latias ex attacked it with Eon Blade"]);
+});

@@ -151,6 +151,7 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
 
   // ── When each Pokémon, Ability, Stadium and Tool was in play, in event order ─────────────────────────────────────────
   const inPlay = new Map<string, number>(); // side|name → copies in play
+  const copies: Array<{ seq: number; key: string; n: number }> = []; // every change to those counts, in order
   const monSpans = new Map<string, Span[]>(); // side|name → when at least one copy was in play
   const abilitiesOf = new Map<string, Tracked[]>(); // side|name → its rule-changing Abilities
   // One record per ATTACHMENT: two Air Balloons are two lifetimes (Astra, #351).
@@ -222,6 +223,7 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
       const k = monKey(side, name);
       const n = Math.max(0, (inPlay.get(k) ?? 0) - 1);
       inPlay.set(k, n);
+      copies.push({ seq: e.seq, key: k, n });
       // One of several same-named Pokémon left: the log does not say whose Tools went with it (Astra, #351).
       if (n > 0) {
         for (const t of toolsOn.get(k) ?? []) t.uncertain = true;
@@ -238,6 +240,7 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
       const k = monKey(side, card.name);
       const n = (inPlay.get(k) ?? 0) + 1;
       inPlay.set(k, n);
+      copies.push({ seq: e.seq, key: k, n });
       // A second Pokémon of that name: from now on the log cannot tell their Tools apart.
       if (n > 1) for (const t of toolsOn.get(k) ?? []) t.uncertain = true;
       const f = frameOf(card);
@@ -305,7 +308,8 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
     const after = turnStarts.filter((t) => t.seq > e.seq);
     const target = after.findIndex((t) => (m[1] ? t.p !== e.p : t.p === e.p));
     const end = target >= 0 ? after[target + 1] : undefined;
-    const span: Span = { from: e.seq, to: end ? end.seq : null, fromTurn: e.turn, toTurn: end ? end.turn : null };
+    const named = target >= 0 ? after[target] : undefined;
+    const span: Span = { from: e.seq, to: end ? end.seq : null, fromTurn: e.turn, toTurn: end && named ? named.turn : null };
     r.spans.push(span);
     if (m[1]) opponentWindows.set(r, [...(opponentWindows.get(r) ?? []), span]);
   }
@@ -381,12 +385,29 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
   }
   // During an opponent's-next-turn window: what the opponent attacked. Into the Pokémon that set it up, or around it
   // (a Boss's Orders onto something else is a decision worth seeing).
+  // Identity is claimed only when the log settles it (Astra, #356): the Pokémon that set the window up was the only one
+  // of its name on its side for the whole window, and the window closes if it leaves play. Otherwise nothing is said.
   for (const [r, spans] of opponentWindows) {
-    for (const e of ev) {
-      if (e.t !== 'attack' || e.p === r.side || !inSpans(spans, e.seq)) continue;
-      push(r, same(e.target.card.name, r.card) && e.target.player === r.side
-        ? `T${e.turn}: ${who(e.p)}'s ${e.attacker.name} attacked it with ${e.move}`
-        : `T${e.turn}: ${who(e.p)} attacked ${who(e.target.player)}'s ${e.target.card.name}, not ${r.card}`);
+    const key = `${r.side}|${r.card.toLowerCase()}`;
+    for (const w of spans) {
+      const before = [...copies].reverse().find((c) => c.key === key && c.seq <= w.from)?.n ?? 0;
+      const during = copies.filter((c) => c.key === key && c.seq > w.from && (w.to === null || c.seq < w.to));
+      if (before > 1 || during.some((c) => c.n > 1)) continue;
+      const leftAt = during.find((c) => c.n === 0)?.seq ?? null;
+      for (let i = 0; i < ev.length; i++) {
+        const e = ev[i]!;
+        if (e.t !== 'attack' || e.p === r.side || e.seq < w.from || (w.to !== null && e.seq >= w.to) || (leftAt !== null && e.seq >= leftAt)) continue;
+        // Every Pokémon this attack hit: its target and the hits on its detail lines (a spread attack).
+        const hit: Array<{ side: Side; name: string }> = [{ side: e.target.player, name: e.target.card.name }];
+        for (let j = i + 1; j < ev.length && ev[j]!.sub; j++) {
+          const d = ev[j]!;
+          if (d.t === 'damage') hit.push({ side: d.p, name: d.target.name });
+        }
+        const intoIt = hit.some((h) => h.side === r.side && same(h.name, r.card));
+        push(r, intoIt
+          ? `T${e.turn}: ${who(e.p)}'s ${e.attacker.name} attacked it with ${e.move}`
+          : `T${e.turn}: ${who(e.p)} attacked ${hit.map((h) => `${who(h.side)}'s ${h.name}`).join(' and ')}, not ${r.card}`);
+      }
     }
   }
   // Tera Pokémon in play AT THE SAME TIME as a rule naming Tera Pokémon (Nighttime Mine).
