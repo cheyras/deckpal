@@ -672,7 +672,14 @@ export async function cardReference(logText, root = ROOT) {
   const done = new Set()
   for (const m of seen.values()) {
     const { frame: f } = resolveFrame(m.name, m.id ?? null)
-    if (!f) continue
+    if (!f) {
+      const key = `unknown:${m.name}:${m.code ?? ''}`
+      if (!done.has(key)) {
+        done.add(key)
+        lines.push(`- ${m.name}${m.code ? ` (${m.code})` : ''}: not in the simulator's card data; judge claims about it from the log alone`)
+      }
+      continue
+    }
     if (done.has(f.cardId)) continue
     done.add(f.cardId)
     const tags = cardTags(f.cardId)
@@ -854,20 +861,43 @@ export function readRows(dir, cases) {
 export const LEDGER_FILE = 'calls.jsonl'
 
 const judgeFileOf = (runFile) => runFile.replace('.run.json', '.judge.json')
-/** Move the selected pairs' verdicts aside (kept, numbered) so the next run judges them again. */
-export function setAsideJudgments(dir, cases, configs) {
-  let moved = 0
-  for (const c of cases) {
-    for (const k of configs) {
-      const f = judgeFileOf(path.join(dir, `${c.id}.${k}.run.json`))
-      if (!fs.existsSync(f)) continue
-      let n = 1
-      while (fs.existsSync(f.replace('.judge.json', `.judge.v${n}.json`))) n++
-      fs.renameSync(f, f.replace('.judge.json', `.judge.v${n}.json`))
-      moved++
-    }
+/**
+ * Replace a pair's verdict, keeping the old one numbered beside it. Called only
+ * once the new verdict exists, so a failed or unaffordable re-judge never
+ * leaves a pair without its earlier verdict.
+ */
+export function replaceJudgment(runFile, judgment) {
+  const f = judgeFileOf(runFile)
+  if (fs.existsSync(f)) {
+    let n = 1
+    while (fs.existsSync(f.replace('.judge.json', `.judge.v${n}.json`))) n++
+    fs.renameSync(f, f.replace('.judge.json', `.judge.v${n}.json`))
   }
-  return moved
+  writeJudgment(runFile, judgment)
+}
+
+/**
+ * A re-judge pass, recorded in `rejudge.json` so it can be resumed: a pair is
+ * done once its verdict was written after the pass began. When every selected
+ * pair is done the file is removed, and the next --rejudge starts a new pass.
+ */
+export function rejudgePass(dir) {
+  const f = path.join(dir, 'rejudge.json')
+  if (fs.existsSync(f)) return JSON.parse(fs.readFileSync(f, 'utf8'))
+  const pass = { startedAt: new Date().toISOString() }
+  fs.writeFileSync(f, `${JSON.stringify(pass)}\n`)
+  return pass
+}
+
+const judgedInPass = (runFile, pass) => {
+  const j = readJudgment(runFile)
+  return j?.status === 'ok' && typeof j.judgedAt === 'string' && j.judgedAt >= pass.startedAt
+}
+
+/** The most one judge call reserved in this directory before, as the bound for the next ones; null when none ran. */
+export function judgeBound(entries) {
+  const r = entries.filter((e) => e.kind === 'reserve' && e.label.endsWith(':judge')).map((e) => e.reservedUsd)
+  return r.length ? Math.max(...r) : null
 }
 
 export function readJudgment(runFile) {
@@ -952,20 +982,33 @@ export async function main(argv = process.argv.slice(2)) {
   const prices = await loadPrices(gateway, models)
   const out = opts.out ?? path.join(EVAL_DIR, 'runs', new Date().toISOString().replace(/[:.]/g, '-'))
   fs.mkdirSync(out, { recursive: true })
-  if (opts.rejudge) {
-    if (!opts.out) throw new Error('--rejudge needs --out DIR (the finished run to judge again)')
-    console.log(`Set aside ${setAsideJudgments(out, cases, opts.configs)} earlier verdict(s); judging again.`)
-  }
   // --budget caps the whole --out directory: a resumed run starts from what earlier invocations spent.
   const calls = new Ledger(path.join(out, LEDGER_FILE))
   const prior = calls.countedUsd()
   const priorOverruns = calls.overruns()
   if (priorOverruns > 0) throw new Error(`${path.relative(ROOT, out)}/${LEDGER_FILE} records ${priorOverruns} call(s) that cost more than their bound. Fix the bound (maxCallUsd) before spending more; use a new --out.`)
   const budget = new Ceiling(opts.budget, prior, priorOverruns)
+  let pass = null
+  if (opts.rejudge) {
+    if (!opts.out) throw new Error('--rejudge needs --out DIR (the finished run to judge again)')
+    pass = rejudgePass(out)
+    const todo = cases.flatMap((c) => opts.configs.map((k) => path.join(out, `${c.id}.${k}.run.json`)))
+      .filter((f) => fs.existsSync(f) && !JSON.parse(fs.readFileSync(f, 'utf8')).error && !judgedInPass(f, pass)).length
+    const bound = judgeBound(calls.entries)
+    // Checked before any verdict is touched: the budget is cumulative over the directory.
+    if (bound !== null && todo * bound > budget.remaining()) {
+      throw new Error(`Re-judging ${todo} run(s) could cost up to $${(todo * bound).toFixed(2)}, and $${budget.remaining().toFixed(2)} is left of the $${opts.budget} budget (which counts the $${prior.toFixed(2)} this directory already spent). Pass --budget ${(prior + todo * bound).toFixed(2)} or more. No verdict was changed.`)
+    }
+    console.log(`Re-judging ${todo} run(s); earlier verdicts stay until each replacement is written.`)
+  }
   if (prior > 0) console.log(`Resuming ${path.relative(ROOT, out)}: $${prior.toFixed(2)} already counted against the $${opts.budget} budget.`)
   const cost = (prefix) => calls.countedUsd(calls.entries.filter((x) => x.label.startsWith(prefix)))
   try {
-    await runAll({ gateway, prices, mcp, session, data, cases, state, configs: opts.configs, out, budget, calls, cost })
+    await runAll({ gateway, prices, mcp, session, data, cases, state, configs: opts.configs, out, budget, calls, cost, pass })
+    if (pass && cases.every((c) => opts.configs.every((k) => {
+      const f = path.join(out, `${c.id}.${k}.run.json`)
+      return !fs.existsSync(f) || JSON.parse(fs.readFileSync(f, 'utf8')).error || judgedInPass(f, pass)
+    }))) fs.rmSync(path.join(out, 'rejudge.json'), { force: true })
   } finally {
     await resetLogs(mcp, cases, state)
   }
@@ -981,14 +1024,15 @@ export async function main(argv = process.argv.slice(2)) {
  * skipped; a run that errored is run again; a run whose judging failed or never
  * happened is judged again, never scored as empty.
  */
-async function runAll({ gateway, prices, mcp, session, data, cases, state, configs, out, budget, calls, cost }) {
+async function runAll({ gateway, prices, mcp, session, data, cases, state, configs, out, budget, calls, cost, pass = null }) {
   for (const c of cases) {
     const ids = state.logs[c.id]
     const logText = readLog(c)
     for (const k of configs) {
       const runFile = path.join(out, `${c.id}.${k}.run.json`)
       let run = fs.existsSync(runFile) ? JSON.parse(fs.readFileSync(runFile, 'utf8')) : null
-      if (run && !run.error && readJudgment(runFile)?.status === 'ok') continue
+      const judged = readJudgment(runFile)?.status === 'ok'
+      if (run && !run.error && judged && (!pass || judgedInPass(runFile, pass))) continue
       if (!run || run.error) {
         await resetLog(mcp, c, ids)
         run = await runCase({ gateway, prices, mcp, session, config: { key: k, ...CONFIGS[k] }, c, ids, deckName: data.decks[c.deck].name, budget, calls })
@@ -999,9 +1043,10 @@ async function runAll({ gateway, prices, mcp, session, data, cases, state, confi
       }
       try {
         const output = await judgeRun({ gateway, prices, c, principles: data.principles, logText, run, budget, calls })
-        writeJudgment(runFile, { status: 'ok', output })
+        replaceJudgment(runFile, { status: 'ok', output, judgedAt: new Date().toISOString() })
       } catch (e) {
-        writeJudgment(runFile, { status: 'failed', error: safeError(e) })
+        // A failed re-judge keeps the earlier good verdict; only a pair with none records the failure.
+        if (!judged) writeJudgment(runFile, { status: 'failed', error: safeError(e) })
         console.log(`${c.id} ${k}: judge failed, ${safeError(e).message}`)
         if (e instanceof BudgetExceeded) return
       }

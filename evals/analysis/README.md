@@ -71,4 +71,4 @@ node scripts/analysis-eval.mjs report --out evals/analysis/runs/<time>   # free
 - **Output:** runs land in `runs/`, which is gitignored. They hold every tool call and result, the reply, the judge's verdicts and the cost.
 - **Resuming:** a rerun with the same `--out` skips the judged pairs, reruns errored runs and re-judges unjudged ones. Scores count judged runs only.
 
-- **Judging again:** `run --rejudge --out DIR` judges a finished run again; earlier verdicts are kept as `.judge.vN.json`.
+- **Judging again:** `run --rejudge --out DIR` judges a finished run again. Each earlier verdict is kept as `.judge.vN.json`, and is replaced only once its new verdict exists. The budget is cumulative over the directory; the run refuses up front if the re-judge could exceed it.

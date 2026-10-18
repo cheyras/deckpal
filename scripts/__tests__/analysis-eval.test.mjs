@@ -371,3 +371,27 @@ test('the judge sees card text, Tera tags included, for coded and name-only logs
   const named = await cardReference(readLog(data.cases.find((c) => c.id === 'heldout-tbs-62')))
   assert.match(named, /Metagross .*Metallic Hammer 150\+/)
 })
+
+test('a card the simulator cannot resolve is listed as unknown, not dropped (Astra, #350)', async () => {
+  const { cardReference } = await import('../analysis-eval.mjs')
+  const ref = await cardReference('Setup\nPlayerA played (zz9_999) Imaginary Mon to the Active Spot.\nPlayerB played (zz9_998) Other Mon to the Active Spot.\n')
+  assert.match(ref, /Imaginary Mon \(zz9_999\): not in the simulator's card data/)
+})
+
+test('re-judging replaces a verdict only once the new one exists, keeping the old (Astra, #350)', async () => {
+  const { replaceJudgment, readJudgment, judgeBound, rejudgePass } = await import('../analysis-eval.mjs')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'analysis-eval-'))
+  try {
+    const runFile = path.join(dir, 'owner-94.A.run.json')
+    fs.writeFileSync(runFile.replace('.run.json', '.judge.json'), JSON.stringify({ status: 'ok', output: { items: [], false_claims: [] } }))
+    replaceJudgment(runFile, { status: 'ok', output: { items: [{ id: 'x', verdict: 'caught' }], false_claims: [] }, judgedAt: '2099-01-01' })
+    assert.equal(readJudgment(runFile).output.items.length, 1)
+    assert.ok(fs.existsSync(path.join(dir, 'owner-94.A.judge.v1.json')), 'the earlier verdict is kept')
+    const pass = rejudgePass(dir)
+    assert.deepEqual(rejudgePass(dir), pass, 'a pass resumes until it finishes')
+    assert.equal(judgeBound([{ kind: 'reserve', label: 'a:A:judge', reservedUsd: 0.2 }, { kind: 'reserve', label: 'a:A:agent', reservedUsd: 0.9 }, { kind: 'reserve', label: 'b:B:judge', reservedUsd: 0.3 }]), 0.3)
+    assert.equal(judgeBound([]), null)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
