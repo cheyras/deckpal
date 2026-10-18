@@ -75,3 +75,41 @@ node scripts/analysis-eval.mjs run --budget 3 --out evals/analysis/runs/<name>
 # what it already spent; the run refuses, before touching any verdict, if the re-judge could exceed it.
 node scripts/analysis-eval.mjs run --budget 8 --rejudge --out evals/analysis/runs/<name>
 ```
+
+## After the rule-effects digest (#351), 2026-10-17
+
+**What ran.** One run of configs A and B against production with #351 deployed (main at 51f23e47). It cost $0.97, bringing all recorded eval spend to $4.80 across every ledger. The baseline columns are run 1 / run 2 from above.
+
+| | Baseline | After #351 |
+|---|---|---|
+| A overall | 61 / 59 | 66 |
+| B overall | 78 / 76 | 72 |
+| A P2, owner games | 56 / 50 | **72** |
+| A P2, held-out games | 50 / 30 | 40 |
+| B P2, owner games | 67 / 72 | 72 |
+| B P2, held-out games | 50 / 50 | **60** |
+| B P3, all games | 94 / 81 | 75 |
+
+**The points the change covers:**
+- **Up in both configs:**
+  - `jamming-tower` (held-out hns-36): 0 / 0 → 0.5.
+  - `fairy-zone-340` (owner-99): 0.5 / 0.5 → 1.
+- **Up in A only:** `crustle-mechanism` (owner-95), 0 / 0 → 1. B already scored 1 / 1 and still does.
+- **Not improved:** `mine-tera` (owner-94, the Nighttime Mine point). A went 0.5 / 1 → 0.5; B stayed at 1 / 1 → 1.
+
+**Points it does not cover:**
+- `shellnado-dodge` stayed at 0 throughout.
+- `codebreaking-seek` went 0.5 / 0 → 0 in both configs.
+- B's `dark-weakness` went 0.5 / 0.5 → 0.
+
+These remain unresolved, and no reason can be assigned to the falls from one run.
+
+**Against the acceptance rule in the #351 decision** (P2 must rise on the held-out games as well as the owner's), the rule is only partly met:
+- B's held-out P2 rose (50 / 50 → 60). A's (40) did not rise above its two-run baseline average (40).
+- B's overall score fell below both baseline runs (72 against 78 and 76), mostly on P3 and P4, which this change does not touch. One run cannot say whether that is the change or the run.
+
+**Verdict: kept, provisionally.** See `decisions/2026/2026-10-17-the-rule-effects-digest-is-kept-provisionally.md`. A repeat run of A and B settles it.
+
+**Next mechanisms gap:** effects carried in ATTACK text, which the digest does not yet surface for the turn they apply:
+- Shellnado Spin's counter-damage;
+- Seek Inspiration copying an attack.
