@@ -31,7 +31,7 @@ One run cannot separate a side effect of the longer digest from run-to-run varia
 - A digest change is not counted as proven by one run again. Two runs after the change are the bar, matching the two baseline runs.
 
 **Update 2026-10-18: the repeat run, and the owner's call.**
-- **The repeat (A and B, all 9 cases, $1.08 including one resumed case) agreed with the first:**
+- **The repeat (A and B, all 9 cases, $1.07 including one resumed case) agreed with the first:**
   - A overall 66 / 67 against 61 / 59;
   - B held-out P2 60 / 60 against 50 / 50;
   - B overall 72 / 73 against 78 / 76.

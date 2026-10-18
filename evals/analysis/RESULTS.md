@@ -5,7 +5,7 @@
 **What ran.**
 - Two full runs of the 9 cases × 3 configs, on the QA account against live deckpal.app (main at c626e9dd).
 - The judge is Sonnet 5.5 at medium effort, with the card text of every card in the log.
-- Total spend, smoke run included: $3.85.
+- Total spend, smoke run included: $3.83.
 
 **Each cell is run 1 / run 2.** The first five rows (Overall to Held-out) moved by 6 points or less between runs. The per-principle rows rest on few rubric points and move more.
 
