@@ -239,3 +239,31 @@ test('the wording classifier stays linear on hostile text (CodeQL js/polynomial-
     assert.ok(Date.now() - t0 < 500, `${JSON.stringify(s)} took ${Date.now() - t0} ms`);
   }
 });
+
+test('an attack whose text carries into the next turn opens a window, with what the opponent attacked during it', () => {
+  const r = insights('rule-effects', 'mine-fairy-zone.txt');
+  const spin = r.ruleEffects.find((e) => e.source === 'Attack' && e.name === 'Shellnado Spin')!;
+  assert.ok(spin, 'found from the wording "During your opponent\'s next turn"');
+  assert.deepEqual(spin.kinds, ['next_turn', 'damage']);
+  assert.equal(spin.from, 6);
+  assert.deepEqual(spin.touched, ["T7: {p0} attacked {p1}'s Latias ex, not Mega Slowbro ex"]);
+});
+
+test('a "during your next turn" restriction is a window of its own turn, with no opponent evidence', () => {
+  const r = insights('live-logs', 'hns-36.txt');
+  const brave = r.ruleEffects.find((e) => e.source === 'Attack' && e.name === 'Mega Brave')!;
+  assert.deepEqual(brave.kinds, ['next_turn']);
+  assert.deepEqual(brave.touched, []);
+});
+
+test('attacking INTO the Pokémon during its window is evidence too', () => {
+  const fx = effectsOf([
+    'PlayerA played (sv6-5_38) Fezandipiti ex to the Active Spot.',
+    'PlayerB played (me5_31) Mega Slowbro ex to the Active Spot.',
+    ...turn('PlayerA'),
+    ...turn('PlayerB', "PlayerB's (me5_31) Mega Slowbro ex used Shellnado Spin on PlayerA's (sv6-5_38) Fezandipiti ex for 180 damage."),
+    ...turn('PlayerA', "PlayerA's (sv6-5_38) Fezandipiti ex used Cruel Arrow on PlayerB's (me5_31) Mega Slowbro ex for 100 damage."),
+  ]);
+  const spin = fx.find((e) => e.name === 'Shellnado Spin')!;
+  assert.deepEqual(spin.touched, ["T3: {p0}'s Fezandipiti ex attacked it with Cruel Arrow"]);
+});

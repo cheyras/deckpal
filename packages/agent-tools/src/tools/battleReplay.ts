@@ -64,7 +64,7 @@ export interface ReplayPayload {
   ruleEffects?: Array<{
     side: ReplaySide;
     card: string;
-    source: 'Stadium' | 'Ability' | 'Tool';
+    source: 'Stadium' | 'Ability' | 'Tool' | 'Attack';
     name: string;
     kinds: string[];
     text: string;
@@ -184,7 +184,7 @@ export function renderReplay(r: ReplayPayload, detail: DigestDetail, max: number
     if (!seen.length && quiet) out.push(`effects in play that changed the rules: ${quiet} in play, none visible in the log`);
     if (seen.length) {
       const owner = (e: (typeof effects)[number]): string =>
-        `${label(e.side)}'s ${untrusted(e.card)}${e.source === 'Ability' ? ` (Ability ${untrusted(e.name)})` : ` (${e.source})`}`;
+        `${label(e.side)}'s ${untrusted(e.card)}${e.source === 'Ability' || e.source === 'Attack' ? ` (${e.source} ${untrusted(e.name)})` : ` (${e.source})`}`;
       out.push("effects in play that changed the rules (from the cards' text):");
       for (const e of seen) {
         const when = `T${e.from}${e.until !== null ? `–T${e.until}` : ''}`;
