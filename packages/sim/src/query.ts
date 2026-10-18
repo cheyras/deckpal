@@ -113,7 +113,7 @@ function gatherStatics(env: Env, s: GameState): LiveStatic[] {
     }
   }
   for (const te of s.effects) {
-    if (te.until < s.turn) continue;
+    if (te.until < s.turn || (te.start ?? 0) > s.turn) continue;
     out.push({
       effect: te.static,
       scope: te.slot > 0 ? 'self' : (te.scope ?? 'me'), // lane:metal: te.scope
@@ -471,7 +471,7 @@ export function weaknessMultiplier(env: Env, s: GameState, slot: Slot, all?: Liv
  */
 export function staticMayExist(env: Env, s: GameState, kind: StaticEffect['k']): boolean {
   if (kindsIn(env.ctx).has(kind)) return true;
-  for (const te of s.effects) if (te.static.k === kind && te.until >= s.turn) return true;
+  for (const te of s.effects) if (te.static.k === kind && te.until >= s.turn && (te.start ?? 0) <= s.turn) return true;
   return false;
 }
 

@@ -8,7 +8,7 @@
  */
 import { codeOf, def, ensureCode, type Env } from './context.js';
 import type { Op } from './compile.js';
-import type { CardZone, DamageIgnore, Dest, Filter, ReactEvent, SlotRef, SlotZone, SpecialCondition, Step, TriggerOn } from './dsl.js';
+import type { CardZone, DamageIgnore, Dest, Duration, Filter, ReactEvent, SlotRef, SlotZone, SpecialCondition, Step, TriggerOn } from './dsl.js';
 import { cardMatches, evalCond, evalExpr, resolveSlot, side, slotMatches, slotsIn, slotTypes, unitFits, type EvalCtx } from './eval.js';
 import {
   attackCost,
@@ -69,6 +69,29 @@ import {
 
 export function ec(f: Frame): EvalCtx {
   return { player: f.player, slot: f.slot, defender: (f.vars.__def as number) || 0, vars: f.vars };
+}
+
+/**
+ * The turns a timed effect covers, first to last, for the player whose card made it ("your"). "Your next turn" is two turns away when
+ * the effect is made during that player's own turn, and the very next one when it is made during the opponent's turn or the Checkup
+ * after it (a reaction to their attack). "During your opponent's next turn" starts with that turn, not before: the rest of the turn the
+ * effect was made in is not covered. PTCG Live's engine keeps the same distinction (immediate / on my next turn / on the opponent's next
+ * turn).
+ */
+export function durationTurns(s: GameState, player: Player, d: Duration): { start: number; until: number } {
+  const own = s.current === player;
+  const mine = own ? s.turn + 2 : s.turn + 1;
+  const theirs = own ? s.turn + 1 : s.turn + 2;
+  switch (d) {
+    case 'thisTurn':
+      return { start: s.turn, until: s.turn };
+    case 'oppNextTurn':
+      return { start: theirs, until: theirs };
+    case 'myNextTurn':
+      return { start: mine, until: mine };
+    case 'throughMyNextTurn':
+      return { start: s.turn, until: mine };
+  }
 }
 
 /** Ask the frame's chooser. If the answer is forced, answer it without asking. */
@@ -293,14 +316,18 @@ function dealDamage(
     if (trainerBlocked(env, s, f, target, all)) continue; // an Item or Supporter's damage to a Pokémon that is protected from it
     // lane:fighting — "isn't affected by any effects on your opponent's Active Pokémon" (or "on those Pokémon": Benched ones too)
     const noDefEffects = !!ignore?.defenderEffects && owner !== f.player;
+    // Damage done by an Ability, a Trainer or another effect that is not an attack is just that damage: the attack-damage steps below
+    // (the attacker's "N more damage", Weakness and Resistance, "takes N less damage from attacks", prevention of damage "by attacks",
+    // the Tera rule) are for attacks only (rulebook, Weakness and Resistance: "only to damage done by attacks").
+    const byAttack = f.kind === 'attack';
     let dmg = base;
     // "Attacks used by ... do 30 less damage" reduce all the damage the attack does, Benched Pokémon and its own side included (ruling 1822);
     // the increases ("30 more damage") are for the opponent's Active Pokémon.
-    if (dmg > 0 && attacker) {
+    if (dmg > 0 && attacker && byAttack) {
       if (owner !== f.player && isActive) dmg += damageOut(env, s, attacker, target, all);
-      else if (f.kind === 'attack') dmg += damageOut(env, s, attacker, target, all, true);
+      else dmg += damageOut(env, s, attacker, target, all, true);
     }
-    if (dmg > 0 && isActive && (owner !== f.player || f.kind === 'attack')) { // an attack's damage to its own Active Pokémon counts too (ruling 620)
+    if (dmg > 0 && isActive && byAttack) { // an attack's damage to its own Active Pokémon counts too (ruling 620)
       // Weakness and Resistance, and effects that change them, are not "effects on" the Defending
       // Pokémon for `defenderEffects` (Shred rulings: Allergy Panic still makes Weakness x4).
       const w = weaknessOf(env, s, target, all);
@@ -310,10 +337,10 @@ function dealDamage(
     }
     const preIn = dmg; // before the "takes N less damage" effects, for the Berries
     const reducers: number[] = [];
-    if (dmg > 0 && !noDefEffects) dmg += damageIn(env, s, target, all, f.player, attacker ?? undefined, reducers); // lane:metal (fromOpp) + lane:fighting (ignore)
+    if (dmg > 0 && !noDefEffects && byAttack) dmg += damageIn(env, s, target, all, f.player, attacker ?? undefined, reducers); // lane:metal (fromOpp) + lane:fighting (ignore)
     if (dmg < 0) dmg = 0;
     // lane:ghost (attacker). A reduction that left nothing is still checked: prevented damage is not "damaged by an attack" for the Berries.
-    const prevented = (dmg > 0 || reducers.length > 0) && !noDefEffects && damagePrevented(env, s, target, f.player, all, attacker ?? undefined, dmg);
+    const prevented = byAttack && (dmg > 0 || reducers.length > 0) && !noDefEffects && damagePrevented(env, s, target, f.player, all, attacker ?? undefined, dmg);
     if (prevented) dmg = 0;
     // "If any damage is done to this Pokémon by attacks, flip a coin. If heads, prevent that damage." Its owner flips, only when damage
     // would really be done, and not at all for an attack that isn't affected by effects on the Defending Pokémon (ruling 2040).
@@ -527,7 +554,7 @@ function queueDeckDiscard(env: Env, s: GameState, f: Frame, card: number, owner:
 export function queueReactions(env: Env, s: GameState, slot: Slot, event: ReactEvent, vars: Record<string, Val>, once = false): void {
   void env;
   for (const te of s.effects) {
-    if (te.slot !== slot.id || te.until < s.turn || te.static.k !== 'react' || te.static.event !== event || !te.code) continue;
+    if (te.slot !== slot.id || te.until < s.turn || (te.start ?? 0) > s.turn || te.static.k !== 'react' || te.static.event !== event || !te.code) continue;
     if (once && s.queued.some((q) => q.code === te.code && q.vars.__def === slot.id)) continue;
     const order = orderOf(s, event, ownerOf(s, slot)); // its own object per frame: picking one must not mark the others
     s.queued.push({ code: te.code, pc: 0, vars: { ...vars }, player: te.by ?? te.player, src: te.src, slot: te.from ?? slot.id, kind: te.fromAttack ? 'attack' : 'trigger', ...(order ? { order } : {}) });
@@ -581,13 +608,18 @@ function moveCards(env: Env, s: GameState, f: Frame, cards: number[], to: Dest, 
     // "This card can't be put into your hand or deck from the discard pile": it stays where it is.
     if ((to === 'hand' || to === 'deck' || to === 'deckTop' || to === 'deckBottom') && def(env.ctx, c).script?.noRecoverFromDiscard && ops.discard.includes(c)) continue;
     const fromDeck = to === 'discard' && owner !== f.player && ops.deck.includes(c);
+    // A card that goes to the hand from a zone both players see (the discard pile, the Lost Zone, in play) is known to be in that
+    // hand: the opponent saw it move (Compendium #787).
+    const wasPublic =
+      to === 'hand' &&
+      (ops.discard.includes(c) || ops.lost.includes(c) || s.limbo.includes(c) || allSlots(ops).some((sl) => sl.cards.includes(c) || sl.energy.includes(c) || sl.tools.includes(c)));
     if (!takeFromZones(ops, c) && !removeFrom(s.limbo, c)) continue;
     moved.push(c);
     if (fromDeck) queueDeckDiscard(env, s, f, c, owner);
     switch (to) {
       case 'hand':
         ops.hand.push(c);
-        if (revealed.includes(c)) ops.revealed.push(c);
+        if ((revealed.includes(c) || wasPublic) && !ops.revealed.includes(c)) ops.revealed.push(c);
         break;
       case 'discard':
         ops.discard.push(c);
@@ -811,7 +843,8 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
       return 'next';
     }
     case 'effect': {
-      const until = st.duration === 'thisTurn' ? s.turn : st.duration === 'oppNextTurn' ? s.turn + 1 : s.turn + 2;
+      const { start, until } = durationTurns(s, f.player, st.duration);
+      const later = start > s.turn ? { start } : {};
       if (st.on) {
         const t = resolveSlot(s, e, st.on);
         if (!t) return 'next';
@@ -821,6 +854,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
           slot: t.id,
           player: ownerOf(s, t),
           until,
+          ...later,
           fromAttack: f.kind === 'attack',
           src: f.src,
           since: s.turn,
@@ -834,6 +868,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
           slot: -1,
           player: side(e, st.onPlayer),
           until,
+          ...later,
           fromAttack: f.kind === 'attack',
           src: f.src,
           filter: st.filter,
@@ -846,7 +881,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
     case 'delay': {
       if (st.global) {
         // Not tied to a Pokémon: it runs at the end of the turn whatever happens to the board.
-        const gturn = st.duration === 'thisTurn' ? s.turn : st.duration === 'oppNextTurn' ? s.turn + 1 : s.turn + 2;
+        const gturn = durationTurns(s, f.player, st.duration).until;
         const gcode = ensureCode(env.ctx, `${f.code}@${f.pc}`, st.program);
         s.delayed = [...(s.delayed ?? []), { code: gcode, slot: 0, player: f.player, src: f.src, from: f.slot, turn: gturn, fromAttack: false }];
         return 'next';
@@ -854,7 +889,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
       const t = resolveSlot(s, e, st.on ?? 'defender');
       if (!t) return 'next';
       if (f.kind === 'attack' && ownerOf(s, t) !== f.player && effectsPrevented(env, s, t, f.player, 'attack')) return 'next';
-      const turn = st.duration === 'thisTurn' ? s.turn : st.duration === 'oppNextTurn' ? s.turn + 1 : s.turn + 2;
+      const turn = durationTurns(s, f.player, st.duration).until;
       // One compiled copy per op instance: the frame's program and position name it.
       const code = ensureCode(env.ctx, `${f.code}@${f.pc}`, st.program);
       s.delayed = [...(s.delayed ?? []), { code, slot: t.id, player: f.player, src: f.src, from: f.slot, turn, fromAttack: f.kind === 'attack' }];
@@ -1098,9 +1133,9 @@ function discardEnergy(env: Env, s: GameState, f: Frame, st: Extract<Step, { op:
   let chosen: number[];
   if (st.count === 'all') chosen = pool;
   else if (st.units && pool.some((c) => cardUnits(env, t, c, s).length !== 1)) {
-    // Paying in units with a multi-unit card attached: offer each minimal covering set.
+    // Paying in units with a multi-unit card attached: offer each covering set (see `unitCovers`).
     const n = evalExpr(env, s, e, st.count);
-    const covers = unitCovers(env, s, t, pool, n);
+    const covers = unitCovers(env, s, t, pool, n, st.upToCards);
     const a = takeAnswer(f);
     if (a !== undefined) chosen = covers[(a as number[])[0] ?? 0] ?? pool;
     else if (covers.length <= 1) chosen = covers[0] ?? pool; // none covers it: discard what there is
@@ -1113,6 +1148,7 @@ function discardEnergy(env: Env, s: GameState, f: Frame, st: Extract<Step, { op:
     const n = evalExpr(env, s, e, st.count);
     const a = takeAnswer(f);
     if (a !== undefined) chosen = a as number[];
+    else if (n <= 0) chosen = []; // nothing to pay (a Retreat Cost of 0): no question
     else if (pool.length <= n) chosen = pool;
     else {
       // Dedupe identical Energy for the decision but keep instance ids.
@@ -1146,11 +1182,12 @@ function discardEnergy(env: Env, s: GameState, f: Frame, st: Extract<Step, { op:
 
 /**
  * Every way to pay `n` Energy units from `pool` (cards attached to `t`) with no card to spare:
- * the set covers `n`, and dropping any one card would not. Identical cards are interchangeable, so
- * each distinct set appears once. Order = the default choice first: fewest Special Energy given
- * up, then least overpaid, then fewest cards.
+ * the set covers `n`, and dropping any one card would not. With `upToCards` (a Retreat Cost) it is
+ * every set that covers `n` with no more cards than `n` (Compendium #2127). Identical cards are
+ * interchangeable, so each distinct set appears once. Order = the default choice first: fewest
+ * Special Energy given up, then least overpaid, then fewest cards.
  */
-function unitCovers(env: Env, s: GameState, t: Slot, pool: number[], n: number): number[][] {
+function unitCovers(env: Env, s: GameState, t: Slot, pool: number[], n: number, upToCards = false): number[][] {
   const groups = new Map<number, { units: number; special: boolean; cards: number[] }>();
   for (const c of pool) {
     const d = def(env.ctx, c);
@@ -1164,11 +1201,15 @@ function unitCovers(env: Env, s: GameState, t: Slot, pool: number[], n: number):
   const rec = (i: number, sum: number): void => {
     if (i === gs.length) {
       if (sum < n) return;
-      let least = Infinity;
-      gs.forEach((g, j) => {
-        if (pick[j]) least = Math.min(least, g.units);
-      });
-      if (sum - least >= n) return; // a card to spare
+      if (upToCards) {
+        if (pick.reduce((a, k) => a + k, 0) > n) return; // more cards than the cost
+      } else {
+        let least = Infinity;
+        gs.forEach((g, j) => {
+          if (pick[j]) least = Math.min(least, g.units);
+        });
+        if (sum - least >= n) return; // a card to spare
+      }
       const set = gs.flatMap((g, j) => g.cards.slice(0, pick[j]));
       out.push({ set, special: gs.reduce((a, g, j) => a + (g.special ? (pick[j] as number) : 0), 0), over: sum - n });
       return;

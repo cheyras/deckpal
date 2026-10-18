@@ -670,9 +670,7 @@ test('Archaludon, Metal Bridge: Archaludon itself retreats for free while it has
   const metal = game(dk, [{ active: 'Archaludon', bench: ['Comfey'], energy: { active: [M] } }, { active: 'Tyranitar ex' }]);
   assert.ok(has(metal, 'Retreat'));
   choose(metal, 'Retreat');
-  assert.equal(metal.decision?.kind, 'cards');
-  assert.equal(metal.decision?.min, 0, 'a Retreat Cost of 0: no Energy has to be discarded');
-  metal.submit([]);
+  assert.equal(metal.decision?.kind, 'main', 'a Retreat Cost of 0: no Energy is discarded, and none is asked for');
   assert.equal(activeName(metal, 0), 'Comfey');
   assert.deepEqual(energyNames(metal, 0, 0), [M], 'no Energy was discarded');
   const fire = game(dk, [{ active: 'Archaludon', bench: ['Comfey'], energy: { active: [F] } }, { active: 'Tyranitar ex' }]);

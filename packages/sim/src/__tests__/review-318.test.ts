@@ -181,10 +181,12 @@ function positionOfAcrossSeeds(g: Game, card: number, viewer: 0 | 1, owner: 0 | 
 function takeFaceUpPrize(): { g: Game; card: number } {
   const g = mkPub([{ active: 'Beautifly', energy: { active: [GR] } }, { active: 'Mega Latias ex', bench: ['Slowpoke'], damage: { active: 260 } }]);
   const ps = g.state.p[0];
-  const card = ps.prizes[ps.prizes.length - 1] as number; // the engine takes the last one
+  const card = ps.prizes[ps.prizes.length - 1] as number;
   ps.prizesUp = [card];
   g.state.forcedCoins = [false];
   choose(g, 'Attack: Stun Spore');
+  // Prize cards are taken one at a time, so with one face up P0 chooses each time (Compendium #809): the face-up one first.
+  while (g.decision?.prompt === 'Take which Prize card?') choose(g, labels(g).some((l) => l.endsWith('(face up)')) ? '(face up)' : 'A face-down Prize card');
   return { g, card };
 }
 

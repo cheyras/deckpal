@@ -185,6 +185,17 @@ export const CORE_RULES: readonly CoreRule[] = [
     checked: 'sim rules.test.ts (rulebook p.15-16, 20)',
   },
   {
+    id: 'durations',
+    title: 'Effects that last a turn',
+    keywords: ['next turn', 'during your next turn', "during your opponent's next turn", 'until the end', 'this turn', 'lasting effect', 'duration', 'how long'],
+    text:
+      '"During your next turn" and "during your opponent\'s next turn" cover that whole turn only: not the rest of the ' +
+      'turn the card was used in, and they are over when that turn ends. "Until the end of your next turn" starts at ' +
+      'once. "Your" is the player whose card made the effect, even when it happens on the opponent\'s turn. An attack\'s ' +
+      'effect on a Pokémon also ends early if that Pokémon leaves the Active Spot or evolves.',
+    checked: 'sim rules-timing.test.ts; ruling 2404 (delayed attack effects)',
+  },
+  {
     id: 'setup-deck',
     title: 'Deck building and setup',
     keywords: ['60 cards', 'four copies', '4 copies', 'ace spec', 'mulligan', 'bench size', 'basic energy', 'deck rules'],

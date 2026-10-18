@@ -509,7 +509,12 @@ export type PlayLock =
    */
   | 'abilityPokemon';
 
-export type Duration = 'thisTurn' | 'oppNextTurn' | 'myNextTurn';
+/**
+ * When a timed effect applies, for the player whose card made it ("your"): `thisTurn` is the rest of this turn; `oppNextTurn` and
+ * `myNextTurn` are that whole next turn only ("During your opponent's next turn" does not cover the rest of this one); and
+ * `throughMyNextTurn` is from now until the end of your next turn ("until the end of your next turn").
+ */
+export type Duration = 'thisTurn' | 'oppNextTurn' | 'myNextTurn' | 'throughMyNextTurn';
 
 /** What a `react` timed effect waits for. */
 export type ReactEvent = 'damagedByAttack' | 'attachFromHand';
@@ -567,9 +572,11 @@ export type Step =
    * Discard Energy from a Pokémon: all of it, or `count` chosen by the controller. `count` is Energy
    * CARDS ("discard an Energy" is one card, however much it provides) unless `units` is set: then
    * the cards discarded must provide at least `count` Energy, with no card to spare (paying a
-   * Retreat Cost: a card providing {C}{C}{C} pays 3 points).
+   * Retreat Cost: a card providing {C}{C}{C} pays 3 points). `upToCards` (with `units`; a Retreat Cost) allows any set that provides
+   * at least `count` and has no more cards than `count`: a Retreat Cost of 2 can be paid with one {C}{C} card or with two (TPCi Rules
+   * Team 2025-03-27, Compendium #2127).
    */
-  | { op: 'discardEnergy'; from: SlotRef; count: Expr | 'all'; filter?: Filter; as?: string; units?: boolean }
+  | { op: 'discardEnergy'; from: SlotRef; count: Expr | 'all'; filter?: Filter; as?: string; units?: boolean; upToCards?: boolean }
   /** Attack damage, through Weakness, Resistance and every modifier. */
   | { op: 'damage'; amount: Expr; to?: SlotRef | { each: SlotZone; filter?: Filter } | { v: string }; ignore?: DamageIgnore /* lane:fighting */ }
   /** Place damage counters: no Weakness, Resistance or damage modifiers. */

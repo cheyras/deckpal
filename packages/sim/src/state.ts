@@ -170,6 +170,7 @@ export function cloneState(s: GameState): GameState {
     ...(s.delayed ? { delayed: s.delayed.map((d) => ({ ...d })) } : {}),
     queued: s.queued.map((f) => ({ ...f, vars: { ...f.vars } })),
     limbo: s.limbo.slice(),
+    ...(s.prizeTaking ? { prizeTaking: { left: [s.prizeTaking.left[0], s.prizeTaking.left[1]], took: [s.prizeTaking.took[0], s.prizeTaking.took[1]] } } : {}),
   };
 }
 

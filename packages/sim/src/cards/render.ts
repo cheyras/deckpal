@@ -610,6 +610,7 @@ const DURATION: Record<Duration, string> = {
   thisTurn: 'During this turn,',
   oppNextTurn: "During your opponent's next turn,",
   myNextTurn: 'During your next turn,',
+  throughMyNextTurn: 'Until the end of your next turn,',
 };
 
 // ------------------------------------------------------------------ the renderer
@@ -1087,7 +1088,7 @@ class Renderer {
           break;
         }
         case 'delay': {
-          const when = { thisTurn: 'this turn', oppNextTurn: "your opponent's next turn", myNextTurn: 'your next turn' }[st.duration];
+          const when = { thisTurn: 'this turn', oppNextTurn: "your opponent's next turn", myNextTurn: 'your next turn', throughMyNextTurn: 'your next turn' }[st.duration];
           out.push(`At the end of ${when}, ${lc(this.program(st.program, base))}`);
           break;
         }

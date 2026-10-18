@@ -205,6 +205,7 @@ export interface PlayerState {
   stadiumPlayed: boolean;
   energyAttached: boolean;
   retreated: boolean;
+  /** This player used the Stadium now in play this turn (cleared when another Stadium is played: the use belongs to the card). */
   stadiumAbilityUsed: boolean;
   /** Names of "can't use more than 1 X Ability each turn" Abilities used this turn. */
   globalAbilitiesUsed: string[];
@@ -279,6 +280,8 @@ export interface TimedEffect {
   player: Player;
   /** The effect lasts through the END of this turn number. */
   until: number;
+  /** The first turn it applies in: "During your next turn" waits for that turn. Absent = from when it was made. */
+  start?: number;
   /** Attack effects on a Pokémon end when it leaves the Active Spot or evolves. */
   fromAttack: boolean;
   src: number;
@@ -343,6 +346,11 @@ export interface GameState {
   nest?: number;
   /** A Trainer card being played: out of the hand, not yet in the discard pile. */
   limbo: number[];
+  /**
+   * Prize cards still to be taken for the Knock Outs just resolved, per player, and how many each has taken so far in this batch.
+   * They are taken one at a time, so a player with a face-up Prize card chooses each time (see flow.ts `takePrizes`).
+   */
+  prizeTaking?: { left: [number, number]; took: [number, number] };
   /** Where the flow continues once Knock Outs and promotions are resolved. */
   afterKo: string;
   winner: Player | null;
@@ -421,6 +429,8 @@ export interface Pending {
     | { k: 'koHand'; slot: number }
     /** The owner of a Pokémon with more Tools than it may now have chooses which to discard. */
     | { k: 'toolDiscard'; slot: number }
+    /** A player taking a Prize card while one is face up: a face-down one (when `down`, option 0) or one of the face-up cards `up`. */
+    | { k: 'prizePick'; p: Player; up: number[]; down: boolean }
     /** Several effects happen at the same time and the right player chooses which goes first; `idx` are the queue positions offered, in label order. */
     | { k: 'triggerOrder'; idx: number[] };
 }
