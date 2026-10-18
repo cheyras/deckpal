@@ -29,3 +29,13 @@ One run cannot separate a side effect of the longer digest from run-to-run varia
 **Implications:**
 - The repeat run costs about $1. It needs the owner's go-ahead, because Phase 5's ~$5 approval is spent: $4.80 so far.
 - A digest change is not counted as proven by one run again. Two runs after the change are the bar, matching the two baseline runs.
+
+**Update 2026-10-18: the repeat run, and the owner's call.**
+- **The repeat (A and B, $0.94) agreed with the first:**
+  - A overall 66 / 67 against 61 / 59;
+  - B held-out P2 60 / 60 against 50 / 50;
+  - B overall 72 / 73 against 78 / 76.
+- **So the revert rule was not met:** B's overall score did not return to its baseline range.
+- **B's loss is in its held-out P4:** `boss-targets` fell from partial to missed in both runs. The digest's other content was unchanged; nothing was cut by its size cap.
+- **The owner chose to keep the section and fix B.** The section moves after the board, under a neutral header ("effects in play that changed the rules"), and only effects with evidence are listed, the rest counted. Placed first, under "a surprising number usually comes from one of these", it likely pulled the writer's reasoning towards mechanisms.
+- **Next:** this placement is measured with two B runs after deploy.

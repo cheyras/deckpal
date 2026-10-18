@@ -190,7 +190,7 @@ test('battle_digest appends the replay; detail is a schema option, and an older 
   assert.doesNotMatch(plain.text, /simulator replay/);
 });
 
-test('effects that change the rules: the ones with evidence get a line each, the rest share one, and old payloads still render', () => {
+test('effects that changed the rules: after the board, a line each for the ones with evidence, the rest counted, old payloads unchanged', () => {
   const text = renderReplay(
     replay({
       ruleEffects: [
@@ -205,8 +205,10 @@ test('effects that change the rules: the ones with evidence get a line each, the
     'summary',
     REPLAY_TEXT_MAX.summary,
   );
-  assert.match(text, /effects in play that change the rules/);
+  assert.match(text, /effects in play that changed the rules \(from the cards' text\):/);
   assert.match(text, /- T6 opp's Lillie's Clefairy ex \(Ability Fairy Zone\) \[weakness\]: .* → T8: me's Dragapult ex took Weakness to Psychic \(\+160\) and prints no Weakness/);
-  assert.match(text, /also in play, nothing visible in the log: opp's Latias ex \(Ability Skyliner\) \[retreat\]/);
-  assert.doesNotMatch(renderReplay(replay(), 'summary', REPLAY_TEXT_MAX.summary), /change the rules/, 'a payload from before 2026-10-17 has none');
+  assert.match(text, /- 1 more in play with nothing visible in the log/);
+  assert.doesNotMatch(text, /Skyliner/, 'a quiet effect is counted, not listed');
+  assert.ok(text.indexOf('board at the end') < text.indexOf('changed the rules'), 'after the game itself');
+  assert.doesNotMatch(renderReplay(replay(), 'summary', REPLAY_TEXT_MAX.summary), /changed the rules/, 'a payload from before 2026-10-17 has none');
 });

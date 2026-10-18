@@ -135,21 +135,6 @@ export function renderReplay(r: ReplayPayload, detail: DigestDetail, max: number
       out.push('moments: none (no self-Knock-Out, attack that did no damage, near miss or timer turn)');
     }
 
-    // Effects that changed the rules, read from each card's text (Weakness, costs, Tools, damage, prevention…). The
-    // ones the log shows touching something come first, each with that evidence; the rest share one line.
-    const effects = r.ruleEffects ?? [];
-    if (effects.length) {
-      const owner = (e: (typeof effects)[number]): string =>
-        `${label(e.side)}'s ${untrusted(e.card)}${e.source === 'Ability' ? ` (Ability ${untrusted(e.name)})` : ` (${e.source})`}`;
-      out.push("effects in play that change the rules (read from the cards' text; a surprising number usually comes from one of these):");
-      for (const e of effects.filter((x) => x.touched.length)) {
-        const when = `T${e.from}${e.until !== null ? `–T${e.until}` : ''}`;
-        out.push(`- ${when} ${owner(e)} [${e.kinds.join(', ')}]: ${untrusted(e.text, 200)} → ${e.touched.map(sub).join('; ')}`);
-      }
-      const quiet = effects.filter((x) => !x.touched.length);
-      if (quiet.length) out.push(`- also in play, nothing visible in the log: ${quiet.map((e) => `${owner(e)} [${e.kinds.join(', ')}]`).join(', ')}`);
-    }
-
     if (r.attacks.length) {
       out.push('attacks (T turn · who · attack → target: damage done, printed, what changed it · HP the target had · KO):');
       const shown = r.attacks.length <= attackCap ? r.attacks : [...r.attacks.slice(0, Math.ceil(attackCap / 2)), ...r.attacks.slice(-Math.floor(attackCap / 2))];
@@ -186,6 +171,25 @@ export function renderReplay(r: ReplayPayload, detail: DigestDetail, max: number
     if (r.finalBoard) {
       const order: ReplaySide[] = r.me === null ? [0, 1] : [r.me, opp as ReplaySide];
       out.push(`board at the end${r.finalApproximate ? ' ≈' : ''}: ${order.map((s) => `${label(s)}: ${sideLine(r.finalBoard![s], benchCap)}`).join(' | ')}`);
+    }
+
+    // Effects that changed the rules, read from each card's text (Weakness, costs, Tools, damage, prevention…): only
+    // the ones the log shows touching something, each with that evidence. After the game itself, and neutrally
+    // headed, so a reader weighs them as one input among the rest (2026-10-18: placed first, under "a surprising
+    // number usually comes from one of these", the eval's Sonnet writer lost opponent-decision points on held-out
+    // games). The rest are only counted.
+    const effects = r.ruleEffects ?? [];
+    const seen = effects.filter((x) => x.touched.length);
+    if (seen.length) {
+      const owner = (e: (typeof effects)[number]): string =>
+        `${label(e.side)}'s ${untrusted(e.card)}${e.source === 'Ability' ? ` (Ability ${untrusted(e.name)})` : ` (${e.source})`}`;
+      out.push("effects in play that changed the rules (from the cards' text):");
+      for (const e of seen) {
+        const when = `T${e.from}${e.until !== null ? `–T${e.until}` : ''}`;
+        out.push(`- ${when} ${owner(e)} [${e.kinds.join(', ')}]: ${untrusted(e.text, 200)} → ${e.touched.map(sub).join('; ')}`);
+      }
+      const quiet = effects.length - seen.length;
+      if (quiet) out.push(`- ${quiet} more in play with nothing visible in the log`);
     }
 
     const theirCards = opp === null ? [] : r.cards[opp];
