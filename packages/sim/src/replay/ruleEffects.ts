@@ -153,14 +153,31 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
   const inPlay = new Map<string, number>(); // side|name → copies in play
   const monSpans = new Map<string, Span[]>(); // side|name → when at least one copy was in play
   const abilitiesOf = new Map<string, Tracked[]>(); // side|name → its rule-changing Abilities
-  const toolsOn = new Map<string, Tracked[]>(); // side|holder name → Tools attached to it
+  // One record per ATTACHMENT: two Air Balloons are two lifetimes (Astra, #351).
+  interface ToolCopy { side: Side; name: string; holders: string[]; span: Span }
+  const toolsOn = new Map<string, ToolCopy[]>(); // side|holder name → the Tools attached to it
+  const toolCopies: ToolCopy[] = [];
+  const endCopy = (t: ToolCopy, e: LiveEvent): void => {
+    if (t.span.to === null) Object.assign(t.span, { to: e.seq, toTurn: e.turn });
+  };
+  let lastAction: LiveEvent | null = null;
   const teraKeys = new Set<string>();
   const shown = new Map<string, string>(); // side|name → the name as the log prints it
   let stadium: Tracked | null = null;
   const monKey = (side: Side, name: string) => `${side}|${name.toLowerCase()}`;
-  const allTools = new Map<string, Tracked>(); // side|tool name → its spans, whether or not it is an effect itself
 
   for (const e of ev) {
+    if (!e.sub) lastAction = e;
+    // A Stadium in play removed by an action whose text discards "a Stadium in play" (Megaton Blower), with no
+    // replacement: it stops changing the rules then. A copy discarded from a hand is not the one in play.
+    if ((e.t === 'discard' || (e.t === 'move_cards' && e.to === 'discard')) && e.sub && stadium && lastAction?.t === 'play_card') {
+      const names = [...(e.cards ?? []), ...(e.card ? [e.card] : [])].map((c) => c.name.toLowerCase());
+      const by = frameOf(lastAction.card);
+      if (names.includes(stadium.card.toLowerCase()) && /\bdiscard\b[^.]*\bStadium in play\b/i.test(by?.effect ?? '')) {
+        close(stadium, e);
+        stadium = null;
+      }
+    }
     if (e.t === 'play_stadium') {
       if (stadium) close(stadium, e);
       const f = frameOf(e.card);
@@ -186,7 +203,7 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
       const last = spans?.[spans.length - 1];
       if (last && last.to === null) Object.assign(last, { to: e.seq, toTurn: e.turn });
       for (const r of abilitiesOf.get(k) ?? []) close(r, e);
-      for (const r of toolsOn.get(k) ?? []) close(r, e);
+      for (const t of toolsOn.get(k) ?? []) endCopy(t, e);
       toolsOn.delete(k);
     }
     for (const { side, card } of entering(e)) {
@@ -213,10 +230,13 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
     if (e.t === 'discard' && e.from) {
       const gone = [...(e.cards ?? []), ...(e.card ? [e.card] : [])].map((c) => c.name.toLowerCase());
       const k = monKey(e.from.player, e.from.card.name);
-      const kept: Tracked[] = [];
-      for (const r of toolsOn.get(k) ?? []) {
-        if (gone.includes(r.card.toLowerCase())) close(r, e);
-        else kept.push(r);
+      const kept: ToolCopy[] = [];
+      for (const t of toolsOn.get(k) ?? []) {
+        const i = gone.indexOf(t.name.toLowerCase());
+        if (i >= 0) {
+          endCopy(t, e);
+          gone.splice(i, 1);
+        } else kept.push(t);
       }
       if (toolsOn.has(k)) toolsOn.set(k, kept);
     }
@@ -225,16 +245,19 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
       if (f?.category === 'Trainer' && /tool/i.test(f.trainerType ?? '')) {
         // EVERY Tool is tracked (a rule switching Tools off touches Lucky Helmet too); only one that changes a rule
         // itself becomes an effect of its own.
-        const tk = `${e.p}|${e.card.name.toLowerCase()}`;
-        let r = allTools.get(tk) ?? record(e.p, e.card.name, 'Tool', e.card.name, f.effect ?? '');
-        if (!r) r = { side: e.p, card: e.card.name, source: 'Tool', name: e.card.name, kinds: [], text: short(f.effect ?? '', 200), from: 0, until: null, touched: [], spans: [], holders: [] };
-        allTools.set(tk, r);
-        open(r, e);
-        if (!r.holders.includes(e.to.name)) r.holders.push(e.to.name);
+        record(e.p, e.card.name, 'Tool', e.card.name, f.effect ?? '');
+        const copy: ToolCopy = { side: e.p, name: e.card.name, holders: [e.to.name], span: { from: e.seq, to: null, fromTurn: e.turn, toTurn: null } };
+        toolCopies.push(copy);
         const k = monKey(e.p, e.to.name);
-        toolsOn.set(k, [...(toolsOn.get(k) ?? []), r]);
+        toolsOn.set(k, [...(toolsOn.get(k) ?? []), copy]);
       }
     }
+  }
+  // A Tool that is an effect itself is in play while any copy of it is.
+  for (const r of effects) {
+    if (r.source !== 'Tool') continue;
+    r.spans = toolCopies.filter((t) => t.side === r.side && same(t.name, r.card)).map((t) => t.span).sort((a, b) => a.from - b.from);
+    r.holders = [...new Set(toolCopies.filter((t) => t.side === r.side && same(t.name, r.card)).flatMap((t) => t.holders))];
   }
   const live = effects.filter((r) => r.spans.length);
   if (!live.length) return [];
@@ -320,17 +343,17 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
   // Tools in play at the same time as a rule switching Tools off.
   for (const r of live) {
     if (!r.kinds.includes('tools_off')) continue;
-    for (const t of allTools.values()) {
-      const at = overlaps(t.spans, r.spans);
-      if (at) push(r, `T${at.fromTurn}: ${who(t.side)}'s ${t.card}${t.holders.length ? ` on ${t.holders.join('/')}` : ''} had no effect`);
+    for (const t of toolCopies) {
+      const at = overlaps([t.span], r.spans);
+      if (at) push(r, `T${at.fromTurn}: ${who(t.side)}'s ${t.name} on ${t.holders.join('/')} had no effect`);
     }
   }
 
   return live
     .map(({ spans, holders: _holders, ...r }) => ({
       ...r,
-      from: spans[0]!.fromTurn,
-      until: spans[spans.length - 1]!.to === null ? null : spans[spans.length - 1]!.toTurn,
+      from: Math.min(...spans.map((x) => x.fromTurn)),
+      until: spans.some((x) => x.to === null) ? null : Math.max(...spans.map((x) => x.toTurn ?? 0)),
       touched: r.touched.length > 8 ? [...r.touched.slice(0, 7), `…and ${r.touched.length - 7} more`] : r.touched,
     }))
     .sort((a, b) => a.from - b.from);

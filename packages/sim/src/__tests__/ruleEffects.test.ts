@@ -165,3 +165,31 @@ test('a Tool stays attached through evolution, and every Tool is tracked for a r
   assert.match(facts, /\{p1\}'s Lucky Helmet on Fezandipiti ex had no effect/);
   assert.ok(!fx.some((e) => e.name === 'Lucky Helmet'), 'Lucky Helmet changes no rule itself, so it is not an effect of its own');
 });
+
+test('a Stadium removed from play with no replacement stops changing the rules (Astra, #351)', () => {
+  const fx = effectsOf([
+    'PlayerA played (sv6-5_38) Fezandipiti ex to the Active Spot.',
+    'PlayerB played (sv6-5_38) Fezandipiti ex to the Active Spot.',
+    ...turn('PlayerA', 'PlayerA played (me2-5_261) Jamming Tower to the Stadium spot.'),
+    ...turn('PlayerB', 'PlayerB played (sv8_182) Megaton Blower.', '- PlayerB discarded (me2-5_261) Jamming Tower.'),
+    ...turn('PlayerA', 'PlayerA attached (zsv10-5_79) Air Balloon to (sv6-5_38) Fezandipiti ex in the Active Spot.'),
+  ]);
+  const jt = fx.find((e) => e.name === 'Jamming Tower')!;
+  assert.equal(jt.until, 2, JSON.stringify(jt));
+  assert.deepEqual(jt.touched, [], 'the Air Balloon came after the Tower was gone');
+});
+
+test('two copies of a Tool are two lifetimes: one leaving play does not take the other with it (Astra, #351)', () => {
+  const fx = effectsOf([
+    'PlayerA played (me5_33_ph) Shuppet to the Active Spot.',
+    'PlayerA played (sv6_128) Dreepy to the Bench.',
+    'PlayerB played (sv6-5_38) Fezandipiti ex to the Active Spot.',
+    ...turn('PlayerA', 'PlayerA attached (zsv10-5_79) Air Balloon to (me5_33_ph) Shuppet in the Active Spot.', 'PlayerA attached (zsv10-5_79) Air Balloon to (sv6_128) Dreepy on the Bench.'),
+    ...turn('PlayerB', "PlayerA's (me5_33_ph) Shuppet was Knocked Out!"),
+    ...turn('PlayerA'),
+    ...turn('PlayerB', 'PlayerB played (me2-5_261) Jamming Tower to the Stadium spot.'),
+  ]);
+  const facts = fx.find((e) => e.name === 'Jamming Tower')!.touched.join(' | ');
+  assert.match(facts, /Air Balloon on Dreepy had no effect/);
+  assert.doesNotMatch(facts, /Air Balloon on Shuppet/);
+});
