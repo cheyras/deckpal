@@ -221,3 +221,13 @@ test('when two Pokémon share a name, a Tool whose holder the log cannot tell ap
   const jt = fx.find((e) => e.name === 'Jamming Tower')!;
   assert.deepEqual(jt.touched, [], 'which Dreepy held the Balloon is unknowable from the log: say nothing rather than guess');
 });
+
+test('a same-named Pokémon arriving AFTER a Tool was attached makes that Tool uncertain too (Astra, #351)', () => {
+  const fx = effectsOf([
+    'PlayerA played (sv6-5_38) Fezandipiti ex to the Active Spot.',
+    'PlayerB played (sv6-5_38) Fezandipiti ex to the Active Spot.',
+    ...turn('PlayerA', 'PlayerA attached (zsv10-5_79) Air Balloon to (sv6-5_38) Fezandipiti ex in the Active Spot.', 'PlayerA played (sv6-5_38) Fezandipiti ex to the Bench.', 'PlayerA played (sv6_162) Scoop Up Cyclone.', "- PlayerA moved PlayerA's (sv6-5_38) Fezandipiti ex to their hand."),
+    ...turn('PlayerB', 'PlayerB played (me2-5_261) Jamming Tower to the Stadium spot.'),
+  ]);
+  assert.doesNotMatch(fx.find((e) => e.name === 'Jamming Tower')!.touched.join(' | '), /\{p0\}'s Air Balloon/);
+});

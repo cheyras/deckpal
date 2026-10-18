@@ -222,7 +222,11 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
       const k = monKey(side, name);
       const n = Math.max(0, (inPlay.get(k) ?? 0) - 1);
       inPlay.set(k, n);
-      if (n > 0) continue;
+      // One of several same-named Pokémon left: the log does not say whose Tools went with it (Astra, #351).
+      if (n > 0) {
+        for (const t of toolsOn.get(k) ?? []) t.uncertain = true;
+        continue;
+      }
       const spans = monSpans.get(k);
       const last = spans?.[spans.length - 1];
       if (last && last.to === null) Object.assign(last, { to: e.seq, toTurn: e.turn });
@@ -234,6 +238,8 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
       const k = monKey(side, card.name);
       const n = (inPlay.get(k) ?? 0) + 1;
       inPlay.set(k, n);
+      // A second Pokémon of that name: from now on the log cannot tell their Tools apart.
+      if (n > 1) for (const t of toolsOn.get(k) ?? []) t.uncertain = true;
       const f = frameOf(card);
       shown.set(k, card.name);
       if (f && TERA_PRINTINGS.has(f.cardId)) teraKeys.add(k);
