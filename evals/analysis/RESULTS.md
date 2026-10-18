@@ -5,7 +5,7 @@
 **What ran.**
 - Two full runs of the 9 cases × 3 configs, on the QA account against live deckpal.app (main at c626e9dd).
 - The judge is Sonnet 5.5 at medium effort, with the card text of every card in the log.
-- Total spend, smoke run included: $3.85.
+- Total spend, smoke run included: $3.83.
 
 **Each cell is run 1 / run 2.** The first five rows (Overall to Held-out) moved by 6 points or less between runs. The per-principle rows rest on few rubric points and move more.
 
@@ -113,3 +113,34 @@ These remain unresolved, and no reason can be assigned to the falls from one run
 **Next mechanisms gap:** effects carried in ATTACK text, which the digest does not yet surface for the turn they apply:
 - Shellnado Spin's counter-damage;
 - Seek Inspiration copying an attack.
+
+## The repeat, and the placement fix (#354), 2026-10-18
+
+**The repeat of the post-#351 run agreed with the first:**
+- A overall 66 / 67;
+- B overall 72 / 73, below its 78 / 76 baseline;
+- B's held-out P4 33 / 17.
+
+The keep condition failed, and the owner chose to fix B rather than revert.
+
+**What was seen.** The section sat before the attacks, under a header ("a surprising number usually comes from one of these") that pointed the reader at mechanisms. In hns-36 B lost `boss-targets` in both runs, while that digest's other content was the same.
+
+**The fix (#354):** the section comes after the board, under a neutral header, and only effects with evidence are listed, the rest counted.
+
+Two B runs after the fix, all 9 cases judged ($1.32, including two judge calls resumed after the first cap ran out):
+
+| Config B | Baseline | After #351 | After #354 |
+|---|---|---|---|
+| Overall | 78 / 76 | 72 / 73 | **78 / 77** |
+| Held-out games | 68 / 62 | 65 / 53 | **71 / 68** |
+| Held-out P2 | 50 / 50 | 60 / 60 | **70 / 70** |
+| Held-out P4 | 50 / 50 | 33 / 17 | 50 / 33 |
+| Owner games | 83 / 83 | 77 / 84 | 81 / 81 |
+
+**The keep condition is met on complete runs:**
+- B's overall score is back inside its baseline range;
+- held-out P2 is above its baseline in both runs.
+
+**Verdict: the rule-effects section is kept.** Recorded eval spend across every ledger, summed before rounding: **$7.20**.
+
+**What it suggests, not proves.** #354 changed three things at once: placement, header wording and listing only effects with evidence. The gatherer's tool calls also vary from run to run, and these are two runs of nine games. The recovery is consistent with the section's placement and framing having pulled the writer towards mechanisms, but these runs do not separate that from the other changes or from chance. As a precaution, a new digest section goes after the game's own facts, under a neutral header, and is measured on the writer config.

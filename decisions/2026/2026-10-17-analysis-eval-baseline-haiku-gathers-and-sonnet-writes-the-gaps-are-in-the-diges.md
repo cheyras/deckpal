@@ -8,7 +8,7 @@ supersedes: []
 ## 2026-10-17 — Analysis eval baseline: Haiku gathers and Sonnet writes; the gaps are in the digest
 **Decided by:** Chey (via Claude)
 
-**Decision:** The first results of the analysis eval (Phase 5) are recorded in `evals/analysis/RESULTS.md`. They set the direction for the next change. Two full runs (9 cases × 3 configs, QA account, $3.85 in all) agree within 6 points on the summary rows (overall, must items, owner and held-out games). The per-principle rows rest on few rubric points and move more; P1 is a single point.
+**Decision:** The first results of the analysis eval (Phase 5) are recorded in `evals/analysis/RESULTS.md`. They set the direction for the next change. Two full runs (9 cases × 3 configs, QA account, $3.83 in all) agree within 6 points on the summary rows (overall, must items, owner and held-out games). The per-principle rows rest on few rubric points and move more; P1 is a single point.
 
 **1. For game reviews, a Haiku 5.5 gatherer feeding one Sonnet 5.5 writer is the shape to use.**
 
