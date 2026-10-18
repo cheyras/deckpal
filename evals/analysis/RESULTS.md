@@ -90,10 +90,12 @@ node scripts/analysis-eval.mjs run --budget 8 --rejudge --out evals/analysis/run
 | B P2, held-out games | 50 / 50 | **60** |
 | B P3, all games | 94 / 81 | 75 |
 
-**The points the change covers moved up in both configs:**
-- `jamming-tower` (held-out hns-36): 0 / 0 → 0.5.
-- `fairy-zone-340` (owner-99): 0.5 / 0.5 → 1.
-- `crustle-mechanism` (owner-95, A): 0 / 0 → 1.
+**The points the change covers:**
+- **Up in both configs:**
+  - `jamming-tower` (held-out hns-36): 0 / 0 → 0.5.
+  - `fairy-zone-340` (owner-99): 0.5 / 0.5 → 1.
+- **Up in A only:** `crustle-mechanism` (owner-95), 0 / 0 → 1. B already scored 1 / 1 and still does.
+- **Not improved:** `mine-tera` (owner-94, the Nighttime Mine point). A went 0.5 / 1 → 0.5; B stayed at 1 / 1 → 1.
 
 **Points it does not cover:**
 - `shellnado-dodge` stayed at 0 throughout.

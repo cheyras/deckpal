@@ -13,16 +13,18 @@ supersedes: []
 **Why:** The #351 decision promised a revert unless P2 rose on the held-out games as well as the owner's. One post-deploy run (`evals/analysis/RESULTS.md`) meets that rule only in part.
 
 For keeping it:
-- Every rubric point the change is meant to cover moved up in both configs, including a held-out one, Jamming Tower on hns-36.
+- Two covered points rose in both configs: `jamming-tower` (held-out hns-36) and `fairy-zone-340`.
+- `crustle-mechanism` rose in A; B was already at full marks.
 - B's held-out P2 rose from 50 / 50 to 60.
 - A's owner P2 rose from 56 / 50 to 72.
 
 Against it:
 - A's held-out P2 (40) did not rise above its baseline average (40).
+- The Nighttime Mine point the change also covers (`mine-tera`) did not improve: A went 0.5 / 1 → 0.5, and B stayed at 1.
 - B's overall score (72) fell below both baseline runs (78, 76), mostly on P3 and P4, which the change does not address.
 - Points outside its scope fell in some configs: `codebreaking-seek`, and B's `dark-weakness`.
 
-One run cannot separate a side effect of the longer digest from run-to-run variation. The covered points moved the way a class fix should, so the change is kept while that question is settled, not declared a success.
+One run cannot separate a side effect of the longer digest from run-to-run variation. Most covered points moved the way a class fix should, one of them on a held-out game, so the change is kept while that question is settled, not declared a success.
 
 **Implications:**
 - The repeat run costs about $1. It needs the owner's go-ahead, because Phase 5's ~$5 approval is spent: $4.80 so far.
