@@ -158,6 +158,7 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
   const shown = new Map<string, string>(); // side|name → the name as the log prints it
   let stadium: Tracked | null = null;
   const monKey = (side: Side, name: string) => `${side}|${name.toLowerCase()}`;
+  const allTools = new Map<string, Tracked>(); // side|tool name → its spans, whether or not it is an effect itself
 
   for (const e of ev) {
     if (e.t === 'play_stadium') {
@@ -166,6 +167,15 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
       stadium = f?.category === 'Trainer' ? record(e.p, e.card.name, 'Stadium', e.card.name, f.effect ?? '') : null;
       if (stadium) open(stadium, e);
       continue;
+    }
+    // Evolving keeps the Tools attached: they move to the evolved Pokémon (Astra, #351).
+    if (e.t === 'evolve') {
+      const from = monKey(e.p, e.from.name);
+      const to = monKey(e.p, e.to.name);
+      const moving = toolsOn.get(from) ?? [];
+      toolsOn.delete(from);
+      if (moving.length) toolsOn.set(to, [...(toolsOn.get(to) ?? []), ...moving]);
+      for (const t of moving) if (!t.holders.includes(e.to.name)) t.holders.push(e.to.name);
     }
     for (const { side, name } of leaving(e)) {
       const k = monKey(side, name);
@@ -213,13 +223,16 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
     if (e.t === 'attach') {
       const f = frameOf(e.card);
       if (f?.category === 'Trainer' && /tool/i.test(f.trainerType ?? '')) {
-        const r = record(e.p, e.card.name, 'Tool', e.card.name, f.effect ?? '');
-        if (r) {
-          open(r, e);
-          if (!r.holders.includes(e.to.name)) r.holders.push(e.to.name);
-          const k = monKey(e.p, e.to.name);
-          toolsOn.set(k, [...(toolsOn.get(k) ?? []), r]);
-        }
+        // EVERY Tool is tracked (a rule switching Tools off touches Lucky Helmet too); only one that changes a rule
+        // itself becomes an effect of its own.
+        const tk = `${e.p}|${e.card.name.toLowerCase()}`;
+        let r = allTools.get(tk) ?? record(e.p, e.card.name, 'Tool', e.card.name, f.effect ?? '');
+        if (!r) r = { side: e.p, card: e.card.name, source: 'Tool', name: e.card.name, kinds: [], text: short(f.effect ?? '', 200), from: 0, until: null, touched: [], spans: [], holders: [] };
+        allTools.set(tk, r);
+        open(r, e);
+        if (!r.holders.includes(e.to.name)) r.holders.push(e.to.name);
+        const k = monKey(e.p, e.to.name);
+        toolsOn.set(k, [...(toolsOn.get(k) ?? []), r]);
       }
     }
   }
@@ -251,15 +264,25 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
         push(candidates[0]!, `T${e.turn}: ${who(e.target.player)}'s ${e.target.card.name} took Weakness to ${w.type} (+${w.amount}) and prints ${printed.size ? `only ${[...printed].join('/')} Weakness` : 'no Weakness'}`);
       }
     }
-    // Breakdown lines naming the effect ("(Ability) Cheer On to Glory: 30"): the attacker's own, in play then. Two
-    // copies show as two lines in one attack: one fact, "30 ×2".
-    for (const r of live) {
-      if (r.side !== e.p || !inSpans(r.spans, e.seq)) continue;
-      const hits = (e.breakdown ?? []).filter((b) => b.label.toLowerCase().includes(r.name.toLowerCase()));
+    // Breakdown lines naming an effect ("(Ability) Cheer On to Glory: 30", "Diamond Coat: -30"). A bonus is the
+    // attacker's; a reduction is the defender's (Astra, #351). Claimed only when exactly one effect of that side, in
+    // play then, carries the name. Two copies show as two lines in one attack: one fact, "30 ×2".
+    const names = [...new Set(live.map((r) => r.name.toLowerCase()))];
+    for (const n of names) {
+      const hits = (e.breakdown ?? []).filter((b) => b.label.toLowerCase().includes(n));
       if (!hits.length) continue;
+      const defensive = hits.every((h) => h.amount < 0);
+      const owner = defensive ? e.target.player : e.p;
+      const candidates = live.filter((r) => r.name.toLowerCase() === n && r.side === owner && inSpans(r.spans, e.seq));
+      if (candidates.length !== 1) continue;
       const each = hits[0]!.amount;
       const amount = hits.length > 1 && hits.every((h) => h.amount === each) ? `${each} ×${hits.length}` : hits.map((h) => h.amount).join(' + ');
-      push(r, `T${e.turn}: added ${amount} to ${who(e.p)}'s ${e.move} on ${e.target.card.name}`);
+      push(
+        candidates[0]!,
+        defensive
+          ? `T${e.turn}: took ${amount} off ${who(e.p)}'s ${e.move} on ${who(owner)}'s ${e.target.card.name}`
+          : `T${e.turn}: added ${amount} to ${who(e.p)}'s ${e.move} on ${e.target.card.name}`,
+      );
     }
     // An attack into a Pokémon whose own Ability prevents damage, that did none.
     if (e.damage === 0) {
@@ -297,8 +320,7 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
   // Tools in play at the same time as a rule switching Tools off.
   for (const r of live) {
     if (!r.kinds.includes('tools_off')) continue;
-    for (const t of live) {
-      if (t.source !== 'Tool') continue;
+    for (const t of allTools.values()) {
       const at = overlaps(t.spans, r.spans);
       if (at) push(r, `T${at.fromTurn}: ${who(t.side)}'s ${t.card}${t.holders.length ? ` on ${t.holders.join('/')}` : ''} had no effect`);
     }

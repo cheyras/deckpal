@@ -135,3 +135,33 @@ test('a Pokémon searched straight onto the Bench brings its Ability into play',
   ]);
   assert.ok(fx.some((e) => e.name === "Hide 'n' Sneak" && e.side === 0 && e.from === 1), JSON.stringify(fx));
 });
+
+test('a damage reduction is the defender\'s; in a mirror the attacker\'s copy claims nothing (Astra, #351)', () => {
+  const fx = effectsOf([
+    'PlayerA played (me2_41) Mega Diancie ex to the Active Spot.',
+    'PlayerB played (me2_41) Mega Diancie ex to the Active Spot.',
+    ...turn('PlayerA'),
+    ...turn('PlayerB', "PlayerB's (me2_41) Mega Diancie ex used Mega Diamond on PlayerA's (me2_41) Mega Diancie ex for 170 damage.", '- Damage breakdown:', '   • Base damage: 200 damage', '   • (Ability) Diamond Coat: -30 damage', '   • Total damage: 170 damage'),
+  ]);
+  const a = fx.find((e) => e.name === 'Diamond Coat' && e.side === 0)!;
+  const b = fx.find((e) => e.name === 'Diamond Coat' && e.side === 1)!;
+  assert.equal(a.touched.length, 1, JSON.stringify(fx));
+  assert.match(a.touched[0]!, /took -30 off \{p1\}'s Mega Diamond/);
+  assert.deepEqual(b.touched, []);
+});
+
+test('a Tool stays attached through evolution, and every Tool is tracked for a rule that switches Tools off (Astra, #351)', () => {
+  const fx = effectsOf([
+    'PlayerA played (me5_33_ph) Shuppet to the Active Spot.',
+    'PlayerB played (sv6-5_38) Fezandipiti ex to the Active Spot.',
+    ...turn('PlayerA', 'PlayerA attached (zsv10-5_79) Air Balloon to (me5_33_ph) Shuppet in the Active Spot.'),
+    ...turn('PlayerB', 'PlayerB attached (sv6_158) Lucky Helmet to (sv6-5_38) Fezandipiti ex in the Active Spot.'),
+    ...turn('PlayerA', 'PlayerA evolved (me5_33_ph) Shuppet to (me5_34_ph) Banette in the Active Spot.'),
+    ...turn('PlayerB', 'PlayerB played (me2-5_261) Jamming Tower to the Stadium spot.'),
+  ]);
+  const jt = fx.find((e) => e.name === 'Jamming Tower')!;
+  const facts = jt.touched.join(' | ');
+  assert.match(facts, /\{p0\}'s Air Balloon on Shuppet\/Banette had no effect/);
+  assert.match(facts, /\{p1\}'s Lucky Helmet on Fezandipiti ex had no effect/);
+  assert.ok(!fx.some((e) => e.name === 'Lucky Helmet'), 'Lucky Helmet changes no rule itself, so it is not an effect of its own');
+});
