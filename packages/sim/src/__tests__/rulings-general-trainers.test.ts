@@ -13,10 +13,7 @@
  *    still one Energy.
  *
  * Rulings in those categories about mechanics Standard no longer has (Technical Machines stacked as non-Tool Trainers, Trainers
- * attached beside a Tool, Energy-type conversion) or about tournament procedure have no test here. Two that apply are not followed
- * by the engine yet, and no Standard card meets either today: #668 (a Special Energy that provides its type only while attached is
- * not of that type in the discard pile: the card language has no "only while attached" yet) and #1823's "switch out" half (an effect
- * on the Active Pokémon). The cards they need (Grit Energy, Grit Recall, Shove) are defined below.
+ * attached beside a Tool, Energy-type conversion) or about tournament procedure have no test here. The cards #668 and #1823 need (Grit Energy, Grit Recall, Shove) are defined below.
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -423,4 +420,30 @@ test("Compendium #926: after using the Stadium in play, a player may play a Stad
   assert.ok(!has(g, "Use the Stadium"), "and that one is used for the turn");
 });
 
-void [GRIT_DECK, REAL_SHOVE]; // used by the held-back tests (see the header)
+
+
+test('Compendium #1823: a "switch out" of the opponent\'s Active Pokémon is an effect on that Pokémon: one protected from the opponent\'s Item effects stays Active', () => {
+  // The wording "switch out" marks an effect on the Active Pokémon (Fraxure, Unnerve); Boss's Orders' "switch in" acts on the Benched one.
+  const mk = (protectedActive: boolean): Game =>
+    scenario(REAL_SHOVE, REAL_SHOVE, [{ active: 'Pup', hand: ['Shove'] }, { active: 'Axew', ...(protectedActive ? { evolve: { active: ['Fraxure'] } } : {}), bench: ['Pup'] }], { scripts: SCRIPTS });
+  const g = mk(true);
+  choose(g, 'Play Shove');
+  assert.equal(nameOf(g, g.state.p[1].active!.cards.at(-1)!), 'Fraxure', 'the protected Active Pokémon is not switched out');
+  const c = mk(false);
+  choose(c, 'Play Shove');
+  assert.equal(nameOf(c, c.state.p[1].active!.cards.at(-1)!), 'Pup', 'control: an unprotected Active Pokémon is switched out');
+});
+
+test('Compendium #668: a Special Energy that provides a type only while attached is not an Energy card of that type in the discard pile', () => {
+  // "a {F} Energy card from your discard pile" finds the Basic one, not Grit Energy; attached, Grit Energy does provide {F}.
+  const g = scenario(GRIT_DECK, GRIT_DECK, [{ active: 'Pup', hand: ['Grit Recall'], discard: ['Grit Energy', 'Fighting Energy'] }, { active: 'Pup' }], { scripts: SCRIPTS });
+  choose(g, 'Play Grit Recall');
+  if (g.decision?.kind === 'cards') {
+    assert.deepEqual(labels(g), ['Fighting Energy'], 'only the Basic {F} Energy');
+    g.submit([0]);
+  }
+  assert.deepEqual(names(g, g.state.p[0].hand), ['Fighting Energy']);
+  assert.ok(g.state.p[0].discard.some((c) => nameOf(g, c) === 'Grit Energy'), 'Grit Energy stays in the discard pile');
+  const on = scenario(GRIT_DECK, GRIT_DECK, [{ active: 'Pup', energy: { active: ['Grit Energy', 'Psychic Energy'] } }, { active: 'Pup' }], { scripts: SCRIPTS });
+  assert.ok(has(on, 'Attack: Headbutt'), 'attached, it does provide {F}');
+});

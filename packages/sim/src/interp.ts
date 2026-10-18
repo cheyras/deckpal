@@ -1106,7 +1106,15 @@ function chooseCards(env: Env, s: GameState, f: Frame, st: Extract<Step, { op: '
   }
   // Cards that "can't be put into your hand or deck from the discard pile" are not offered when the chosen cards are about to be put there.
   const noRecover = st.from === 'discard' && movesToHandOrDeck(env, f, st.as);
-  const opts = zone.filter((c) => (!st.others || c !== f.src) && cardMatches(env, c, st.filter) && !(noRecover && def(env.ctx, c).script?.noRecoverFromDiscard));
+  // A Special Energy that provides its Energy only while attached is no type of Energy in the hand, deck or discard pile (#668).
+  const offPlayType = !!st.filter?.providesType;
+  const opts = zone.filter(
+    (c) =>
+      (!st.others || c !== f.src) &&
+      cardMatches(env, c, st.filter) &&
+      !(noRecover && def(env.ctx, c).script?.noRecoverFromDiscard) &&
+      !(offPlayType && def(env.ctx, c).typeOnlyAttached),
+  );
   const [least, max] = bounds(opts.length, evalExpr(env, s, e, st.min), evalExpr(env, s, e, st.max));
   // Searching your own (hidden) deck for cards of a kind ("a Basic Pokémon", "an Energy card"), you may find none even when one is
   // there, since nobody can check (Compendium #903). A search for any card at all has no such way out.
@@ -1235,11 +1243,18 @@ function switchStep(env: Env, s: GameState, f: Frame, st: Extract<Step, { op: 's
   const who = side(e, st.who);
   const ps = s.p[who];
   if (!ps.active || !ps.bench.length) return 'next';
-  if ((f.kind === 'attack' || f.kind === 'ability') && who !== f.player && effectsPrevented(env, s, ps.active, f.player, f.kind)) {
+  // Switching OUT the opponent's Active Pokémon ("Your opponent chooses the new Active Pokémon") is an effect on it, so its protection
+  // stops the switch. Switching IN a Benched Pokémon (a gust: Heave-Ho Catcher, Drag Off) acts on that Benched Pokémon instead (ruling
+  // 2155, checked below): an Active Pokémon protected from effects of attacks or Abilities (Hide 'n' Sneak) can still be pulled away.
+  const switchOut = st.chooser === 'opp' && !st.with;
+  if ((f.kind === 'attack' || f.kind === 'ability') && who !== f.player && switchOut && effectsPrevented(env, s, ps.active, f.player, f.kind)) {
     return 'next';
   }
-  // (No check on the Active Pokémon: a Supporter that switches in a Benched Pokémon targets that Benched Pokémon, so only it is
-  // checked below -- TPCi Rules Team 2025-05-29, ruling 2154, Team Rocket's Giovanni and Cetitan ex.)
+  // (No check on the Active Pokémon for a Trainer that switches IN a Benched Pokémon: it targets that Benched Pokémon, so only it is
+  // checked below -- TPCi Rules Team 2025-05-29, ruling 2154, Team Rocket's Giovanni and Cetitan ex. A Trainer that switches OUT the
+  // opponent's Active Pokémon, "(Your opponent chooses the new Active Pokémon.)", is an effect on that Active Pokémon: if it is
+  // protected from the card, nothing happens -- Compendium #1823.)
+  if (f.kind === 'trainer' && who !== f.player && st.chooser === 'opp' && !st.with && trainerBlocked(env, s, f, ps.active)) return 'next';
   let target: Slot | undefined;
   if (st.with) {
     target = resolveSlot(s, e, st.with) ?? undefined;

@@ -103,6 +103,11 @@ export interface CardDef {
   // Energy
   basicEnergy: boolean;
   provides: PType[];
+  /**
+   * A Special Energy whose printed text gives its Energy only "as long as this card is attached to a Pokémon": in the hand, deck or
+   * discard pile it is no type of Energy, so "a {F} Energy card from your discard pile" does not find it (Compendium #668).
+   */
+  typeOnlyAttached?: boolean;
   // Shared passives/triggers (Tools, Stadiums, Energy)
   statics: StaticDef[];
   triggers: { t: TriggerScript; code: string }[];

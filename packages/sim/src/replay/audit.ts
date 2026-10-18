@@ -596,6 +596,14 @@ export function auditLog(raw: string, name = 'log', o: ParseOptions = {}): LogAu
         if (m) m.damage += ev.count * 10;
         break;
       }
+      case 'move_counters': {
+        // Live names the mover for both Pokémon ("from P's Munkidori to P's Slowking" with the Slowking the opponent's).
+        const a = board.find(ev.from.player, ev.from.card) ?? board.find((1 - ev.from.player) as Side, ev.from.card);
+        const b = board.find(ev.to.player, ev.to.card) ?? board.find((1 - ev.to.player) as Side, ev.to.card);
+        if (a) a.damage = Math.max(0, a.damage - ev.count * 10);
+        if (b) b.damage += ev.count * 10;
+        break;
+      }
       case 'heal': {
         const m = board.find(ev.p, ev.target);
         if (m) m.damage = Math.max(0, m.damage - ev.amount);

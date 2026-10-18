@@ -88,3 +88,35 @@ test('Compendium #903: a search of your deck for a kind of card may find none; a
   choose(up, 'Play Pick Up');
   assert.equal(up.decision?.min, 1, 'the discard pile is public: one must be taken');
 });
+
+// A gust ("switch in 1 of your opponent's Benched Pokémon") acts on the Benched Pokémon, so an Active Pokémon protected from the
+// effects of Abilities is still pulled away; a "switch out" (the opponent chooses) is an effect on the Active and is stopped (ruling 2155;
+// found replaying a real game: Hariyama's Heave-Ho Catcher against Banette's Hide 'n' Sneak).
+const HOOKER = pokemon('t-c05', 'Hooker', { hp: 90 });
+HOOKER.abilities = [{ kind: 'Ability', name: 'Hook', effect: "Once during your turn, you may switch in 1 of your opponent's Benched Pokémon to the Active Spot." }];
+const PUSHER = pokemon('t-c06', 'Pusher', { hp: 90 });
+PUSHER.abilities = [{ kind: 'Ability', name: 'Push', effect: "Once during your turn, you may switch out your opponent's Active Pokémon to the Bench. (Your opponent chooses the new Active Pokémon.)" }];
+const VEILED = pokemon('t-c07', 'Veiled', { hp: 90 });
+VEILED.abilities = [{ kind: 'Ability', name: 'Veil', effect: "Prevent all effects of your opponent's Pokémon's Abilities done to this Pokémon." }];
+const GUST_SCRIPTS = [
+  { id: 't-c05', name: 'Hooker', abilities: [{ name: 'Hook', activated: { program: [{ op: 'switch', who: 'opp' }] } }] },
+  { id: 't-c06', name: 'Pusher', abilities: [{ name: 'Push', activated: { program: [{ op: 'switch', who: 'opp', chooser: 'opp' }] } }] },
+  { id: 't-c07', name: 'Veiled', abilities: [{ name: 'Veil', statics: [{ effect: { k: 'preventEffects', from: ['ability'] }, scope: 'self' }] }] },
+] as unknown as import('../dsl.js').CardScript[];
+const GUST = deck('G', [
+  [HOOKER, 8],
+  [PUSHER, 8],
+  [VEILED, 8],
+  [PUP, 8],
+  [FIGHTING, 28],
+]);
+
+test('a gust pulls up a Benched Pokémon even when the Active Pokémon is protected from Abilities; a switch out of that Active is stopped', () => {
+  const at = (who: string) => scenario(GUST, GUST, [{ active: who }, { active: 'Veiled', bench: ['Pup'] }], { scripts: GUST_SCRIPTS });
+  const hook = at('Hooker');
+  choose(hook, 'Use Hook');
+  assert.equal(nameOf(hook, hook.state.p[1].active!.cards[0]!), 'Pup', 'the gust acts on the Benched Pup');
+  const push = at('Pusher');
+  choose(push, 'Use Push');
+  assert.equal(nameOf(push, push.state.p[1].active!.cards[0]!), 'Veiled', 'switching out the protected Active does nothing');
+});

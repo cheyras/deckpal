@@ -73,6 +73,8 @@ export type LiveEventBody =
   /** "P's X took N damage." — damage stated without an attack clause (spread / bench hits). */
   | { t: 'damage'; p: Side; target: CardMention; amount: number }
   | { t: 'counters'; p: Side | null; target: BoardMention; count: number; condition?: string }
+  /** "P moved N damage counters from X to Y." (Munkidori's Adrena-Brain). */
+  | { t: 'move_counters'; p: Side; from: BoardMention; to: BoardMention; count: number }
   | { t: 'heal'; p: Side; target: CardMention; amount: number }
   | { t: 'condition'; p: Side; target: CardMention; cond: string; cleared: boolean }
   | { t: 'knockout'; p: Side; card: CardMention }
@@ -411,8 +413,9 @@ export function parseLiveLog(raw: string, o: ParseOptions = {}): ParsedLiveLog {
         else if ((m = /^discarded (\d{1,3}) cards\.$/.exec(rest))) fold = { ev: D({ t: 'discard', p, count: Number(m[1]) }), kind: 'cards' };
         else if ((m = /^discarded (.+?)\.$/.exec(rest))) D({ t: 'discard', p, card: card(m[1]!) });
         else if ((m = /^put (\d{1,3}) cards on the bottom of their deck\.$/.exec(rest))) D({ t: 'move_cards', p, to: 'deck_bottom', count: Number(m[1]) });
+        // "put a card on top of their deck." (Academy at Night) hides the card: a count, not a card named "a card".
         else if ((m = /^put (.+?) on (?:the )?(top|bottom) of their deck\.$/.exec(rest)))
-          D({ t: 'move_cards', p, to: m[2] === 'top' ? 'deck_top' : 'deck_bottom', card: card(m[1]!) });
+          D({ t: 'move_cards', p, to: m[2] === 'top' ? 'deck_top' : 'deck_bottom', ...(m[1] === 'a card' ? { count: 1 } : { card: card(m[1]!) }) });
         else if ((m = /^moved (.+?) to (their hand|their deck|the discard pile)\.$/.exec(rest))) {
           const to = m[2] === 'their hand' ? 'hand' : m[2] === 'their deck' ? 'deck' : 'discard';
           const what = board(m[1]!);
@@ -431,6 +434,19 @@ export function parseLiveLog(raw: string, o: ParseOptions = {}): ParsedLiveLog {
           else matched = false;
         } else if ((m = /^chose (.+?)\.?$/.exec(rest)) && !/ for the opening coin flip/.test(rest)) D({ t: 'chose', p, option: m[1]! });
         else if ((m = /^flipped a coin and it landed on (heads|tails)\.$/.exec(rest))) D({ t: 'coin_flip', p, heads: m[1] === 'heads' });
+        else if ((m = /^flipped (\d{1,2}) coins, and (\d{1,2}) landed on (heads|tails)\.$/.exec(rest))) {
+          // "flipped 3 coins, and 2 landed on heads.": one flip per coin. Live gives no order; only the count matters.
+          const n = Number(m[1]);
+          const k = Math.min(Number(m[2]), n);
+          const heads = m[3] === 'heads' ? k : n - k;
+          for (let c = 0; c < n; c++) D({ t: 'coin_flip', p, heads: c < heads });
+        } else if ((m = /^moved (\d{1,2}) damage counters? from (.+?) to (.+?)\.$/.exec(rest))) {
+          // Adrena-Brain: "moved 2 damage counters from P's Toxtricity to Q's Slowking."
+          const from = board(m[2]!);
+          const to = board(m[3]!);
+          if (from && to) D({ t: 'move_counters', p, from, to, count: Number(m[1]) });
+          else matched = false;
+        }
         else if (rest === 'ended their turn.') D({ t: 'end_turn', p, timeout: false });
         else if (rest === "didn't take an action in time.") D({ t: 'end_turn', p, timeout: true });
         else if (/^conceded(?:[ .!]|$)/.test(rest)) D({ t: 'concede', p });
