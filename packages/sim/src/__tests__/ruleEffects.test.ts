@@ -231,3 +231,11 @@ test('a same-named Pokémon arriving AFTER a Tool was attached makes that Tool u
   ]);
   assert.doesNotMatch(fx.find((e) => e.name === 'Jamming Tower')!.touched.join(' | '), /\{p0\}'s Air Balloon/);
 });
+
+test('the wording classifier stays linear on hostile text (CodeQL js/polynomial-redos, #351)', () => {
+  for (const s of ['(after applying weakness', 'Retreat Cost ', 'Weakness of ', 'attacks cost ', 'ignore ']) {
+    const t0 = Date.now();
+    ruleKinds(s.repeat(20_000));
+    assert.ok(Date.now() - t0 < 500, `${JSON.stringify(s)} took ${Date.now() - t0} ms`);
+  }
+});

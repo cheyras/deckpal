@@ -58,9 +58,9 @@ const KIND_TESTS: ReadonlyArray<[RuleEffectKind, RegExp]> = [
 
 export function ruleKinds(text: string | null | undefined): RuleEffectKind[] {
   // "(before applying Weakness and Resistance)" orders a damage change; it changes no Weakness.
-  const t = (text ?? '').replace(/\((?:before|after) applying Weakness[^)]*\)/gi, '');
+  const t = (text ?? '').replace(/\((?:before|after) applying Weakness[^)]{0,80}\)/gi, '');
   // A Retreat Cost is not an attack's cost: "is {C}{C} less" on a Retreat Cost is a retreat change only.
-  const noRetreat = t.replace(/\bRetreat Cost\b[^.]*/gi, '');
+  const noRetreat = t.replace(/\bRetreat Cost\b[^.]{0,200}/gi, '');
   return KIND_TESTS.filter(([k, re]) => re.test(k === 'cost' ? noRetreat : t)).map(([k]) => k);
 }
 
@@ -175,7 +175,7 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
     if ((e.t === 'discard' || (e.t === 'move_cards' && e.to === 'discard')) && e.sub && stadium && lastAction?.t === 'play_card') {
       const names = [...(e.cards ?? []), ...(e.card ? [e.card] : [])].map((c) => c.name.toLowerCase());
       const by = frameOf(lastAction.card);
-      if (names.includes(stadium.card.toLowerCase()) && /\bdiscard\b[^.]*\bStadium in play\b/i.test(by?.effect ?? '')) {
+      if (names.includes(stadium.card.toLowerCase()) && /\bdiscard\b[^.]{0,200}\bStadium in play\b/i.test(by?.effect ?? '')) {
         close(stadium, e);
         stadium = null;
       }
@@ -212,7 +212,7 @@ function inner(ev: readonly LiveEvent[]): RuleEffect[] {
         const use = lastAction;
         text = (frameOf(use.user)?.abilities ?? []).find((x) => same(x.name, use.move))?.effect ?? '';
       }
-      const boardReturn = /\bPokémon\b[^.]*\b(?:and all attached cards|in play)\b[^.]*\binto (?:your|their) (?:hand|deck)\b/i.test(text) && !/\bdiscard pile\b/i.test(text);
+      const boardReturn = /\bPokémon\b[^.]{0,120}\b(?:and all attached cards|in play)\b[^.]{0,80}\binto (?:your|their) (?:hand|deck)\b/i.test(text) && !/\bdiscard pile\b/i.test(text);
       if (boardReturn) {
         const side = e.owner ?? e.p;
         for (const c of [...(e.cards ?? []), ...(e.card ? [e.card] : [])]) if ((inPlay.get(monKey(side, c.name)) ?? 0) > 0) returned.push({ side, name: c.name });
