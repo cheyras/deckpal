@@ -28,4 +28,4 @@ supersedes: []
 
 **Implications:**
 - Measured like #354: two config-B runs after deploy, against the post-#354 runs. It stays only if B's overall score stays inside its baseline range.
-- The eval spend for that is the owner's call. About $7.13 has been spent so far.
+- The eval spend for that is the owner's call. About $7.20 has been spent so far.
