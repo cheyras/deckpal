@@ -3,16 +3,20 @@
 // deck version they were played with, and the header record and the list
 // respect the version filter. A row expands to the game's detail: the digest's
 // prize race and turning points (Live logs, fetched on open), Deck-E's review,
-// and the raw log behind "View log" (fetched only when asked for).
+// and the raw log behind "View log" (fetched only when asked for). A delete is
+// reversible (migration 087): Undo on the toast, or Recently deleted below the
+// list, which is also the one place a game can be deleted for good.
 
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError, type AddBattleLogBody, type BattleLog, type BattleLogSummary, type BattleResult } from '../../lib/api'
 import { Modal, ConfirmModal } from '../../components/ListModals'
+import { RecycleBin } from '../../components/RecycleBin'
 import { Icon } from '../../components/Icon'
 import { fmtDate } from '../../lib/format'
 import { ResultBadge, SourceChip, VersionChip, RecordSpans } from './intelShared'
-import { writeFailureText } from '../../lib/writes'
+import { save, writeFailureText } from '../../lib/writes'
+import { showToast } from '../../lib/toast'
 import { DigestView, MostFacedSummary, SECTION_HEADING } from './BattleLogParts'
 import {
   archetypeLabel,
@@ -35,6 +39,13 @@ const MarkdownView = lazy(loadMarkdownView)
 
 function PanelLoading() {
   return <div className="py-[16px] text-center text-[14px] text-text-muted">Loading game…</div>
+}
+
+const RESULT_WORD: Record<BattleResult, string> = { win: 'Win', loss: 'Loss', tie: 'Tie' }
+
+/** "Win vs Robni16" — how a game is named in the confirm, the Undo toast and the bin. */
+function gameName(log: Pick<BattleLogSummary, 'result' | 'opponent'>): string {
+  return `${log.result ? RESULT_WORD[log.result] : 'Game'} vs ${log.opponent ?? 'unknown opponent'}`
 }
 
 // ── One log row: summary line + chevron-expand to the game's detail ───────────
@@ -362,11 +373,24 @@ export function BattlesTab({ deckId, currentVersion }: { deckId: string; current
     qc.invalidateQueries({ queryKey: ['decks'] })
   }
 
+  // A delete moves the game to the recycle bin (migration 087), so it says where
+  // it went and offers the way back; the bin below lists it too, and the Battles
+  // query key covers the bin's, so one invalidate refreshes both.
+  const restoreLog = (log: BattleLogSummary) =>
+    void save(`battle-logs:${deckId}`, {
+      item: `restore:${log.id}`,
+      send: (signal) => api.restoreBattleLog(deckId, log.id, signal),
+      onSaved: invalidate,
+      refresh: invalidate,
+      failure: `Couldn't restore ${gameName(log)}. It's still in Recently deleted.`,
+      retry: () => restoreLog(log),
+    })
   const deleteLog = useMutation({
-    mutationFn: (logId: number) => api.deleteBattleLog(deckId, logId),
-    onSuccess: () => {
+    mutationFn: (log: BattleLogSummary) => api.deleteBattleLog(deckId, log.id),
+    onSuccess: (_r, log) => {
       setDeleteTarget(null)
       invalidate()
+      showToast({ tone: 'info', message: `Moved ${gameName(log)} to Recently deleted.`, action: { label: 'Undo', run: () => restoreLog(log) } })
     },
   })
 
@@ -483,11 +507,28 @@ export function BattlesTab({ deckId, currentVersion }: { deckId: string; current
         </div>
       )}
 
+      {/* Deleted games, every version: restore one, or delete it for good. */}
+      <RecycleBin
+        kind="battle-log"
+        binKey={['battle-logs', deckId, 'deleted']}
+        className="mt-[4px]"
+        load={async (signal) =>
+          (await api.deletedBattleLogs(deckId, signal)).logs.map((l) => ({
+            id: String(l.id),
+            name: gameName(l),
+            detail: `v${l.deckVersion} · played ${fmtDate(l.playedAt)} · deleted ${fmtDate(l.deletedAt)}`,
+          }))
+        }
+        restore={(id, signal) => api.restoreBattleLog(deckId, Number(id), signal)}
+        purge={(id, signal) => api.purgeBattleLog(deckId, Number(id), signal)}
+        onChanged={invalidate}
+      />
+
       {showLog && <LogBattleModal deckId={deckId} onClose={() => setShowLog(false)} onLogged={invalidate} />}
       {deleteTarget && (
         <ConfirmModal
           title="Delete battle log"
-          message={`Delete this ${deleteTarget.result ?? 'unscored'} vs ${deleteTarget.opponent ?? 'unknown opponent'} (${fmtDate(deleteTarget.playedAt)})? This can't be undone.`}
+          message={`Delete ${gameName(deleteTarget)} (${fmtDate(deleteTarget.playedAt)})? It moves to Recently deleted, where you can restore it.`}
           confirmLabel="Delete Log"
           busy={deleteLog.isPending}
           error={deleteLog.isError ? writeFailureText("Couldn't delete this battle log.", deleteLog.error) : null}
@@ -495,7 +536,7 @@ export function BattlesTab({ deckId, currentVersion }: { deckId: string; current
             setDeleteTarget(null)
             deleteLog.reset()
           }}
-          onConfirm={() => deleteLog.mutate(deleteTarget.id)}
+          onConfirm={() => deleteLog.mutate(deleteTarget)}
         />
       )}
     </div>

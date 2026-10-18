@@ -125,9 +125,10 @@ export async function renderToolsDoc(): Promise<string> {
       'shown only to a token holding the Deck-E improvement capability. A read-only connection is shown the ' +
       `${readOnly.length} read tools and none of the writes.`,
     '',
-    'Every write previews by default (`dry_run` defaults to true) except `deck_strategy`, whose description says it writes at once. ' +
-      '"destructive" is MCP\'s meaning: the tool may change or remove existing data, not only add to it. What can be undone, and how, is in ' +
-      '`decisions/2026/2026-10-12-mcp-tool-surface-and-write-safety.md`.',
+    'Every write previews by default (`dry_run` defaults to true). ' +
+      '"destructive" is MCP\'s meaning: the tool may change or remove existing data, not only add to it. Most writes can be undone with ' +
+      '`revert`; what can be undone, and how, is in ' +
+      '`decisions/2026/2026-10-12-write-safety-battle-log-recycle-bin-deck-list-undo-retry-keys-strategy-preview.md`.',
     '',
     '| tool | title | kind | purpose |',
     '|---|---|---|---|',

@@ -1253,6 +1253,15 @@ variable. Before it is applied the API ignores the name, settings still load,
 `PATCH /me/settings` with `ptcglName` answers `503`, and the API logs
 `migration 086_ptcgl_name is not applied` once per instance.
 
+The battle-log recycle bin needs `087_battle_log_bin.sql` (the
+`battle_log_bin` table) **before** the code ships: from then on every battle-log
+delete writes to it, so a delete fails until it exists. On cloud,
+`088_battle_log_bin_rls.sql` (`@supabase-only`) turns on its row-level security
+and must go on with it. Both use the numbered runner; neither adds an
+environment variable or infrastructure setting. To confirm on cloud:
+`SELECT relrowsecurity FROM pg_class WHERE relname = 'battle_log_bin'`
+returns `true`.
+
 Only 065 carries `@supabase-only` and is skipped by the normal runner on
 self-host. Do not skip 067 there: its cloud-role grants are conditional and its
 wallet/economy functions also support the current UUID self-host account.
@@ -2281,6 +2290,7 @@ fail loudly when a setting is missing.
 |---|---|---|
 | `AI_GATEWAY_API_KEY` | shell | **Required by `run`.** The Gateway key that pays for the agent, writer and judge calls. `DECKE_VERCEL_AI_GATEWAY_KEY` is used when it is unset. When neither is set, `run` stops before any call. Never printed. |
 | `DECKPAL_BASE` | shell | The backend both scripts talk to. Default `https://deckpal.app`. |
+| `VERCEL_PROTECTION_BYPASS` | shell | Optional. Sent as the `x-vercel-protection-bypass` header when set, so the eval can reach a protected preview deployment (`DECKPAL_BASE=<preview URL>`). Never printed. A preview can list tools but not run them today, because the MCP function's own API calls meet the protection. |
 | `QA_EMAIL`, `QA_PASSWORD` | `.qa-account` | Read only by `qa-token.mjs`, which the maintainer runs. An agent never signs in with them. |
 | `QA_MCP_TOKEN` | `.qa-account` | Written by `qa-token.mjs`: a personal access token named "Analysis eval (QA)". `setup` and `run` refuse to start without it. |
 | `QA_USERNAME` | `.qa-account` | The QA account's username. If the maintainer has already recorded it, `qa-token.mjs` requires the signed-in account to be that user before minting, and never overwrites the line; otherwise it writes the line from `/api/me`, read right after signing in with the QA password. The eval refuses any token whose `/api/me` does not name exactly this user, with `isOwner` and `owner` both false. |

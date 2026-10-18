@@ -85,6 +85,7 @@ export const USAGE = `Usage: node scripts/analysis-eval.mjs <check|setup|run|rep
       --configs A,B,C       configs to run (default all)
       --cases id,id         cases to run (default all)
       --out DIR             where runs are written (default evals/analysis/runs/<time>)
+      --rejudge             judge the finished runs in --out again (earlier verdicts kept as .judge.vN.json)
   report --out DIR          rebuild the report from a finished run (free)
   --account FILE            the QA account file (default .qa-account at the repo root)`
 
@@ -189,6 +190,12 @@ export function readAccount(file) {
   return { token, username: get('QA_USERNAME'), base: (process.env.DECKPAL_BASE ?? 'https://deckpal.app').replace(/\/$/, '') }
 }
 
+/**
+ * A Vercel preview deployment sits behind deployment protection: VERCEL_PROTECTION_BYPASS (never printed) is sent as
+ * its bypass header, so the eval can measure a branch before it ships (DECKPAL_BASE=<preview URL>).
+ */
+export const bypassHeader = () => (process.env.VERCEL_PROTECTION_BYPASS ? { 'x-vercel-protection-bypass': process.env.VERCEL_PROTECTION_BYPASS } : {})
+
 /** Streamable-HTTP MCP: JSON or SSE replies, one session. */
 export class Mcp {
   constructor(base, token, fetchImpl = fetch) {
@@ -203,6 +210,7 @@ export class Mcp {
       method: 'POST',
       headers: {
         authorization: `Bearer ${this.token}`,
+        ...bypassHeader(),
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream',
         ...(this.session ? { 'mcp-session-id': this.session } : {}),
@@ -248,7 +256,7 @@ export class Mcp {
  */
 export async function assertQaAccount({ base, token, username }, fetchImpl = fetch) {
   if (!username) throw new Error('No QA_USERNAME in the QA account file. The maintainer reruns: node scripts/qa-token.mjs (it records it).')
-  const res = await fetchImpl(`${base}/api/me`, { headers: { authorization: `Bearer ${token}` } })
+  const res = await fetchImpl(`${base}/api/me`, { headers: { authorization: `Bearer ${token}`, ...bypassHeader() } })
   if (!res.ok) throw new Error(`/api/me: HTTP ${res.status}`)
   const me = await res.json()
   if (me.isOwner !== false || me.owner !== false) throw new Error('This token is not provably a non-owner account (isOwner/owner not false). The eval runs on the QA account only.')
@@ -650,20 +658,68 @@ export const JUDGE_SCHEMA = {
   },
 }
 
-export function judgeMessages(c, principles, logText, review) {
+/**
+ * The text of every card the log names, from the sim's frames and tags, so the
+ * judge can tell a correct card fact (an HP, an attack, a Tera tag) from an
+ * invented one. A card the sim cannot resolve is listed as unknown.
+ */
+export async function cardReference(logText, root = ROOT) {
+  const parse = await loadParser(root)
+  const dist = (f) => pathToFileURL(path.join(root, 'packages/sim/dist', f)).href
+  const { resolveFrame } = await import(dist('replay/cardCodes.js'))
+  const { cardTags } = await import(dist('cardTags.js'))
+  const seen = new Map()
+  const walk = (x) => {
+    if (!x || typeof x !== 'object') return
+    if (typeof x.name === 'string' && ('code' in x || 'id' in x || Object.keys(x).length === 1)) seen.set(x.id ?? `name:${x.name}`, x)
+    for (const v of Object.values(x)) walk(v)
+  }
+  walk(parse(logText, { players: PLAYERS }).events)
+  const lines = []
+  const done = new Set()
+  for (const m of seen.values()) {
+    const { frame: f } = resolveFrame(m.name, m.id ?? null)
+    if (!f) {
+      const key = `unknown:${m.name}:${m.code ?? ''}`
+      if (!done.has(key)) {
+        done.add(key)
+        lines.push(`- ${m.name}${m.code ? ` (${m.code})` : ''}: not in the simulator's card data; judge claims about it from the log alone`)
+      }
+      continue
+    }
+    if (done.has(f.cardId)) continue
+    done.add(f.cardId)
+    const tags = cardTags(f.cardId)
+    const head = [f.name, f.category, f.stage, f.suffix, ...tags].filter(Boolean).join(' · ')
+    const parts = [`${head}${f.hp ? ` · ${f.hp} HP` : ''}${f.types?.length ? ` · ${f.types.join('/')}` : ''}`]
+    if (f.weaknesses?.length) parts.push(`Weakness ${f.weaknesses.map((w) => w.type + w.value).join(', ')}`)
+    if (f.resistances?.length) parts.push(`Resistance ${f.resistances.map((w) => w.type + w.value).join(', ')}`)
+    if (f.effect) parts.push(f.effect)
+    for (const a of f.abilities ?? []) parts.push(`Ability ${a.name}: ${a.effect}`)
+    for (const a of f.attacks ?? []) parts.push(`[${a.cost ?? ''}] ${a.name} ${a.damage ?? ''}: ${a.effect ?? ''}`.trim())
+    lines.push(`- ${parts.join(' | ')}`)
+  }
+  return lines.sort().join('\n')
+}
+
+export function judgeMessages(c, principles, logText, review, cards = '') {
   const rubric = c.rubric.map((r) => `- ${r.id} [${r.principle} ${principles[r.principle].name}${r.must ? ', must' : ''}]: ${r.point}`).join('\n')
   const system =
     'You grade a Pokemon TCG game review against a rubric written by an expert who checked every point against the card text and the log. ' +
     'For each rubric item: "caught" when the review states the point (its substance, in any words), "partial" when it states part of it or gets ' +
     'the right idea with a material gap, "missed" when it is absent. A point stated wrongly is missed, and the wrong statement is a false claim. ' +
-    'Then list the review\'s FALSE CLAIMS: statements of fact that contradict the log, the case facts or the rubric, including any in the ' +
-    '"known false claims" list. Do not list opinions, suggestions or hedged hypotheses unless they rest on a false fact. Quote the review exactly.'
+    'Then list the review\'s FALSE CLAIMS: statements of fact that the log, the card text, the case facts or the rubric CLEARLY CONTRADICT, ' +
+    'including any in the "known false claims" list. A fact that is merely absent from the log is not false when the card text supports it ' +
+    '(an HP, a Weakness, an attack\'s text, a Tera tag). Turn numbers may be counted overall or per player; a different numbering is not ' +
+    'false unless it puts an event in the wrong order. Do not list opinions, suggestions, hedged hypotheses, things you are unsure of, or ' +
+    'claims you checked and found correct: if you would write "this is fine", leave it out. Quote the review exactly.'
   const user = [
     `Case facts: ${JSON.stringify(c.facts)} (PlayerA is the reviewer's player; prizes are [PlayerA, PlayerB]).`,
     c.notes ? `The player's own notes: ${c.notes}` : 'The player left no notes.',
     `Rubric:\n${rubric}`,
     `Known false claims to watch for:\n${c.false_claims.map((x) => `- ${x}`).join('\n')}`,
     `The game log:\n<log>\n${logText}\n</log>`,
+    ...(cards ? [`Card text for every card the log names (from DeckPal's simulator):\n<cards>\n${cards}\n</cards>`] : []),
     `The review to grade:\n<review>\n${review || '(empty)'}\n</review>`,
   ].join('\n\n')
   return { instructions: [{ role: 'system', content: system }], messages: [{ role: 'user', content: user }] }
@@ -674,7 +730,7 @@ export async function judgeRun({ gateway, prices, c, principles, logText, run, b
   const model = await metered(gateway(JUDGE.model), prices[JUDGE.model], budget, calls, `${c.id}:${run.config}:judge`)
   const out = await generateText({
     model,
-    ...judgeMessages(c, principles, logText, reviewText(run)),
+    ...judgeMessages(c, principles, logText, reviewText(run), await cardReference(logText)),
     output: Output.object({ schema: jsonSchema(JUDGE_SCHEMA) }),
     providerOptions: providerOptions(JUDGE.effort),
     maxOutputTokens: MAX_OUTPUT_TOKENS,
@@ -812,6 +868,56 @@ export function readRows(dir, cases) {
 export const LEDGER_FILE = 'calls.jsonl'
 
 const judgeFileOf = (runFile) => runFile.replace('.run.json', '.judge.json')
+/**
+ * Replace a pair's verdict, keeping the old one numbered beside it. Called only
+ * once the new verdict exists, so a failed or unaffordable re-judge never
+ * leaves a pair without its earlier verdict.
+ */
+export function replaceJudgment(runFile, judgment) {
+  const f = judgeFileOf(runFile)
+  if (fs.existsSync(f)) {
+    let n = 1
+    while (fs.existsSync(f.replace('.judge.json', `.judge.v${n}.json`))) n++
+    fs.renameSync(f, f.replace('.judge.json', `.judge.v${n}.json`))
+  }
+  writeJudgment(runFile, judgment)
+}
+
+/**
+ * A re-judge pass, recorded in `rejudge.json` so it can be resumed: a pair is
+ * done once its verdict was written after the pass began. When every selected
+ * pair is done the file is removed, and the next --rejudge starts a new pass.
+ */
+export function rejudgePass(dir) {
+  const f = path.join(dir, 'rejudge.json')
+  if (fs.existsSync(f)) return JSON.parse(fs.readFileSync(f, 'utf8'))
+  const pass = { startedAt: new Date().toISOString() }
+  fs.writeFileSync(f, `${JSON.stringify(pass)}\n`)
+  return pass
+}
+
+const judgedInPass = (runFile, pass) => {
+  const j = readJudgment(runFile)
+  return j?.status === 'ok' && typeof j.judgedAt === 'string' && j.judgedAt >= pass.startedAt
+}
+
+/**
+ * What to do with one (case, config): 'run' the agent (then judge), 'judge'
+ * only, or 'skip'. A re-judge never runs an agent: it judges the existing,
+ * successful runs, and leaves missing or errored pairs alone (Astra, #350).
+ */
+export function pairAction({ run, judged, rejudge, inPass }) {
+  if (rejudge) return run && !run.error && !inPass ? 'judge' : 'skip'
+  if (!run || run.error) return 'run'
+  return judged ? 'skip' : 'judge'
+}
+
+/** The most one judge call reserved in this directory before, as the bound for the next ones; null when none ran. */
+export function judgeBound(entries) {
+  const r = entries.filter((e) => e.kind === 'reserve' && e.label.endsWith(':judge')).map((e) => e.reservedUsd)
+  return r.length ? Math.max(...r) : null
+}
+
 export function readJudgment(runFile) {
   const f = judgeFileOf(runFile)
   return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : null
@@ -826,6 +932,10 @@ export function parseArgs(argv) {
     const a = rest[i]
     if (!a.startsWith('--')) throw new Error(`unexpected argument ${a}`)
     const key = a.slice(2)
+    if (key === 'rejudge') {
+      opts.rejudge = true
+      continue
+    }
     if (!['budget', 'configs', 'cases', 'out', 'account'].includes(key)) throw new Error(`unknown option ${a}`)
     opts[key] = rest[++i]
     if (opts[key] === undefined) throw new Error(`${a} needs a value`)
@@ -896,10 +1006,27 @@ export async function main(argv = process.argv.slice(2)) {
   const priorOverruns = calls.overruns()
   if (priorOverruns > 0) throw new Error(`${path.relative(ROOT, out)}/${LEDGER_FILE} records ${priorOverruns} call(s) that cost more than their bound. Fix the bound (maxCallUsd) before spending more; use a new --out.`)
   const budget = new Ceiling(opts.budget, prior, priorOverruns)
+  let pass = null
+  if (opts.rejudge) {
+    if (!opts.out) throw new Error('--rejudge needs --out DIR (the finished run to judge again)')
+    pass = rejudgePass(out)
+    const todo = cases.flatMap((c) => opts.configs.map((k) => path.join(out, `${c.id}.${k}.run.json`)))
+      .filter((f) => fs.existsSync(f) && !JSON.parse(fs.readFileSync(f, 'utf8')).error && !judgedInPass(f, pass)).length
+    const bound = judgeBound(calls.entries)
+    // Checked before any verdict is touched: the budget is cumulative over the directory.
+    if (bound !== null && todo * bound > budget.remaining()) {
+      throw new Error(`Re-judging ${todo} run(s) could cost up to $${(todo * bound).toFixed(2)}, and $${budget.remaining().toFixed(2)} is left of the $${opts.budget} budget (which counts the $${prior.toFixed(2)} this directory already spent). Pass --budget ${(prior + todo * bound).toFixed(2)} or more. No verdict was changed.`)
+    }
+    console.log(`Re-judging ${todo} run(s); earlier verdicts stay until each replacement is written.`)
+  }
   if (prior > 0) console.log(`Resuming ${path.relative(ROOT, out)}: $${prior.toFixed(2)} already counted against the $${opts.budget} budget.`)
   const cost = (prefix) => calls.countedUsd(calls.entries.filter((x) => x.label.startsWith(prefix)))
   try {
-    await runAll({ gateway, prices, mcp, session, data, cases, state, configs: opts.configs, out, budget, calls, cost })
+    await runAll({ gateway, prices, mcp, session, data, cases, state, configs: opts.configs, out, budget, calls, cost, pass })
+    if (pass && cases.every((c) => opts.configs.every((k) => {
+      const f = path.join(out, `${c.id}.${k}.run.json`)
+      return !fs.existsSync(f) || JSON.parse(fs.readFileSync(f, 'utf8')).error || judgedInPass(f, pass)
+    }))) fs.rmSync(path.join(out, 'rejudge.json'), { force: true })
   } finally {
     await resetLogs(mcp, cases, state)
   }
@@ -915,15 +1042,17 @@ export async function main(argv = process.argv.slice(2)) {
  * skipped; a run that errored is run again; a run whose judging failed or never
  * happened is judged again, never scored as empty.
  */
-async function runAll({ gateway, prices, mcp, session, data, cases, state, configs, out, budget, calls, cost }) {
+async function runAll({ gateway, prices, mcp, session, data, cases, state, configs, out, budget, calls, cost, pass = null }) {
   for (const c of cases) {
     const ids = state.logs[c.id]
     const logText = readLog(c)
     for (const k of configs) {
       const runFile = path.join(out, `${c.id}.${k}.run.json`)
       let run = fs.existsSync(runFile) ? JSON.parse(fs.readFileSync(runFile, 'utf8')) : null
-      if (run && !run.error && readJudgment(runFile)?.status === 'ok') continue
-      if (!run || run.error) {
+      const judged = readJudgment(runFile)?.status === 'ok'
+      const action = pairAction({ run, judged, rejudge: !!pass, inPass: !!pass && judgedInPass(runFile, pass) })
+      if (action === 'skip') continue
+      if (action === 'run') {
         await resetLog(mcp, c, ids)
         run = await runCase({ gateway, prices, mcp, session, config: { key: k, ...CONFIGS[k] }, c, ids, deckName: data.decks[c.deck].name, budget, calls })
         fs.writeFileSync(runFile, `${JSON.stringify(run, null, 2)}\n`)
@@ -933,9 +1062,10 @@ async function runAll({ gateway, prices, mcp, session, data, cases, state, confi
       }
       try {
         const output = await judgeRun({ gateway, prices, c, principles: data.principles, logText, run, budget, calls })
-        writeJudgment(runFile, { status: 'ok', output })
+        replaceJudgment(runFile, { status: 'ok', output, judgedAt: new Date().toISOString() })
       } catch (e) {
-        writeJudgment(runFile, { status: 'failed', error: safeError(e) })
+        // A failed re-judge keeps the earlier good verdict; only a pair with none records the failure.
+        if (!judged) writeJudgment(runFile, { status: 'failed', error: safeError(e) })
         console.log(`${c.id} ${k}: judge failed, ${safeError(e).message}`)
         if (e instanceof BudgetExceeded) return
       }

@@ -1,9 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
+import type { Ctx } from '../ctx.js';
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { fail, ok, type ToolResult } from '../result.js';
 import { errText } from '../shared.js';
 import { needDeck } from '../entities.js';
+import { sendOnce } from '../writeKey.js';
 import { pagingFooter, row, screenName, untrusted, untrustedBlock, winLoss } from '../format.js';
 
 /**
@@ -343,32 +345,103 @@ const deckPath = (deckId: string): string => `/decks/${encodeURIComponent(deckId
 
 // ── Tool registration ─────────────────────────────────────────────────────────
 
+const STRATEGY_TAIL =
+  'Strategy edits NEVER bump the deck version; the guide is snapshotted with the ' +
+  'current version, so after a version bump the new version starts from the same guide. ' +
+  'Typical loop: read battle_logs for the current version, then update the guide here (and ' +
+  'the card list via save_deck with a version_note). For version history use deck_history.';
+
+const strategySchema = z.object({
+  deck_id: z.string().describe('The deck, by UUID or by its exact name.'),
+  markdown: z
+    .string()
+    .max(STRATEGY_MAX)
+    .optional()
+    .describe(
+      'The COMPLETE new guide in markdown (max 40000 chars) — replaces the whole guide, so ' +
+        'include everything you want kept. Empty string clears the guide. Omit to read instead.',
+    ),
+});
+
+/** Lines added and removed between two guides, counted as multisets of trimmed lines. */
+function lineChanges(before: string, after: string): { added: number; removed: number } {
+  const count = (text: string) => {
+    const m = new Map<string, number>();
+    for (const l of text.split('\n').map((s) => s.trim()).filter(Boolean)) m.set(l, (m.get(l) ?? 0) + 1);
+    return m;
+  };
+  const a = count(before);
+  const b = count(after);
+  let added = 0;
+  let removed = 0;
+  for (const [l, n] of b) added += Math.max(0, n - (a.get(l) ?? 0));
+  for (const [l, n] of a) removed += Math.max(0, n - (b.get(l) ?? 0));
+  return { added, removed };
+}
+
+/**
+ * The MCP contract (registry.ts `mcp`): the same tool with a `dry_run` that
+ * defaults to true. An MCP client's approval prompt may show only a tool name
+ * and some JSON, so a guide rewrite is previewed in words first, like every
+ * other write over MCP. Deck-E keeps the tool without it: its approval card
+ * shows the whole new guide, which is the preview.
+ */
+const strategyMcp = {
+  description:
+    "Read or replace a deck's strategy guide (markdown). Omit markdown to READ the current " +
+    'guide in full. Pass markdown to REPLACE the whole guide (empty string clears it); that ' +
+    'previews first: re-call with dry_run: false to save. ' + STRATEGY_TAIL,
+  inputSchema: strategySchema.extend({
+    dry_run: z.boolean().default(true).describe('false: save.'),
+  }),
+  handler: async (
+    { deck_id: deckRef, markdown, dry_run }: { deck_id: string; markdown?: string; dry_run?: boolean },
+    ctx: Ctx,
+  ): Promise<ToolResult> => {
+    if (markdown === undefined || dry_run === false) return strategyHandler({ deck_id: deckRef, markdown }, ctx);
+    try {
+      const picked = await needDeck(ctx, deckRef, { strict: true });
+      if (!picked.ok) return fail(picked.message);
+      const current = (await ctx.api.get(deckPath(picked.value.id))) as DeckDetailLite;
+      const old = current.deck.strategyMd ?? '';
+      const lines = [`DRY RUN — nothing saved. For '${current.deck.name}' (v${current.deck.version}):`];
+      if (!markdown.trim()) {
+        lines.push(old.trim() ? `  would CLEAR the guide ${strategyLabel(old)}.` : '  there is no guide, so clearing it changes nothing.');
+      } else {
+        const { added, removed } = lineChanges(old, markdown);
+        lines.push(
+          `  now: ${old.trim() ? strategyLabel(old) : 'no guide yet'}`,
+          `  new: ${strategyLabel(markdown)}`,
+          old.trim() ? `  ${added} line(s) added, ${removed} removed (compared line by line)` : '  a new guide',
+        );
+      }
+      lines.push('Re-run with dry_run: false to save it. Strategy edits never bump the deck version, and revert can put the previous guide back.');
+      return ok(lines.join('\n'));
+    } catch (err) {
+      return fail(`deck_strategy failed: ${errText(err)}`);
+    }
+  },
+};
+
 const deckStrategyTool = defineTool({
   name: 'deck_strategy',
   title: 'Read or write a deck strategy guide',
   description:
     "Read or replace a deck's strategy guide (markdown). Omit markdown to READ the current " +
-    'guide in full. Pass markdown to REPLACE the whole guide (empty string clears it). There is ' +
-    'NO dry run: a call with markdown writes at once, so show the user the new guide and get ' +
-    "their yes first. The response reports the previous guide's first heading and length, and " +
-    'revert (entity_type deck_strategy) can put it back. Strategy edits NEVER bump the deck version; the guide is snapshotted with the ' +
-    'current version, so after a version bump the new version starts from the same guide. ' +
-    'Typical loop: read battle_logs for the current version, then update the guide here (and ' +
-    'the card list via save_deck with a version_note). For version history use deck_history.',
-  inputSchema: z.object({
-    deck_id: z.string().describe('The deck, by UUID or by its exact name.'),
-    markdown: z
-      .string()
-      .max(STRATEGY_MAX)
-      .optional()
-      .describe(
-        'The COMPLETE new guide in markdown (max 40000 chars) — replaces the whole guide, so ' +
-          'include everything you want kept. Empty string clears the guide. Omit to read instead.',
-      ),
-  }),
+    'guide in full. Pass markdown to REPLACE the whole guide (empty string clears it) — the ' +
+    "response reports the previous guide's first heading and length so an accidental overwrite " +
+    'is visible. ' + STRATEGY_TAIL,
+  inputSchema: strategySchema,
   // overwriteHint: a write replaces the whole guide (revert can restore it).
   annotations: { readOnlyHint: false, destructiveHint: false, overwriteHint: true, idempotentHint: true },
-  handler: async ({ deck_id: deckRef, markdown }, ctx) => {
+  handler: (args, ctx) => strategyHandler(args, ctx),
+  mcp: strategyMcp,
+});
+
+async function strategyHandler(
+  { deck_id: deckRef, markdown }: { deck_id: string; markdown?: string },
+  ctx: Ctx,
+): Promise<ToolResult> {
     try {
       // ── STRICT ONLY WHEN IT WRITES ──────────────────────────────────────
       //
@@ -421,8 +494,7 @@ const deckStrategyTool = defineTool({
     } catch (err) {
       return fail(`deck_strategy failed: ${errText(err)}`);
     }
-  },
-});
+}
 
 const addBattleLogTool = defineTool({
   name: 'add_battle_log',
@@ -554,7 +626,9 @@ const addBattleLogTool = defineTool({
         );
       }
 
-      const res = (await ctx.api.send('POST', `${deckPath(deckId)}/logs`, {
+      // Keyed (writeKey.ts): a retry of this exact call within the window gets
+      // the first run's log back instead of logging the game twice.
+      const res = (await sendOnce(ctx, 'add_battle_log', 'POST', `${deckPath(deckId)}/logs`, {
         ...(log !== undefined ? { rawLog: log } : {}),
         origin: effectiveOrigin,
         ...(result !== undefined ? { result } : {}),
@@ -565,12 +639,15 @@ const addBattleLogTool = defineTool({
         ...(review !== undefined ? { reviewMd: review } : {}),
         ...(played_at !== undefined ? { playedAt: played_at } : {}),
         source: ctx.source ?? SOURCE,
-      })) as { attachedToVersion: number; log: LogFull };
+      })) as { attachedToVersion: number; log: LogFull; replayed?: boolean };
 
       const l = res.log;
       const p = l.parsed;
       const lines = [
-        `Logged battle #${l.id} → attached to v${res.attachedToVersion} (the deck's current version).`,
+        res.replayed
+          ? `Already logged as battle #${l.id} on v${res.attachedToVersion} — this exact request had already run, so nothing new was written. ` +
+            'If this is a different game (game 2 of a match, say), log it with played_at or notes that tell the two apart.'
+          :`Logged battle #${l.id} → attached to v${res.attachedToVersion} (the deck's current version).`,
         row(
           matchup(l),
           l.turns != null ? `${l.turns} turns` : null,
@@ -622,14 +699,32 @@ const battleLogsTool = defineTool({
       .max(200)
       .optional()
       .describe('Logs per page (default 50, cap 200; with include_raw, at most 3).'),
+    deleted: z
+      .boolean()
+      .default(false)
+      .describe("List the deck's recycle bin instead."),
   }),
   annotations: { readOnlyHint: true, idempotentHint: true },
-  handler: async ({ deck_id: deckRef, log_id, version, include_raw, page, page_size }, ctx) => {
+  handler: async ({ deck_id: deckRef, log_id, version, include_raw, page, page_size, deleted }, ctx) => {
     try {
       // Loose — reads only, so a near match costs a sentence at worst.
       const picked = await needDeck(ctx, deckRef);
       if (!picked.ok) return fail(picked.message);
       const deckId = picked.value.id;
+
+      // ── Recycle bin ───────────────────────────────────────────────────────
+      // The API returns at most 200, newest first; a bin is small by nature.
+      if (deleted) {
+        const { logs } = (await ctx.api.get(`${deckPath(deckId)}/logs/deleted`)) as { logs: BinnedLog[] };
+        const lines = logs.length
+          ? [
+              ...logs.map((b) => `${logRow(b)} · deleted ${day(b.deletedAt)}`),
+              `${logs.length} deleted log(s). delete_battle_log with restore: true puts one back; purge: true deletes it for good.`,
+            ]
+          : ['The recycle bin is empty — no deleted battle logs on this deck.'];
+        if (picked.note) lines.push(picked.note);
+        return ok(lines.join('\n'));
+      }
 
       // ── Detail mode ───────────────────────────────────────────────────────
       if (log_id !== undefined) {
@@ -859,16 +954,21 @@ const deckHistoryTool = defineTool({
           return ok(lines.join('\n'));
         }
 
-        const res = (await ctx.api.send('POST', `${deckPath(deckId)}/revert`, {
+        // Keyed (writeKey.ts): every revert makes a version, so a retried one
+        // would otherwise make two.
+        const res = (await sendOnce(ctx, 'deck_history', 'POST', `${deckPath(deckId)}/revert`, {
           toVersion: revert_to,
           includeStrategy: include_strategy,
           ...(note !== undefined ? { note } : {}),
           source: ctx.source ?? SOURCE,
-        })) as RevertPayload;
+        })) as RevertPayload & { replayed?: boolean };
         const r = res.revert;
         const lines = [
-          `Reverted '${res.deck.name}' to v${r.toVersion} → created v${r.version}; ` +
-            `v${r.version - 1} keeps the list it replaced (see deck_history).`,
+          res.replayed
+            ? `This exact revert had already run (it restored v${r.toVersion} as v${r.version}), so nothing new was written. ` +
+              'To revert again on purpose, pass a note.'
+            : `Reverted '${res.deck.name}' to v${r.toVersion} → created v${r.version}; ` +
+              `v${r.version - 1} keeps the list it replaced (see deck_history).`,
           `deck now: ${res.counts.total} card(s), ${res.validation.legal ? 'legal' : 'NOT legal'}, strategy ${strategyLabel(res.deck.strategyMd)}`,
         ];
         for (const s of r.skippedCards) {
@@ -935,7 +1035,8 @@ const editBattleLogTool = defineTool({
       .default(true)
       .describe('true (default): preview the field-by-field would-change plan (current → new), change nothing. Re-call with dry_run: false to apply the edit.'),
   }),
-  // overwriteHint: replaces or clears a log's fields, with no history of the old values.
+  // overwriteHint: replaces or clears a log's fields (the old values are kept
+  // in mutation_history, and `revert` puts them back).
   annotations: { readOnlyHint: false, destructiveHint: false, overwriteHint: true, idempotentHint: true },
   handler: async ({ deck_id: deckRef, log_id, result, opponent, opponent_deck, opponent_archetype, notes, review, played_at, dry_run }, ctx) => {
     try {
@@ -985,11 +1086,12 @@ const editBattleLogTool = defineTool({
         return ok(lines.join('\n'));
       }
 
-      // `source` attributes the write when it is recorded in the mutation log
-      // (a keyed write from Deck-E is); the edit itself ignores it.
+      // `source` attributes the write in the mutation log, where every edit is
+      // recorded with the old values (2026-10-12) so `revert` can undo it. No
+      // retry key: an edit sets values, so repeating it changes nothing.
       const res = (await ctx.api.send('PATCH', `${deckPath(deckId)}/logs/${encodeURIComponent(log_id)}`, {
         ...body,
-        source: SOURCE,
+        source: ctx.source ?? SOURCE,
       })) as { log: LogFull };
       const l = res.log;
       const totals = (await ctx.api.get(`${deckPath(deckId)}/logs?version=${encodeURIComponent(l.deckVersion)}&pageSize=1`)) as LogsPayload;
@@ -1006,36 +1108,79 @@ const editBattleLogTool = defineTool({
   },
 });
 
+/** One row of `GET /decks/:id/logs/deleted`: a log summary plus when it went in the bin. */
+type BinnedLog = LogSummary & { deletedAt: string };
+
 const deleteBattleLogTool = defineTool({
   name: 'delete_battle_log',
-  title: 'Delete a battle log entry',
+  title: 'Delete or restore a battle log entry',
   description:
-    'Permanently remove one battle log from a deck (e.g. a duplicate paste or a log attached ' +
-    "to the wrong deck). The deck, its versions, and other logs are untouched; the version's " +
-    'win/loss record recomputes without it. Defaults to a dry run describing what would be ' +
-    'deleted; re-run with dry_run: false to delete. To fix a wrong result/opponent instead, ' +
-    'use edit_battle_log — deletion is not undoable.',
+    'Remove one battle log from a deck (a duplicate paste, a log on the wrong deck). ' +
+    "A delete moves it to the deck's recycle bin " +
+    '(battle_logs deleted: true lists it); restore: true puts it back with the same #id and ' +
+    'version; purge: true deletes it for good, live or binned. Dry run by default; re-run with ' +
+    'dry_run: false. To fix a wrong result or opponent, use edit_battle_log.',
   inputSchema: z.object({
     deck_id: z.string().describe('The deck, by UUID or by its exact name.'),
     log_id: z.number().int().positive().describe('Battle log id (the #N from battle_logs).'),
-    dry_run: z.boolean().default(true).describe('true (default): only report what would be deleted. false: delete.'),
+    restore: z.boolean().default(false).describe('Put a deleted log back from the recycle bin.'),
+    purge: z.boolean().default(false).describe('Delete for good: no recycle bin, no undo.'),
+    dry_run: z.boolean().default(true).describe('true (default): only report what would happen. false: do it.'),
   }),
+  // destructiveHint stays: purge is the one write here nothing can bring back.
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
-  handler: async ({ deck_id: deckRef, log_id, dry_run }, ctx) => {
+  handler: async ({ deck_id: deckRef, log_id, restore, purge, dry_run }, ctx) => {
     try {
+      if (restore && purge) return fail('delete_battle_log: pass restore or purge, not both.');
       // STRICT — deletes a battle log, so an approximate name is a choice, never an action.
       const picked = await needDeck(ctx, deckRef, { strict: true });
       if (!picked.ok) return fail(picked.message);
       const deckId = picked.value.id;
+      const logPath = `${deckPath(deckId)}/logs/${encodeURIComponent(log_id)}`;
 
-      const res = (await ctx.api.get(`${deckPath(deckId)}/logs/${encodeURIComponent(log_id)}`)) as { log: LogFull };
-      const l = res.log;
-      const what = row(`battle #${l.id}`, `v${l.deckVersion}`, matchup(l), day(l.playedAt));
-      if (dry_run) {
-        return ok(`DRY RUN — nothing deleted. Would delete ${what}.\nRe-run with dry_run: false to delete.`);
+      // The log is either live or in the bin; find which, for the dry run and
+      // for a message that names what changed.
+      const binned = async (): Promise<BinnedLog | undefined> =>
+        ((await ctx.api.get(`${deckPath(deckId)}/logs/deleted`)) as { logs: BinnedLog[] }).logs.find((b) => b.id === log_id);
+      let live: LogFull | undefined;
+      try {
+        live = ((await ctx.api.get(logPath)) as { log: LogFull }).log;
+      } catch (err) {
+        if (!/^No battle log\b/.test(errText(err))) throw err;
       }
-      await ctx.api.send('DELETE', `${deckPath(deckId)}/logs/${encodeURIComponent(log_id)}`, { source: SOURCE });
-      return ok(`Deleted ${what}.`);
+      const inBin = live ? undefined : await binned();
+      const l = live ?? inBin;
+      if (!l) {
+        return fail(`delete_battle_log: no battle log #${log_id} on '${picked.value.name}', live or in the recycle bin — it was purged, or the id is from another deck.`);
+      }
+      const what = row(`battle #${l.id}`, `v${l.deckVersion}`, matchup(l), day(l.playedAt));
+
+      // No retry key on these three (writeKey.ts): each sets a state, so a
+      // repeat finds the state already set and says so, and a key would turn a
+      // deliberate delete → restore → delete inside the window into a no-op.
+      if (restore) {
+        if (live) return ok(`${what} is not deleted — nothing to restore.`);
+        if (dry_run) return ok(`DRY RUN — nothing restored. Would restore ${what} from the recycle bin (deleted ${day(inBin!.deletedAt)}).\nRe-run with dry_run: false to restore.`);
+        const res = (await ctx.api.send('POST', `${logPath}/restore`, { source: ctx.source ?? SOURCE })) as { log: LogFull };
+        return ok(`Restored ${row(`battle #${res.log.id}`, `v${res.log.deckVersion}`, matchup(res.log), day(res.log.playedAt))} — back in the record.`);
+      }
+
+      if (!live && !purge) {
+        return ok(`${what} is already in the recycle bin — nothing changed. Pass restore: true to put it back, or purge: true to delete it for good.`);
+      }
+      if (dry_run) {
+        return ok(
+          purge
+            ? `DRY RUN — nothing deleted. Would PERMANENTLY delete ${what}${inBin ? ' from the recycle bin' : ''}. This cannot be undone.\nRe-run with dry_run: false to purge.`
+            : `DRY RUN — nothing deleted. Would move ${what} to the recycle bin (restore: true brings it back).\nRe-run with dry_run: false to delete.`,
+        );
+      }
+      await ctx.api.send('DELETE', `${logPath}${purge ? '?purge=true' : ''}`, { source: ctx.source ?? SOURCE });
+      return ok(
+        purge
+          ? `Permanently deleted ${what}.`
+          : `Deleted ${what} — it is in the recycle bin; delete_battle_log with restore: true puts it back.`,
+      );
     } catch (err) {
       return fail(`delete_battle_log failed: ${errText(err)}`);
     }

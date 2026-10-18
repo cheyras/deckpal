@@ -189,3 +189,35 @@ test('battle_digest appends the replay; detail is a schema option, and an older 
   assert.equal(plain.isError, undefined, plain.text);
   assert.doesNotMatch(plain.text, /simulator replay/);
 });
+
+test('effects that changed the rules: after the board, a line each for the ones with evidence, the rest counted, old payloads unchanged', () => {
+  const text = renderReplay(
+    replay({
+      ruleEffects: [
+        {
+          side: 1, card: "Lillie's Clefairy ex", source: 'Ability', name: 'Fairy Zone', kinds: ['weakness'],
+          text: "The Weakness of each of your opponent's {N} Pokémon in play is now {P}.", from: 6, until: null,
+          touched: ["T8: {p0}'s Dragapult ex took Weakness to Psychic (+160) and prints no Weakness"],
+        },
+        { side: 1, card: 'Latias ex', source: 'Ability', name: 'Skyliner', kinds: ['retreat'], text: 'Your Basic Pokémon in play have no Retreat Cost.', from: 6, until: null, touched: [] },
+      ],
+    }),
+    'summary',
+    REPLAY_TEXT_MAX.summary,
+  );
+  assert.match(text, /effects in play that changed the rules \(from the cards' text\):/);
+  assert.match(text, /- T6 opp's Lillie's Clefairy ex \(Ability Fairy Zone\) \[weakness\]: .* → T8: me's Dragapult ex took Weakness to Psychic \(\+160\) and prints no Weakness/);
+  assert.match(text, /- 1 more in play with nothing visible in the log/);
+  assert.doesNotMatch(text, /Skyliner/, 'a quiet effect is counted, not listed');
+  assert.ok(text.indexOf('board at the end') < text.indexOf('changed the rules'), 'after the game itself');
+  assert.doesNotMatch(renderReplay(replay(), 'summary', REPLAY_TEXT_MAX.summary), /changed the rules/, 'a payload from before 2026-10-17 has none');
+});
+
+test('a game whose rule effects all left no trace still counts them (Astra, #354)', () => {
+  const text = renderReplay(
+    replay({ ruleEffects: [{ side: 1, card: 'Latias ex', source: 'Ability', name: 'Skyliner', kinds: ['retreat'], text: 'Your Basic Pokémon in play have no Retreat Cost.', from: 6, until: null, touched: [] }] }),
+    'summary',
+    REPLAY_TEXT_MAX.summary,
+  );
+  assert.match(text, /effects in play that changed the rules: 1 in play, none visible in the log/);
+});

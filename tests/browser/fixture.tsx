@@ -23,6 +23,7 @@ import type { PendingApproval } from '../../apps/web/src/character/host/approval
 import type { ApprovalPreview } from '../../apps/web/src/character/host/chat/approvalCardState'
 import type { DeepQuote } from '../../apps/web/src/character/host/chat/deepRequest'
 import { BattlesTab } from '../../apps/web/src/routes/deck/BattlesTab'
+import { Toaster } from '../../apps/web/src/components/ui/Toast'
 import type { DeckSaved } from '../../apps/web/src/character/host/chat/deckSave'
 
 // Test-only entry: actual components, no host/WebGL/model or production route.
@@ -196,12 +197,18 @@ function DeepThinkFixture() {
  * `?battles` — the deck page's real Battles tab over real `fetch`, its API
  * answered by `battlesV2.mjs`. Self-host build (no Supabase URL), so the client
  * asks for `/deckpal/api/…`. The wrapper approximates the deck page's left
- * column: a 16px gutter on a phone, a bounded column on desktop.
+ * column: a 16px gutter on a phone, a bounded column on desktop. The toast host
+ * is PwaUi's, so a delete's Undo shows where it does in the app.
  */
 function BattlesFixture() {
-  return <main style={{ maxWidth: 840, margin: '0 auto', padding: '24px 16px' }}>
-    <BattlesTab deckId="battles-deck" currentVersion={2} />
-  </main>
+  return <>
+    <main style={{ maxWidth: 840, margin: '0 auto', padding: '24px 16px' }}>
+      <BattlesTab deckId="battles-deck" currentVersion={2} />
+    </main>
+    <div className="pointer-events-none fixed bottom-[calc(16px_+_env(safe-area-inset-bottom))] left-[16px] right-[16px] z-(--z-toast-action) flex justify-end nav:left-auto">
+      <Toaster />
+    </div>
+  </>
 }
 
 /** The real chat hook, isolated from the other transport-driven fixture cases. */

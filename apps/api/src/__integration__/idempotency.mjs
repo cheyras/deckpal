@@ -182,7 +182,11 @@ try {
     const second = await drain(streamText({ model: model(), messages: await resume(), tools: tools('changed'), experimental_toolApprovalSecret: secret }));
     assert.equal(await logsOn(deckId), before + 1, 'the replayed approval wrote a second battle log');
     assert.match(out(second), /REPLAYED/);
-    assert.equal(out(second).split('\n')[0], out(first).split('\n')[0], 'the replay did not return the original log');
+    // The tool says the request had already run (2026-10-12); the log it
+    // names must be the one the first run wrote.
+    const battle = (text) => text.match(/battle #(\d+)/)?.[1];
+    assert.ok(battle(out(first)));
+    assert.equal(battle(out(second)), battle(out(first)), 'the replay did not return the original log');
 
     const keyed = await db.query(
       `SELECT b.idempotency_key, b.status, e.operation FROM mutation_batch b JOIN mutation_event e ON e.batch_id = b.id
@@ -215,14 +219,15 @@ try {
     assert.equal(c.status, 201);
     assert.notEqual(c.body.log.id, a.body.log.id);
     assert.equal(await logsOn(deckId), before + 2);
-    // No key: two writes, no batch, and the response body has no `replayed`.
+    // No key: two writes, each in a batch of its own (so it can be undone,
+    // 2026-10-12), and the response body has no `replayed`.
     for (let i = 0; i < 2; i++) {
       const plain = await call('POST', `/decks/${deckId}/logs`, { rawLog: LOG, source: 'test-suite' });
       assert.equal(plain.status, 201);
       assert.equal('replayed' in plain.body, false);
     }
     assert.equal(await logsOn(deckId), before + 4);
-    assert.equal(await batchesWith('battle_log.create'), batches + 2);
+    assert.equal(await batchesWith('battle_log.create'), batches + 4);
     // A preview never takes part.
     const dry = await call('POST', `/decks/${deckId}/logs`, { rawLog: LOG, dryRun: true }, 'route-log-1');
     assert.equal(dry.body.dryRun, true);

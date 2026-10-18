@@ -424,6 +424,29 @@ try {
     assert.equal(evidence.status, 'passed');
     result.cases.push(evidence);
   }
+  // Write safety (2026-10-12): the battle-log recycle bin, every battle-log
+  // and deck-list write in the mutation log and undone by revert, and a
+  // retried MCP write landing once — on the real routes, then through the
+  // agent tools the MCP server runs. Its own database, like the suites above.
+  {
+    assertNoEnvFile();
+    await run(join(bindir, 'psql'), ['-X', '-v', 'ON_ERROR_STOP=1', '-c',
+      'CREATE DATABASE deckpal_ci_write_safety OWNER deckpal_ci_fixture']);
+    await run(join(bindir, 'psql'), ['-X', '-v', 'ON_ERROR_STOP=1', '-d',
+      'deckpal_ci_write_safety', '-c', 'CREATE EXTENSION vector']);
+    const caseFile = join(scratch, 'write-safety.json');
+    await run(process.execPath, ['--import', join(REPO, 'node_modules', 'tsx', 'dist', 'loader.mjs'),
+      join(REPO, 'apps', 'api', 'src', '__integration__', 'writeSafety.mjs')], {
+      timeoutMs: 240_000,
+      env: {
+        PGUSER: 'deckpal_ci_fixture', PGDATABASE: 'deckpal_ci_write_safety',
+        DECKPAL_TEST_ROOT: scratch, DECKPAL_TEST_MARKER: marker, DECKPAL_TEST_RESULT: caseFile,
+      },
+    });
+    const evidence = JSON.parse(readFileSync(caseFile, 'utf8'));
+    assert.equal(evidence.status, 'passed');
+    result.cases.push(evidence);
+  }
   // The MCP tool surface, measured: a real-sized catalog and a heavy user,
   // the real API and MCP server, every read tool's result size checked
   // against its budget, and a hostile opponent name read back through the

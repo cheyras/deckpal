@@ -95,9 +95,9 @@ export interface Api {
   get(path: string): Promise<unknown>;
   /**
    * Send a JSON body (POST/PATCH/PUT/DELETE …). `headers` go on this one
-   * request only. Deck-E uses them for the per-write `Idempotency-Key` that its
-   * adapter derives from a signed tool call (`apps/api/src/decke/ctx.ts`). The
-   * tools never pass any, so the MCP server's requests are unchanged.
+   * request only: the per-write `Idempotency-Key`. A tool whose write a retry
+   * would double derives one from the request (`writeKey.ts`); Deck-E replaces
+   * it with the key it derives from a signed tool call (`apps/api/src/decke/ctx.ts`).
    */
   send(
     method: 'POST' | 'PATCH' | 'PUT' | 'DELETE',

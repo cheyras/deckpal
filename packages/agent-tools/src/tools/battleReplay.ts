@@ -60,6 +60,18 @@ export interface ReplayPayload {
   finalApproximate?: boolean;
   cards: [Array<{ name: string; line: string }>, Array<{ name: string; line: string }>];
   ending: { winner: ReplaySide | null; reason: string; turn: number; note: string | null } | null;
+  /** Absent from a payload made before 2026-10-17. */
+  ruleEffects?: Array<{
+    side: ReplaySide;
+    card: string;
+    source: 'Stadium' | 'Ability' | 'Tool';
+    name: string;
+    kinds: string[];
+    text: string;
+    from: number;
+    until: number | null;
+    touched: string[];
+  }>;
   assessment: { score: number; depth: 'brief' | 'standard' | 'deep'; reasons: string[] } | null;
 }
 
@@ -159,6 +171,26 @@ export function renderReplay(r: ReplayPayload, detail: DigestDetail, max: number
     if (r.finalBoard) {
       const order: ReplaySide[] = r.me === null ? [0, 1] : [r.me, opp as ReplaySide];
       out.push(`board at the end${r.finalApproximate ? ' ≈' : ''}: ${order.map((s) => `${label(s)}: ${sideLine(r.finalBoard![s], benchCap)}`).join(' | ')}`);
+    }
+
+    // Effects that changed the rules, read from each card's text (Weakness, costs, Tools, damage, prevention…): only
+    // the ones the log shows touching something, each with that evidence. After the game itself, and neutrally
+    // headed, so a reader weighs them as one input among the rest (2026-10-18: placed first, under "a surprising
+    // number usually comes from one of these", the eval's Sonnet writer lost opponent-decision points on held-out
+    // games). The rest are only counted.
+    const effects = r.ruleEffects ?? [];
+    const seen = effects.filter((x) => x.touched.length);
+    const quiet = effects.length - seen.length;
+    if (!seen.length && quiet) out.push(`effects in play that changed the rules: ${quiet} in play, none visible in the log`);
+    if (seen.length) {
+      const owner = (e: (typeof effects)[number]): string =>
+        `${label(e.side)}'s ${untrusted(e.card)}${e.source === 'Ability' ? ` (Ability ${untrusted(e.name)})` : ` (${e.source})`}`;
+      out.push("effects in play that changed the rules (from the cards' text):");
+      for (const e of seen) {
+        const when = `T${e.from}${e.until !== null ? `–T${e.until}` : ''}`;
+        out.push(`- ${when} ${owner(e)} [${e.kinds.join(', ')}]: ${untrusted(e.text, 200)} → ${e.touched.map(sub).join('; ')}`);
+      }
+      if (quiet) out.push(`- ${quiet} more in play with nothing visible in the log`);
     }
 
     const theirCards = opp === null ? [] : r.cards[opp];

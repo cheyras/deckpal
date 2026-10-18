@@ -8,6 +8,7 @@ import { describeCard, describeVariant, pickVariant, resolveCardsBatch, variants
 import { FINISHES, GOALS, errText } from '../shared.js';
 import { q, q1 } from '../db.js';
 import { cardFilters, SEARCH_CTES } from './catalog.js';
+import { sendOnce } from '../writeKey.js';
 
 /**
  * List tools — SPEC §5 #11–#13. Everything goes through deckpal-api
@@ -767,12 +768,20 @@ const editListTool = defineTool({
       const lines: string[] = [];
       let failures = 0;
       let targetId = resolvedId;
+      // Creates and bulk adds are keyed (writeKey.ts): a retry would otherwise
+      // make a second list, or add a static list's rows twice. Renames and
+      // removals set a state, so repeating them changes nothing.
       if (!current) {
-        const created = (await ctx.api.send('POST', '/lists', { name, kind: listKind, source: SOURCE })) as {
+        const created = (await sendOnce(ctx, 'edit_list', 'POST', '/lists', { name, kind: listKind, source: SOURCE })) as {
           list: ListSummary;
+          replayed?: boolean;
         };
         targetId = created.list.id;
-        lines.push(`Created ${created.list.kind} list '${created.list.name}' ${forTools(`list_id "${targetId}"`)}`);
+        lines.push(
+          created.replayed
+            ? `List '${created.list.name}' ${forTools(`list_id "${targetId}"`)} was already created by this exact request — using it.`
+            : `Created ${created.list.kind} list '${created.list.name}' ${forTools(`list_id "${targetId}"`)}`,
+        );
       }
       if (targetId === null) {
         // Unreachable: `current` only exists when `resolvedId` resolved to it, and
@@ -804,7 +813,7 @@ const editListTool = defineTool({
       let addFailed = false;
       if (resolvedAdds.length > 0 || add_missing || searchItems.length > 0) {
         try {
-          const res = (await ctx.api.send('POST', `/lists/${encodeURIComponent(targetId)}/items/bulk`, {
+          const res = (await sendOnce(ctx, 'edit_list', 'POST', `/lists/${encodeURIComponent(targetId)}/items/bulk`, {
             items: [
               ...resolvedAdds.map((a) => ({
                 cardVariantId: a.body.cardVariantId,
@@ -828,9 +837,15 @@ const editListTool = defineTool({
                 }
               : {}),
             source: SOURCE,
-          })) as { added: number; alreadyPresent: number; unresolved: string[]; batchId: string };
+          })) as { added: number; alreadyPresent: number; unresolved: string[]; batchId: string; replayed?: boolean };
+          if (res.replayed) {
+            lines.push(
+              '  this exact add had already run, so nothing new was added (the counts are from that run). ' +
+                'To add the same cards again on purpose, change the request — a note on the rows will do.',
+            );
+          }
           lines.push(
-            `  done: added ${res.added}` +
+            `  ${res.replayed ? 'earlier' : 'done'}: added ${res.added}` +
               (res.alreadyPresent ? `, ${res.alreadyPresent} already in the list` : '') +
               (res.unresolved.length ? `, ${res.unresolved.length} unresolved` : ''),
           );
