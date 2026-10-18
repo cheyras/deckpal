@@ -351,6 +351,8 @@ export interface GameState {
    * They are taken one at a time, so a player with a face-up Prize card chooses each time (see flow.ts `takePrizes`).
    */
   prizeTaking?: { left: [number, number]; took: [number, number] };
+  /** Sudden-death games started so far (both players won at once): each is a new game with 1 Prize card per player. */
+  suddenDeath?: number;
   /** Where the flow continues once Knock Outs and promotions are resolved. */
   afterKo: string;
   winner: Player | null;
@@ -468,7 +470,9 @@ export type GameEvent =
   | { type: 'coin_flip'; player: Player; heads: boolean }
   | { type: 'condition'; player: Player; slot: number; cond: string }
   | { type: 'end_turn'; player: Player; turn: number }
-  | { type: 'game_end'; winner: Player | null; reason: string; turn: number };
+  | { type: 'game_end'; winner: Player | null; reason: string; turn: number }
+  /** Both players won at once: a sudden-death game starts (1 Prize card each). `n` counts them in this match. */
+  | { type: 'sudden_death'; n: number };
 
 export interface EngineOptions {
   /** Record events (off by default in batch simulation). */

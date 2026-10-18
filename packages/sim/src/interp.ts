@@ -1107,7 +1107,11 @@ function chooseCards(env: Env, s: GameState, f: Frame, st: Extract<Step, { op: '
   // Cards that "can't be put into your hand or deck from the discard pile" are not offered when the chosen cards are about to be put there.
   const noRecover = st.from === 'discard' && movesToHandOrDeck(env, f, st.as);
   const opts = zone.filter((c) => (!st.others || c !== f.src) && cardMatches(env, c, st.filter) && !(noRecover && def(env.ctx, c).script?.noRecoverFromDiscard));
-  const [min, max] = bounds(opts.length, evalExpr(env, s, e, st.min), evalExpr(env, s, e, st.max));
+  const [least, max] = bounds(opts.length, evalExpr(env, s, e, st.min), evalExpr(env, s, e, st.max));
+  // Searching your own (hidden) deck for cards of a kind ("a Basic Pokémon", "an Energy card"), you may find none even when one is
+  // there, since nobody can check (Compendium #903). A search for any card at all has no such way out.
+  const failToFind = st.from === 'deck' && owner === chooser && !!st.filter && Object.values(st.filter).some((v) => v !== undefined);
+  const min = failToFind ? 0 : least;
   if (forced(opts.length, min, max)) {
     const pick = max === 0 ? [] : opts.slice(0, max);
     f.vars[st.as] = pick;

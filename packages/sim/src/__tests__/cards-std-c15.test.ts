@@ -644,10 +644,10 @@ test("Boxed Order: if you find no Item cards, your turn still ends (Compendium #
   assert.equal(g.state.current, 1);
 });
 
-test("Boxed Order: 1 to 2 - with Items in the deck you can't take none (up to X on a Trainer is at least 1)", () => {
+test("Boxed Order: up to 2 Items, and none is allowed (a deck search for a kind of card may find none)", () => {
   const dk = deck('sv05-143', ULTRA, TYR);
   const g = scenario(dk, dk, [{ active: 'Tyranitar ex', hand: ['Boxed Order'] }, { active: 'Tyranitar ex' }]);
   choose(g, 'Play Boxed Order');
-  assert.equal(g.decision?.min, 1);
+  assert.equal(g.decision?.min, 0, 'a search of the deck for a kind of card may find none (Compendium #903; "up to" is otherwise at least 1, #2301)');
   assert.equal(g.decision?.max, 2);
 });

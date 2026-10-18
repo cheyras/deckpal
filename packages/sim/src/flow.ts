@@ -58,6 +58,7 @@ import { leaveHand,
   newSlot,
   opp,
   removeFrom,
+  resetForSuddenDeath,
   shuffleDeck,
   slotCards,
   takePicked,
@@ -458,7 +459,8 @@ function finishDeal(env: Env, s: GameState, p: Player): void {
 function setupStep(env: Env, s: GameState): void {
   switch (s.step) {
     case 'coin': {
-      if (env.ctx.opts.first !== null) {
+      // A sudden-death game always starts with a new coin flip, even when the match had a fixed first player.
+      if (env.ctx.opts.first !== null && !s.suddenDeath) {
         s.first = env.ctx.opts.first;
         emit(env, { type: 'go_first', player: s.first });
         s.step = 'deal';
@@ -537,7 +539,8 @@ function setupStep(env: Env, s: GameState): void {
     case 'prizes': {
       for (const p of [0, 1] as Player[]) {
         const ps = s.p[p];
-        for (let i = 0; i < 6 && ps.deck.length; i++) ps.prizes.push(ps.deck.pop() as number);
+        // 6 Prize cards; 1 in a sudden-death game.
+        for (let i = 0; i < (s.suddenDeath ? 1 : 6) && ps.deck.length; i++) ps.prizes.push(ps.deck.pop() as number);
       }
       s.step = 'extra0';
       return;
@@ -1413,7 +1416,10 @@ function resolveKOs(env: Env, s: GameState): void {
   s.step = s.afterKo;
 }
 
-/** Win conditions after Knock Outs. Returns true when the game ended. */
+/** Sudden-death games played before a still-tied match is recorded as a draw. */
+const SUDDEN_DEATH_MAX = 3;
+
+/** Win conditions after Knock Outs. Returns true when the game ended (or a sudden-death game began). */
 function checkWin(env: Env, s: GameState): boolean {
   const ways: [number, number] = [0, 0];
   for (const p of [0, 1] as Player[]) {
@@ -1424,8 +1430,13 @@ function checkWin(env: Env, s: GameState): boolean {
   }
   if (!ways[0] && !ways[1]) return false;
   if (ways[0] === ways[1]) {
-    // Both win in the same number of ways: a tiebreaker game. Recorded as a draw.
-    endGame(env, s, null, 'simultaneous win');
+    // Both win in the same number of ways: Sudden Death (rulebook; PTCG Live's engine has the same mode). A new game with 1 Prize card
+    // each decides the match. After 3 sudden-death games that also tied, it is recorded as a draw rather than played on for ever.
+    if ((s.suddenDeath ?? 0) >= SUDDEN_DEATH_MAX) endGame(env, s, null, 'simultaneous win');
+    else {
+      resetForSuddenDeath(env.ctx, s);
+      emit(env, { type: 'sudden_death', n: s.suddenDeath as number });
+    }
   } else {
     const w: Player = ways[0] > ways[1] ? 0 : 1;
     endGame(env, s, w, s.p[w].prizes.length === 0 ? 'prizes' : 'no Pokémon in play');

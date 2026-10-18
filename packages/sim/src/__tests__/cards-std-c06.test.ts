@@ -357,13 +357,13 @@ test('Fan Rotom, Assault Landing: 70 if there is a Stadium in play, otherwise no
   assert.equal(withStadium.state.p[1].active!.damage, 70);
 });
 
-test('Fan Rotom, Fan Call: once during your first turn, search for up to 3 {C} Pokémon with 100 HP or less (1 to 3), reveal them, put them in hand', () => {
+test('Fan Rotom, Fan Call: once during your first turn, search for up to 3 {C} Pokémon with 100 HP or less (0 to 3: a deck search for a kind of card may find none), reveal them, put them in hand', () => {
   const dk = deck('me02.5-171', RUFFLET, KOMALA, 'me02.5-176', URSA);
   const g = scenario(dk, dk, [{ active: 'Fan Rotom' }, { active: 'Bloodmoon Ursaluna ex' }], { turn: 1, current: 0, first: 0 });
   choose(g, 'Use Fan Call');
   const opts = labels(g);
   assert.ok(opts.every((l) => ['Fan Rotom', "Larry's Rufflet", "Larry's Komala"].includes(l)), `only {C} Pokémon with 100 HP or less: ${opts.join(', ')}`);
-  assert.equal(g.decision!.min, 1, '"up to 3" on an Ability is 1 to 3');
+  assert.equal(g.decision!.min, 0, 'a search of the deck for a kind of card may find none (Compendium #903; "up to" is otherwise at least 1, #2301)');
   assert.equal(g.decision!.max, 3);
   pick(g, ["Larry's Rufflet", "Larry's Komala", 'Fan Rotom']);
   assert.deepEqual(names(g, g.state.p[0].hand), ['Fan Rotom', "Larry's Komala", "Larry's Rufflet"]);

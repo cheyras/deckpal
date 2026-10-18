@@ -57,3 +57,34 @@ test("a Stadium that replaces another sends the old one to its owner's discard p
   assert.ok(g.state.p[0].discard.some((c) => nameOf(g, c) === 'Battle Cage'), "Battle Cage is in P1's discard pile");
   assert.ok(!g.state.p[1].discard.some((c) => nameOf(g, c) === 'Battle Cage'));
 });
+
+// A search of your own hidden deck for a kind of card may find nothing; a search for any card, or a pick from the public discard pile,
+// takes at least what the card says.
+const SEEKER = { ...PUP, cardId: 't-c02', name: 'Seeker', category: 'Trainer', hp: null, stage: null, suffix: null, trainerType: 'Item', types: [], attacks: [], weaknesses: [], effect: 'Search your deck for a Pokémon, reveal it, and put it into your hand. Then, shuffle your deck.' };
+const ANYSEEK = { ...SEEKER, cardId: 't-c03', name: 'Any Seeker', effect: 'Search your deck for a card and put it into your hand. Then, shuffle your deck.' };
+const PICKUP = { ...SEEKER, cardId: 't-c04', name: 'Pick Up', effect: 'Put a Pokémon from your discard pile into your hand.' };
+const SEEK_SCRIPTS = [
+  { id: 't-c02', name: 'Seeker', play: [{ op: 'chooseCards', from: 'deck', filter: { cat: 'pokemon' }, min: 1, max: 1, as: 'x' }, { op: 'move', cards: 'x', to: 'hand' }, { op: 'shuffle' }] },
+  { id: 't-c03', name: 'Any Seeker', play: [{ op: 'chooseCards', from: 'deck', min: 1, max: 1, as: 'x' }, { op: 'move', cards: 'x', to: 'hand' }, { op: 'shuffle' }] },
+  { id: 't-c04', name: 'Pick Up', play: [{ op: 'chooseCards', from: 'discard', filter: { cat: 'pokemon' }, min: 1, max: 1, as: 'x' }, { op: 'move', cards: 'x', to: 'hand' }] },
+] as unknown as import('../dsl.js').CardScript[];
+const S = deck('S', [
+  [PUP, 20],
+  [SEEKER as never, 4],
+  [ANYSEEK as never, 4],
+  [PICKUP as never, 4],
+  [FIGHTING, 28],
+]);
+
+test('Compendium #903: a search of your deck for a kind of card may find none; a search for any card, or a pick from the discard pile, may not', () => {
+  const at = (hand: string) => scenario(S, S, [{ active: 'Pup', hand: [hand], discard: ['Pup', 'Pup'] }, { active: 'Pup' }], { scripts: SEEK_SCRIPTS });
+  const kind = at('Seeker');
+  choose(kind, 'Play Seeker');
+  assert.equal(kind.decision?.min, 0, 'a Pokémon from the deck: none is allowed');
+  const any = at('Any Seeker');
+  choose(any, 'Play Any Seeker');
+  assert.equal(any.decision?.min, 1, 'any card from the deck: one must be taken');
+  const up = at('Pick Up');
+  choose(up, 'Play Pick Up');
+  assert.equal(up.decision?.min, 1, 'the discard pile is public: one must be taken');
+});

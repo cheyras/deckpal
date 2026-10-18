@@ -235,13 +235,13 @@ test('Mawile, Double Eater: 60 damage for each Energy card (up to 2) you discard
 
 // ------------------------------------------------------------------ Aromatisse
 
-test('Aromatisse, Scent Collection: search for 1 to 2 Basic {P} Energy, reveal them, put them in your hand; not usable with none in the deck', () => {
+test('Aromatisse, Scent Collection: search for up to 2 Basic {P} Energy (none is allowed: a deck search), reveal them, put them in your hand; not usable with none in the deck', () => {
   const dk = deck('me03-036', TYR);
   const g = scenario(dk, dk, [{ active: 'Aromatisse' }, { active: 'Tyranitar ex' }]);
   const handBefore = g.state.p[0].hand.length;
   const deckBefore = g.state.p[0].deck.length;
   choose(g, 'Use Scent Collection');
-  assert.equal(g.decision?.min, 1, 'an Ability\'s "up to 2" is 1 to 2 (TPCi 2026-02-19)');
+  assert.equal(g.decision?.min, 0, 'a search of the deck for a kind of card may find none (Compendium #903; "up to" is otherwise at least 1, #2301)');
   assert.equal(g.decision?.max, 2);
   assert.ok(names(g, g.decision!.values as number[]).every((n) => n === P), 'only Basic {P} Energy');
   g.submit([0, 1]);

@@ -31,6 +31,36 @@ function emptyPlayer(deck: number[]): PlayerState {
   };
 }
 
+/**
+ * Start a sudden-death game in place: every card goes back to its owner's deck, the board and every effect are cleared, and setup
+ * runs again (a new coin flip; 1 Prize card each, see flow.ts). The RNG streams carry on.
+ */
+export function resetForSuddenDeath(ctx: GameContext, s: GameState): void {
+  s.p = [emptyPlayer(ctx.iids[0].slice()), emptyPlayer(ctx.iids[1].slice())];
+  s.turn = 0;
+  s.phase = 'setup';
+  s.step = 'coin';
+  s.stadium = null;
+  s.stack = [];
+  s.pending = null;
+  s.effects = [];
+  s.delayed = [];
+  s.attacked = false;
+  s.queued = [];
+  s.limbo = [];
+  s.afterKo = 'main';
+  s.attackBy = undefined;
+  s.attackByCard = undefined;
+  s.attackHits = undefined;
+  s.attackUses = undefined;
+  s.attackedViaTool = undefined;
+  s.noMoreAttacks = undefined;
+  s.benchOwner = undefined;
+  s.nest = undefined;
+  s.prizeTaking = undefined;
+  s.suddenDeath = (s.suddenDeath ?? 0) + 1;
+}
+
 export function newState(ctx: GameContext, seed: number): GameState {
   return {
     v: 1,

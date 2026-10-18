@@ -9,6 +9,8 @@ import test from 'node:test';
 import type { CardScript } from '../dsl.js';
 import { describeOptions } from '../describe.js';
 import type { Game } from '../game.js';
+import { makePilot } from '../pilot/index.js';
+import { playOut } from '../play.js';
 import { scenario, type SideLayout } from '../scenario.js';
 import type { CardFrame, Decision } from '../types.js';
 import { CONFUSED, POISONED } from '../types.js';
@@ -191,12 +193,20 @@ test('fewer Prize cards left than a Knock Out is worth: take what is left, and w
   assert.equal(g.state.winReason, 'prizes');
 });
 
-test('Destined Fight with the last Prize: both players win one way each → tiebreaker (recorded as a draw)', () => {
+test('Destined Fight with the last Prize: both players win one way each → sudden death', () => {
   const g = at([{ active: 'Fated', energy: { active: ['Psychic Energy'] }, prizes: 1 }, { active: 'Pup', bench: ['Pup'] }]);
   choose(g, 'Attack: Destined Fight');
-  assert.equal(g.state.phase, 'over');
-  assert.equal(g.state.winner, null);
-  assert.equal(g.state.winReason, 'simultaneous win');
+  assert.equal(g.state.phase, 'setup', 'a tie: a sudden-death game starts');
+  assert.equal(g.state.suddenDeath, 1);
+  // The sudden-death game is a new game: every card back in its deck, a fresh setup, and 1 Prize card each.
+  const all = (p: 0 | 1) => g.state.p[p].deck.length + g.state.p[p].hand.length;
+  assert.equal(all(0), g.ctx.iids[0].length);
+  assert.equal(all(1), g.ctx.iids[1].length);
+  const pilot = makePilot('greedy', 7);
+  while (g.state.phase === 'setup' && g.decision) g.submit(pilot.choose(g, g.decision));
+  assert.deepEqual([g.state.p[0].prizes.length, g.state.p[1].prizes.length], [1, 1], 'sudden death: 1 Prize card each');
+  playOut(g, [makePilot('greedy', 1), makePilot('greedy', 2)]);
+  assert.ok(g.over, 'and it is played to a result');
 
   // Same, but the opponent had no Bench: the attacker wins two ways (Prizes + no Pokémon) against one.
   const h = at([{ active: 'Fated', energy: { active: ['Psychic Energy'] }, prizes: 1 }, { active: 'Pup' }]);

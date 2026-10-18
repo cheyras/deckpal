@@ -424,7 +424,7 @@ test('Compendium #887: taking the last Prize card on your turn wins before Poké
   assert.equal(lose.state.winReason, 'no Pokémon in play');
 });
 
-test('Compendium #882: when an attack makes both players take their last Prize card, the one who can still put a Pokémon in the Active Spot wins; otherwise a tiebreaker', () => {
+test('Compendium #882: when an attack makes both players take their last Prize card, the one who can still put a Pokémon in the Active Spot wins; otherwise sudden death', () => {
   // Selfdestruct: 100 to P2's Pup, 60 to Bomber itself; both Knocked Out, both players at 1 Prize card.
   const run = (myBench: string[], oppBench: string[]): Game => {
     const g = at([{ active: 'Bomber', bench: myBench, energy: { active: [E] }, prizes: 1 }, { active: 'Pup', bench: oppBench, prizes: 1 }]);
@@ -437,14 +437,12 @@ test('Compendium #882: when an attack makes both players take their last Prize c
   assert.equal(p2.state.winner, 1, 'P2 still has a Pokémon, P1 has none');
   for (const [mine, theirs] of [[['Pup'], ['Pup']], [[], []]] as [string[], string[]][]) {
     const tie = run(mine, theirs);
-    assert.equal(tie.state.phase, 'over');
-    assert.equal(tie.state.winner, null, `bench ${mine.length}/${theirs.length}: the same number of ways each`);
-    assert.equal(tie.state.draw, true);
-    assert.equal(tie.state.winReason, 'simultaneous win');
+    assert.equal(tie.state.phase, 'setup', `bench ${mine.length}/${theirs.length}: the same number of ways each, so a sudden-death game starts`);
+    assert.equal(tie.state.suddenDeath, 1);
   }
 });
 
-test('Compendium #884: an attack that Knocks Out the attacker and the Defending Pokémon for the last Prize card is a tiebreaker if the attacker is left with no Pokémon, a win if the opponent is too', () => {
+test('Compendium #884: an attack that Knocks Out the attacker and the Defending Pokémon for the last Prize card is sudden death if the attacker is left with no Pokémon, a win if the opponent is too', () => {
   // P1 needs 1 Prize card, P2 needs 3: P2's only way to win is P1 having no Pokémon left.
   const run = (oppBench: string[]): Game => {
     const g = at([{ active: 'Bomber', energy: { active: [E] }, prizes: 1 }, { active: 'Pup', bench: oppBench, prizes: 3 }]);
@@ -452,15 +450,14 @@ test('Compendium #884: an attack that Knocks Out the attacker and the Defending 
     return g;
   };
   const tie = run(['Pup']);
-  assert.equal(tie.state.phase, 'over');
-  assert.equal(tie.state.winner, null, 'one way each');
-  assert.equal(tie.state.winReason, 'simultaneous win');
+  assert.equal(tie.state.phase, 'setup', 'a tie: a sudden-death game starts');
+  assert.equal(tie.state.suddenDeath, 1);
   const win = run([]);
   assert.equal(win.state.winner, 0, 'two ways (last Prize card, no Pokémon left) against one');
   assert.equal(win.state.winReason, 'prizes');
 });
 
-test('Compendium #245: win conditions reached at the same moment by an Ability are counted: more ways wins, the same number is a tiebreaker', () => {
+test('Compendium #245: win conditions reached at the same moment by an Ability are counted: more ways wins, the same number is sudden death', () => {
   // Last Curse Knocks Out Grave and puts 3 damage counters on P2's Pup (30 HP left), in P1's main phase.
   const run = (mine: SideLayout, theirs: SideLayout): Game => {
     const g = at([mine, { active: 'Pup', damage: { active: 40 }, ...theirs }]);
@@ -469,9 +466,8 @@ test('Compendium #245: win conditions reached at the same moment by an Ability a
   };
   // Both on 1 Prize card, both left with no Pokémon: two ways each.
   const tie = run({ active: 'Grave', prizes: 1 }, { prizes: 1 });
-  assert.equal(tie.state.phase, 'over');
-  assert.equal(tie.state.winner, null);
-  assert.equal(tie.state.winReason, 'simultaneous win');
+  assert.equal(tie.state.phase, 'setup', 'a tie: a sudden-death game starts');
+  assert.equal(tie.state.suddenDeath, 1);
   // P1 keeps a Benched Pokémon: two ways against one.
   const more = run({ active: 'Grave', bench: ['Pup'], prizes: 1 }, { prizes: 1 });
   assert.equal(more.state.winner, 0);

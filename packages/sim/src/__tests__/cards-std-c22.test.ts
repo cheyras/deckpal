@@ -700,7 +700,7 @@ test('Noctowl, Jewel Seeker: on evolving, with a Tera Pokémon in play, search f
   yes(g);
   const before = g.state.p[0].hand.length;
   assert.deepEqual(offered(g), [`Hero's Cape`, 'Switch', "Xerosic's Machinations"], 'Trainer cards only');
-  assert.equal(g.decision?.min, 1, '"up to 2" on an Ability is 1 to 2');
+  assert.equal(g.decision?.min, 0, 'a search of the deck for a kind of card may find none (Compendium #903; "up to" is otherwise at least 1, #2301)');
   assert.equal(g.decision?.max, 2);
   pick(g, ['Switch', "Xerosic's Machinations"]);
   assert.deepEqual(names(g, g.state.p[0].hand.slice(before)), ['Switch', "Xerosic's Machinations"]);

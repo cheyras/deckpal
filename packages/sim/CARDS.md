@@ -133,9 +133,12 @@ Three general rulings every script follows (each pinned in
 `src/__tests__/rulings.test.ts` or `rules-audit.test.ts`):
 
 - **"Up to X"**: on an attack it is 0 to X; on a Trainer or an Ability it is
-  1 to X (TPCi 2026-02-19). A search of the deck for cards with a property can
-  still find nothing. Write `min: 1` for a Trainer's or Ability's "up to", and
-  a `playable` guard so the card isn't offered when nothing qualifies.
+  1 to X (TPCi 2026-02-19). Write `min: 1` for a Trainer's or Ability's "up to",
+  and a `playable` guard so the card isn't offered when nothing qualifies. A
+  search of your own deck for cards with a property can still find nothing
+  (Compendium #903): the engine lowers `min` to 0 for any `chooseCards` from
+  the deck with a `filter`, so write the printed number and let it. A search
+  for any card (no `filter`) keeps its `min`.
 - **No effect, no play**: a Trainer can't be played if it would do nothing
   (TPCi 2014-11-13). A discard the card calls a cost ("You can use this card
   only if you discard ...") isn't an effect, so Ultra Ball needs a deck
