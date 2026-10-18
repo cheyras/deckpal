@@ -33,5 +33,6 @@ The kind is read from the WORDING of the card's text (`ruleKinds`), never from a
 **Why:** In the analysis eval (`evals/analysis/RESULTS.md`), P2 (every surprise has a mechanism) scored low in every configuration, Sonnet included. The digest printed "Weakness to Psychic: 160" on a Dragapult ex that prints no Weakness. It never said Nighttime Mine was raising Phantom Dive's cost, or that Jamming Tower had switched off an Air Balloon. The owner asked for a system, not a rule per card: this is one rule for the class.
 
 **Implications:**
-- The change is measured by re-running the eval against this branch's preview deployment. It ships if P2 rises on the held-out games as well as the owner's.
-- A payload stored before 2026-10-17 has no `ruleEffects`, and renders as before.
+- It is measured AFTER deploy: a preview deployment cannot run the tools (the MCP function's internal API calls meet deployment protection), so the eval runs against production once merged, and the change is reverted if P2 does not rise on the held-out games as well as the owner's. The section is additive output, so a revert loses nothing.
+- The eval sends `VERCEL_PROTECTION_BYPASS` (never printed) as the bypass header when set, for previews that can serve tools.
+- The replay is computed per request from the stored raw log (`routes/decks.ts`), so every existing log gets the section at once. The renderer still accepts a payload without `ruleEffects` (an API deployed before the tools), and prints it as before.
