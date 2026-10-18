@@ -75,3 +75,36 @@ node scripts/analysis-eval.mjs run --budget 3 --out evals/analysis/runs/<name>
 # what it already spent; the run refuses, before touching any verdict, if the re-judge could exceed it.
 node scripts/analysis-eval.mjs run --budget 8 --rejudge --out evals/analysis/runs/<name>
 ```
+
+## After the rule-effects digest (#351), 2026-10-17
+
+**What ran.** One run of configs A and B against production with #351 deployed (main at 51f23e47). It cost $0.97, bringing all eval spend to $4.86. The baseline columns are run 1 / run 2 from above.
+
+| P2 (mechanisms) | Baseline | After #351 |
+|---|---|---|
+| A, owner games | 56 / 50 | **72** |
+| A, held-out games | 50 / 30 | 40 |
+| B, owner games | 67 / 72 | 72 |
+| B, held-out games | 50 / 50 | **60** |
+
+**The points the change covers moved in both configs, on both splits:**
+- `jamming-tower` (held-out hns-36): 0 / 0 → 0.5.
+- `fairy-zone-340` (owner-99): 0.5 / 0.5 → 1.
+- `crustle-mechanism` (owner-95, A): 0 / 0 → 1.
+
+**The points it does not cover did not move:**
+- `shellnado-dodge` is attack text.
+- `dark-weakness` is a printed Weakness.
+- `codebreaking-seek` is a Trainer combo.
+
+That is the signature of a class fix rather than an instance fix: it moved the held-out Jamming Tower point, a card nobody wrote a rule for.
+
+B's overall score was 71 against 78 / 76, a drop mostly in P4 and P5, which this change does not touch. That is within the spread of a single run.
+
+**Verdict: kept.**
+
+**Next mechanisms gap:** effects carried in ATTACK text, which the digest does not yet surface for the turn they apply:
+- Shellnado Spin's counter-damage;
+- Seek Inspiration copying an attack.
+
+They are the next class, measured the same way.
