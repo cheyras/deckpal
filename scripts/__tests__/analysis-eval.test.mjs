@@ -395,3 +395,19 @@ test('re-judging replaces a verdict only once the new one exists, keeping the ol
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('a re-judge only judges runs that exist and succeeded; it never starts an agent (Astra, #350)', async () => {
+  const { pairAction } = await import('../analysis-eval.mjs')
+  const ok = { error: null }
+  const bad = { error: { message: 'x' } }
+  // Re-judge: missing and errored pairs are left alone; done-in-this-pass pairs are skipped.
+  assert.equal(pairAction({ run: null, judged: false, rejudge: true, inPass: false }), 'skip')
+  assert.equal(pairAction({ run: bad, judged: false, rejudge: true, inPass: false }), 'skip')
+  assert.equal(pairAction({ run: ok, judged: true, rejudge: true, inPass: false }), 'judge')
+  assert.equal(pairAction({ run: ok, judged: true, rejudge: true, inPass: true }), 'skip')
+  // A normal run: missing or errored pairs run; unjudged ones are judged; judged ones are skipped.
+  assert.equal(pairAction({ run: null, judged: false, rejudge: false, inPass: false }), 'run')
+  assert.equal(pairAction({ run: bad, judged: false, rejudge: false, inPass: false }), 'run')
+  assert.equal(pairAction({ run: ok, judged: false, rejudge: false, inPass: false }), 'judge')
+  assert.equal(pairAction({ run: ok, judged: true, rejudge: false, inPass: false }), 'skip')
+})

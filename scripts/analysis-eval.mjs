@@ -894,6 +894,17 @@ const judgedInPass = (runFile, pass) => {
   return j?.status === 'ok' && typeof j.judgedAt === 'string' && j.judgedAt >= pass.startedAt
 }
 
+/**
+ * What to do with one (case, config): 'run' the agent (then judge), 'judge'
+ * only, or 'skip'. A re-judge never runs an agent: it judges the existing,
+ * successful runs, and leaves missing or errored pairs alone (Astra, #350).
+ */
+export function pairAction({ run, judged, rejudge, inPass }) {
+  if (rejudge) return run && !run.error && !inPass ? 'judge' : 'skip'
+  if (!run || run.error) return 'run'
+  return judged ? 'skip' : 'judge'
+}
+
 /** The most one judge call reserved in this directory before, as the bound for the next ones; null when none ran. */
 export function judgeBound(entries) {
   const r = entries.filter((e) => e.kind === 'reserve' && e.label.endsWith(':judge')).map((e) => e.reservedUsd)
@@ -1032,8 +1043,9 @@ async function runAll({ gateway, prices, mcp, session, data, cases, state, confi
       const runFile = path.join(out, `${c.id}.${k}.run.json`)
       let run = fs.existsSync(runFile) ? JSON.parse(fs.readFileSync(runFile, 'utf8')) : null
       const judged = readJudgment(runFile)?.status === 'ok'
-      if (run && !run.error && judged && (!pass || judgedInPass(runFile, pass))) continue
-      if (!run || run.error) {
+      const action = pairAction({ run, judged, rejudge: !!pass, inPass: !!pass && judgedInPass(runFile, pass) })
+      if (action === 'skip') continue
+      if (action === 'run') {
         await resetLog(mcp, c, ids)
         run = await runCase({ gateway, prices, mcp, session, config: { key: k, ...CONFIGS[k] }, c, ids, deckName: data.decks[c.deck].name, budget, calls })
         fs.writeFileSync(runFile, `${JSON.stringify(run, null, 2)}\n`)
