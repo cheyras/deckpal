@@ -189,3 +189,24 @@ test('battle_digest appends the replay; detail is a schema option, and an older 
   assert.equal(plain.isError, undefined, plain.text);
   assert.doesNotMatch(plain.text, /simulator replay/);
 });
+
+test('effects that change the rules: the ones with evidence get a line each, the rest share one, and old payloads still render', () => {
+  const text = renderReplay(
+    replay({
+      ruleEffects: [
+        {
+          side: 1, card: "Lillie's Clefairy ex", source: 'Ability', name: 'Fairy Zone', kinds: ['weakness'],
+          text: "The Weakness of each of your opponent's {N} Pokémon in play is now {P}.", from: 6, until: null,
+          touched: ["T8: {p0}'s Dragapult ex took Weakness to Psychic (+160) and prints no Weakness"],
+        },
+        { side: 1, card: 'Latias ex', source: 'Ability', name: 'Skyliner', kinds: ['retreat'], text: 'Your Basic Pokémon in play have no Retreat Cost.', from: 6, until: null, touched: [] },
+      ],
+    }),
+    'summary',
+    REPLAY_TEXT_MAX.summary,
+  );
+  assert.match(text, /effects in play that change the rules/);
+  assert.match(text, /- T6 opp's Lillie's Clefairy ex \(Ability Fairy Zone\) \[weakness\]: .* → T8: me's Dragapult ex took Weakness to Psychic \(\+160\) and prints no Weakness/);
+  assert.match(text, /also in play, nothing visible in the log: opp's Latias ex \(Ability Skyliner\) \[retreat\]/);
+  assert.doesNotMatch(renderReplay(replay(), 'summary', REPLAY_TEXT_MAX.summary), /change the rules/, 'a payload from before 2026-10-17 has none');
+});

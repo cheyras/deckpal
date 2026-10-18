@@ -31,6 +31,7 @@ import { FRAMES } from '../cards/frames-all.js';
 import { framesNamed, resolveFrame } from './cardCodes.js';
 import { parseLiveLog, type CardMention, type LiveEvent, type Side } from './liveLog.js';
 import { replayLog, type ReplayObservation } from './replay.js';
+import { ruleEffects, type RuleEffect } from './ruleEffects.js';
 
 export interface BoardMon {
   name: string;
@@ -127,6 +128,8 @@ export interface ReplayInsights {
   /** Every card each side showed, with a one-line description. */
   cards: [CardLine[], CardLine[]];
   ending: { winner: Side | null; reason: 'prizes' | 'timeout' | 'no_bench' | 'concede' | 'deck_out' | 'unknown'; turn: number; note: string | null } | null;
+  /** Stadiums, Abilities and Tools in play whose text changes the rules (Weakness, costs, Tools, damage…), with what the log shows each one touching (ruleEffects.ts). */
+  ruleEffects: RuleEffect[];
 }
 
 const EMPTY: ReplayInsights = {
@@ -139,6 +142,7 @@ const EMPTY: ReplayInsights = {
   finalApproximate: false,
   cards: [[], []],
   ending: null,
+  ruleEffects: [],
 };
 
 /** "Near" a Knock Out: the target was left on this much HP or less. */
@@ -638,6 +642,7 @@ function insightsInner(raw: string, o: { players?: [string, string] }): ReplayIn
     finalApproximate: disagreeAfterLine !== null,
     cards,
     ending,
+    ruleEffects: ruleEffects(ev, turns),
   };
 }
 
