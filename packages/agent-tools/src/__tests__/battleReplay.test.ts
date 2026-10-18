@@ -212,3 +212,12 @@ test('effects that changed the rules: after the board, a line each for the ones 
   assert.ok(text.indexOf('board at the end') < text.indexOf('changed the rules'), 'after the game itself');
   assert.doesNotMatch(renderReplay(replay(), 'summary', REPLAY_TEXT_MAX.summary), /changed the rules/, 'a payload from before 2026-10-17 has none');
 });
+
+test('a game whose rule effects all left no trace still counts them (Astra, #354)', () => {
+  const text = renderReplay(
+    replay({ ruleEffects: [{ side: 1, card: 'Latias ex', source: 'Ability', name: 'Skyliner', kinds: ['retreat'], text: 'Your Basic Pokémon in play have no Retreat Cost.', from: 6, until: null, touched: [] }] }),
+    'summary',
+    REPLAY_TEXT_MAX.summary,
+  );
+  assert.match(text, /effects in play that changed the rules: 1 in play, none visible in the log/);
+});

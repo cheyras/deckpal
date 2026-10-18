@@ -180,6 +180,8 @@ export function renderReplay(r: ReplayPayload, detail: DigestDetail, max: number
     // games). The rest are only counted.
     const effects = r.ruleEffects ?? [];
     const seen = effects.filter((x) => x.touched.length);
+    const quiet = effects.length - seen.length;
+    if (!seen.length && quiet) out.push(`effects in play that changed the rules: ${quiet} in play, none visible in the log`);
     if (seen.length) {
       const owner = (e: (typeof effects)[number]): string =>
         `${label(e.side)}'s ${untrusted(e.card)}${e.source === 'Ability' ? ` (Ability ${untrusted(e.name)})` : ` (${e.source})`}`;
@@ -188,7 +190,6 @@ export function renderReplay(r: ReplayPayload, detail: DigestDetail, max: number
         const when = `T${e.from}${e.until !== null ? `–T${e.until}` : ''}`;
         out.push(`- ${when} ${owner(e)} [${e.kinds.join(', ')}]: ${untrusted(e.text, 200)} → ${e.touched.map(sub).join('; ')}`);
       }
-      const quiet = effects.length - seen.length;
       if (quiet) out.push(`- ${quiet} more in play with nothing visible in the log`);
     }
 

@@ -31,11 +31,16 @@ One run cannot separate a side effect of the longer digest from run-to-run varia
 - A digest change is not counted as proven by one run again. Two runs after the change are the bar, matching the two baseline runs.
 
 **Update 2026-10-18: the repeat run, and the owner's call.**
-- **The repeat (A and B, $0.94) agreed with the first:**
+- **The repeat (A and B, all 9 cases, $1.08 including one resumed case) agreed with the first:**
   - A overall 66 / 67 against 61 / 59;
   - B held-out P2 60 / 60 against 50 / 50;
   - B overall 72 / 73 against 78 / 76.
-- **So the revert rule was not met:** B's overall score did not return to its baseline range.
-- **B's loss is in its held-out P4:** `boss-targets` fell from partial to missed in both runs. The digest's other content was unchanged; nothing was cut by its size cap.
-- **The owner chose to keep the section and fix B.** The section moves after the board, under a neutral header ("effects in play that changed the rules"), and only effects with evidence are listed, the rest counted. Placed first, under "a surprising number usually comes from one of these", it likely pulled the writer's reasoning towards mechanisms.
-- **Next:** this placement is measured with two B runs after deploy.
+- **The condition for keeping the section was not met:** B's overall score did not return to its baseline range. Under the rule above, that meant revert.
+- **The owner overrode the revert to try a fix for B.**
+- **What fell:** B's loss is in its held-out P4. `boss-targets` fell from partial to missed in both runs. In that case's digest (hns-36) the content was otherwise the same, with the same attacks, board and card lines. Other digests did shrink under the size cap; owner-99's dropped from 15 to 19 omitted card descriptions.
+- **The fix:**
+  - the section moves after the board, under a neutral header ("effects in play that changed the rules");
+  - only effects with evidence are listed, the rest counted.
+
+  Placed first, under "a surprising number usually comes from one of these", it likely pulled the writer's reasoning towards mechanisms.
+- **Next:** this placement is measured with two B runs after deploy. If B's overall is still below its baseline range, the section is reverted.
