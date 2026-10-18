@@ -33,6 +33,7 @@ import { searchRouter } from './routes/search.js';
 import { dexRouter } from './routes/dex.js';
 import { collectionRouter } from './routes/collection.js';
 import { listsRouter } from './routes/lists.js';
+import { knowledgeAdminRouter, knowledgeRouter } from './routes/knowledge.js';
 import { decksRouter } from './routes/decks.js';
 import { deckCheckRouter } from './routes/deckCheck.js';
 import { deckSimulateRouter } from './routes/deckSimulate.js';
@@ -730,6 +731,7 @@ export function createApp(): express.Express {
   administration.use('/features', adminFeatureRouter);
   administration.use('/ai-usage', adminUsageRouter);
   administration.use('/decke-improvement', deckeImprovementAdminRouter);
+  administration.use(knowledgeAdminRouter);
   administration.use('/users/:id/ai-override', userAiOverrideRouter);
   administration.use(adminRouter);
   api.use('/admin', administration);
@@ -783,6 +785,8 @@ export function createApp(): express.Express {
   api.use('/mutations', mutationsRouter);
   api.use('/collection', collectionRouter);
   api.use('/lists', listsRouter);
+  // Knowledge notes (089/090): any signed-in account proposes and reads; review is under /admin.
+  api.use('/knowledge', knowledgeRouter);
   api.use('/decks/check', deckCheckRouter);
   api.use('/decks/simulate', deckSimulateRouter);
   api.use('/decks/odds', deckOddsRouter);

@@ -2,7 +2,7 @@
 
 # DeckPal MCP tools
 
-**31 tools: 20 read, 11 write**, in the order `tools/list` returns them, plus 3 capability-gated read tools shown only to a token holding the Deck-E improvement capability. A read-only connection is shown the 20 read tools and none of the writes.
+**32 tools: 20 read, 12 write**, in the order `tools/list` returns them, plus 3 capability-gated read tools shown only to a token holding the Deck-E improvement capability. A read-only connection is shown the 20 read tools and none of the writes.
 
 Every write previews by default (`dry_run` defaults to true). "destructive" is MCP's meaning: the tool may change or remove existing data, not only add to it. Most writes can be undone with `revert`; what can be undone, and how, is in `decisions/2026/2026-10-12-write-safety-battle-log-recycle-bin-deck-list-undo-retry-keys-strategy-preview.md`.
 
@@ -39,6 +39,7 @@ Every write previews by default (`dry_run` defaults to true). "destructive" is M
 | [`set_cart`](#set_cart) | Build TCGplayer cart links | read | Build TCGplayer Mass Entry deep link(s) that pre-fill a shopping cart, from ONE of: a set (everything still needed for a goal), a saved list (list_id), or an explicit set of cards (items). |
 | [`mutation_history`](#mutation_history) | What changed, and which operation changed it | read | The audit trail of every CHANGE made through DeckPal — collection quantities, lists, decks, strategy guides, battle logs — grouped by the operation that made them, newest first. |
 | [`revert`](#revert) | Undo a change | write, destructive | Undo something DeckPal did: a whole operation (batch_id), one change (event_id), everything since a moment (since), or every change to one card/list/deck (entity_type + entity_id). |
+| [`propose_note`](#propose_note) | Propose a shared rules note | write, additive, idempotent | Share a rules finding with every DeckPal user: how named cards interact, with a source link and the source's own words. |
 | [`decke_improvement_list`](#decke_improvement_list) | List shared Deck-E conversations | read, gated | List explicitly shared, pseudonymised Deck-E conversations available to improvement readers. |
 | [`decke_improvement_read`](#decke_improvement_read) | Read one shared Deck-E conversation | read, gated | Read a compact transcript with turns, full redacted tool arguments and outputs, model legs, errors, ten-second turn offsets, bucketed costs/tokens, feedback, approvals and animation/browser events. |
 | [`decke_improvement_search`](#decke_improvement_search) | Search shared Deck-E conversations | read, gated | Literal case-insensitive search across shared reader/Deck-E text and tool names. |
@@ -231,7 +232,7 @@ Read decks. Without deck_id: the deck index (id, name, format, version, card cou
 
 write, destructive, idempotent · annotations `{"title":"Create or edit a deck","readOnlyHint":false,"destructiveHint":true,"idempotentHint":true,"openWorldHint":false}`
 
-Create a deck (omit deck_id) or edit one (pass deck_id): rename, change format, and reconcile its card list to the given cards array in one all-or-nothing write. To create from a PTCG Live decklist pass ptcgl_text instead of cards (creation only). Card ids are TCGdex ids (e.g. sv01-25). When choosing a card_id, use the cheapest printing OF THE SAME CARD unless the user asked for a specific rarity or art: printings of one card are gameplay-identical and can differ by hundreds of dollars (a Special Illustration Rare vs the regular version). SAME NAME IS NOT SAME CARD, and this is the trap — the game reuses names across sets for cards with different HP and different text, so the cheapest row under a name can be a different card that happens to share it. Shaymin sv08.5-087 (70 HP, $0.20) and sv10-010 (80 HP, $0.83) are not the same card. Picking wrong is SILENT: the deck still has 60 cards and is still legal, it just does not do what the list said. search_cards flags a name that is several cards and groups the ids that really are interchangeable — swap only within one of those groups, and when in doubt keep the printing the decklist named. Defaults to a dry run that prints the exact operations without executing — re-run with dry_run: false to apply. Versioning is automatic: card and format changes to a deck version that already has battle logs create a NEW version (its snapshot is kept forever — see deck_history); changes to a logless version just amend the current snapshot, so a burst of edits stays one version. revert can put a replaced list back. Pass version_note to record WHY the list changed (e.g. 'cut Switch for Jet Energy after v2 losses to Dragapult') — future agents read it in deck_history. Strategy guides are edited with deck_strategy, not here. Not for reading (use decks) or deleting (use delete_deck).
+Create a deck (omit deck_id) or edit one (pass deck_id): rename, change format, and reconcile its card list to the given cards array in one all-or-nothing write. To create from a PTCG Live decklist pass ptcgl_text instead of cards (creation only). Card ids are TCGdex ids (e.g. sv01-25). Use the cheapest printing OF THE SAME CARD unless the user asked for a rarity or art: printings of one card play the same and can differ by hundreds of dollars. SAME NAME IS NOT SAME CARD: names repeat across sets with different HP and text (Shaymin sv08.5-087, 70 HP, is not sv10-010, 80 HP), and a wrong pick is SILENT: the deck stays legal but plays differently. search_cards groups the ids that are interchangeable; swap only within a group, and when in doubt keep the printing the list named. Dry run by default (prints the exact operations); re-run with dry_run: false to apply. Card or format changes to a version with battle logs create a NEW version (its snapshot is kept; see deck_history); a logless version is amended in place. revert can put a replaced list back. Pass version_note to record WHY the list changed (e.g. 'cut Switch for Jet Energy after v2 losses to Dragapult'); deck_history shows it. Strategy guides: deck_strategy. Reading: decks. Deleting: delete_deck.
 
 | argument | type | required | default | description |
 |---|---|---|---|---|
@@ -314,7 +315,7 @@ Play simulated games between one of the user's decks (or an unsaved list) and ot
 | `compare_cards` | object[] |  |  | Version B as an unsaved list in the same shape check_deck takes, instead of compare_with — e.g. the current deck with 2 Gwynn instead of 3. Give the WHOLE list, not just the changed lines. |
 | `compare_ptcgl_text` | string |  |  | Version B as PTCG Live export text, instead of compare_with or compare_cards. |
 | `compare_name` | string |  |  | A label for an unsaved version B (for example "v4 with 2 Gwynn"). |
-| `continue_token` | string |  |  | CONTINUE a run for a bigger sample. Every result ends with a continue_token line. To add games, call again with the SAME inputs (the same deck_id / cards, opponents, compare_* , speed, seed) plus that token: the new games are on new seeds, exactly the games one longer run would have played, and the result is CUMULATIVE ("Cumulative over 3 calls: 92 games…") with the interval at the cumulative n. games then means games to ADD on this call. Pass the token back exactly as given and use the newest one each time. The token is signed and tied to the user and to the exact card lists: a deck edited since is refused (start a fresh run without it), as is a token older than 2 hours or after a deploy; a run allows at most 12 calls. Cumulative results leave out the per-call detail (card impact, Prize rows) that the first call shows. Continue only when the user asks for more certainty or the answer is not yet decided; stop once the verdict is clear or the intervals are narrow enough to act on — two or three continuations is usually plenty. |
+| `continue_token` | string |  |  | CONTINUE a run for a bigger sample. Every result ends with a continue_token line: call again with the SAME inputs (deck, opponents, compare_*, speed, seed) plus the newest token, exactly as given. New games use new seeds, as one longer run would, and the result is CUMULATIVE at the combined n; games then means games to ADD. The token is signed and tied to the user and the exact card lists: a deck edited since is refused, as is a token over 2 hours old or a deploy since (start fresh); a run allows at most 12 calls. Cumulative results leave out the per-call detail (card impact, Prize rows). Continue only when the user wants more certainty; stop once the verdict is clear. Two or three continuations is usually plenty. |
 
 <a id="deck_strategy"></a>
 
@@ -581,6 +582,22 @@ Undo something DeckPal did: a whole operation (batch_id), one change (event_id),
 | `force` | boolean |  | `false` | Apply items that have conflicts, or re-undo something already undone. Read the dry run first. |
 | `note` | string |  |  | Note stored on the revert operation itself. |
 | `dry_run` | boolean |  | `true` | true (default): show the exact diff, change nothing. false: apply. |
+
+<a id="propose_note"></a>
+
+### `propose_note` — Propose a shared rules note
+
+write, additive, idempotent · annotations `{"title":"Propose a shared rules note","readOnlyHint":false,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}`
+
+Share a rules finding with every DeckPal user: how named cards interact, with a source link and the source's own words. Use it after research settles a rules question. A reviewer approves it before others see it. No personal data. dry_run (default true) previews; dry_run: false submits.
+
+| argument | type | required | default | description |
+|---|---|---|---|---|
+| `cards` | string[] | yes |  | Card names involved, as printed. |
+| `statement` | string | yes |  | What is true, in one or two sentences. |
+| `source_url` | string | yes |  | https link to the ruling or source. |
+| `quote` | string | yes |  | The source's own words that say it. |
+| `dry_run` | boolean |  | `true` |  |
 
 ## Capability-gated
 

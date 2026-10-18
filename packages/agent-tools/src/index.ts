@@ -4,6 +4,7 @@ import { battleTurnReviewTools } from './tools/battleTurnReview.js';
 import { playbookTools } from './tools/playbook.js';
 import { catalogTools } from './tools/catalog.js';
 import { rulesTools } from './tools/rules.js';
+import { notesTools } from './tools/notes.js';
 import { collectionTools } from './tools/collection.js';
 import { deckIntelTools } from './tools/deckIntel.js';
 import { deckTools } from './tools/decks.js';
@@ -65,6 +66,8 @@ const ALL: ToolDefinition[] = [
   ...loggingTools,
   ...shoppingTools,
   ...historyTools,
+  // Last, so no earlier tool moves (2026-10-18): proposing a shared rules note (Phase 6).
+  ...notesTools,
 ];
 
 /**

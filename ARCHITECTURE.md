@@ -582,7 +582,7 @@ served by `apps/images`. Sync jobs run via cron or any scheduler.
 ## 10. The agent tool layer — one definition, two front-ends
 
 **`packages/agent-tools` (`@deckpal/agent-tools`) is the single definition of
-what an agent may do in DeckPal.** 31 tools (20 read, 11 write), plus three
+what an agent may do in DeckPal.** 32 tools (20 read, 12 write), plus three
 capability-gated `decke_improvement_*` readers served only over MCP, each a
 `ToolDefinition`: a zod input schema, `annotations`
 (`readOnlyHint` is required in the type, not optional as MCP's own SDK has
@@ -603,7 +603,7 @@ omitted, as `openWorldHint` does. The MCP adapter (`wireAnnotations` in
 `apps/mcp/src/adapters/mcp.ts`) therefore advertises DeckPal's flag OR the
 definition's `overwriteHint`, explicitly on every write, `openWorldHint: false`
 everywhere, and mirrors the title into `annotations.title` for clients older
-than protocol 2025-06-18 — so an MCP client sees 10 of the 11 writes as
+than protocol 2025-06-18 — so an MCP client sees 10 of the 12 writes as
 destructive while Deck-E still asks only before the four. The adapter also
 drops zod's `$schema` line from advertised schemas (2020-12 is MCP's default
 dialect) and cuts any single result over 100,000 characters with a visible
@@ -723,7 +723,7 @@ a set's name.
 
 ### MCP server — live and multi-user
 
-`deckpal-mcp`'s 31 tools (20 on a read-only connection) are served to any
+`deckpal-mcp`'s 32 tools (20 on a read-only connection) are served to any
 signed-up user at
 `https://deckpal.app/mcp` (`apps/mcp/src/cloud.ts`), authenticated per-user by
 a personal access token (`dsk_…`, SHA-256 hashed, shown once at creation,

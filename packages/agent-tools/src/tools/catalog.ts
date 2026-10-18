@@ -13,6 +13,7 @@ import { CARD_TAG_MEANING, cardTags, idsWithTag } from '@deckpal/sim/card-tags';
 /** The search-row cell for a printing's tags ('Tera'), or nothing. */
 const tagCell = (tcgdexId: string): string | null => cardTags(tcgdexId).join(' ') || null;
 import { cardPriceHistoryTools } from './cardPriceHistory.js';
+import { approvedNotes, noteLines } from './notes.js';
 
 /**
  * Catalog tools — SPEC §5 #3 search_cards, #4 get_card, #5 set_progress.
@@ -1063,6 +1064,8 @@ const getCardTool = defineTool({
             ),
         );
       }
+      // Reviewed community notes about this card's name (Phase 6, 2026-10-18).
+      lines.push(...noteLines(await approvedNotes(ctx.db, [card.name])));
       return ok(lines.join('\n'), { cardId: card.tcgdexId, variantCount: variants.length });
     } catch (err) {
       return fail(`get_card failed: ${errText(err)}`);
