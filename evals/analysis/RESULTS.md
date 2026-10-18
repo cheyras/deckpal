@@ -123,13 +123,11 @@ These remain unresolved, and no reason can be assigned to the falls from one run
 
 The keep condition failed, and the owner chose to fix B rather than revert.
 
-**The diagnosis.** The section sat before the attacks, under a header that steered the writer towards mechanisms. In hns-36 B lost `boss-targets` in both runs, while that digest's content was otherwise the same.
+**What was seen.** The section sat before the attacks, under a header ("a surprising number usually comes from one of these") that pointed the reader at mechanisms. In hns-36 B lost `boss-targets` in both runs, while that digest's other content was the same.
 
-**The fix (#354):**
-- the section comes after the board, under a neutral header;
-- only effects with evidence are listed, the rest counted.
+**The fix (#354):** the section comes after the board, under a neutral header, and only effects with evidence are listed, the rest counted.
 
-Two B runs after the fix ($1.25):
+Two B runs after the fix, all 9 cases judged ($1.32, including two judge calls resumed after the first cap ran out):
 
 | Config B | Baseline | After #351 | After #354 |
 |---|---|---|---|
@@ -137,12 +135,12 @@ Two B runs after the fix ($1.25):
 | Held-out games | 68 / 62 | 65 / 53 | **71 / 68** |
 | Held-out P2 | 50 / 50 | 60 / 60 | **70 / 70** |
 | Held-out P4 | 50 / 50 | 33 / 17 | 50 / 33 |
-| Owner games | 83 / 83 | 77 / 84 | 83 / 83 |
+| Owner games | 83 / 83 | 77 / 84 | 81 / 81 |
 
-**The keep condition is now met:**
+**The keep condition is met on complete runs:**
 - B's overall score is back inside its baseline range;
 - held-out P2 is above its baseline in both runs.
 
-**Verdict: the rule-effects section is kept.** Recorded eval spend so far: about $7.13 (the $4.80 above, plus $1.08 for the repeat and $1.25 here).
+**Verdict: the rule-effects section is kept.** Recorded eval spend across every ledger, summed before rounding: **$7.20**.
 
-**Lesson for digest changes:** where a section sits, and how its header frames it, changes what a writer model reasons about, not only what it knows. A new section goes after the game's own facts, under a neutral header, and is measured on the writer config.
+**What it suggests, not proves.** #354 changed three things at once: placement, header wording and listing only effects with evidence. The gatherer's tool calls also vary from run to run, and these are two runs of nine games. The recovery is consistent with the section's placement and framing having pulled the writer towards mechanisms, but these runs do not separate that from the other changes or from chance. As a precaution, a new digest section goes after the game's own facts, under a neutral header, and is measured on the writer config.

@@ -46,6 +46,8 @@ One run cannot separate a side effect of the longer digest from run-to-run varia
 - **Next:** this placement is measured with two B runs after deploy. If B's overall is still below its baseline range, the section is reverted.
 
 **Outcome 2026-10-18 (#354 measured):**
-- **B after the placement fix, two runs:** overall 78 / 77, back inside the 78 / 76 baseline range. Held-out P2 70 / 70, above the 50 / 50 baseline.
+- **B after the placement fix, two complete runs (9 of 9 cases judged):** overall 78 / 77, back inside the 78 / 76 baseline range. Held-out P2 70 / 70, above the 50 / 50 baseline.
 - **The keep condition is met, and the section is kept.**
-- **Rule for future digest sections:** placement and header framing are part of the change. A new section goes after the game's own facts, under a neutral header, and is measured on the writer config (B).
+- **What it does not prove:** #354 changed placement, header wording and filtering together, so the runs show the recovery, not which change caused it.
+- **Precaution for future digest sections:** a new section goes after the game's own facts, under a neutral header, and is measured on the writer config (B).
+- **Spend:** $7.20 recorded across all eval runs.
