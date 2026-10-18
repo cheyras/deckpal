@@ -44,3 +44,8 @@ One run cannot separate a side effect of the longer digest from run-to-run varia
 
   Placed first, under "a surprising number usually comes from one of these", it likely pulled the writer's reasoning towards mechanisms.
 - **Next:** this placement is measured with two B runs after deploy. If B's overall is still below its baseline range, the section is reverted.
+
+**Outcome 2026-10-18 (#354 measured):**
+- **B after the placement fix, two runs:** overall 78 / 77, back inside the 78 / 76 baseline range. Held-out P2 70 / 70, above the 50 / 50 baseline.
+- **The keep condition is met, and the section is kept.**
+- **Rule for future digest sections:** placement and header framing are part of the change. A new section goes after the game's own facts, under a neutral header, and is measured on the writer config (B).

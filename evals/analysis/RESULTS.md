@@ -113,3 +113,36 @@ These remain unresolved, and no reason can be assigned to the falls from one run
 **Next mechanisms gap:** effects carried in ATTACK text, which the digest does not yet surface for the turn they apply:
 - Shellnado Spin's counter-damage;
 - Seek Inspiration copying an attack.
+
+## The repeat, and the placement fix (#354), 2026-10-18
+
+**The repeat of the post-#351 run agreed with the first:**
+- A overall 66 / 67;
+- B overall 72 / 73, below its 78 / 76 baseline;
+- B's held-out P4 33 / 17.
+
+The keep condition failed, and the owner chose to fix B rather than revert.
+
+**The diagnosis.** The section sat before the attacks, under a header that steered the writer towards mechanisms. In hns-36 B lost `boss-targets` in both runs, while that digest's content was otherwise the same.
+
+**The fix (#354):**
+- the section comes after the board, under a neutral header;
+- only effects with evidence are listed, the rest counted.
+
+Two B runs after the fix ($1.25):
+
+| Config B | Baseline | After #351 | After #354 |
+|---|---|---|---|
+| Overall | 78 / 76 | 72 / 73 | **78 / 77** |
+| Held-out games | 68 / 62 | 65 / 53 | **71 / 68** |
+| Held-out P2 | 50 / 50 | 60 / 60 | **70 / 70** |
+| Held-out P4 | 50 / 50 | 33 / 17 | 50 / 33 |
+| Owner games | 83 / 83 | 77 / 84 | 83 / 83 |
+
+**The keep condition is now met:**
+- B's overall score is back inside its baseline range;
+- held-out P2 is above its baseline in both runs.
+
+**Verdict: the rule-effects section is kept.** Recorded eval spend so far: about $7.13 (the $4.80 above, plus $1.08 for the repeat and $1.25 here).
+
+**Lesson for digest changes:** where a section sits, and how its header frames it, changes what a writer model reasons about, not only what it knows. A new section goes after the game's own facts, under a neutral header, and is measured on the writer config.
