@@ -362,3 +362,12 @@ test('a paid run demands a cap; unknown configs and options are refused', () => 
   assert.throws(() => parseArgs(['report']), /--out/)
   assert.deepEqual(parseArgs(['run', '--budget', '5']).configs, ['A', 'B', 'C'])
 })
+
+test('the judge sees card text, Tera tags included, for coded and name-only logs', async () => {
+  const { cardReference } = await import('../analysis-eval.mjs')
+  const mine = await cardReference(readLog(data.cases.find((c) => c.id === 'owner-94')))
+  assert.match(mine, /Dragapult ex · Pokemon · Stage2 · ex · Tera · 320 HP/)
+  assert.match(mine, /Nighttime Mine · Trainer \| Attacks used by each Tera Pokémon/)
+  const named = await cardReference(readLog(data.cases.find((c) => c.id === 'heldout-tbs-62')))
+  assert.match(named, /Metagross .*Metallic Hammer 150\+/)
+})

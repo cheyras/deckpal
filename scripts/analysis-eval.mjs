@@ -85,6 +85,7 @@ export const USAGE = `Usage: node scripts/analysis-eval.mjs <check|setup|run|rep
       --configs A,B,C       configs to run (default all)
       --cases id,id         cases to run (default all)
       --out DIR             where runs are written (default evals/analysis/runs/<time>)
+      --rejudge             judge the finished runs in --out again (earlier verdicts kept as .judge.vN.json)
   report --out DIR          rebuild the report from a finished run (free)
   --account FILE            the QA account file (default .qa-account at the repo root)`
 
@@ -650,20 +651,61 @@ export const JUDGE_SCHEMA = {
   },
 }
 
-export function judgeMessages(c, principles, logText, review) {
+/**
+ * The text of every card the log names, from the sim's frames and tags, so the
+ * judge can tell a correct card fact (an HP, an attack, a Tera tag) from an
+ * invented one. A card the sim cannot resolve is listed as unknown.
+ */
+export async function cardReference(logText, root = ROOT) {
+  const parse = await loadParser(root)
+  const dist = (f) => pathToFileURL(path.join(root, 'packages/sim/dist', f)).href
+  const { resolveFrame } = await import(dist('replay/cardCodes.js'))
+  const { cardTags } = await import(dist('cardTags.js'))
+  const seen = new Map()
+  const walk = (x) => {
+    if (!x || typeof x !== 'object') return
+    if (typeof x.name === 'string' && ('code' in x || 'id' in x || Object.keys(x).length === 1)) seen.set(x.id ?? `name:${x.name}`, x)
+    for (const v of Object.values(x)) walk(v)
+  }
+  walk(parse(logText, { players: PLAYERS }).events)
+  const lines = []
+  const done = new Set()
+  for (const m of seen.values()) {
+    const { frame: f } = resolveFrame(m.name, m.id ?? null)
+    if (!f) continue
+    if (done.has(f.cardId)) continue
+    done.add(f.cardId)
+    const tags = cardTags(f.cardId)
+    const head = [f.name, f.category, f.stage, f.suffix, ...tags].filter(Boolean).join(' · ')
+    const parts = [`${head}${f.hp ? ` · ${f.hp} HP` : ''}${f.types?.length ? ` · ${f.types.join('/')}` : ''}`]
+    if (f.weaknesses?.length) parts.push(`Weakness ${f.weaknesses.map((w) => w.type + w.value).join(', ')}`)
+    if (f.resistances?.length) parts.push(`Resistance ${f.resistances.map((w) => w.type + w.value).join(', ')}`)
+    if (f.effect) parts.push(f.effect)
+    for (const a of f.abilities ?? []) parts.push(`Ability ${a.name}: ${a.effect}`)
+    for (const a of f.attacks ?? []) parts.push(`[${a.cost ?? ''}] ${a.name} ${a.damage ?? ''}: ${a.effect ?? ''}`.trim())
+    lines.push(`- ${parts.join(' | ')}`)
+  }
+  return lines.sort().join('\n')
+}
+
+export function judgeMessages(c, principles, logText, review, cards = '') {
   const rubric = c.rubric.map((r) => `- ${r.id} [${r.principle} ${principles[r.principle].name}${r.must ? ', must' : ''}]: ${r.point}`).join('\n')
   const system =
     'You grade a Pokemon TCG game review against a rubric written by an expert who checked every point against the card text and the log. ' +
     'For each rubric item: "caught" when the review states the point (its substance, in any words), "partial" when it states part of it or gets ' +
     'the right idea with a material gap, "missed" when it is absent. A point stated wrongly is missed, and the wrong statement is a false claim. ' +
-    'Then list the review\'s FALSE CLAIMS: statements of fact that contradict the log, the case facts or the rubric, including any in the ' +
-    '"known false claims" list. Do not list opinions, suggestions or hedged hypotheses unless they rest on a false fact. Quote the review exactly.'
+    'Then list the review\'s FALSE CLAIMS: statements of fact that the log, the card text, the case facts or the rubric CLEARLY CONTRADICT, ' +
+    'including any in the "known false claims" list. A fact that is merely absent from the log is not false when the card text supports it ' +
+    '(an HP, a Weakness, an attack\'s text, a Tera tag). Turn numbers may be counted overall or per player; a different numbering is not ' +
+    'false unless it puts an event in the wrong order. Do not list opinions, suggestions, hedged hypotheses, things you are unsure of, or ' +
+    'claims you checked and found correct: if you would write "this is fine", leave it out. Quote the review exactly.'
   const user = [
     `Case facts: ${JSON.stringify(c.facts)} (PlayerA is the reviewer's player; prizes are [PlayerA, PlayerB]).`,
     c.notes ? `The player's own notes: ${c.notes}` : 'The player left no notes.',
     `Rubric:\n${rubric}`,
     `Known false claims to watch for:\n${c.false_claims.map((x) => `- ${x}`).join('\n')}`,
     `The game log:\n<log>\n${logText}\n</log>`,
+    ...(cards ? [`Card text for every card the log names (from DeckPal's simulator):\n<cards>\n${cards}\n</cards>`] : []),
     `The review to grade:\n<review>\n${review || '(empty)'}\n</review>`,
   ].join('\n\n')
   return { instructions: [{ role: 'system', content: system }], messages: [{ role: 'user', content: user }] }
@@ -674,7 +716,7 @@ export async function judgeRun({ gateway, prices, c, principles, logText, run, b
   const model = await metered(gateway(JUDGE.model), prices[JUDGE.model], budget, calls, `${c.id}:${run.config}:judge`)
   const out = await generateText({
     model,
-    ...judgeMessages(c, principles, logText, reviewText(run)),
+    ...judgeMessages(c, principles, logText, reviewText(run), await cardReference(logText)),
     output: Output.object({ schema: jsonSchema(JUDGE_SCHEMA) }),
     providerOptions: providerOptions(JUDGE.effort),
     maxOutputTokens: MAX_OUTPUT_TOKENS,
@@ -812,6 +854,22 @@ export function readRows(dir, cases) {
 export const LEDGER_FILE = 'calls.jsonl'
 
 const judgeFileOf = (runFile) => runFile.replace('.run.json', '.judge.json')
+/** Move the selected pairs' verdicts aside (kept, numbered) so the next run judges them again. */
+export function setAsideJudgments(dir, cases, configs) {
+  let moved = 0
+  for (const c of cases) {
+    for (const k of configs) {
+      const f = judgeFileOf(path.join(dir, `${c.id}.${k}.run.json`))
+      if (!fs.existsSync(f)) continue
+      let n = 1
+      while (fs.existsSync(f.replace('.judge.json', `.judge.v${n}.json`))) n++
+      fs.renameSync(f, f.replace('.judge.json', `.judge.v${n}.json`))
+      moved++
+    }
+  }
+  return moved
+}
+
 export function readJudgment(runFile) {
   const f = judgeFileOf(runFile)
   return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : null
@@ -826,6 +884,10 @@ export function parseArgs(argv) {
     const a = rest[i]
     if (!a.startsWith('--')) throw new Error(`unexpected argument ${a}`)
     const key = a.slice(2)
+    if (key === 'rejudge') {
+      opts.rejudge = true
+      continue
+    }
     if (!['budget', 'configs', 'cases', 'out', 'account'].includes(key)) throw new Error(`unknown option ${a}`)
     opts[key] = rest[++i]
     if (opts[key] === undefined) throw new Error(`${a} needs a value`)
@@ -890,6 +952,10 @@ export async function main(argv = process.argv.slice(2)) {
   const prices = await loadPrices(gateway, models)
   const out = opts.out ?? path.join(EVAL_DIR, 'runs', new Date().toISOString().replace(/[:.]/g, '-'))
   fs.mkdirSync(out, { recursive: true })
+  if (opts.rejudge) {
+    if (!opts.out) throw new Error('--rejudge needs --out DIR (the finished run to judge again)')
+    console.log(`Set aside ${setAsideJudgments(out, cases, opts.configs)} earlier verdict(s); judging again.`)
+  }
   // --budget caps the whole --out directory: a resumed run starts from what earlier invocations spent.
   const calls = new Ledger(path.join(out, LEDGER_FILE))
   const prior = calls.countedUsd()

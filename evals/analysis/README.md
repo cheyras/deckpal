@@ -53,6 +53,8 @@ Decks: `decks.json` holds the lists the logs are filed under on the QA account.
 - **List known false claims:** add `false_claims` for the wrong things a review is likely to say.
 - **Never tune on held-out cases:** do not write playbook or tool text with them in view. Add new held-out games over time, as the old ones get looked at.
 
+Results so far: `RESULTS.md`.
+
 ## Running
 
 ```bash
@@ -68,3 +70,5 @@ node scripts/analysis-eval.mjs report --out evals/analysis/runs/<time>   # free
 - **Gateway key:** set `AI_GATEWAY_API_KEY`. It is never printed.
 - **Output:** runs land in `runs/`, which is gitignored. They hold every tool call and result, the reply, the judge's verdicts and the cost.
 - **Resuming:** a rerun with the same `--out` skips the judged pairs, reruns errored runs and re-judges unjudged ones. Scores count judged runs only.
+
+- **Judging again:** `run --rejudge --out DIR` judges a finished run again; earlier verdicts are kept as `.judge.vN.json`.
