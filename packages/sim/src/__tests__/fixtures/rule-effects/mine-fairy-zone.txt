@@ -1,0 +1,219 @@
+Setup
+PlayerA chose tails for the opening coin flip.
+PlayerB won the coin toss.
+PlayerB decided to go second.
+PlayerA drew 7 cards for the opening hand.
+- 7 drawn cards.
+   • (me2-5_16) Budew, (sv6-5_18) Duskull, (sv2_172) Boss's Orders, (me3_81) Poké Pad, (mee_13) Basic Psychic Energy, (sv6_130) Dragapult ex, (me3_121) Meowth ex
+PlayerB drew 7 cards for the opening hand.
+- 7 drawn cards.
+PlayerA played (me2-5_16) Budew to the Active Spot.
+PlayerA played (sv6-5_18) Duskull to the Bench.
+PlayerB played (sv8-5_79) Dunsparce to the Active Spot.
+PlayerB played (sv10_185) Shaymin to the Bench.
+
+PlayerA's Turn
+PlayerA drew (me5_33_ph) Shuppet.
+PlayerA played (me5_33_ph) Shuppet to the Bench.
+PlayerA attached (mee_13) Basic Psychic Energy to (me5_33_ph) Shuppet on the Bench.
+PlayerA played (me3_81) Poké Pad.
+- PlayerA drew (me5_34_ph) Banette.
+- PlayerA shuffled their deck.
+PlayerA played (me3_121) Meowth ex to the Bench.
+PlayerA's (me3_121) Meowth ex used Last-Ditch Catch.
+- PlayerA drew (me1_119) Lillie's Determination.
+- PlayerA shuffled their deck.
+PlayerA ended their turn.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (me3_113) Poké Pad.
+- PlayerB drew (sv8_75) Smoochum.
+- PlayerB shuffled their deck.
+PlayerB played (sv8_75) Smoochum to the Bench.
+PlayerB played (rsv10-5_164) Hilda.
+- PlayerB drew 2 cards.
+   • (me5_31) Mega Slowbro ex, (me3_88) Telepathic Psychic Energy
+- PlayerB shuffled their deck.
+PlayerB attached (me3_88) Telepathic Psychic Energy to (sv8-5_79) Dunsparce in the Active Spot.
+PlayerB played (zsv10-5_84) Pokégear 3.0.
+- PlayerB shuffled their deck.
+PlayerB ended their turn.
+
+PlayerA's Turn
+PlayerA drew (me1_167) Buddy-Buddy Poffin.
+PlayerA played (me1_167) Buddy-Buddy Poffin.
+- PlayerA drew 2 cards and played them to the Bench.
+   • (sv6_128) Dreepy, (sv6_128) Dreepy
+- PlayerA shuffled their deck.
+PlayerA evolved (me5_33_ph) Shuppet to (me5_34_ph) Banette on the Bench.
+PlayerA retreated (me2-5_16) Budew to the Bench.
+PlayerA's (me5_34_ph) Banette is now in the Active Spot.
+PlayerA played (sv2_172) Boss's Orders.
+- PlayerB's (sv10_185) Shaymin was switched with PlayerB's (sv8-5_79) Dunsparce to become the Active Pokémon.
+PlayerB's (sv10_185) Shaymin is now in the Active Spot.
+PlayerA's (me5_34_ph) Banette used Puppet Pull on PlayerB’s (sv10_185) Shaymin for 80 damage.
+- PlayerA drew (rsv10-5_171) Hilda.
+- PlayerA shuffled their deck.
+PlayerB's (sv10_185) Shaymin was Knocked Out!
+PlayerA took a Prize card.
+(sv6-5_61) Night Stretcher was added to PlayerA's hand.
+PlayerB's (sv8-5_79) Dunsparce is now in the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (sv6_223) Buddy-Buddy Poffin.
+- PlayerB drew 2 cards and played them to the Bench.
+   • (me5_29_ph) Slowpoke, (sv8-5_79_sph) Dunsparce
+- PlayerB shuffled their deck.
+PlayerB evolved (sv8-5_79) Dunsparce to (sv5_129) Dudunsparce in the Active Spot.
+PlayerB played (sv5_129) Dudunsparce.
+- PlayerB drew 3 cards.
+- PlayerB shuffled 3 cards into their deck.
+   • (sv5_129) Dudunsparce, (me3_88) Telepathic Psychic Energy, (sv8-5_79) Dunsparce
+PlayerB's (sv8_75) Smoochum is now in the Active Spot.
+PlayerB attached (mee_5) Basic Psychic Energy to (me5_29_ph) Slowpoke on the Bench.
+PlayerB's (sv8_75) Smoochum used Delightful Kiss.
+- PlayerB attached (mee_5) Basic Psychic Energy to (me5_29_ph) Slowpoke on the Bench.
+- PlayerB attached (mee_5) Basic Psychic Energy to (me5_29_ph) Slowpoke on the Bench.
+- PlayerB shuffled their deck.
+
+PlayerA's Turn
+PlayerA drew (svalt_24) Boss's Orders.
+PlayerA played (rsv10-5_171) Hilda.
+- PlayerA drew 2 cards.
+   • (sv6_129) Drakloak, (ec_2) Basic Fire Energy
+- PlayerA shuffled their deck.
+PlayerA attached (ec_2) Basic Fire Energy to (sv6_128) Dreepy on the Bench.
+PlayerA evolved (sv6_128) Dreepy to (sv6_129) Drakloak on the Bench.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (sv6_129) Drakloak.
+PlayerA evolved (sv6_128) Dreepy to (sv6_129) Drakloak on the Bench.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (me3_81) Poké Pad.
+PlayerA played (me3_81) Poké Pad.
+- PlayerA drew (sv6-5_19) Dusclops.
+- PlayerA shuffled their deck.
+PlayerA evolved (sv6-5_18) Duskull to (sv6-5_19) Dusclops on the Bench.
+PlayerA's (sv6-5_19) Dusclops used Cursed Blast.
+- PlayerA put 5 damage counters on PlayerA's (me5_29_ph) Slowpoke.
+PlayerA's (sv6-5_19) Dusclops was Knocked Out!
+(sv6-5_18) Duskull was discarded from PlayerA's (sv6-5_19) Dusclops.
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's (me5_34_ph) Banette used Puppet Pull on PlayerB’s (sv8_75) Smoochum for 80 damage.
+- PlayerA drew (mee_13) Basic Psychic Energy.
+- PlayerA shuffled their deck.
+PlayerB's (sv8_75) Smoochum was Knocked Out!
+PlayerA took a Prize card.
+(me1_167) Buddy-Buddy Poffin was added to PlayerA's hand.
+PlayerB's (me5_29_ph) Slowpoke is now in the Active Spot.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (sv8_76) Latias ex to the Bench.
+PlayerB evolved (me5_29_ph) Slowpoke to (me5_31) Mega Slowbro ex in the Active Spot.
+PlayerB evolved (sv8-5_79_sph) Dunsparce to (sv8-5_80) Dudunsparce on the Bench.
+PlayerB played (sv8-5_80) Dudunsparce.
+- PlayerB drew 3 cards.
+- PlayerB shuffled 2 cards into their deck.
+   • (sv8-5_80) Dudunsparce, (sv8-5_79_sph) Dunsparce
+PlayerB played (me4_109) Jumbo Ice Cream.
+- PlayerB's (me5_31) Mega Slowbro ex healed 80 damage.
+PlayerB played (sv9_184) Lillie's Clefairy ex to the Bench.
+PlayerB attached (me3_88) Telepathic Psychic Energy to (sv9_184) Lillie's Clefairy ex on the Bench.
+(me3_88) Telepathic Psychic Energy was activated.
+- PlayerB shuffled their deck.
+PlayerB played (me2-5_197) Nighttime Mine to the Stadium spot.
+PlayerB played (me1_184) Lillie's Determination.
+- PlayerB shuffled 2 cards into their deck.
+- PlayerB drew 6 cards.
+PlayerB attached (sv5_152) Hero's Cape to (me5_31) Mega Slowbro ex in the Active Spot.
+PlayerB's (me5_31) Mega Slowbro ex used Shellnado Spin on PlayerA’s (me5_34_ph) Banette for 180 damage.
+PlayerA's (me5_34_ph) Banette was Knocked Out!
+- 2 cards were discarded from PlayerA's (me5_34_ph) Banette.
+   • (mee_13) Basic Psychic Energy, (me5_33_ph) Shuppet
+PlayerB took a Prize card.
+A card was added to PlayerB's hand.
+PlayerA's (sv6_129) Drakloak is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (sv1_196) Ultra Ball.
+PlayerA played (me1_167) Buddy-Buddy Poffin.
+- PlayerA drew 2 cards and played them to the Bench.
+   • (sv6-5_18) Duskull, (sv6_128) Dreepy
+- PlayerA shuffled their deck.
+PlayerA played (sv6-5_61) Night Stretcher.
+- PlayerA moved PlayerA's (sv6-5_19) Dusclops to their hand.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (sv6-5_20) Dusknoir.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (sv6_129) Drakloak.
+PlayerA evolved (sv6_129) Drakloak to (sv6_130) Dragapult ex in the Active Spot.
+PlayerA played (svalt_24) Boss's Orders.
+- PlayerB's (sv8_76) Latias ex was switched with PlayerB's (me5_31) Mega Slowbro ex to become the Active Pokémon.
+PlayerB's (sv8_76) Latias ex is now in the Active Spot.
+PlayerA attached (mee_13) Basic Psychic Energy to (sv6_130) Dragapult ex in the Active Spot.
+PlayerA's (sv6_130) Dragapult ex used Jet Headbutt on PlayerB’s (sv8_76) Latias ex for 70 damage.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB attached (mee_5) Basic Psychic Energy to (sv9_184) Lillie's Clefairy ex on the Bench.
+PlayerB retreated (sv8_76) Latias ex to the Bench.
+PlayerB's (sv9_184) Lillie's Clefairy ex is now in the Active Spot.
+PlayerB's (sv9_184) Lillie's Clefairy ex used Full Moon Rondo on PlayerA’s (sv6_130) Dragapult ex for 320 damage. PlayerA's (sv6_130) Dragapult ex took 160 more damage because of Psychic Weakness.
+- Damage breakdown:
+   • Base damage: 20 damage
+   • 7 Benched Pokémon: 140 damage
+   • Weakness to Psychic: 160 damage
+   • Total damage: 320 damage
+
+PlayerA's (sv6_130) Dragapult ex was Knocked Out!
+- 4 cards were discarded from PlayerA's (sv6_130) Dragapult ex.
+   • (ec_2) Basic Fire Energy, (mee_13) Basic Psychic Energy, (sv6_129) Drakloak, (sv6_128) Dreepy
+PlayerB took 2 Prize cards.
+A card was added to PlayerB's hand.
+A card was added to PlayerB's hand.
+PlayerA's (sv6_129) Drakloak is now in the Active Spot.
+
+PlayerA's Turn
+PlayerA drew (mee_13) Basic Psychic Energy.
+PlayerA evolved (sv6_128) Dreepy to (sv6_129) Drakloak on the Bench.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (sv6_130) Dragapult ex.
+PlayerA's (sv6_129) Drakloak used Recon Directive.
+- PlayerA drew (me2-5_288) Fezandipiti ex.
+PlayerA played (me2-5_288) Fezandipiti ex to the Bench.
+PlayerA's (me2-5_288) Fezandipiti ex used Flip the Script.
+- PlayerA drew 3 cards.
+   • (ec_2) Basic Fire Energy, (sv8-5_171) Crispin, (me1_167) Buddy-Buddy Poffin
+PlayerA played (sv8-5_171) Crispin.
+- PlayerA drew (ec_2) Basic Fire Energy.
+- PlayerA attached (mee_13) Basic Psychic Energy to (sv6_129) Drakloak in the Active Spot.
+- PlayerA shuffled their deck.
+PlayerA attached (ec_2) Basic Fire Energy to (sv6_129) Drakloak in the Active Spot.
+PlayerA evolved (sv6_129) Drakloak to (sv6_130) Dragapult ex in the Active Spot.
+PlayerA evolved (sv6-5_18) Duskull to (sv6-5_19) Dusclops on the Bench.
+PlayerA didn't take an action in time.
+
+PlayerB's Turn
+PlayerB drew a card.
+PlayerB played (me5_29) Slowpoke to the Bench.
+PlayerB played (sv6_223) Buddy-Buddy Poffin.
+- PlayerB drew 2 cards and played them to the Bench.
+   • (sv8-5_79) Dunsparce, (sv8-5_79) Dunsparce
+- PlayerB shuffled their deck.
+PlayerB's (sv9_184) Lillie's Clefairy ex used Full Moon Rondo on PlayerA’s (sv6_130) Dragapult ex for 440 damage. PlayerA's (sv6_130) Dragapult ex took 220 more damage because of Psychic Weakness.
+- Damage breakdown:
+   • Base damage: 20 damage
+   • 10 Benched Pokémon: 200 damage
+   • Weakness to Psychic: 220 damage
+   • Total damage: 440 damage
+
+PlayerA's (sv6_130) Dragapult ex was Knocked Out!
+- 4 cards were discarded from PlayerA's (sv6_130) Dragapult ex.
+   • (mee_13) Basic Psychic Energy, (ec_2) Basic Fire Energy, (sv6_129) Drakloak, (sv6_128) Dreepy
+PlayerB took 2 Prize cards.
+A card was added to PlayerB's hand.
+A card was added to PlayerB's hand.
+Opponent took all of their Prize cards. PlayerB wins.

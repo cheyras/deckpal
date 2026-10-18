@@ -60,6 +60,18 @@ export interface ReplayPayload {
   finalApproximate?: boolean;
   cards: [Array<{ name: string; line: string }>, Array<{ name: string; line: string }>];
   ending: { winner: ReplaySide | null; reason: string; turn: number; note: string | null } | null;
+  /** Absent from a payload made before 2026-10-17. */
+  ruleEffects?: Array<{
+    side: ReplaySide;
+    card: string;
+    source: 'Stadium' | 'Ability' | 'Tool';
+    name: string;
+    kinds: string[];
+    text: string;
+    from: number;
+    until: number | null;
+    touched: string[];
+  }>;
   assessment: { score: number; depth: 'brief' | 'standard' | 'deep'; reasons: string[] } | null;
 }
 
@@ -121,6 +133,21 @@ export function renderReplay(r: ReplayPayload, detail: DigestDetail, max: number
       for (const m of r.moments) out.push(`- T${m.turn} ${m.kind}: ${sub(m.text)}`);
     } else {
       out.push('moments: none (no self-Knock-Out, attack that did no damage, near miss or timer turn)');
+    }
+
+    // Effects that changed the rules, read from each card's text (Weakness, costs, Tools, damage, prevention…). The
+    // ones the log shows touching something come first, each with that evidence; the rest share one line.
+    const effects = r.ruleEffects ?? [];
+    if (effects.length) {
+      const owner = (e: (typeof effects)[number]): string =>
+        `${label(e.side)}'s ${untrusted(e.card)}${e.source === 'Ability' ? ` (Ability ${untrusted(e.name)})` : ` (${e.source})`}`;
+      out.push("effects in play that change the rules (read from the cards' text; a surprising number usually comes from one of these):");
+      for (const e of effects.filter((x) => x.touched.length)) {
+        const when = `T${e.from}${e.until !== null ? `–T${e.until}` : ''}`;
+        out.push(`- ${when} ${owner(e)} [${e.kinds.join(', ')}]: ${untrusted(e.text, 200)} → ${e.touched.map(sub).join('; ')}`);
+      }
+      const quiet = effects.filter((x) => !x.touched.length);
+      if (quiet.length) out.push(`- also in play, nothing visible in the log: ${quiet.map((e) => `${owner(e)} [${e.kinds.join(', ')}]`).join(', ')}`);
     }
 
     if (r.attacks.length) {

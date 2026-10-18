@@ -190,6 +190,12 @@ export function readAccount(file) {
   return { token, username: get('QA_USERNAME'), base: (process.env.DECKPAL_BASE ?? 'https://deckpal.app').replace(/\/$/, '') }
 }
 
+/**
+ * A Vercel preview deployment sits behind deployment protection: VERCEL_PROTECTION_BYPASS (never printed) is sent as
+ * its bypass header, so the eval can measure a branch before it ships (DECKPAL_BASE=<preview URL>).
+ */
+export const bypassHeader = () => (process.env.VERCEL_PROTECTION_BYPASS ? { 'x-vercel-protection-bypass': process.env.VERCEL_PROTECTION_BYPASS } : {})
+
 /** Streamable-HTTP MCP: JSON or SSE replies, one session. */
 export class Mcp {
   constructor(base, token, fetchImpl = fetch) {
@@ -204,6 +210,7 @@ export class Mcp {
       method: 'POST',
       headers: {
         authorization: `Bearer ${this.token}`,
+        ...bypassHeader(),
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream',
         ...(this.session ? { 'mcp-session-id': this.session } : {}),
@@ -249,7 +256,7 @@ export class Mcp {
  */
 export async function assertQaAccount({ base, token, username }, fetchImpl = fetch) {
   if (!username) throw new Error('No QA_USERNAME in the QA account file. The maintainer reruns: node scripts/qa-token.mjs (it records it).')
-  const res = await fetchImpl(`${base}/api/me`, { headers: { authorization: `Bearer ${token}` } })
+  const res = await fetchImpl(`${base}/api/me`, { headers: { authorization: `Bearer ${token}`, ...bypassHeader() } })
   if (!res.ok) throw new Error(`/api/me: HTTP ${res.status}`)
   const me = await res.json()
   if (me.isOwner !== false || me.owner !== false) throw new Error('This token is not provably a non-owner account (isOwner/owner not false). The eval runs on the QA account only.')

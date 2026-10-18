@@ -2290,6 +2290,7 @@ fail loudly when a setting is missing.
 |---|---|---|
 | `AI_GATEWAY_API_KEY` | shell | **Required by `run`.** The Gateway key that pays for the agent, writer and judge calls. `DECKE_VERCEL_AI_GATEWAY_KEY` is used when it is unset. When neither is set, `run` stops before any call. Never printed. |
 | `DECKPAL_BASE` | shell | The backend both scripts talk to. Default `https://deckpal.app`. |
+| `VERCEL_PROTECTION_BYPASS` | shell | Optional. Sent as the `x-vercel-protection-bypass` header when set, so the eval can reach a protected preview deployment (`DECKPAL_BASE=<preview URL>`). Never printed. A preview can list tools but not run them today, because the MCP function's own API calls meet the protection. |
 | `QA_EMAIL`, `QA_PASSWORD` | `.qa-account` | Read only by `qa-token.mjs`, which the maintainer runs. An agent never signs in with them. |
 | `QA_MCP_TOKEN` | `.qa-account` | Written by `qa-token.mjs`: a personal access token named "Analysis eval (QA)". `setup` and `run` refuse to start without it. |
 | `QA_USERNAME` | `.qa-account` | The QA account's username. If the maintainer has already recorded it, `qa-token.mjs` requires the signed-in account to be that user before minting, and never overwrites the line; otherwise it writes the line from `/api/me`, read right after signing in with the QA password. The eval refuses any token whose `/api/me` does not name exactly this user, with `isOwner` and `owner` both false. |
