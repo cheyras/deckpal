@@ -198,10 +198,11 @@ export function publicKey(env: Env, s: GameState, me: Player): string {
   h.seq(s.attackUses ?? 0).seq(+!!s.attackedViaTool + 2 * +s.attacked + 4 * +!!s.noMoreAttacks).seq(s.stack.length).bag(s.limbo, cd);
   h.seq(s.first).seq(s.afterKo.length).seq(s.attackBy ?? -1).seq(s.attackByCard === undefined ? -1 : (cd[s.attackByCard] as number)).seq(s.benchOwner ?? -1).seq(s.queued.length);
   for (const x of s.attackHits ?? []) h.seq(x);
+  if (s.prizeTaking) h.seq(s.prizeTaking.left[0]).seq(s.prizeTaking.left[1]).seq(s.prizeTaking.took[0]).seq(s.prizeTaking.took[1]);
   str(h, s.afterKo);
   h.seq(s.effects.length);
   for (const e of s.effects) {
-    h.seq(e.slot).seq(e.player).seq(e.until).seq(+e.fromAttack).seq(e.since ?? -1).seq(cd[e.src] as number);
+    h.seq(e.slot).seq(e.player).seq(e.until).seq(e.start ?? -1).seq(+e.fromAttack).seq(e.since ?? -1).seq(cd[e.src] as number);
     h.seq(e.by ?? -1).seq(e.from ?? -1).seq(e.atk ? e.atk.by * 1000 + e.atk.use : -1);
     if (e.scope) json(h, typeof e.scope === 'object' ? e.scope : { scope: e.scope });
     json(h, e.static);

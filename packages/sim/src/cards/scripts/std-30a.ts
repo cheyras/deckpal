@@ -286,7 +286,7 @@ export const STD_30A: CardScript[] = [
     attacks: {
       // "The Defending Pokémon's Weakness is now Lightning until the end of your next turn. (Apply Weakness as ×2.)"
       // As Oranguru, Now You're in My Power (Compendium #2057): a Defending Pokémon with no printed Weakness is weak to it too.
-      'Overwriting Bolt': { post: [{ op: 'effect', static: { k: 'weaknessType', type: 'Lightning' }, on: 'defender', duration: 'myNextTurn' }] },
+      'Overwriting Bolt': { post: [{ op: 'effect', static: { k: 'weaknessType', type: 'Lightning' }, on: 'defender', duration: 'throughMyNextTurn' }] },
     },
   },
   {

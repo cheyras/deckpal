@@ -94,20 +94,22 @@ test('p.12 retreat is paid in Energy units: one card providing {C}{C}{C} pays a 
   assert.deepEqual(u.state.p[0].discard.map((c) => name(u, c)), ['Upper Energy']);
 });
 
-test('p.12 retreat offers only the sets that cover the cost with no card to spare', () => {
+test('p.12 retreat offers every set that covers the cost with no more cards than the cost (ruling 2127)', () => {
   const g = dog(['Triple Energy', 'Fighting Energy', 'Fighting Energy']);
   choose(g, 'Retreat');
   const d = g.decision as Decision;
   assert.equal(d.kind, 'option');
-  // Not Triple + Fighting (the Fighting is to spare); identical Fighting pairs offered once.
-  assert.deepEqual(labels(g), ['Discard Fighting Energy + Fighting Energy', 'Discard Triple Energy']);
+  // Triple + Fighting is 2 cards for a cost of 2, so it may pay too; never all 3 cards. Identical Fighting pairs offered once, and the
+  // default (first) gives up the fewest Special Energy, then overpays least.
+  assert.deepEqual(labels(g), ['Discard Fighting Energy + Fighting Energy', 'Discard Triple Energy', 'Discard Triple Energy + Fighting Energy']);
   choose(g, 'Discard Triple Energy');
   assert.deepEqual(g.state.p[0].discard.map((c) => name(g, c)), ['Triple Energy']);
   assert.equal(g.state.p[0].bench[0]!.energy.length, 2, 'both Fighting Energy stay on Dog');
 
   const mix = dog(['Triple Energy', 'Fighting Energy', 'Psychic Energy']);
   choose(mix, 'Retreat');
-  assert.deepEqual(labels(mix), ['Discard Fighting Energy + Psychic Energy', 'Discard Triple Energy']);
+  assert.deepEqual(labels(mix).slice(0, 2), ['Discard Fighting Energy + Psychic Energy', 'Discard Triple Energy']);
+  assert.ok(labels(mix).every((l) => l.split(' + ').length <= 2), 'never more cards than the Retreat Cost');
   choose(mix, 'Fighting Energy + Psychic');
   assert.deepEqual(mix.state.p[0].discard.map((c) => name(mix, c)).sort(), ['Fighting Energy', 'Psychic Energy']);
 });

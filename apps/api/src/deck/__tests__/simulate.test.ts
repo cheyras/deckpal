@@ -98,7 +98,11 @@ test('runMatchups: one report across opponents, inside the text limit, notes on 
   const subject = deck('Pups', mon('t-1', 'Pup', 70, '30'));
   const opponents = [deck('Cats', mon('t-2', 'Cat', 60, '20')), deck('Birds', mon('t-3', 'Bird', 90, '20'), 58)];
   const notes = opponents.flatMap((o) => deckNotes(o, []));
-  assert.deepEqual(notes, ['Birds has 58 cards, not 60 — simulated as listed.']);
+  assert.deepEqual(notes, [
+    'Cats is not a legal deck: more than 4 of a card (20 Cat) — simulated as listed.',
+    'Birds has 58 cards, not 60 — simulated as listed.',
+    'Birds is not a legal deck: more than 4 of a card (20 Bird) — simulated as listed.',
+  ]);
   const out = await runMatchups(subject, opponents, { games: 4, seed: 3, notes, budgetMs: 60_000 });
   assert.equal(out.report.matchups.length, 2);
   assert.equal(out.report.gamesPlayed, 8);
@@ -148,7 +152,27 @@ test('buildDeckInput: catalogue order, missing frames left out and noted', () =>
   const frames = new Map<number, CardFrame>([[2, mon('t-2', 'Cat', 60, '20')], [10, ENERGY]]);
   const { deck: d, notes } = buildDeckInput('Cats', [{ card_id: '10', quantity: 40 }, { card_id: '7', quantity: 4 }, { card_id: '2', quantity: 16 }], frames);
   assert.deepEqual(d.cards.map((c) => [c.frame.name, c.count]), [['Cat', 16], ['Psychic Energy', 40]]);
-  assert.deepEqual(notes, ['Cats has 56 cards, not 60 — simulated as listed.', 'Cats: no card data for card 7 — left out of the simulated deck.']);
+  assert.deepEqual(notes, [
+    'Cats has 56 cards, not 60 — simulated as listed.',
+    'Cats: no card data for card 7 — left out of the simulated deck.',
+    'Cats is not a legal deck: more than 4 of a card (16 Cat) — simulated as listed.',
+  ]);
+});
+
+test('deckNotes: a pasted list that breaks the deck rules is flagged and still simulated (4 copies, 1 ACE SPEC, a Basic Pokémon)', () => {
+  const item = (name: string): CardFrame => ({ ...ENERGY, cardId: name, name, category: 'Trainer', energyType: null, trainerType: 'Item' });
+  const legal: DeckInput = { name: 'Legal', cards: [{ frame: mon('t-1', 'Pup', 70, '30'), count: 4 }, { frame: item('Prime Catcher'), count: 1 }, { frame: ENERGY, count: 55 }] };
+  assert.deepEqual(deckNotes(legal, []), [], 'basic Energy is exempt from the 4-copy rule');
+  const bad: DeckInput = {
+    name: 'Bad',
+    cards: [{ frame: mon('t-1', 'Pup', 70, '30'), count: 5 }, { frame: item('Prime Catcher'), count: 1 }, { frame: item('Master Ball'), count: 1 }, { frame: ENERGY, count: 53 }],
+  };
+  assert.deepEqual(deckNotes(bad, []), [
+    'Bad is not a legal deck: more than 4 of a card (5 Pup) — simulated as listed.',
+    'Bad is not a legal deck: 2 ACE SPEC cards, and a deck may have 1 — simulated as listed.',
+  ]);
+  const noBasic: DeckInput = { name: 'Empty', cards: [{ frame: ENERGY, count: 60 }] };
+  assert.deepEqual(deckNotes(noBasic, []), ['Empty has no Basic Pokémon, so it cannot start a game: every game is a loss.']);
 });
 
 test('run gate: one run per account, two per instance, a 429-ready answer when full, release frees the slot', () => {

@@ -601,7 +601,7 @@ test('Hyper Aroma: search your deck for up to 3 Stage 1 Pokémon, reveal them, p
   const g = scenario(dk, dk, [{ active: 'Snorlax', hand: ['Hyper Aroma'] }, { active: 'Snorlax' }]);
   choose(g, 'Play Hyper Aroma');
   assert.equal(g.decision?.max, 3);
-  assert.equal(g.decision?.min, 1, 'a Trainer\'s "up to" is 1 to 3');
+  assert.equal(g.decision?.min, 0, 'a search of the deck for a kind of card may find none (Compendium #903; "up to" is otherwise at least 1, #2301)');
   assert.ok(labels(g).every((l) => ['Swanna', 'Ambipom', 'Dartrix', 'Revavroom'].some((n) => l.includes(n))), 'only Stage 1 Pokémon');
   pick(g, ['Swanna', 'Ambipom', 'Dartrix']);
   assert.deepEqual(names(g, g.state.p[0].hand), ['Ambipom', 'Dartrix', 'Swanna']);

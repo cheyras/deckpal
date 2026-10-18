@@ -306,7 +306,7 @@ test('Deluxe Bomb: Knocked Out holder still deals the counters, and everything r
   // All effects resolve before checking if the game is over.
   assert.equal(g.state.p[0].prizes.length, 0, 'the attacker took its last Prize card for the Knock Out');
   assert.equal(g.state.p[1].prizes.length, 0, 'and the Bomb holder\'s side took its last Prize card for the Knock Out the 12 counters caused');
-  assert.ok(g.over);
+  assert.equal(g.state.suddenDeath, 1, 'both won at once (last Prize card and no Pokémon each): a sudden-death game starts');
 });
 
 // ------------------------------------------------------------------ Grand Tree

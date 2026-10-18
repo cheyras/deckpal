@@ -239,6 +239,7 @@ export function buildDef(idx: number, f: CardFrame, script: CardScript | null, c
     stadiumWhen: script?.stadiumAbility?.when ?? null,
     basicEnergy,
     provides: script?.provides ?? (eType ? [eType] : kind === 'energy' ? ['Colorless'] : []),
+    ...(kind === 'energy' && !basicEnergy && /as long as this card is attached to a Pok[eé]mon, it provides/i.test(normText(f.effect)) ? { typeOnlyAttached: true } : {}),
     statics: [],
     triggers: [],
     text,

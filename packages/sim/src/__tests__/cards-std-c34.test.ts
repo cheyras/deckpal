@@ -142,7 +142,7 @@ test("Team Rocket's Koffing, Smog Signals: damaged by an attack while Active, se
   const g = koffingGame([{ active: KO, damage: { active: 20 } }, { active: PIN, energy: { active: [G] } }], OPP_TURN);
   choose(g, 'Attack: Vise Grip');
   assert.equal(g.decision?.player, 0, 'the Koffing player decides');
-  assert.equal(g.decision?.min, 1, '"up to 2" of an Ability is 1 to 2');
+  assert.equal(g.decision?.min, 0, 'a search of the deck for a kind of card may find none (Compendium #903; "up to" is otherwise at least 1, #2301)');
   assert.equal(g.decision?.max, 2);
   pick(g, [KO, KO]);
   assert.equal(dmg(g, 0), 40);
@@ -572,11 +572,11 @@ test("Emcee's Hype: draw 2 cards; if the opponent has 3 or fewer Prize cards rem
   assert.ok(!has(empty, "Play Emcee's Hype"), 'no cards to draw');
 });
 
-test("Ethan's Adventure: search for up to 3 in any combination of Ethan's Pokémon and Basic {R} Energy cards (1 to 3), reveal, to hand", () => {
+test("Ethan's Adventure: search for up to 3 in any combination of Ethan's Pokémon and Basic {R} Energy cards (0 to 3: a deck search may find none), reveal, to hand", () => {
   const dk = deck("Ethan's Adventure", PIN, "Ethan's Cyndaquil", 'Air Balloon', DRA);
   const g = scenario(dk, dk, [{ active: DRA, hand: ["Ethan's Adventure"] }, { active: DRA }]);
   choose(g, "Play Ethan's Adventure");
-  assert.equal(g.decision?.min, 1);
+  assert.equal(g.decision?.min, 0, 'a search of the deck for a kind of card may find none (Compendium #903; "up to" is otherwise at least 1, #2301)');
   assert.equal(g.decision?.max, 3);
   const offered = new Set(labels(g));
   assert.deepEqual([...offered].sort(), ['Fire Energy', "Ethan's Cyndaquil", PIN].sort(), "not Water Energy, the Item or Ethan's Adventure itself");
@@ -634,11 +634,11 @@ test("Team Rocket's Venture Bomb: flip a coin; heads puts 2 damage counters on 1
   assert.equal(dmg(tails, 1), 0);
 });
 
-test('TM Machine: search for up to 3 Pokémon Tool cards with "Technical Machine" in their name (1 to 3), reveal, to hand', () => {
+test('TM Machine: search for up to 3 Pokémon Tool cards with "Technical Machine" in their name (0 to 3: a deck search may find none), reveal, to hand', () => {
   const dk = deck('TM Machine', 'Technical Machine: Fluorite', 'Air Balloon', DRA);
   const g = scenario(dk, dk, [{ active: DRA, hand: ['TM Machine'] }, { active: DRA }]);
   choose(g, 'Play TM Machine');
-  assert.equal(g.decision?.min, 1);
+  assert.equal(g.decision?.min, 0, 'a search of the deck for a kind of card may find none (Compendium #903; "up to" is otherwise at least 1, #2301)');
   assert.equal(g.decision?.max, 3);
   assert.ok(labels(g).every((l) => l === 'Technical Machine: Fluorite'), 'not Air Balloon');
   pick(g, ['Technical Machine: Fluorite', 'Technical Machine: Fluorite', 'Technical Machine: Fluorite']);

@@ -33,6 +33,8 @@ import {
   type CardFrame, type CompareTotals, type ComparisonReport, type DeckInput, type MatchupTotals, type PilotFactory, type SimReport, type SimulationResult,
 } from '@deckpal/sim';
 import { badRequest, UUID_RE } from '../http.js';
+import { ACE_SPEC_NAMES } from './data.js';
+import { isBasicEnergy, normalizeName } from './names.js';
 import { CONTINUE_MAX_CALLS } from './simulateContinue.js';
 
 export const SIM_GAMES_DEFAULT = 24;
@@ -619,11 +621,31 @@ export async function runComparison(a: DeckInput, b: DeckInput, opponents: DeckI
   return { text, report, ...(token ? { continue_token: token } : {}) };
 }
 
-/** Notes a deck's shape earns before it is played: not 60 cards, or cards the catalogue has no frame for. */
+/**
+ * Notes a deck's shape earns before it is played: not 60 cards, cards the catalogue has no frame for, and the other deck rules a list
+ * pasted straight into the simulator can break (saved decks are checked by check_deck): more than 4 of a card by name (basic Energy
+ * excepted), more than one ACE SPEC, no Basic Pokémon. The deck is still simulated as listed.
+ */
 export function deckNotes(deck: DeckInput, missing: string[]): string[] {
   const notes: string[] = [];
   const total = deck.cards.reduce((n, e) => n + e.count, 0);
   if (total !== 60) notes.push(`${deck.name} has ${total} cards, not 60 — simulated as listed.`);
   if (missing.length) notes.push(`${deck.name}: no card data for ${missing.join(', ')} — left out of the simulated deck.`);
+  const byName = new Map<string, { name: string; n: number }>();
+  let aceSpecs = 0;
+  let basics = 0;
+  for (const { frame, count } of deck.cards) {
+    if (frame.category === 'Pokemon' && frame.stage === 'Basic') basics += count;
+    const key = normalizeName(frame.name);
+    if (ACE_SPEC_NAMES.has(key)) aceSpecs += count;
+    if (isBasicEnergy({ category: frame.category, energyType: frame.energyType ?? null })) continue;
+    const e = byName.get(key) ?? { name: frame.name, n: 0 };
+    e.n += count;
+    byName.set(key, e);
+  }
+  const over = [...byName.values()].filter((e) => e.n > 4).map((e) => `${e.n} ${e.name}`);
+  if (over.length) notes.push(`${deck.name} is not a legal deck: more than 4 of a card (${over.join(', ')}) — simulated as listed.`);
+  if (aceSpecs > 1) notes.push(`${deck.name} is not a legal deck: ${aceSpecs} ACE SPEC cards, and a deck may have 1 — simulated as listed.`);
+  if (!basics && total) notes.push(`${deck.name} has no Basic Pokémon, so it cannot start a game: every game is a loss.`);
   return notes;
 }

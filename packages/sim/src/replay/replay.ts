@@ -43,7 +43,7 @@ import { Game } from '../game.js';
 import { applyCondition } from '../interp.js';
 import { benchLimit } from '../query.js';
 import { allSlots, findSlot, healSlot, newSlot, opp, removeFrom, topCard } from '../state.js';
-import type { Action, CardFrame, Decision, GameEvent, GameState, Player, Slot } from '../types.js';
+import { BURNED, type Action, type CardFrame, type Decision, type GameEvent, type GameState, type Player, type Slot } from '../types.js';
 import { scriptFor } from '../cards/registry.js';
 import { transcript } from '../transcript.js';
 import { FRAMES } from '../cards/frames-all.js';
@@ -286,9 +286,12 @@ interface Ambiguity {
 export function replayLog(raw: string, o: ReplayOptions = {}): ReplayResult {
   const better = (a: ReplayResult, b: ReplayResult) =>
     a.replayed > b.replayed || (a.replayed === b.replayed && a.mismatches.length < b.mismatches.length);
+  // A run is settled when it plays through and its damage, Knock Outs and Prizes match: counters (or an Energy) put on
+  // the wrong one of two same-named Pokémon still replay, but deal the wrong damage or Knock Out the wrong one later.
+  const settled = (r: ReplayResult) => !r.divergence && !r.mismatches.some((m) => !m.unscripted && (m.what === 'knockout' || m.what === 'prizes' || m.what === 'damage'));
   let best = replayOnce(raw, o, new Map());
   if (DEBUG) console.error(`[rerun] base: ${best.ambiguous.length} ambiguous point(s): ${best.ambiguous.map((a) => `${a.ord}/${a.n}`).join(' ')}`);
-  if (!best.result.divergence) return best.result;
+  if (settled(best.result)) return best.result;
   const tried = new Set<string>(['']);
   const frontier: { over: Map<number, number>; run: ReturnType<typeof replayOnce> }[] = [{ over: new Map(), run: best }];
   let runs = 1;
@@ -307,7 +310,7 @@ export function replayLog(raw: string, o: ReplayOptions = {}): ReplayResult {
         runs++;
         if (DEBUG) console.error(`[rerun] ${key} → ${r.result.replayed}/${r.result.actions} ${r.result.divergence?.line ?? ''} ${r.result.divergence?.log ?? ''} ${r.result.divergence?.reason ?? ''}`);
         if (better(r.result, best.result)) best = r;
-        if (!r.result.divergence) {
+        if (settled(r.result)) {
           r.result.reruns = runs - 1;
           return r.result;
         }
@@ -472,6 +475,10 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       case 'counters':
         note(e.target.player, e.target.card);
         break;
+      case 'move_counters':
+        note(e.from.player, e.from.card);
+        note(e.to.player, e.to.card);
+        break;
       case 'damage':
       case 'heal':
       case 'condition':
@@ -519,7 +526,8 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
   const boardNote: Note = (side, m, n) => side !== null && side !== undefined && m && note(own(m, side), m, n);
   for (const e of ev) {
     if (!e.sub) continue;
-    const moves = e.t === 'draw' || e.t === 'discard' || e.t === 'shuffle' || e.t === 'move_cards' || e.t === 'hand_add';
+    // An evolve detail line (Rare Candy's Stage 2, Salvatore's from the deck) moves a card too: from a hand or deck.
+    const moves = e.t === 'draw' || e.t === 'discard' || e.t === 'shuffle' || e.t === 'move_cards' || e.t === 'hand_add' || e.t === 'evolve';
     visit(e, moves ? ownNote : boardNote, moves ? ownList : (side, list) => list?.forEach((c) => boardNote(side, c)));
   }
   // A codeless "played X." naming a card nobody else showed is a Trainer from that player's hand.
@@ -558,10 +566,15 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
     for (const { m, n } of seen[side].values()) {
       let frame = frameOf(m);
       if (!frame) {
-        // A codeless log naming a card with several printings (Riolu 70 HP sv08.5, 80 HP me01): the newest.
+        // A codeless log naming a card with several printings (Riolu 70 HP sv08.5, 80 HP me01): the newest, and an
+        // ambiguity point, so a run the printing stops (a Charmander retreating for free is the one with Agile) backtracks.
         const all = Object.values(FRAMES).filter((f) => same(f.name, m.name));
         if (all.length) {
-          frame = all.sort((a, b) => (b.regulationMark ?? '').localeCompare(a.regulationMark ?? '') || b.cardId.localeCompare(a.cardId))[0]!;
+          const texts = dedupeBy(
+            all.sort((a, b) => (b.regulationMark ?? '').localeCompare(a.regulationMark ?? '') || b.cardId.localeCompare(a.cardId)),
+            (f) => textKey(f),
+          );
+          frame = texts[pickAmbiguous(texts.length)]!;
           ambiguousPrintings.add(`${m.name} (as ${frame.cardId})`);
         }
       }
@@ -665,9 +678,11 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       for (; n < e.count; n++) prizes[e.p].push(HIDE);
     }
     if (e.t !== 'draw') continue;
-    // "drew N cards." with its detail line right after: count it once.
+    // "drew N cards." with its detail line right after: count it once. Never two detail lines: Judge prints
+    // "- PlayerB drew 4 cards." for the opponent's hidden draw (credited to the wrong player) right before the
+    // writer's own "- PlayerB drew 4 cards." with its list, and those are two draws.
     const next = ev[i + 1];
-    if (!e.card && !e.cards && next && next.t === 'draw' && next.sub && next.count === e.count && (next.cards || next.card) && own((next.cards?.[0] ?? next.card) as CardMention, next.p) === e.p) continue;
+    if (!e.sub && !e.card && !e.cards && next && next.t === 'draw' && next.sub && next.count === e.count && (next.cards || next.card) && own((next.cards?.[0] ?? next.card) as CardMention, next.p) === e.p) continue;
     const named = e.cards ?? (e.card ? [e.card] : []);
     for (let k = 0; k < e.count; k++) {
       const m = named[k];
@@ -723,13 +738,15 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       hit.used = true;
       return findIn(zone, hit);
     },
-    coin: (_p, why) => {
+    coin: (p, why) => {
       const c = coinItems.find((x) => !x.used && x.seq > scopeSeqs[0] && x.seq <= scopeSeqs[1]);
       if (c) {
         c.used = true;
         return c.heads;
       }
       if (why === 'confusion') return true;
+      const burn = burnFlip(p);
+      if (burn !== undefined) return burn;
       engineOnlyCoins++;
       return undefined;
     },
@@ -737,6 +754,25 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       const w = prizeQueue[p].shift();
       return w ? findIn(zone, w) : undefined;
     },
+  };
+  /**
+   * Live prints no flip for Burn at Pokémon Checkup. The flip comes right after the Burn's counters, and the next
+   * Checkup says how it landed: Burned counters on that player's Active again = tails (still Burned).
+   */
+  const checkups = ev.filter((e) => e.t === 'checkup');
+  const burnFlip = (p: Player): boolean | undefined => {
+    const last = g.events[g.events.length - 1];
+    const act = s.p[p].active;
+    if (!last || last.type !== 'counters' || !last.checkup || !act || last.slot !== act.id || !(act.cond & BURNED)) return undefined;
+    const here = checkups.filter((e) => e.seq > scopeSeqs[0] && e.seq <= scopeSeqs[1]).pop();
+    const nx = here ? checkups[checkups.indexOf(here) + 1] : undefined;
+    if (!nx) return undefined;
+    for (let j = ev.indexOf(nx) + 1; j < ev.length; j++) {
+      const e = ev[j]!;
+      if (e.t !== 'counters') break;
+      if (/burn/i.test(e.condition ?? '') && e.target.player === p) return false;
+    }
+    return true;
   };
   const engineOnlyDraws: { p: Player; turn: number }[] = [];
   let engineOnlyCoins = 0;
@@ -843,7 +879,8 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       if (!e.sub || (e.t !== 'draw' && e.t !== 'attach' && !attackDiscard)) continue;
       const ms = e.t === 'attach' ? [e.card] : e.t === 'discard' ? (e.cards ?? (e.card ? [e.card] : [])) : (e.cards ?? (e.card ? [e.card] : []));
       for (const m of ms.slice().reverse()) {
-        const ps = s.p[own(m, e.p) as Player];
+        // "P drew / discarded X" leaves P's own deck, whoever else runs that card; an attached card is the owner's.
+        const ps = s.p[(e.t === 'attach' ? own(m, e.p) : e.p) as Player];
         const c = findIn(ps.deck.filter((x) => !placed.has(x)), want(m));
         if (c === undefined) continue;
         placed.add(c);
@@ -880,6 +917,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
   const cardLeft = new Map<number, Want[]>(); // per event seq: cards not yet matched to a card choice
   const targetUsed = new Set<number>();
   const countersLeft = new Map<number, number>();
+  const countersSlot = new Map<number, number>(); // per counters line: the Pokémon it was matched to
   const leftOf = (e: LiveEvent) => {
     if (!cardLeft.has(e.seq)) cardLeft.set(e.seq, eventCards(e).map(want));
     return cardLeft.get(e.seq) as Want[];
@@ -1021,6 +1059,21 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       default:
         return null;
     }
+  };
+  /**
+   * The hand cards an Ability or a Trainer's own detail lines show it using: a discard with no board source (Lunar
+   * Cycle's Energy), an attachment (Teal Dance, Excited Turbo), an evolution's Stage 2 (Rare Candy).
+   */
+  const costCards = (e: LiveEvent, lines: LiveEvent[]): Want[] => {
+    const p = (e as { p?: Side }).p;
+    const out: Want[] = [];
+    for (const l of lines) {
+      if (!l.sub || (l as { p?: Side }).p !== p) continue;
+      if (l.t === 'discard' && !l.from) out.push(...(l.cards ?? (l.card ? [l.card] : [])).map(want));
+      else if (l.t === 'attach') out.push(want(l.card));
+      else if (l.t === 'evolve') out.push(want(l.to));
+    }
+    return out;
   };
   /** Does p's hand hold this card (this printing, when the log gave one)? */
   const inHand = (p: Player, w: Want) => s.p[p].hand.some((c) => isCard(c, w));
@@ -1195,10 +1248,26 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       for (const [k, n] of xs) m.set(k, (m.get(k) ?? 0) + n);
       return [...m].map(([k, n]) => `${k}=${n}`);
     };
+    const engineCounters = sumBy(engine.flatMap((e) => (e.type === 'counters' ? [[sideName(engineOwner(e.slot), eName(e.slot)), e.n] as [string, number]] : [])));
+    // Live names the attacker for Phantom Dive's targets ("P put a damage counter on P's Fezandipiti ex"); when both
+    // sides have one, `boardSide` can't tell, and the engine's count on the other side's Pokémon of that name is the one meant.
+    const otherSide = (k: string) => {
+      if (engineCounters.includes(k)) return k;
+      const alt = k.replace(/^P([01]):/, (_m, d: string) => `P${1 - Number(d)}:`);
+      return engineCounters.includes(alt) ? alt : k;
+    };
     check(
       'counters',
-      sumBy(all.flatMap((e) => (e.t === 'counters' ? [[sideName(boardSide(e.target.player, e.target.card.name), e.target.card.name), e.count] as [string, number]] : []))),
-      sumBy(engine.flatMap((e) => (e.type === 'counters' ? [[sideName(engineOwner(e.slot), eName(e.slot)), e.n] as [string, number]] : []))),
+      sumBy(
+        all.flatMap((e) =>
+          e.t === 'counters'
+            ? [[sideName(boardSide(e.target.player, e.target.card.name), e.target.card.name), e.count] as [string, number]]
+            : e.t === 'move_counters' // the engine reports the counters a move puts on a Pokémon
+              ? [[sideName(boardSide(e.to.player, e.to.card.name), e.to.card.name), e.count] as [string, number]]
+              : [],
+        ),
+      ).map(otherSide),
+      engineCounters,
     );
     check(
       'knockout',
@@ -1321,19 +1390,69 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
     };
     // "Discard an Energy from which Pokémon?" (Crushing Hammer): the line "(X) was discarded from P's Y".
     const discardFrom = /discard/i.test(d.prompt);
-    for (const e of scope) {
+    // "Put damage counters on which Pokémon?": only a counters line answers it (not the attack's damage or a promote).
+    // (Not "Move damage counters from which...": a move line answers that.)
+    const counterPrompt = /\b(put|place)\b[^?]*damage counter/i.test(d.prompt);
+    // "X chose Powerful Rage." under a copy-an-attack effect (Night Joker): the Pokémon that has that attack. The line is
+    // not used up: it answers the attack choice that follows too ("Use which of N's Zekrom's attacks?").
+    for (const e of d.kind === 'slots' && d.max <= 1 ? scope : []) {
+      if (e.t !== 'chose' || targetUsed.has(e.seq)) continue;
+      const k = values.findIndex((id) => {
+        const f = findSlot(s, id);
+        return !!f && f.owner === d.player && def(ctx, topCard(f.slot)).attacks.some((a) => same(a.name, e.option));
+      });
+      if (k >= 0) return [k];
+    }
+    // "Move a Basic Energy from which Pokémon?" (Energy Switch): the attach line names where the Energy went, so it came
+    // from another Pokémon holding that Energy. (The line then answers "Move it to which Pokémon?".)
+    if (d.kind === 'slots' && /^move\b[^?]*energy[^?]*\bfrom which\b/i.test(d.prompt)) {
+      const at = scope.find((e) => e.t === 'attach' && e.sub && !targetUsed.has(e.seq));
+      if (at && at.t === 'attach') {
+        const k = values.findIndex((id) => {
+          const f = findSlot(s, id);
+          return !!f && !slotMatches(id, at.to.name, at.where) && f.slot.energy.some((c) => isCard(c, want(at.card), false));
+        });
+        if (k >= 0) return [k];
+      }
+    }
+    // An attack's own line names its first target ("used Trifrost on P's Y for 110 damage": the Defending Pokémon); its
+    // Knock Outs' promote lines answer the promote, not the attack's choice.
+    const self = lastAction && lastAction.t === 'attack' && d.kind === 'slots' && !discardFrom && !counterPrompt ? [lastAction] : [];
+    for (const e of [...self, ...scope]) {
       if (picked.length >= Math.max(1, d.max)) break;
-      const t: [Side | null, string] | null = discardFrom ? (e.t === 'discard' && e.from ? [e.from.player, e.from.card.name] : null) : eventTarget(e);
+      if (self.length && e.t === 'promote') continue;
+      if (counterPrompt && e.t !== 'counters') continue;
+      // "moved 2 damage counters from P's X to Q's Y" answers both of Adrena-Brain's choices.
+      const moveFrom = e.t === 'move_counters' && /\bfrom\b/i.test(d.prompt);
+      const t: [Side | null, string] | null = discardFrom
+        ? e.t === 'discard' && e.from
+          ? [e.from.player, e.from.card.name]
+          : null
+        : e.t === 'move_counters'
+          ? moveFrom
+            ? [e.from.player, e.from.card.name]
+            : [e.to.player, e.to.card.name]
+          : eventTarget(e);
       if (!t) continue;
       // The side the line names, else the other (Live credits a Hammer's discard to the wrong player).
-      const where = e.t === 'evolve' ? e.where : undefined; // "on the Bench" / "in the Active Spot"
+      // "on the Bench" / "in the Active Spot"; an attack line names the Active.
+      const where = e.t === 'evolve' ? e.where : e === self[0] ? 'active' : undefined;
       const named = values.some((id) => slotMatches(id, t[1], where) && (t[0] === null || findSlot(s, id)?.owner === t[0]));
       const fits = (id: number, k: number) => !picked.includes(k) && slotMatches(id, t[1], where) && (!named || t[0] === null || findSlot(s, id)?.owner === t[0]);
       if (e.t === 'counters') {
         const left = countersLeft.get(e.seq) ?? e.count;
         if (left <= 0) continue;
-        const i = values.findIndex(fits);
-        if (i < 0) continue;
+        // Same-named candidates (two Dreepy): which one this line meant is an ambiguity point, decided once per line.
+        let i = -1;
+        const prev = countersSlot.get(e.seq);
+        if (prev !== undefined) i = values.findIndex((id, k) => id === prev && fits(id, k));
+        if (i < 0) {
+          const hits = values.map((id, k) => [id, k] as const).filter(([id, k]) => fits(id, k));
+          if (!hits.length) continue;
+          const distinct = dedupeBy(hits, ([id]) => slotSig(id));
+          i = distinct[pickAmbiguous(distinct.length)]![1];
+          countersSlot.set(e.seq, values[i]!);
+        }
         countersLeft.set(e.seq, left - 1);
         picked.push(i);
         if (d.max <= 1) break;
@@ -1342,7 +1461,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       if (targetUsed.has(e.seq)) continue;
       const hits = values.map((id, k) => [id, k] as const).filter(([id, k]) => fits(id, k));
       if (!hits.length) continue;
-      targetUsed.add(e.seq);
+      if (!moveFrom) targetUsed.add(e.seq);
       // Two Pokémon of one name and a log that can't say which: players bring up the developed one.
       hits.sort((x, y) => weight(y[0]) - weight(x[0]) || x[1] - y[1]);
       const distinct = dedupeBy(hits, ([id]) => slotSig(id));
@@ -1350,12 +1469,27 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
       // Several targets at once (Trifrost: 3 of the opponent's Pokémon) come from consecutive lines.
       if (d.max <= 1) break;
     }
+    if (!picked.length && counterPrompt) {
+      // Counters a Pokémon's Ability stopped ("Effects of Phantom Dive did not affect Shuppet.") have no counters line,
+      // only that one, and it is not used up: one line covers every counter put there.
+      for (const e of scope) {
+        if (e.t !== 'effect_negated') continue;
+        const i = values.findIndex((id) => slotMatches(id, e.card.name) && findSlot(s, id)?.owner !== d.player);
+        if (i >= 0) return [i];
+      }
+    }
     if (picked.length < d.min) return null;
     return picked.length ? picked : null;
   };
 
   const answerOption = (d: Decision): number[] | null => {
     const labels = (d.labels ?? []).map((l) => l.toLowerCase());
+    // "Move how many damage counters?": the count the move line states.
+    const mv = /how many damage counters/i.test(d.prompt) ? scope.find((e) => e.t === 'move_counters') : undefined;
+    if (mv && mv.t === 'move_counters') {
+      const i = labels.findIndex((l) => l.startsWith(`move ${mv.count} damage counter`));
+      if (i >= 0) return [i];
+    }
     for (const e of scope) {
       if (e.t !== 'chose' || targetUsed.has(e.seq)) continue;
       const opt = e.option.toLowerCase();
@@ -1387,7 +1521,14 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
     unlogged(d);
     const n = d.kind === 'option' || d.kind === 'yesno' ? 1 : Math.max(d.min, 0);
     if (d.kind === 'order') return Array.from({ length: d.values?.length ?? 0 }, (_, i) => i);
-    return Array.from({ length: Math.min(n, (d.values ?? d.labels ?? []).length) }, (_, i) => i);
+    const all = Array.from({ length: (d.values ?? d.labels ?? []).length }, (_, i) => i);
+    if (d.kind === 'cards' && d.values?.length && zoneOf(d.values[0]!) === 'hand') {
+      // Hand cards the log hides ("put a card on top of their deck."): the cards the log showed go first, so the hidden
+      // fillers stay in the hand, where any card a later line plays can come from.
+      const vs = d.values;
+      all.sort((a, b) => Number(isHidden(vs[a]!)) - Number(isHidden(vs[b]!)) || a - b);
+    }
+    return all.slice(0, Math.min(n, all.length));
   };
 
   const observer = o.observe?.();
@@ -1402,6 +1543,7 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
   const maxDecisions = o.maxDecisions ?? 20000;
   let decisions = 0;
   let lastAction: LiveEvent | null = null;
+  const repeats = new Map<number, number>(); // per "used" line: the times the Ability was used again
   try {
     g.start();
     trackSlots();
@@ -1452,6 +1594,23 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
             result.completed = true;
             break;
           }
+          // One "used Excited Turbo." line over two "- attached X to Y." lines: Live prints an Ability used again in a row once.
+          // Each use took one line; a line left over (after one was taken) is the Ability used again.
+          if (lastAction && lastAction.t === 'use' && lastAction.p === d.player && lastAction.turn === s.turn) {
+            const attaches = scope.filter((e) => e.sub && e.t === 'attach' && e.p === d.player);
+            const left = attaches.filter((e) => leftOf(e).length > 0);
+            const done = repeats.get(lastAction.seq) ?? 0;
+            if (left.length && left.length < attaches.length && done < attaches.length - 1) {
+              const w = leftOf(left[0]!)[0]!;
+              if (!inHand(d.player, w) && materialise(d.player, w) !== undefined) d.actions = legalActions(env, s, d.player);
+              const j = findAction(d, lastAction);
+              if (j >= 0) {
+                repeats.set(lastAction.seq, done + 1);
+                choice = [j];
+                break;
+              }
+            }
+          }
           if (np !== d.player || next.turn !== s.turn) {
             // The log's turn is over (an attack, a time-out, or the next player's line comes first).
             if (next && np === d.player && next.turn > s.turn) {
@@ -1464,8 +1623,20 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
           }
           let i = findAction(d, next);
           if (i < 0) {
-            const w = handCard(next);
-            if (w && !inHand(d.player, w) && materialise(d.player, w) !== undefined) {
+            // Hand cards the action needs that the hidden hand may hold: the card played, and those the action's own
+            // detail lines show leaving the hand (Lunar Cycle's discarded Energy, Teal Dance's attached one, Rare Candy's Stage 2).
+            let got = false;
+            const held = new Set<number>();
+            const hw = handCard(next);
+            for (const w of [...(hw ? [hw] : []), ...(next.t === 'use' || next.t === 'play_card' ? costCards(next, scopeEnd(ai)) : [])]) {
+              let c = s.p[d.player].hand.find((x) => !held.has(x) && isCard(x, w));
+              if (c === undefined) {
+                c = materialise(d.player, w);
+                if (c !== undefined) got = true;
+              }
+              if (c !== undefined) held.add(c);
+            }
+            if (got) {
               d.actions = legalActions(env, s, d.player);
               i = findAction(d, next);
             }
@@ -1499,12 +1670,21 @@ function replayOnce(raw: string, o: ReplayOptions, overrides: Map<number, number
             if (flip && flip.t === 'coin_flip') scopeSeqs[0] = flip.seq - 1;
           }
           const atk = (d.actions ?? [])[i];
-          preplace(scope, atk?.t === 'attack' ? next.turn : undefined);
+          // Live prints the card an attack discards from the deck top (Seek Inspiration) as a top-level line BEFORE the attack's line.
+          const before = ev[ev.indexOf(next) - 1];
+          const preDiscard = atk?.t === 'attack' && before && before.t === 'discard' && !before.sub && !before.from && before.turn === next.turn && before.p === (next as { p?: Side }).p;
+          preplace(preDiscard ? [{ ...before, sub: true }, ...scope] : scope, atk?.t === 'attack' ? next.turn : undefined);
           const user = s.p[d.player].active;
-          if (atk?.t === 'attack' && user && def(ctx, topCard(user)).coverage !== 'full') {
+          if (atk?.t === 'attack' && user && partial(def(ctx, topCard(user)).coverage)) {
             // An unscripted attack: the engine does its printed damage, Knock Outs and Prizes; its other
-            // effects (Energy from the deck, a Special Condition, draws) come from the log's lines.
-            const effects = scope.filter((l) => l.turn === next.turn && !['damage', 'knockout', 'prize', 'hand_add', 'promote', 'coin_flip', 'turn_start', 'end_turn'].includes(l.t));
+            // effects (Energy from the deck, a Special Condition, draws) come from the log's lines. A vanilla
+            // attack is the printed frame, scripted in full; Pokémon Checkup's counters are the engine's either way.
+            const effects = scope.filter(
+              (l) =>
+                l.turn === next.turn &&
+                !(l.t === 'counters' && l.condition) &&
+                !['damage', 'knockout', 'prize', 'hand_add', 'promote', 'coin_flip', 'turn_start', 'end_turn'].includes(l.t),
+            );
             applyFromLog(d.player, next, effects);
             if (effects.length) result.logDriven.push({ line: next.line, turn: next.turn, action: `${describe(next)} (its effects)`, card: name(topCard(user)) });
           }

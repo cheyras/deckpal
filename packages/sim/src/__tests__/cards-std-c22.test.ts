@@ -670,9 +670,7 @@ test('Archaludon, Metal Bridge: Archaludon itself retreats for free while it has
   const metal = game(dk, [{ active: 'Archaludon', bench: ['Comfey'], energy: { active: [M] } }, { active: 'Tyranitar ex' }]);
   assert.ok(has(metal, 'Retreat'));
   choose(metal, 'Retreat');
-  assert.equal(metal.decision?.kind, 'cards');
-  assert.equal(metal.decision?.min, 0, 'a Retreat Cost of 0: no Energy has to be discarded');
-  metal.submit([]);
+  assert.equal(metal.decision?.kind, 'main', 'a Retreat Cost of 0: no Energy is discarded, and none is asked for');
   assert.equal(activeName(metal, 0), 'Comfey');
   assert.deepEqual(energyNames(metal, 0, 0), [M], 'no Energy was discarded');
   const fire = game(dk, [{ active: 'Archaludon', bench: ['Comfey'], energy: { active: [F] } }, { active: 'Tyranitar ex' }]);
@@ -702,7 +700,7 @@ test('Noctowl, Jewel Seeker: on evolving, with a Tera Pokémon in play, search f
   yes(g);
   const before = g.state.p[0].hand.length;
   assert.deepEqual(offered(g), [`Hero's Cape`, 'Switch', "Xerosic's Machinations"], 'Trainer cards only');
-  assert.equal(g.decision?.min, 1, '"up to 2" on an Ability is 1 to 2');
+  assert.equal(g.decision?.min, 0, 'a search of the deck for a kind of card may find none (Compendium #903; "up to" is otherwise at least 1, #2301)');
   assert.equal(g.decision?.max, 2);
   pick(g, ['Switch', "Xerosic's Machinations"]);
   assert.deepEqual(names(g, g.state.p[0].hand.slice(before)), ['Switch', "Xerosic's Machinations"]);

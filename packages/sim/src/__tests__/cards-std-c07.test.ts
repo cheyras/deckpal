@@ -253,12 +253,12 @@ test("Team Rocket's Hypnotizer: nothing happens on a Pokémon that is not a Team
 
 // ------------------------------------------------------------------ Team Rocket's Proton
 
-test("Team Rocket's Proton: up to 3 Basic Team Rocket's Pokémon, revealed, into the hand (1 to 3 on a Trainer)", () => {
+test("Team Rocket's Proton: up to 3 Basic Team Rocket's Pokémon, revealed, into the hand (0 to 3: a deck search for a kind of card may find none)", () => {
   const g = G([{ active: 'Shaymin', hand: [PROTON] }, { active: LATIAS }]);
   choose(g, `Play ${PROTON}`);
   const basics = [TARO, EXEGGCUTE, MURKROW, "Team Rocket's Meowth"];
   assert.ok(labels(g).length > 0 && labels(g).every((l) => basics.includes(l)), `only Basic Team Rocket's Pokémon: ${labels(g)}`);
-  assert.equal(g.decision?.min, 1);
+  assert.equal(g.decision?.min, 0, 'a search of the deck for a kind of card may find none (Compendium #903; "up to" is otherwise at least 1, #2301)');
   assert.equal(g.decision?.max, 3);
   pick(g, [TARO, MURKROW, MURKROW]);
   assert.deepEqual(names(g, g.state.p[0].hand), [MURKROW, MURKROW, TARO].sort());
@@ -371,18 +371,18 @@ test("Steven's Metagross ex, X-Boot: both Energy cards may go on the same Pokém
   assert.deepEqual(names(g, g.state.p[0].active!.energy), [M, P].sort());
 });
 
-test("Steven's Metagross ex, X-Boot: at least one card is taken while the deck has one (a {P}, a {M}, or both)", () => {
+test("Steven's Metagross ex, X-Boot: a {P}, a {M}, both, or none (a deck search for a kind of card may find none)", () => {
   const g = G([{ active: "Steven's Metagross ex" }, { active: LATIAS }]);
   choose(g, 'Use X-Boot');
   g.submit([]); // no {P}
-  assert.equal(g.decision?.min, 1, 'without a {P} Energy the {M} is required');
+  assert.equal(g.decision?.min, 0, 'a search of the deck for a kind of card may find none (Compendium #903; "up to" is otherwise at least 1, #2301)');
   choose(g, M);
   assert.deepEqual(names(g, g.state.p[0].active!.energy), [M]);
 
-  // No Metal Energy in the deck: the {P} Energy is required.
+  // No Metal Energy in the deck: the {P} Energy may still be left in the deck (a deck search).
   const noMetal = scenario(DECK_NO_METAL, DECK, [{ active: "Steven's Metagross ex" }, { active: LATIAS }]);
   choose(noMetal, 'Use X-Boot');
-  assert.equal(noMetal.decision?.min, 1);
+  assert.equal(noMetal.decision?.min, 0);
   choose(noMetal, P);
   assert.deepEqual(names(noMetal, noMetal.state.p[0].active!.energy), [P]);
 });

@@ -65,7 +65,7 @@ test('a self-KO is not always a loss: simultaneous Knock Outs are resolved befor
   const out = await ask({ query: 'if my Dusknoir knocks itself out with cursed blast does my opponent take a prize' });
   assert.match(out, /OPPONENT takes the Prize cards/);
   assert.match(out, /every Knock Out is resolved before anyone wins/);
-  assert.match(out, /both or neither is a draw/);
+  assert.match(out, /both or neither goes to Sudden Death/);
 });
 
 test('mulligans: only the DIFFERENCE is drawn, and equal mulligans draw nothing extra', async () => {
@@ -125,10 +125,10 @@ test('Bellowing Thunder vs Ancient Bulwark keeps its Energy condition (round 5)'
   assert.doesNotMatch(out, /Ancient Bulwark has nothing to prevent/);
 });
 
-test('a Benched Cursed Blast on both players\' last Prize is a draw when they can promote: win conditions are counted (round 6)', async () => {
+test('a Benched Cursed Blast on both players\' last Prize goes to Sudden Death when they can promote: win conditions are counted (round 6)', async () => {
   const out = await ask({ query: 'my benched dusknoir uses cursed blast, we both have one prize left, who wins', cards: ['Cursed Blast'] });
   assert.match(out, /count win conditions: a player also meets one when the opponent has no Pokémon left in play/);
-  assert.match(out, /a Benched Dusknoir that leaves your Active in play is a draw whenever the opponent can promote/);
+  assert.match(out, /a Benched Dusknoir that leaves your Active in play goes to Sudden Death whenever the opponent can promote/);
   assert.match(out, /Cursed Blast Knocking Out both Active Pokémon/, 'the #2240 summary keeps its both-Active condition');
   assert.doesNotMatch(out, /the player who can still promote a new Active Pokémon wins/);
 });
@@ -168,10 +168,10 @@ test('repeated whitespace in a name still matches it (round 2)', async () => {
   assert.match(await ask({ query: 'Does Nighttime  Mine   affect Dragapult ex?' }), /#2288/);
 });
 
-test('simultaneous wins: more win conditions wins, an equal count is a draw (round 2)', async () => {
+test('simultaneous wins: more win conditions wins, an equal count is Sudden Death (round 2)', async () => {
   const out = await ask({ query: 'I took my last prize but my last pokemon was knocked out too, who wins or is it a draw' });
   assert.match(out, /whoever meets MORE of them wins/);
-  assert.match(out, /an equal count is a tiebreaker game, recorded as a draw/);
+  assert.match(out, /an equal count means Sudden Death: a new game with 1 Prize card each/);
 });
 
 test('an unknown card with a generic question gets no topic-matched rulings presented as "filed under" it', async () => {

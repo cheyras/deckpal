@@ -58,6 +58,7 @@ import { leaveHand,
   newSlot,
   opp,
   removeFrom,
+  resetForSuddenDeath,
   shuffleDeck,
   slotCards,
   takePicked,
@@ -231,6 +232,18 @@ export function submit(env: Env, s: GameState, choice: number[]): void {
       // "you may put ... into your hand instead of the discard pile": the answer waits on the Knocked Out Pokémon until it leaves play.
       const loc = findSlot(s, r.slot);
       if (loc) loc.slot.koHandAnswer = choice[0] === 0;
+      break;
+    }
+    case 'prizePick': {
+      const tp = s.p[r.p];
+      const i = choice[0] as number;
+      let card: number;
+      if (r.down && i === 0) card = faceDownPrize(tp, r.up);
+      else {
+        card = r.up[i - (r.down ? 1 : 0)] as number;
+        tp.prizes.splice(tp.prizes.indexOf(card), 1);
+      }
+      takePrizeCard(s, r.p, card);
       break;
     }
   }
@@ -446,7 +459,8 @@ function finishDeal(env: Env, s: GameState, p: Player): void {
 function setupStep(env: Env, s: GameState): void {
   switch (s.step) {
     case 'coin': {
-      if (env.ctx.opts.first !== null) {
+      // A sudden-death game always starts with a new coin flip, even when the match had a fixed first player.
+      if (env.ctx.opts.first !== null && !s.suddenDeath) {
         s.first = env.ctx.opts.first;
         emit(env, { type: 'go_first', player: s.first });
         s.step = 'deal';
@@ -525,7 +539,8 @@ function setupStep(env: Env, s: GameState): void {
     case 'prizes': {
       for (const p of [0, 1] as Player[]) {
         const ps = s.p[p];
-        for (let i = 0; i < 6 && ps.deck.length; i++) ps.prizes.push(ps.deck.pop() as number);
+        // 6 Prize cards; 1 in a sudden-death game.
+        for (let i = 0; i < (s.suddenDeath ? 1 : 6) && ps.deck.length; i++) ps.prizes.push(ps.deck.pop() as number);
       }
       s.step = 'extra0';
       return;
@@ -868,8 +883,8 @@ function doAction(env: Env, s: GameState, a: Action): void {
       const sl = allSlots(ps).find((x) => x.id === a.slot) as Slot;
       leaveHand(ps, a.card);
       played(ps, a.card);
-      // Special Conditions and attack effects end, per-Ability use resets, ...: see evolve.ts. A same-named Ability stays spent
-      // — see the todo in rules-audit.test.ts.
+      // Special Conditions and attack effects end, per-Ability use resets (an evolved Pokémon is a new Pokémon, so even a same-named
+      // Ability can be used again: rules-audit.test.ts), ...: see evolve.ts.
       evolveOnto(env, s, sl, a.card);
       emit(env, { type: 'evolve', player: p, card: a.card, slot: sl.id });
       beginEvent(s);
@@ -910,6 +925,9 @@ function doAction(env: Env, s: GameState, a: Action): void {
           s.p[s.stadium.owner].discard.push(s.stadium.card);
         }
         s.stadium = { card: a.card, owner: p };
+        // "Once during each player's turn" is the Stadium card's own: a new Stadium can be used even after its player used the old one
+        // this turn (Compendium #926).
+        ps.stadiumAbilityUsed = false;
         emit(env, { type: 'play_stadium', player: p, card: a.card });
         if (d.playCode) pushFrame(s, { code: d.playCode, vars: {}, player: p, src: a.card, slot: 0, kind: 'stadium' });
         return;
@@ -1003,13 +1021,15 @@ function doAction(env: Env, s: GameState, a: Action): void {
 
 /**
  * Retreat as a program: discard Energy that provides at least the cost (rulebook p.12), then switch.
- * The cost is in Energy units, so one card providing {C}{C}{C} pays a Retreat Cost of 3.
+ * The cost is in Energy units, so one card providing {C}{C}{C} pays a Retreat Cost of 3; and any set of
+ * no more cards than the cost that covers it may pay, so a Retreat Cost of 2 takes one {C}{C} card or two
+ * (Compendium #2127).
  */
 function retreatCode(env: Env): string {
   const key = '__retreat';
   if (!env.ctx.code.has(key)) {
     env.ctx.code.set(key, [
-      { o: 'step', s: { op: 'discardEnergy', from: 'self', count: { v: 'cost' }, units: true } },
+      { o: 'step', s: { op: 'discardEnergy', from: 'self', count: { v: 'cost' }, units: true, upToCards: true } },
       { o: 'step', s: { op: 'switch', who: 'self' } },
     ]);
   }
@@ -1176,7 +1196,69 @@ function enforceAttachments(env: Env, s: GameState): boolean {
   return false;
 }
 
+/**
+ * Take the Prize cards owed for the Knock Outs just resolved (`s.prizeTaking`); the player whose turn is next takes first (Compendium,
+ * 2018). They are taken one at a time (Compendium #809), so while one of a player's Prize cards is face up that player chooses each
+ * time between it and a face-down one. Face-down Prize cards can't be told apart, so which of those is taken is the pile's order, and
+ * with none face up nothing is asked. With fewer Prize cards left than owed, the player takes what is left. False when it asked.
+ */
+function takePrizes(env: Env, s: GameState): boolean {
+  const pt = s.prizeTaking as NonNullable<GameState['prizeTaking']>;
+  for (const taker of [opp(s.current), s.current] as Player[]) {
+    const tp = s.p[taker];
+    while (pt.left[taker] > 0 && tp.prizes.length) {
+      const picked = takePicked(tp.prizes, env.replay?.prize?.(taker, tp.prizes));
+      if (picked !== undefined) {
+        takePrizeCard(s, taker, picked);
+        continue;
+      }
+      const up = (tp.prizesUp ?? []).filter((c) => tp.prizes.includes(c));
+      const down = tp.prizes.length > up.length;
+      if (up.length && (down || up.length > 1)) {
+        const labels = [...(down ? ['A face-down Prize card'] : []), ...up.map((c) => `${def(env.ctx, c).name} (face up)`)];
+        s.pending = {
+          decision: { player: taker, kind: 'option', prompt: 'Take which Prize card?', min: 1, max: 1, labels },
+          resume: { k: 'prizePick', p: taker, up, down },
+        };
+        return false;
+      }
+      takePrizeCard(s, taker, up.length ? (tp.prizes.splice(tp.prizes.indexOf(up[0] as number), 1)[0] as number) : (tp.prizes.pop() as number));
+    }
+    pt.left[taker] = 0;
+    if (pt.took[taker]) {
+      tp.prizesTaken += pt.took[taker];
+      emit(env, { type: 'prize_take', player: taker, n: pt.took[taker] });
+      pt.took[taker] = 0;
+    }
+  }
+  s.prizeTaking = undefined;
+  return true;
+}
+
+/** The face-down Prize card taken next: the last one in the pile's order that is not face up. Out of the pile. */
+function faceDownPrize(tp: PlayerState, up: readonly number[]): number {
+  for (let i = tp.prizes.length - 1; i >= 0; i--) if (!up.includes(tp.prizes[i] as number)) return tp.prizes.splice(i, 1)[0] as number;
+  return tp.prizes.pop() as number;
+}
+
+/** `card`, already out of the Prize pile, goes to its taker's hand. */
+function takePrizeCard(s: GameState, p: Player, card: number): void {
+  const tp = s.p[p];
+  tp.hand.push(card);
+  // A Prize card is taken face down, unless it was turned face up: then both players know it is in that hand.
+  removeFrom(tp.revealed, card);
+  if (leavePrizeZone(tp, card)) tp.revealed.push(card);
+  const pt = s.prizeTaking as NonNullable<GameState['prizeTaking']>;
+  pt.left[p]--;
+  pt.took[p]++;
+}
+
 function resolveKOs(env: Env, s: GameState): void {
+  // Prize cards still being taken (a player was asked which, with one face up): the rest of them, and the win check, come first.
+  if (s.prizeTaking) {
+    if (!takePrizes(env, s)) return;
+    if (checkWin(env, s)) return;
+  }
   stripImmuneConditions(env, s);
   if (enforceAttachments(env, s)) return;
   // A Bench that is too big is dealt with first, before Knock Outs: a Pokémon with lethal damage may be the one discarded (TPCi Rules
@@ -1295,24 +1377,10 @@ function resolveKOs(env: Env, s: GameState): void {
       }
     }
     for (const k of ko) knockOut(env, s, k.owner, k.slot, toHand.get(k.slot));
-    // 2. Prize cards: the player whose turn is next takes first (Compendium, 2018).
-    const order: Player[] = [opp(s.current), s.current];
-    for (const taker of order) {
-      const n = ko.filter((k) => k.owner !== taker).reduce((a, k) => a + k.prizes, 0) + extra[taker];
-      if (!n) continue;
-      const tp = s.p[taker];
-      let took = 0;
-      for (let i = 0; i < n && tp.prizes.length; i++) {
-        const pc = takePicked(tp.prizes, env.replay?.prize?.(taker, tp.prizes)) ?? (tp.prizes.pop() as number);
-        tp.hand.push(pc);
-        // A Prize card is taken face down, unless it was turned face up: then both players know it is in that hand.
-        removeFrom(tp.revealed, pc);
-        if (leavePrizeZone(tp, pc)) tp.revealed.push(pc);
-        took++;
-      }
-      tp.prizesTaken += took;
-      emit(env, { type: 'prize_take', player: taker, n: took });
-    }
+    // 2. Prize cards (see `takePrizes`), then the win check.
+    const owed = (taker: Player): number => ko.filter((k) => k.owner !== taker).reduce((a, k) => a + k.prizes, 0) + extra[taker];
+    s.prizeTaking = { left: [owed(0), owed(1)], took: [0, 0] };
+    if (!takePrizes(env, s)) return;
     if (checkWin(env, s)) return;
   }
   // A Pokémon can also leave play without a Knock Out (shuffled into the deck): same win check.
@@ -1348,7 +1416,10 @@ function resolveKOs(env: Env, s: GameState): void {
   s.step = s.afterKo;
 }
 
-/** Win conditions after Knock Outs. Returns true when the game ended. */
+/** Sudden-death games played before a still-tied match is recorded as a draw. */
+const SUDDEN_DEATH_MAX = 3;
+
+/** Win conditions after Knock Outs. Returns true when the game ended (or a sudden-death game began). */
 function checkWin(env: Env, s: GameState): boolean {
   const ways: [number, number] = [0, 0];
   for (const p of [0, 1] as Player[]) {
@@ -1359,8 +1430,13 @@ function checkWin(env: Env, s: GameState): boolean {
   }
   if (!ways[0] && !ways[1]) return false;
   if (ways[0] === ways[1]) {
-    // Both win in the same number of ways: a tiebreaker game. Recorded as a draw.
-    endGame(env, s, null, 'simultaneous win');
+    // Both win in the same number of ways: Sudden Death (rulebook; PTCG Live's engine has the same mode). A new game with 1 Prize card
+    // each decides the match. After 3 sudden-death games that also tied, it is recorded as a draw rather than played on for ever.
+    if ((s.suddenDeath ?? 0) >= SUDDEN_DEATH_MAX) endGame(env, s, null, 'simultaneous win');
+    else {
+      resetForSuddenDeath(env.ctx, s);
+      emit(env, { type: 'sudden_death', n: s.suddenDeath as number });
+    }
   } else {
     const w: Player = ways[0] > ways[1] ? 0 : 1;
     endGame(env, s, w, s.p[w].prizes.length === 0 ? 'prizes' : 'no Pokémon in play');
@@ -1391,10 +1467,13 @@ function checkup(env: Env, s: GameState): void {
   }
 }
 
-/** Pokémon Checkup step 1: Poisoned, Burned, Asleep, Paralyzed. */
+/**
+ * Pokémon Checkup step 1: Poisoned, Burned, Asleep, Paralyzed, for both Active Pokémon. The player whose turn is next goes first, so
+ * flips first when both have a Checkup flip (Compendium #867; the same order as Prizes and promotion).
+ */
 function checkupConditions(env: Env, s: GameState): void {
   stripImmuneConditions(env, s);
-  for (const p of [s.current, opp(s.current)] as Player[]) {
+  for (const p of [opp(s.current), s.current] as Player[]) {
     const sl = s.p[p].active;
     if (!sl) continue;
     if (sl.cond & POISONED) {
