@@ -20,12 +20,21 @@ export interface ApprovedNote {
   quote: string;
 }
 
+const CURLY_APOSTROPHE = new RegExp(`[${String.fromCharCode(0x2018, 0x2019)}]`, 'g');
+
+/**
+ * The one form a card name is stored and looked up under: lowercased, single-spaced, curly apostrophes made straight,
+ * punctuation otherwise kept ("Boss's Orders" -> "boss's orders"). The API stores with it and the tools look up with
+ * it, so the two cannot drift.
+ */
+export const noteKey = (name: string): string => name.replace(CURLY_APOSTROPHE, "'").replace(/\s+/g, ' ').trim().toLowerCase();
+
 /**
  * Approved notes about any of these card names, newest first. Never throws: a database without the table (an
  * install that has not run 089) or a failed read gives no notes, and the tool answers without them.
  */
 export async function approvedNotes(db: Queryable | undefined, names: readonly string[], limit = 3): Promise<ApprovedNote[]> {
-  const keys = [...new Set(names.map((n) => n.replace(/\s+/g, ' ').trim().toLowerCase()).filter(Boolean))].slice(0, 12);
+  const keys = [...new Set(names.map(noteKey).filter(Boolean))].slice(0, 12);
   if (!db || !keys.length) return [];
   try {
     const r = await db.query<{ card_names: string[]; statement: string; source_url: string; quote: string }>(

@@ -105,6 +105,7 @@ export { needDeck } from './entities.js';
  */
 export { summaryText } from './tools/collection.js';
 export { deckeImprovementTools } from './tools/deckeImprovement.js';
+export { noteKey } from './tools/notes.js';
 export {
   checkDeck, checkDeckInputSchema, renderDeckCheck,
   type CheckDeckInput, type DeckCheckLine, type DeckCheckResult,

@@ -1264,8 +1264,9 @@ returns `true`.
 
 Knowledge notes need `089_knowledge_note.sql` (the `knowledge_note` table, the
 `knowledge.review` permission seeded to the admin tiers, and the queue and
-review functions). On cloud, `090_knowledge_note_rls.sql` (`@supabase-only`)
-turns on its row-level security and must go on with it. Both use the numbered
+review functions). 089 turns row-level security on with no policy, so client
+roles reach nothing until, on cloud, `090_knowledge_note_rls.sql`
+(`@supabase-only`) adds the policies; apply them together. Both use the numbered
 runner; neither adds an environment variable. Before 089 is applied,
 `get_card` and `rules_lookup` simply show no notes, `/knowledge` answers `503`,
 and the API logs `migration 089_knowledge_note is not applied` once per

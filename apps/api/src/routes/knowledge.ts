@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { noteKey } from '@deckpal/agent-tools';
 import { requirePermission } from '../admin/access.js';
 import { q, q1, withTx } from '../db.js';
 import { ApiError, asyncHandler, badRequest, clampInt, userCache } from '../http.js';
@@ -45,6 +46,21 @@ const PHONE = /(?:\+?\d[\s.-]?){9,}\d/;
 const HANDLE = /(?:^|\s)@[A-Za-z0-9_]{3,}/;
 const INSTRUCTION = /\b(?:ignore (?:all |any )?(?:previous|prior|above)|system prompt|you are (?:now )?an?|as an ai|disregard|do not tell|always (?:say|answer|reply)|instructions?:)/i;
 
+/** The link as typed plus fully percent-decoded (up to three layers), for the personal-data checks. */
+function decodedUrl(url: string): string {
+  let out = url;
+  for (let i = 0; i < 3; i++) {
+    try {
+      const next = decodeURIComponent(out.replace(/\+/g, ' '));
+      if (next === out) break;
+      out = next;
+    } catch {
+      break;
+    }
+  }
+  return `${url}\n${out}`;
+}
+
 /** The automatic checks. Pure: the same input always gives the same verdict. */
 export function checkNote(n: NoteInput): NoteCheck {
   const refused: string[] = [];
@@ -58,6 +74,11 @@ export function checkNote(n: NoteInput): NoteCheck {
   const quote = n.quote.toLowerCase();
   if (!n.cards.some((c) => quote.includes(c.toLowerCase()))) flags.push('the quote names none of the cards');
   if (/https?:\/\//i.test(`${n.statement}\n${n.quote}`)) flags.push('links inside the statement or quote');
+  // The link is published with the note too: check it as typed and decoded (an email can hide as %40).
+  const link = decodedUrl(n.source_url);
+  if (EMAIL.test(link)) refused.push('the source link contains an email address');
+  if (/^https:\/\/[^/?#]*@/i.test(n.source_url)) refused.push('the source link contains a user name or password');
+  if (PHONE.test(link)) flags.push('the source link carries a long number: check it is not a phone number');
   return { refused, flags };
 }
 
@@ -130,7 +151,7 @@ knowledgeRouter.post(
     if (check.refused.length) {
       throw new ApiError(422, 'note_refused', `This note cannot be shared: ${check.refused.join('; ')}. Remove personal data and propose it again.`);
     }
-    const names = note.cards.map((c) => c.toLowerCase());
+    const names = note.cards.map(noteKey);
     if (note.dry_run) {
       res.json({ dryRun: true, note: { cards: note.cards, statement: note.statement, sourceUrl: note.source_url, quote: note.quote }, flags: check.flags });
       return;
@@ -167,7 +188,7 @@ knowledgeRouter.get(
     const userId = currentUserId(req);
     userCache(res);
     const raw = typeof req.query.cards === 'string' ? req.query.cards : '';
-    const names = [...new Set(raw.split(',').map((c) => c.replace(/\s+/g, ' ').trim().toLowerCase()).filter(Boolean))].slice(0, 12);
+    const names = [...new Set(raw.split(',').map(noteKey).filter(Boolean))].slice(0, 12);
     if (!names.length) throw badRequest('cards is required: a comma-separated list of card names.');
     const limit = clampInt(req.query.limit, 10, 1, 25);
     const rows = await q<NoteRow>(

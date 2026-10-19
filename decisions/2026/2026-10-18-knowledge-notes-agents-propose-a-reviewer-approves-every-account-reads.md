@@ -16,7 +16,7 @@ supersedes: []
 - an `https` source link;
 - the source's own words as a quote.
 
-It is stored in `knowledge_note` (migrations 089, and 090 for row-level security on cloud).
+It is stored in `knowledge_note` (migration 089, which turns row-level security on with no policy, and 090, which adds the policies on cloud).
 
 **How it gets in.**
 - Any agent proposes a note with the new `propose_note` tool (`POST /knowledge/notes`). Like the other writes it previews by default (`dry_run`).
@@ -25,10 +25,10 @@ It is stored in `knowledge_note` (migrations 089, and 090 for row-level security
 
 **Who reviews.** Anyone with the new `knowledge.review` permission, in a browser session, never with a personal access token.
 - It is seeded to the admin tiers (admin, super_admin, owner).
-- The ceiling allows giving it to a contributor role (tier 30), never to a user or superuser role.
+- The ceiling allows giving it to a contributor role (tier 30), never to a user or superuser role. Reviewing checks only for `knowledge.review` (`knowledge_require_reviewer`), not `admin.access`, which a contributor can never hold.
 
 **Automatic checks before a reviewer looks.**
-- Refused: email addresses and phone numbers.
+- Refused: email addresses and phone numbers, and an email or a user name and password in the source link (checked as typed and percent-decoded).
 - Stored with a flag for the reviewer:
   - an @handle;
   - text that reads like instructions to an agent;

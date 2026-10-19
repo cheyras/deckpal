@@ -22,6 +22,17 @@ test('personal data is refused outright', () => {
   assert.match(checkNote({ ...good, quote: `${good.quote} Call +1 555 123 4567.` }).refused.join(), /phone/);
 });
 
+test('the source link is checked for personal data too, as typed and percent-decoded', () => {
+  assert.match(checkNote({ ...good, source_url: 'https://www.pokemon.com/rules?email=alice@example.com' }).refused.join(), /source link contains an email/);
+  assert.match(checkNote({ ...good, source_url: 'https://www.pokemon.com/rules?e=alice%40example.com' }).refused.join(), /source link contains an email/);
+  assert.match(checkNote({ ...good, source_url: 'https://www.pokemon.com/rules?e=alice%2540example.com' }).refused.join(), /source link contains an email/);
+  assert.match(checkNote({ ...good, source_url: 'https://user:pw@www.pokemon.com/rules' }).refused.join(), /user name or password/);
+  const phone = checkNote({ ...good, source_url: 'https://www.pokemon.com/rules?call=15551234567' });
+  assert.deepEqual(phone.refused, []);
+  assert.ok(phone.flags.some((f) => /long number/.test(f)));
+  assert.match(checkNote({ ...good, source_url: 'https://www.pokemon.com/rules?x=%E0%A4%A' }).flags.join(), /^$/, 'a malformed escape is not an error');
+});
+
 test('what a reviewer should look at is flagged, not refused', () => {
   const c = checkNote({
     ...good,

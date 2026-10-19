@@ -33,7 +33,8 @@ const config = { host: process.env.PGHOST, port: 55432, user: process.env.PGUSER
 const db = new pg.Client(config);
 const results = { name: 'knowledge-notes', status: 'running', cases: [] };
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-const owner = id(1), member = id(2), outsider = id(3);
+const owner = id(1), member = id(2), outsider = id(3), contributor = id(4);
+const CONTRIBUTOR_ROLE = '68000000-0000-4000-8000-000000000030';
 
 async function test(name, fn) {
   await fn();
@@ -117,7 +118,16 @@ try {
       await db.query(`INSERT INTO auth.users(id,email,raw_user_meta_data) VALUES
         ($1,'owner@example.invalid','{"username":"owner-name"}'),
         ($2,'member@example.invalid','{"username":"member-name"}'),
-        ($3,'outsider@example.invalid','{"username":"outsider-name"}')`, [owner, member, outsider]);
+        ($3,'outsider@example.invalid','{"username":"outsider-name"}'),
+        ($4,'contributor@example.invalid','{"username":"contributor-name"}')`, [owner, member, outsider, contributor]);
+    }
+    if (file.startsWith('089_')) {
+      // The runner commits 089 on its own: until 090's policies exist, a client role must not reach the table at all.
+      await denied(session(member, (c) => insert(c, note(member, { status: 'approved' }))));
+      await denied(session(member, (c) => insert(c, note(member))));
+      assert.equal((await session(member, (c) => c.query('SELECT count(*)::int n FROM public.knowledge_note'))).rows[0].n, 0);
+      results.cases.push({ name: 'between 089 and 090 a client role can neither read nor write notes', status: 'passed' });
+      console.log('PASS between 089 and 090 a client role can neither read nor write notes');
     }
   }
   await db.query('SELECT public.admin_bootstrap($1,$2,$3)', [owner, [], []]);
@@ -176,6 +186,22 @@ try {
     const seen = await session(outsider, (c) => c.query('SELECT id FROM public.knowledge_note'));
     assert.deepEqual(seen.rows.map((r) => String(r.id)), [String(pendingId)]);
     await denied(session(owner, (c) => c.query("SELECT * FROM public.knowledge_note_review($1, 'maybe', '')", [second])), '22023');
+  });
+
+  await test('a contributor given knowledge.review lists and decides notes, without gaining admin.access', async () => {
+    await db.query("INSERT INTO public.admin_role_permission(role_id, permission_key) VALUES ($1, 'knowledge.review') ON CONFLICT DO NOTHING", [CONTRIBUTOR_ROLE]);
+    await db.query(`INSERT INTO public.admin_account(user_id, role_id) VALUES ($1, $2)
+      ON CONFLICT (user_id) DO UPDATE SET role_id = EXCLUDED.role_id`, [contributor, CONTRIBUTOR_ROLE]);
+    const perms = (await db.query('SELECT public.admin_permissions($1) p', [contributor])).rows[0].p;
+    assert.ok(perms.includes('knowledge.review'));
+    assert.ok(!perms.includes('admin.access'));
+    const third = (await session(member, (c) => insert(c, note(member, { statement: 'A third statement, for the contributor to decide.' })))).rows[0].id;
+    const queue = await session(contributor, (c) => c.query("SELECT id FROM public.knowledge_note_queue('pending', NULL, 50)"));
+    assert.deepEqual(queue.rows.map((r) => String(r.id)), [String(third)]);
+    const decided = await session(contributor, (c) => c.query("SELECT status, reviewed_by FROM public.knowledge_note_review($1, 'approved', 'Checked against the ruling.')", [third]));
+    assert.deepEqual(decided.rows[0], { status: 'approved', reviewed_by: contributor });
+    await denied(token(contributor, (c) => c.query("SELECT * FROM public.knowledge_note_queue('pending', NULL, 50)")));
+    await denied(session(member, (c) => c.query('SELECT public.knowledge_require_reviewer()')));
   });
 
   results.status = 'passed';

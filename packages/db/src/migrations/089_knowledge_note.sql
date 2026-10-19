@@ -34,6 +34,12 @@ CREATE TABLE public.knowledge_note (
   CHECK ((status = 'pending') = (reviewed_at IS NULL))
 );
 
+-- Closed from the moment it exists. The runner commits each file on its own, so between this file and 090 (or on a
+-- cloud where 090 has not run) Supabase's default grants would otherwise let a client read every note or insert an
+-- approved one. With RLS on and no policy yet, client roles see and write nothing; the API's own connection (the table
+-- owner) and the SECURITY DEFINER functions below are not subject to it. 090 adds the policies.
+ALTER TABLE public.knowledge_note ENABLE ROW LEVEL SECURITY;
+
 CREATE INDEX knowledge_note_queue_idx ON public.knowledge_note (status, id DESC);
 CREATE INDEX knowledge_note_cards_idx ON public.knowledge_note USING gin (card_names);
 CREATE INDEX knowledge_note_proposer_idx ON public.knowledge_note (proposed_by, id DESC);
@@ -53,11 +59,26 @@ CREATE OR REPLACE FUNCTION public.admin_permission_ceiling(p_tier integer) RETUR
  AND (p_tier>=40 OR (p_tier>=30 AND key IN('devtools.access','design.view','diagnostics.view','scanner.label','knowledge.review')))
 $$;
 
+-- The reviewer guard. Not admin_require_permission(): that also requires admin.access, which a contributor role
+-- (tier 30) can never hold, so a contributor given knowledge.review could not review. This asks for exactly what
+-- reviewing needs: a signed-in browser session, an active account, initialized administration, and knowledge.review.
+CREATE FUNCTION public.knowledge_require_reviewer() RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
+DECLARE actor text := public.admin_actor_id();
+BEGIN
+ IF actor IS NULL OR NOT public.admin_is_session() OR NOT public.admin_account_active(actor) THEN
+  RAISE EXCEPTION 'A signed-in active account is required' USING ERRCODE='42501';
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM public.admin_state WHERE bootstrapped_at IS NOT NULL) THEN RAISE EXCEPTION 'Administration is not initialized' USING ERRCODE='55000'; END IF;
+ IF NOT ('knowledge.review' = ANY(public.admin_permissions(actor))) THEN RAISE EXCEPTION 'Permission denied: knowledge.review' USING ERRCODE='42501'; END IF;
+ RETURN actor;
+END $$;
+REVOKE ALL ON FUNCTION public.knowledge_require_reviewer() FROM PUBLIC;
+
 -- The review queue, newest first, for a reviewer only.
 CREATE FUNCTION public.knowledge_note_queue(p_status text, p_before bigint, p_limit integer)
 RETURNS SETOF public.knowledge_note LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
 BEGIN
- PERFORM public.admin_require_permission('knowledge.review');
+ PERFORM public.knowledge_require_reviewer();
  IF p_status NOT IN ('pending','approved','rejected') THEN RAISE EXCEPTION 'Unknown status %', p_status USING ERRCODE='22023'; END IF;
  RETURN QUERY SELECT * FROM public.knowledge_note n
   WHERE n.status = p_status AND (p_before IS NULL OR n.id < p_before)
@@ -68,7 +89,7 @@ END $$;
 -- is in the admin audit log.
 CREATE FUNCTION public.knowledge_note_review(p_id bigint, p_decision text, p_reason text)
 RETURNS public.knowledge_note LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
-DECLARE actor text := public.admin_require_permission('knowledge.review'); before public.knowledge_note; after public.knowledge_note;
+DECLARE actor text := public.knowledge_require_reviewer(); before public.knowledge_note; after public.knowledge_note;
 BEGIN
  IF p_decision NOT IN ('approved','rejected') THEN RAISE EXCEPTION 'Decision must be approved or rejected' USING ERRCODE='22023'; END IF;
  SELECT * INTO before FROM public.knowledge_note WHERE id = p_id AND status = 'pending' FOR UPDATE;
