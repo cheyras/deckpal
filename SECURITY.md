@@ -261,7 +261,7 @@ REST API and the MCP server (`BEGIN` + `set_config('request.jwt.claims', …)` +
 returns, so a dropped connection can never be handed to the next request still
 carrying a stranger's claims.
 
-**All 31 tools, plus Deck-E's own `preview_card_changes`, reach the
+**All 32 tools, plus Deck-E's own `preview_card_changes`, reach the
 conversational model; the write half is held by the SDK, not filtered out.** The adapter Deck-E uses
 (`apps/api/src/decke/adapters/aisdk.ts`) still *defaults* to
 `annotations.readOnlyHint` — never to the verb in a tool's name, because a name

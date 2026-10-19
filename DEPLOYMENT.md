@@ -1262,6 +1262,18 @@ environment variable or infrastructure setting. To confirm on cloud:
 `SELECT relrowsecurity FROM pg_class WHERE relname = 'battle_log_bin'`
 returns `true`.
 
+Knowledge notes need `089_knowledge_note.sql` (the `knowledge_note` table, the
+`knowledge.review` permission seeded to the admin tiers, and the queue and
+review functions). 089 turns row-level security on with no policy, so client
+roles reach nothing until, on cloud, `090_knowledge_note_rls.sql`
+(`@supabase-only`) adds the policies; apply them together. Both use the numbered
+runner; neither adds an environment variable. Before 089 is applied,
+`get_card` and `rules_lookup` simply show no notes, `/knowledge` answers `503`,
+and the API logs `migration 089_knowledge_note is not applied` once per
+instance. To confirm on cloud:
+`SELECT relrowsecurity FROM pg_class WHERE relname = 'knowledge_note'`
+returns `true`.
+
 Only 065 carries `@supabase-only` and is skipped by the normal runner on
 self-host. Do not skip 067 there: its cloud-role grants are conditional and its
 wallet/economy functions also support the current UUID self-host account.
@@ -2119,7 +2131,7 @@ it the moment a client no longer needs it.
 
 ### Tools
 
-31 tools (20 read, 11 write), plus three `decke_improvement_*` reads served
+32 tools (20 read, 12 write), plus three `decke_improvement_*` reads served
 only to a connection holding the Deck-E improvement capability. Every tool's
 name, arguments, defaults and annotations are in `apps/mcp/TOOLS.md`, which is
 generated from the registry and so cannot drift; `apps/mcp/README.md` is the

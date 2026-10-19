@@ -83,7 +83,7 @@ const LLMS_TXT = [
   '## Connect an AI app',
   '- [MCP endpoint](' +
     MCP_URL +
-    '): remote Streamable HTTP, OAuth 2.1 with PKCE and dynamic client registration, 31 tools (20 read, 11 write), Read only option at consent',
+    '): remote Streamable HTTP, OAuth 2.1 with PKCE and dynamic client registration, 32 tools (20 read, 12 write), Read only option at consent',
   '- Claude: add a custom connector with the URL ' + MCP_URL + ' (works on the free plan, one custom connector)',
   '- Claude Code: ' + CLAUDE_CODE_CMD,
   '- Other apps: compatibility by plan is on the home page, last checked ' + COMPAT_CHECKED,
@@ -693,7 +693,7 @@ export const COPY = {
       },
       access: {
         title: 'Read only, or read and change',
-        body: 'You choose when you approve. Read only gives your AI the 20 tools that look things up. Read and change adds the 11 that edit your collection, decks, lists and battle logs. Most changes are previewed before they are saved, most can be reverted later, and you can disconnect any time in Profile, then Agent access.',
+        body: 'You choose when you approve. Read only gives your AI the 20 tools that look things up. Read and change adds the 12 that edit your collection, decks, lists and battle logs. Most changes are previewed before they are saved, most can be reverted later, and you can disconnect any time in Profile, then Agent access.',
       },
       tools: {
         title: 'What your AI can do',

@@ -79,14 +79,12 @@ export const simulateBattlesInputSchema = z.object({
     .describe('A label for an unsaved version B (for example "v4 with 2 Gwynn").'),
   continue_token: z.string().trim().min(8).max(16_000).optional()
     .describe(
-      'CONTINUE a run for a bigger sample. Every result ends with a continue_token line. To add games, call again with the SAME inputs ' +
-      '(the same deck_id / cards, opponents, compare_* , speed, seed) plus that token: the new games are on new seeds, exactly the games ' +
-      'one longer run would have played, and the result is CUMULATIVE ("Cumulative over 3 calls: 92 games…") with the interval at the ' +
-      "cumulative n. games then means games to ADD on this call. Pass the token back exactly as given and use the newest one each time. " +
-      'The token is signed and tied to the user and to the exact card lists: a deck edited since is refused (start a fresh run without it), ' +
-      'as is a token older than 2 hours or after a deploy; a run allows at most 12 calls. Cumulative results leave out the per-call detail ' +
-      '(card impact, Prize rows) that the first call shows. Continue only when the user asks for more certainty or the answer is not yet ' +
-      'decided; stop once the verdict is clear or the intervals are narrow enough to act on — two or three continuations is usually plenty.',
+      'CONTINUE a run for a bigger sample. Every result ends with a continue_token line: call again with the SAME inputs ' +
+      '(deck, opponents, compare_*, speed, seed) plus the newest token, exactly as given. New games use new seeds, as one ' +
+      'longer run would, and the result is CUMULATIVE at the combined n; games then means games to ADD. The token is signed ' +
+      'and tied to the user and the exact card lists: a deck edited since is refused, as is a token over 2 hours old or a deploy ' +
+      'since (start fresh); a run allows at most 12 calls. Cumulative results leave out the per-call detail (card impact, Prize ' +
+      'rows). Continue only when the user wants more certainty; stop once the verdict is clear. Two or three continuations is usually plenty.',
     ),
 }).refine((input) => Number(input.deck_id !== undefined) + Number(input.cards !== undefined) + Number(input.ptcgl_text !== undefined) === 1, {
   message: 'Provide exactly one of deck_id, cards or ptcgl_text.',

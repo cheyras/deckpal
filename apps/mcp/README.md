@@ -1,6 +1,6 @@
 # deckpal-mcp
 
-DeckPal's MCP server: 31 tools (20 read, 11 write) that let an AI app read and
+DeckPal's MCP server: 32 tools (20 read, 12 write) that let an AI app read and
 change a DeckPal collection, its decks, lists and battle logs. Claude is tested
 end to end; ChatGPT and other apps with remote MCP connectors should work from
 what their docs say, but have not been tested. The tools are defined once in
@@ -113,7 +113,7 @@ through your TLS proxy, which can also inject the header.
 
 **Read (20):** [`health`](TOOLS.md#health), [`playbook`](TOOLS.md#playbook), [`collection_summary`](TOOLS.md#collection_summary), [`collection_log`](TOOLS.md#collection_log), [`collection_value`](TOOLS.md#collection_value), [`search_cards`](TOOLS.md#search_cards), [`get_card`](TOOLS.md#get_card), [`set_progress`](TOOLS.md#set_progress), [`card_price_history`](TOOLS.md#card_price_history), [`rules_lookup`](TOOLS.md#rules_lookup), [`decks`](TOOLS.md#decks), [`check_deck`](TOOLS.md#check_deck), [`deck_odds`](TOOLS.md#deck_odds), [`simulate_battles`](TOOLS.md#simulate_battles), [`battle_logs`](TOOLS.md#battle_logs), [`battle_digest`](TOOLS.md#battle_digest), [`battle_turn_review`](TOOLS.md#battle_turn_review), [`lists`](TOOLS.md#lists), [`set_cart`](TOOLS.md#set_cart), [`mutation_history`](TOOLS.md#mutation_history).
 
-**Write (11):** [`save_deck`](TOOLS.md#save_deck), [`delete_deck`](TOOLS.md#delete_deck), [`deck_strategy`](TOOLS.md#deck_strategy), [`add_battle_log`](TOOLS.md#add_battle_log), [`deck_history`](TOOLS.md#deck_history), [`edit_battle_log`](TOOLS.md#edit_battle_log), [`delete_battle_log`](TOOLS.md#delete_battle_log), [`edit_list`](TOOLS.md#edit_list), [`delete_list`](TOOLS.md#delete_list), [`log_cards`](TOOLS.md#log_cards), [`revert`](TOOLS.md#revert).
+**Write (12):** [`save_deck`](TOOLS.md#save_deck), [`delete_deck`](TOOLS.md#delete_deck), [`deck_strategy`](TOOLS.md#deck_strategy), [`add_battle_log`](TOOLS.md#add_battle_log), [`deck_history`](TOOLS.md#deck_history), [`edit_battle_log`](TOOLS.md#edit_battle_log), [`delete_battle_log`](TOOLS.md#delete_battle_log), [`edit_list`](TOOLS.md#edit_list), [`delete_list`](TOOLS.md#delete_list), [`log_cards`](TOOLS.md#log_cards), [`revert`](TOOLS.md#revert), [`propose_note`](TOOLS.md#propose_note).
 
 **Capability-gated reads (3):** [`decke_improvement_list`](TOOLS.md#decke_improvement_list), [`decke_improvement_read`](TOOLS.md#decke_improvement_read), [`decke_improvement_search`](TOOLS.md#decke_improvement_search) — only for a token holding the Deck-E improvement capability.
 

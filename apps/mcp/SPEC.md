@@ -289,7 +289,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
 ## 4. Tool conventions
 
 - **The tool definitions live in `packages/agent-tools/src/tools/*.ts`** (`@deckpal/agent-tools`):
-  the 31 in `allTools()` (20 read, 11 write) plus the three capability-gated `deckeImprovementTools`,
+  the 32 in `allTools()` (20 read, 12 write) plus the three capability-gated `deckeImprovementTools`,
   each a `ToolDefinition` — `{ name, title, description, inputSchema, annotations, handler }` — written
   against `Ctx` alone, with no MCP SDK import anywhere in that package. `apps/mcp/src/adapters/mcp.ts`
   is the only file that turns one into an MCP registration: it walks `allTools()` and the gated
@@ -305,7 +305,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   `delete_deck`, `delete_list`, `delete_battle_log` and `revert` (DeckPal's meaning: not otherwise
   recoverable); `idempotentHint` where true. On the wire, `wireAnnotations` in the MCP adapter
   follows the spec instead: every write advertises an explicit `destructiveHint` (true for 10 of the
-  11, the OR of DeckPal's flag and `overwriteHint`; only `add_battle_log` is false), and every tool
+  12, the OR of DeckPal's flag and `overwriteHint`; only `add_battle_log` and `propose_note` are false), and every tool
   advertises `openWorldHint: false`. `readOnlyHint` is required in this
   package's `ToolDefinition` type (MCP's own SDK type leaves it optional) — a tool that omits it fails
   to compile rather than defaulting into whatever the approval-gate logic assumes. It is also the
@@ -425,7 +425,7 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   "call set_progress with NO set_id" and got seven calls with `set_id: 'none'`. Ids in a failure
   message come from the caller's own data or are absent.
 
-## 5. Tool surface (31 ordinary tools + 3 capability-gated tools + 1 resource)
+## 5. Tool surface (32 ordinary tools + 3 capability-gated tools + 1 resource)
 
 The generated `apps/mcp/TOOLS.md` (`pnpm mcp:tools-doc`) is authoritative for names, arguments,
 defaults and annotations; this section records design intent.

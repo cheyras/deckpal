@@ -27,7 +27,7 @@ import { RESULT_TEXT_MAX, toCallToolResult } from '../mcp.js';
 
 test('every advertised tool is closed-world and carries its title for old and new clients', async () => {
   const { tools } = await listTools({ deckeImprovementRead: true });
-  assert.equal(tools.length, 34);
+  assert.equal(tools.length, 35);
   for (const t of tools) {
     assert.equal(t.annotations?.openWorldHint, false, `${t.name}: openWorldHint must be stated (the spec default is true)`);
     assert.ok(t.title, `${t.name}: top-level title`);
@@ -35,15 +35,15 @@ test('every advertised tool is closed-world and carries its title for old and ne
   }
 });
 
-test("writes state destructiveHint explicitly, in the spec's meaning; only add_battle_log is additive", async () => {
+test("writes state destructiveHint explicitly, in the spec's meaning; only add_battle_log and propose_note are additive", async () => {
   const { tools } = await listTools();
   const writes = tools.filter((t) => t.annotations?.readOnlyHint === false);
-  assert.equal(writes.length, 11);
+  assert.equal(writes.length, 12);
   for (const t of writes) {
     assert.equal(typeof t.annotations?.destructiveHint, 'boolean', `${t.name}: destructiveHint stated, never left to the default`);
     assert.equal(typeof t.annotations?.idempotentHint, 'boolean', `${t.name}: idempotentHint stated`);
   }
-  assert.deepEqual(writes.filter((t) => !t.annotations?.destructiveHint).map((t) => t.name), ['add_battle_log']);
+  assert.deepEqual(writes.filter((t) => !t.annotations?.destructiveHint).map((t) => t.name), ['add_battle_log', 'propose_note']);
   const idem = (n: string) => writes.find((t) => t.name === n)!.annotations?.idempotentHint;
   assert.equal(idem('log_cards'), false, 'a repeat outside the derived key window is a second card');
   assert.equal(idem('add_battle_log'), false);
