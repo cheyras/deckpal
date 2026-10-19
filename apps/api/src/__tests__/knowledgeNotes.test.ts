@@ -4,7 +4,13 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { SELF_HOST_REQUEST_TX } from '../db.js';
 import { checkNote, parseNote, reviewFlags } from '../routes/knowledge.js';
+
+test('on self-host the knowledge routes run in the request transaction, so the database sees who is asking', () => {
+  for (const path of ['/knowledge/notes', '/knowledge', '/admin/knowledge', '/admin/knowledge/7/review']) assert.ok(SELF_HOST_REQUEST_TX.test(path), path);
+  assert.ok(!SELF_HOST_REQUEST_TX.test('/knowledgebase'));
+});
 
 const good = {
   cards: ['Dragapult ex', 'Nighttime Mine'],

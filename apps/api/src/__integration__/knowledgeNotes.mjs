@@ -156,6 +156,24 @@ try {
     await db.query('DELETE FROM public.knowledge_note WHERE id = $1', [byToken.id]);
   });
 
+  await test('a self-host request identity (claims, no Supabase role) proposes too', async () => {
+    const c = new pg.Client(config);
+    await c.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query("SELECT set_config('request.jwt.claims',$1,true)", [JSON.stringify({ sub: outsider, role: 'local', deckpal_auth_kind: 'local' })]);
+      const n = (await c.query('SELECT public.knowledge_note_propose($1, $2, $3, $4) AS note',
+        [['dragapult ex'], 'Proposed on a self-host install, through its request transaction.', 'https://www.pokemon.com/rules', 'Dragapult ex quote.'])).rows[0].note;
+      assert.equal(n.proposed_by, outsider);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      await c.end();
+    }
+    // Every escape decoded, nested ones too; a malformed one and a NUL stop nothing.
+    const decoded = (await db.query("SELECT public.knowledge_url_decode('a%25%34%30b%E0%A4%Ax%00y') d")).rows[0].d;
+    assert.equal(decoded, 'a@b' + String.fromCharCode(0xe0, 0xa4) + '%Axy');
+  });
+
   await test('nobody inserts through the table, so the checks and limits cannot be skipped', async () => {
     await denied(session(member, (c) => insert(c, note(member))));
     await denied(session(member, (c) => insert(c, note(outsider))));
@@ -169,6 +187,8 @@ try {
       { source_url: 'https://www.pokemon.com/rules?e=alice%40example.com' },
       { source_url: 'https://www.pokemon.com/rules?e=alice%2540example.com&x=%E0%A4%A' },
       { source_url: 'https://user:pw@www.pokemon.com/rules' },
+      { source_url: 'https://www.pokemon.com/rules?e=alice%25%34%30example.com' },
+      { card_names: ['dragapult ex', '+1 555 123 4567'] },
     ]) await denied(session(member, (c) => propose(c, note(member, bad))), '22023');
     const again = await session(member, (c) => propose(c, note(member, { card_names: ['nighttime mine', 'dragapult ex'] })));
     assert.deepEqual([String(again.id), again.duplicate], [String(pendingId), true], 'same cards, same statement: the existing note');

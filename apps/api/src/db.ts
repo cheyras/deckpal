@@ -47,6 +47,13 @@ export const pool: pg.Pool = makePool({
 const SUPABASE_MODE = !!process.env.SUPABASE_MODE;
 export { SUPABASE_MODE };
 
+/**
+ * Self-host paths that run in one identity-bearing request transaction (the request's claims set, so SQL that derives
+ * the actor, e.g. admin_actor_id(), sees who is asking). Legacy self-host handlers keep their direct-pool shape; a new
+ * route whose SQL derives the actor must be listed here, or it sees no one.
+ */
+export const SELF_HOST_REQUEST_TX = /^\/(?:admin(?:\/|$)|decke(?:\/|$)|knowledge(?:\/|$)|me\/(?:credits|features|decke-sharing)(?:\/|$)|oauth(?:\/|$)|decks\/import\/fix$)/;
+
 /** AsyncLocalStorage carrying the per-request RLS-enabled PoolClient. */
 export const rlsStore = new AsyncLocalStorage<pg.PoolClient>();
 

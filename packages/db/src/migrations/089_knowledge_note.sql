@@ -77,6 +77,20 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.knowledge_require_reviewer() FROM PUBLIC;
 
+-- A link with every %XX escape decoded, repeatedly (an escape can hide another: %25%34%30 is %40 is @). Each escape is
+-- decoded on its own, so a malformed one elsewhere stops nothing. Each step shortens the text, so it ends.
+CREATE FUNCTION public.knowledge_url_decode(p text) RETURNS text LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog,pg_temp AS $$
+DECLARE d text := replace(coalesce(p, ''), '+', ' '); hex text; at integer;
+BEGIN
+ LOOP
+  hex := substring(d from '%([0-9A-Fa-f]{2})');
+  EXIT WHEN hex IS NULL;
+  at := position('%' || hex in d);
+  d := overlay(d placing CASE WHEN hex = '00' THEN '' ELSE chr(('x' || hex)::bit(8)::integer) END from at for 3);
+ END LOOP;
+ RETURN d;
+END $$;
+
 -- Propose a note: the only way one is stored. Any signed-in active account, by browser session or access token (agents
 -- propose through tokens). Card names arrive already in the API's normal form (noteKey), so are only trimmed here.
 -- Returns the stored note, or the existing one when the same statement about the same cards is already waiting (this
@@ -93,11 +107,12 @@ DECLARE
 BEGIN
  IF actor IS NULL OR NOT public.admin_account_active(actor) THEN RAISE EXCEPTION 'A signed-in active account is required' USING ERRCODE='42501'; END IF;
  SELECT coalesce(array_agg(DISTINCT c), '{}') INTO cards FROM (SELECT lower(btrim(regexp_replace(x, '\s+', ' ', 'g'))) c FROM unnest(coalesce(p_cards, '{}')) x) s WHERE c <> '';
- -- Personal data, refused at the boundary: an email in any text, anything after an @ or an encoded @ in the link
- -- (a rulings page never needs one), and a run of ten or more digits in the text (a phone number).
+ -- Personal data, refused at the boundary: an email in any text or card name, a run of ten or more digits in any of
+ -- them (a phone number), and an @ anywhere in the link once every escape is decoded (a rulings page never needs one;
+ -- this also covers user:password@host).
  IF concat_ws(E'\n', stmt, quote, array_to_string(cards, E'\n')) ~* '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}'
-    OR url ~* '(@|%40|%2540)'
-    OR concat_ws(E'\n', stmt, quote) ~ '(\+?[0-9][ .-]?){9,}[0-9]' THEN
+    OR position('@' in public.knowledge_url_decode(url)) > 0
+    OR concat_ws(E'\n', stmt, quote, array_to_string(cards, E'\n')) ~ '(\+?[0-9][ .-]?){9,}[0-9]' THEN
   RAISE EXCEPTION 'The note contains personal data (an email address, a phone number, or an @ in the link)' USING ERRCODE='22023';
  END IF;
  PERFORM pg_advisory_xact_lock(hashtext('knowledge_note_propose:' || actor));
