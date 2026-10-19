@@ -87,6 +87,9 @@ const insert = (c, n) => c.query(
    VALUES ($1, $2, $3, $4, $5${n.status ? ', $6, now()' : ''}) RETURNING id`,
   [n.card_names, n.statement, n.source_url, n.quote, n.proposed_by, ...(n.status ? [n.status] : [])],
 );
+/** The one way in: knowledge_note_propose(). Resolves to the stored note (jsonb, with `duplicate`). */
+const propose = async (c, n) => (await c.query('SELECT public.knowledge_note_propose($1, $2, $3, $4) AS note',
+  [n.card_names, n.statement, n.source_url, n.quote])).rows[0].note;
 
 try {
   await db.connect();
@@ -143,10 +146,36 @@ try {
   });
 
   let pendingId;
-  await test('an account inserts only its own pending, unreviewed note', async () => {
-    pendingId = (await session(member, (c) => insert(c, note(member)))).rows[0].id;
+  await test('an account proposes its own pending note, by browser session or by access token', async () => {
+    const stored = await session(member, (c) => propose(c, note(member)));
+    pendingId = stored.id;
+    assert.deepEqual([stored.status, stored.proposed_by, stored.duplicate], ['pending', member, false]);
+    // A token (an agent) proposes too.
+    const byToken = await token(outsider, (c) => propose(c, note(outsider, { statement: 'Proposed through an access token, as an agent would.' })));
+    assert.equal(byToken.proposed_by, outsider);
+    await db.query('DELETE FROM public.knowledge_note WHERE id = $1', [byToken.id]);
+  });
+
+  await test('nobody inserts through the table, so the checks and limits cannot be skipped', async () => {
+    await denied(session(member, (c) => insert(c, note(member))));
     await denied(session(member, (c) => insert(c, note(outsider))));
     await denied(session(member, (c) => insert(c, note(member, { status: 'approved' }))));
+  });
+
+  await test('the database refuses personal data, drops duplicates and enforces the limits', async () => {
+    for (const bad of [
+      { statement: 'Ask alice@example.com how Nighttime Mine works with Tera Pokémon.' },
+      { quote: 'Call me on +1 555 123 4567 about this ruling.' },
+      { source_url: 'https://www.pokemon.com/rules?e=alice%40example.com' },
+      { source_url: 'https://www.pokemon.com/rules?e=alice%2540example.com&x=%E0%A4%A' },
+      { source_url: 'https://user:pw@www.pokemon.com/rules' },
+    ]) await denied(session(member, (c) => propose(c, note(member, bad))), '22023');
+    const again = await session(member, (c) => propose(c, note(member, { card_names: ['nighttime mine', 'dragapult ex'] })));
+    assert.deepEqual([String(again.id), again.duplicate], [String(pendingId), true], 'same cards, same statement: the existing note');
+    const filler = [];
+    for (let i = 0; i < 19; i++) filler.push((await session(member, (c) => propose(c, note(member, { statement: `Filler statement number ${i} about these two cards.` })))).id);
+    await denied(session(member, (c) => propose(c, note(member, { statement: 'The twenty-first waiting note is refused.' }))), '54000');
+    await db.query('DELETE FROM public.knowledge_note WHERE id = ANY($1::bigint[])', [filler]);
   });
 
   await test('a pending note is its proposer\'s alone; nobody edits or deletes a note through the table', async () => {
@@ -181,7 +210,7 @@ try {
   });
 
   await test('a rejected note goes back to being its proposer\'s alone', async () => {
-    const second = (await session(member, (c) => insert(c, note(member, { statement: 'A second, wrong statement about how these cards interact.' })))).rows[0].id;
+    const second = (await session(member, (c) => propose(c, note(member, { statement: 'A second, wrong statement about how these cards interact.' })))).id;
     await session(owner, (c) => c.query("SELECT * FROM public.knowledge_note_review($1, 'rejected', 'Contradicts the ruling.')", [second]));
     const seen = await session(outsider, (c) => c.query('SELECT id FROM public.knowledge_note'));
     assert.deepEqual(seen.rows.map((r) => String(r.id)), [String(pendingId)]);
@@ -195,7 +224,7 @@ try {
     const perms = (await db.query('SELECT public.admin_permissions($1) p', [contributor])).rows[0].p;
     assert.ok(perms.includes('knowledge.review'));
     assert.ok(!perms.includes('admin.access'));
-    const third = (await session(member, (c) => insert(c, note(member, { statement: 'A third statement, for the contributor to decide.' })))).rows[0].id;
+    const third = (await session(member, (c) => propose(c, note(member, { statement: 'A third statement, for the contributor to decide.' })))).id;
     const queue = await session(contributor, (c) => c.query("SELECT id FROM public.knowledge_note_queue('pending', NULL, 50)"));
     assert.deepEqual(queue.rows.map((r) => String(r.id)), [String(third)]);
     const decided = await session(contributor, (c) => c.query("SELECT status, reviewed_by FROM public.knowledge_note_review($1, 'approved', 'Checked against the ruling.')", [third]));

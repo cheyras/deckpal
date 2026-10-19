@@ -22,7 +22,7 @@ import { perUserRateLimit } from '../rateLimit.js';
 export const knowledgeRouter: Router = Router();
 export const knowledgeAdminRouter: Router = Router();
 
-export const NOTE_LIMITS = { cards: 6, card: 80, statement: [10, 600], quote: [5, 600], url: 500, pendingPerUser: 20 } as const;
+export const NOTE_LIMITS = { cards: 6, card: 80, statement: [10, 600], quote: [5, 600], url: 500 } as const;
 
 /** Sources reviewers see every day: a link elsewhere is allowed, but flagged. */
 const KNOWN_SOURCES = /^https:\/\/(?:[a-z0-9-]+\.)*(?:pokemon\.com|pokemon-card\.com|compendium\.pokegym\.net|pokegym\.net|justinbasil\.com|pokebeach\.com|limitlesstcg\.com|bulbapedia\.bulbagarden\.net|deckpal\.app)(?:[/?#]|$)/i;
@@ -46,17 +46,16 @@ const PHONE = /(?:\+?\d[\s.-]?){9,}\d/;
 const HANDLE = /(?:^|\s)@[A-Za-z0-9_]{3,}/;
 const INSTRUCTION = /\b(?:ignore (?:all |any )?(?:previous|prior|above)|system prompt|you are (?:now )?an?|as an ai|disregard|do not tell|always (?:say|answer|reply)|instructions?:)/i;
 
-/** The link as typed plus fully percent-decoded (up to three layers), for the personal-data checks. */
+/**
+ * The link as typed plus percent-decoded, for the personal-data checks. Each %XX escape is decoded on its own (up to
+ * three layers), so one malformed escape elsewhere in the link cannot stop the rest being decoded.
+ */
 function decodedUrl(url: string): string {
-  let out = url;
+  let out = url.replace(/\+/g, ' ');
   for (let i = 0; i < 3; i++) {
-    try {
-      const next = decodeURIComponent(out.replace(/\+/g, ' '));
-      if (next === out) break;
-      out = next;
-    } catch {
-      break;
-    }
+    const next = out.replace(/%([0-9a-f]{2})/gi, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+    if (next === out) break;
+    out = next;
   }
   return `${url}\n${out}`;
 }
@@ -110,7 +109,6 @@ interface NoteRow {
   source_url: string;
   quote: string;
   status: 'pending' | 'approved' | 'rejected';
-  checks: { flags?: string[] };
   proposed_by: string;
   proposed_at: string;
   reviewed_at: string | null;
@@ -127,6 +125,16 @@ const publicNote = (r: NoteRow, me: string) => ({
   mine: r.proposed_by === me,
   proposedAt: r.proposed_at,
 });
+
+/**
+ * What the reviewer should look at, worked out from the note as stored, every time the queue is read: never taken
+ * from the proposer, who could otherwise send an empty list. A refusal reason shows as a flag here (a note stored by a
+ * path that skipped the API's refusal is still caught by the reviewer).
+ */
+export function reviewFlags(r: Pick<NoteRow, 'card_names' | 'statement' | 'source_url' | 'quote'>): string[] {
+  const c = checkNote({ cards: r.card_names, statement: r.statement, source_url: r.source_url, quote: r.quote });
+  return [...c.refused, ...c.flags];
+}
 
 let warnedPending = false;
 
@@ -156,29 +164,21 @@ knowledgeRouter.post(
       res.json({ dryRun: true, note: { cards: note.cards, statement: note.statement, sourceUrl: note.source_url, quote: note.quote }, flags: check.flags });
       return;
     }
-    const row = await withTx(async () => {
-      const pending = await q1<{ n: string }>(`SELECT count(*)::text AS n FROM knowledge_note WHERE proposed_by = $1 AND status = 'pending'`, [userId]);
-      if (Number(pending?.n ?? 0) >= NOTE_LIMITS.pendingPerUser) {
-        throw new ApiError(429, 'too_many_pending', `You have ${NOTE_LIMITS.pendingPerUser} notes waiting for review; wait for those to be reviewed first.`);
-      }
-      // The same statement about the same cards, already waiting or approved, is not proposed twice.
-      const dup = await q1<NoteRow>(
-        `SELECT * FROM knowledge_note WHERE card_names @> $1::text[] AND card_names <@ $1::text[] AND lower(statement) = lower($2)
-           AND status <> 'rejected' AND (status = 'approved' OR proposed_by = $3) LIMIT 1`,
-        [names, note.statement, userId],
-      );
-      if (dup) return { row: dup, duplicate: true };
-      const inserted = await q1<NoteRow>(
-        `INSERT INTO knowledge_note (card_names, statement, source_url, quote, checks, proposed_by)
-         VALUES ($1::text[], $2, $3, $4, $5::jsonb, $6) RETURNING *`,
-        [names, note.statement, note.source_url, note.quote, JSON.stringify({ flags: check.flags }), userId],
-      );
-      return { row: inserted!, duplicate: false };
-    }).catch((e: unknown) => {
+    // knowledge_note_propose() (089) is the only way a note is stored: it enforces the limits, drops duplicates and
+    // refuses personal data at the database, so a client calling Supabase directly gets the same rules.
+    const stored = await withTx(async () => q1<{ note: NoteRow & { duplicate: boolean } }>(
+      'SELECT public.knowledge_note_propose($1::text[], $2, $3, $4) AS note',
+      [names, note.statement, note.source_url, note.quote],
+    )).catch((e: unknown) => {
       migrationPending(e);
+      const err = e as { code?: string; message?: string };
+      if (err.code === '54000') throw new ApiError(429, 'too_many_notes', `${err.message ?? 'Too many notes'}; wait for those to be reviewed first.`);
+      if (err.code === '22023') throw new ApiError(422, 'note_refused', `This note cannot be shared: ${err.message ?? 'personal data'}. Remove it and propose again.`);
+      if (err.code === '42501') throw new ApiError(403, 'forbidden', 'Sign in with an active account to propose a note.');
       throw e;
     });
-    res.status(row.duplicate ? 200 : 201).json({ note: publicNote(row.row, userId), duplicate: row.duplicate, flags: check.flags });
+    const row = stored!.note;
+    res.status(row.duplicate ? 200 : 201).json({ note: publicNote(row, userId), duplicate: row.duplicate, flags: check.flags });
   }),
 );
 
@@ -225,7 +225,7 @@ knowledgeAdminRouter.get(
     try {
       const rows = await q<NoteRow>('SELECT * FROM public.knowledge_note_queue($1, $2, $3)', [status, before, limit]);
       res.json({
-        notes: rows.map((r) => ({ ...publicNote(r, ''), flags: r.checks?.flags ?? [], reviewedAt: r.reviewed_at, reviewReason: r.review_reason })),
+        notes: rows.map((r) => ({ ...publicNote(r, ''), flags: reviewFlags(r), reviewedAt: r.reviewed_at, reviewReason: r.review_reason })),
         next: rows.length === limit ? Number(rows[rows.length - 1]!.id) : null,
       });
     } catch (e) {

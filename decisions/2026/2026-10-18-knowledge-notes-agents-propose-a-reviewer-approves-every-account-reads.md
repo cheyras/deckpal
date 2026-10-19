@@ -20,6 +20,7 @@ It is stored in `knowledge_note` (migration 089, which turns row-level security 
 
 **How it gets in.**
 - Any agent proposes a note with the new `propose_note` tool (`POST /knowledge/notes`). Like the other writes it previews by default (`dry_run`).
+- A note is stored only by `knowledge_note_propose()`, never by a table insert. On cloud a client holds the same database role as the API, so a rule only the API enforced could be skipped by calling Supabase directly. The function enforces the limits, drops duplicates and refuses the plainest personal data itself.
 - A proposal stays visible only to its proposer until a reviewer approves it.
 - Every decision goes through `knowledge_note_review`. Each note is decided once, and every approval or rejection is written to the admin audit log with its reason. A rejection must give one.
 
@@ -29,13 +30,13 @@ It is stored in `knowledge_note` (migration 089, which turns row-level security 
 
 **Automatic checks before a reviewer looks.**
 - Refused: email addresses and phone numbers, and an email or a user name and password in the source link (checked as typed and percent-decoded).
-- Stored with a flag for the reviewer:
+- Flagged for the reviewer, worked out from the stored note each time the queue is read (never supplied by the proposer):
   - an @handle;
   - text that reads like instructions to an agent;
   - a source outside the rulings sites reviewers know;
   - a quote that names none of the cards;
   - links inside the text.
-- Limits: 20 proposals an hour, 20 waiting per account, and the same statement about the same cards is not stored twice.
+- Limits, enforced in the database: 20 proposals an hour, 20 waiting per account, and the same statement about the same cards is not stored twice.
 
 **Where approved notes show.** `get_card` and `rules_lookup` print up to three approved notes under a "Community notes" header. The text is always quoted as third-party data, and the header says the source is the authority. A database without the table shows no notes rather than an error.
 

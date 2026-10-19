@@ -8,8 +8,13 @@
 -- HIDDEN UNTIL APPROVED. Anything every account reads can be poisoned with a false fact or carry someone's personal
 -- data. So a note is proposed as 'pending', visible only to its proposer, and becomes 'approved' (shown in get_card
 -- and rules_lookup for everyone) only through knowledge_note_review(), which requires the knowledge.review permission
--- in a signed-in browser session. The API runs automatic checks before a note is stored (personal data is refused,
--- other findings are kept in `checks` for the reviewer).
+-- in a signed-in browser session.
+--
+-- ONE WAY IN. A note is stored only by knowledge_note_propose(), never by a table INSERT: on cloud a client holds the
+-- same `authenticated` role as the API, so anything the API alone enforced could be skipped by calling Supabase
+-- directly. The function enforces the limits (20 waiting, 20 an hour), drops duplicates and refuses the plainest
+-- personal data. The reviewer's other flags are not stored at all: the API computes them from the stored note when the
+-- queue is read, so no caller can supply them.
 --
 -- NOT ACCOUNT DATA. A note is not part of anyone's collection, so it is not in the mutation log and `revert` does not
 -- touch it; the proposer cannot edit it after proposing, and a rejection is the way a pending note leaves the queue.
@@ -24,8 +29,6 @@ CREATE TABLE public.knowledge_note (
   source_url    TEXT NOT NULL CHECK (char_length(source_url) <= 500 AND source_url ~ '^https://'),
   quote         TEXT NOT NULL CHECK (char_length(quote) BETWEEN 5 AND 600),
   status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
-  -- The API's automatic checks at proposal time: { flags: [...] } for the reviewer.
-  checks        JSONB NOT NULL DEFAULT '{}'::jsonb,
   proposed_by   TEXT NOT NULL,
   proposed_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   reviewed_by   TEXT,
@@ -74,6 +77,45 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.knowledge_require_reviewer() FROM PUBLIC;
 
+-- Propose a note: the only way one is stored. Any signed-in active account, by browser session or access token (agents
+-- propose through tokens). Card names arrive already in the API's normal form (noteKey), so are only trimmed here.
+-- Returns the stored note, or the existing one when the same statement about the same cards is already waiting (this
+-- account's) or approved (anyone's), with `duplicate` set.
+CREATE FUNCTION public.knowledge_note_propose(p_cards text[], p_statement text, p_source_url text, p_quote text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
+DECLARE
+ actor text := public.admin_actor_id();
+ cards text[];
+ stmt text := btrim(regexp_replace(coalesce(p_statement, ''), '\s+', ' ', 'g'));
+ quote text := btrim(regexp_replace(coalesce(p_quote, ''), '\s+', ' ', 'g'));
+ url text := btrim(coalesce(p_source_url, ''));
+ hit public.knowledge_note;
+BEGIN
+ IF actor IS NULL OR NOT public.admin_account_active(actor) THEN RAISE EXCEPTION 'A signed-in active account is required' USING ERRCODE='42501'; END IF;
+ SELECT coalesce(array_agg(DISTINCT c), '{}') INTO cards FROM (SELECT lower(btrim(regexp_replace(x, '\s+', ' ', 'g'))) c FROM unnest(coalesce(p_cards, '{}')) x) s WHERE c <> '';
+ -- Personal data, refused at the boundary: an email in any text, anything after an @ or an encoded @ in the link
+ -- (a rulings page never needs one), and a run of ten or more digits in the text (a phone number).
+ IF concat_ws(E'\n', stmt, quote, array_to_string(cards, E'\n')) ~* '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}'
+    OR url ~* '(@|%40|%2540)'
+    OR concat_ws(E'\n', stmt, quote) ~ '(\+?[0-9][ .-]?){9,}[0-9]' THEN
+  RAISE EXCEPTION 'The note contains personal data (an email address, a phone number, or an @ in the link)' USING ERRCODE='22023';
+ END IF;
+ PERFORM pg_advisory_xact_lock(hashtext('knowledge_note_propose:' || actor));
+ SELECT * INTO hit FROM public.knowledge_note n
+  WHERE n.card_names @> cards AND n.card_names <@ cards AND lower(n.statement) = lower(stmt)
+    AND (n.status = 'approved' OR (n.status = 'pending' AND n.proposed_by = actor)) LIMIT 1;
+ IF FOUND THEN RETURN to_jsonb(hit) || '{"duplicate": true}'::jsonb; END IF;
+ IF (SELECT count(*) FROM public.knowledge_note WHERE proposed_by = actor AND status = 'pending') >= 20 THEN
+  RAISE EXCEPTION 'This account has 20 notes waiting for review' USING ERRCODE='54000';
+ END IF;
+ IF (SELECT count(*) FROM public.knowledge_note WHERE proposed_by = actor AND proposed_at > now() - interval '1 hour') >= 20 THEN
+  RAISE EXCEPTION 'This account proposed 20 notes in the last hour' USING ERRCODE='54000';
+ END IF;
+ INSERT INTO public.knowledge_note (card_names, statement, source_url, quote, proposed_by)
+ VALUES (cards, stmt, url, quote, actor) RETURNING * INTO hit;
+ RETURN to_jsonb(hit) || '{"duplicate": false}'::jsonb;
+END $$;
+
 -- The review queue, newest first, for a reviewer only.
 CREATE FUNCTION public.knowledge_note_queue(p_status text, p_before bigint, p_limit integer)
 RETURNS SETOF public.knowledge_note LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
@@ -100,9 +142,9 @@ BEGIN
  RETURN after;
 END $$;
 
-REVOKE ALL ON FUNCTION public.knowledge_note_queue(text,bigint,integer), public.knowledge_note_review(bigint,text,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.knowledge_note_queue(text,bigint,integer), public.knowledge_note_review(bigint,text,text), public.knowledge_note_propose(text[],text,text,text) FROM PUBLIC;
 DO $$ BEGIN
  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
-  GRANT EXECUTE ON FUNCTION public.knowledge_note_queue(text,bigint,integer), public.knowledge_note_review(bigint,text,text) TO authenticated;
+  GRANT EXECUTE ON FUNCTION public.knowledge_note_queue(text,bigint,integer), public.knowledge_note_review(bigint,text,text), public.knowledge_note_propose(text[],text,text,text) TO authenticated;
  END IF;
 END $$;
