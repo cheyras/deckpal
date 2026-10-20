@@ -94,7 +94,7 @@ export interface GameSummary {
   /** Deck A went first. */
   aFirst: boolean;
   winner: Side | null;
-  /** Engine reason: 'prizes', 'no Pokémon in play', 'deck out', 'no Basic Pokémon', 'turn limit', 'decision limit', 'time limit', 'simultaneous win', or 'engine error'. */
+  /** Engine reason: 'prizes', 'no Pokémon in play', 'deck out', 'no Basic Pokémon', 'time' (time called: fewer Prize cards left after +3 turns), 'tiebreaker', 'turn limit', 'decision limit', 'time limit', 'simultaneous win', or 'engine error'. */
   reason: string;
   /** Turns played, both players counted (turn 1 is the first player's first turn). */
   turns: number;

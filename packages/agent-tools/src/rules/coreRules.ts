@@ -153,10 +153,10 @@ export const CORE_RULES: readonly CoreRule[] = [
       'last Prizes it usually hands them the game. Not always: when one effect Knocks Out Pokémon on both sides (a ' +
       'Cursed Blast that also KOs its target), every Knock Out is resolved before anyone wins. Both players take ' +
       'Prizes, the player whose turn is next first. If both take their last Prize, count win conditions: a player also ' +
-      'meets one when the opponent has no Pokémon left in play. More conditions wins; equal goes to Sudden Death. So ' +
-      'when a Cursed Blast Knocks Out BOTH Active Pokémon, the player who can promote from the Bench wins and both or ' +
-      'neither goes to Sudden Death; but a Benched Dusknoir that leaves your Active in play goes to Sudden Death ' +
-      'whenever the opponent can promote.',
+      'meets one when the opponent has no Pokémon left in play. More conditions wins; equal is a tie, decided by a tiebreaker ' +
+      'game. So when a Cursed Blast Knocks Out BOTH Active Pokémon, the player who can promote from the Bench wins and ' +
+      'both or neither is a tie; but a Benched Dusknoir that leaves your Active in play is a tie whenever the opponent ' +
+      'can promote.',
     checked: 'sim rulings-r03.test.ts (Compendium #2425, #2239, #2240)',
   },
   {
@@ -168,9 +168,11 @@ export const CORE_RULES: readonly CoreRule[] = [
       'cannot draw at the start of their turn. Running out of cards during a draw EFFECT does not lose; only the ' +
       'start-of-turn draw does. When Knock Outs on both sides happen at once, both players take Prizes first, then ' +
       'the win conditions are counted for each player: whoever meets MORE of them wins (taking your last Prize and ' +
-      'leaving your opponent no Pokémon is two), and an equal count means Sudden Death: a new game with 1 Prize card ' +
-      'each decides it. Only if nobody has won do both players promote and play goes on.',
-    checked: 'sim rules.test.ts (rulebook p.8, 21), rules-audit.test.ts (Destined Fight, sudden death), flow.ts checkWin',
+      'leaving your opponent no Pokémon is two), and an equal count is a tie. A tie is decided by a tiebreaker game: ' +
+      'a new game with 6 Prize cards each, won by the first player to have fewer Prize cards left (Advanced Player\'s ' +
+      'Rulebook). Only if nobody has won do both players promote and play goes on. When time is called in a tournament, ' +
+      'the turn is finished and 3 more are played; then the player with fewer Prize cards left wins.',
+    checked: 'sim rules.test.ts (rulebook p.8, 21), rules-audit.test.ts (Destined Fight, tiebreaker game), rules-checklist.test.ts (time called), flow.ts checkWin',
   },
   {
     id: 'special-conditions',
@@ -190,10 +192,10 @@ export const CORE_RULES: readonly CoreRule[] = [
     keywords: ['next turn', 'during your next turn', "during your opponent's next turn", 'until the end', 'this turn', 'lasting effect', 'duration', 'how long'],
     text:
       '"During your next turn" and "during your opponent\'s next turn" cover that whole turn only: not the rest of the ' +
-      'turn the card was used in, and they are over when that turn ends. "Until the end of your next turn" starts at ' +
-      'once. "Your" is the player whose card made the effect, even when it happens on the opponent\'s turn. An attack\'s ' +
+      'turn the card was used in, and they are over when that turn ends, before Pokémon Checkup. "Until the end of your ' +
+      'next turn" starts at once and still applies in the Checkup after that turn. "Your" is the player whose card made the effect, even when it happens on the opponent\'s turn. An attack\'s ' +
       'effect on a Pokémon also ends early if that Pokémon leaves the Active Spot or evolves.',
-    checked: 'sim rules-timing.test.ts; ruling 2404 (delayed attack effects)',
+    checked: 'sim rules-timing.test.ts (APR v3.4 E-02, E-22); ruling 2404 (delayed attack effects)',
   },
   {
     id: 'setup-deck',

@@ -32,10 +32,10 @@ function emptyPlayer(deck: number[]): PlayerState {
 }
 
 /**
- * Start a sudden-death game in place: every card goes back to its owner's deck, the board and every effect are cleared, and setup
- * runs again (a new coin flip; 1 Prize card each, see flow.ts). The RNG streams carry on.
+ * Start a tiebreaker game in place: every card goes back to its owner's deck, the board and every effect are cleared, and setup
+ * runs again (a new coin flip, 6 Prize cards each; see flow.ts checkWin). The RNG streams carry on.
  */
-export function resetForSuddenDeath(ctx: GameContext, s: GameState): void {
+export function resetForTiebreaker(ctx: GameContext, s: GameState): void {
   s.p = [emptyPlayer(ctx.iids[0].slice()), emptyPlayer(ctx.iids[1].slice())];
   s.turn = 0;
   s.phase = 'setup';
@@ -58,7 +58,7 @@ export function resetForSuddenDeath(ctx: GameContext, s: GameState): void {
   s.benchOwner = undefined;
   s.nest = undefined;
   s.prizeTaking = undefined;
-  s.suddenDeath = (s.suddenDeath ?? 0) + 1;
+  s.tiebreaker = (s.tiebreaker ?? 0) + 1;
 }
 
 export function newState(ctx: GameContext, seed: number): GameState {
@@ -134,6 +134,7 @@ const OPTIONAL_PLAYER_FIELDS = [
   'prevAttackRec',
   'toolUsed',
   'oncePerGame',
+  'setupPick',
 ] as const;
 
 // Written out field by field (a `...p` spread over a shape with this many optional fields is slow, and a clone is made per search node).

@@ -508,6 +508,8 @@ test('setupActive: a Pokémon with it in the hand may be put in the Active Spot 
     if (!cinderace.length) continue;
     found++;
     s.submit([(d.values as number[]).indexOf(cinderace[0]!)]);
+    let more = 0;
+    while (s.decision && s.state.phase === 'setup' && more++ < 20) s.submit(s.decision.kind === 'setupBench' ? [] : [0]);
     const active = s.state.p[d.player].active!;
     assert.equal(nameOf(s, active.cards[0]!), 'Cinderace');
     assert.equal(active.cards.length, 1);

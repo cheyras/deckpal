@@ -467,13 +467,15 @@ test('Cinderace, Explosiveness: if it is in your hand when you set up, you may p
     tested++;
     assert.ok(inHand.every((c) => (d.values as number[]).includes(c)), 'offered as an Active Pokémon');
     s.submit([(d.values as number[]).indexOf(inHand[0]!)]);
-    const active = s.state.p[d.player].active!;
-    assert.equal(nameOf(s, active.cards[0]!), 'Cinderace');
-    assert.ok(!s.state.p[d.player].hand.includes(inHand[0]!));
-    // The rest of setup goes on as usual: the other Pokémon go to the Bench and the game begins.
+    assert.equal(s.state.p[d.player].setupPick?.[0], inHand[0], 'chosen face down');
+    // The rest of setup goes on as usual: the other Pokémon go to the Bench and the game begins, with Cinderace Active.
     let more = 0;
     while (s.decision && s.state.phase === 'setup' && more++ < 20) s.submit(s.decision.kind === 'setupBench' ? [] : [0]);
     assert.equal(s.state.phase, 'main');
+    const active = s.state.p[d.player].active!;
+    assert.equal(active.cards[0], inHand[0]);
+    assert.equal(nameOf(s, active.cards[0]!), 'Cinderace');
+    assert.ok(!s.state.p[d.player].hand.includes(inHand[0]!));
   }
   assert.ok(tested > 0);
 });

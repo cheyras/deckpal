@@ -845,6 +845,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
     case 'effect': {
       const { start, until } = durationTurns(s, f.player, st.duration);
       const later = start > s.turn ? { start } : {};
+      const lastsCheckup = st.duration === 'throughMyNextTurn' ? { throughCheckup: true } : {};
       if (st.on) {
         const t = resolveSlot(s, e, st.on);
         if (!t) return 'next';
@@ -855,6 +856,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
           player: ownerOf(s, t),
           until,
           ...later,
+          ...lastsCheckup,
           fromAttack: f.kind === 'attack',
           src: f.src,
           since: s.turn,
@@ -869,6 +871,7 @@ function step(env: Env, s: GameState, f: Frame, st: Step): R {
           player: side(e, st.onPlayer),
           until,
           ...later,
+          ...lastsCheckup,
           fromAttack: f.kind === 'attack',
           src: f.src,
           filter: st.filter,

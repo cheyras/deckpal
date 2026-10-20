@@ -58,7 +58,7 @@ import { leaveHand,
   newSlot,
   opp,
   removeFrom,
-  resetForSuddenDeath,
+  resetForTiebreaker,
   shuffleDeck,
   slotCards,
   takePicked,
@@ -125,7 +125,7 @@ export function submit(env: Env, s: GameState, choice: number[]): void {
       const ps = s.p[r.p];
       const n = draw(env, s, r.p, choice[0] as number);
       const drawnBasics = ps.hand.slice(ps.hand.length - n).filter((c) => isBasic(env, c));
-      const room = 5 - ps.bench.length;
+      const room = 6 - (ps.setupPick?.length ?? 1); // the Bench is 5; the first pick is the Active Pokémon
       s.step = r.p === 0 ? 'extra1' : 'begin';
       if (drawnBasics.length && room > 0) {
         s.pending = {
@@ -145,13 +145,7 @@ export function submit(env: Env, s: GameState, choice: number[]): void {
     }
     case 'extraBench': {
       const ps = s.p[r.p];
-      for (const i of choice) {
-        const card = (d.values as number[])[i] as number;
-        leaveHand(ps, card);
-        const sl = newSlot(s, card);
-        ps.bench.push(sl);
-        emit(env, { type: 'play_to_bench', player: r.p, card, slot: sl.id });
-      }
+      ps.setupPick = [...(ps.setupPick ?? []), ...choice.map((i) => (d.values as number[])[i] as number)];
       break;
     }
     case 'dealChoice': {
@@ -163,23 +157,14 @@ export function submit(env: Env, s: GameState, choice: number[]): void {
       break;
     }
     case 'setupActive': {
-      const card = (d.values as number[])[choice[0] as number] as number;
-      const ps = s.p[r.p];
-      leaveHand(ps, card);
-      ps.active = newSlot(s, card);
-      emit(env, { type: 'play_to_active', player: r.p, card, slot: ps.active.id });
+      // Face down (APR v3.4 G): the choice is kept with the hand, hidden, and the Pokémon are put in play face up when the game starts.
+      s.p[r.p].setupPick = [(d.values as number[])[choice[0] as number] as number];
       s.step = `bench${r.p}`;
       break;
     }
     case 'setupBench': {
       const ps = s.p[r.p];
-      for (const i of choice) {
-        const card = (d.values as number[])[i] as number;
-        leaveHand(ps, card);
-        const sl = newSlot(s, card);
-        ps.bench.push(sl);
-        emit(env, { type: 'play_to_bench', player: r.p, card, slot: sl.id });
-      }
+      ps.setupPick = [...(ps.setupPick ?? []), ...choice.map((i) => (d.values as number[])[i] as number)];
       s.step = r.p === 0 ? 'place1' : 'prizes';
       break;
     }
@@ -451,6 +436,24 @@ function mulliganUntilBasic(env: Env, s: GameState, p: Player): void {
   finishDeal(env, s, p);
 }
 
+/** Put a player's face-down setup choices into play: the first is the Active Pokémon, the rest go to the Bench. */
+function revealSetup(env: Env, s: GameState, p: Player): void {
+  const ps = s.p[p];
+  const picks = (ps.setupPick ?? []).filter((c) => ps.hand.includes(c));
+  ps.setupPick = undefined;
+  picks.forEach((card, i) => {
+    leaveHand(ps, card);
+    const sl = newSlot(s, card);
+    if (i === 0) {
+      ps.active = sl;
+      emit(env, { type: 'play_to_active', player: p, card, slot: sl.id });
+    } else {
+      ps.bench.push(sl);
+      emit(env, { type: 'play_to_bench', player: p, card, slot: sl.id });
+    }
+  });
+}
+
 function finishDeal(env: Env, s: GameState, p: Player): void {
   emit(env, { type: 'opening_hand', player: p, size: s.p[p].hand.length });
   s.step = p === 0 ? 'deal1' : 'place0';
@@ -459,8 +462,8 @@ function finishDeal(env: Env, s: GameState, p: Player): void {
 function setupStep(env: Env, s: GameState): void {
   switch (s.step) {
     case 'coin': {
-      // A sudden-death game always starts with a new coin flip, even when the match had a fixed first player.
-      if (env.ctx.opts.first !== null && !s.suddenDeath) {
+      // A tiebreaker game always starts with a new coin flip, even when the match had a fixed first player.
+      if (env.ctx.opts.first !== null && !s.tiebreaker) {
         s.first = env.ctx.opts.first;
         emit(env, { type: 'go_first', player: s.first });
         s.step = 'deal';
@@ -518,7 +521,7 @@ function setupStep(env: Env, s: GameState): void {
     case 'bench0':
     case 'bench1': {
       const p: Player = s.step === 'bench0' ? 0 : 1;
-      const basics = s.p[p].hand.filter((c) => isBasic(env, c));
+      const basics = s.p[p].hand.filter((c) => isBasic(env, c) && !s.p[p].setupPick?.includes(c));
       if (!basics.length) {
         s.step = p === 0 ? 'place1' : 'prizes';
         return;
@@ -539,13 +542,15 @@ function setupStep(env: Env, s: GameState): void {
     case 'prizes': {
       for (const p of [0, 1] as Player[]) {
         const ps = s.p[p];
-        // 6 Prize cards; 1 in a sudden-death game.
-        for (let i = 0; i < (s.suddenDeath ? 1 : 6) && ps.deck.length; i++) ps.prizes.push(ps.deck.pop() as number);
+        // 6 Prize cards, in a tiebreaker game too.
+        for (let i = 0; i < 6 && ps.deck.length; i++) ps.prizes.push(ps.deck.pop() as number);
       }
       s.step = 'extra0';
       return;
     }
     case 'begin': {
+      // "Flip all Active and Benched Pokémon face up, and start the game" (APR v3.4 G, step 8): both players' choices at once.
+      for (const p of [0, 1] as Player[]) revealSetup(env, s, p);
       s.phase = 'main';
       s.turn = 1;
       s.current = s.first;
@@ -581,7 +586,11 @@ function turnStep(env: Env, s: GameState): void {
       for (const sl of allSlots(ps)) sl.usedAbilities = [];
       s.attacked = false;
       emit(env, { type: 'turn_start', player: p, turn: s.turn });
-      if (s.turn > env.ctx.opts.maxTurns) {
+      // `maxTurns` is when time is called: that turn is finished, then +3 turns are played, and then the player with fewer Prize cards
+      // left wins; with the same number, play goes on until one has fewer or wins outright (Play! Pokémon Tournament Rules 5.8.3,
+      // single elimination: a winner is needed). A game that still has not ended long after that is recorded as a draw.
+      if (overtimeOver(env, s) && prizeLead(env, s)) return;
+      if (s.turn > env.ctx.opts.maxTurns + OVERTIME_TURNS + STALEMATE_TURNS) {
         endGame(env, s, null, 'turn limit');
         return;
       }
@@ -635,11 +644,16 @@ function turnStep(env: Env, s: GameState): void {
       // lane:misc — "at the end of your turn" effects (Powerglass, Ignition Energy) resolve before Checkup.
       for (const sl of allSlots(s.p[s.current])) queueTriggers(env, s, sl, s.current, 'endOfTurn');
       // The turn's player chooses their order (Advanced Player's Rulebook v3.4, the end-of-turn entry; TPCi Rules Team 2025-05-01, ruling 2135):
-      // `advance` asks when they differ.
-      s.step = 'checkup';
+      // `advance` asks when they differ. A Pokémon those effects Knock Out is Knocked Out then, before Pokémon Checkup (a Knock Out is
+      // checked whenever a Pokémon's remaining HP becomes zero: APR v3.4 D).
+      s.afterKo = 'checkup';
+      s.step = 'ko';
       return;
     }
     case 'checkup':
+      // The turn is over: what lasted "during" it (this turn, your next turn, your opponent's next turn) does not apply in Pokémon
+      // Checkup, which is in neither player's turn. "Until the end of your next turn" does (APR v3.4 E-02, E-22, E-23).
+      s.effects = s.effects.filter((e) => e.until > s.turn || e.throughCheckup);
       checkup(env, s);
       if (s.phase === 'over') return;
       s.afterKo = 'nextTurn';
@@ -1416,10 +1430,22 @@ function resolveKOs(env: Env, s: GameState): void {
   s.step = s.afterKo;
 }
 
-/** Sudden-death games played before a still-tied match is recorded as a draw. */
-const SUDDEN_DEATH_MAX = 3;
+/** Tiebreaker games played before a still-tied match is recorded as a draw. */
+const TIEBREAKER_MAX = 3;
+/** Turns played after time is called (the turn it is called in is turn 0). */
+const OVERTIME_TURNS = 3;
+/** Turns allowed after those for one player to get ahead on Prize cards, before the game is recorded as a draw. */
+const STALEMATE_TURNS = 40;
 
-/** Win conditions after Knock Outs. Returns true when the game ended (or a sudden-death game began). */
+/** Time has been called and its +3 turns are over. */
+function overtimeOver(env: Env, s: GameState): boolean {
+  return s.turn > env.ctx.opts.maxTurns + OVERTIME_TURNS;
+}
+
+/**
+ * Win conditions after Knock Outs. Returns true when the game ended (or a tiebreaker game began). In a tiebreaker game, or once time
+ * has been called and its +3 turns are over, a player with fewer Prize cards left than the opponent has won as well.
+ */
 function checkWin(env: Env, s: GameState): boolean {
   const ways: [number, number] = [0, 0];
   for (const p of [0, 1] as Player[]) {
@@ -1428,19 +1454,30 @@ function checkWin(env: Env, s: GameState): boolean {
     if (me.prizes.length === 0 && me.prizesTaken > 0) ways[p]++;
     if (!them.active && !them.bench.length) ways[p]++;
   }
-  if (!ways[0] && !ways[1]) return false;
+  if (!ways[0] && !ways[1]) return prizeLead(env, s);
   if (ways[0] === ways[1]) {
-    // Both win in the same number of ways: Sudden Death (rulebook; PTCG Live's engine has the same mode). A new game with 1 Prize card
-    // each decides the match. After 3 sudden-death games that also tied, it is recorded as a draw rather than played on for ever.
-    if ((s.suddenDeath ?? 0) >= SUDDEN_DEATH_MAX) endGame(env, s, null, 'simultaneous win');
+    // Both win in the same number of ways: a tie. A winner is needed, so a Tiebreaker game decides it: a new game from the start, 6 Prize
+    // cards each, won by the first player to have fewer Prize cards left than the opponent (Advanced Player's Rulebook v3.4 C, "Games can
+    // result in a tie"; Play! Pokémon Tournament Rules 5.8.3.1; PTCG Live's Sudden Death mode). After 3 tiebreaker games that also tied,
+    // it is recorded as a draw rather than played on for ever.
+    if ((s.tiebreaker ?? 0) >= TIEBREAKER_MAX) endGame(env, s, null, 'simultaneous win');
     else {
-      resetForSuddenDeath(env.ctx, s);
-      emit(env, { type: 'sudden_death', n: s.suddenDeath as number });
+      resetForTiebreaker(env.ctx, s);
+      emit(env, { type: 'tiebreaker_game', n: s.tiebreaker as number });
     }
   } else {
     const w: Player = ways[0] > ways[1] ? 0 : 1;
     endGame(env, s, w, s.p[w].prizes.length === 0 ? 'prizes' : 'no Pokémon in play');
   }
+  return true;
+}
+
+/** In a tiebreaker game, or after time is called and the +3 turns are played: the player with fewer Prize cards left wins. */
+function prizeLead(env: Env, s: GameState): boolean {
+  if (!s.tiebreaker && !overtimeOver(env, s)) return false;
+  const [a, b] = [s.p[0].prizes.length, s.p[1].prizes.length];
+  if (a === b) return false;
+  endGame(env, s, a < b ? 0 : 1, s.tiebreaker ? 'tiebreaker' : 'time');
   return true;
 }
 
