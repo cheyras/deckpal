@@ -120,3 +120,22 @@ test('a gust pulls up a Benched Pokémon even when the Active Pokémon is protec
   choose(push, 'Use Push');
   assert.equal(nameOf(push, push.state.p[1].active!.cards[0]!), 'Veiled', 'switching out the protected Active does nothing');
 });
+
+test('time called: the turn is finished, +3 turns are played, then the player with fewer Prize cards left wins; level, play goes on (Tournament Rules 5.8.3)', () => {
+  const run = (myPrizes: number) => {
+    const g = scenario(M, M, [{ active: 'Pup', bench: ['Pup'], prizes: myPrizes }, { active: 'Pup', bench: ['Pup'] }], { maxTurns: 2, turn: 2 });
+    const turns: number[] = [];
+    while (!g.over && g.state.turn <= 8) {
+      turns.push(g.state.turn);
+      choose(g, 'End turn');
+    }
+    return { g, turns };
+  };
+  const ahead = run(5);
+  assert.ok(ahead.g.over);
+  assert.equal(ahead.g.state.winner, 0, 'P1 has fewer Prize cards left');
+  assert.equal(ahead.g.state.winReason, 'time');
+  assert.deepEqual(ahead.turns, [2, 3, 4, 5], 'time is called in turn 2 (turn 0), then 3 more turns');
+  const level = run(6);
+  assert.ok(!level.g.over, 'level on Prize cards: the game goes on until one player is ahead');
+});

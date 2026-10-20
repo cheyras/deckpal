@@ -229,6 +229,8 @@ export interface PlayerState {
   knownTop: number;
   /** Hand cards the opponent has seen (revealed by a search), until they leave the hand. */
   revealed: number[];
+  /** Setup: the Active (first) and Benched Pokémon chosen face down, still in the hand until the game starts (flow.ts revealSetup). */
+  setupPick?: number[];
   /** Cards (instance ids) this player played from their hand during their current turn by their own actions. Reset when their turn starts. */
   playedThisTurn?: number[];
   /** `prizesTaken` when this player's current turn began, and how many Prize cards they took in their most recent finished turn. */
@@ -287,6 +289,8 @@ export interface TimedEffect {
   until: number;
   /** The first turn it applies in: "During your next turn" waits for that turn. Absent = from when it was made. */
   start?: number;
+  /** "Until the end of ... turn": still applies in the Pokémon Checkup after its last turn (APR v3.4 E-22, E-23). "During" effects do not. */
+  throughCheckup?: boolean;
   /** Attack effects on a Pokémon end when it leaves the Active Spot or evolves. */
   fromAttack: boolean;
   src: number;
@@ -356,8 +360,8 @@ export interface GameState {
    * They are taken one at a time, so a player with a face-up Prize card chooses each time (see flow.ts `takePrizes`).
    */
   prizeTaking?: { left: [number, number]; took: [number, number] };
-  /** Sudden-death games started so far (both players won at once): each is a new game with 1 Prize card per player. */
-  suddenDeath?: number;
+  /** Tiebreaker games started so far (both players won at once): each is a new game, 6 Prize cards each, won by the first player to have fewer Prize cards left. */
+  tiebreaker?: number;
   /** Where the flow continues once Knock Outs and promotions are resolved. */
   afterKo: string;
   winner: Player | null;
@@ -476,15 +480,18 @@ export type GameEvent =
   | { type: 'condition'; player: Player; slot: number; cond: string }
   | { type: 'end_turn'; player: Player; turn: number }
   | { type: 'game_end'; winner: Player | null; reason: string; turn: number }
-  /** Both players won at once: a sudden-death game starts (1 Prize card each). `n` counts them in this match. */
-  | { type: 'sudden_death'; n: number };
+  /** Both players won at once: a tiebreaker game starts (6 Prize cards; first to have fewer left wins). `n` counts them in this match. */
+  | { type: 'tiebreaker_game'; n: number };
 
 export interface EngineOptions {
   /** Record events (off by default in batch simulation). */
   events?: boolean;
   /** Force who goes first (skips the coin flip decision). */
   first?: Player;
-  /** Hard cap on turns; the game is recorded as a draw ('turn limit'). */
+  /**
+   * The turn time is called in: +3 turns are played, then the player with fewer Prize cards left wins ('time'); level, play goes on
+   * until one is ahead. A game still level 40 turns after that is recorded as a draw ('turn limit').
+   */
   maxTurns?: number;
   /** Extra scripts matched by card id (tests, or a script under review). Win over the registry. */
   scripts?: import('./dsl.js').CardScript[];

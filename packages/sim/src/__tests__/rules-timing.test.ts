@@ -12,6 +12,7 @@ import { Game } from '../game.js';
 import { durationTurns } from '../interp.js';
 import { scenario } from '../scenario.js';
 import type { Decision, GameState, Player } from '../types.js';
+import { POISONED } from '../types.js';
 import { FIGHTING, PUP, deck, pokemon } from './fixtures.js';
 
 const ANCHOR = pokemon('t-t01', 'Anchor', { hp: 90, retreat: 1 });
@@ -78,4 +79,43 @@ test('the effect window belongs to the player whose card made it, whoever\'s tur
   // "Until the end of your next turn" starts now; "during this turn" is this turn only.
   assert.deepEqual(durationTurns(at(5, 0), 0, 'throughMyNextTurn'), { start: 5, until: 7 });
   assert.deepEqual(durationTurns(at(5, 0), 0, 'thisTurn'), { start: 5, until: 5 });
+});
+
+// ---------------------------------------------------------------- Pokémon Checkup is in neither player's turn
+
+const STINGER = pokemon('t-t03', 'Stinger', { hp: 90 });
+STINGER.abilities = [{ kind: 'Ability', name: 'Parting Sting', effect: "At the end of your turn, put 1 damage counter on your opponent's Active Pokémon." }];
+const MENDER = pokemon('t-t04', 'Mender', { hp: 90 });
+MENDER.abilities = [{ kind: 'Ability', name: 'Field Care', effect: 'During Pokémon Checkup, heal 20 damage from your Active Pokémon.' }];
+const CHECKUP_SCRIPTS: CardScript[] = [
+  ...SCRIPTS,
+  { id: 't-t03', name: 'Stinger', abilities: [{ name: 'Parting Sting', triggers: [{ on: 'endOfTurn', program: [{ op: 'counters', n: 1, to: 'oppActive' }] }] }] },
+  { id: 't-t04', name: 'Mender', abilities: [{ name: 'Field Care', triggers: [{ on: 'checkup', program: [{ op: 'heal', amount: 20, to: 'myActive' }] }] }] },
+];
+const C = deck('C', [
+  [ANCHOR, 8],
+  [STINGER, 8],
+  [MENDER, 8],
+  [PUP, 10],
+  [FIGHTING, 26],
+]);
+
+test('"During ..." effects end with their turn and do not apply in Pokémon Checkup; "until the end of ..." effects do (APR v3.4 E-02, E-22)', () => {
+  const run = (throughCheckup: boolean): number => {
+    const g = scenario(C, C, [{ active: 'Anchor' }, { active: 'Pup', cond: POISONED }], { scripts: CHECKUP_SCRIPTS });
+    const pup = g.state.p[1].active!;
+    // "During this turn, put 2 more damage counters on that Pokémon for Poison" (or "until the end of your next turn").
+    g.state.effects.push({ static: { k: 'checkupCounters', cond: 'poisoned', n: 2 }, slot: pup.id, player: 1, until: g.state.turn, fromAttack: false, src: 0, ...(throughCheckup ? { throughCheckup: true } : {}) });
+    choose(g, 'End turn');
+    return pup.damage;
+  };
+  assert.equal(run(false), 10, 'the turn is over: Poison places its 1 counter only');
+  assert.equal(run(true), 30, '"until the end of ..." still applies in Checkup: 1 + 2 counters');
+});
+
+test('a Pokémon an end-of-turn effect Knocks Out is Knocked Out before Pokémon Checkup (APR v3.4 D: whenever its HP becomes zero)', () => {
+  // Pup (70 HP) has 60 damage. Parting Sting's counter brings it to 0 at the end of P1's turn; Field Care's Checkup healing comes too late.
+  const g = scenario(C, C, [{ active: 'Stinger' }, { active: 'Pup', bench: ['Mender'], damage: { active: 60 } }], { scripts: CHECKUP_SCRIPTS });
+  choose(g, 'End turn');
+  assert.equal(g.state.p[0].prizesTaken, 1, 'Knocked Out at the end of the turn, not healed back in Checkup');
 });

@@ -197,7 +197,7 @@ test('Compendium #1976: Drakloak, Recon Directive with 1 card in the deck puts i
 
 // Compendium #1832 (Aqua Return taking the last Prize while the attacker is the only Pokemon in play): wins are checked after everything resolves;
 // both players with one win condition is a tiebreaker game; two win conditions beats one.
-test('Compendium #1832: Primarina, Aqua Return that takes the last Prize and leaves no Pokemon is a tie (sudden death), or a win if the opponent has none either', () => {
+test('Compendium #1832: Primarina, Aqua Return that takes the last Prize and leaves no Pokemon is a tie (a tiebreaker game decides it), or a win if the opponent has none either', () => {
   const dk = deck([PRIMARINA, SLOWPOKE]);
   const mk = (oppBench: string[]): Game =>
     scenario(dk, dk, [
@@ -207,7 +207,7 @@ test('Compendium #1832: Primarina, Aqua Return that takes the last Prize and lea
   const tie = mk(['Slowpoke']);
   choose(tie, 'Attack: Aqua Return');
   assert.equal(tie.state.phase, 'setup', 'a tie: a sudden-death game starts');
-  assert.equal(tie.state.suddenDeath, 1);
+  assert.equal(tie.state.tiebreaker, 1);
   assert.equal(tie.state.p[0].prizes.length, 0);
   const win = mk([]);
   choose(win, 'Attack: Aqua Return');

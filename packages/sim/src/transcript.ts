@@ -127,8 +127,8 @@ export function transcript(ctx: GameContext, events: readonly GameEvent[], o: Tr
       case 'game_end':
         lines.push('', `GAME OVER on turn ${e.turn}: ${e.winner === null ? `draw (${e.reason})` : `${who(e.winner)} wins (${e.reason})`}.`);
         break;
-      case 'sudden_death':
-        lines.push('', `BOTH PLAYERS WON AT ONCE: sudden death${e.n > 1 ? ` #${e.n}` : ''}, a new game with 1 Prize card each.`, '');
+      case 'tiebreaker_game':
+        lines.push('', `BOTH PLAYERS WON AT ONCE: tiebreaker game${e.n > 1 ? ` #${e.n}` : ''}, a new game with 6 Prize cards each; the first to have fewer Prize cards left wins.`, '');
         break;
     }
   }

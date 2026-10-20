@@ -360,11 +360,12 @@ test('p.8, 18 setup: mulligans give the opponent extra draws; a deck with no Bas
     assert.equal(d.player, 1);
     assert.equal(d.labels!.length, m.state.p[0].mulligans - m.state.p[1].mulligans + 1);
     assert.ok(order.includes('setupActive:0') && order.includes('setupActive:1'), `both players must set up before the extra draws (${order.join(', ')})`);
-    assert.equal(m.state.p[1].active !== null, true, 'P2 placed an Active before drawing extras');
+    assert.equal(m.state.p[1].setupPick?.length ? true : false, true, 'P2 chose an Active before drawing extras');
+    assert.equal(m.state.p[1].active, null, 'face down: the Pokémon are put in play when the game starts (APR v3.4 G)');
     assert.equal(m.state.p[0].prizes.length, 6);
     assert.equal(m.state.p[1].prizes.length, 6, 'Prize cards are set aside before the extra draws');
     sawExtra = true;
-    const activeBefore = m.state.p[1].active!.id;
+    const activeBefore = m.state.p[1].setupPick![0];
     const handBefore = m.state.p[1].hand.slice();
     m.submit([d.labels!.length - 1]); // draw them all
     const next = m.decision as Decision;
@@ -372,7 +373,7 @@ test('p.8, 18 setup: mulligans give the opponent extra draws; a deck with no Bas
       // Only Basics drawn just now are offered, and the Active can't change.
       assert.ok(next.values!.every((c) => !handBefore.includes(c)), 'a Basic from the opening hand was offered again');
       m.submit([0]);
-      assert.equal(m.state.p[1].active!.id, activeBefore);
+      assert.equal((m.state.p[1].active as { cards: number[] } | null)?.cards[0], activeBefore, 'the Active choice stays, and is in play once the game starts');
       sawBench = true;
     }
   }
