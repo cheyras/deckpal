@@ -69,6 +69,7 @@ export function KnowledgeReview() {
         ? `Every account will see this note about ${deciding.note.cards.join(', ')}. A decision is final and recorded in the audit log.`
         : 'The proposer will see it as rejected; nobody else ever sees it. Say why, briefly.'}
       reasonRequired={deciding.decision === 'rejected'}
+      reasonOptional
       action={reason => api.adminReviewKnowledgeNote(deciding.note.id, { decision: deciding.decision, reason })}
       close={() => setDeciding(null)} />}
   </section>
