@@ -92,6 +92,8 @@ const AdminAudit = lazyRoute('./routes/admin/Audit', () => import('./routes/admi
 const AdminFeatures = lazyRoute('./routes/admin/Features', () => import('./routes/admin/Features'), 'AdminFeatures')
 const AdminAiUsage = lazyRoute('./routes/admin/AiUsage', () => import('./routes/admin/AiUsage'), 'AdminAiUsage')
 const AdminDeckeChats = lazyRoute('./routes/admin/DeckeChats', () => import('./routes/admin/DeckeChats'), 'AdminDeckeChats')
+const AdminKnowledge = lazyRoute('./routes/admin/Knowledge', () => import('./routes/admin/Knowledge'), 'KnowledgeReview')
+const DevKnowledge = lazyRoute('./routes/admin/Knowledge', () => import('./routes/admin/Knowledge'), 'DevKnowledgeReview')
 
 // The two things `RootComponent` mounts on every page and almost nobody sees:
 // Deck-E's host (two accounts) and the support prompt (signed in, cloud only).
@@ -257,6 +259,7 @@ const TOOL_PERMISSIONS: Record<string, string> = {
   '/devtools': 'devtools.access', '/scan': 'scanner.use', '/design': 'design.view', '/dev/decke': 'diagnostics.view',
   '/dev/chat-ui': 'diagnostics.view', '/dev/decke-compare': 'diagnostics.view',
   '/dev/scan-harness': 'diagnostics.view', '/dev/quad-labeler': 'scanner.label', '/dev/quad-harvest': 'scanner.label',
+  '/dev/knowledge': 'knowledge.review',
 }
 function SecureOutlet() {
   const pathname = useRouterState({ select: s => s.location.pathname })
@@ -840,6 +843,9 @@ const adminRoute = createRoute({ getParentRoute: () => rootRoute, path: '/admin'
 const adminFeaturesRoute = createRoute({ getParentRoute: () => adminRoute, path: '/features', component: AdminFeatures })
 const adminUsageRoute = createRoute({ getParentRoute: () => adminRoute, path: '/usage', component: AdminAiUsage })
 const adminDeckeChatsRoute = createRoute({ getParentRoute: () => adminRoute, path: '/decke-chats', beforeLoad: () => requireCapability('decke.improvement.read'), component: AdminDeckeChats })
+const adminKnowledgeRoute = createRoute({ getParentRoute: () => adminRoute, path: '/knowledge', beforeLoad: () => requireCapability('knowledge.review'), component: AdminKnowledge })
+// The same review screen for a contributor given knowledge.review: /admin needs admin.access, which a contributor never holds.
+const devKnowledgeRoute = createRoute({ getParentRoute: () => rootRoute, path: '/dev/knowledge', beforeLoad: () => requireCapability('knowledge.review'), component: DevKnowledge })
 const adminIndexRoute = createRoute({ getParentRoute: () => adminRoute, path: '/', component: AdminOverview })
 const adminUsersRoute = createRoute({ getParentRoute: () => adminRoute, path: '/users', beforeLoad: () => requireCapability('users.read'), component: AdminUsers })
 const adminUserRoute = createRoute({ getParentRoute: () => adminRoute, path: '/users/$userId', beforeLoad: () => requireCapability('users.read'), component: AdminUserDetail })
@@ -857,8 +863,8 @@ const creditsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/cred
 }), component: Credits })
 
 const routeTree = rootRoute.addChildren([
-  devtoolsRoute, adminToolsRoute,
-  adminRoute.addChildren([adminFeaturesRoute, adminUsageRoute, adminDeckeChatsRoute, adminIndexRoute, adminUsersRoute, adminUserRoute, adminRolesRoute, adminSettingsRoute, adminAuditRoute]),
+  devtoolsRoute, adminToolsRoute, devKnowledgeRoute,
+  adminRoute.addChildren([adminFeaturesRoute, adminUsageRoute, adminDeckeChatsRoute, adminKnowledgeRoute, adminIndexRoute, adminUsersRoute, adminUserRoute, adminRolesRoute, adminSettingsRoute, adminAuditRoute]),
   creditsRoute,
   ...coreRoutes,
   designRoute,

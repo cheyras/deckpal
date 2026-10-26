@@ -9,6 +9,7 @@ export const DEV_TOOLS = [
   { to: '/dev/scan-harness', name: 'Scanner harness', permission: 'diagnostics.view', description: 'Exercise detector fixtures and camera diagnostics.' },
   { to: '/dev/quad-labeler', name: 'Quad labeler', permission: 'scanner.label', description: 'Capture and annotate training photos in the shared photo corpus.' },
   { to: '/dev/quad-harvest', name: 'Training photo review', permission: 'scanner.label', description: 'Inspect captured training photos and labels.' },
+  { to: '/dev/knowledge', name: 'Knowledge notes', permission: 'knowledge.review', description: 'Approve or reject the rules notes agents propose before every account sees them.' },
 ]
 export function Devtools() {
   const access = useAccess()
