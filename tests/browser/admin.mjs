@@ -28,6 +28,7 @@ export function adminFixture(mount) {
   state.ledger = Array.from({ length: 32 }, (_, i) => ({ id: 'ledger-' + i, delta: i % 2 ? -5 : 20, debtDelta: i === 0 ? -10 : 0, kind: i % 2 ? 'usage' : 'adjustment', reason: 'Ledger review ' + i, createdAt: now, pricingRevision: 1 }))
   // Knowledge notes waiting for review: one carries markup (it must stay text), one a reviewer flag.
   state.knowledge = [
+    { id: 4, cards: ['jamming tower'], statement: 'Jamming Tower stops the effects of Pokémon Tools in play, both players\' alike.', sourceUrl: 'https://www.pokemon.com/us/pokemon-tcg/rules', quote: 'Pokémon Tools attached to each Pokémon (both yours and your opponent\'s) have no effect.', status: 'pending', proposedAt: now, flags: [], reviewedAt: null, reviewReason: null },
     { id: 3, cards: ['nighttime mine', 'dragapult ex'], statement: 'Nighttime Mine makes Phantom Dive cost one more Colorless. <img src=x onerror="window.fixtureUnsafe=true">', sourceUrl: 'https://www.pokemon.com/us/pokemon-tcg/rules', quote: 'Attacks used by each Tera Pokémon in play cost one more Colorless Energy.', status: 'pending', proposedAt: now, flags: [], reviewedAt: null, reviewReason: null },
     { id: 2, cards: ['boss\'s orders'], statement: 'Boss\'s Orders can bring up a Pokémon with no Retreat Cost.', sourceUrl: 'https://example.com/forum/thread', quote: 'Switch in 1 of your opponent\'s Benched Pokémon.', status: 'pending', proposedAt: now, flags: ['source is not a rulings site reviewers know'], reviewedAt: null, reviewReason: null },
   ]
@@ -537,23 +538,30 @@ async function checkAdminTables(browser, server, mount, label, out, fixture, wid
         await go(page,'/admin/knowledge')
         const notes=page.getByRole('table',{name:'Knowledge notes',exact:true})
         await notes.getByText('Boss\'s Orders can bring up a Pokémon with no Retreat Cost.',{exact:true}).waitFor()
-        assert.equal(await notes.locator('tbody > tr').count(),2)
+        const kn=id=>state.knowledge.find(n=>n.id===id)
+        assert.equal(await notes.locator('tbody > tr').count(),3)
         assert.equal(await page.evaluate(()=>window.fixtureUnsafe),undefined,'A note\'s text must stay text')
         await notes.getByText('source is not a rulings site reviewers know',{exact:true}).waitFor()
-        assert.equal(await notes.getByRole('link',{name:'https://www.pokemon.com/us/pokemon-tcg/rules',exact:true}).getAttribute('rel'),'noopener noreferrer nofollow')
+        assert.equal(await notes.getByRole('link',{name:'https://www.pokemon.com/us/pokemon-tcg/rules',exact:true}).first().getAttribute('rel'),'noopener noreferrer nofollow')
         await notes.getByRole('button',{name:'Reject',exact:true}).last().click()
         const reject=page.getByRole('dialog',{name:'Reject note'})
         await reject.getByRole('button',{name:'Reject note',exact:true}).click()
-        assert.equal(state.knowledge[1].status,'pending','A rejection without a reason is not sent')
+        assert.equal(kn(2).status,'pending','A rejection without a reason is not sent')
         await reject.getByLabel('Reason').fill('Not a ruling; a forum guess.')
         await reject.getByRole('button',{name:'Reject note',exact:true}).click()
         await reject.waitFor({state:'detached'})
-        assert.deepEqual([state.knowledge[1].status,state.knowledge[1].reviewReason],['rejected','Not a ruling; a forum guess.'])
-        await notes.getByRole('button',{name:'Approve',exact:true}).click()
+        assert.deepEqual([kn(2).status,kn(2).reviewReason],['rejected','Not a ruling; a forum guess.'])
+        // Approve with a reason (the field is offered, not demanded), then approve another without one.
+        await notes.getByRole('button',{name:'Approve',exact:true}).first().click()
         const approve=page.getByRole('dialog',{name:'Approve note'})
+        await approve.getByLabel('Reason (optional)').fill('Matches the rulebook.')
         await approve.getByRole('button',{name:'Approve note',exact:true}).click()
         await approve.waitFor({state:'detached'})
-        assert.equal(state.knowledge[0].status,'approved')
+        assert.deepEqual([kn(4).status,kn(4).reviewReason],['approved','Matches the rulebook.'])
+        await notes.getByRole('button',{name:'Approve',exact:true}).click()
+        await approve.getByRole('button',{name:'Approve note',exact:true}).click()
+        await approve.waitFor({state:'detached'})
+        assert.deepEqual([kn(3).status,kn(3).reviewReason],['approved',null])
         await page.getByText('Nothing waiting',{exact:true}).waitFor()
         await page.getByRole('button',{name:'Rejected',exact:true}).click()
         await notes.getByText('Review note: Not a ruling; a forum guess.',{exact:true}).waitFor()
