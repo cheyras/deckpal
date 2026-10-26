@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import helmet from 'helmet';
 import { selfHostContentSecurityPolicy } from './securityPolicy.js';
-import { closePool, pool, q, rlsStore, SUPABASE_MODE } from './db.js';
+import { closePool, pool, q, rlsStore, SELF_HOST_REQUEST_TX, SUPABASE_MODE } from './db.js';
 import { ownerGateStatus } from './routes/me.js';
 import { labelerEntitlementStatus } from './ownerGate.js';
 import { deckeApprovalSigning, deckeApprovalWarning, deckeGateStatus, deckeGateWarning } from './decke/gate.js';
@@ -33,6 +33,7 @@ import { searchRouter } from './routes/search.js';
 import { dexRouter } from './routes/dex.js';
 import { collectionRouter } from './routes/collection.js';
 import { listsRouter } from './routes/lists.js';
+import { knowledgeAdminRouter, knowledgeRouter } from './routes/knowledge.js';
 import { decksRouter } from './routes/decks.js';
 import { deckCheckRouter } from './routes/deckCheck.js';
 import { deckSimulateRouter } from './routes/deckSimulate.js';
@@ -408,7 +409,7 @@ export function createApp(): express.Express {
     api.use((req, res, next) => {
       // Legacy self-host handlers retain their established direct-pool shape.
       // Only the new session-derived SQL surfaces need a request transaction.
-      if (!SUPABASE_MODE && !/^\/(?:admin(?:\/|$)|decke(?:\/|$)|me\/(?:credits|features|decke-sharing)(?:\/|$)|oauth(?:\/|$)|decks\/import\/fix$)/.test(req.path)) {
+      if (!SUPABASE_MODE && !SELF_HOST_REQUEST_TX.test(req.path)) {
         next();
         return;
       }
@@ -730,6 +731,7 @@ export function createApp(): express.Express {
   administration.use('/features', adminFeatureRouter);
   administration.use('/ai-usage', adminUsageRouter);
   administration.use('/decke-improvement', deckeImprovementAdminRouter);
+  administration.use(knowledgeAdminRouter);
   administration.use('/users/:id/ai-override', userAiOverrideRouter);
   administration.use(adminRouter);
   api.use('/admin', administration);
@@ -783,6 +785,8 @@ export function createApp(): express.Express {
   api.use('/mutations', mutationsRouter);
   api.use('/collection', collectionRouter);
   api.use('/lists', listsRouter);
+  // Knowledge notes (089/090): any signed-in account proposes and reads; review is under /admin.
+  api.use('/knowledge', knowledgeRouter);
   api.use('/decks/check', deckCheckRouter);
   api.use('/decks/simulate', deckSimulateRouter);
   api.use('/decks/odds', deckOddsRouter);

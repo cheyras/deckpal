@@ -48,6 +48,7 @@ const KIND: Record<string, ToolKind> = {
   edit_battle_log: 'write',
   delete_battle_log: 'write',
   revert: 'write',
+  propose_note: 'write',
   deck_strategy: 'write',
   write_strategy_guide: 'write',
   deep_think: 'check',

@@ -59,6 +59,8 @@ export const WRITE_REFRESH: Record<string, readonly QueryRoot[]> = {
   deck_history: DECK,
   edit_list: LISTS,
   delete_list: LISTS,
+  // A proposed note waits for review and no page shows notes, so nothing goes stale.
+  propose_note: [],
   // Undo can reach anything the mutation log records.
   revert: union(COLLECTION, DECK),
 }

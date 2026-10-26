@@ -520,25 +520,17 @@ const saveDeckTool = defineTool({
     'Create a deck (omit deck_id) or edit one (pass deck_id): rename, change format, and reconcile ' +
     'its card list to the given cards array in one all-or-nothing write. To create from a PTCG Live ' +
     'decklist pass ptcgl_text instead of cards (creation only). ' +
-    'Card ids are TCGdex ids (e.g. sv01-25). When choosing a card_id, use the cheapest printing OF ' +
-    'THE SAME CARD unless the user asked for a specific rarity or art: printings of one card are ' +
-    'gameplay-identical and can differ by hundreds of dollars (a Special Illustration Rare vs the ' +
-    'regular version). SAME NAME IS NOT SAME CARD, and this is the trap — the game reuses names ' +
-    'across sets for cards with different HP and different text, so the cheapest row under a name ' +
-    'can be a different card that happens to share it. Shaymin sv08.5-087 (70 HP, $0.20) and ' +
-    'sv10-010 (80 HP, $0.83) are not the same card. Picking wrong is SILENT: the deck still has 60 ' +
-    'cards and is still legal, it just does not do what the list said. search_cards flags a name ' +
-    'that is several cards and groups the ids that really are interchangeable — swap only within ' +
-    'one of those groups, and when in doubt keep the printing the decklist named. ' +
-    'Defaults to a dry run that prints the exact operations ' +
-    'without executing — re-run with dry_run: false to apply. ' +
-    'Versioning is automatic: card and format changes to a deck version that already has battle ' +
-    'logs create a NEW version (its snapshot is kept forever — see deck_history); changes to a ' +
-    'logless version just amend the current snapshot, so a burst of edits stays one version. ' +
-    'revert can put a replaced list back. ' +
-    "Pass version_note to record WHY the list changed (e.g. 'cut Switch for Jet Energy after v2 " +
-    "losses to Dragapult') — future agents read it in deck_history. Strategy guides are edited " +
-    'with deck_strategy, not here. Not for reading (use decks) or deleting (use delete_deck).',
+    'Card ids are TCGdex ids (e.g. sv01-25). Use the cheapest printing OF THE SAME CARD unless the user ' +
+    'asked for a rarity or art: printings of one card play the same and can differ by hundreds of dollars. ' +
+    'SAME NAME IS NOT SAME CARD: names repeat across sets with different HP and text (Shaymin sv08.5-087, ' +
+    '70 HP, is not sv10-010, 80 HP), and a wrong pick is SILENT: the deck stays legal but plays differently. ' +
+    'search_cards groups the ids that are interchangeable; swap only within a group, and when in doubt keep ' +
+    'the printing the list named. ' +
+    'Dry run by default (prints the exact operations); re-run with dry_run: false to apply. ' +
+    'Card or format changes to a version with battle logs create a NEW version (its snapshot is kept; see ' +
+    'deck_history); a logless version is amended in place. revert can put a replaced list back. ' +
+    "Pass version_note to record WHY the list changed (e.g. 'cut Switch for Jet Energy after v2 losses to " +
+    "Dragapult'); deck_history shows it. Strategy guides: deck_strategy. Reading: decks. Deleting: delete_deck.",
   inputSchema: z.object({
     // ── SAY WHICH, RATHER THAN LEAVING IT TO BE INFERRED ────────────────────
     //

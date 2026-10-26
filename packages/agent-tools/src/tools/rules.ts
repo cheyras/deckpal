@@ -3,6 +3,7 @@ import { RULING_INDEX, RULING_URL, type RulingIndexEntry } from '@deckpal/sim/ru
 import { defineTool, type ToolDefinition } from '../registry.js';
 import { ok } from '../result.js';
 import { CORE_RULES, type CoreRule } from '../rules/coreRules.js';
+import { approvedNotes, noteLines } from './notes.js';
 
 /**
  * rules_lookup — the game's rules and the official rulings, so a rules answer never comes from model memory.
@@ -150,7 +151,7 @@ const rulesLookupTool = defineTool({
       .describe('Card, attack or Ability names involved, e.g. ["Cursed Blast", "Hide \'n\' Sneak"].'),
   }),
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
-  handler: async (args) => {
+  handler: async (args, ctx) => {
     const query = (args.query ?? '').trim();
     const cards = (args.cards ?? []).map(loose).filter(Boolean);
     const qWords = words(query);
@@ -194,7 +195,8 @@ const rulesLookupTool = defineTool({
     } else if (query) {
       lines.push('No core rule matched those words. Core rules available: ' + CORE_RULES.map((r) => r.title).join('; ') + '.');
     }
-    const namedLabel = [...new Set([...(args.cards ?? []), ...namesInQuery(query, args.cards ?? [])])].join(', ');
+    const namedAsGiven = [...new Set([...(args.cards ?? []), ...namesInQuery(query, args.cards ?? [])])];
+    const namedLabel = namedAsGiven.join(', ');
     if (rulings.length) {
       lines.push(`Official rulings filed under ${namedLabel} (${rulings.length}${rulings.length > MAX_RULINGS ? `, showing ${MAX_RULINGS}` : ''}):`);
       for (const { r } of rulings.slice(0, MAX_RULINGS)) lines.push(renderRuling(r));
@@ -204,6 +206,10 @@ const rulesLookupTool = defineTool({
     } else if (named.length) {
       lines.push(`No official ruling is filed under ${namedLabel}. The card text (get_card) and the core rules decide it.`);
     }
+    // Reviewed community notes about the same names (Phase 6), after the official rulings they never outrank.
+    // The names as given, not `named`: loose() strips punctuation ("Boss's Orders" -> "bosss orders"), and notes are
+    // stored under noteKey(), which keeps it.
+    lines.push(...noteLines(await approvedNotes(ctx?.db, namedAsGiven)));
     lines.push('If these leave two answers, say what is unclear rather than guessing; a ruling link is the authority.');
     return ok(lines.join('\n'), { rules: rules.map((x) => x.r.id), rulings: rulings.slice(0, MAX_RULINGS).map((x) => x.r.id) });
   },

@@ -372,6 +372,10 @@ Goal: an exact answer from DeckPal's rules and the card's real text. Never answe
 3. **Answer from those two sources.** Quote or closely paraphrase the clause that answers it (the attack, Ability, Trainer effect, or the rule line). Say how they combine for the board the player described.
 4. **Name what would change the answer**, e.g. "unless a Stadium in play says otherwise".
 
+Both tools may also show community notes: findings other agents proposed and a DeckPal reviewer approved. A note points at its source; the card text and the rulings still decide.
+
+When research outside DeckPal settles how named cards interact and DeckPal had no ruling for it, offer to share it with \`propose_note\`: \`cards\`, the finding as \`statement\`, \`source_url\` (a rulings page, not a forum guess) and \`quote\` (the source's own words). Preview first; \`dry_run\`: false submits it for review. Never include anything about the player.
+
 ## Myths to rule out
 
 Two things models have wrongly claimed. Do not repeat them:
@@ -563,6 +567,7 @@ A deck, list or card can usually be named by its name. Writes preview by default
 | \`edit_list\` | Create or edit a list | Say \`mode\`. \`add_search\` adds a whole search in one call; \`add_missing\` needs an existing list |
 | \`revert\` | Undo an operation | Dry run first; read conflicts |
 | \`set_cart\` | TCGplayer links for a cart | Builds links only |
+| \`propose_note\` | Share a settled rules finding with every user | \`cards\`, \`statement\`, \`source_url\`, \`quote\`; a reviewer approves it first. See \`rules\` |
 
 ## Common mistakes
 

@@ -58,13 +58,13 @@ test('the meta fits a results page', () => {
   assert.ok(COPY.meta.description.length <= 160, `description is ${COPY.meta.description.length} chars`)
 })
 
-test('llms.txt quotes the 31 tools the connector exposes, and lists each once', () => {
-  assert.match(COPY.seo.llmsTxt, /31 tools \(20 read, 11 write\)/)
+test('llms.txt quotes the 32 tools the connector exposes, and lists each once', () => {
+  assert.match(COPY.seo.llmsTxt, /32 tools \(20 read, 12 write\)/)
   const quoted = Number(/(\d+) tools \(\d+ read, \d+ write\)/.exec(COPY.seo.llmsTxt)?.[1])
   const tools = COPY.seo.llmsTxt.match(/^- [A-Z][^:]+: ([a-z_, ]+)$/gm)?.flatMap((l) => l.split(': ')[1].split(', ')) ?? []
   assert.equal(tools.length, quoted)
   assert.equal(new Set(tools).size, quoted)
-  assert.doesNotMatch(everything, /\b(21|26|27|28|29|30) tools\b/)
+  assert.doesNotMatch(everything, /\b(21|26|27|28|29|30|31) tools\b/)
 })
 
 test('the /connect tool groups are the same tools as llms.txt', () => {

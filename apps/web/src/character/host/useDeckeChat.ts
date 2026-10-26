@@ -2304,6 +2304,7 @@ const APPROVAL_PHRASE: Record<string, string> = {
   edit_list: 'change this list',
   delete_list: 'delete this list',
   revert: 'undo that change',
+  propose_note: 'share this rules note for review',
 }
 
 function titleFor(name: string): string {
