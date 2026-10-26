@@ -31,6 +31,10 @@ export interface DeckeImprovementLeg { id: string; leg: number; asked: string | 
 export interface DeckeImprovementEvent { ordinal: number; batch: number; batchOrdinal: number; legId: string | null; kind: string; payload: unknown }
 export interface DeckeImprovementTurn { seq: number; asked: string; answered: string; tools: unknown; feedback: number | null; feedbackComment: string | null; offsetSeconds: number; tokens: DeckeImprovementTokens; costUsd: number | null; costCoverage: DeckeImprovementCoverage; buildSha: string | null; buildPr: number | null; finishReason: string | null; hasError: boolean; legs: DeckeImprovementLeg[]; events: DeckeImprovementEvent[] }
 export interface DeckeImprovementDetail { conversation: DeckeImprovementConversation; turns: DeckeImprovementTurn[] }
+/** A knowledge note as a reviewer sees it (`GET /admin/knowledge`). Every text field is the proposer's, not DeckPal's. */
+export type KnowledgeNoteStatus = 'pending' | 'approved' | 'rejected'
+export interface KnowledgeNote { id: number; cards: string[]; statement: string; sourceUrl: string; quote: string; status: KnowledgeNoteStatus; proposedAt: string; flags: string[]; reviewedAt: string | null; reviewReason: string | null }
+export interface KnowledgeQueue { notes: KnowledgeNote[]; next: number | null }
 
 const BASE = isCloudMode ? '/api' : '/deckpal/api'
 
@@ -2296,6 +2300,10 @@ export const api = {
   /** Shared Deck-E chats (pseudonymised), using the SQL reader's bucketed shape. */
   adminDeckeImprovementList: (params: string, signal?: AbortSignal) => get<DeckeImprovementList>('/admin/decke-improvement?' + params, signal),
   adminDeckeImprovement: (id: string, signal?: AbortSignal) => get<DeckeImprovementDetail>('/admin/decke-improvement/' + encodeURIComponent(id), signal),
+  /** Knowledge notes waiting for (or past) review; needs knowledge.review in a browser session. */
+  adminKnowledgeNotes: (params: string, signal?: AbortSignal) => get<KnowledgeQueue>('/admin/knowledge?' + params, signal),
+  adminReviewKnowledgeNote: (id: number, body: { decision: 'approved' | 'rejected'; reason: string }) =>
+    send<{ note: KnowledgeNote }>('POST', `/admin/knowledge/${id}/review`, body),
   adminAiConversation: (id: string, params: string, signal?: AbortSignal) => get<{ items: AiUsageDetail[]; total: number; limit: number; offset: number }>('/admin/ai-usage/conversations/' + encodeURIComponent(id) + '?' + params, signal),
   meFeatures: (signal?: AbortSignal) => get<{ features: FeatureAccess[] }>('/me/features', signal),
   setMeFeature: (key: string, optedIn: boolean, expectedRevision: number) => send<{ features: FeatureAccess[] }>('PATCH', '/me/features/' + encodeURIComponent(key), { optedIn, expectedRevision }),

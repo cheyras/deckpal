@@ -39,8 +39,9 @@ export function useAdminSave() {
   }
   return { busy, error, success, save }
 }
-export function ConfirmAction({ title, description, action, close, reasonRequired = true }: {
-  title: string; description: string; action: (reason: string) => Promise<unknown>; close: () => void; reasonRequired?: boolean
+/** `reasonRequired` (default) demands a reason; `reasonOptional` shows the field without demanding it; neither hides it. */
+export function ConfirmAction({ title, description, action, close, reasonRequired = true, reasonOptional = false }: {
+  title: string; description: string; action: (reason: string) => Promise<unknown>; close: () => void; reasonRequired?: boolean; reasonOptional?: boolean
 }) {
   const [reason, setReason] = useState('')
   const state = useAdminSave()
@@ -48,6 +49,7 @@ export function ConfirmAction({ title, description, action, close, reasonRequire
   return <Sheet title={title} onClose={() => { if (state.busy) return false; close() }}><form onSubmit={submit} className="space-y-[16px]">
     <p className="text-text-body">{description}</p>
     {reasonRequired && <Field label="Reason" required minLength={3} maxLength={500} value={reason} onChange={e => setReason(e.target.value)} hint="Recorded in the administrative audit log." />}
+    {!reasonRequired && reasonOptional && <Field label="Reason (optional)" maxLength={500} value={reason} onChange={e => setReason(e.target.value)} hint="Recorded in the administrative audit log." />}
     {state.error && <FormAlert kind="error">{state.error}</FormAlert>}
     <div className="flex flex-wrap gap-[12px]"><Button type="submit" loading={state.busy}>{title}</Button><Button variant="ghost" disabled={state.busy} onClick={close}>Cancel</Button></div>
   </form></Sheet>
