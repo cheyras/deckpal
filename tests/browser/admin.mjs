@@ -26,10 +26,15 @@ export function adminFixture(mount) {
   state.audit = Array.from({ length: 36 }, (_, i) => ({ id: 'audit-' + i, actorId: i % 2 ? USER : OWNER, actorName: i % 2 ? 'Future Contributor' : 'Owner', action: i % 3 ? 'role.update' : 'user.suspend', targetType: 'user', targetId: i % 2 ? USER : OWNER, before: { suspended: false }, after: { suspended: true, note: '<script>window.fixtureUnsafe = true</script>' }, reason: 'Reviewed change ' + i, createdAt: new Date(Date.parse(now) - i * 60000).toISOString() }))
   state.orders = Array.from({ length: 38 }, (_, i) => ({ id: 'credit-order-' + i, userId: i % 2 ? USER : OWNER, username: i % 2 ? 'Future Contributor' : 'Owner', packName: 'Starter', credits: 500, priceCents: 500, currency: 'usd', status: i % 3 === 0 ? 'refunded' : 'paid', refundedCents: i % 3 === 0 ? 100 : 0, reversedCredits: i % 3 === 0 ? 100 : 0, disputeStatus: i === 0 ? 'closed' : null, createdAt: now, paidAt: now }))
   state.ledger = Array.from({ length: 32 }, (_, i) => ({ id: 'ledger-' + i, delta: i % 2 ? -5 : 20, debtDelta: i === 0 ? -10 : 0, kind: i % 2 ? 'usage' : 'adjustment', reason: 'Ledger review ' + i, createdAt: now, pricingRevision: 1 }))
+  // Knowledge notes waiting for review: one carries markup (it must stay text), one a reviewer flag.
+  state.knowledge = [
+    { id: 3, cards: ['nighttime mine', 'dragapult ex'], statement: 'Nighttime Mine makes Phantom Dive cost one more Colorless. <img src=x onerror="window.fixtureUnsafe=true">', sourceUrl: 'https://www.pokemon.com/us/pokemon-tcg/rules', quote: 'Attacks used by each Tera Pokémon in play cost one more Colorless Energy.', status: 'pending', proposedAt: now, flags: [], reviewedAt: null, reviewReason: null },
+    { id: 2, cards: ['boss\'s orders'], statement: 'Boss\'s Orders can bring up a Pokémon with no Retreat Cost.', sourceUrl: 'https://example.com/forum/thread', quote: 'Switch in 1 of your opponent\'s Benched Pokémon.', status: 'pending', proposedAt: now, flags: ['source is not a rulings site reviewers know'], reviewedAt: null, reviewReason: null },
+  ]
   initFeedback(state, PERMISSIONS)
   const allowMutation = (pathname, method) => {
     const rel = pathname.slice(mount.length)
-    return ['POST','PUT','PATCH','DELETE'].includes(method) && ((state.chatProbe && ['/api/chat','/api/decke/history'].includes(rel)) || /^\/api\/(?:me\/(?:features\/[^/]+|decke-sharing|settings)|admin\/(?:features\/[^/]+|users\/[^/]+\/(?:role|ai-override)))$/.test(rel) || /^\/api\/admin\/(roles(?:\/[^/]+)?|settings|users\/[^/]+\/(roles|status|revoke-tokens)|credits\/(settings|packs(?:\/[^/]+)?|users\/[^/]+\/(adjustments|resolve-hold)))$/.test(rel) || rel === '/api/me/credits/checkout' || (method === 'POST' && rel === '/api/me/billing/visit'))
+    return ['POST','PUT','PATCH','DELETE'].includes(method) && ((state.chatProbe && ['/api/chat','/api/decke/history'].includes(rel)) || /^\/api\/(?:me\/(?:features\/[^/]+|decke-sharing|settings)|admin\/(?:features\/[^/]+|users\/[^/]+\/(?:role|ai-override)))$/.test(rel) || /^\/api\/admin\/(roles(?:\/[^/]+)?|settings|users\/[^/]+\/(roles|status|revoke-tokens)|credits\/(settings|packs(?:\/[^/]+)?|users\/[^/]+\/(adjustments|resolve-hold)))$/.test(rel) || rel === '/api/me/credits/checkout' || (method === 'POST' && rel === '/api/me/billing/visit') || (method === 'POST' && /^\/api\/admin\/knowledge\/\d+\/review$/.test(rel)))
   }
   const response = (rel, url, req = { method: 'GET' }) => {
     const { method, body } = req
@@ -143,6 +148,18 @@ export function adminFixture(mount) {
       const user = url.searchParams.get('user'), status = url.searchParams.get('status'), limit = Number(url.searchParams.get('limit') ?? 25), offset = Number(url.searchParams.get('offset') ?? 0)
       const orders = state.orders.filter(order => (!user || order.userId === user) && (!status || order.status === status))
       return ok({orders:orders.slice(offset,offset+limit),total:orders.length,offset,limit})
+    }
+    if (rel === '/api/admin/knowledge') {
+      const status = url.searchParams.get('status') ?? 'pending'
+      return ok({ notes: state.knowledge.filter(n => n.status === status), next: null })
+    }
+    if (/^\/api\/admin\/knowledge\/\d+\/review$/.test(rel)) {
+      assert.equal(method, 'POST')
+      assert.deepEqual(Object.keys(body).sort(), ['decision', 'reason'])
+      const note = state.knowledge.find(n => n.id === Number(rel.split('/')[4]))
+      if (!note || note.status !== 'pending') return { status: 404, body: { error: { message: 'That note is not waiting for review.' } } }
+      Object.assign(note, { status: body.decision, reviewedAt: now, reviewReason: body.reason || null })
+      return ok({ note })
     }
     if (rel === '/api/admin/audit') {
       const actor = url.searchParams.get('actor'), action = url.searchParams.get('action'), target = url.searchParams.get('target'), limit = Number(url.searchParams.get('limit') ?? 25), offset = Number(url.searchParams.get('offset') ?? 0)
@@ -513,6 +530,36 @@ async function checkAdminTables(browser, server, mount, label, out, fixture, wid
       await audit.getByLabel('Rows per page').selectOption('50');await waitRange(audit,'1–36 of 36 results')
       assert.equal(await auditTable.locator('tbody > tr').count(),36)
       results.push({case:'admin-audit-table-exact-filters-safe-keyboard-details',label,width})
+
+      if(width===1280){
+        // Knowledge notes review: proposer text stays text, flags show, approve needs no reason, reject needs one.
+        state.permissions=[...PERMISSIONS,'knowledge.review']
+        await go(page,'/admin/knowledge')
+        const notes=page.getByRole('table',{name:'Knowledge notes',exact:true})
+        await notes.getByText('Boss\'s Orders can bring up a Pokémon with no Retreat Cost.',{exact:true}).waitFor()
+        assert.equal(await notes.locator('tbody > tr').count(),2)
+        assert.equal(await page.evaluate(()=>window.fixtureUnsafe),undefined,'A note\'s text must stay text')
+        await notes.getByText('source is not a rulings site reviewers know',{exact:true}).waitFor()
+        assert.equal(await notes.getByRole('link',{name:'https://www.pokemon.com/us/pokemon-tcg/rules',exact:true}).getAttribute('rel'),'noopener noreferrer nofollow')
+        await notes.getByRole('button',{name:'Reject',exact:true}).last().click()
+        const reject=page.getByRole('dialog',{name:'Reject note'})
+        await reject.getByRole('button',{name:'Reject note',exact:true}).click()
+        assert.equal(state.knowledge[1].status,'pending','A rejection without a reason is not sent')
+        await reject.getByLabel('Reason').fill('Not a ruling; a forum guess.')
+        await reject.getByRole('button',{name:'Reject note',exact:true}).click()
+        await reject.waitFor({state:'detached'})
+        assert.deepEqual([state.knowledge[1].status,state.knowledge[1].reviewReason],['rejected','Not a ruling; a forum guess.'])
+        await notes.getByRole('button',{name:'Approve',exact:true}).click()
+        const approve=page.getByRole('dialog',{name:'Approve note'})
+        await approve.getByRole('button',{name:'Approve note',exact:true}).click()
+        await approve.waitFor({state:'detached'})
+        assert.equal(state.knowledge[0].status,'approved')
+        await page.getByText('Nothing waiting',{exact:true}).waitFor()
+        await page.getByRole('button',{name:'Rejected',exact:true}).click()
+        await notes.getByText('Review note: Not a ruling; a forum guess.',{exact:true}).waitFor()
+        state.permissions=[...PERMISSIONS]
+        results.push({case:'admin-knowledge-review-approve-reject-text-safe',label,width})
+      }
 
       await go(page,'/admin/settings')
       const packs=page.getByRole('region',{name:'Credit packs',exact:true}), packTable=packs.getByRole('table')
