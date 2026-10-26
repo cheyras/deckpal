@@ -253,9 +253,14 @@ async function seedConversation({ conversation, request, operation, seq = 0, cos
   ]);
 }
 
+// Recent, never a fixed date. This leg shares a turn with legs recorded at real time (the backfill test), and a turn's
+// latency is its span in integer milliseconds, which overflows past about 24.8 days: a fixed 2026-09-28 started failing
+// every run from 2026-10-23.
+const LEG_STARTED = new Date(Date.now() - 60_000).toISOString();
+const LEG_FINISHED = new Date(Date.now() - 59_000).toISOString();
 const validLeg = (answer = 'redacted answer') => ({
   asked: 'redacted question', answered: answer, model_id: 'fixture/model', provider: 'fixture',
-  started_at: '2026-09-28T18:00:00.000Z', finished_at: '2026-09-28T18:00:01.000Z', latency_ms: 1000,
+  started_at: LEG_STARTED, finished_at: LEG_FINISHED, latency_ms: 1000,
   input_tokens: 123, output_tokens: 27, cache_read_tokens: 44, cache_write_tokens: 62, reasoning_tokens: 13,
   cost_usd: 0.00137, cost_coverage: 'complete', cost_source: 'provider_reported', status: 'completed', finish_reason: 'stop',
   build_sha: 'fixture-sha', build_pr: 278, error: { owner: 'John%20Smith' },
@@ -1269,8 +1274,11 @@ try {
     const nextDay = new Date(Date.parse(day + 'T00:00:00Z') + 86_400_000).toISOString().slice(0, 10);
     const dayBucket = await token(owner, tokenId, (c) => data(c,
       'SELECT public.decke_improvement_list($1::jsonb,NULL,20) data', [JSON.stringify({ from: day, to: nextDay })]));
-    assert.ok(dayBucket.items.length > 1);
+    // The day filter keeps exactly the chats in its range: every one dated that day is in it, none from outside it.
+    // (Not "more than one": how many fixtures share a day depends on when the suite runs; see LEG_STARTED.)
     assert.ok(dayBucket.items.some((item) => item.id === derivedShared));
+    for (const item of list.items.filter((i) => i.date === day)) assert.ok(dayBucket.items.some((b) => b.id === item.id), item.id);
+    for (const item of dayBucket.items) assert.ok(item.date >= day && item.date <= nextDay, item.date);
     assert.equal(typeof improvementRoute.listFilters, 'function');
     const routeFilters = improvementRoute.listFilters({ min_cost: '0.01', max_cost: '2.00' });
     assert.deepEqual(routeFilters, { min_cost: 0.01, max_cost: 2 });
