@@ -792,6 +792,7 @@ describe('production ingress and session limits over real HTTP', () => {
       "'/features',adminFeatureRouter",
       "'/ai-usage',adminUsageRouter",
       "'/decke-improvement',deckeImprovementAdminRouter",
+      'knowledgeAdminRouter',
       "'/users/:id/ai-override',userAiOverrideRouter",
       'adminRouter',
     ], 'all administration routers are registered once without additional limiters');
