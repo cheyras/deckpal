@@ -11,7 +11,7 @@ permissions:
 jobs:
   browser-shard:
     name: browser shard ${{ matrix.shard }}/8
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -37,7 +37,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-browsers-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+          key: playwright-browsers-${{ runner.os }}-${{ env.ImageOS }}-${{ steps.playwright.outputs.version }}
       - name: Install Chromium and WebKit (cache miss)
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install --with-deps chromium webkit
@@ -87,7 +87,7 @@ jobs:
     name: browser
     needs: browser-shard
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout
