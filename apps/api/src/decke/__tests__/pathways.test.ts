@@ -5,9 +5,34 @@ import { fileURLToPath } from 'node:url'
 import { PATHWAY_NAMES, type PathwayName } from '../pathways/names.js'
 import { pathwayBlock, pathwayText } from '../pathways/index.js'
 import { ADDRESSING_LINES } from '../prompt.js'
+import { PLAYBOOK_TEXT, SHARED_RULES, type SharedRule } from '@deckpal/agent-tools'
 
 const flat = (value: string) => value.replace(/\s+/g, ' ')
 const SPECIFIC = PATHWAY_NAMES.filter((name) => name !== 'general')
+
+// Phase 7 (owner rulings 2026-10-26): Deck-E and the claude.ai playbooks state these rules word for word. Each pathway
+// here, and its playbook, must carry the shared text unchanged — a rule edited in one place only fails this test.
+const SHARED_IN: Record<SharedRule, { pathways: PathwayName[]; playbooks: (keyof typeof PLAYBOOK_TEXT)[] }> = {
+  reviewDepth: { pathways: ['battle_log'], playbooks: ['battle-log', 'game-analysis'] },
+  judgeFairly: { pathways: ['battle_log', 'battle_review'], playbooks: ['game-analysis'] },
+  causes: { pathways: ['battle_log', 'battle_review'], playbooks: ['game-analysis'] },
+  reviewShape: { pathways: ['battle_log'], playbooks: ['game-analysis'] },
+  endingSplit: { pathways: ['battle_review'], playbooks: ['record-review'] },
+  newVersion: { pathways: ['battle_review', 'deck_iterate'], playbooks: ['game-analysis', 'record-review', 'deck-tune'] },
+  deckOptions: { pathways: ['deck_iterate'], playbooks: ['deck-tune'] },
+  setGoals: { pathways: ['collection_plan'], playbooks: ['collection'] },
+  rulesSources: { pathways: ['card_rules'], playbooks: ['rules'] },
+}
+
+test('Deck-E and the playbooks state every shared rule word for word', () => {
+  for (const [rule, where] of Object.entries(SHARED_IN) as [SharedRule, (typeof SHARED_IN)[SharedRule]][]) {
+    for (const name of where.pathways) assert.ok(pathwayText(name).includes(SHARED_RULES[rule]), `pathway ${name} lost shared rule ${rule}`)
+    for (const name of where.playbooks) assert.ok(PLAYBOOK_TEXT[name].includes(SHARED_RULES[rule]), `playbook ${name} lost shared rule ${rule}`)
+  }
+  assert.deepEqual(Object.keys(SHARED_IN).sort(), Object.keys(SHARED_RULES).sort(), 'every shared rule is placed somewhere')
+  // Deck-E's writes are approved on cards; a shared rule that mentions dry runs would reach its texts (aisdk.ts).
+  for (const [rule, text] of Object.entries(SHARED_RULES)) assert.doesNotMatch(text, /dry_run|dry run|preview first/i, rule)
+})
 
 test('every specific pathway has bounded guidance and general adds nothing', () => {
   for (const name of SPECIFIC) {
@@ -36,9 +61,10 @@ test('battle logging preserves paste, ranking, depth, debrief, and hidden-info r
   assert.match(text, /Set `opponent_archetype`/)
   assert.match(text, /absent means “new archetype”.*`games >= 3`/)
   assert.match(text, /without `deck_id` so it ranks their decks/)
-  // One game, one depth (2026-10-10). The old list let a familiar mirror be
-  // Light and "met at least three times" Deep at once; the order now decides.
-  assert.match(text, /One game gets one depth\. \*\*Light\*\* is checked first.*even against a deck they meet every week.*\*\*Deep\*\* is .*\*\*Standard\*\* is every other real game/)
+  // One game, one depth. Owner ruling 2026-10-26: the digest's review worth decides it, and the record only raises
+  // standard to deep (it replaced the 2026-10-10 Light-first order, which skipped the digest).
+  assert.ok(text.includes(flat(SHARED_RULES.reviewDepth)))
+  assert.match(text, /\*\*brief\*\* game: save the \*\*Read\*\* line.*\*\*standard\*\* game.*\*\*deep\*\* game is the same with more/)
   for (const detail of [
     'main attacker', 'who went first', 'first Knock Out', 'final prize score',
     'play that frustrated', 'turn they would replay', 'whiffed a Supporter',
@@ -66,12 +92,16 @@ test('in-person logging asks for the deck, offers ready options, and never guess
   assert.match(text, /never guess `player_name`.*only when the reader told you their screen name, or when the tool says it cannot tell/)
 })
 
-test('a review has a shape and four defined causes', () => {
+// Owner ruling 2026-10-26: the playbook's review everywhere — five causes (Ending added), the Opponent line, the deep
+// block, and the strict misplay bar.
+test('a review has a shape, an Opponent line, and five defined causes', () => {
   const text = flat(pathwayText('battle_log'))
-  assert.match(text, /\*\*Read:\*\* <cause> — <turning point: turn and event>.*\*\*Prizes:\*\*.*\*\*Lesson:\*\*.*\*\*Watch:\*\*/)
-  for (const cause of ['Variance', 'Misplay', 'List', 'Matchup']) {
-    assert.match(text, new RegExp(`\\*\\*${cause}\\*\\* is `), `cause ${cause} is named but not defined`)
+  assert.match(text, /\*\*Read:\*\* <cause>: <turning point, with turn and event>.*\*\*Prizes:\*\*.*\*\*Opponent:\*\*.*\*\*Lesson:\*\*.*\*\*Watch:\*\*/)
+  assert.match(text, /\*\*Key turns:\*\*.*\*\*Pattern:\*\*.*\*\*Try next:\*\*/)
+  for (const cause of ['Variance', 'Misplay', 'List', 'Matchup', 'Ending']) {
+    assert.match(text, new RegExp(`\\*\\*${cause}:\\*\\* \\S`), `cause ${cause} is named but not defined`)
   }
+  assert.match(text, /\*\*misplay\*\* only when \(3\) is clearly yes/)
 })
 
 // Deep Think is not wired (39c5ab9f). A pathway that offers it promises the
@@ -96,10 +126,10 @@ test('Deep Think is only ever a conditional offer, and the battle texts say noth
 
 // Live probe, 2026-10-10: a lopsided paste was logged with no `notes` at all,
 // and its reply ran past 800 characters.
-test('every logging call carries notes, and a Light game stays a couple of lines', () => {
+test('every logging call carries notes, and a brief game stays a couple of lines', () => {
   const text = flat(pathwayText('battle_log'))
   assert.match(text, /Every logging call sets `notes` — when the reader said nothing beyond the paste, one plain line on what happened/)
-  assert.match(text, /\*\*Light\*\* skips the digest and the consult: one or two lines in `review` on the logging call and a reply of a couple of lines are the whole job/)
+  assert.match(text, /A \*\*brief\*\* game: save the \*\*Read\*\* line to `review` with `edit_battle_log` and reply in a couple of lines/)
 })
 
 // 2026-10-10: the digest and the consult. The ORDER is the contract — the
@@ -109,12 +139,13 @@ test('battle logging: after the approval, Standard games digest, consult when av
   const text = flat(pathwayText('battle_log'))
   assert.match(
     text,
-    /approval lands.*`add_battle_log` returns the battle number.*\*\*Standard\*\*: call `battle_digest`.*When the `consult` tool is available, call it once.*`review` with `edit_battle_log`/,
+    /approval lands.*`add_battle_log` returns the battle number, call `battle_digest`.*review worth.*\*\*standard\*\* game: when the `consult` tool is available, call it once.*`review` with `edit_battle_log`/,
   )
-  assert.match(text, /\*\*Light\*\* skips the digest and the consult/)
+  // Every Live game is digested now: the digest decides the depth (owner ruling 2026-10-26).
+  assert.doesNotMatch(text, /skips the digest/)
   // A Deep game gets the fuller treatment on THIS turn: the same digest and
   // consult, with the archetype's history in the brief.
-  assert.match(text, /\*\*Deep\*\* is the same with more in the brief — the record against this archetype and the notes and reviews of earlier games against it \(`battle_logs` with `log_id`/)
+  assert.match(text, /\*\*deep\*\* game is the same with more in the brief — the record against this archetype and the notes and reviews of earlier games against it \(`battle_logs` with `log_id`/)
   assert.match(text, /the one change worth testing/)
   // The colleague sees only the brief, so the brief must carry the reader's words.
   assert.match(text, /brief is the digest plus the reader's own words.*because it sees nothing else/)
@@ -147,7 +178,7 @@ test('battle review digests the games that matter before it concludes — not ev
   assert.match(text, /Before concluding, call `battle_digest` on the logs that matter most — the losses to the archetype this deck meets most/)
   assert.match(text, /not on every log/)
   assert.ok(
-    text.indexOf('battle_digest') < text.indexOf('classify losses as variance, misplay, list or matchup'),
+    text.indexOf('battle_digest') < text.indexOf('to give each loss its cause'),
     'the digests are evidence for the classification, so they come first',
   )
 })
@@ -155,7 +186,8 @@ test('battle review digests the games that matter before it concludes — not ev
 test("the digest's replay is named where games are reviewed: moments are facts to explain, review worth confirms depth (2026-10-14)", () => {
   const log = flat(pathwayText('battle_log'))
   assert.match(log, /moments worth a look \(a Pokémon Knocked Out on its own turn, an attack that did no damage, a near miss, a timer turn, a concession\)/)
-  assert.match(log, /Treat those moments as facts to explain, and let `review worth` confirm the depth, unless the reader asked for a full review/)
+  assert.match(log, /Treat those moments as facts to explain\./)
+  assert.match(log, /\*\*Depth\*\* comes from the digest's `review worth` line/)
   assert.match(log, /`detail: 'turns'` for the board as each turn began/)
   assert.match(log, /call `battle_turn_review` on the one or two of the reader's turns that decided it/)
   assert.match(log, /never call a reasonable play a misplay on its word alone/)
@@ -185,7 +217,9 @@ test('season and tournament review offers Deep Think through the consent tool', 
 test('deck iteration records evidence and sample-size limits in version history', () => {
   const text = flat(pathwayText('deck_iterate'))
   assert.match(text, /sample size/)
-  assert.match(text, /at most two changes/)
+  // Owner ruling 2026-10-26: at least three ranked options, the player picks.
+  assert.match(text, /Offer at least three ranked options, best first/)
+  assert.doesNotMatch(text, /at most two changes/)
   assert.match(text, /Keep observations separate from proposals.*END with at most two concrete next steps, one line each/)
   assert.match(text, /`version_note`.*evidence/)
   assert.match(text, /what to watch in the next games/)
@@ -212,11 +246,13 @@ test('deck iteration saves the whole list as an edit, and builds off an old vers
 
 test('collection planning uses DeckPal goal names and looks before it asks', () => {
   const text = flat(pathwayText('collection_plan'))
-  for (const goal of ['**complete**', '**master**', '**grandmaster**']) assert.ok(text.includes(goal), `missing goal: ${goal}`)
+  for (const goal of ['**complete:**', '**master:**', '**grandmaster:**', '**numbered:**']) assert.ok(text.includes(goal), `missing goal: ${goal}`)
   assert.match(text, /one `set_progress` call.*ask with one short `ask_user` choice/)
-  // No tool goal means "numbered set"; rarity_exclude filters the missing rows
-  // and cost but not the owned-of-total line (catalog.ts set_progress).
-  assert.match(text, /There is no “numbered set” goal/)
+  // `numbered` IS a set_progress goal (catalog.ts SET_PROGRESS_GOALS); the old "There is no numbered set goal" was
+  // wrong. Lists and carts still take complete with rarity_exclude, which filters the missing rows and cost but not the
+  // owned-of-total line.
+  assert.doesNotMatch(text, /There is no “numbered set” goal/)
+  assert.match(text, /For a list or cart of the numbered set, use complete with `rarity_exclude`/)
   assert.match(text, /`rarity_exclude`/)
   assert.match(text, /the owned-of-total line still counts the whole set/)
   // Every rarity numbered past the printed total in the catalog's vocabulary (apps/api/src/rarity.ts).
@@ -286,8 +322,8 @@ test('card rules and research keep mutable facts in the right sources', () => {
   assert.match(rules, /Card text and legality come from `get_card` or `search_cards`, never memory or the web/)
   assert.match(rules, /N's Zoroark ex is not Zoroark ex/)
   // Game rules and rulings from the tool, not memory (2026-10-13: models invented rules in the owner's tests).
-  assert.match(rules, /official rulings come from `rules_lookup`, never memory/)
-  assert.match(rules, /Tera, Ancient or Future tag is in `get_card`/)
+  assert.match(rules, /official rulings come from `rules_lookup`; card text, tags \(Tera, Ancient, Future\) and legality from `get_card`\. Never from memory/)
+  assert.match(rules, /offer to share it with `propose_note`/)
 
   const research = flat(pathwayText('research'))
   assert.match(research, /Every meta answer must state today's date.*date each source reports on.*“undated”/)

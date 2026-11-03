@@ -158,14 +158,16 @@ describe('server instructions: content', () => {
     assert.match(SERVER_INSTRUCTIONS, /Always set `opponent_archetype`/);
   });
 
-  test("sizes the review: light, standard, deep, from the digest's review worth and the archetype record", () => {
-    assert.match(SERVER_INSTRUCTIONS, /read `battle_digest` once it is logged and follow its review worth/);
-    assert.match(SERVER_INSTRUCTIONS, /A request for a review always gets a full one/);
-    assert.match(SERVER_INSTRUCTIONS, /Light:.*2–3 lines/);
-    assert.match(SERVER_INSTRUCTIONS, /Standard:.*turning point.*variance, misplay, list or matchup.*one lesson/);
-    assert.match(SERVER_INSTRUCTIONS, /Deep:.*new to this deck or met >= 3 times/);
+  // Owner ruling 2026-10-26 (Phase 7): the digest's review worth decides; the record only raises standard to deep;
+  // five causes. The playbooks and Deck-E say the same (packages/agent-tools/src/playbooks/shared.ts).
+  test("sizes the review: brief, standard, deep, from the digest's review worth, raised by the archetype record", () => {
+    assert.match(SERVER_INSTRUCTIONS, /read `battle_digest` once it is logged; its review worth decides\. Brief: one Read line\./);
+    assert.match(SERVER_INSTRUCTIONS, /Asked for a review: at least standard/);
+    assert.match(SERVER_INSTRUCTIONS, /Standard:.*turning point.*variance, misplay, list, matchup or ending.*one lesson/);
+    assert.match(SERVER_INSTRUCTIONS, /Deep: adds the deciding turn via `battle_turn_review`/);
+    assert.match(SERVER_INSTRUCTIONS, /A new archetype, one met >= 3 times or a second straight loss raises standard to deep/);
     assert.match(SERVER_INSTRUCTIONS, /Read `battle_logs` for the deck first: in its archetype record/);
-    assert.match(SERVER_INSTRUCTIONS, /`battle_turn_review`; never call a reasonable play a misplay/);
+    assert.match(SERVER_INSTRUCTIONS, /Never call a reasonable play a misplay/);
   });
 
   test('result reviews are honest about sample size, keep endings apart and stop at two next steps', () => {
@@ -301,7 +303,7 @@ describe('over the SDK', () => {
     assert.match(text, /3–5 debrief questions in one message BEFORE logging/);
     assert.match(text, /origin "in_person", an explicit result/);
     assert.match(text, /My own words go in notes; your analysis goes in review/);
-    assert.match(text, /light .* standard .* deep/s);
+    assert.match(text, /brief .* standard .* deep/s);
     assert.match(text, /my go-ahead: log with dry_run: false, without a preview/);
     assert.doesNotMatch(text, /wait for my yes before dry_run/);
     assert.match(text, /opponent_archetype/);

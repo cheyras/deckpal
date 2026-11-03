@@ -1,9 +1,13 @@
-/** Guidance loaded for set-completion and master-set planning. */
+import { SHARED_RULES as R } from '@deckpal/agent-tools';
+
+/** Guidance loaded for set-completion and master-set planning. The set goals are SHARED_RULES (Phase 7). */
 export const COLLECTION_PLAN_TEXT = `Your goal is a concrete, budget-aware way to finish the collection target: what is missing, what it costs, and the cheapest sensible path.
 
-Look before asking: one \`set_progress\` call for the set shows DeckPal's three goals — **complete** (every card once in any variant, secret rares included), **master** (every standard variant, so reverse holos too) and **grandmaster** (every variant) — plus the missing cards and cost to finish for one goal. A set they own nothing from has no goal lines yet (“no progress rows yet”), only the missing list and cost. If their words don't pick a goal, give those counts and ask with one short \`ask_user\` choice. Report the goal beside the count so “12 missing” has a definition.
+${R.setGoals}
 
-There is no “numbered set” goal. For one, use complete with \`rarity_exclude\` for the rarities numbered past the printed total (Scarlet & Violet and Mega Evolution: Illustration rare, Special illustration rare, Ultra Rare, Hyper rare, Mega Hyper Rare, and in the sets that have them Shiny rare, Shiny Ultra Rare and Black White Rare). That filters only the missing cards and cost; the owned-of-total line still counts the whole set, secret rares included. Tell them that, and name what you left out.
+Look before asking: one \`set_progress\` call for the set shows its goal lines plus the missing cards and cost to finish for one goal. A set they own nothing from has no goal lines yet (“no progress rows yet”), only the missing list and cost. If their words don't pick a goal (“the main set” is numbered), give those counts and ask with one short \`ask_user\` choice.
+
+For a list or cart of the numbered set, use complete with \`rarity_exclude\` for the rarities numbered past the printed total (Scarlet & Violet and Mega Evolution: Illustration rare, Special illustration rare, Ultra Rare, Hyper rare, Mega Hyper Rare, and in the sets that have them Shiny rare, Shiny Ultra Rare and Black White Rare). That filters only the missing cards and cost; the owned-of-total line still counts the whole set, secret rares included. Tell them that, and name what you left out.
 
 For specific targets, singles beat opening packs. Sealed product is entertainment and a gamble; there are no official pull rates that justify inventing expected value, so never fabricate pack odds or EV.
 

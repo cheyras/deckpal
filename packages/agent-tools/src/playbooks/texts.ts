@@ -1,6 +1,9 @@
 // The DeckPal playbooks: step-by-step guides an agent opens with the `playbook` tool, also published at
 // deckpal.app/skill. Written for small models: numbered steps, exact tool calls. Edited here and only here (the
-// single source the MCP tool, the web page and the claude.ai pointer skill all read).
+// single source the MCP tool, the web page and the claude.ai pointer skill all read). The rules Deck-E states too
+// (review depth, causes, review shape, deck options, set goals, rulings) live in ./shared.ts and are interpolated here.
+
+import { SHARED_RULES as R } from './shared.js';
 
 export const PLAYBOOK_INDEX_TEXT = `# DeckPal coach: rules for every job
 
@@ -70,10 +73,7 @@ Goal: the game is on the right deck and version, the result is right, the notes 
 
    The reply says "Logged battle #N" and gives the version's record. Keep #N.
 4. **Digest it.** Call \`battle_digest\` with \`deck_id\` and \`log_id: N\`. Read its "review worth" line (brief, standard or deep) and its "moments".
-5. **Choose depth.**
-   - An explicit ask for a review ("review it", "what went wrong") always gets a full review, whatever the review worth says.
-   - Otherwise follow review worth: brief = one \`Read\` line; standard = the standard review; deep = the deep review.
-   - If the player flagged something in their message, the review must address it.
+5. **Choose depth.** ${R.reviewDepth}
 6. **Review.** Follow \`game-analysis\`. Then save with \`edit_battle_log\`: \`deck_id\`, \`log_id: N\`, \`review\`, \`dry_run: false\`. Battle-log edits cannot be undone from history, so before replacing an existing review or notes, read them (\`battle_logs\` with \`log_id\`) and keep them. This is the second step you announced, not a correction. Leave \`notes\` alone unless the player added information.
 7. **Reply.**
    - First line: "Logged as battle #N on <Deck> vX: <win/loss/concession/timeout> vs <archetype>, <Prizes>, <turns> turns. vX is now <record>. Notes and review saved."
@@ -100,71 +100,45 @@ Goal: a fair, accurate read of what decided the game, plus one lesson. Write to 
 
 ## 1. Get the facts
 
-1. Call \`battle_logs\` with \`deck_id\` and \`log_id\`: the player's notes and any saved review (the digest has neither). Then call \`battle_digest\` with \`deck_id\` and \`log_id\`. It gives the Prize timeline, the opponent's cards, the simulator's replay of the attacks (long games: the first and last), the end board, a "review worth" line (brief, standard or deep) and "moments" (self-Knock-Outs, prevented damage, near misses, timer turns).
-2. Choose the depth:
-   - an explicit ask for a review always gets a full one;
-   - otherwise use the review worth;
-   - what the player flagged in their own notes or message comes first: the review must address it.
-3. Call \`get_card\` with \`card_id\` (or \`name\`) for each card that mattered: attackers that took Prizes, any Stadium, Tools, Special Energy, and any Ability that changed damage, Weakness or targeting. Read the text; do not recall it. Tags such as Tera show there.
-4. To know what the player could have had, read the list the game was played with: the digest's first line names the deck version (vN); call \`deck_history\` with \`deck_id\` and \`version: N\`. The current list may have changed since.
+1. Call \`battle_logs\` with \`deck_id\` and \`log_id\`: the player's notes and any saved review (the digest has neither). Then call \`battle_digest\` with \`deck_id\` and \`log_id\`. It gives the Prize timeline, the opponent's cards, the replayed attacks, the end board, the "review worth" line and "moments" (self-Knock-Outs, prevented damage, near misses, timer turns).
+2. ${R.reviewDepth}
+3. Call \`get_card\` (\`card_id\` or \`name\`) for each card that mattered: attackers that took Prizes, Stadiums, Tools, Special Energy, Abilities that changed damage, Weakness or targeting. Read the text; never recall it.
+4. For what the player could have had, read the list played: the digest's first line names the version (vN); call \`deck_history\` with \`deck_id\` and \`version: N\` (the current list may differ).
 5. For a rules doubt, follow \`rules\`: \`rules_lookup\`, then \`get_card\`.
 
 ## 2. Deep reviews: the deciding turns
 
-1. Call \`battle_digest\` again with \`detail: 'turns'\`. It adds the board at the start of every turn.
-2. Pick the one or two turns that decided the game (a Prize swing, a moment flagged in the digest, a turn the player flagged).
-3. For each, call \`battle_turn_review\` with \`deck_id\`, \`log_id\` and \`turn\`. It shows the simulator's strongest pilot's options beside what you did. \`turn\` counts both players' turns and must be one of YOURS: for an opponent's deciding turn, review your turn before it. If the replay stopped before that turn, there is no review; say so.
-4. Options within about 0.3 Prize of each other are equal. Never call a reasonable play a misplay. It is one sampled guess at hidden cards, not an oracle: say so.
+1. Call \`battle_digest\` again with \`detail: 'turns'\` for the board at the start of every turn.
+2. Pick the 1-2 deciding turns (a Prize swing, a flagged moment, a turn the player flagged).
+3. For each, call \`battle_turn_review\` (\`deck_id\`, \`log_id\`, \`turn\`): the simulator's strongest pilot's options beside yours. \`turn\` counts both players' turns and must be YOURS (for an opponent's deciding turn, review your turn before it). If the replay stopped earlier, there is no review; say so.
+4. Options within about 0.3 Prize are equal; never make a reasonable play a misplay. It is one sampled guess at hidden cards, not an oracle: say so.
 
 ## 3. Check the board before judging a play
 
-For every turn you comment on: which Stadium was in play, which Tools and Special Energy were attached, which Abilities were active. Damage that looks wrong has a cause (Weakness x2, Resistance -30, a Tool, a Stadium, an Ability). Find the card text before you mention it.
+For every turn you comment on, know the Stadium, Tools, Special Energy and Abilities in play. Damage that looks wrong has a cause (Weakness, Resistance, a Tool, a Stadium, an Ability): find the card text before you mention it.
 
 ## 4. Judge fairly
 
-Before calling a play a mistake ask:
-1. What did you know that the log does not show (your hand, your Prizes)?
-2. What is the best reason for the play?
-3. Does another line clearly do better on what was visible? Check the damage math with card text.
-
-A **misplay** only when 3 is clearly yes and 1-2 do not explain it. Otherwise: "Worth a look: <alternative>, because <reason>. You may have had a reason the log can't show." If the read hangs on one decision, ask one line about it.
+${R.judgeFairly} If the read hangs on one decision, ask one line about it.
 
 ## 5. The opponent's side
 
-A review also covers what the opponent chose: whom they attacked or gusted, what they set up, what they held back. The digest's moments and end board show it.
-- **Concession:** be curious. Look at the board and Prizes at the concession. Say what likely made them concede ("they were down 4 Prizes with no attacker left"), or ask one line if it is unclear. Note how early it was.
-- **Timeout** ("didn't take an action in time"): its own ending, not a normal win or loss. Say who timed out and on which turn. Do not read it as a Prize result.
-- Never guess their hand or Prizes.
+The **Opponent** line covers what they chose: whom they attacked or gusted, what they set up or held back (see the digest's moments and end board).
+- **Concession:** from the board and Prizes at that point, say what likely made them concede ("down 4 Prizes, no attacker left") and how early, or ask one line.
+- **Timeout** ("didn't take an action in time"): an Ending, never a Prize result.
 
 ## 6. Pick one cause
 
-- **Variance:** no Basic, mulligans, a key card Prized, missing draws with outs left.
-- **Misplay:** per section 4.
-- **List:** a missing answer or dead card seen in more than one game. The first time it is a "Watch".
-- **Matchup:** a normal game, no clear misplay, the deck is structurally behind.
-- **Ending:** concession or timeout decided it; say which.
+${R.causes}
 
-## 7. Write the review (markdown)
+## 7. Write the review
 
-Standard:
-\`\`\`
-**Read:** <cause>: <turning point, with turn and event>
-**Prizes:** <the race, e.g. "you took two-Prize KOs on T3 and T5, then fell behind">
-**Opponent:** <what they chose and why it worked or failed>
-**Lesson:** <one lesson for this matchup>. **Watch:** <one list item, only if real>
-\`\`\`
-Deep adds:
-\`\`\`
-**Key turns:** <the 1-2 turns, with what you did and what the review showed>
-**Pattern:** <earlier games vs this archetype, with the record>
-**Try next:** <one concrete play or list change to test>
-\`\`\`
-Brief is only **Read**.
+${R.reviewShape}
 
 ## 8. Offers (at most two, only when true)
 
-- Add this to the strategy guide's matchup section: only if \`decks\` with \`include: ["strategy"]\` shows a guide. With no guide, offer to start one only at 5+ logged games.
-- Note a list idea in this log's notes. Do not propose a new deck version before the current one has about 10 games (\`deck_history\`).
+- Add this to the strategy guide's matchup section, if \`decks\` with \`include: ["strategy"]\` shows one; with no guide, offer one only at 5+ logged games.
+- ${R.newVersion} Check the count with \`deck_history\`.
 - Simulate the matchup (\`deck-tune\`) when the matchup is the open question.`,
   'record-review': `# Review a deck's record
 
@@ -175,15 +149,7 @@ Goal: an honest read of what the results show, with sample sizes, and at most tw
 1. **Read the record.** Call \`battle_logs\` with \`deck_id\`. Its first line is the record by opponent archetype across ALL versions, without unclassified games. For one version add \`version: N\` and count that version's archetypes from its rows; the last line is that version's total record. Rows come 50 a page (\`page_size\` up to 200): read every page before splitting results.
 2. **Read the versions.** Call \`deck_history\` with \`deck_id\`. It gives each version's record and why it changed. Keep every result attached to the version it was played on. Never blend versions into one percentage.
 3. **Clean up the groups.** Merge keys that name the same deck (\`gardevoir\` and \`gardevoir-ex\`), and fold in unclassified games whose opponent is obvious. Say you did. Do not invent a key the record does not support.
-4. **Split every record by how the games ended.** A \`battle_logs\` row marked "ended before the last Prize" ended another way; \`battle_digest\` says how ("ended on prizes / by concession / by deck-out / other"). Report the groups apart:
-   - **Decided on Prizes:** the real win/loss evidence.
-   - **Concessions:** who conceded, and how early (turn, Prizes left). An early concession says "the board was already lost or won", not "the deck lost a close race".
-   - **Deck-outs:** a real result, but about resources, not the Prize race.
-   - **Other:** the timer ("didn't take an action in time") or no Pokémon left in play; the log's last lines say which. If you cannot tell, say "ended another way" rather than guessing.
-
-   Never count a concession, timeout or deck-out as a Prize result.
-
-   A deck's "losses" to early concessions or timeouts say different things from Prize losses. Say which losses are which.
+4. **How the games ended.** ${R.endingSplit}
 5. **Read the games that matter, not all of them:** the losses to the archetype met most, and any game the player singled out. For each, call \`battle_digest\` with \`deck_id\` and \`log_id\`, and \`battle_logs\` with \`deck_id\` and \`log_id\` (list rows cut notes to 40 characters; the detail has the full notes and review). In-person games have no digest; their notes and review are the evidence. Read the digest's moments and review worth.
 6. **Look for repeated evidence:** the same dead card, "wished I had X" more than once, the same setup failure. Use the causes in \`game-analysis\`.
 
@@ -201,7 +167,7 @@ A handful of games is an observation, never a verdict. A 60% record over 20 game
 
 1. A small table: archetype, record (Prizes / concessions / other endings), games. One line on the overall record and the current version's record.
 2. The one or two patterns that really show up, each tied to specific games ("dead Switch in 3 of 4 losses; battles #12, #15, #19").
-3. At most two next steps, one line each: a play change (a benching or sequencing rule), or a list change (one card in, one out). Suggest a list change only with repeated evidence, and a new version only when the current one has about 10 games.
+3. At most two next steps, one line each: a play change (a benching or sequencing rule), or a list change (one card in, one out). Suggest a list change only with repeated evidence. ${R.newVersion}
 
 Don't pad with generic advice, propose five experiments, or call normal variance a broken list.`,
   'deck-build': `# Build a deck
@@ -274,15 +240,9 @@ Goal: changes the player chooses, backed by evidence, saved as a clear new versi
 
 ## 2. Offer at least three ranked options
 
-Unless the player asked for one specific change (then just make it, no evidence lecture).
-- Each option is normally one card in, one out, or a count shift. Rank them best first.
-- Each cites its evidence: games ("Switch was dead in battles #12, #15, #19"), \`deck_odds\` numbers, or \`simulate_battles\` results.
-- Say what result would support keeping it.
-- Two losses raise a question; they do not prove a matchup is bad. Treat few games as observations.
-- Ground each card with \`get_card\` or \`search_cards\`.
-- The player picks. Do not decide for them.
+${R.deckOptions} Ground each card with \`get_card\` or \`search_cards\`.
 
-If the current version has under about 10 games and they did not ask for a change, offer to note the idea in a log's notes (\`edit_battle_log\`) instead of saving a version.
+${R.newVersion} If they did not ask for a change, offer to note the idea with \`edit_battle_log\` instead of saving a version.
 
 ## 3. Test (when it helps or they ask)
 
@@ -372,9 +332,7 @@ Goal: an exact answer from DeckPal's rules and the card's real text. Never answe
 3. **Answer from those two sources.** Quote or closely paraphrase the clause that answers it (the attack, Ability, Trainer effect, or the rule line). Say how they combine for the board the player described.
 4. **Name what would change the answer**, e.g. "unless a Stadium in play says otherwise".
 
-Both tools may also show community notes: findings other agents proposed and a DeckPal reviewer approved. A note points at its source; the card text and the rulings still decide.
-
-When research outside DeckPal settles how named cards interact and DeckPal had no ruling for it, offer to share it with \`propose_note\`: \`cards\`, the finding as \`statement\`, \`source_url\` (a rulings page, not a forum guess) and \`quote\` (the source's own words). Preview first; \`dry_run\`: false submits it for review. Never include anything about the player.
+${R.rulesSources} \`propose_note\` previews first; \`dry_run\`: false submits it for review.
 
 ## Myths to rule out
 
@@ -431,12 +389,8 @@ Call \`collection_summary\` (\`top_n\` optional). Answer from it in a few lines.
 
 ## Set completion
 
-- Call \`set_progress\` with \`set_id\` (name or id) and, if needed, \`goal\`:
-  - \`complete\`: every card once, any variant;
-  - \`master\`: every standard variant;
-  - \`grandmaster\`: every variant;
-  - \`numbered\`: cards 1 to the printed total, no secret rares. Only \`set_progress\` takes it: \`edit_list\`'s \`add_missing\` and \`set_cart\` take \`complete\`, \`master\` or \`grandmaster\` (leave out secret rares there with \`rarity_exclude\`).
-- If they did not say which goal, pick the one their words imply ("the main set" = \`numbered\`) and say which. Always name the goal beside the number ("12 missing for numbered").
+${R.setGoals}
+- Call \`set_progress\` with \`set_id\` (name or id) and, if needed, \`goal\`. If they did not say which goal, pick the one their words imply and say which.
 - Missing cards come in number order, so chase cards are past the first page. Use \`page_size: 200\`, or filter with \`rarity\` or \`rarity_exclude\`.
 - With no \`set_id\` it lists their sets by completion; \`all_sets: true\` lists every set.
 - Plan the cheapest path: cheap singles first, then costly chase cards with a price to wait for. Singles beat packs for specific targets. Never invent pull rates or pack value.
