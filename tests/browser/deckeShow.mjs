@@ -742,7 +742,15 @@ export async function checkDeckeChatPhone(browser, server, out, engine, fixture,
     await page.evaluate(scrollTranscript, [-1400, 40])
     await page.getByRole('dialog', { name: 'Chat with Deck-E' }).getByRole('button', { name: 'Close chat' }).click()
     await page.getByRole('button', { name: 'Chat with Deck-E' }).click()
-    await page.evaluate(() => new Promise((resolve) => { let n = 0; const f = () => (++n > 90 ? resolve() : requestAnimationFrame(f)); requestAnimationFrame(f) }))
+    // Wait until he stands whole on the park box, up to 6 s, rather than a fixed 90 frames: on CI runners the reopen
+    // can take longer than that to settle, and a fixed wait failed there intermittently (#370). The assertion below
+    // still fails, with the last frame, if he never does.
+    await page.waitForFunction(() => {
+      const x = window.__layout.frames.at(-1)
+      if (!x?.him || x.him[3] < 12) return false
+      const visible = x.floor === null ? x.him[3] : Math.max(0, Math.min(x.him[3], x.floor - x.him[1]))
+      return visible >= x.him[3] - 1
+    }, null, { timeout: 6000, polling: 'raf' }).catch(() => {})
     const back = await page.evaluate(() => window.__layout.frames.at(-1))
     assert.ok(back.him && back.him[3] >= 12 && drawn(back.him, back.floor)[3] >= back.him[3] - 1,
       engine + ': reopened at the latest reply, he is clipped out: ' + JSON.stringify(back))
