@@ -165,7 +165,7 @@ describe('server instructions: content', () => {
     assert.match(SERVER_INSTRUCTIONS, /Asked for a review: at least standard/);
     assert.match(SERVER_INSTRUCTIONS, /Standard:.*turning point.*variance, misplay, list, matchup or ending.*one lesson/);
     assert.match(SERVER_INSTRUCTIONS, /Deep: adds the deciding turn via `battle_turn_review`/);
-    assert.match(SERVER_INSTRUCTIONS, /A new archetype, one met >= 3 times or a second straight loss raises standard to deep/);
+    assert.match(SERVER_INSTRUCTIONS, /A new archetype, one met 3\+ times before or a second straight loss raises standard to deep/);
     assert.match(SERVER_INSTRUCTIONS, /Read `battle_logs` for the deck first: in its archetype record/);
     assert.match(SERVER_INSTRUCTIONS, /Never call a reasonable play a misplay/);
   });

@@ -13,10 +13,10 @@ const SPECIFIC = PATHWAY_NAMES.filter((name) => name !== 'general')
 // Phase 7 (owner rulings 2026-10-26): Deck-E and the claude.ai playbooks state these rules word for word. Each pathway
 // here, and its playbook, must carry the shared text unchanged — a rule edited in one place only fails this test.
 const SHARED_IN: Record<SharedRule, { pathways: PathwayName[]; playbooks: (keyof typeof PLAYBOOK_TEXT)[] }> = {
-  reviewDepth: { pathways: ['battle_log'], playbooks: ['battle-log', 'game-analysis'] },
+  reviewDepth: { pathways: ['battle_log', 'battle_review'], playbooks: ['battle-log', 'game-analysis'] },
   judgeFairly: { pathways: ['battle_log', 'battle_review'], playbooks: ['game-analysis'] },
   causes: { pathways: ['battle_log', 'battle_review'], playbooks: ['game-analysis'] },
-  reviewShape: { pathways: ['battle_log'], playbooks: ['game-analysis'] },
+  reviewShape: { pathways: ['battle_log', 'battle_review'], playbooks: ['game-analysis'] },
   endingSplit: { pathways: ['battle_review'], playbooks: ['record-review'] },
   newVersion: { pathways: ['battle_review', 'deck_iterate'], playbooks: ['game-analysis', 'record-review', 'deck-tune'] },
   deckOptions: { pathways: ['deck_iterate'], playbooks: ['deck-tune'] },
@@ -59,7 +59,9 @@ test('battle logging preserves paste, ranking, depth, debrief, and hidden-info r
   assert.match(text, /omit `log`, set `origin: "in_person"`/)
   assert.match(text, /reader said.*in `notes`.*markdown analysis in `review`/)
   assert.match(text, /Set `opponent_archetype`/)
-  assert.match(text, /absent means “new archetype”.*`games >= 3`/)
+  // Depth is chosen after the game is saved, so the record already counts it (Astra, #370): a first meeting reads
+  // `games` 1, not absent, and "met three times before" is `games >= 4`.
+  assert.match(text, /already includes this game: `games` 1 for this archetype means “new archetype”; `games >= 4` means “met at least three times before\.”/)
   assert.match(text, /without `deck_id` so it ranks their decks/)
   // One game, one depth. Owner ruling 2026-10-26: the digest's review worth decides it, and the record only raises
   // standard to deep (it replaced the 2026-10-10 Light-first order, which skipped the digest).

@@ -96,7 +96,7 @@ If parsed turns or Prizes look wrong (0 turns, no result for a game that clearly
 - Don't suggest a new deck version because of one game. Put ideas in the notes.`,
   'game-analysis': `# Analyse a game
 
-Goal: a fair, accurate read of what decided the game, plus one lesson. Write to the player as "you". Use #N, deck names, versions and card names; never ids.
+Goal: a fair read of what decided the game, plus one lesson, written to the player as "you". Use #N, deck, version and card names; never ids.
 
 ## 1. Get the facts
 
@@ -104,7 +104,7 @@ Goal: a fair, accurate read of what decided the game, plus one lesson. Write to 
 2. ${R.reviewDepth}
 3. Call \`get_card\` (\`card_id\` or \`name\`) for each card that mattered: attackers that took Prizes, Stadiums, Tools, Special Energy, Abilities that changed damage, Weakness or targeting. Read the text; never recall it.
 4. For what the player could have had, read the list played: the digest's first line names the version (vN); call \`deck_history\` with \`deck_id\` and \`version: N\` (the current list may differ).
-5. For a rules doubt, follow \`rules\`: \`rules_lookup\`, then \`get_card\`.
+5. A rules doubt: follow \`rules\`.
 
 ## 2. Deep reviews: the deciding turns
 
@@ -119,7 +119,7 @@ For every turn you comment on, know the Stadium, Tools, Special Energy and Abili
 
 ## 4. Judge fairly
 
-${R.judgeFairly} If the read hangs on one decision, ask one line about it.
+${R.judgeFairly} If the read hangs on one decision, ask about it.
 
 ## 5. The opponent's side
 
@@ -139,7 +139,7 @@ ${R.reviewShape}
 
 - Add this to the strategy guide's matchup section, if \`decks\` with \`include: ["strategy"]\` shows one; with no guide, offer one only at 5+ logged games.
 - ${R.newVersion} Check the count with \`deck_history\`.
-- Simulate the matchup (\`deck-tune\`) when the matchup is the open question.`,
+- Simulate the matchup (\`deck-tune\`) when that is the open question.`,
   'record-review': `# Review a deck's record
 
 Goal: an honest read of what the results show, with sample sizes, and at most two things to try next.

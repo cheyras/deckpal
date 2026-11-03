@@ -14,7 +14,7 @@
  */
 export const SHARED_RULES = {
   /** How deep a game review goes. */
-  reviewDepth: `**Depth** comes from the digest's \`review worth\` line: **brief** is the **Read** line alone, **standard** is the standard review, **deep** is the deep review. An explicit ask for a review always gets at least a standard one. Raise standard to deep only when the deck's record says the matchup matters: an archetype new to this deck, one met at least three times, or a second straight loss to it. Whatever the player flagged, the review addresses.`,
+  reviewDepth: `**Depth** comes from the digest's \`review worth\` line: **brief** is the **Read** line alone, **standard** is the standard review, **deep** is the deep review. An explicit ask for a review always gets at least a standard one. Raise standard to deep only when the deck's record says the matchup matters: an archetype new to this deck, one met at least three times before, or a second straight loss to it. A record read after logging already counts this game. Whatever the player flagged, the review addresses.`,
 
   /** The bar for calling a play a mistake. */
   judgeFairly: `Before calling a play a mistake, ask: (1) what did the player know that the log does not show (their hand, their Prizes)? (2) what is the best reason for the play? (3) does another line clearly do better on what was visible, with the damage checked against card text? It is a **misplay** only when (3) is clearly yes and (1)-(2) do not explain it. Otherwise write "Worth a look: <alternative>, because <reason>. You may have had a reason the log can't show." The opponent's hand and Prizes are unknown; never guess them.`,
