@@ -35,6 +35,8 @@
   "{\"case\":\"admin-audit-table-exact-filters-safe-keyboard-details\",\"label\":\"cloud\",\"width\":390}",
   "{\"case\":\"admin-audit-table-exact-filters-safe-keyboard-details\",\"label\":\"selfhost\",\"width\":1280}",
   "{\"case\":\"admin-audit-table-exact-filters-safe-keyboard-details\",\"label\":\"selfhost\",\"width\":390}",
+  "{\"case\":\"admin-knowledge-review-approve-reject-text-safe\",\"label\":\"cloud\",\"width\":1280}",
+  "{\"case\":\"admin-knowledge-review-approve-reject-text-safe\",\"label\":\"selfhost\",\"width\":1280}",
   "{\"case\":\"admin-ledger-table-fixed-pagination-debt\",\"label\":\"cloud\",\"width\":1280}",
   "{\"case\":\"admin-ledger-table-fixed-pagination-debt\",\"label\":\"cloud\",\"width\":390}",
   "{\"case\":\"admin-ledger-table-fixed-pagination-debt\",\"label\":\"selfhost\",\"width\":1280}",
