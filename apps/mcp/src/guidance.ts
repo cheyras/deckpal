@@ -44,10 +44,7 @@ LOGGING A BATTLE
 - In-person game, or any game told as a story: BEFORE any \`add_battle_log\` call, ask 3–5 debrief questions in one message, skipping what they already said: the opponent's main attacker and notable cards; who went first; how the prizes went; the most frustrating play; the turn they'd replay. Only a bare "log a win vs X" is logged straight away. Then log with \`deck_id\`, \`origin\`: "in_person", an explicit \`result\` and \`opponent_deck\`.
 - Two voices: the user's own words go in \`notes\`; your analysis (markdown) goes in \`review\`.
 - Always set \`opponent_archetype\`. Read \`battle_logs\` for the deck first: in its archetype record, reuse the key for the same deck, e.g. "dragapult-ex", so games count together.
-- Review depth: for a PTCG Live game, read \`battle_digest\` once it is logged and follow its review worth. A request for a review always gets a full one, and what the user flagged comes first.
-  Light: lopsided game, dead draw, early concession. 2–3 lines.
-  Standard: close game, or "what went wrong?". The turning point (turn and event), one cause (variance, misplay, list or matchup) and one lesson.
-  Deep: archetype new to this deck or met >= 3 times, a losing streak, or a requested breakdown. Check the deciding turn with \`battle_turn_review\`; never call a reasonable play a misplay.
+- Review depth: for a PTCG Live game, read \`battle_digest\` once it is logged; its review worth decides. Brief: one Read line. Standard: the turning point, one cause (variance, misplay, list, matchup or ending), the opponent's choices, one lesson. Deep: adds the deciding turn via \`battle_turn_review\`. A new archetype, one met 3+ times before or a second straight loss raises standard to deep. Asked for a review: at least standard; what the user flagged comes first. Never call a reasonable play a misplay.
 - The opponent's hand and prizes are unknown: never invent cards or plays. Afterwards give the battle number, version and record.
 
 REVIEWING RESULTS
@@ -119,7 +116,7 @@ Work through it like this:
 1. A PTCG Live log goes to add_battle_log verbatim as \`log\`, never retyped or summarized. If I have not said which deck, omit deck_id so the tool ranks my decks, then tell me which deck it picked and why.
 2. For an in-person game, unless I gave you only a bare result, ask me 3–5 debrief questions in one message BEFORE logging: the opponent's main attacker and notable cards, who went first, how the prizes went, the most frustrating play, and the turn I would replay. Skip anything I have already told you. Then log it with origin "in_person", an explicit result and opponent_deck.
 3. Read battle_logs for the deck first. Set opponent_archetype to the main attacker's key, reusing a key already in the deck's archetype record when it is the same deck.
-4. For a PTCG Live game, read battle_digest once it is logged and follow its review worth: light (2–3 lines for a lopsided or dead-draw game), standard (turning point, cause — variance, misplay, list or matchup — and one lesson) or deep (new archetype, one met 3+ times, a losing streak, or I asked for a breakdown; check the deciding turn with battle_turn_review). Size an in-person game the same way, and if I ask for a review, write a full one. My own words go in notes; your analysis goes in review. Do not guess hidden cards.
+4. For a PTCG Live game, read battle_digest once it is logged; its review worth decides: brief (one Read line), standard (turning point, one cause — variance, misplay, list, matchup or ending — what the opponent chose, and one lesson) or deep (also the deciding turn, checked with battle_turn_review). A new archetype, one met 3+ times before or a second straight loss raises standard to deep (the record already counts this game). Size an in-person game from what I told you, and if I ask for a review, write at least a standard one. My own words go in notes; your analysis goes in review. Do not guess hidden cards.
 5. Asking you to log it is my go-ahead: log with dry_run: false, without a preview. Afterwards tell me the battle number, the version it landed on, and the deck's record.`,
   },
   {
@@ -135,7 +132,7 @@ Work through it like this:
 - Show each opposing archetype's record with its number of games, and keep different versions of the list apart. Say plainly when a sample is too small for a verdict; a handful of games supports observations, not matchup conclusions.
 - Before concluding, read battle_digest for the few games that matter most (the losses to the archetype I meet most, and any game I single out), not for every game. An in-person game has no log to digest; its notes and review are the evidence.
 - Keep games decided on Prizes apart from concessions, deck-outs and the timer.
-- Classify losses (variance, misplay, list or matchup) only where my notes, the saved reviews or those digests support it, and look for repeated evidence: the same dead card, the same missing out, the same setup failure.
+- Classify losses (variance, misplay, list, matchup or ending) only where my notes, the saved reviews or those digests support it, and look for repeated evidence: the same dead card, the same missing out, the same setup failure.
 - If a game has no opponent_archetype, offer to set it with edit_battle_log (dry run first). Any new analysis goes in review, never over my notes.
 - Keep observations separate from proposals. End with at most two concrete next steps, one line each, each tied to specific games.`,
   },

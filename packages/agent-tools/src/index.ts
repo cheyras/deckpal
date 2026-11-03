@@ -129,3 +129,5 @@ export {
 export { redactEndpoints } from './shared.js';
 export { PLAYBOOK_NAMES, type PlaybookName } from './tools/playbook.js';
 export { PLAYBOOK_INDEX_TEXT, PLAYBOOK_TEXT } from './playbooks/texts.js';
+/** The rules the playbooks and Deck-E's pathway texts both state, word for word (Phase 7). */
+export { SHARED_RULES, type SharedRule } from './playbooks/shared.js';
