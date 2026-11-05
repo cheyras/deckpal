@@ -8,7 +8,7 @@
 # cannot run on a 5080. Verified: torch.cuda.get_arch_list() includes sm_120.
 --extra-index-url https://download.pytorch.org/whl/cu128
 
-torch==2.11.0+cu128
+torch==2.13.0
 torchvision==0.26.0+cu128
 
 # ONNX in, ONNX out
