@@ -978,6 +978,8 @@ CREATE TABLE card (
   playable_fingerprint CHAR(64),        -- SHA-256 reprint-equivalence hash. PRIOR-ART §3 item 4.
                                         -- NULL until full gameplay data is present — never
                                         -- fingerprint a brief list response.
+                                        -- Rules text is hashed with Energy symbols spelled
+                                        -- out ({R} = Fire; @deckpal/db/energyText, 2026-11-17).
   identical_print_group CHAR(64),        -- migration 076: safe ordinary-print group, populated
                                          -- from playable_fingerprint; NULL for promo-set cards.
                                          -- Stamped variants stay distinct at card_variant level

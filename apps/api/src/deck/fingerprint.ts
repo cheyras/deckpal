@@ -14,6 +14,7 @@
  *   NOT the 4-copy rule — that keys on NAME, a looser relation (§3.2).
  */
 import { createHash } from 'node:crypto';
+import { canonicalEnergyText } from '@deckpal/db/energyText';
 
 export interface AttackFacts {
   name: string;
@@ -56,6 +57,18 @@ function norm(s: string | null | undefined): string {
 }
 
 /**
+ * RULES TEXT is compared with its Energy symbols spelled out, so `{R}` and
+ * `Fire` (and a 30th Celebration `<span class="energy-symbol Fire">`) hash the
+ * same: Delphox me04-013 says "Basic {R} Energy" and its reprint mep-074 says
+ * "Basic Fire Energy", and they are one card. Only effect text goes through
+ * this — never the card name or the attack cost (see `@deckpal/db/energyText`).
+ * Text with no symbol is unchanged, so its hash does not move.
+ */
+function normText(s: string | null | undefined): string {
+  return norm(canonicalEnergyText(s));
+}
+
+/**
  * Refuse to fingerprint a card we don't have full gameplay data for, so weak
  * fingerprints never enter the index (PRIOR-ART §3 item 4 `_has_full_gameplay_data`).
  * A Pokémon must have HP and at least one attack or ability; a Trainer/Energy must
@@ -76,10 +89,10 @@ export function hasFullGameplayData(c: FingerprintInput): boolean {
 /** Canonical, order-stable payload. */
 function canonical(c: FingerprintInput): string {
   const attacks = (c.attacks ?? [])
-    .map((a) => [norm(a.name), norm(a.cost), norm(a.damage), norm(a.effect)].join('|'))
+    .map((a) => [norm(a.name), norm(a.cost), norm(a.damage), normText(a.effect)].join('|'))
     .sort();
   const abilities = (c.abilities ?? [])
-    .map((a) => [norm(a.kind), norm(a.name), norm(a.effect)].join('|'))
+    .map((a) => [norm(a.kind), norm(a.name), normText(a.effect)].join('|'))
     .sort();
   const weak = (c.weaknesses ?? []).map((w) => `${norm(w.type)}${norm(w.value)}`).sort();
   const res = (c.resistances ?? []).map((w) => `${norm(w.type)}${norm(w.value)}`).sort();
@@ -95,7 +108,7 @@ function canonical(c: FingerprintInput): string {
     evolveFrom: norm(c.evolveFrom),
     trainerType: norm(c.trainerType),
     energyType: norm(c.energyType),
-    effect: norm(c.effect),
+    effect: normText(c.effect),
     attacks,
     abilities,
     weaknesses: weak,

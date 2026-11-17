@@ -9,6 +9,7 @@ import type { RarityPeel } from '../entities.js';
 import { explainMiss, peelRarity, presentRef, resolveSet, resolvedNote } from '../entities.js';
 import { FINISHES, GOALS, defaultGoal, errText, type Goal } from '../shared.js';
 import { CARD_TAG_MEANING, cardTags, idsWithTag } from '@deckpal/sim/card-tags';
+import { canonicalEnergyText, canonicalEnergyTextSql } from '@deckpal/db/energyText';
 
 /** The search-row cell for a printing's tags ('Tera'), or nothing. */
 const tagCell = (tcgdexId: string): string | null => cardTags(tcgdexId).join(' ') || null;
@@ -220,6 +221,17 @@ interface TextSearchRow extends SearchRow {
 /** `%` and `_` are user text here, never ILIKE syntax. */
 const literalLike = (term: string): string => `%${term.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
 
+/**
+ * One rules-text search term as its ILIKE pattern, with Energy symbols spelled out (`{R}` -> `Fire`).
+ * The column side gets the same fold ({@link ruleTextSql}), so "Basic Fire Energy" finds the printings
+ * that say "Basic {R} Energy" and the other way round. See `@deckpal/db/energyText`.
+ */
+const textTermLike = (term: string): string => literalLike(canonicalEnergyText(term));
+
+/** An attack's or Ability's name + effect, in the form text terms are compared against. */
+export const ruleTextSql = (alias: string): string =>
+  `unaccent(${canonicalEnergyTextSql(`concat_ws(' ', ${alias}.name, ${alias}.effect)`)})`;
+
 const oneLine = (s: string | null | undefined): string | null =>
   s ? s.replace(/\s+/g, ' ').trim() || null : null;
 
@@ -395,7 +407,8 @@ const searchCardsTool = defineTool({
       .optional()
       .describe(
         'Up to 6 literal substrings from printed rules text (attack/Ability name or effect). Every term must match. ' +
-          'Use this, not web research, for "which cards do X" questions. `%` and `_` are literal characters.',
+          'Use this, not web research, for "which cards do X" questions. `%` and `_` are literal characters. ' +
+          "Energy symbols and type words match each other: 'Fire Energy' also finds '{R} Energy'.",
       ),
     text_same_attack: z
       .boolean()
@@ -487,9 +500,8 @@ const searchCardsTool = defineTool({
       type Filter = CardFilter;
       const { filters, nameFilter, setNote } = shared;
       const textClause = (alias: string, p: (v: unknown) => string): string => {
-        const body = `concat_ws(' ', ${alias}.name, ${alias}.effect)`;
         return textTerms
-          .map((term) => `unaccent(${body}) ILIKE unaccent(${p(literalLike(term))}) ESCAPE '\\'`)
+          .map((term) => `${ruleTextSql(alias)} ILIKE unaccent(${p(textTermLike(term))}) ESCAPE '\\'`)
           .join(' AND ');
       };
       const damageClause = (alias: string): string => {
@@ -511,13 +523,13 @@ const searchCardsTool = defineTool({
               ].filter(Boolean).join(' OR ')})`;
             }
             const terms = textTerms.map((term) => {
-              const like = p(literalLike(term));
+              const like = p(textTermLike(term));
               return `EXISTS (
                 SELECT 1 FROM card_attack ca WHERE ca.card_id = c.id
-                 AND unaccent(concat_ws(' ', ca.name, ca.effect)) ILIKE unaccent(${like}) ESCAPE '\\'
+                 AND ${ruleTextSql('ca')} ILIKE unaccent(${like}) ESCAPE '\\'
                 UNION ALL
                 SELECT 1 FROM card_ability cab WHERE cab.card_id = c.id
-                 AND unaccent(concat_ws(' ', cab.name, cab.effect)) ILIKE unaccent(${like}) ESCAPE '\\')`;
+                 AND ${ruleTextSql('cab')} ILIKE unaccent(${like}) ESCAPE '\\')`;
             });
             if (args.damage) terms.push(`EXISTS (SELECT 1 FROM card_attack ca WHERE ca.card_id = c.id AND ${damageClause('ca')})`);
             return terms.join(' AND ');
@@ -537,14 +549,14 @@ const searchCardsTool = defineTool({
         if (textSearch) {
           const anyAttackText = args.text_same_attack === false && textTerms.length
             ? `(${textTerms.map((term) => {
-                const like = p(literalLike(term));
-                return `unaccent(concat_ws(' ', ma.name, ma.effect)) ILIKE unaccent(${like}) ESCAPE '\\'`;
+                const like = p(textTermLike(term));
+                return `${ruleTextSql('ma')} ILIKE unaccent(${like}) ESCAPE '\\'`;
               }).join(' OR ')})`
             : '';
           const anyAbilityText = args.text_same_attack === false && textTerms.length
             ? `(${textTerms.map((term) => {
-                const like = p(literalLike(term));
-                return `unaccent(concat_ws(' ', mb.name, mb.effect)) ILIKE unaccent(${like}) ESCAPE '\\'`;
+                const like = p(textTermLike(term));
+                return `${ruleTextSql('mb')} ILIKE unaccent(${like}) ESCAPE '\\'`;
               }).join(' OR ')})`
             : '';
           const attackParts = [

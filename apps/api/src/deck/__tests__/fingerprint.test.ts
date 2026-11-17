@@ -54,3 +54,57 @@ test('basic Energy (no text) still fingerprints', () => {
   assert.equal(hasFullGameplayData(fire), true);
   assert.ok(playableFingerprint(fire));
 });
+
+// ── Energy symbols in rules text (2026-11-17) ─────────────────────────────────
+//
+// TCGdex writes "{R}" in some printings and "Fire" in others for the same card.
+// Rules text is hashed with symbols spelled out, so a reprint stays one card.
+
+const delphox = (flaringMagic: string): FingerprintInput => ({
+  name: 'Delphox', category: 'Pokemon', hp: 150, types: ['Fire'], stage: 'Stage2', evolveFrom: 'Braixen',
+  attacks: [{ name: 'Energized Storm', cost: 'Fire,Fire', damage: '30×', effect: 'This attack does 30 damage for each Energy attached to all Pokémon.' }],
+  abilities: [{ kind: 'Ability', name: 'Flaring Magic', effect: flaringMagic }],
+  weaknesses: [{ type: 'Water', value: '×2' }],
+  retreat: 2,
+});
+
+test('Delphox me04-013 ({R}) and mep-074 (Fire) are one card', () => {
+  const me04 = delphox('Once during your turn, you may discard a Basic {R} Energy card from your hand in order to use this Ability. Draw cards until you have 7 cards in your hand.');
+  const mep = delphox('Once during your turn, you may discard a Basic Fire Energy card from your hand in order to use this Ability. Draw cards until you have 7 cards in your hand.');
+  assert.equal(playableFingerprint(me04), playableFingerprint(mep));
+});
+
+test('Moltres 30th-011 (Fire) and mep-096 ({R}) are one card; attack-effect and trainer text fold too', () => {
+  const moltres = (energy: string): FingerprintInput => ({
+    name: 'Moltres', category: 'Pokemon', hp: 120, types: ['Fire'],
+    attacks: [{ name: 'Fire Spin', cost: 'Fire,Fire,Colorless', damage: '130', effect: `Discard 2 ${energy} Energy from this Pokémon.` }],
+    abilities: [{ kind: 'Ability', name: 'Fiery Flapping', effect: `Attach a Basic ${energy} Energy card from your hand to this Pokémon.` }],
+  });
+  assert.equal(playableFingerprint(moltres('Fire')), playableFingerprint(moltres('{R}')));
+  const trainer = (t: string): FingerprintInput => ({ name: 'Energy Search', category: 'Trainer', trainerType: 'Item', effect: `Search your deck for a Basic ${t} Energy card.` });
+  assert.equal(playableFingerprint(trainer('{L}')), playableFingerprint(trainer('Lightning')));
+  assert.equal(
+    playableFingerprint(trainer('<span class="energy-symbol Lightning" title="Lightning">Lightning</span>')),
+    playableFingerprint(trainer('{L}')),
+  );
+});
+
+test('a different Energy TYPE is still a different card', () => {
+  const t = (x: string): FingerprintInput => ({ name: 'X', category: 'Trainer', effect: `Attach a Basic ${x} Energy card.` });
+  assert.notEqual(playableFingerprint(t('{R}')), playableFingerprint(t('Water')));
+  assert.notEqual(playableFingerprint(t('{R}')), playableFingerprint(t('{W}')));
+});
+
+test('names and costs are not folded: "Basic {R} Energy" and "Basic Fire Energy" stay distinct names', () => {
+  const a: FingerprintInput = { name: 'Basic {R} Energy', category: 'Energy', energyType: 'Normal' };
+  const b: FingerprintInput = { name: 'Basic Fire Energy', category: 'Energy', energyType: 'Normal' };
+  assert.notEqual(playableFingerprint(a), playableFingerprint(b));
+  const cost = (c: string): FingerprintInput => ({ ...baseCharizard, attacks: [{ name: 'A', cost: c, damage: '10', effect: null }] });
+  assert.notEqual(playableFingerprint(cost('{R}')), playableFingerprint(cost('Fire')));
+});
+
+test('a card with no Energy symbol keeps the exact hash it had before the fold', () => {
+  // Computed with the pre-2026-11-17 fingerprint.ts. If this moves, `fingerprint:index --all` would
+  // rewrite every row instead of only the ones that carry a symbol.
+  assert.equal(playableFingerprint(baseCharizard), '658408e964b252ddac30aab3c3428a0fc2c4dc0f3b3837a5046b4cc90caf89af');
+});
