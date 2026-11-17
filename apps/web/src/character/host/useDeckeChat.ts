@@ -1521,7 +1521,9 @@ export function useDeckeChat(
           // every later leg the call goes back as that finished tool part, not
           // as the one-leg approval answer: an answer left behind is a call
           // with no result (a provider rejects it), and `deep_think`'s output
-          // is the grant that keeps the rest of this turn on Deep Think. See
+          // is the grant that keeps the rest of this turn on Deep Think. Held
+          // writes too: a write approved in the same step as a `goTo` runs on
+          // the resumed leg, and the leg after it must carry its result. See
           // `settleApprovedCalls`.
           const settled = settleApprovedCalls(wire, capturedOutputs)
           wire.splice(0, wire.length, ...settled)

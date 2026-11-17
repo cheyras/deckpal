@@ -110,32 +110,35 @@ export function toolReplayParts(
   return { parts, unrecorded }
 }
 
-/**
- * Approved calls whose RESULT is replayed in place of their approval answer.
- *
- * The approval answer is a one-leg message: the SDK reads it only at the end
- * of the final message, runs the call, and streams its output. Left in the
- * wire after that, it is a tool call with no result on every later leg — an
- * unpaired call a provider rejects — and its output (for `deep_think`, the
- * grant that keeps the turn on Deep) would never reach the server again. The
- * call's chip cannot carry it either: it was marked replayed on the leg that
- * answered it. Only `deep_think` today; writes keep their existing replay.
- */
-export const RESULT_REPLAYED_APPROVALS: ReadonlySet<string> = new Set(['deep_think'])
-
 type WirePartLike = Record<string, unknown>
 type WireMessageLike = { role: string; parts: WirePartLike[] }
 
 /**
- * The wire with each approved, now-answered call in `names` turned into the
- * finished tool part it became: same call, its captured output, no approval.
- * Only the reader's current turn is touched, and only a call whose output
- * actually arrived; everything else is returned as it was.
+ * The wire with each approved, now-answered call turned into the finished tool
+ * part it became: same call, its captured output, no approval. Only the
+ * reader's current turn is touched, and only a call whose output actually
+ * arrived; everything else is returned as it was.
+ *
+ * The approval answer is a one-leg message: the SDK reads it only at the end
+ * of the final message, runs the call, and streams its output. Left in the
+ * wire after that, it is a tool call with no result on every later leg. The
+ * SDK exempts approved ids from its missing-result check
+ * (`approvedToolCallIds` in `ai/dist/index.js`) and drops the approval
+ * response, so the provider receives a `tool_use` with no `tool_result`. The
+ * call's chip cannot carry the result either: it was marked replayed on the
+ * leg that answered it.
+ *
+ * EVERY approved call, not a named few. `deep_think` was the first case (its
+ * output is the grant that keeps the turn on Deep). A held write is the same
+ * shape: "log this game and take me to my battle logs" holds `add_battle_log`
+ * and runs `goTo` in one step, the resumed leg runs the write, and the leg
+ * after that carried the write's call with no result. Only Deep Think and
+ * held writes are ever approved, both run on the server, and a write tool
+ * added later is covered without being listed here.
  */
 export function settleApprovedCalls<T extends WireMessageLike>(
   wire: readonly T[],
   outputs: ReadonlyMap<string, string>,
-  names: ReadonlySet<string> = RESULT_REPLAYED_APPROVALS,
 ): T[] {
   let current = wire.length - 1
   while (current >= 0 && wire[current]!.role !== 'user') current--
@@ -150,7 +153,6 @@ export function settleApprovedCalls<T extends WireMessageLike>(
         part.state !== 'approval-responded' ||
         approval?.approved !== true ||
         !type.startsWith('tool-') ||
-        !names.has(type.slice('tool-'.length)) ||
         !outputs.has(id)
       ) return part
       changed = true
