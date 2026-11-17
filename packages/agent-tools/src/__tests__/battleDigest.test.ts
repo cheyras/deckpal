@@ -144,6 +144,22 @@ test('it reads the digest route for that deck and log, and renders every fact a 
   assert.ok(res.text.length <= DIGEST_TEXT_MAX);
 });
 
+// 2026-11-17: Deck-E's Quick tier tells Haiku to `consult` on a close game
+// (apps/api/src/decke/closeGameConsult.ts). The flag travels in `structured`,
+// which only Deck-E's adapter reads; the TEXT — the whole of what an MCP client
+// receives — never mentions a consult, because MCP has no consult tool.
+test('closeGame travels in the structured echo, and the text never mentions consult', async () => {
+  for (const closeGame of [true, false]) {
+    const res = await tool().handler(
+      { deck_id: 'Toolbox Banette', log_id: 7 },
+      makeCtx(apiFor(payload({ closeGame, leadChanged: closeGame }))),
+    );
+    assert.equal(res.isError, undefined, res.text);
+    assert.deepEqual(res.structured, { logId: 7, closeGame });
+    assert.doesNotMatch(res.text, /consult/i, `closeGame ${closeGame}: the shared text must not name a Deck-E-only tool`);
+  }
+});
+
 test('player_name is forwarded only when given, encoded', async () => {
   const api = apiFor(payload());
   await tool().handler({ deck_id: 'Toolbox Banette', log_id: 7 }, makeCtx(api));

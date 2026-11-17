@@ -244,7 +244,16 @@ const battleDigestTool = defineTool({
       }
       const head = renderBattleDigest(payload, picked.value.name, picked.note);
       const mode: DigestDetail = detail ?? 'summary';
-      return ok(payload.replay ? `${head}\n${renderReplay(payload.replay, mode, REPLAY_TEXT_MAX[mode])}` : head);
+      // `structured` is the machine-readable echo only Deck-E's adapter reads;
+      // the MCP adapter never sends it (`toCallToolResult`, apps/mcp/src/adapters/mcp.ts).
+      // Deck-E reads `closeGame` to tell the Quick tier to `consult` before it
+      // writes the review (apps/api/src/decke/closeGameConsult.ts) — a line an
+      // MCP client must never see, because MCP has no consult tool. So the TEXT
+      // is identical for both front-ends and only the flag travels here.
+      return ok(
+        payload.replay ? `${head}\n${renderReplay(payload.replay, mode, REPLAY_TEXT_MAX[mode])}` : head,
+        { logId: payload.logId, closeGame: payload.digest.closeGame === true },
+      );
     } catch (err) {
       return fail(`battle_digest failed: ${errText(err)}`);
     }

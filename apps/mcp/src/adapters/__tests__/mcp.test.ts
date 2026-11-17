@@ -88,3 +88,40 @@ test('an empty answer is still an answer block, not an empty content array', () 
   assert.equal(r.content.length, 1);
   assert.equal((r.content[0] as { text: string }).text, '');
 });
+
+// 2026-11-17: Deck-E's Quick tier appends a "call `consult`" line to a close
+// game's `battle_digest` (apps/api/src/decke/closeGameConsult.ts), driven by the
+// tool's `structured.closeGame`. MCP has no consult tool, so none of that may
+// reach an MCP client: the real handler, a close game, through the real wire.
+test('a close game\'s battle_digest reaches an MCP client with no consult line and no structured flag', async () => {
+  const { allTools } = await import('@deckpal/agent-tools');
+  const def = allTools().find((d) => d.name === 'battle_digest')!;
+  const api = {
+    base: 'https://test/api',
+    get: async (path: string) => {
+      if (path === '/decks') return { decks: [{ id: 'deck-1', name: 'Slowking Toolbox', formatCode: 'standard', version: 3 }] };
+      if (path.startsWith('/decks/deck-1/logs/7/digest')) {
+        return {
+          logId: 7, deckVersion: 3, origin: 'ptcgl', result: 'loss',
+          digest: {
+            players: { me: 'HarborKite', opponent: 'QuartzFox' }, playerNames: ['QuartzFox', 'HarborKite'],
+            confidence: 'high', result: 'loss', wentFirst: 'opponent', totalTurns: 12,
+            turns: { me: 6, opponent: 6 }, mulligans: { me: 0, opponent: 0 }, firstAttackTurn: { me: 2, opponent: 3 },
+            finalPrizes: { me: 4, opponent: 6 }, prizeTimeline: [], opponentCards: [], myPokemonUsed: [],
+            opponentArchetypeGuess: null, endReason: 'prizes', leadChanged: true, closeGame: true, unknowns: [],
+          },
+        };
+      }
+      throw new Error(`unexpected get ${path}`);
+    },
+    send: async () => { throw new Error('a read tool sent a write'); },
+  };
+  const ctx = { db: { query: async () => ({ rows: [] }) }, userId: 'u1', api } as never;
+  const result = await def.handler({ deck_id: 'deck-1', log_id: 7 }, ctx);
+  assert.equal(result.structured?.closeGame, true, 'the fixture is a close game, as the shared tool reports it');
+  const wire = toCallToolResult(result);
+  const text = String((wire.content[0] as { text: string }).text);
+  assert.match(text, /close game/);
+  assert.doesNotMatch(text, /consult/i, 'an MCP client was told to call a tool it does not have');
+  assert.ok(!('structuredContent' in wire));
+});

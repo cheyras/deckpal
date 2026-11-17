@@ -1277,6 +1277,18 @@ export function buildTools(
 }
 
 /**
+ * Does a request at this tier hold `consult`? Quick only.
+ *
+ * ONE PREDICATE for the tool set (`toolsForTier`) and for the close-game note
+ * on `battle_digest` (`closeGameConsult.ts`, passed to `buildDataTools` as
+ * `consultOffered` by api/chat.mjs), so the note can never tell the model to
+ * call a tool this request does not have.
+ */
+export function tierOffersConsult(tier: TierName): boolean {
+  return tier === 'quick'
+}
+
+/**
  * The tool set a request at this tier holds.
  *
  * DECIDED ONCE PER REQUEST, from the tier code chose before the first step,
@@ -1286,7 +1298,7 @@ export function buildTools(
  * same model, or a weaker one, for a second opinion it can already give.
  */
 export function toolsForTier(tools: ToolSet, tier: TierName): ToolSet {
-  if (tier === 'quick') return tools
+  if (tierOffersConsult(tier)) return tools
   const { consult: _consult, ...rest } = tools
   void _consult
   return rest

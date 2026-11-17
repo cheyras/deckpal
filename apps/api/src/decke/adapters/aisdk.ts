@@ -59,6 +59,7 @@ import {
 } from '../failing.js';
 import { NoOpMemo, noOpMessage } from '../noOp.js';
 import { ALREADY_TOLD_NOTE, alreadyTold } from '../toldAlready.js';
+import { closeGameConsultNote } from '../closeGameConsult.js';
 import { briefArgs } from '../toolArgs.js';
 import {
   APPLY_LOG_CARDS_DESCRIPTION,
@@ -327,6 +328,17 @@ export interface AiSdkAdapterOptions extends ToolCtxOptions {
    * reported yet — correct for a sub-agent and for the tests.
    */
   priorSummaries?: ReadonlySet<string>;
+  /**
+   * Does this request's tool set hold `consult`? (`tierOffersConsult` in
+   * tools.ts: the Quick tier only.)
+   *
+   * When true, a `battle_digest` whose structured echo says `closeGame` gets
+   * one line telling the model to consult before it writes the review — see
+   * `closeGameConsult.ts` for the measurement. Absent means no note, which is
+   * right for a sub-agent and for every non-Quick request; MCP never builds
+   * this tool set at all.
+   */
+  consultOffered?: boolean;
   /**
    * This conversation's id, for the one structured log line a tripped breaker
    * writes. Never used for a write key: it is not part of the signed approval.
@@ -1658,6 +1670,16 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
             // a half-read page license a full grid. Observe exactly what he
             // gets.
             if (!result.isError) opts.grounding?.observe(text);
+            // ── AND, ON QUICK, A CLOSE GAME IS CONSULTED ON ─────────────────
+            //
+            // After the clamp, so the line can never be cut off, and after
+            // grounding, which it has nothing to offer. The chip below reads
+            // the first line, which stays the tool's own. Deck-E only: the
+            // flag is the tool's `structured` echo, which MCP never sends.
+            // See `closeGameConsult.ts`.
+            const consultNote = result.isError
+              ? ''
+              : closeGameConsultNote(def.name, result.structured, opts.consultOffered);
             opts.onEvent?.({
               phase: result.isError ? 'error' : 'ok',
               ...chip,
@@ -1670,7 +1692,7 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
                 ? summariseError({ ...result, text })
                 : summarise({ ...result, text }),
             });
-            return { text, failed: result.isError === true };
+            return { text: `${text}${consultNote}`, failed: result.isError === true };
           };
 
           if (!def.annotations.readOnlyHint) {
