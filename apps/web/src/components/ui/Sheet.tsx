@@ -27,6 +27,13 @@
  *
  * 3. **Background scroll-through.** The page behind stayed scrollable, so the
  *    sheet appeared to drift away. Locked below, position preserved.
+ *
+ * 4. **The iOS keyboard.** Focusing a field makes iOS scroll the document to
+ *    reveal it, lock or no lock, and every `fixed` layer rides that scroll — so
+ *    the panel was yanked up off the top of the screen, pannable, with a dead
+ *    gap above the keyboard. While a field has focus and a keyboard is up, the
+ *    scrim is placed against the visible area instead, the same way Deck-E's
+ *    chat panel is. See `sheetKeyboard.ts`.
  */
 import {
   createContext,
@@ -42,6 +49,8 @@ import {
 import { createPortal } from 'react-dom'
 import { Icon } from '../Icon'
 import { prefersReducedMotion } from '../../lib/reducedMotion'
+import { composerFocused, consumesScroll } from '../../character/host/panelScrollLock'
+import { sheetBox } from './sheetKeyboard'
 
 /**
  * Closes the sheet WITH its exit animation. A sheet that draws its own header
@@ -186,6 +195,7 @@ export function Sheet({
   contentRef?: Ref<HTMLDivElement>
 }) {
   const titleId = useId()
+  const scrimRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const scrimDownRef = useRef(false)
   const returnFocusRef = useRef<HTMLElement | null>(null)
@@ -321,6 +331,115 @@ export function Sheet({
     }
   }, [])
 
+  // ── The iOS keyboard: the scrim covers what can be seen ─────────────────────
+  //
+  // `sheetKeyboard.ts` has the why; it is the Deck-E chat's fix, reused. While a
+  // text field in this sheet has focus AND a keyboard is covering the screen,
+  // the scrim is placed against the visible area, so the bottom-anchored panel
+  // sits on the keyboard rather than wherever iOS's reveal scroll carried it,
+  // and the bottom safe-area inset is dropped. Any other time nothing is
+  // written and the authored `inset: 0` stands.
+  //
+  // Written as custom properties in the handler, not as state, for the reason
+  // DeckeChat gives: iOS animates the keyboard in over ~200ms and these events
+  // arrive every frame of it, so a render's lag is a frame drawn against a
+  // viewport that has already moved.
+  useEffect(() => {
+    const scrim = scrimRef.current
+    const panel = panelRef.current
+    const vv = window.visualViewport
+    if (!scrim || !panel || !vv) return
+    // The `top` this effect last wrote, so the scrim's own client rect can be
+    // read back as "where a `fixed; top: 0` box lands" without a landmark.
+    let appliedTop = 0
+    const clear = () => {
+      appliedTop = 0
+      scrim.style.removeProperty('--sheet-top')
+      scrim.style.removeProperty('--sheet-h')
+      scrim.style.removeProperty('--sheet-bottom')
+      scrim.style.removeProperty('--sheet-safe-bottom')
+    }
+    const apply = () => {
+      const box = composerFocused(panel)
+        ? sheetBox({
+            fixedOrigin: scrim.getBoundingClientRect().top - appliedTop,
+            visualHeight: vv.height,
+            scale: vv.scale,
+            layoutHeight: document.documentElement.clientHeight,
+          })
+        : null
+      if (!box) {
+        clear()
+        return
+      }
+      appliedTop = box.top
+      scrim.style.setProperty('--sheet-top', `${box.top}px`)
+      scrim.style.setProperty('--sheet-h', `${box.height}px`)
+      scrim.style.setProperty('--sheet-bottom', 'auto')
+      // The keyboard is over the home indicator; there is no inset to keep.
+      scrim.style.setProperty('--sheet-safe-bottom', '0px')
+    }
+    // Focus moving between two fields fires focusout with `<body>` active for
+    // a moment; a frame later the answer is the real one, with no flicker.
+    let raf = 0
+    const applySoon = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(apply)
+    }
+    apply()
+    vv.addEventListener('resize', apply)
+    vv.addEventListener('scroll', apply)
+    window.addEventListener('scroll', apply, { passive: true, capture: true })
+    window.addEventListener('resize', apply)
+    panel.addEventListener('focusin', applySoon)
+    panel.addEventListener('focusout', applySoon)
+    return () => {
+      cancelAnimationFrame(raf)
+      vv.removeEventListener('resize', apply)
+      vv.removeEventListener('scroll', apply)
+      window.removeEventListener('scroll', apply, { capture: true })
+      window.removeEventListener('resize', apply)
+      panel.removeEventListener('focusin', applySoon)
+      panel.removeEventListener('focusout', applySoon)
+      clear()
+    }
+  }, [])
+
+  // ── And a drag cannot pull the page out from under a field you are typing in
+  //
+  // `panelScrollLock.ts`, as Deck-E uses it: while a text field in the sheet
+  // has focus, a one-finger drag that nothing inside the sheet can absorb is
+  // refused. The sheet's own scroll area still scrolls whenever it has room.
+  // Registered on the scrim, so a drag that starts on the dimmed area above
+  // the panel is caught too.
+  useEffect(() => {
+    const scrim = scrimRef.current
+    const panel = panelRef.current
+    if (!scrim || !panel) return
+    let startY = 0
+    let from: Element | null = null
+    const onStart = (e: TouchEvent) => {
+      startY = e.touches[0]?.clientY ?? 0
+      from = e.target instanceof Element ? e.target : null
+    }
+    const onMove = (e: TouchEvent) => {
+      // Not a two-finger gesture: pinch-zoom is the reader's.
+      if (e.touches.length !== 1) return
+      if (!composerFocused(panel)) return
+      const dy = startY - (e.touches[0]?.clientY ?? 0)
+      if (Math.abs(dy) < 1) return
+      if (consumesScroll(from, scrim, dy)) return
+      if (e.cancelable) e.preventDefault()
+    }
+    // Non-passive: a passive listener may not call `preventDefault`.
+    scrim.addEventListener('touchstart', onStart, { passive: true })
+    scrim.addEventListener('touchmove', onMove, { passive: false })
+    return () => {
+      scrim.removeEventListener('touchstart', onStart)
+      scrim.removeEventListener('touchmove', onMove)
+    }
+  }, [])
+
   // Close on scrim click only when the gesture STARTED on the scrim. Without
   // this, selecting text in the sheet and releasing outside it closes the sheet.
   const onScrimPointerDown = useCallback((e: React.PointerEvent) => {
@@ -337,8 +456,16 @@ export function Sheet({
   return createPortal(
     <SheetCloseContext.Provider value={requestClose}>
     <div
+      ref={scrimRef}
       className="px-sheet-scrim fixed inset-0 z-(--z-modal) flex items-end justify-center overflow-hidden overscroll-none p-0 nav:items-center nav:p-[16px]"
-      style={{ background: 'var(--color-overlay-scrim-strong)' }}
+      // The custom properties are written only while the keyboard is up (see
+      // the effect above); their fallbacks are the authored `inset: 0`.
+      style={{
+        background: 'var(--color-overlay-scrim-strong)',
+        top: 'var(--sheet-top, 0px)',
+        bottom: 'var(--sheet-bottom, 0px)',
+        height: 'var(--sheet-h, auto)',
+      }}
       data-closing={closing || undefined}
       onPointerDown={onScrimPointerDown}
       onClick={onScrimClick}
@@ -355,8 +482,11 @@ export function Sheet({
           'px-sheet-panel relative flex w-full flex-col overflow-hidden',
           // The cap is the whole trick: the panel can never outgrow the screen,
           // so nothing ever lands off the top. dvh (not vh) so a mobile URL bar
-          // or an open keyboard shrinks it instead of pushing it out of view.
-          'max-h-[92dvh] nav:max-h-[min(86dvh,860px)]',
+          // shrinks it. dvh does NOT track the iOS keyboard, though, so the
+          // panel is also capped at 100% of the scrim — which is the visible
+          // area above the keyboard while one is up, and the whole viewport
+          // (so a no-op) the rest of the time.
+          'max-h-[min(92dvh,100%)] nav:max-h-[min(86dvh,860px,100%)]',
           'rounded-t-2xl border border-border-default bg-surface-secondary shadow-xl nav:rounded-2xl',
           MAX_W[size],
         ].join(' ')}
@@ -396,7 +526,7 @@ export function Sheet({
             'min-h-0 flex-1 overflow-y-auto overscroll-contain p-[20px] nav:p-[24px]',
             contentClassName,
           ].join(' ')}
-          style={footer ? undefined : { paddingBottom: 'calc(20px + env(safe-area-inset-bottom))' }}
+          style={footer ? undefined : { paddingBottom: 'calc(20px + var(--sheet-safe-bottom, env(safe-area-inset-bottom)))' }}
         >
           {children}
         </div>
@@ -404,7 +534,7 @@ export function Sheet({
         {footer && (
           <div
             className="shrink-0 border-t border-border-default px-[20px] py-[14px] nav:px-[24px]"
-            style={{ paddingBottom: 'calc(14px + env(safe-area-inset-bottom))' }}
+            style={{ paddingBottom: 'calc(14px + var(--sheet-safe-bottom, env(safe-area-inset-bottom)))' }}
           >
             {footer}
           </div>
