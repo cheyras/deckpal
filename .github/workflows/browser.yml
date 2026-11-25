@@ -28,6 +28,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+      - name: Prepare the container
+        # The container runs as root over a workspace owned by the runner user, so git refuses it as "dubious
+        # ownership" unless it is marked safe (the browser suites call git ls-files). The suites also launch
+        # Playwright with a stripped environment (tests/browser/support.mjs isolatedEnv keeps PATH and HOME only),
+        # which drops the image's PLAYWRIGHT_BROWSERS_PATH; linking Playwright's default cache path to the image's
+        # browsers lets every suite find them.
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          mkdir -p "$HOME/.cache"
+          ln -sfn "${PLAYWRIGHT_BROWSERS_PATH:?the Playwright image sets PLAYWRIGHT_BROWSERS_PATH}" "$HOME/.cache/ms-playwright"
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
       - name: Setup Node

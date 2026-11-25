@@ -25,6 +25,11 @@ limit to 30 minutes because it spends build minutes on waiting; the image remove
 **Implications:**
 - Each shard pulls the image (Docker layers, not the Ubuntu mirror) instead of running apt. No apt step
   remains anywhere in the browser job.
+- Two container details live in a "Prepare the container" step: the workspace is marked a git safe
+  directory (the container runs as root over a runner-owned checkout, and suites call `git ls-files`), and
+  `~/.cache/ms-playwright` links to the image's `/ms-playwright`, because `isolatedEnv` in
+  `tests/browser/support.mjs` passes only PATH and HOME to child suites and so drops the image's
+  `PLAYWRIGHT_BROWSERS_PATH`. The test isolation itself is unchanged.
 - A Playwright bump needs the image tag and `IMAGE_PLAYWRIGHT` in `browser.yml` bumped with it. Until then
   the run still works, with a warning annotation.
 - Supersedes the browser-cache half of 2026-09-26's "Browser CI job: cache Playwright browsers"; its
