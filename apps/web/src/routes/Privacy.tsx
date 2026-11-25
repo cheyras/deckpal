@@ -20,8 +20,10 @@
  *
  * Anything that is a legal or business decision rather than a fact in the code
  * — who runs DeckPal, the contact address, retention periods, the age limit,
- * which privacy laws apply — is a <ToDecide> marker, drawn so it cannot ship
- * looking finished. Fill those in; do not invent them.
+ * which privacy laws apply — was Chey's call, recorded in
+ * `decisions/2026/2026-11-23-privacy-page-legal-and-business-answers.md`. Change
+ * those only with the owner; do not invent them. Where a promise depends on a
+ * manual step (account deletion), that decision file names the step.
  *
  * Chrome-free and public (lib/landingRoute.ts): it is linked from the landing
  * footer and the sign-up form, both read by people with no account.
@@ -41,16 +43,15 @@ const ISSUES = `${REPO}/issues`
 
 /* ── primitives ───────────────────────────────────────────────────────────── */
 
-/**
- * A fact only the people running DeckPal can supply. Loud on purpose: dashed,
- * warning-coloured and labelled, so a screenshot of an unfinished page can
- * never be mistaken for a finished one.
- */
-function ToDecide({ children }: { children: ReactNode }) {
+/** The one address for privacy requests, account deletion and support. */
+const CONTACT = 'support@deckpal.app'
+
+/** A mailto link stays in the same tab, unlike `A`, which opens outside pages in a new one. */
+function Mail() {
   return (
-    <span className="box-decoration-clone rounded-[6px] border border-dashed border-warning px-[6px] py-[1px] font-semibold text-warning">
-      To decide: {children}
-    </span>
+    <a href={`mailto:${CONTACT}`} className="text-link underline underline-offset-2 hover:text-link-hover">
+      {CONTACT}
+    </a>
   )
 }
 
@@ -58,7 +59,7 @@ function ToDecide({ children }: { children: ReactNode }) {
  * Keeps "Deck-E" on one line. A browser may break a line after any hyphen, and
  * "Deck-" / "E" split across two lines reads as a typo, most of all in the
  * narrow processor cards. Walks strings inside elements too (links, list
- * items, <ToDecide>), so prose can be written normally.
+ * items), so prose can be written normally.
  */
 function keepDeckE(node: ReactNode): ReactNode {
   if (typeof node === 'string') {
@@ -312,7 +313,7 @@ export function Privacy() {
             against <A href={SOURCE}>the code</A>.
           </p>
           <p className="mt-[16px] text-[14px] leading-[1.6] text-text-muted">
-            Last updated: <ToDecide>the date this page takes effect</ToDecide>
+            Last updated: November 23, 2026
           </p>
           <p className="mt-[8px] text-[14px] leading-[1.6] text-text-muted">
             This page is about deckpal.app. If you use a copy of DeckPal that someone else runs, that copy is theirs,
@@ -344,8 +345,8 @@ export function Privacy() {
               </Bullets>
             </div>
             <P>
-              DeckPal is run by <ToDecide>the person or company that runs DeckPal</ToDecide>. For anything on this
-              page, write to <ToDecide>a contact address for privacy requests</ToDecide>.
+              DeckPal is run by an independent developer based in Utah, USA. For anything on this page, write to{' '}
+              <Mail />.
             </P>
           </Section>
 
@@ -425,8 +426,11 @@ export function Privacy() {
 
           <Section id="services">
             <P>
-              These are the outside services that receive data about you when you use deckpal.app.{' '}
-              <ToDecide>whether DeckPal has a data-processing agreement with each of them</ToDecide>
+              These are the outside services that receive data about you when you use deckpal.app. Supabase,
+              Resend, Stripe and Vercel each process data for DeckPal under their standard data-processing
+              agreements, which are part of their terms of service. GitHub and DuckDuckGo work under their own terms.
+              DeckPal reaches Deck-E’s AI model providers only through the Vercel AI Gateway, so its agreement for
+              them is with Vercel.
             </P>
             <H3>Running DeckPal</H3>
             <ProcessorList label="Services that run DeckPal" items={INFRASTRUCTURE} />
@@ -467,8 +471,7 @@ export function Privacy() {
               <li>
                 Requests to the other providers do not ask for zero retention, so each provider’s own terms decide
                 how long they keep them, and the Gateway may pass a request to a company that hosts the model rather
-                than the model’s maker.{' '}
-                <ToDecide>whether to require zero data retention for every Deck-E model</ToDecide>
+                than the model’s maker.
               </li>
               <li>
                 Your conversations are saved to your Deck-E history, and you can delete any of them there. Nothing is
@@ -535,8 +538,9 @@ export function Privacy() {
           <Section id="retention">
             <Bullets>
               <li>
-                Your account and everything in it: for as long as you have the account.{' '}
-                <ToDecide>how an account is deleted, and how long deleted data lasts in backups</ToDecide>
+                Your account and everything in it: for as long as you have the account. When you ask us to delete
+                it, we delete it and everything in it within 30 days. Copies in our database backups disappear as
+                those backups expire.
               </li>
               <li>
                 Deleted lists and decks: kept in Recently deleted until you choose Delete forever, so you can bring
@@ -544,12 +548,12 @@ export function Privacy() {
               </li>
               <li>Deck-E conversations: until you delete them. A copy you explicitly share to improve Deck-E: 180 days, unless you Stop sharing sooner.</li>
               <li>
-                Payment records and Deck-E usage records:{' '}
-                <ToDecide>how long these are kept (tax rules may set a minimum)</ToDecide>
+                Payment records and Deck-E usage records: at least 7 years, because tax and accounting rules may
+                require it. Stripe keeps its own payment records under its terms.
               </li>
               <li>
-                Bug reports: the public issue stays on GitHub.{' '}
-                <ToDecide>how long the private copy and any screenshot are kept</ToDecide>
+                Bug reports: the public issue stays on GitHub. We keep the private copy and any screenshot until you
+                ask us to delete them.
               </li>
               <li>Server logs: for as long as Vercel keeps them.</li>
             </Bullets>
@@ -569,26 +573,32 @@ export function Privacy() {
                 list as text, and a connected assistant can read your collection, decks, lists and battle logs.
               </li>
               <li>
-                Delete your account: there is no button for this yet.{' '}
-                <ToDecide>how to ask, and what gets deleted</ToDecide>
+                Delete your account: there is no button for this yet. Email <Mail /> from the address on your
+                account, and we will delete your account within 30 days. That removes your sign-in, profile, photo,
+                collection, decks, lists, battle logs, Deck-E conversations, connected assistants and settings. We
+                keep payment and usage records as described above, and the public GitHub issue for any bug you
+                reported stays up.
               </li>
               <li>
-                Your legal rights:{' '}
-                <ToDecide>which privacy laws DeckPal commits to (for example GDPR or CCPA) and how to use them</ToDecide>
+                Your legal rights: wherever you live, you can ask us to see, correct, export or delete the personal
+                data we hold about you. Write to <Mail /> and we will answer within 30 days. If you are in the EU or
+                UK, you also have the rights the GDPR gives you, including to object and to complain to your local
+                data protection authority.
               </li>
             </Bullets>
           </Section>
 
           <Section id="children">
             <P>
-              <ToDecide>the minimum age for a DeckPal account</ToDecide>
+              You must be 13 or older to create a DeckPal account. If you are under 18, check with a parent or
+              guardian first. If we learn that someone under 13 has an account, we will delete it.
             </P>
           </Section>
 
           <Section id="changes">
             <P>
               This page is part of DeckPal’s public source code, so <A href={HISTORY}>every change to it</A> is on
-              the record. When something important changes, <ToDecide>how people will be told</ToDecide>
+              the record. When something important changes, we update the date at the top of this page.
             </P>
           </Section>
         </article>
