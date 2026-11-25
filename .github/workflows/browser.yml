@@ -12,6 +12,14 @@ jobs:
   browser-shard:
     name: browser shard ${{ matrix.shard }}/8
     runs-on: ubuntu-24.04
+    # Microsoft's Playwright image already holds Chromium, WebKit and every system library they need, so a shard
+    # installs nothing from the Ubuntu mirror. Installing them on the bare runner pulled ~126 MB of WebKit libraries
+    # through apt on every shard, and on a slow mirror that alone ran past the 15-minute limit. Keep the tag equal to
+    # the `playwright` version in package.json; the "Check the Playwright image" step warns when they drift.
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      # Chromium can run out of shared memory in a container without this (Playwright's own Docker guidance).
+      options: --ipc=host
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -20,6 +28,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+      - name: Prepare the container
+        # The container runs as root over a workspace owned by the runner user, so git refuses it as "dubious
+        # ownership" unless it is marked safe (the browser suites call git ls-files). The suites also launch
+        # Playwright with a stripped environment (tests/browser/support.mjs isolatedEnv keeps PATH and HOME only),
+        # which drops the image's PLAYWRIGHT_BROWSERS_PATH; linking Playwright's default cache path to the image's
+        # browsers lets every suite find them.
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          mkdir -p "$HOME/.cache"
+          ln -sfn "${PLAYWRIGHT_BROWSERS_PATH:?the Playwright image sets PLAYWRIGHT_BROWSERS_PATH}" "$HOME/.cache/ms-playwright"
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
       - name: Setup Node
@@ -29,24 +47,18 @@ jobs:
           cache: pnpm
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
-      - name: Resolve Playwright version and runner image
-        id: playwright
-        # ImageOS (e.g. ubuntu24) is a runner shell variable, not part of the env context, so it is passed as an output.
+      - name: Check the Playwright image
+        # The image's browsers match one Playwright version. If package.json moves ahead of the image tag (a
+        # Dependabot bump, say), fetch the matching browsers only: the image's system libraries still cover them, so
+        # this is a quick download with no apt step. The warning says to bump the image tag above.
+        env:
+          IMAGE_PLAYWRIGHT: "1.63.0"
         run: |
-          echo "version=$(node -e "console.log(require('./package.json').devDependencies.playwright)")" >> "$GITHUB_OUTPUT"
-          echo "image=${ImageOS:?ImageOS is not set on this runner}" >> "$GITHUB_OUTPUT"
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-browsers-${{ runner.os }}-${{ steps.playwright.outputs.image }}-${{ steps.playwright.outputs.version }}
-      - name: Install Chromium and WebKit (cache miss)
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install --with-deps chromium webkit
-      - name: Install Playwright OS dependencies (cache hit)
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: pnpm exec playwright install-deps chromium webkit
+          wanted="$(node -p "require('./package.json').devDependencies.playwright")"
+          if [ "$wanted" != "$IMAGE_PLAYWRIGHT" ]; then
+            echo "::warning title=Playwright image is out of date::package.json wants Playwright $wanted but browser.yml uses the v$IMAGE_PLAYWRIGHT image. Bump the container image tag and IMAGE_PLAYWRIGHT to v$wanted."
+            pnpm exec playwright install chromium webkit
+          fi
       - name: Restore built workspace packages
         id: workspace-cache
         uses: actions/cache@v6
