@@ -315,6 +315,11 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       // Offline: counters stay disabled, as before this change.
       await context.setOffline(true)
       await page.waitForFunction(() => !navigator.onLine)
+      // The write gate closes only after the app's reachability probe fails and React re-renders
+      // (useConnectivity), which lands a beat after navigator.onLine flips. Wait for it, bounded,
+      // instead of reading the button in the same tick: on a slow runner the immediate read raced it.
+      await page.waitForFunction((el) => el.disabled || el.getAttribute('aria-disabled') === 'true',
+        await counter.elementHandle(), { timeout: 10_000 })
       assert.equal(await counter.isDisabled(), true)
       await context.setOffline(false)
       await page.waitForFunction(() => navigator.onLine)

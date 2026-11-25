@@ -403,15 +403,23 @@ multi-frame in a rectified frame**, not single-image. Public dataset: MIDV-Holo
   unsupported on iOS and not planned, so the commercially proven approach —
   controlled point-source illumination — is unavailable to the primary user.
 
-## Free improvements not yet made
+## Free improvements (all three shipped)
 
-1. **Stop feeding the detector JPEG.** q0.85 at 4:2:0 halves chroma resolution,
-   and every feature that works here is chroma-based. `drawImage` + `getImageData`
-   gives raw RGBA for free.
-2. **Raise the frame rate.** The capture loop samples at ~1.4 fps; the OVD field
-   uses 5 fps, and the temporal features are the ones that generalise.
-3. **Use the TCGdex `variants` map.** Many cards have no reverse printing at all,
-   so there is no decision to make — pure accuracy, zero optics.
+These were open when round 3 was written. All three are done; checked against
+the code on 2026-11-23.
+
+1. **Stop feeding the detector JPEG.** Shipped in PR #196 (2026-09-22):
+   `CaptureResult.raw` (`apps/web/src/scan/engine/contract.ts`) carries the
+   lossless rectified RGBA sampled before JPEG encoding. It is ephemeral and
+   never sent or stored. Nothing consumes it yet, because no foil classifier is
+   wired.
+2. **Raise the frame rate.** Already met: the detect loop runs at
+   `DEFAULT_CADENCE_MS = 120` (`apps/web/src/scan/engine/index.ts`), about 8 Hz,
+   above the 5 fps the OVD field uses. The ~1.4 fps figure was the old
+   `FRAME_MS = 700` loop, which no longer exists.
+3. **Use the TCGdex `variants` map.** Already met: printings come from
+   `card_variant` rows, and `printingState` (`apps/web/src/scan/ui/printing.ts`)
+   resolves any card with a single printing without asking.
 
 ---
 
@@ -505,3 +513,91 @@ Progression across the whole investigation, on registered card-only data:
 - **Depends on registration**, which is now solid (139/146) but is another moving
   part, and the keyline is thin — it will be the first thing lost to JPEG chroma
   subsampling and low capture resolution.
+
+---
+
+# Round 5 — which printings carry which tell, era by era (desk research)
+
+2026-11-23. Desk research only: no new captures, no new measurements. It answers
+the round-4 caveat ("treat it as current-era until checked") from published
+sources and DeckPal's own catalog, so the next capture round knows what to look
+for in each era. It does **not** validate any cue. The image-level comparisons
+already made are on the wiki page
+[Ink-Tell Era Survey](https://github.com/cheyras/deckpal/wiki/Ink-Tell-Era-Survey)
+(n=2) and are not repeated here.
+
+Sources: [Bulbapedia, Holofoil](https://bulbapedia.bulbagarden.net/wiki/Holofoil)
+(the reverse-holo section is on the same page; it says it has not been updated
+for Mega Evolution yet), one collector forum post on Japanese keylines
+([Elite Fourum, 2021-02-07](https://www.elitefourum.com/t/random-pokemon-related-til-moments/21493/56)),
+and DeckPal's catalog through the MCP `search_cards` tool.
+
+## The headline
+
+**The white keyline is a modern tell, not an all-eras one.** The only source
+found that dates it says Japanese reverse holos and full arts gained
+white-outlined illustrator and set-number text in the Sun & Moon era (from
+SM5+ Ultra Force; an edit says SM1+ too), that earlier Japanese sets have plain
+black text, and that in February 2021 **every other language, English
+included, still printed black text only.** That is a single forum post, and
+its author says they learned it from Reddit and their own collection, so treat
+it as a lead. But it fits what the owner sees: the tell exists on current
+English cards, so English must have adopted it at some point after early 2021.
+**The English start date is the one open fact that decides how far back the
+round-4 signal can reach**, and it is cheap to settle by eye: one normal and one
+reverse of any card from a late Sword & Shield set and from Scarlet & Violet
+base.
+
+The good news is that older eras do not need the keyline, for two reasons
+below: for most older cards there is no reverse-versus-normal decision to make
+at all, and where there is one, the EX era carries stronger fixed-position
+tells than the keyline.
+
+## Era by era
+
+| Era | Is there a decision? | Printed or fixed-position tell (sourced) | What a detector would look at |
+|---|---|---|---|
+| WOTC Base → Neo | **Holo vs normal only.** No reverse holos exist before Legendary Collection. A holo and its non-holo are separate cards with separate collector numbers (catalog: Jungle Clefable `base2-1` holo, `base2-17` normal; Base Set has no reverse printings at all). | None needed. | **The collector number** (OCR / identity). Not optics. |
+| Legendary Collection | Normal vs reverse. | Reverse: "fireworks" foil over the whole body except the art. No printed tell recorded. | Optics only (rounds 1–3 approach). |
+| e-Card: Expedition | Normal vs reverse, for every card including holo rares. | Reverse: flat foil over everything except the art. No printed tell recorded. | Optics only. |
+| e-Card: Aquapolis, Skyridge | **Holo vs the rest is decided by number.** Holo rares are numbered separately (`H1`…) and have no reverse printing (catalog: Skyridge Gengar `ecard3-H09` holo only; `ecard3-10` normal/reverse). | None needed for holos; non-holo cards: no printed tell recorded. | Number for holos; optics for normal vs reverse. |
+| EX: Ruby & Sapphire → Team Magma vs Team Aqua | Normal vs reverse. | Reverse: flat foil over everything except the art. | Optics only. |
+| EX: Hidden Legends → Power Keepers | Normal vs reverse. | **Layout inverted:** reverse foil sits *in the artwork* (Hidden Legends, FireRed & LeafGreen, Team Rocket Returns, Deoxys, Emerald, Unseen Forces), or in the art background behind the Pokémon (Delta Species → Power Keepers). **Set-logo stamp** at the bottom right of the art on reverses (Team Rocket Returns onward). **Gold foil name and HP, silver rarity symbol** on rare reverses from Team Rocket Returns, "off and on" until Diamond & Pearl, and not on every rare from Delta Species on. **Faint foil symbol in the attack box** on Hidden Legends and FireRed & LeafGreen rares. | The **set-logo stamp** first: it is at a fixed place on every reverse in those sets and absent on the normal. Then the gold name/HP on rares. |
+| EX: Dragon Frontiers (and Holon Phantoms for the border) | Normal vs reverse. | Reverse foil on the Pokémon itself. Some reverses of holo rares get a **gold holo border** (Bulbapedia: "not always"). | Foil on the Pokémon; border hue where present. |
+| Diamond & Pearl, Platinum, HeartGold SoulSilver, Black & White base set | Normal vs reverse. | Plain foil over the card background (Bulbapedia gives the range "Diamond & Pearl to Black & White" and does not name HeartGold SoulSilver separately). No printed tell recorded. Plasma sets: plain-foil reverses for Team Plasma cards only. | Optics only, until a keyline or stamp is found by eye. |
+| Black & White Emerging Powers → XY Steam Siege | Normal vs reverse. | Reverse background carries a **type-symbol pattern** (Poké Balls for Trainers). Pattern is foil, not ink. | Optics; the pattern gives a known texture to look for. |
+| Sun & Moon | Normal vs reverse. | Reverse: one large type symbol on the left side. Japanese reverses gain white-outlined illustrator/number text (forum); English did not at the time. | Optics for English. |
+| Sword & Shield | Normal vs reverse. | Reverse: tile pattern with a type symbol in each tile, on a **mirror-foil base**. English keyline: unknown, possibly not yet. | Optics; check the keyline by eye. |
+| Scarlet & Violet | Normal vs reverse vs holo. | Reverse: finer tile pattern, mirror base. **Set symbol prints black-on-white on reverses, white-on-black on everything else** (Bulbapedia) — a second ink tell, independent of the keyline. **Standard holos have silver foil borders.** Keyline: present (owner, round 4). | Keyline (`haloDesat`) plus the set-symbol polarity flip; for holos, the border. |
+| Mega Evolution | Normal vs reverse vs holo. | Reverse: back to plain foil over the background. Keyline: present (owner, round 4). Bulbapedia has no Mega-era detail yet. | Keyline. |
+
+## What this changes
+
+1. **The detector should be routed by era, not one rule.** The catalog already
+   names the set of every scanned card, so the scanner can choose the cue: the
+   collector number for WOTC and for Aquapolis/Skyridge holos, the set-logo
+   stamp for EX reverses, the keyline and set-symbol polarity for Scarlet &
+   Violet and Mega Evolution, and the one-tap pick wherever no cue is known.
+2. **Scarlet & Violet has two independent ink tells, not one.** The set-symbol
+   polarity flip is a large, high-contrast patch, so it should survive capture
+   resolution better than a thin keyline. It is the cheapest next thing to
+   measure on the existing round-4 clips, if the set symbol is in frame there.
+3. **"Four EX sets invert the layout" undercounts it.** By Bulbapedia, the
+   artwork-side reverse runs from Hidden Legends through Power Keepers, with
+   Dragon Frontiers putting it on the Pokémon. Any rule keyed on "foil outside
+   the art" must exclude that whole run.
+4. **Mirror foil starts at Sword & Shield, not only in the newest sets.**
+   Bulbapedia's note on the Sword & Shield tile design says the reverse base is
+   mirror foil, so "do not build on hue" applies from 2020 on.
+
+## Still unknown, stated plainly
+
+- **When English reverses gained the keyline.** Settles by eye on two cards;
+  see the headline.
+- **Whether any printed tell exists in Diamond & Pearl → Sword & Shield
+  English.** No source mentions one. Absence from Bulbapedia is not evidence of
+  absence; it needs eyes on real pairs.
+- **None of these cues is measured.** The round-4 numbers (3 cards, 17
+  segments, current era) are still the only measurements. Each row above is a
+  hypothesis about where to look, with its source.
+- **The Japanese keyline claim rests on one forum post.**
