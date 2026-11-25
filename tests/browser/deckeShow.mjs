@@ -272,6 +272,20 @@ async function ask(page, box, question, target) {
  * reduced motion he arrives inside `flyTo` itself — so reading the record the
  * moment that request lands can miss the arrival it was reporting.
  */
+/**
+ * The small scroll moves in a trip (4 px or less per frame, the kind settling is made of), as
+ * "frame:from→to" steps, so a settling failure can be read from the CI log alone. The full frame
+ * trace is still written to the evidence JSON before any assertion runs.
+ */
+function smallMoves(f) {
+  const moves = []
+  for (let i = 1; i < f.length; i++) {
+    const dy = f[i].y - f[i - 1].y
+    if (dy && Math.abs(dy) <= 4) moves.push(i + ':' + f[i - 1].y + '→' + f[i].y)
+  }
+  return moves.length ? moves.join(' ') : 'none'
+}
+
 async function frames(page) {
   await page.waitForFunction((n) => window.__show.frames.length >= n,
     (await page.evaluate(() => window.__show.frames.length)) + 45, { timeout: 60_000 })
@@ -335,7 +349,7 @@ export async function checkDeckeShow(browser, server, out, engine, fixture, admi
         assert.deepEqual(fixture.toolOutputs(), [{ ok: true }], where + 'the goTo did not report a landing')
         assert.equal(f.at(-1).path, '/series/sim/sim1', where + 'he did not take the reader to the set')
         assert.ok(m.jumps <= 1 && m.glides <= 1, where + 'the page exceeded one throw and one glide (' + m.jumps + ' jumps, ' + m.glides + ' glides)')
-        assert.ok(m.settlingPx <= MAX_SETTLING_PX, where + 'the page drifted ' + m.settlingPx + ' px outside the planned motion')
+        assert.ok(m.settlingPx <= MAX_SETTLING_PX, where + 'the page drifted ' + m.settlingPx + ' px outside the planned motion (small moves: ' + smallMoves(f) + ')')
         assert.equal(m.reversals, 0, where + 'the scroll reversed direction on its own')
         assert.ok(m.worstStepPx <= MAX_STEP_PX, where + 'he snapped ' + m.worstStepPx + ' px in one frame')
         assert.ok(m.ringT !== null && m.ringOnTarget, where + 'the card was never ringed')
