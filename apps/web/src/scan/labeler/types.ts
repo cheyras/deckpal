@@ -8,7 +8,10 @@ import type { Quad } from '../engine/contract'
 import type { TopLeftIndex } from './orientation'
 
 export type LabelSource = 'camera' | 'upload'
-export type SeededFrom = 'detector' | 'default'
+/** `'agent'` (2026-11-26): the corners came from a reviewed SUGGESTION
+ *  (`QuadSuggestion`), not from the detector, and the label carries that
+ *  suggestion beside it (`QuadLabel.suggestion`). */
+export type SeededFrom = 'detector' | 'default' | 'agent'
 
 /**
  * WHY a `seededFrom: 'default'` row fell back — recorded from 2026-09-07, and
@@ -448,6 +451,43 @@ interface QuadLabelBase {
     }
   }
   savedAt: string
+  /**
+   * The SUGGESTION this label was reviewed from (2026-11-26), or absent when
+   * the reader labelled from scratch. `agreed` is true when the saved label is
+   * the suggestion unchanged (same verdict and reason, corners within half a
+   * canonical pixel), so a harvest can weigh confirmed suggestions apart from
+   * labels drawn by hand. Absence means NO suggestion, never "agreed".
+   */
+  suggestion?: {
+    by: string
+    verdict: QuadSuggestion['verdict']
+    invalidReason?: InvalidReason
+    confidence: QuadSuggestion['confidence']
+    agreed: boolean
+  }
+}
+
+/**
+ * A good-faith guess at how the owner would label a queued photo, made off the
+ * labeler by an agent or a script (scripts/label-assist), stored beside the
+ * queue by `PUT /dev/scan-queue/suggestions`. NOT a label: the photo stays in
+ * the queue until the reader saves one. Mirrors
+ * apps/api/src/dev/queueSuggestions.ts.
+ */
+export interface QuadSuggestion {
+  v: 1
+  id: number
+  by: string
+  createdAt: string
+  verdict: 'card' | 'back' | 'reject'
+  invalidReason?: InvalidReason
+  /** Source-photo px (may leave the photo; mirrored). Null = the centre square. */
+  crop: { x: number; y: number; size: number } | null
+  /** Fractions of the canonical square, like `PositiveQuadLabel.corners`. */
+  corners?: Quad
+  topLeftIndex?: TopLeftIndex
+  confidence: 'high' | 'medium' | 'low'
+  note?: string
 }
 
 /** A correct quad — NORMALIZED, fractions [0,1] of the canonical square's

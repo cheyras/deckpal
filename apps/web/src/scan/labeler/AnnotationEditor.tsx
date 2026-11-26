@@ -37,10 +37,12 @@ import type { Quad } from '../engine/contract'
 import { assignTopLeft, orientedCorners, rotateTopLeft, type TopLeftIndex } from './orientation'
 import {
   CARD_BACK_SPEC,
+  REASON_BY_VALUE,
   REASON_SPECS,
   type CardFace,
   type InvalidReason,
   type ReasonGroup,
+  type QuadSuggestion,
   type SeededFrom,
 } from './types'
 import type { WorkingFrame } from './workingFrame'
@@ -92,6 +94,7 @@ export function AnnotationEditor({
   onSaveLabel,
   onInvalid,
   onDiscard,
+  suggestion = null,
 }: {
   workingFrame: WorkingFrame
   initialCorners: Quad
@@ -104,6 +107,9 @@ export function AnnotationEditor({
   /** Throw this frame away and land on the next one — the same landing a save
    *  makes, which is why the labeler passes its own `advance` for both. */
   onDiscard: () => void
+  /** A reviewed SUGGESTION for this frame (types.ts), shown as a banner with
+   *  one-tap Agree. Its corners are already the seed when it has any. */
+  suggestion?: QuadSuggestion | null
 }) {
   const refSize = workingFrame.reference.width
 
@@ -184,8 +190,8 @@ export function AnnotationEditor({
   // something to say about it ("flip the card"), so it rides as one boolean
   // beside Save rather than as a separate flow the reader has to choose
   // BEFORE they know what they are looking at.
-  const [face, setFace] = useState<CardFace>('front')
-  const faceRef = useRef<CardFace>('front')
+  const [face, setFace] = useState<CardFace>(suggestion?.verdict === 'back' ? 'back' : 'front')
+  const faceRef = useRef<CardFace>(suggestion?.verdict === 'back' ? 'back' : 'front')
   /** The rejection taxonomy, as a sheet. See this file's header for why it is
    *  no longer permanently on screen. */
   const [rejecting, setRejecting] = useState(false)
@@ -519,15 +525,21 @@ export function AnnotationEditor({
       <div className="flex shrink-0 flex-wrap items-center gap-[6px] border-b border-white/10 px-[10px] py-[5px] text-[10px] text-white/60">
         <span
           className={`rounded-full px-[7px] py-[2px] font-bold uppercase tracking-wide ${
-            seededFrom === 'detector' ? 'bg-cyan-400/15 text-cyan-300' : 'bg-white/10 text-white/60'
+            seededFrom === 'detector'
+              ? 'bg-cyan-400/15 text-cyan-300'
+              : seededFrom === 'agent'
+                ? 'bg-fuchsia-500/20 text-fuchsia-200'
+                : 'bg-white/10 text-white/60'
           }`}
           title={
-            seededFrom === 'detector'
+            seededFrom === 'agent'
+              ? 'The quad below is a reviewed suggestion, not your label. Check the corners, then Agree or adjust.'
+              : seededFrom === 'detector'
               ? 'The quad below is the shipping detector’s own proposal for this frame.'
               : 'The detector produced nothing here, so this is the centred fallback rectangle — the anchor guess it carries is about that rectangle, not about a detection.'
           }
         >
-          seed: {seededFrom}
+          seed: {seededFrom === 'agent' ? 'suggestion' : seededFrom}
         </span>
         <span
           className={`rounded-full px-[7px] py-[2px] font-bold uppercase tracking-wide ${
@@ -549,6 +561,37 @@ export function AnnotationEditor({
         <span className="hidden sm:inline">drag corners · pinch/wheel to zoom · arrows nudge (shift = 5px) · R rotates · B = back · Enter saves</span>
       </div>
 
+      {suggestion && (
+        <div className="flex shrink-0 flex-wrap items-center gap-[8px] border-b border-fuchsia-400/20 bg-fuchsia-500/10 px-[10px] py-[6px] text-[12px] text-fuchsia-100">
+          <span className="font-bold">
+            Suggested:{' '}
+            {suggestion.verdict === 'reject'
+              ? `skip — ${suggestion.invalidReason ? REASON_BY_VALUE[suggestion.invalidReason].label : 'rejected'}`
+              : suggestion.verdict === 'back'
+                ? 'card back, corners as shown'
+                : 'card, corners as shown'}
+          </span>
+          <span className="rounded-full bg-black/30 px-[6px] py-[1px] text-[10px] uppercase tracking-wide text-fuchsia-200/80">
+            {suggestion.confidence}
+          </span>
+          {suggestion.note && <span className="min-w-0 flex-1 truncate text-[11px] text-fuchsia-100/60">{suggestion.note}</span>}
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() =>
+              suggestion.verdict === 'reject' && suggestion.invalidReason ? onInvalid(suggestion.invalidReason) : submit()
+            }
+            className="ml-auto rounded-[6px] bg-fuchsia-500 px-[12px] py-[5px] text-[12px] font-bold text-white disabled:opacity-50"
+            title={
+              suggestion.verdict === 'reject'
+                ? 'Save this frame as rejected for that reason'
+                : 'Save the quad exactly as it is now: nudge corners first if they are off'
+            }
+          >
+            Agree
+          </button>
+        </div>
+      )}
       <div
         ref={containerRef}
         onPointerDown={onContainerPointerDown}
