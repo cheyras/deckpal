@@ -118,7 +118,7 @@ Search cards by NAME (`query`: CARD names only, never a set, series or artist �
 | argument | type | required | default | description |
 |---|---|---|---|---|
 | `query` | string |  |  | One card's printed name, or part of it — 'charizard', 'iono'. A plain substring match, accent- and case-insensitive. NOT a search engine: OR, AND, quotes and wildcards are matched literally and will find nothing. This field only sees the NAME — use `text` for printed attacks and Abilities. It does not see artwork, rarity, popularity, or whether a card is good or admired or a bargain. For any of those, research it. |
-| `text` | string[] |  |  | Up to 6 literal substrings from printed rules text (attack/Ability name or effect). Every term must match. Use this, not web research, for "which cards do X" questions. `%` and `_` are literal characters. Energy symbols and type words match each other: 'Fire Energy' also finds '{R} Energy'. |
+| `text` | string[] |  |  | Up to 6 literal substrings of printed rules text (attack/Ability name or effect); all must match. Use this, not web research, for "which cards do X". `%` and `_` are literal; {R} matches Fire. |
 | `text_same_attack` | boolean |  | `true` | true (default) requires all text terms — and damage, when present — on one matching attack or Ability. false allows terms to occur on different attacks/Abilities of the same card. |
 | `damage` | "x" \| "+" \| "-" |  |  | Attack damage suffix: x matches either × or literal x; + and - match those literal suffixes. |
 | `set_id` | string |  |  | One set, by id ('me05') or by NAME ('Pitch Black'). A name that matches several sets comes back as a choice. |

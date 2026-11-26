@@ -406,9 +406,8 @@ const searchCardsTool = defineTool({
       .max(6)
       .optional()
       .describe(
-        'Up to 6 literal substrings from printed rules text (attack/Ability name or effect). Every term must match. ' +
-          'Use this, not web research, for "which cards do X" questions. `%` and `_` are literal characters. ' +
-          "Energy symbols and type words match each other: 'Fire Energy' also finds '{R} Energy'.",
+        'Up to 6 literal substrings of printed rules text (attack/Ability name or effect); all must match. ' +
+          'Use this, not web research, for "which cards do X". `%` and `_` are literal; {R} matches Fire.',
       ),
     text_same_attack: z
       .boolean()
