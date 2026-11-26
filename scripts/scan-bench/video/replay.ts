@@ -9,6 +9,7 @@
  * Flags: --fps 8 (detect cadence)  --busy-ms 500 (capture busy window)
  *        --lock-ticks N (default: the shipping DEFAULT_LOCK_TICKS)
  *        --no-rearm (replay the policy without the look re-arm, ui/rearm.ts)
+ *        --no-size-gate (replay the policy without the size gate, ui/sizeGate.ts)
  *        --batch 16 (LC050 frames per sidecar call)  --timeline-every 8 (ticks)
  *        --out <dir> (default ~/deckpal-data/video-bench)
  *        --aim x,y,side (point the phone: the engine square's SOURCE rect; phone.ts aimedGeometry)
@@ -87,7 +88,7 @@ function arg(name: string, dflt: string): string {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : dflt
 }
 /** Flags that take no value: they must not swallow the argument after them. */
-const BOOLEAN_FLAGS = new Set(['--no-rearm', '--second-look'])
+const BOOLEAN_FLAGS = new Set(['--no-rearm', '--no-size-gate', '--second-look'])
 
 function positional(): string[] {
   const out: string[] = []
@@ -225,6 +226,7 @@ interface TrackLog {
   regionTicks: number
   busyTicks: number
   cardBackTicks: number
+  farTicks: number
   refractoryTicks: number
   logged: Set<string>
 }
@@ -234,7 +236,7 @@ interface CaptureRow {
   t: number
   i: number
   file: string
-  suppressed: false | 'region' | 'busy' | 'cardback'
+  suppressed: false | 'region' | 'busy' | 'cardback' | 'far'
   /** 'look': a repeat the look re-arm let through. */
   why?: 'look'
   trackId: number
@@ -286,6 +288,7 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
     busyMs,
     lockTicks,
     rearm: !process.argv.includes('--no-rearm'),
+    sizeGate: !process.argv.includes('--no-size-gate'),
     ...(aim ? { aim: aimArg } : {}),
     ...(secondLook
       ? { secondLook: { scale: secondLookScale, gate: secondLookGate, agree: secondLookAgree, quad: secondLookQuad } }
@@ -333,6 +336,8 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
     regionSuppressedTicks: 0,
     busyTicks: 0,
     cardBackTicks: 0,
+    /** Lock ticks the size gate held (ui/sizeGate.ts): the card too small to read. */
+    farTicks: 0,
     lookFires: 0,
     /** Second look (--second-look): ticks that ran it, ticks whose answer it
      *  replaced, and ticks it lifted from below the acquire threshold to above. */
@@ -356,7 +361,7 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
   async function writeCrop(
     s: TickState,
     f: StreamFrame,
-    kind: 'fire' | 'region' | 'busy' | 'cardback',
+    kind: 'fire' | 'region' | 'busy' | 'cardback' | 'far',
     motionPx: number | undefined,
     why?: 'look',
   ): Promise<CaptureRow | null> {
@@ -422,7 +427,7 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
     if (locked) {
       let log = tracks.get(locked.id)
       if (!log) {
-        log = { firstLockMs: f.tMs, firedMs: null, regionTicks: 0, busyTicks: 0, cardBackTicks: 0, refractoryTicks: 0, logged: new Set() }
+        log = { firstLockMs: f.tMs, firedMs: null, regionTicks: 0, busyTicks: 0, cardBackTicks: 0, farTicks: 0, refractoryTicks: 0, logged: new Set() }
         tracks.set(locked.id, log)
       }
       if (outcome.kind === 'fire') {
@@ -438,13 +443,16 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
           if (outcome.why === 'look') stats.lookFires++
           log.firedMs = f.tMs
         }
-      } else if (outcome.kind === 'region' || outcome.kind === 'busy' || outcome.kind === 'cardback') {
+      } else if (outcome.kind === 'region' || outcome.kind === 'busy' || outcome.kind === 'cardback' || outcome.kind === 'far') {
         if (outcome.kind === 'region') {
           log.regionTicks++
           stats.regionSuppressedTicks++
         } else if (outcome.kind === 'cardback') {
           log.cardBackTicks++
           stats.cardBackTicks++
+        } else if (outcome.kind === 'far') {
+          log.farTicks++
+          stats.farTicks++
         } else {
           log.busyTicks++
           stats.busyTicks++
@@ -506,7 +514,7 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
         .raw()
         .toBuffer()
       const fired = lastEvents.includes('fire')
-      const supp = lastEvents.includes('region') || lastEvents.includes('busy') || lastEvents.includes('cardback')
+      const supp = lastEvents.includes('region') || lastEvents.includes('busy') || lastEvents.includes('cardback') || lastEvents.includes('far')
       timeline.push({
         image: { data: small, width: 208, height: 208, channels: 3 },
         lines: [
@@ -580,6 +588,7 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
   const regionOnly = lockEpisodes.filter((l) => l.firedMs === null && l.regionTicks > 0)
   const busyDeferred = lockEpisodes.filter((l) => l.busyTicks > 0)
   const cardBackOnly = lockEpisodes.filter((l) => l.firedMs === null && l.cardBackTicks > 0)
+  const farOnly = lockEpisodes.filter((l) => l.firedMs === null && l.farTicks > 0)
   const sharp_ = rows.filter((r) => !r.suppressed).map((r) => r.sharpness).sort((a, b) => a - b)
   const summary = {
     videoId,
@@ -599,6 +608,9 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
     busyDeferredThenFired: busyDeferred.filter((l) => l.firedMs !== null).length,
     /** Locked tracks the card-back gate refused and that never fired. */
     cardBackTracks: cardBackOnly.length,
+    /** Locked tracks the size gate held and that never fired: footage cannot
+     *  come closer when told to, so these are the gate's cost on a video. */
+    farTracks: farOnly.length,
     sharpness: sharp_.length
       ? { min: sharp_[0], median: sharp_[Math.floor(sharp_.length / 2)], max: sharp_[sharp_.length - 1] }
       : null,

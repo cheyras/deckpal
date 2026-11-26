@@ -151,6 +151,30 @@ Before each owner session, write down the predicted CC rate. If the session
 misses it by more than 10 points, the benchmark is wrong about something, and
 finding out what is the next task.
 
+## How far away can a card be? (`size-sweep.py` + `size-sweep.ts`)
+
+The size gate's floor (`apps/web/src/scan/ui/sizeGate.ts`) is set against this:
+the sweep's best case, raised to 0.60 for what a real camera loses at distance.
+Each card photo in the labeler queue that holds the card at more pixels than
+the largest distance simulated is captured as the scanner would capture it at
+nine distances. Each crop uses the 960 px square, the 5% margin, 480x670 and
+JPEG 0.85, and is then read by the device OCR:
+
+```bash
+py scripts/scan-bench/size-sweep.py                                    # crops -> ~/deckpal-data/size-sweep
+node --import tsx scripts/scan-bench/size-sweep.ts --shard 0/6         # one per core, i = 0..5
+node --import tsx scripts/scan-bench/size-sweep.ts --report
+```
+
+There is no ground-truth id, and none is needed. Each card's own close read
+(at 0.70 or 0.80 of the frame) is the reference, counted only where the catalog
+vouches for it. The report gives, per distance:
+- **kept:** the share of those fields still read;
+- **misread:** how many read as a different valid card, the hazardous kind.
+
+The sweep downscales sharp stills, so a real camera at distance (noise, focus
+hunting) does a little worse than these curves.
+
 ## Caveats, read before trusting a number
 
 - **Most crops are 229×320**, the size scan telemetry keeps, not the 480×670

@@ -15,6 +15,7 @@ import { lookDistance, type CardLook } from '../engine/look'
 import type { CapturedRegions } from './regions'
 import type { FocusGate } from './focusGate'
 import { REARM_STEADY_MAX, type LookRearm } from './rearm'
+import { isTooFar } from './sizeGate'
 
 export interface AutoCaptureVerdict {
   /** Fire a capture on the lock now. */
@@ -44,6 +45,13 @@ export interface AutoCaptureVerdict {
    * yet. Never fires; the UI asks the reader to hold still.
    */
   focusWait: boolean
+  /**
+   * The lock is held for SIZE (sizeGate.ts): the card is too small in the
+   * frame for its text to read. Never fires; the UI asks the reader to come a
+   * little closer. Only reported on a lock that would otherwise fire, so a
+   * repeat or a card back is never told to come closer.
+   */
+  tooFar: boolean
 }
 
 /** How many of a track's lock ticks in a row must show the back before it is held. */
@@ -150,6 +158,9 @@ export function decideAutoCapture(
     cardBacks?: CardBackHolds
     /** The focus gate (focusGate.ts) with this tick's EngineState.sharpness. */
     focus?: { gate: FocusGate; sharpness: number | null; now: number }
+    /** The size gate (sizeGate.ts): the side of the square frame the lock's
+     *  quad is measured in (EngineState.frame, 416), and optionally the floor. */
+    size?: { frameSide: number; minSide?: number }
   },
 ): AutoCaptureVerdict {
   const refractory = !!lock && memory.refractory.has(lock.id)
@@ -162,17 +173,23 @@ export function decideAutoCapture(
     : memory.cardBacks
       ? memory.cardBacks.judge(lock.id, look)
       : { cardBack: isCardBackLook(look), backReleased: false }
-  // Judged on every lock tick, so the track's sharpest recent frame is known
-  // by the time a capture would otherwise fire.
-  const focus = lock && memory.focus ? memory.focus.gate.judge(lock.id, memory.focus.sharpness, memory.focus.now) : null
+  const small = !!lock && !!memory.size && isTooFar(lock.quad, memory.size.frameSide, memory.size.minSide)
+  // Judged on every lock tick the card is close enough on, so the track's
+  // sharpest recent frame is known by the time a capture would otherwise fire.
+  // NOT while it is too far: its focus wait should start when it arrives, not
+  // be spent (focusGate's FOCUS_MAX_WAIT_MS settle) on frames that were never
+  // going to be taken. A gap past the gate's LOCK_GAP_MS restarts the wait.
+  const focus = lock && memory.focus && !small ? memory.focus.gate.judge(lock.id, memory.focus.sharpness, memory.focus.now) : null
   const wouldFire = !!lock && !memory.busy && !back.cardBack && (!repeat || newByLook)
-  const focusWait = wouldFire && !!focus && !focus.ready
+  const tooFar = wouldFire && small
+  const focusWait = wouldFire && !tooFar && !!focus && !focus.ready
   return {
-    fire: wouldFire && !focusWait,
+    fire: wouldFire && !tooFar && !focusWait,
     repeat,
     newByLook,
     cardBack: back.cardBack,
     backReleased: back.backReleased,
     focusWait,
+    tooFar,
   }
 }
