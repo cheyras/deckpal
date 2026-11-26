@@ -457,11 +457,22 @@ export const MAX_MATCHES = 25;
  * exactly so, not a divergence) and colons (`Technical Machine: Devolution` —
  * 15 cards; never split on one).
  */
+/**
+ * A trailing `(…)` with no `)` inside it, and the whitespace around it, gone.
+ * Written without a regex: `/\s*\([^)]*\)\s*$/` backtracks quadratically on a
+ * long run of spaces (CodeQL js/polynomial-redos), and a vision model's or an
+ * OCR read's text reaches it.
+ */
+function stripTrailingParenthetical(s: string): string {
+  const t = s.trimEnd();
+  if (!t.endsWith(')')) return s;
+  const open = t.lastIndexOf('(');
+  if (open < 0 || t.indexOf(')', open) !== t.length - 1) return s;
+  return t.slice(0, open).trimEnd();
+}
+
 export function normalizeCardName(raw: string): string {
-  return raw
-    .normalize('NFC')
-    .replace(/[‘’ʼ′]/g, "'")
-    .replace(/\s*\([^)]*\)\s*$/, '')
+  return stripTrailingParenthetical(raw.normalize('NFC').replace(/[‘’ʼ′]/g, "'"))
     .normalize('NFD')
     .replace(/\p{Mn}+/gu, '')
     .toLowerCase()
@@ -569,7 +580,11 @@ export function cleanNameRead(raw: string | undefined | null): string | null {
   let s = raw.normalize('NFC').replace(/[⺀-鿿가-힯＀-￯]/g, ' ');
   // The HP tail: `HP80`, `H70o`, `HP 120`, and whatever follows it on the line.
   // No catalogue name contains one.
-  s = s.replace(/\s+H\s?P?\s?\d{2,3}\w*.*$/i, '');
+  // One whitespace character before the `H`, not a run of them: the run made
+  // this backtrack quadratically on long blank stretches (CodeQL
+  // js/polynomial-redos). Cutting at the match and trimming leaves the same text.
+  const hp = /\sH\s?P?\s?\d{2,3}/i.exec(s);
+  if (hp) s = s.slice(0, hp.index).trimEnd();
   const tokens = s.split(/\s+/).filter(Boolean);
   const isStage = (t: string, rest: string[]): boolean => {
     const w = t.toLowerCase().replace(/[^a-zé0-9]/g, '');
