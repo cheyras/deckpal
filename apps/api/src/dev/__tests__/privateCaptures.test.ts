@@ -113,6 +113,20 @@ describe('scan-flags routes over the private capture store', () => {
     });
   });
 
+  it('a tick trace is numbers only: its JSON lands with no image; any other record still needs one', async () => {
+    const primary = bucket('dev-captures');
+    await serve(createCaptureStore(primary, bucket('card-art')), async (base) => {
+      const post = (body: unknown) =>
+        fetch(base, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      const res = await post({ png: '', meta: { type: 'tick-trace', rows: [{ t: 0, L: 3 }] } });
+      assert.equal(res.status, 200);
+      const { id } = (await res.json()) as { id: number };
+      assert.deepEqual(primary.writes, [`dev-flags/${id}.json`]);
+      assert.equal((await post({ meta: { type: 'lock-event' } })).status, 400);
+      assert.equal((await post({ png: '', meta: { type: 'capture-event' } })).status, 400);
+    });
+  });
+
   it('lists and serves private and not-yet-migrated rows alike, privately cached', async () => {
     const NEW = OLD + 5;
     const primary = bucket('dev-captures', {

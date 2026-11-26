@@ -54,6 +54,15 @@ export interface AutoCaptureVerdict {
   tooFar: boolean
 }
 
+/**
+ * How long a lock must sit refused as a repeat, its capture done, before the
+ * hint offers "Tap to scan again" (Scan.tsx repeatHoldRef). Long enough that
+ * the card just captured, still in the reader's hand as they reach for the
+ * next, does not flash an offer; short enough that a second copy put down on
+ * the first is one beat and a tap.
+ */
+export const REPEAT_OFFER_MS = 1_000
+
 /** How many of a track's lock ticks in a row must show the back before it is held. */
 export const CARD_BACK_LATCH_TICKS = 2
 

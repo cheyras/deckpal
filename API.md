@@ -2607,7 +2607,9 @@ writes answer `501 storage_unavailable`.
 - `POST /`: `{ png, meta }` — `png` is a base64 PNG and `meta` an object,
   together at most 3 MB decoded (the route's parser accepts 4200 KB on the
   wire). Stores `<id>.png` and `<id>.json`, where the id is the capture time in
-  epoch milliseconds → `{ ok: true, id }`.
+  epoch milliseconds → `{ ok: true, id }`. One record type carries no image:
+  `meta.type: "tick-trace"` (the scanner's per-tick policy trace) may send
+  `png` empty or omit it, and only `<id>.json` is stored.
 - `POST /:id/comment`: `{ comment }` (at most 4 KB) → `{ ok, id, comment,
   updatedAt }`. Re-posting edits the comment; `404` if the flag doesn't exist.
 - `GET /`: `{ flags: [{ id, files, size, uploadedAt, comment, label }] }`,

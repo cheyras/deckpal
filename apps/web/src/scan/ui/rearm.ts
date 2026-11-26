@@ -83,6 +83,13 @@ export interface LookRearm {
   note(look: CardLook | null, trackId: number): void
   /** The look of the last capture taken on this track, or null. */
   lookOfTrack(trackId: number): CardLook | null
+  /**
+   * What the last `judge` measured, for the tick trace (flags.ts): the lock's
+   * look against the same track's previous lock look (`steady`), and against
+   * the nearest capture behind the refusal (`nearest`). Null where there was
+   * nothing to measure. Optional: a stand-in re-arm need not keep it.
+   */
+  lastDistances?(): { steady: number | null; nearest: number | null }
 }
 
 export function createLookRearm(opts: { newMin?: number; steadyMax?: number } = {}): LookRearm {
@@ -97,15 +104,27 @@ export function createLookRearm(opts: { newMin?: number; steadyMax?: number } = 
     m.set(k, v)
     if (m.size > TRACKS_KEPT) m.delete(m.keys().next().value!)
   }
+  let last: { steady: number | null; nearest: number | null } = { steady: null, nearest: null }
   return {
     judge(trackId, look, refusers) {
+      last = { steady: null, nearest: null }
       if (trackId === null || !look) return false
       const before = lastLook.get(trackId)
       put(lastLook, trackId, look)
-      if (!before || lookDistance(look, before) > steadyMax) return false
-      if (!refusers.length) return false
-      for (const ref of refusers) if (!ref || lookDistance(look, ref) <= newMin) return false
-      return true
+      const steady = before ? lookDistance(look, before) : null
+      let nearest: number | null = null
+      let unknown = false
+      for (const ref of refusers) {
+        if (!ref) unknown = true
+        else nearest = Math.min(nearest ?? Infinity, lookDistance(look, ref))
+      }
+      last = { steady, nearest }
+      if (steady === null || steady > steadyMax) return false
+      if (!refusers.length || unknown) return false
+      return nearest !== null && nearest > newMin
+    },
+    lastDistances() {
+      return last
     },
     note(look, trackId) {
       if (look) put(captured, trackId, look)

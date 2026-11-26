@@ -384,3 +384,85 @@ export async function recordLockEvent(video: HTMLVideoElement | null, detail: Re
     // As above.
   }
 }
+
+// ── THE TICK TRACE ───────────────────────────────────────────────────────────
+//
+// The lock recorder above is throttled to one event per 2 s, and every question
+// the 2026-11-26 owner session raised about the duplicate policy lives between
+// two of those: what the tracker did while one card was slid off a stack and
+// the next one showed, whether the look left and came back, how long a refused
+// lock sat there. This records the policy's per-tick state, numbers only (no
+// frame), and posts it every TRACE_FLUSH_MS as one `tick-trace` record.
+//
+// A row: `t` ms since the trace began; `L` the locked track or null; `k` the
+// live tracks as [id, centre x, centre y (canonical px), long side (frame
+// fraction x 1000), coasting 0/1]; `v` the verdict as letters (F fire, R repeat,
+// N new by look, B card back, T too far, W focus wait, Y busy); `rn` the lock's
+// look distance to the nearest capture behind a refusal; `sd` its distance to
+// the same track's previous lock look; `rc` live regions; `ho` has-object;
+// `sh` sharpness. Ticks with nothing in frame are skipped; `t` says where.
+
+const TRACE_FLUSH_MS = 10_000
+const TRACE_MAX_ROWS = 150
+let traceRows: Record<string, unknown>[] = []
+let traceStartedAt = 0
+let traceFirstRowAt = 0
+
+export interface TickTraceRow {
+  locked: number | null
+  tracks: Array<{ id: number; quad: ReadonlyArray<readonly number[]>; coasting?: boolean }>
+  frameSide: number
+  verdict: string
+  refuserDistance: number | null
+  steadyDistance: number | null
+  regionCount: number
+  hasObj: number | null
+  sharpness: number | null
+}
+
+/** One detect tick of the auto-capture policy into the trace. Never throws. */
+export function recordTick(row: TickTraceRow): void {
+  try {
+    if (!row.tracks.length && row.locked === null) return
+    const now = Date.now()
+    if (!traceStartedAt) traceStartedAt = now
+    if (!traceRows.length) traceFirstRowAt = now
+    const r2 = (x: number | null) => (x === null || !Number.isFinite(x) ? null : Math.round(x * 100) / 100)
+    traceRows.push({
+      t: now - traceStartedAt,
+      L: row.locked,
+      k: row.tracks.map((tr) => {
+        const q = tr.quad
+        const cx = (q[0]![0]! + q[1]![0]! + q[2]![0]! + q[3]![0]!) / 4
+        const cy = (q[0]![1]! + q[1]![1]! + q[2]![1]! + q[3]![1]!) / 4
+        const d = (a: readonly number[], b: readonly number[]) => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!)
+        const side = Math.max((d(q[0]!, q[1]!) + d(q[2]!, q[3]!)) / 2, (d(q[1]!, q[2]!) + d(q[3]!, q[0]!)) / 2)
+        return [tr.id, Math.round(cx), Math.round(cy), Math.round((1000 * side) / Math.max(1, row.frameSide)), tr.coasting ? 1 : 0]
+      }),
+      v: row.verdict,
+      rn: r2(row.refuserDistance),
+      sd: r2(row.steadyDistance),
+      rc: row.regionCount,
+      ho: r2(row.hasObj),
+      sh: row.sharpness === null ? null : Math.round(row.sharpness),
+    })
+    if (traceRows.length >= TRACE_MAX_ROWS || now - traceFirstRowAt >= TRACE_FLUSH_MS) flushTickTrace()
+  } catch {
+    // Instrumentation never breaks the scanner.
+  }
+}
+
+/** Post what the trace holds now (also on leaving the page). */
+export function flushTickTrace(): void {
+  if (!traceRows.length) return
+  const rows = traceRows
+  traceRows = []
+  void postEvent('', {
+    type: 'tick-trace',
+    source: 'scan-tick-trace',
+    epochMs: Date.now(),
+    traceStartedAt,
+    pipelineVersion: PIPELINE_VERSION,
+    rows,
+  })
+}
