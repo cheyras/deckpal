@@ -28,6 +28,8 @@ import {
   MAX_CONSECUTIVE_FAILURES,
   postEvent,
   recorderSuspended,
+  RECORDER_PAUSE_MS,
+  __setRecorderClock,
 } from '../../ui/eventPost'
 
 /** `coords.coverMap`, restated here so this file does not import the UI's
@@ -429,6 +431,30 @@ describe('field test 2026-09-03 (obb0xud59) — the instrumentation gate that re
     assert.equal(attempts, MAX_CONSECUTIVE_FAILURES, `a refused client must stop after ${MAX_CONSECUTIVE_FAILURES} tries`)
     assert.equal(recorderSuspended(), true)
     __setFlagPoster(null)
+  })
+
+  it('a session that was recording pauses through a bad patch and resumes (2026-11-26: it went silent for 35 min)', async () => {
+    let now = 1_000_000
+    __setRecorderClock(() => now)
+    let fail = false
+    const seen: Array<Record<string, unknown>> = []
+    __setFlagPoster(async (_png, meta) => {
+      if (fail) throw new Error('Load failed')
+      seen.push(meta)
+      return { id: 'x' }
+    })
+    assert.equal(await postEvent('PNGDATA', { type: 'lock-event' }), true)
+    fail = true
+    for (let i = 0; i < MAX_CONSECUTIVE_FAILURES; i++) await postEvent('PNGDATA', { type: 'lock-event' })
+    assert.equal(recorderSuspended(), true, 'paused after the streak')
+    fail = false
+    assert.equal(await postEvent('PNGDATA', { type: 'lock-event' }), false, 'still paused: the event is counted, not sent')
+    now += RECORDER_PAUSE_MS
+    assert.equal(recorderSuspended(), false, 'the pause ends')
+    assert.equal(await postEvent('PNGDATA', { type: 'capture-event' }), true)
+    assert.equal(seen.at(-1)!.droppedBefore, MAX_CONSECUTIVE_FAILURES + 1, 'the gap is reported on the next event that lands')
+    __setFlagPoster(null)
+    __setRecorderClock(null)
   })
 
   it('a transient failure does not permanently disable a legitimate session', async () => {

@@ -8,7 +8,7 @@
 import { api } from '../../lib/api'
 import { PIPELINE_VERSION } from '../engine/frame'
 import { ocrEnabled, readOcrOverride } from '../ocr/flag'
-import { postEvent, recorderSuspended } from './eventPost'
+import { noteDroppedEvent, postEvent, recorderSuspended } from './eventPost'
 
 // ---------------------------------------------------------------------------
 // FEATURE FLAGS
@@ -57,6 +57,7 @@ async function blobToPngBase64(blob: Blob): Promise<string> {
   ctx.drawImage(bitmap, 0, 0)
   bitmap.close?.()
   const pngBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+  releaseCanvas(canvas)
   if (!pngBlob) throw new Error('this browser could not prepare the report image')
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
@@ -114,7 +115,22 @@ let lastLockEventAt = 0
 // — lives in ./eventPost so it can be unit-tested without dragging `lib/api`
 // (and its `import.meta.env` read) into a node process. Re-exported here so
 // callers still have one import for the recorder.
-export { MAX_CONSECUTIVE_FAILURES, postEvent, recorderSuspended, __setFlagPoster } from './eventPost'
+export { MAX_CONSECUTIVE_FAILURES, noteDroppedEvent, postEvent, recorderSuspended, __setFlagPoster } from './eventPost'
+
+/**
+ * Give a canvas's backing store back NOW. iOS Safari caps the memory every
+ * canvas on the page may hold together and frees a detached canvas only when
+ * the garbage collector gets round to it; past the cap, getContext returns null
+ * and toBlob yields nothing. The recorder makes a 640 px canvas for every lock
+ * event, capture and identity event, so a long session ran into that cap: on
+ * 2026-11-26 the owner's phone recorded the first 15 of ~80 captures and then
+ * nothing for 35 minutes, while every scan request kept succeeding. A canvas
+ * sized to zero holds no backing store.
+ */
+function releaseCanvas(canvas: HTMLCanvasElement): void {
+  canvas.width = 0
+  canvas.height = 0
+}
 
 async function downscaledPngBase64(source: CanvasImageSource, w: number, h: number, longSide: number): Promise<string | null> {
   if (!w || !h) return null
@@ -128,6 +144,7 @@ async function downscaledPngBase64(source: CanvasImageSource, w: number, h: numb
   if (!ctx) return null
   ctx.drawImage(source, 0, 0, cw, ch)
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+  releaseCanvas(canvas)
   if (!blob) return null
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
@@ -220,7 +237,7 @@ export async function recordCaptureEvent(input: CaptureEventInput): Promise<void
     const v = input.video
     if (!v || !v.videoWidth || !v.videoHeight) return
     const framePng = await downscaledPngBase64(v, v.videoWidth, v.videoHeight, EVENT_FRAME_LONG_SIDE)
-    if (!framePng) return
+    if (!framePng) return noteDroppedEvent()
     let rectifiedPng: string | null = null
     if (input.rectified) {
       try {
@@ -319,7 +336,7 @@ export async function recordIdentityEvent(input: {
     const bmp = await createImageBitmap(input.rectified)
     const png = await downscaledPngBase64(bmp, bmp.width, bmp.height, IDENTITY_EVENT_LONG_SIDE)
     bmp.close?.()
-    if (!png) return
+    if (!png) return noteDroppedEvent()
     await postEvent(png, {
       type: 'identity-event',
       epochMs: Date.now(),
@@ -351,7 +368,7 @@ export async function recordLockEvent(video: HTMLVideoElement | null, detail: Re
     const v = video
     if (!v || !v.videoWidth || !v.videoHeight) return
     const png = await downscaledPngBase64(v, v.videoWidth, v.videoHeight, EVENT_FRAME_LONG_SIDE)
-    if (!png) return
+    if (!png) return noteDroppedEvent()
     await postEvent(png, {
       type: 'lock-event',
       epochMs: now,

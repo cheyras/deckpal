@@ -38,11 +38,43 @@
 
 export const MAX_CONSECUTIVE_FAILURES = 3
 
-let consecutiveFailures = 0
+/**
+ * ...BUT ONLY A RECORDER THAT HAS NEVER LANDED A POST IS SWITCHED OFF FOR GOOD.
+ * The backoff exists for a production non-owner, whose every post is refused.
+ * A session whose posts were landing and then failed three times in a row is a
+ * recording session hitting a bad patch (a dropped connection, a phone under
+ * memory pressure), and switching it off for the rest of the tab threw away
+ * the rest of the owner's session. It pauses for RECORDER_PAUSE_MS instead and
+ * then tries again; the pause doubles on each further streak, to at most
+ * RECORDER_PAUSE_MAX_MS.
+ */
+export const RECORDER_PAUSE_MS = 15_000
+export const RECORDER_PAUSE_MAX_MS = 120_000
 
-/** True once the endpoint has refused us often enough that we stop asking. */
+let consecutiveFailures = 0
+let everLanded = false
+let pausedUntil = 0
+let pauseMs = RECORDER_PAUSE_MS
+/** Events skipped or lost since the last post that landed, reported on the next one. */
+let droppedSinceLanded = 0
+
+let clock = () => Date.now()
+
+/** TEST SEAM: the recorder's clock. Pass null to restore Date.now. */
+export function __setRecorderClock(c: (() => number) | null): void {
+  clock = c ?? (() => Date.now())
+}
+
+/** True while the recorder is not asking: refused for good, or pausing. */
 export function recorderSuspended(): boolean {
-  return consecutiveFailures >= MAX_CONSECUTIVE_FAILURES
+  if (consecutiveFailures < MAX_CONSECUTIVE_FAILURES) return false
+  if (!everLanded) return true
+  return clock() < pausedUntil
+}
+
+/** An event the recorder could not even prepare (or skipped while paused). */
+export function noteDroppedEvent(): void {
+  droppedSinceLanded += 1
 }
 
 /** The single network seam. */
@@ -62,13 +94,26 @@ let poster: FlagPoster = realPoster
  * throws, because instrumentation that can break a capture is worse than none.
  */
 export async function postEvent(png: string, meta: Record<string, unknown>): Promise<boolean> {
-  if (recorderSuspended()) return false
+  if (recorderSuspended()) {
+    droppedSinceLanded += 1
+    return false
+  }
   try {
-    await poster(png, meta)
+    // How many events were lost since the last one that landed, so a gap in a
+    // session's record says so instead of looking like a quiet stretch.
+    await poster(png, droppedSinceLanded ? { ...meta, droppedBefore: droppedSinceLanded } : meta)
     consecutiveFailures = 0
+    everLanded = true
+    pauseMs = RECORDER_PAUSE_MS
+    droppedSinceLanded = 0
     return true
   } catch {
     consecutiveFailures += 1
+    droppedSinceLanded += 1
+    if (everLanded && consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+      pausedUntil = clock() + pauseMs
+      pauseMs = Math.min(pauseMs * 2, RECORDER_PAUSE_MAX_MS)
+    }
     return false
   }
 }
@@ -77,4 +122,8 @@ export async function postEvent(png: string, meta: Record<string, unknown>): Pro
 export function __setFlagPoster(p: FlagPoster | null): void {
   poster = p ?? realPoster
   consecutiveFailures = 0
+  everLanded = false
+  pausedUntil = 0
+  pauseMs = RECORDER_PAUSE_MS
+  droppedSinceLanded = 0
 }
