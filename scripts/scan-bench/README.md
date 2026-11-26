@@ -111,22 +111,6 @@ cards) named the wrong printing, nearly all vintage reprints with the same art
 (Base Set vs Base Set 2, Legendary Collection, Celebrations Classic
 Collection). Only rows that went through step 4 become benchmark labels.
 
-## Vision-model reads (`--ocr vlm:`)
-
-Production reads a capture's printed fields with a vision model
-(`apps/api/src/scan/readCard.ts`, `POST /api/scan/read`). To score that path,
-collect the model's replies per row id (`{ "<row id>": { "text": "<reply>",
-"ms": 1800 }, … }`, made with `READ_PROMPT` from that file) and pass the file:
-
-```bash
-node --import tsx scripts/scan-bench/bench.ts --ocr vlm:<replies.json> --label vlm-sonnet
-```
-
-The replies are parsed by the shipped `parseCardRead`, and the ladder runs with
-`readSource: 'vlm'`, as `/scan/resolve` does for them. 2026-11-25, Claude Sonnet
-5.5, fresh indexes: 237 of 261 cards confident and right (90.8%), 1 wrong,
-against device OCR's 218 and 0. Full-resolution crops: 94 of 101.
-
 ## Leave-one-set-out: the scanner on a set the index has not seen
 
 The owner's 2026-11-25 field test was of a set (me06) production had never
@@ -160,8 +144,8 @@ answered, whether it was confident. Scored per capture: CC (confident and
 correct, the 95% target), CW (confident and wrong, at most 1%), PICK
 (needs-you, truth in the list), MISS.
 
-Baseline, 2026-11-25 (17 captures of Delta Reign, before the index top-up,
-focus gate and vision read): CC 6 (35.3%), CW 1, PICK 1, MISS 9.
+Baseline, 2026-11-25 (17 captures of Delta Reign, before the index top-up
+and the focus gate): CC 6 (35.3%), CW 1, PICK 1, MISS 9.
 
 Before each owner session, write down the predicted CC rate. If the session
 misses it by more than 10 points, the benchmark is wrong about something, and
