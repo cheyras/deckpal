@@ -1,26 +1,66 @@
 // Card-by-card review — Tinder-like, per the owner's direction: one entry at
 // a time, swipe right to confirm, swipe left to correct (never a silent
-// delete). Pointer events drive a real drag with rotation and a WAAPI
-// spring-back/fling-out (motion.ts); `prefers-reduced-motion` swaps the drag
-// for two plain buttons; desktop gets ArrowLeft/ArrowRight. The stack always
-// reviews `queue[0]` — the first entry not yet `verified` — so there is no
-// separate index to keep in sync with corrections/removals happening
-// elsewhere in the feed.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+// delete). Pointer events drive a real drag with rotation; `prefers-reduced-
+// motion` swaps the drag for two plain buttons; desktop gets ArrowLeft/
+// ArrowRight. The stack always reviews `queue[0]` — the first entry not yet
+// `verified` — so there is no separate index to keep in sync with corrections/
+// removals happening elsewhere in the feed.
+//
+// ── THE STACK IS ONE KEYED LIST (owner session 2026-11-26) ──────────────────
+//
+// It used to be a front card keyed by entry plus an unkeyed "peek" behind it.
+// Confirming flung the front card off screen, then CANCELLED the animation,
+// which drops its fill, so the node snapped back to wherever the drag had left
+// it (the right edge, at full opacity) before React swapped in the next entry
+// at centre, with no entrance. The owner saw the card he had just swiped come
+// back in from the right: "very disorienting ... it almost made me unconfident
+// in what I was seeing".
+//
+// Now the top STACK_DEPTH cards are one list keyed by entry id, each placed by
+// its depth (DEPTH_POSE). A confirmed card leaves on a layer of its own
+// (`LeavingCard`) that flies off and is removed without ever being cancelled,
+// and the moment it goes the card behind it, the SAME DOM node, is promoted:
+// it grows from the peek pose into the front while the old one is still in
+// flight. "Wrong" opens the correction picker in place of the front card.
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { CardImage } from '../../components/CardImage'
 import { VariantChip } from '../../components/VariantChip'
 import { RarityMark } from '../../components/RarityMark'
 import { Icon } from '../../components/Icon'
 import { fmtNumber } from '../../lib/format'
 import type { ScanMatch } from '../../lib/api'
+import type { RunningOwned } from './feed'
 import { toPickedMatch } from './identity'
-import { flingOut, prefersReducedMotion, springBack } from './motion'
+import { EASE, prefersReducedMotion, springBack } from './motion'
 import type { FeedEntry } from './types'
 
 const SWIPE_THRESHOLD = 110
+/** How many cards of the queue are on the table: the front one, the one behind
+ *  it, and one more waiting invisibly so it fades in rather than pops. */
+const STACK_DEPTH = 3
+/** Where a card sits at each depth. The last is invisible: it is the pose a
+ *  card arrives from. */
+const DEPTH_POSE: ReadonlyArray<{ transform: string; opacity: number }> = [
+  { transform: 'none', opacity: 1 },
+  { transform: 'translateY(14px) scale(0.94)', opacity: 0.6 },
+  { transform: 'translateY(26px) scale(0.88)', opacity: 0 },
+]
+/** The card behind growing into the front, while the confirmed one flies. */
+const PROMOTE_MS = 280
+const LEAVE_MS = 300
+
+interface Leaving {
+  key: number
+  entry: FeedEntry
+  owned: RunningOwned | undefined
+  dir: -1 | 1
+  /** Where the card was when it was let go: the drag's transform, or none. */
+  from: string
+}
 
 export function SwipeReview({
   entries,
+  owned,
   onQuantityChange,
   onVariantChange,
   onConfirm,
@@ -31,6 +71,9 @@ export function SwipeReview({
   /** The WHOLE feed, in list order — used for the "3 of 12" progress readout,
    *  not just the unreviewed remainder. */
   entries: FeedEntry[]
+  /** Each row's owned count with the earlier copies in this scan counted
+   *  (feed.ts runningOwned, over the feed in scan order). */
+  owned?: ReadonlyMap<string, RunningOwned>
   onQuantityChange: (id: string, quantity: number) => void
   onVariantChange: (id: string, variantId: number) => void
   /** Swipe right / press → or the confirm button: mark this row verified. */
@@ -57,44 +100,69 @@ export function SwipeReview({
     [entries, deferredIds],
   )
   const current = queue[0]
-  const next = queue[1]
-  const [phase, setPhase] = useState<'card' | 'correcting'>('card')
+  const stack = queue.slice(0, STACK_DEPTH)
+  // The correction picker belongs to ONE card. Derived, not reset in an effect:
+  // the effect ran a render late, so the next card showed the previous card's
+  // picker for a frame.
+  const [correctingId, setCorrectingId] = useState<string | null>(null)
+  const phase: 'card' | 'correcting' = current && correctingId === current.id ? 'correcting' : 'card'
   const reduced = prefersReducedMotion()
 
-  // A fresh card under review always starts on its front face, never
-  // mid-correction from whatever the PREVIOUS card left behind.
-  useEffect(() => {
-    setPhase('card')
-  }, [current?.id])
-
-  const cardRef = useRef<HTMLDivElement>(null)
+  const cardRef = useRef<HTMLDivElement | null>(null)
   const likeRef = useRef<HTMLDivElement>(null)
   const nopeRef = useRef<HTMLDivElement>(null)
   const dragState = useRef<{ dragging: boolean; startX: number; startY: number; pointerId: number } | null>(null)
-  const [resolving, setResolving] = useState(false)
+  const [leaving, setLeaving] = useState<Leaving[]>([])
+  const leaveSeq = useRef(0)
 
   const resolve = useCallback(
-    async (dir: -1 | 1) => {
-      if (!current || resolving) return
-      setResolving(true)
-      const el = cardRef.current
-      if (el) await flingOut(el, dir, window.innerWidth)
-      setResolving(false)
+    (dir: -1 | 1) => {
+      if (!current) return
       // A "needs attention" row has no identified card to confirm — swiping
       // right on one would mark it `verified` with `cardId` still null,
       // which reads as resolved in the list but still cannot commit. Route
       // EITHER direction to the correction picker for it; only a matched
       // row's right-swipe actually confirms.
-      if (dir === 1 && current.matched) onConfirm(current.id)
-      else setPhase('correcting')
+      if (dir === 1 && current.matched) {
+        const from = cardRef.current?.style.transform || 'none'
+        setLeaving((l) => [...l, { key: ++leaveSeq.current, entry: current, owned: owned?.get(current.id), dir, from }])
+        onConfirm(current.id)
+        return
+      }
+      if (cardRef.current) cardRef.current.style.transform = ''
+      setCorrectingId(current.id)
     },
-    [current, resolving, onConfirm],
+    [current, owned, onConfirm],
   )
+
+  // ── depth changes animate: the card behind grows into the front ──────────
+  const nodes = useRef(new Map<string, HTMLDivElement>())
+  const lastDepth = useRef(new Map<string, number>())
+  useLayoutEffect(() => {
+    const seen = new Map<string, number>()
+    stack.forEach((e, depth) => {
+      seen.set(e.id, depth)
+      const el = nodes.current.get(e.id)
+      const was = lastDepth.current.get(e.id)
+      if (!el || reduced || was === depth) return
+      // A card new to the table arrives from the invisible pose behind the
+      // stack (and one arriving AT that pose has nothing to animate); a card
+      // moving up animates from the pose it held.
+      if (was === undefined && depth === STACK_DEPTH - 1) return
+      const from = DEPTH_POSE[Math.min(was ?? STACK_DEPTH - 1, STACK_DEPTH - 1)]!
+      el.animate([from, DEPTH_POSE[depth]!], { duration: PROMOTE_MS, easing: EASE.spring })
+    })
+    lastDepth.current = seen
+  })
 
   // ── drag (pointer events — one code path for mouse, touch, pen) ──────────
   const onPointerDown = (e: React.PointerEvent) => {
-    if (reduced || resolving || !cardRef.current) return
-    cardRef.current.setPointerCapture(e.pointerId)
+    const el = cardRef.current
+    if (reduced || !el) return
+    // A drag takes the card from wherever it is, including mid-promotion or
+    // mid-spring-back: an animation left running would override the finger.
+    for (const a of el.getAnimations?.() ?? []) a.cancel()
+    el.setPointerCapture(e.pointerId)
     dragState.current = { dragging: true, startX: e.clientX, startY: e.clientY, pointerId: e.pointerId }
   }
   const onPointerMove = (e: React.PointerEvent) => {
@@ -116,11 +184,8 @@ export function SwipeReview({
     const dx = e.clientX - ds.startX
     if (likeRef.current) likeRef.current.style.opacity = '0'
     if (nopeRef.current) nopeRef.current.style.opacity = '0'
-    if (Math.abs(dx) > SWIPE_THRESHOLD) {
-      void resolve(dx > 0 ? 1 : -1)
-    } else {
-      void springBack(cardRef.current)
-    }
+    if (Math.abs(dx) > SWIPE_THRESHOLD) resolve(dx > 0 ? 1 : -1)
+    else void springBack(cardRef.current)
   }
 
   // ── keyboard (desktop) — arrows act on the CURRENT card only while its
@@ -129,16 +194,21 @@ export function SwipeReview({
   useEffect(() => {
     if (!current || phase !== 'card') return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight') void resolve(1)
-      else if (e.key === 'ArrowLeft') void resolve(-1)
+      if (e.key === 'ArrowRight') resolve(1)
+      else if (e.key === 'ArrowLeft') resolve(-1)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [current, phase, resolve])
 
+  const leavingLayer = leaving.map((l) => (
+    <LeavingCard key={`leaving-${l.key}`} item={l} onDone={() => setLeaving((xs) => xs.filter((x) => x.key !== l.key))} />
+  ))
+
   if (!current) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-[10px] px-[24px] text-center">
+      <div className="relative flex flex-1 flex-col items-center justify-center gap-[10px] px-[24px] text-center">
+        {leavingLayer}
         <Icon name="check-circle" size={36} className="text-change-positive" />
         <div className="text-[16px] font-bold text-text-primary">All caught up</div>
         <div className="text-[13px] text-text-muted">
@@ -154,8 +224,9 @@ export function SwipeReview({
       <div className="flex items-center justify-center gap-[8px]">
         <div className="h-[4px] w-full max-w-[220px] overflow-hidden rounded-full bg-surface-tertiary">
           <div
-            className="h-full rounded-full bg-action-primary transition-[width]"
-            style={{ width: `${(verifiedCount / Math.max(1, total)) * 100}%` }}
+            // scaleX, not width: a width transition re-lays-out the bar every frame.
+            className="h-full w-full origin-left rounded-full bg-action-primary transition-transform duration-300"
+            style={{ transform: `scaleX(${verifiedCount / Math.max(1, total)})` }}
           />
         </div>
         <span className="shrink-0 text-[12px] font-bold tabular-nums text-text-muted">
@@ -164,83 +235,133 @@ export function SwipeReview({
       </div>
 
       <div className="relative min-h-0 flex-1">
-        {next && <SwipeCardFace entry={next} peek className="absolute inset-0 mx-auto" />}
-
-        {phase === 'card' ? (
-          <div
-            // Keyed by entry id, deliberately: `cardRef` is mutated OUTSIDE
-            // React's render cycle (drag writes `style.transform` directly,
-            // and `flingOut`'s WAAPI animation reverts to whatever that
-            // inline style last was, not to identity, when it's cancelled on
-            // finish). Reusing one DOM node across entries would carry a
-            // flung-away transform onto the NEXT card; a fresh key forces a
-            // fresh node — and a fresh `cardRef.current` — every card.
-            key={current.id}
-            ref={cardRef}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={endDrag}
-            onPointerCancel={endDrag}
-            className="absolute inset-0 mx-auto touch-none select-none"
-            style={{ willChange: 'transform' }}
-          >
-            <SwipeCardFace entry={current} onOpenDetail={onOpenDetail} />
+        {stack.map((e, depth) => {
+          const front = depth === 0
+          const live = front && phase === 'card'
+          return (
             <div
-              ref={likeRef}
-              className="pointer-events-none absolute left-[16px] top-[16px] rotate-[-14deg] rounded-lg border-[3px] border-change-positive px-[10px] py-[3px] text-[18px] font-black uppercase tracking-wider text-change-positive opacity-0"
+              key={e.id}
+              ref={(el) => {
+                if (el) nodes.current.set(e.id, el)
+                else nodes.current.delete(e.id)
+                if (front) cardRef.current = el
+              }}
+              onPointerDown={live ? onPointerDown : undefined}
+              onPointerMove={live ? onPointerMove : undefined}
+              onPointerUp={live ? endDrag : undefined}
+              onPointerCancel={live ? endDrag : undefined}
+              // A mouse drag on the card's <img> otherwise starts the browser's
+              // native image drag, which cancels the pointer after one move: the
+              // swipe never got past a few pixels with a mouse.
+              onDragStart={(ev) => ev.preventDefault()}
+              aria-hidden={!front || undefined}
+              className={`absolute inset-0 mx-auto max-w-[300px] select-none ${front ? 'touch-none' : 'pointer-events-none'}`}
+              style={{ ...DEPTH_POSE[depth], zIndex: STACK_DEPTH - depth, willChange: 'transform' }}
             >
-              Confirm
+              {front && phase === 'correcting' ? (
+                <CorrectionPanel
+                  entry={e}
+                  onPick={(m) => onCorrect(e.id, m)}
+                  onSkip={() => {
+                    setDeferredIds((prev) => new Set(prev).add(e.id))
+                    onSkip(e.id)
+                  }}
+                  onCancel={() => setCorrectingId(null)}
+                />
+              ) : (
+                <>
+                  <SwipeCardFace entry={e} owned={owned?.get(e.id)} onOpenDetail={front ? onOpenDetail : undefined} />
+                  {front && (
+                    <>
+                      <div
+                        ref={likeRef}
+                        className="pointer-events-none absolute left-[16px] top-[16px] rotate-[-14deg] rounded-lg border-[3px] border-change-positive px-[10px] py-[3px] text-[18px] font-black uppercase tracking-wider text-change-positive opacity-0"
+                      >
+                        Confirm
+                      </div>
+                      <div
+                        ref={nopeRef}
+                        className="pointer-events-none absolute right-[16px] top-[16px] rotate-[14deg] rounded-lg border-[3px] border-error px-[10px] py-[3px] text-[18px] font-black uppercase tracking-wider text-error opacity-0"
+                      >
+                        Wrong
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
             </div>
-            <div
-              ref={nopeRef}
-              className="pointer-events-none absolute right-[16px] top-[16px] rotate-[14deg] rounded-lg border-[3px] border-error px-[10px] py-[3px] text-[18px] font-black uppercase tracking-wider text-error opacity-0"
-            >
-              Wrong
-            </div>
-          </div>
-        ) : (
-          <CorrectionPanel
-            entry={current}
-            onPick={(m) => {
-              onCorrect(current.id, m)
-            }}
-            onSkip={() => {
-              setDeferredIds((prev) => new Set(prev).add(current.id))
-              onSkip(current.id)
-            }}
-            onCancel={() => setPhase('card')}
-          />
-        )}
+          )
+        })}
+        {leavingLayer}
       </div>
 
-      {phase === 'card' && (
-        <>
+      {/* Always laid out, so the card above never resizes as the controls
+          come and go between a named card and the correction picker. */}
+      <div className={`flex flex-col gap-[14px] ${phase === 'card' ? '' : 'invisible'}`} aria-hidden={phase !== 'card' || undefined}>
+        <div className="flex h-[32px] items-center justify-center">
           <QuantityAndVariant entry={current} onQuantityChange={onQuantityChange} onVariantChange={onVariantChange} />
-          <div className="flex items-center justify-center gap-[24px]">
-            <button
-              type="button"
-              disabled={resolving}
-              aria-label="Wrong card"
-              onClick={() => void resolve(-1)}
-              className="flex h-[56px] w-[56px] items-center justify-center rounded-full border-2 border-error text-error hover:bg-error/10 disabled:opacity-50"
-            >
-              <Icon name="close" size={26} />
-            </button>
-            <button
-              type="button"
-              disabled={resolving}
-              aria-label="Confirm card"
-              onClick={() => void resolve(1)}
-              className="flex h-[56px] w-[56px] items-center justify-center rounded-full border-2 border-change-positive text-change-positive hover:bg-change-positive/10 disabled:opacity-50"
-            >
-              <Icon name="check" size={26} />
-            </button>
-          </div>
-          <p className="text-center text-[11px] text-text-muted">
-            Swipe, tap, or use the arrow keys — right to confirm, left to correct.
-          </p>
-        </>
-      )}
+        </div>
+        <div className="flex items-center justify-center gap-[24px]">
+          <button
+            type="button"
+            aria-label="Wrong card"
+            onClick={() => resolve(-1)}
+            className="flex h-[56px] w-[56px] items-center justify-center rounded-full border-2 border-error text-error hover:bg-error/10 disabled:opacity-50"
+          >
+            <Icon name="close" size={26} />
+          </button>
+          <button
+            type="button"
+            aria-label="Confirm card"
+            onClick={() => resolve(1)}
+            className="flex h-[56px] w-[56px] items-center justify-center rounded-full border-2 border-change-positive text-change-positive hover:bg-change-positive/10 disabled:opacity-50"
+          >
+            <Icon name="check" size={26} />
+          </button>
+        </div>
+        <p className="text-center text-[11px] text-text-muted">Swipe, tap, or use the arrow keys — right to confirm, left to correct.</p>
+      </div>
+    </div>
+  )
+}
+
+/** A confirmed card on its way out: flies off from where it was let go and is
+ *  removed when it lands. Never cancelled, so it never snaps back. */
+function LeavingCard({ item, onDone }: { item: Leaving; onDone: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const done = useRef(onDone)
+  done.current = onDone
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const reduced = prefersReducedMotion()
+    const dx = item.dir * (window.innerWidth * 0.9 + 200)
+    const anim = reduced
+      ? el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 120, easing: 'ease-out', fill: 'forwards' })
+      : el.animate(
+          [
+            { transform: item.from, opacity: 1 },
+            { transform: `translate(${dx}px, -10px) rotate(${item.dir * 24}deg)`, opacity: 0 },
+          ],
+          { duration: LEAVE_MS, easing: EASE.swift, fill: 'forwards' },
+        )
+    let alive = true
+    const finish = () => {
+      if (alive) done.current()
+    }
+    anim.finished.then(finish, finish)
+    return () => {
+      alive = false
+    }
+  }, [item])
+  return (
+    <div
+      ref={ref}
+      aria-hidden
+      className="pointer-events-none absolute inset-0 mx-auto max-w-[300px]"
+      style={{ transform: item.from, zIndex: STACK_DEPTH + 1 }}
+    >
+      <SwipeCardFace entry={item.entry} owned={item.owned} />
     </div>
   )
 }
@@ -248,25 +369,24 @@ export function SwipeReview({
 // ── the card face — shared by the interactive front card and the static peek ──
 function SwipeCardFace({
   entry,
-  peek = false,
-  className = '',
+  owned: running,
   onOpenDetail,
 }: {
   entry: FeedEntry
-  peek?: boolean
-  className?: string
+  /** feed.ts runningOwned's entry for this row: earlier copies in this scan counted. */
+  owned?: RunningOwned
+  /** Only the front card opens the detail; the cards behind and a leaving one don't. */
   onOpenDetail?: (cardId: string) => void
 }) {
   const selectedVariant = entry.variants.find((v) => v.variantId === entry.variantId)
-  const owned = selectedVariant?.ownedQuantity ?? 0
-  const resultingTotal = owned + entry.quantity
+  const owned = running?.before ?? selectedVariant?.ownedQuantity ?? 0
+  const resultingTotal = running?.after ?? owned + entry.quantity
   const variantsLoading = entry.matched && entry.variants.length === 0
+  const peek = !onOpenDetail
 
   return (
     <div
-      className={`flex h-full w-full max-w-[300px] flex-col overflow-hidden rounded-2xl border border-border-default bg-surface-secondary shadow-elevated ${className}`}
-      style={peek ? { transform: 'scale(0.94) translateY(12px)', opacity: 0.55 } : undefined}
-      aria-hidden={peek || undefined}
+      className="flex h-full w-full max-w-[300px] flex-col overflow-hidden rounded-2xl border border-border-default bg-surface-secondary shadow-elevated"
     >
       <div
         className={`min-h-0 flex-1 bg-surface-tertiary ${!peek && entry.cardId ? 'cursor-pointer' : ''}`}
@@ -309,7 +429,14 @@ function SwipeCardFace({
           />
         )}
         <div className="mt-[2px] flex items-center justify-between rounded-lg bg-surface-primary px-[10px] py-[8px] text-[13px]">
-          <span className="text-text-muted">You'll have</span>
+          <span className="text-text-muted">
+            You'll have
+            {running && running.copies > 1 && (
+              <span className="ml-[6px] text-[11px] font-bold text-text-secondary">
+                copy {running.copy} of {running.copies}
+              </span>
+            )}
+          </span>
           {variantsLoading ? (
             <span className="text-text-muted">…</span>
           ) : (
@@ -386,7 +513,7 @@ function CorrectionPanel({
   onCancel: () => void
 }) {
   return (
-    <div className="absolute inset-0 mx-auto flex max-w-[300px] flex-col overflow-hidden rounded-2xl border border-border-default bg-surface-secondary shadow-elevated">
+    <div className="absolute inset-0 mx-auto flex max-w-[300px] flex-col overflow-hidden rounded-2xl border border-border-default bg-surface-secondary shadow-elevated motion-safe:animate-[sheet-panel-in_200ms_cubic-bezier(0.22,0.61,0.36,1)_both]">
       <div className="flex shrink-0 items-center justify-between border-b border-border-default px-[14px] py-[10px]">
         <span className="text-[13px] font-bold text-text-primary">
           {entry.alternates.length > 0 ? 'Pick the right card' : 'No guesses to pick from'}

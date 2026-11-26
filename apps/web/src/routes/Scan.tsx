@@ -33,7 +33,7 @@ import {
   type IdentityEvent,
   type IdentityState,
 } from '../scan/ui/identity'
-import { addArrival, commitGate, feedTotals, firstUnresolvedId, resolveRow, unresolvedCount } from '../scan/ui/feed'
+import { addArrival, commitGate, feedTotals, firstUnresolvedId, resolveRow, runningOwned, unresolvedCount } from '../scan/ui/feed'
 import { loadSort, saveSort, sortRows, type FeedSort } from '../scan/ui/sort'
 import { createOcrStage } from '../scan/ocr/staging'
 import type { OcrRead } from '../scan/ocr/pipeline'
@@ -254,6 +254,20 @@ export function Scan() {
    * two captures in one millisecond. Sorting is a view over it.
    */
   const view = useMemo(() => sortRows(feed, feedSort), [feed, feedSort])
+  /**
+   * THE SCANNING BIN IS NEWEST FIRST, whatever the Verify screen is sorted by
+   * (owner session 2026-11-26: "it doesn't really keep up with the most current
+   * one ... the most current one should be at the top and push the others
+   * down"). The bin is two or three rows tall and was in scan order, so each
+   * new scan landed below the fold of a list that never scrolled. `sort.ts`
+   * itself says newest-first is the camera step's story; the 2026-09-07 "first
+   * scanned on top" ruling stays the Verify screen's default, where the list is
+   * read through rather than watched.
+   */
+  const binView = useMemo(() => sortRows(feed, { key: 'scan', dir: 'desc' }), [feed])
+  /** Each row's owned count with the earlier copies of its printing in this
+   *  scan counted (feed.ts runningOwned), so three copies say 0->1, 1->2, 2->3. */
+  const ownedRunning = useMemo(() => runningOwned(feed), [feed])
 
   const feedRef = useRef<FeedEntry[]>(feed)
   useEffect(() => {
@@ -1797,9 +1811,9 @@ export function Scan() {
               }
             >
               <VerifyFeed
-                entries={view}
-                sort={feedSort}
-                onSortChange={changeSort}
+                entries={binView}
+                sort={{ key: 'scan', dir: 'desc' }}
+                followTop
                 title="Cards"
                 headerExtra={
                   <>
@@ -1892,6 +1906,7 @@ export function Scan() {
                 // forward, so the order it is handed IS the order it asks about,
                 // and it must be the one the list beside it is showing.
                 entries={view}
+                owned={ownedRunning}
                 onQuantityChange={changeQuantity}
                 onVariantChange={changeVariant}
                 onConfirm={confirmEntry}
