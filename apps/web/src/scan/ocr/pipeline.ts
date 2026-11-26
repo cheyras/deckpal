@@ -56,7 +56,9 @@ const MIN_REC_WIDTH = 8
  *  `escalated` means the full-crop pass ran too, which by the 2026-09-06 ruling
  *  can only have happened after the bands AND the corner came back with no name
  *  and no number. */
-export type OcrPass = 'roi' | 'corner' | 'escalated'
+/** `'vlm'` is not a pass of this pipeline: it marks a read the SERVER's vision
+ *  model made (`scan/ui/serverRead.ts`), which rides the same `read` event. */
+export type OcrPass = 'roi' | 'corner' | 'escalated' | 'vlm'
 
 /** The product contract. `ms` is wall-clock for the whole read — every pass,
  *  detection and recognition — measured by the caller of `readFields`. */

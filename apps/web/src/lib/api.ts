@@ -510,6 +510,22 @@ export interface ScanResolveBody {
   priorMatches: { cardId: string; distance: number }[]
   /** ABSENT, never `[]`, when there is no image evidence. See above. */
   vectorMatches?: ScanVectorMatch[]
+  /** 'vlm' when `fields` came from `POST /scan/read` (the server's vision
+   *  model); absent for device OCR, so that body keeps its old bytes. */
+  readSource?: 'vlm'
+}
+
+// ── POST /scan/read — the printed fields, read by a vision model ─────────────
+//
+// The same raw crop bytes `/scan` takes. 404 when the deployment has no read
+// model, latched for the session like the embed's 404.
+export interface ScanReadResponse {
+  isCard: boolean
+  isCardBack: boolean
+  fields: ScanResolveFields
+  legibility: 'clear' | 'partial' | 'poor' | null
+  model: string | null
+  ms: number
 }
 
 // ── POST /scan/embed — the image rung (Wave 3, `SCAN_EMBED_MATCH`) ───────────
@@ -1972,6 +1988,18 @@ export const api = {
    */
   scanResolve: (body: ScanResolveBody, signal?: AbortSignal) =>
     send<ScanResolveResponse>('POST', '/scan/resolve', body, signal),
+
+  /** The capture's printed fields, read on the server by a vision model
+   *  (apps/api/src/scan/readCard.ts). Runs beside the embed, off the capture path. */
+  scanRead: async (bytes: ArrayBuffer, contentType: string, signal?: AbortSignal): Promise<ScanReadResponse> => {
+    const auth = await authHeaders()
+    return request<ScanReadResponse>('/scan/read', {
+      method: 'POST',
+      headers: { 'Content-Type': contentType || 'image/jpeg', ...auth },
+      body: bytes,
+      signal,
+    })
+  },
 
   /**
    * The image rung — the same raw crop bytes `scan` takes, a cosine ranking out.

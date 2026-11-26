@@ -10,6 +10,8 @@ import { CURRENT_STAMP, assertQueryVector, buildResponse, pgNeighbours } from '.
 import { DEFAULT_CAPTURE_MARGIN, cropTensor, embedTensor, rotateTensor, warmEmbed } from './queryEmbed.js';
 import type { VectorMatch } from './fuse.js';
 import { ownerOnlyInProduction } from '../ownerGate.js';
+import { perUserRateLimit } from '../rateLimit.js';
+import { ReadUnavailable, readCard, scanReadModel } from './readCard.js';
 import { EMBED_MODEL_ID, EMBED_SIZE, THRESHOLDS, identityConfidence, isConfidentScore } from '@deckpal/matching';
 
 /**
@@ -481,7 +483,7 @@ function readField(fields: Record<string, unknown>, key: string): string | undef
 
 function parseResolveBody(
   body: unknown,
-): { fields: OcrFields; priorMatches: PriorMatch[]; vectorMatches: VectorMatch[] } {
+): { fields: OcrFields; priorMatches: PriorMatch[]; vectorMatches: VectorMatch[]; readSource: 'ocr' | 'vlm' } {
   if (body == null || typeof body !== 'object' || Array.isArray(body)) {
     throw badRequest(
       'POST a JSON object: { fields: { name?, number?, denominator?, setCode?, bodyLines? }, priorMatches?: [...] }',
@@ -523,7 +525,11 @@ function parseResolveBody(
     }
   }
 
-  return { fields, priorMatches, vectorMatches: parseVectorMatches(b) };
+  // Who read `fields` (resolve.ts `ResolveOptions.readSource`). Only 'vlm'
+  // changes anything, and what it changes is to hold more answers, so a client
+  // cannot buy confidence with it.
+  const readSource = b.readSource === 'vlm' ? 'vlm' : 'ocr';
+  return { fields, priorMatches, vectorMatches: parseVectorMatches(b), readSource };
 }
 
 /**
@@ -589,7 +595,7 @@ function shapeResolved(m: RankedCard, withVector: boolean): Record<string, unkno
 scanRouter.post(
   '/resolve',
   asyncHandler(async (req, res) => {
-    const { fields, priorMatches, vectorMatches } = parseResolveBody(req.body);
+    const { fields, priorMatches, vectorMatches, readSource } = parseResolveBody(req.body);
     // THE FLAG, AND THE WHOLE OF WHAT IT DOES HERE. Off — the default — and
     // `fusion` is undefined, the ladder never builds a similarity map, never
     // consults `fuse.ts`, and never reports a `similarity` key. There is no
@@ -603,6 +609,7 @@ scanRouter.post(
       artSiblings,
       printedTwins: printedTwinsOf,
       typeMates: typeMatesOf,
+      readSource,
     });
     res.json({
       matched: outcome.matched,
@@ -666,6 +673,46 @@ scanRouter.post(
  * ./embedMatch.ts for why identity and variant are two numbers that must not be
  * confusable.
  */
+/**
+ * POST /api/scan/read — the capture's printed fields, read by a vision model.
+ *
+ * The same raw crop bytes `/scan` and `/embed` take. The answer is the ladder's
+ * `fields`, which the client passes to `/resolve` with `readSource: 'vlm'`;
+ * `readCard.ts` has the measurement, the prompt and the model. 404 when this
+ * deployment has no model (`SCAN_READ_MODEL=off`) or no gateway key, which the
+ * client latches like the embed's. Metered per user: a read costs real money.
+ */
+scanRouter.post(
+  '/read',
+  perUserRateLimit('scan-read', 60, 60_000),
+  readImageBody,
+  asyncHandler(async (req, res) => {
+    if (!scanReadModel()) throw notFound('the card read is not enabled on this deployment');
+    const body = toBuffer(req.body);
+    if (!body || body.length === 0) {
+      throw badRequest('POST the raw crop bytes as the request body (Content-Type: image/*).');
+    }
+    const type = String(req.headers['content-type'] ?? '');
+    const mediaType = /^image\/(jpeg|png|webp)$/.test(type) ? type : 'image/jpeg';
+    const startedAt = Date.now();
+    let read;
+    try {
+      read = await readCard(body, mediaType);
+    } catch (e) {
+      if (e instanceof ReadUnavailable) throw notFound(e.message);
+      throw new ApiError(502, 'scan_read_failed', 'the card could not be read right now');
+    }
+    res.json({
+      isCard: read?.isCard ?? false,
+      isCardBack: read?.isCardBack ?? false,
+      fields: read?.fields ?? {},
+      legibility: read?.legibility ?? null,
+      model: scanReadModel(),
+      ms: Date.now() - startedAt,
+    });
+  }),
+);
+
 scanRouter.post(
   '/embed',
   readImageBody,

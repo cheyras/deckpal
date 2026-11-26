@@ -112,5 +112,8 @@ export function toResolveBody(
     priorMatches: priorMatches.map((m) => ({ cardId: m.cardId, distance: m.distance })),
   }
   if (vectorMatches.length > 0) body.vectorMatches = vectorMatches.map((m) => ({ ...m }))
+  // A server vision read is held to a stricter rule by the ladder (resolve.ts
+  // `holdTheModelsKeys`); device OCR's body is unchanged, byte for byte.
+  if (read?.pass === 'vlm') body.readSource = 'vlm'
   return body
 }

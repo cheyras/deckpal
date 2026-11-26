@@ -57,6 +57,7 @@ import { createCapturedRegions, type CapturedRegions, type RegionTrack } from '.
 import { createLookRearm, type LookRearm } from '../scan/ui/rearm'
 import { createCardBackHolds, decideAutoCapture } from '../scan/ui/autoCapture'
 import { createFocusGate } from '../scan/ui/focusGate'
+import { SERVER_READ_NOT_ASKED, serverReadCapture, type ServerReadEvidence } from '../scan/ui/serverRead'
 import { useAccess } from '../lib/access'
 import { useScannerVoice } from '../scan/voice/useScannerVoice'
 import { VoiceCaption, VoiceLiveRegion, VoicePrimer, VoiceToggle, VoiceVerifyWarning, voicePrimerSeen } from '../scan/voice/VoiceControls'
@@ -412,6 +413,9 @@ export function Scan() {
   // session finds out and no later one asks again. One upload to learn the
   // answer, not one per card.
   const embedUnavailableRef = useRef(false)
+  /** `POST /scan/read` answered 404: this deployment has no read model. Latched
+   *  for the page, like the embed's (scan/ui/serverRead.ts). */
+  const serverReadUnavailableRef = useRef(false)
   useEffect(() => {
     ocrStageRef.current.update({ enabled: ocrOn, detectorReady: engineStatus === 'ready' })
   }, [engineStatus, ocrOn])
@@ -1055,6 +1059,16 @@ export function Scan() {
       // (`vectorEvidence.ts`), so there is no `.catch` and no `withTimeout`
       // wrapper here — both would be a second copy of a guarantee the function
       // already makes.
+      // ── AND THE SERVER'S READ OF THE PRINTED FIELDS, ON THE SAME TERMS ────
+      //
+      // A vision model on the API (scan/ui/serverRead.ts, apps/api/src/scan/
+      // readCard.ts): the name, number, set size and set code, for every reader
+      // rather than only the owner's phone. Started at the shutter beside the
+      // vector, never throws, awaited where the device read is.
+      const serverReadPromise: Promise<ServerReadEvidence> = serverReadUnavailableRef.current
+        ? Promise.resolve(SERVER_READ_NOT_ASKED)
+        : serverReadCapture(result.blob)
+
       const embedPromise: Promise<EmbedEvidence> = embedUnavailableRef.current
         ? Promise.resolve(EMBED_NOT_ASKED)
         : embedCapture(result.blob)
@@ -1113,7 +1127,14 @@ export function Scan() {
           // still fills the picker; it just does not get to name the row.
           dispatchIdentity(stackItem.id, { type: 'phash', res })
 
-          const read = await ocrReadPromise
+          // The server's read wins when it has one: on the scan benchmark it
+          // named 238 of 261 cards through the ladder against device OCR's 218
+          // (readCard.ts). The device read stays the fallback for a deployment
+          // without the model, or a read that failed or timed out.
+          const deviceRead = await ocrReadPromise
+          const serverRead = await serverReadPromise
+          if (latchesUnavailable(serverRead.outcome)) serverReadUnavailableRef.current = true
+          const read = serverRead.read ?? deviceRead
           dispatchIdentity(stackItem.id, { type: 'read', read })
 
           // EVERY PATH BELOW REPORTS THE RESOLVE EVENT EXACTLY ONCE, including
