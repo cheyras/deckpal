@@ -1318,6 +1318,10 @@ export function useDeckeChat(
         const replayedChips = new Set<string>()
         /** Results arrive after their chips; keep a synchronous copy for this leg. */
         const capturedOutputs = new Map<string, string>()
+        /** Server calls that failed in the SDK, so an approved one still gets its one result. */
+        const capturedErrors = new Map<string, string>()
+        /** Approved calls of this turn, settled into their results: never compacted. */
+        const approvedCalls = new Set<string>()
         /** Compact, trusted chip summaries used only if a long turn must shed output. */
         const currentTurnSummaries = new Map<string, string>()
         for (let leg = 0; leg < legBudget(approvalReplays); leg++) {
@@ -1335,6 +1339,7 @@ export function useDeckeChat(
           const requestWire = fitCurrentTurn(wire, {
             isServerTool: (name) => !isClientTool(name),
             summaryFor: (toolCallId) => currentTurnSummaries.get(toolCallId),
+            keep: approvedCalls,
           })
           const outcome = await streamLeg(requestWire, evidence, exchangeConversation, exchangeId, exchangeSeq, leg === 0 ? null : tierRoute, ac.signal, {
             onRoute: (route) => { tierRoute = route },
@@ -1439,6 +1444,9 @@ export function useDeckeChat(
                   : message,
               ))
             },
+            onToolError: (toolCallId, errorText) => {
+              capturedErrors.set(toolCallId, capOutput(errorText))
+            },
             onMeterRefused: (toolCallId, scope) =>
               // The row already exists — the refusal chip arrives before the
               // output that names its scope — so this annotates it in place.
@@ -1524,9 +1532,12 @@ export function useDeckeChat(
           // is the grant that keeps the rest of this turn on Deep Think. Held
           // writes too: a write approved in the same step as a `goTo` runs on
           // the resumed leg, and the leg after it must carry its result. See
-          // `settleApprovedCalls`.
-          const settled = settleApprovedCalls(wire, capturedOutputs)
-          wire.splice(0, wire.length, ...settled)
+          // `settleApprovedCalls`. Its ids are kept for the rest of the turn so
+          // `fitCurrentTurn` never compacts a settled write out of the
+          // server's sight (the audit would then miss it and could ask again).
+          const settled = settleApprovedCalls(wire, capturedOutputs, capturedErrors)
+          wire.splice(0, wire.length, ...settled.wire)
+          for (const id of settled.approved) approvedCalls.add(id)
 
           // ── He is asking permission ───────────────────────────────────────
           //
@@ -2165,6 +2176,9 @@ type LegHandlers = {
   onToolChip: (chip: ToolChip) => void
   /** Complete result for a server tool, retained for bounded replay. */
   onToolOutput: (toolCallId: string, output: unknown) => void
+  /** A server tool that failed in the SDK (`tool-output-error`). Only an
+   *  approved call uses it: `settleApprovedCalls` settles it as output-error. */
+  onToolError?: (toolCallId: string, errorText: string) => void
   /** A refused request, with its JSON body when it had one — see `httpNotice`. */
   onHttpError: (status: number, body: RefusalBody) => void
   /** The meter refused this call. Marks its row so it offers the way out that
@@ -2615,6 +2629,14 @@ async function streamLeg(
         // amount of prose can set it.
         const scope = meterRefusalScope(part.output)
         if (scope) handlers.onMeterRefused?.(part.toolCallId, scope)
+      } else if (part.type === 'tool-output-error' && typeof part.toolCallId === 'string') {
+        // A server call that threw in the SDK. Kept so an APPROVED one is
+        // settled as an output-error (`settleApprovedCalls`) and still has
+        // exactly one result on the legs after it, instead of none.
+        const outputName = approvalNames.get(part.toolCallId)
+        if (outputName && !isClientTool(outputName)) {
+          handlers.onToolError?.(part.toolCallId, String(part.errorText ?? 'The tool failed.'))
+        }
       } else if (
         part.type === 'tool-input-available' &&
         typeof part.toolCallId === 'string' &&

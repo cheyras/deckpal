@@ -151,12 +151,21 @@ function outputSummary(part: Record<string, unknown>): string {
  * hundred characters, and it carries the grant that keeps an approved turn on
  * Deep Think (`decke/deepThink.ts`), so summarising it would drop the turn to
  * Standard in the middle of the work the reader paid for.
+ *
+ * Nor is any call the reader approved (`keep`, the ids `settleApprovedCalls`
+ * reported): a settled write looks like any other finished call, and as a
+ * lookup record its `tool-` part is gone, so the server no longer sees the
+ * write in this turn (`turnToolNames` in `decke/audit.ts`). It would then read
+ * "Logged your game" as a claim with nothing behind it and could raise a new
+ * approval, with a new call id, for a write that already ran.
  */
 export function fitCurrentTurn<T extends WireLike>(
   all: readonly T[],
   opts: {
     isServerTool: (name: string) => boolean
     summaryFor?: (toolCallId: string) => string | undefined
+    /** Approved calls of this turn: never compacted. See above. */
+    keep?: ReadonlySet<string>
   },
 ): T[] {
   let current = all.length - 1
@@ -183,8 +192,9 @@ export function fitCurrentTurn<T extends WireLike>(
       // Compacted into a text record, the next leg would act as if answered.
       if (name === 'ask_user') continue
       if (name === 'deep_think') continue
-
       const id = typeof part.toolCallId === 'string' ? part.toolCallId : ''
+      if (opts.keep?.has(id)) continue
+
       const summary = opts.summaryFor?.(id) ?? outputSummary(part)
       const replacement = {
         type: 'text',

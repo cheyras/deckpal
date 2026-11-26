@@ -199,14 +199,27 @@ test("a Deep Think card's answer carries its offer token, so the yes is bound to
   assert.match(replay, /approvalReplayPart\(\s*approval,/, 'the answer is no longer built from the pending approval')
 })
 
-test('an answered Deep Think becomes its result before the next leg, which carries the grant', () => {
-  assert.match(HOOK, /const settled = settleApprovedCalls\(wire, capturedOutputs\)/)
-  assert.match(HOOK, /wire\.splice\(0, wire\.length, \.\.\.settled\)/)
+test('every answered approval (Deep Think or a held write) becomes its result before the next leg', () => {
+  assert.match(HOOK, /const settled = settleApprovedCalls\(wire, capturedOutputs, capturedErrors\)/)
+  assert.match(HOOK, /wire\.splice\(0, wire\.length, \.\.\.settled\.wire\)/)
   // Before the next leg is fitted and posted.
   const loop = HOOK.slice(HOOK.indexOf('const settled = settleApprovedCalls'))
   assert.ok(loop.indexOf('wire.push({ role: \'assistant\', parts: replayed })') > 0)
   // And its result is captured: the call's name is seeded from the outgoing wire.
   assert.match(HOOK, /if \(outputName && !isClientTool\(outputName\)\) handlers\.onToolOutput\(part\.toolCallId, part\.output\)/)
+})
+
+test('a settled approved call is kept out of compaction for the rest of the turn', () => {
+  // Compacted into a lookup record, a settled write leaves the server's view of
+  // the turn, and the audit could raise a second approval for it.
+  assert.match(HOOK, /for \(const id of settled\.approved\) approvedCalls\.add\(id\)/)
+  assert.match(HOOK, /const requestWire = fitCurrentTurn\(wire, \{[\s\S]{0,200}keep: approvedCalls,/)
+})
+
+test('an approved call that fails in the SDK is captured, so it settles as an output-error', () => {
+  assert.match(HOOK, /part\.type === 'tool-output-error' && typeof part\.toolCallId === 'string'/)
+  assert.match(HOOK, /handlers\.onToolError\?\.\(part\.toolCallId, String\(part\.errorText/)
+  assert.match(HOOK, /onToolError: \(toolCallId, errorText\) => \{\s*capturedErrors\.set\(toolCallId, capOutput\(errorText\)\)/)
 })
 
 test('a leg marks only what it actually recorded', () => {

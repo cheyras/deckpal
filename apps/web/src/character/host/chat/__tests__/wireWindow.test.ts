@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { TOOL_RECORD_PREFIX } from '../lookupRecord'
+import { settleApprovedCalls } from '../toolReplay'
 import { BREAKER_PER_TOOL, CURRENT_TURN_MAX_CHARS, EVIDENCE_MAX, PART_MAX_CHARS, WINDOW_MESSAGES, WINDOW_PRIOR_CHARS, fitCurrentTurn, windowPrior } from '../wireWindow'
 
 const user = (text: string) => ({ role: 'user', parts: [{ type: 'text', text }] })
@@ -140,6 +141,36 @@ test("an oversized Deep Think turn never summarises away deep_think's result, wh
   const fitted = fitCurrentTurn(wire, { isServerTool: () => true })
   assert.equal(fitted[1]!.parts[0], deep, 'the grant-bearing result was compacted')
   assert.ok(fitted[2]!.parts.some((part) => part.type === 'text'), 'the budget was not actually exceeded')
+})
+
+test('an oversized turn never compacts a settled approved write, so the server still sees the write', () => {
+  // "Log this game and take me to my battle logs": the write was approved and
+  // ran; the leg after it is long. Compacted, its `tool-` part would become a
+  // lookup record, the audit would not see `add_battle_log` in this turn, and
+  // could raise a second approval for the same game.
+  const writeYes = {
+    type: 'tool-add_battle_log', toolCallId: 'log-1', state: 'approval-responded',
+    input: { deck_id: 'deck-9', dry_run: false }, approval: { id: 'apr-log', approved: true, signature: 'sig' },
+  }
+  const calls = Array.from({ length: 22 }, (_, index) => ({
+    type: 'tool-web_research',
+    toolCallId: `research-${index}`,
+    state: 'output-available',
+    input: { query: `${index}` },
+    output: `${index}:${'x'.repeat(12_000)}`,
+  }))
+  const before = [user('log this game'), { role: 'assistant', parts: [writeYes] }, { role: 'assistant', parts: calls }]
+  const settled = settleApprovedCalls(before, new Map([['log-1', '{"ok":true,"battle_log_id":"bl-1"}']]))
+  const keep = new Set(settled.approved)
+  const fitted = fitCurrentTurn(settled.wire, { isServerTool: () => true, keep })
+  assert.deepEqual(fitted[1]!.parts[0], {
+    type: 'tool-add_battle_log', toolCallId: 'log-1', state: 'output-available',
+    input: { deck_id: 'deck-9', dry_run: false }, output: '{"ok":true,"battle_log_id":"bl-1"}',
+  }, 'the settled write was compacted')
+  assert.ok(fitted[2]!.parts.some((part) => part.type === 'text'), 'premise: the turn was over budget and compacted')
+  // Without `keep` it is the first part compaction reaches: the guard is what holds it.
+  const unguarded = fitCurrentTurn(settled.wire, { isServerTool: () => true })
+  assert.equal(unguarded[1]!.parts[0]!.type, 'text')
 })
 
 const failed = (tool: string, id: string) =>

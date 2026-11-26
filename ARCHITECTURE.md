@@ -1834,7 +1834,11 @@ read before admission because they size the hold:
   the answered approval into that finished result on the next leg
   (`settleApprovedCalls`), which both pairs the call with a result and carries
   the grant; a grant from another turn, user or conversation, a tampered one or
-  an expired one does not verify.
+  an expired one does not verify. `settleApprovedCalls` settles every approved
+  call this way, held writes as well as `deep_think` (an SDK failure becomes an
+  output-error), and the browser never compacts a settled call out of a long
+  turn, so each approved `tool_use` keeps exactly one `tool_result` and the
+  server still sees the write.
 
 Both routes outrank the browser's route echo (`turnDecision`): every Deep leg is
 a continuation, and the echo can never carry Deep itself. Only those routes add
