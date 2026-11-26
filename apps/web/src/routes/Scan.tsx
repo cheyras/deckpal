@@ -55,7 +55,7 @@ import type { Quad } from '../scan/engine/contract'
 import { gateScanResponse, judgeTie, TIE_MARGIN } from '../scan/ui/tieGate'
 import { createCapturedRegions, type CapturedRegions, type RegionTrack } from '../scan/ui/regions'
 import { createLookRearm, type LookRearm } from '../scan/ui/rearm'
-import { decideAutoCapture } from '../scan/ui/autoCapture'
+import { createCardBackHolds, decideAutoCapture } from '../scan/ui/autoCapture'
 import { useAccess } from '../lib/access'
 import { useScannerVoice } from '../scan/voice/useScannerVoice'
 import { VoiceCaption, VoiceLiveRegion, VoicePrimer, VoiceToggle, VoiceVerifyWarning, voicePrimerSeen } from '../scan/voice/VoiceControls'
@@ -370,6 +370,9 @@ export function Scan() {
   }
 
   const refractoryRef = useRef(new Set<number>())
+  /** Tracks whose lock showed a card back (scan/ui/autoCapture.ts): never
+   *  auto-captured until their look settles clear of the back, or they depart. */
+  const cardBackRef = useRef(createCardBackHolds())
 
   // ── THE ON-DEVICE OCR LANE (scan/ocr/**), STAGED BEHIND THE DETECTOR ──────
   //
@@ -1310,6 +1313,7 @@ export function Scan() {
     for (const id of refractoryRef.current) {
       if (!presentIds.has(id)) refractoryRef.current.delete(id)
     }
+    cardBackRef.current.prune(presentIds)
     // ONCE PER DETECT TICK, and this is what makes the presence signal dense
     // enough to be the refractory's clock: every remembered capture region is
     // refreshed against what is on screen right now, and retired only when
@@ -1318,14 +1322,16 @@ export function Scan() {
     ageRegions([...engineState.stable, ...engineState.pending])
     const locked = engineState.locked
     // THE DECISION (scan/ui/autoCapture.ts — the offline replay runs the same
-    // function): a lock fires unless it is busy, or a REPEAT (this track already
-    // captured, or this place) whose card looks like the capture behind it.
-    // Every tick, lock or not, so the look re-arm's steadiness is current.
+    // function): a lock fires unless it is busy, a card back, or a REPEAT (this
+    // track already captured, or this place) whose card looks like the capture
+    // behind it. Every tick, lock or not, so the look re-arm's steadiness is
+    // current.
     const verdict = decideAutoCapture(locked, engineState.look, {
       refractory: refractoryRef.current,
       busy: captureBusyRef.current,
       regions,
       rearm,
+      cardBacks: cardBackRef.current,
     })
     if (locked) {
       // Every lock, not just the ones that become captures — a lock the
@@ -1343,8 +1349,9 @@ export function Scan() {
         cameraBox: cameraBoxRef.current,
         perf: engineState.perf,
         // As before — not held by the refractory, not busy — plus a refractory
-        // hold the look re-arm saw through.
-        wouldCapture: (!refractoryRef.current.has(locked.id) || verdict.newByLook) && !captureBusyRef.current,
+        // hold the look re-arm saw through, minus a card back.
+        wouldCapture:
+          (!refractoryRef.current.has(locked.id) || verdict.newByLook) && !captureBusyRef.current && !verdict.cardBack,
         // So the NEXT drive can measure the refractory instead of inferring it:
         // how many regions are live, and whether this lock was one of them.
         regionCount: regions.count,
@@ -1368,17 +1375,28 @@ export function Scan() {
         // (0.018 above the mail, 0.019 below the least colourful card) and
         // keeps the payload a handful of bytes.
         saturation: round3(engineState.saturation),
-        // Whether this lock is a different card by look (rearm.ts). True on
-        // about one tick per re-arm, so this throttled stream undercounts them;
-        // the capture-event's `rearmed` is the reliable count.
+        // Whether this lock is a REPEAT whose card is different by look
+        // (rearm.ts) — never true on a fresh lock, nor on a card back turned
+        // face up (that is `backReleased`). True on about one tick per re-arm,
+        // so this throttled stream undercounts them; the capture-event's
+        // `rearmed` is the reliable count.
         newByLook: verdict.newByLook,
+        // Whether the card-back gate (engine/cardBack.ts) refused this lock —
+        // the field count of what it catches, and of any card it should not.
+        cardBack: verdict.cardBack,
+        // Whether this tick let go of the track's card-back hold (its look
+        // settled clear of the back). One tick per release, so throttled too.
+        backReleased: verdict.backReleased,
       })
     }
     if (locked && verdict.fire) {
       refractoryRef.current.add(locked.id)
       void runCapture(locked.id, 'auto', verdict.repeat)
     }
-    if (locked) setHint((h) => (h.startsWith('Got it') ? h : 'Got it — hold on…'))
+    // A back is locked but never captured, so "Got it" would be a promise the
+    // scanner is not going to keep.
+    if (locked && verdict.cardBack) setHint('That’s the back of a card — turn it over')
+    else if (locked) setHint((h) => (h.startsWith('Got it') ? h : 'Got it — hold on…'))
     else if (engineState.stable.length > 0) setHint('Hold steady…')
     // THE STANDING NEEDS-YOU LINE. Only in the idle branch — while the reader is
     // aiming at something the hint belongs to that card, and interrupting a lock

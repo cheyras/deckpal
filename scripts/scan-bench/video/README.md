@@ -65,8 +65,8 @@ runs with `OPENBLAS_NUM_THREADS=1`. A 60-80 s short takes 10-15 s of wall time.
 |---|---|
 | `captures/<t>.jpg` | every FIRED capture: 480x670, 5% margin, JPEG q85. `<t>` is video seconds |
 | `suppressed/<t>-<reason>-trk<id>.jpg` | the first suppressed lock of each track for each reason, warped the same way, so you can judge by eye whether the suppression refused a duplicate or a new card |
-| `captures.jsonl` | one row per fired capture (`suppressed: false`) and per suppressed lock episode (`"region"` / `"busy"`): `t`, frame index `i`, `trackId`, `trackAge`, `quad` (canonical 416), `quadStream` (960x1280 stream), `quadSource` (video px), `hasObj`, `gateOpen`, `saturation`, `aspect`, `parallel` (the straddle ratio), `motionPx`, `sharpness`, `regionCount`, `regionsExpired`, and for suppressed rows `trackFiredAt` |
-| `frames.jsonl` | one row per detect tick: `hasObj`, `gate`, `obs` (the gated, refined quad) with `obsWhy` when the tracker's reticle filter would refuse it, `sat`, `stable` tracks (`id`, `age`, coasting `c`, `q`, `mot`, and `why` when the track is not lock-eligible), `pending`, `locked`, `regions`, and `event` (`fire` / `refractory` / `busy` / `region` / `capture-failed`) |
+| `captures.jsonl` | one row per fired capture (`suppressed: false`) and per suppressed lock episode (`"region"` / `"busy"` / `"cardback"`): `t`, frame index `i`, `trackId`, `trackAge`, `quad` (canonical 416), `quadStream` (960x1280 stream), `quadSource` (video px), `hasObj`, `gateOpen`, `saturation`, `aspect`, `parallel` (the straddle ratio), `motionPx`, `sharpness`, `regionCount`, `regionsExpired`, and for suppressed rows `trackFiredAt` |
+| `frames.jsonl` | one row per detect tick: `hasObj`, `gate`, `obs` (the gated, refined quad) with `obsWhy` when the tracker's reticle filter would refuse it, `sat`, `stable` tracks (`id`, `age`, coasting `c`, `q`, `mot`, and `why` when the track is not lock-eligible), `pending`, `locked`, `regions`, and `event` (`fire` / `refractory` / `busy` / `region` / `cardback` / `capture-failed`) |
 | `contact.png` | the fired captures, timestamped, with sharpness/motion/saturation under each |
 | `contact-suppressed.png` | the suppressed crops |
 | `timeline.png` | the canonical frame once a second, with the reticle (grey), the observation (yellow), stable tracks (green; dark green while coasting) and the lock (red). A red border means a capture fired since the previous tile, orange means only suppressions happened |
@@ -82,6 +82,8 @@ Counts in `summary.json` and on the console:
   its fast-swap cost (see below).
 - **busyDeferredTracks**: locks that arrived inside the busy window. At 8 Hz a
   new track can't lock before age 5 (625 ms), so this is almost always 0.
+- **cardBackTracks**: locked tracks that never fired because the card-back gate
+  (`engine/cardBack.ts`) judged them a card back.
 - **funnel**: gate open > observed > in reticle > stable > lock-eligible >
   locked, in ticks, with the reasons each step lost ticks to (`blockers`).
 
@@ -106,6 +108,7 @@ rules:
 | reticle, canonical square | `engine/frame.ts` `reticleForAspect`, `squareCrop`, `modelPointsToCanonicalQuad`, `canonicalQuadToCrop` |
 | duplicate regions | `scan/ui/regions.ts` `createCapturedRegions` |
 | a card's look, the look re-arm | `engine/look.ts` `cardLook`, `captureLook`; `scan/ui/rearm.ts` `createLookRearm` |
+| the fire decision, the card-back gate and holds | `scan/ui/autoCapture.ts` `decideAutoCapture`, `createCardBackHolds`; `engine/cardBack.ts` `isCardBackLook`, `cardBackDistance` |
 | rectification | `engine/rectify.ts` `expandQuad(CAPTURE_MARGIN)` + `rectifyImageData` at `cardRectSize()` |
 | model tensor | `engine/preprocess.ts` `rgbaToBGRPlanar` |
 
