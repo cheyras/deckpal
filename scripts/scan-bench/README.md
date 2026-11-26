@@ -141,6 +141,32 @@ SCAN_BENCH_DIR=~/deckpal-data/scan-bench-loso SCAN_BENCH_UNINDEXED=me06   node -
 The number to watch there is WRONG, which must be 0: an index that has not seen
 a set must make the scanner ask, never name the nearest older printing.
 
+## The acceptance test: the owner's own session (`field-session.mjs`)
+
+Offline numbers are evidence, not the verdict. Every earlier round reported a
+benchmark gain that the owner's phone did not show, because the bench replays
+crops that were already captured, from sets that were already indexed. The
+work is done when the owner's real session says so:
+
+```bash
+node scripts/scan-bench/field-session.mjs --since <session start, ISO>   # pull + list
+# label <out>/labels.json: "truth" = the card id read off each crop, or "skip"
+node scripts/scan-bench/field-session.mjs --score <out>                  # the verdict
+```
+
+It reads the deployed scanner's own telemetry (`/api/dev/scan-flags`, as QA),
+one row per capture: the crop, the lock's sharpness, what was read, which rung
+answered, whether it was confident. Scored per capture: CC (confident and
+correct, the 95% target), CW (confident and wrong, at most 1%), PICK
+(needs-you, truth in the list), MISS.
+
+Baseline, 2026-11-25 (17 captures of Delta Reign, before the index top-up,
+focus gate and vision read): CC 6 (35.3%), CW 1, PICK 1, MISS 9.
+
+Before each owner session, write down the predicted CC rate. If the session
+misses it by more than 10 points, the benchmark is wrong about something, and
+finding out what is the next task.
+
 ## Caveats, read before trusting a number
 
 - **Most crops are 229×320**, the size scan telemetry keeps, not the 480×670
