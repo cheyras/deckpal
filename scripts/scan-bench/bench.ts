@@ -33,6 +33,7 @@ import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 
 import { artSiblings, hashMayNameAlone, printedTwinsOf, printingOpenFor, typeMatesOf } from '../../apps/api/src/scan/artFamilies.js'
+import { parseCardRead } from '../../apps/api/src/scan/readCard.js'
 import { resolveCard, type ResolveOutcome } from '../../apps/api/src/scan/resolve.js'
 import type { ScanResolveResponse, ScanResponse } from '../../apps/web/src/lib/api.js'
 import type { OcrRead } from '../../apps/web/src/scan/ocr/pipeline.js'
@@ -51,7 +52,39 @@ const arg = (k: string, d?: string) => {
   const i = process.argv.indexOf(`--${k}`)
   return i >= 0 ? process.argv[i + 1] : d
 }
-const OCR_ON = arg('ocr', 'on') !== 'off'
+const OCR_ARG = arg('ocr', 'on')!
+const OCR_ON = OCR_ARG !== 'off'
+// `--ocr vlm:<reads.json>[,<more.json>]`: the printed fields come from a cloud
+// vision model's replies (runs keyed by row id, each `{ text, ms }`), parsed by
+// the SHIPPED parser (apps/api/src/scan/readCard.ts `parseCardRead`), and the
+// ladder runs with `readSource: 'vlm'` as `/scan/resolve` does for them.
+const VLM_READS: Map<string, OcrRead | null> | null = OCR_ARG.startsWith('vlm:')
+  ? (() => {
+      const m = new Map<string, OcrRead | null>()
+      for (const f of OCR_ARG.slice(4).split(',')) {
+        const j: Record<string, { text?: string; ms?: number }> = JSON.parse(fs.readFileSync(f, 'utf8'))
+        for (const [id, v] of Object.entries(j)) {
+          const r = parseCardRead(v.text ?? '')
+          const fl = r?.isCard ? r.fields : null
+          m.set(
+            id,
+            fl && (fl.name || fl.number || fl.denominator || fl.setCode || fl.bodyLines?.length)
+              ? ({
+                  name: fl.name ?? null,
+                  number: fl.number ?? null,
+                  denominator: fl.denominator ?? null,
+                  setCode: fl.setCode ?? null,
+                  ...(fl.bodyLines ? { bodyLines: fl.bodyLines } : {}),
+                  pass: 'vlm',
+                  ms: v.ms ?? 0,
+                } as OcrRead)
+              : null,
+          )
+        }
+      }
+      return m
+    })()
+  : null
 const FUSION_ON = arg('fusion', 'on') !== 'off'
 /** The printing guard (artFamilies.ts) — the shipping behaviour; `--guard off` replays without it. */
 const GUARD_ON = arg('guard', 'on') !== 'off'
@@ -81,7 +114,7 @@ const VECTORS: string =
 }
 const LABEL = arg(
   'label',
-  `ocr-${OCR_ON ? 'on' : 'off'}_fusion-${FUSION_ON ? 'on' : 'off'}_guard-${GUARD_ON ? 'on' : 'off'}_${VECTORS}`,
+  `ocr-${VLM_READS ? 'vlm' : OCR_ON ? 'on' : 'off'}_fusion-${FUSION_ON ? 'on' : 'off'}_guard-${GUARD_ON ? 'on' : 'off'}_${VECTORS}`,
 )!
 const OUT = arg('out', path.join(BENCH_DIR, 'runs'))!
 const DATASETS = arg('datasets')?.split(',') ?? listDatasets()
@@ -210,7 +243,7 @@ interface RowResult {
 async function runRow(r: BenchRow): Promise<RowResult> {
   const { jpeg, full } = await asCapture(r)
   const ph = await phashQuery(jpeg, 5)
-  const read = OCR_ON ? await ocrCached(jpeg) : null
+  const read = VLM_READS ? (VLM_READS.get(r.id) ?? null) : OCR_ON ? await ocrCached(jpeg) : null
   const vec = FUSION_ON ? vectorsFor(r.id, full) : []
 
   let s: IdentityState = initialIdentity()
@@ -226,6 +259,7 @@ async function runRow(r: BenchRow): Promise<RowResult> {
       phashConfidentMax: PHASH_VETO,
       ...(GUARD_ON ? { artSiblings, printedTwins: printedTwinsOf, typeMates: typeMatesOf } : {}),
       ...(FUSION_ON ? { fusion: { vectorMatches: body.vectorMatches ?? [], modelId: MODEL_ID } } : {}),
+      ...(VLM_READS ? { readSource: 'vlm' as const } : {}),
     })
     resolved = toWire(outcome)
   }
