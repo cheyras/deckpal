@@ -9,10 +9,10 @@ import {
   replayPlan,
   savedDeckRecord,
   settleApprovedCalls,
-  RESULT_REPLAYED_APPROVALS,
   toolReplayParts,
   type ReplayChip,
 } from '../toolReplay'
+import { freshCalls } from '../lookupRecord'
 
 const serverTools = new Set(['web_research', 'decks', 'collection_add', 'showDeck', 'express'])
 const replay = (chips: ReplayChip[]) => toolReplayParts(chips, {
@@ -132,7 +132,8 @@ test('after its leg, an approved Deep Think yes is replayed as the result it pro
     { role: 'user', parts: [{ type: 'text', text: 'Review my season' }] },
     { role: 'assistant', parts: [{ type: 'text', text: 'Worth it?' }, deepYes] },
   ]
-  const settled = settleApprovedCalls(wire, new Map([['deep-1', grantOutput]]))
+  const { wire: settled, approved } = settleApprovedCalls(wire, new Map([['deep-1', grantOutput]]))
+  assert.deepEqual(approved, ['deep-1'])
   assert.deepEqual(settled[1]!.parts[1], {
     type: 'tool-deep_think',
     toolCallId: 'deep-1',
@@ -145,24 +146,139 @@ test('after its leg, an approved Deep Think yes is replayed as the result it pro
   assert.equal(wire[1]!.parts[1], deepYes, 'the input wire is not mutated')
 })
 
-test('nothing else is settled: no output yet, a decline, another tool, an earlier turn', () => {
+test('nothing else is settled: no output yet, a decline, a write declined, an earlier turn', () => {
   const user = (text: string) => ({ role: 'user', parts: [{ type: 'text', text }] })
   const no = { ...deepYes, approval: { id: 'apr-2', approved: false, reason: 'keep it quick' } }
-  const write = { ...deepYes, type: 'tool-save_deck', toolCallId: 'save-1' }
+  const writeNo = {
+    type: 'tool-save_deck',
+    toolCallId: 'save-1',
+    input: { name: 'Dragapult' },
+    state: 'approval-responded',
+    approval: { id: 'apr-3', approved: false, reason: 'not yet' },
+  }
   const outputs = new Map([['deep-1', grantOutput], ['save-1', 'saved']])
   // The approval leg itself, before any output came back.
   const pending = [user('Review my season'), { role: 'assistant', parts: [deepYes] }]
-  assert.deepEqual(settleApprovedCalls(pending, new Map()), pending)
+  assert.deepEqual(settleApprovedCalls(pending, new Map()), { wire: pending, approved: [] })
   // A decline already carries its own result (execution-denied).
   const declined = [user('Review my season'), { role: 'assistant', parts: [no] }]
-  assert.deepEqual(settleApprovedCalls(declined, new Map([['deep-1', grantOutput]])), declined)
-  // Writes keep their existing replay.
-  const writes = [user('Save it'), { role: 'assistant', parts: [write] }]
-  assert.deepEqual(settleApprovedCalls(writes, outputs), writes)
+  assert.deepEqual(settleApprovedCalls(declined, new Map([['deep-1', grantOutput]])), { wire: declined, approved: [] })
+  // So does a declined write, even with an output under its id.
+  const writesNo = [user('Save it'), { role: 'assistant', parts: [writeNo] }]
+  assert.deepEqual(settleApprovedCalls(writesNo, outputs), { wire: writesNo, approved: [] })
   // Only the reader's current turn is touched.
   const older = [user('Review my season'), { role: 'assistant', parts: [deepYes] }, user('Thanks')]
-  assert.deepEqual(settleApprovedCalls(older, outputs), older)
-  assert.deepEqual([...RESULT_REPLAYED_APPROVALS], ['deep_think'])
+  assert.deepEqual(settleApprovedCalls(older, outputs), { wire: older, approved: [] })
+})
+
+test('a write approved in the same step as a goTo reaches the leg after the write ran with its result', () => {
+  // "Log this game and take me to my battle logs." One step holds
+  // `add_battle_log` for the reader and calls the browser's `goTo`.
+  const writeYes = {
+    type: 'tool-add_battle_log',
+    toolCallId: 'log-1',
+    input: { deck_id: 'deck-9', result: 'win', dry_run: false },
+    state: 'approval-responded',
+    approval: { id: 'apr-log', approved: true, signature: 'sig' },
+  }
+  const goTo = {
+    type: 'tool-goTo',
+    toolCallId: 'go-1',
+    input: { path: '/battle-logs' },
+    state: 'output-available',
+    output: { ok: true, said: 'on your battle logs' },
+  }
+  // Leg 1 ends: the browser ran `goTo`, the reader approved, and the answer is
+  // appended last, after the browser result, where the SDK collects it.
+  const wire = [
+    { role: 'user', parts: [{ type: 'text', text: 'Log this game and take me to my battle logs' }] },
+    { role: 'assistant', parts: [{ type: 'text', text: 'Logging it now.' }, goTo, writeYes] },
+  ]
+  // That leg marked the write as replayed (`answeredHere`), so when leg 2
+  // runs it and its chip lands, the chip path will never send it again.
+  const replayed = new Set(['go-1', 'log-1'])
+  const leg2Chips = [{ id: 'log-1', name: 'add_battle_log', phase: 'ok', summary: 'Logged a win' }]
+  assert.deepEqual(freshCalls(leg2Chips, replayed).send, [], 'the chip path does not carry the write')
+
+  // Leg 2 ran the write; its output arrived. The wire posted on leg 3 must
+  // carry it as the finished call, in place of the answer.
+  const logged = '{"ok":true,"battle_log_id":"bl-1"}'
+  const { wire: settled, approved } = settleApprovedCalls(wire, new Map([['log-1', logged]]))
+  assert.deepEqual(approved, ['log-1'], 'the caller is told, so the write is never compacted')
+  assert.deepEqual(settled[1]!.parts, [
+    wire[1]!.parts[0],
+    goTo,
+    {
+      type: 'tool-add_battle_log',
+      toolCallId: 'log-1',
+      input: { deck_id: 'deck-9', result: 'win', dry_run: false },
+      state: 'output-available',
+      output: logged,
+    },
+  ])
+  // No call is left without a result: every tool part is finished.
+  for (const part of settled.flatMap((message) => message.parts)) {
+    if (typeof part.type === 'string' && part.type.startsWith('tool-')) {
+      assert.equal((part as { state?: string }).state, 'output-available', `${part.type} has no result`)
+    }
+  }
+  assert.equal(wire[1]!.parts[2], writeYes, 'the input wire is not mutated')
+})
+
+test('an approved write that failed in the SDK settles as its one output-error, not a call with no result', () => {
+  const writeYes = {
+    type: 'tool-log_cards',
+    toolCallId: 'cards-1',
+    input: { cards: [{ card_id: 'sv1-1', quantity: 1 }], dry_run: false },
+    state: 'approval-responded',
+    approval: { id: 'apr-cards', approved: true, signature: 'sig' },
+  }
+  const wire = [
+    { role: 'user', parts: [{ type: 'text', text: 'Add this card' }] },
+    { role: 'assistant', parts: [writeYes] },
+  ]
+  const { wire: settled, approved } = settleApprovedCalls(wire, new Map(), new Map([['cards-1', 'Internal server error']]))
+  assert.deepEqual(settled[1]!.parts, [{
+    type: 'tool-log_cards',
+    toolCallId: 'cards-1',
+    input: { cards: [{ card_id: 'sv1-1', quantity: 1 }], dry_run: false },
+    state: 'output-error',
+    errorText: 'Internal server error',
+  }])
+  assert.deepEqual(approved, ['cards-1'])
+  // An output, if one also arrived, is the result that wins.
+  const both = settleApprovedCalls(wire, new Map([['cards-1', 'logged']]), new Map([['cards-1', 'boom']]))
+  assert.equal((both.wire[1]!.parts[0] as { state?: string }).state, 'output-available')
+})
+
+test('a call that already has a finished part in the turn is not converted into a second result', () => {
+  const writeYes = {
+    type: 'tool-add_battle_log',
+    toolCallId: 'log-1',
+    input: { deck_id: 'deck-9', dry_run: false },
+    state: 'approval-responded',
+    approval: { id: 'apr-log', approved: true, signature: 'sig' },
+  }
+  const finished = {
+    type: 'tool-add_battle_log',
+    toolCallId: 'log-1',
+    input: { deck_id: 'deck-9', dry_run: false },
+    state: 'output-available',
+    output: '{"ok":true}',
+  }
+  const wire = [
+    { role: 'user', parts: [{ type: 'text', text: 'Log this game' }] },
+    { role: 'assistant', parts: [writeYes] },
+    { role: 'assistant', parts: [finished] },
+  ]
+  const { wire: settled, approved } = settleApprovedCalls(wire, new Map([['log-1', '{"ok":true}']]))
+  assert.equal(settled[1]!.parts[0], writeYes, 'converted into a duplicate result')
+  assert.equal(settled[2]!.parts[0], finished)
+  const results = settled.flatMap((message) => message.parts as Array<Record<string, unknown>>)
+    .filter((part) => part.toolCallId === 'log-1' && part.state === 'output-available')
+  assert.equal(results.length, 1)
+  // Still reported: its result is in the wire and must not be compacted away.
+  assert.deepEqual(approved, ['log-1'])
 })
 
 test('a version saved from the widget tells him which version it landed on, or that nothing changed', () => {

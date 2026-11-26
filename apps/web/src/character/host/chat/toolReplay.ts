@@ -110,36 +110,60 @@ export function toolReplayParts(
   return { parts, unrecorded }
 }
 
-/**
- * Approved calls whose RESULT is replayed in place of their approval answer.
- *
- * The approval answer is a one-leg message: the SDK reads it only at the end
- * of the final message, runs the call, and streams its output. Left in the
- * wire after that, it is a tool call with no result on every later leg — an
- * unpaired call a provider rejects — and its output (for `deep_think`, the
- * grant that keeps the turn on Deep) would never reach the server again. The
- * call's chip cannot carry it either: it was marked replayed on the leg that
- * answered it. Only `deep_think` today; writes keep their existing replay.
- */
-export const RESULT_REPLAYED_APPROVALS: ReadonlySet<string> = new Set(['deep_think'])
-
 type WirePartLike = Record<string, unknown>
 type WireMessageLike = { role: string; parts: WirePartLike[] }
 
 /**
- * The wire with each approved, now-answered call in `names` turned into the
- * finished tool part it became: same call, its captured output, no approval.
- * Only the reader's current turn is touched, and only a call whose output
- * actually arrived; everything else is returned as it was.
+ * The wire with each approved, now-answered call turned into the finished tool
+ * part it became: same call, its captured output (or, if it failed in the SDK,
+ * its error), no approval. Only the reader's current turn is touched, and only
+ * a call whose result actually arrived; everything else is returned as it was.
+ *
+ * The approval answer is a one-leg message: the SDK reads it only at the end
+ * of the final message, runs the call, and streams its output. Left in the
+ * wire after that, it is a tool call with no result on every later leg. The
+ * SDK exempts approved ids from its missing-result check
+ * (`approvedToolCallIds` in `ai/dist/index.js`) and drops the approval
+ * response, so the provider receives a `tool_use` with no `tool_result`. The
+ * call's chip cannot carry the result either: it was marked replayed on the
+ * leg that answered it.
+ *
+ * EVERY approved call, not a named few. `deep_think` was the first case (its
+ * output is the grant that keeps the turn on Deep). A held write is the same
+ * shape: "log this game and take me to my battle logs" holds `add_battle_log`
+ * and runs `goTo` in one step, the resumed leg runs the write, and any further
+ * leg after that carried the write's call with no result. Only Deep Think and
+ * held writes are ever approved, both run on the server, and a write tool
+ * added later is covered without being listed here.
+ *
+ * EXACTLY ONE RESULT PER CALL. A call whose id already has a finished part
+ * elsewhere in the turn is left alone: converting it would send that result
+ * twice.
+ *
+ * `approved` names every approved call of this turn whose result is now in the
+ * wire. The caller keeps them across legs and passes them to `fitCurrentTurn`
+ * as `keep`: once settled, a write looks like any finished call, and compacted
+ * into a lookup record it would vanish from the server's view of the turn —
+ * the audit would read "Logged your game" as a claim with no write behind it
+ * and could raise a second approval for the same game.
  */
 export function settleApprovedCalls<T extends WireMessageLike>(
   wire: readonly T[],
   outputs: ReadonlyMap<string, string>,
-  names: ReadonlySet<string> = RESULT_REPLAYED_APPROVALS,
-): T[] {
+  errors: ReadonlyMap<string, string> = new Map(),
+): { wire: T[]; approved: string[] } {
   let current = wire.length - 1
   while (current >= 0 && wire[current]!.role !== 'user') current--
-  return wire.map((message, index) => {
+  const finished = new Set<string>()
+  for (const message of wire.slice(current + 1)) {
+    for (const part of message.parts) {
+      if ((part.state === 'output-available' || part.state === 'output-error') && typeof part.toolCallId === 'string') {
+        finished.add(part.toolCallId)
+      }
+    }
+  }
+  const approved: string[] = []
+  const settled = wire.map((message, index) => {
     if (index <= current) return message
     let changed = false
     const parts = message.parts.map((part) => {
@@ -150,20 +174,28 @@ export function settleApprovedCalls<T extends WireMessageLike>(
         part.state !== 'approval-responded' ||
         approval?.approved !== true ||
         !type.startsWith('tool-') ||
-        !names.has(type.slice('tool-'.length)) ||
-        !outputs.has(id)
+        !id
       ) return part
-      changed = true
-      return {
-        type,
-        toolCallId: id,
-        input: (part.input ?? {}) as Record<string, unknown>,
-        state: 'output-available',
-        output: outputs.get(id)!,
+      if (finished.has(id)) {
+        approved.push(id)
+        return part
       }
+      const input = (part.input ?? {}) as Record<string, unknown>
+      if (outputs.has(id)) {
+        changed = true
+        approved.push(id)
+        return { type, toolCallId: id, input, state: 'output-available', output: outputs.get(id)! }
+      }
+      if (errors.has(id)) {
+        changed = true
+        approved.push(id)
+        return { type, toolCallId: id, input, state: 'output-error', errorText: errors.get(id)! }
+      }
+      return part
     })
     return changed ? { ...message, parts } : message
-  })
+  }) as T[]
+  return { wire: settled, approved }
 }
 
 /**
