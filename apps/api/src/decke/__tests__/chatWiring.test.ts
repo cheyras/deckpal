@@ -780,14 +780,17 @@ test('the consult is held only on the Quick tier, decided once for the whole req
   assert.doesNotMatch(CODE, /prepareStep:[\s\S]{0,400}toolsForTier/);
 });
 
-test('the close-game consult note is offered from the same predicate as the consult tool', () => {
-  // `buildDataTools` gets `consultOffered` from `tierOffersConsult`, the
-  // predicate `toolsForTier` uses, so the note never names a tool the request
-  // lacks. A literal `true`, or `decision.tier !== 'deep'`, would let it.
+test('the close-game consult note is offered from the same predicate as the consult tool, on a battle pathway', () => {
+  // `buildDataTools` gets `consultOffered` from `closeGameConsultOffered`, fed
+  // `tierOffersConsult` (the predicate `toolsForTier` uses) AND the routed
+  // pathways, so the note never names a tool the request lacks and never fires
+  // on a Quick lookup routed elsewhere. A literal `true`, `decision.tier !==
+  // 'deep'`, or a bare `tierOffersConsult(...)` without the pathways would let it.
+  assert.match(SRC, /import \{ closeGameConsultOffered \} from '\.\.\/apps\/api\/dist\/decke\/closeGameConsult\.js'/);
   assert.match(
     CODE,
-    /\.\.\.buildDataTools\(\{[\s\S]*?consultOffered: tierOffersConsult\(decision\.tier\),[\s\S]*?\}\),/,
-    'the close-game consult note must follow the tier that holds consult',
+    /\.\.\.buildDataTools\(\{[\s\S]*?consultOffered: closeGameConsultOffered\(tierOffersConsult\(decision\.tier\), decision\.pathways\),[\s\S]*?\}\),/,
+    'the close-game consult note must follow the tier that holds consult and the routed pathway',
   );
   assert.equal(CODE.match(/consultOffered:/g)?.length, 1, 'only the chat tool set offers the note; sub-agents never do');
 });

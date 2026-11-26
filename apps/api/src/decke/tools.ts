@@ -1231,7 +1231,8 @@ export function buildTools(
         'not DeckPal, and it cannot call tools. So put everything it may use in the brief — the battle_digest text, the ' +
         "reader's own words quoted, the record against that archetype — and ask one specific question. The answer comes " +
         'back to you, not the reader: keep what the brief supports and write it in your own words. It costs the reader ' +
-        'credits — never use it for lookups, small talk, a brief game, or to ask the same thing twice.',
+        'credits — never use it for lookups, small talk, or to ask the same thing twice, nor for a brief game unless its ' +
+        'battle_digest result ends with a note asking for a consult because the game was close (then the review stays brief).',
       inputSchema: z.object({
         question: z
           .string()

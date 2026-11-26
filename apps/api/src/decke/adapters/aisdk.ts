@@ -329,14 +329,16 @@ export interface AiSdkAdapterOptions extends ToolCtxOptions {
    */
   priorSummaries?: ReadonlySet<string>;
   /**
-   * Does this request's tool set hold `consult`? (`tierOffersConsult` in
-   * tools.ts: the Quick tier only.)
+   * Does this request get the close-game consult note? `closeGameConsultOffered`
+   * in closeGameConsult.ts: the request holds `consult` (`tierOffersConsult` in
+   * tools.ts, the Quick tier only) AND its routed pathway writes or reviews a
+   * game (`battle_log`, `battle_review`).
    *
-   * When true, a `battle_digest` whose structured echo says `closeGame` gets
-   * one line telling the model to consult before it writes the review — see
-   * `closeGameConsult.ts` for the measurement. Absent means no note, which is
-   * right for a sub-agent and for every non-Quick request; MCP never builds
-   * this tool set at all.
+   * When true, a `battle_digest` whose structured echo shows a genuinely close
+   * game gets one conditional line telling the model to consult before it
+   * writes the review — see `closeGameConsult.ts` for the measurement and the
+   * narrowed trigger. Absent means no note, which is right for a sub-agent and
+   * for every non-Quick request; MCP never builds this tool set at all.
    */
   consultOffered?: boolean;
   /**
@@ -1675,7 +1677,7 @@ export function buildDataTools(opts: AiSdkAdapterOptions): ToolSet {
             // After the clamp, so the line can never be cut off, and after
             // grounding, which it has nothing to offer. The chip below reads
             // the first line, which stays the tool's own. Deck-E only: the
-            // flag is the tool's `structured` echo, which MCP never sends.
+            // facts are the tool's `structured` echo, which MCP never sends.
             // See `closeGameConsult.ts`.
             const consultNote = result.isError
               ? ''

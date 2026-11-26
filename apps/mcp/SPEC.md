@@ -862,6 +862,9 @@ archetype, so "new matchup" and "met three times" are counts rather than guesses
 
     `detail: 'turns'` adds the board as each turn began (at most 11,000 characters). Players are
     "me"/"opp", or escaped screen names when the reader is unknown.
+    The handler also returns a `structured` echo (`closeGame`, `endReason`, `ownerKnown`,
+    `finalPrizes`, `lateLeadChange`, `reviewDepth`; 2026-11-17) that is Deck-E-only — it drives the
+    Quick tier's close-game consult note — and is NOT on the MCP wire (`toCallToolResult` drops it).
 17b. **`battle_turn_review`** — `{ deck_id, log_id, turn, player_name? }` (added 2026-10-14).
     `GET /decks/:id/logs/:logId/turns/:turn/review`: the battle simulator's strongest pilot on
     one of the reader's turns of a stored PTCG Live game (`reviewTurn` in
