@@ -49,9 +49,9 @@ import { ChatMarkdown } from './chat/ChatMarkdown'
 import { ActivityLine } from './chat/ActivityLine'
 import { SourcesList } from './chat/SourcesList'
 import { mergeSources } from './chat/sourcesState'
-import { panelBox, readPanelViewport } from './panelViewport'
-import { composerFocused, consumesScroll } from './panelScrollLock'
-import { keyboardLikelyUp } from '../../components/ui/sheetKeyboard'
+import { panelBox, readPanelViewport } from '../../lib/viewport/panelViewport'
+import { composerFocused, consumesScroll } from '../../lib/viewport/panelScrollLock'
+import { keyboardLikelyUp } from '../../lib/viewport/keyboard'
 import { KbDiag, kbDiagMode } from './KbDiag'
 import { parkFloor } from './parkFloor'
 import { CreditChip, DeckeNotice, type NoticeTone } from './chat/DeckeNotice'
@@ -1870,7 +1870,6 @@ export function DeckeChat({
       const kbUp =
         composerFocused(panel) &&
         keyboardLikelyUp({
-          fixedOrigin: 0,
           visualHeight: vv.height,
           scale: vv.scale,
           layoutHeight: document.documentElement.clientHeight,

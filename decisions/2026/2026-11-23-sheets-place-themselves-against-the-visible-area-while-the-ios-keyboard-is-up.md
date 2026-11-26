@@ -50,3 +50,45 @@ change to try, not a bundle with this one.
 - NOT VERIFIED ON A DEVICE YET. No headless browser has a software keyboard;
   the unit tests pin the arithmetic to the 2026-08-28 simulator samples. The
   owner checks the Vercel preview on his iPhone before merge.
+
+**Revised after review (2026-11-25, before merge):**
+
+- **Landscape minimum.** `sheetBox` writes nothing when the visible area is
+  under `SHEET_MIN_VISIBLE_PX` (240px). A phone in landscape with the keyboard
+  up leaves ~130–170px; shrinking the scrim into that squeezed the panel until
+  the focused field disappeared. There the authored CSS and iOS's own reveal
+  apply, as before this change. Portrait samples (377–410px) clear it easily.
+- **Narrowed touch refusal.** The drag refusal (item 2 above) now runs only
+  while the placement is actually applied, and its non-passive `touchmove`
+  listener is attached only for that time. It ignores mostly-horizontal swipes
+  (|dx| > |dy|), two-finger gestures and a pinch-zoomed page. "A field is
+  focused" counts text-entry fields only (`textEntryFocused`: textarea,
+  contenteditable, and `input` of type text/search/email/url/tel/password/number,
+  not read-only), so a focused radio, checkbox or slider places nothing and
+  refuses nothing. Deck-E keeps `composerFocused` unchanged.
+- **Neutral module.** `panelViewport.ts`, `panelScrollLock.ts` and the new
+  `keyboard.ts` (`keyboardLikelyUp`, now taking only `visualHeight`, `scale`,
+  `layoutHeight`) live in `apps/web/src/lib/viewport/`, so `Sheet` and the
+  Deck-E chat no longer import from each other. Behaviour for Deck-E is
+  unchanged.
+- The recorded iOS 18.6 Bug Report probe from `tools/ios-sim/README.md`
+  (`fixedOrigin -137`, `vv.height 409.66`, layout 678) is now a unit test:
+  scrim `{ top: 137, height: 410 }`.
+
+**Device checklist (owner, before merge):**
+
+- [ ] Bug Report textarea: re-run `tools/ios-sim/keyboard_probe.js`; expect the
+      dialog title `y >= 0` and the dialog bottom ≈ `visualViewport.height`.
+- [ ] Create List: focus name, then move focus to description; the sheet stays
+      on the keyboard with no flicker or jump.
+- [ ] Add Cards: type in search, then scroll the results with the keyboard up;
+      the results scroll, the page does not.
+- [ ] Landscape with the keyboard up: the field stays visible (nothing is
+      placed; iOS's reveal applies).
+- [ ] Dismiss the keyboard (Done / tap outside) and tap ✕ with the keyboard up:
+      the sheet returns to its authored position / closes cleanly.
+- [ ] Pinch-zoom the page, then focus a field and pan: panning is not refused.
+- [ ] Deck-E composer: keyboard up and down; no phantom gap, and watch Deck-E
+      for a wrong re-park.
+- [ ] One Android Chrome pass: check whether `visualViewport.offsetTop` needs
+      using when `fixedOrigin === 0` (overlay keyboard that shifts nothing).

@@ -8,7 +8,7 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { absorbs } from '../panelScrollLock'
+import { absorbs, isTextEntry } from '../panelScrollLock'
 
 /** A transcript with a real conversation in it: 900px of messages in a 400px box. */
 const LONG = { overflowY: 'auto', scrollTop: 250, scrollHeight: 900, clientHeight: 400 }
@@ -57,4 +57,22 @@ test('a fractional scrollTop at the limit is not room to move', () => {
 
 test('a still finger is not a scroll in either direction', () => {
   assert.equal(absorbs(LONG, 0), false)
+})
+
+test('isTextEntry: only fields that raise a text keyboard count', () => {
+  assert.equal(isTextEntry({ tagName: 'TEXTAREA' }), true)
+  assert.equal(isTextEntry({ tagName: 'DIV', isContentEditable: true }), true)
+  for (const type of ['text', 'search', 'email', 'url', 'tel', 'password', 'number']) {
+    assert.equal(isTextEntry({ tagName: 'INPUT', type }), true, type)
+  }
+  // `HTMLInputElement.type` reads 'text' for a missing type; a probe without one too.
+  assert.equal(isTextEntry({ tagName: 'INPUT' }), true)
+  for (const type of ['radio', 'checkbox', 'range', 'color', 'file', 'date', 'time', 'button', 'submit']) {
+    assert.equal(isTextEntry({ tagName: 'INPUT', type }), false, type)
+  }
+  assert.equal(isTextEntry({ tagName: 'INPUT', type: 'text', readOnly: true }), false)
+  assert.equal(isTextEntry({ tagName: 'TEXTAREA', readOnly: true }), false)
+  assert.equal(isTextEntry({ tagName: 'BUTTON' }), false)
+  assert.equal(isTextEntry({ tagName: 'SELECT' }), false)
+  assert.equal(isTextEntry(null), false)
 })

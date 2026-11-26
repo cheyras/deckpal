@@ -1,10 +1,10 @@
 /**
  * A SHEET WITH A TEXT FIELD, AND THE iOS KEYBOARD.
  *
- * This is the Deck-E chat's keyboard fix (`character/host/panelViewport.ts` and
- * `panelScrollLock.ts`, decision 2026-08-28) applied to `Sheet`, which every
- * other text field in the app sits inside: the bug reporter, the list and
- * Add Cards modals, New Deck, Log a Battle, and the rest.
+ * This is the Deck-E chat's keyboard fix (`lib/viewport/panelViewport.ts` and
+ * `lib/viewport/panelScrollLock.ts`, decision 2026-08-28) applied to `Sheet`,
+ * which every other text field in the app sits inside: the bug reporter, the
+ * list and Add Cards modals, New Deck, Log a Battle, and the rest.
  *
  * ── WHAT GOES WRONG WITHOUT IT ──────────────────────────────────────────────
  *
@@ -25,56 +25,39 @@
  *    `visualViewport.height` — so the bottom-anchored panel's floor is the top
  *    of the keyboard by construction, not by luck. `panelBox` is reused as-is,
  *    with no header to clear.
- * 2. While a text field in the sheet has focus, a one-finger drag that nothing
- *    inside the sheet can absorb is refused, so a flick cannot drag the page
- *    (and the riding sheet) off the keyboard. `consumesScroll` and
- *    `composerFocused` are reused as-is.
+ * 2. While that placement is applied, a mostly-vertical one-finger drag that
+ *    nothing inside the sheet can absorb is refused, so a flick cannot drag the
+ *    page (and the riding sheet) off the keyboard. `consumesScroll` is reused
+ *    as-is; "a field is focused" counts text-entry fields only
+ *    (`textEntryFocused`), never a radio, checkbox or slider.
  * 3. While the keyboard is up, the bottom safe-area inset is dropped. WebKit
  *    keeps reporting `env(safe-area-inset-bottom)` with the keyboard covering
  *    the home indicator (WebKit 217754), which is a ~34px dead gap above it.
  *
  * Outside "keyboard up", NOTHING IS WRITTEN: a sheet with no field focused, on
- * any device, and every sheet on a desktop, keeps exactly its authored CSS.
+ * any device, every sheet on a desktop, and a sheet on a phone in landscape
+ * (see `SHEET_MIN_VISIBLE_PX`), keeps exactly its authored CSS.
  */
 
-import { panelBox, type PanelBox } from '../../character/host/panelViewport'
+import { panelBox, type PanelBox } from '../../lib/viewport/panelViewport'
+import { keyboardLikelyUp, type KeyboardSample } from '../../lib/viewport/keyboard'
 
 /** What the placement needs, all in client pixels. */
-export type SheetViewportSample = {
+export type SheetViewportSample = KeyboardSample & {
   /** Where a `fixed; top: 0` box's top edge lands right now. */
   fixedOrigin: number
-  /** `visualViewport.height`. */
-  visualHeight: number
-  /** `visualViewport.scale` — 1 unless the reader has pinch-zoomed. */
-  scale: number
-  /** The layout viewport's height (`documentElement.clientHeight`). */
-  layoutHeight: number
 }
 
 /**
- * How much of the layout viewport has to be hidden before it counts as a
- * keyboard. Phone keyboards cover roughly 260–340px; a collapsing Safari
- * toolbar is well under this, and makes the visual viewport TALLER, not
- * shorter, so it never trips it.
+ * The least visible height worth placing a sheet into. Below it — a phone in
+ * landscape with the keyboard up leaves roughly 130–170px — a scrim shrunk to
+ * the visible area squeezes the panel's header, body and footer until the
+ * focused field itself has no room and disappears. There it is better to write
+ * nothing: the authored CSS stands and iOS's own reveal scroll keeps the field
+ * on screen, which is how every sheet behaved before this file. Portrait phones
+ * with the keyboard up measure 377–410px, well clear of it.
  */
-export const KEYBOARD_MIN_PX = 120
-
-/**
- * Is a software keyboard covering the bottom of the screen?
- *
- * A COARSE SIGNAL ONLY, and it is only ever asked while a text field in the
- * sheet has focus. It decides whether to place the sheet, never where — the
- * where comes from `panelBox`. A pinch-zoomed page shrinks the visual viewport
- * too, so a scale away from 1 answers no rather than mistake a zoom for a
- * keyboard.
- */
-export function keyboardLikelyUp(s: SheetViewportSample | null): boolean {
-  if (!s) return false
-  const { visualHeight, scale, layoutHeight } = s
-  if (!Number.isFinite(visualHeight) || !Number.isFinite(layoutHeight)) return false
-  if (!Number.isFinite(scale) || Math.abs(scale - 1) > 0.01) return false
-  return layoutHeight - visualHeight >= KEYBOARD_MIN_PX
-}
+export const SHEET_MIN_VISIBLE_PX = 240
 
 /**
  * Where the scrim goes while the keyboard is up, or `null` for "keep the
@@ -82,6 +65,8 @@ export function keyboardLikelyUp(s: SheetViewportSample | null): boolean {
  * clear; that makes it `panelBox` with a header of zero.
  */
 export function sheetBox(s: SheetViewportSample | null): PanelBox | null {
-  if (!keyboardLikelyUp(s)) return null
-  return panelBox({ fixedOrigin: s!.fixedOrigin, visualHeight: s!.visualHeight, headerOffset: 0 })
+  if (!s || !keyboardLikelyUp(s)) return null
+  // Written as a negated `>=` so a NaN also lands on "write nothing".
+  if (!(s.visualHeight >= SHEET_MIN_VISIBLE_PX)) return null
+  return panelBox({ fixedOrigin: s.fixedOrigin, visualHeight: s.visualHeight, headerOffset: 0 })
 }

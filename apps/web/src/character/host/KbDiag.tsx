@@ -34,7 +34,7 @@
  */
 import { useEffect, useRef } from 'react'
 import { COMPOSER_LANDMARK, PARK_LANDMARK } from './DeckeChat'
-import { APP_HEADER_LANDMARK, panelBox, readPanelViewport } from './panelViewport'
+import { APP_HEADER_LANDMARK, panelBox, readPanelViewport } from '../../lib/viewport/panelViewport'
 
 export function kbDiagMode(): boolean {
   return (

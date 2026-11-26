@@ -13,7 +13,7 @@ import { isChromelessPathname, useCurrentPathAsNext } from '../lib/landingRoute'
 import { useSignedIn } from '../lib/session'
 import { useAccess } from '../lib/access'
 import { GLOBAL_SEARCH_DEFAULTS } from '../routes/globalSearch'
-import { APP_HEADER_LANDMARK } from '../character/host/panelViewport'
+import { APP_HEADER_LANDMARK } from '../lib/viewport/panelViewport'
 import { SkipLink } from './SkipLink'
 
 // A11Y-05: `MobileDrawer`'s Tab trap and initial-focus target. Duplicated from
