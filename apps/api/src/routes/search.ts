@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { canonicalEnergyText, canonicalEnergyTextSql } from '@deckpal/db/energyText';
 import { cardImages, q, q1, toMajor } from '../db.js';
 import { asyncHandler, badRequest, catalogCache, clampInt, oneOf, str, strList } from '../http.js';
 import { raritySortSql } from '../rarity.js';
@@ -123,8 +124,12 @@ searchRouter.get(
     if (hp.length) where.push(`c.hp = ANY(${p(hp)}::int[])`);
     if (hpMin !== undefined) where.push(`c.hp >= ${p(hpMin)}`);
     if (hpMax !== undefined) where.push(`c.hp <= ${p(hpMax)}`);
-    if (attack) where.push(`EXISTS (SELECT 1 FROM card_attack a WHERE a.card_id = c.id AND (a.name ILIKE ${p(`%${attack}%`)} OR a.effect ILIKE $${params.length}))`);
-    if (ability) where.push(`EXISTS (SELECT 1 FROM card_ability ab WHERE ab.card_id = c.id AND (ab.name ILIKE ${p(`%${ability}%`)} OR ab.effect ILIKE $${params.length}))`);
+    // Rules text compares with Energy symbols spelled out on both sides ({R} = Fire), so a filter for
+    // "Fire Energy" also finds the printings that say "{R} Energy" (@deckpal/db/energyText). Only the
+    // EFFECT column is folded (gated, so symbol-free rows skip it); attack/Ability names never carry
+    // symbols and are compared as stored. Pinned by src/__tests__/search-energy-text.test.ts.
+    if (attack) where.push(`EXISTS (SELECT 1 FROM card_attack a WHERE a.card_id = c.id AND (a.name ILIKE ${p(`%${canonicalEnergyText(attack)}%`)} OR ${canonicalEnergyTextSql('a.effect')} ILIKE $${params.length}))`);
+    if (ability) where.push(`EXISTS (SELECT 1 FROM card_ability ab WHERE ab.card_id = c.id AND (ab.name ILIKE ${p(`%${canonicalEnergyText(ability)}%`)} OR ${canonicalEnergyTextSql('ab.effect')} ILIKE $${params.length}))`);
     if (artist.length) where.push(`c.illustrator = ANY(${p(artist)})`);
     // Accent-insensitive name match: unaccent() folds diacritics on both sides
     // so "Poke" matches "Pokémon" (é ↔ e). local_id/number_sort are ASCII.

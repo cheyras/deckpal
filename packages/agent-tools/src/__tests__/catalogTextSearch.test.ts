@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import type pg from 'pg';
 import type { Queryable } from '../db.js';
 import type { Ctx } from '../ctx.js';
-import { catalogTools } from '../tools/catalog.js';
+import { catalogTools, ruleTextSql } from '../tools/catalog.js';
 
 const searchCards = catalogTools.find((tool) => tool.name === 'search_cards')!;
 type Row = Record<string, unknown>;
@@ -67,7 +67,8 @@ test('text terms are escaped, parameterised, ANDed on one rules-text line, and c
     assert.equal(Math.max(...placeholders), call.params.length, 'SQL placeholders and bound params drifted');
   }
   assert.equal(
-    (calls[0]!.sql.match(/unaccent\(concat_ws\(' ', ca\.name, ca\.effect\)\) ILIKE/g) ?? []).length,
+    // The rules text is compared with Energy symbols spelled out (`ruleTextSql`, energyText.test.ts).
+    calls[0]!.sql.split(`${ruleTextSql('ca')} ILIKE`).length - 1,
     2,
     'both terms must apply to the same attack EXISTS',
   );

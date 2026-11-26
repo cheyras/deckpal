@@ -402,7 +402,9 @@ Vercel function. Only the way the context is built differs; no tool was rewritte
   `(Item)` — read by the same parser — untouched.
 - **Same name is not same card, and `card.playable_fingerprint` is what knows the difference.**
   A SHA-256 over name + gameplay attributes (attacks, abilities, weaknesses, resistances,
-  retreat, types) and never over print fields, so rows sharing one are the SAME CARD in
+  retreat, types) and never over print fields — rules text compared with Energy symbols
+  spelled out, so "Basic {R} Energy" and "Basic Fire Energy" printings are one card (and
+  `search_cards`' `text` filter matches either spelling) — so rows sharing one are the SAME CARD in
   different printings and may be swapped; rows sharing only a NAME may not. Of 1,409
   Standard-legal names, 897 have several printings and **218 are several different cards** —
   `Shaymin` sv08.5-087 (70 HP, $0.20) is not `Shaymin` sv10-010 (80 HP, $0.83). `search_cards`

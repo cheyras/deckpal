@@ -13,6 +13,10 @@
     "./cardText": {
       "types": "./src/cardText.ts",
       "default": "./dist/cardText.js"
+    },
+    "./energyText": {
+      "types": "./src/energyText.ts",
+      "default": "./dist/energyText.js"
     }
   },
   "scripts": {

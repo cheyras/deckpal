@@ -456,8 +456,8 @@ The 12-filter advanced search. AND across fields, OR within a multi-value field.
 | `weakness` / `resistance` | repeatable | energy type |
 | `retreat` | repeatable int | 0–5 |
 | `hp` | repeatable int (exact) | plus `hpMin` / `hpMax` range |
-| `attack` | free text | matches attack name/effect |
-| `ability` | free text | matches ability name/effect |
+| `attack` | free text | matches attack name/effect; Energy symbols and type words match each other in the effect (`Fire Energy` finds `{R} Energy` and vice versa) |
+| `ability` | free text | matches ability name/effect; Energy symbols and type words match each other in the effect (`Fire Energy` finds `{R} Energy` and vice versa) |
 | `artist` | repeatable | 413 values |
 | `q` | free text | card name or number (accent-insensitive) |
 | `legal` | `standard`\|`expanded`\|`glc`\|`unlimited` | only cards in that format's card pool: the deck validator's pool rule (legal mark, set allowance, basic Energy, or a fingerprint-identical legal reprint) run in SQL from `formats.json`. Bans and GLC's rule-box/ACE SPEC/carve-out rules are not applied. The response adds `"legal": { "format", "rule" }`, `rule` being the validator's sentence (null for `unlimited`). Anything else is `400`. |
