@@ -24,6 +24,7 @@
  * `/collection/batch` exists because of that day.
  */
 import { api } from '../../lib/api'
+import { commitIdempotencyKey } from '../../lib/commitKey'
 import type { RipEntry } from './ripSession'
 
 export type CommitResult = {
@@ -37,7 +38,10 @@ export type CommitResult = {
  * card is reported, not fatal, because the other nine cards in the pack are
  * still the reader's and still belong in their collection.
  */
-export async function commitRip(entries: RipEntry[], note?: string): Promise<CommitResult> {
+/** `attempt`: lib/commitKey.ts newCommitAttempt(), kept by the caller across a
+ *  retry of a write whose answer was lost (a fresh one per call would let that
+ *  retry write twice). */
+export async function commitRip(entries: RipEntry[], attempt: string, note?: string): Promise<CommitResult> {
   const items: { variantId: number; delta: number }[] = []
   const unresolved: { cardId: string; name: string }[] = []
 
@@ -79,7 +83,10 @@ export async function commitRip(entries: RipEntry[], note?: string): Promise<Com
     // on card id alone, a reader who added a pack, spotted that one row was set to
     // normal when they pulled the reverse holo, fixed it and committed again would
     // have the correction silently swallowed as a duplicate.
-    idempotencyKey: `rip-${items.map((i) => `${i.variantId}x${i.delta}`).sort().join(',')}`.slice(0, 200),
+    // ...and to THIS ATTEMPT (lib/commitKey.ts): the server honours a caller
+    // key forever, so a key of the contents alone answered any later rip with
+    // the same contents as a replay and wrote nothing.
+    idempotencyKey: commitIdempotencyKey('rip', attempt, items),
   })
   return { applied: res.applied, unresolved }
 }

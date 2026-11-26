@@ -34,6 +34,7 @@
 // because two rows of one card can be two different printings and there is
 // nothing to fold about those.
 import { api } from '../../lib/api'
+import { commitIdempotencyKey } from '../../lib/commitKey'
 import { foldCommitLines } from './feed'
 import type { FeedEntry } from './types'
 
@@ -45,7 +46,45 @@ export interface CommitResult {
   unresolved: { id: string; name: string }[]
 }
 
-export async function commitFeed(entries: FeedEntry[]): Promise<CommitResult> {
+/**
+ * ONE WRITE, fixed before it is sent: the folded lines, the rows they came
+ * from, and the attempt id its key is made of (lib/commitKey.ts).
+ *
+ * WHY IT IS KEPT, not rebuilt from the list on a retry (review of PR #396):
+ * if the answer to a write is lost after the server committed it and the reader
+ * edits the list before pressing Add again, a write rebuilt from the edited list
+ * hashes to a new key and the first batch is applied twice. So a write whose
+ * outcome is unknown is re-sent EXACTLY as it was, same lines, same key, until
+ * a definite answer comes back — and only its own rows leave the list.
+ */
+export interface PlannedCommit {
+  attempt: string
+  items: { variantId: number; delta: number }[]
+  /** The rows the lines were made from. */
+  rowIds: string[]
+  unresolved: { id: string; name: string }[]
+}
+
+/** Send a planned write. Safe to call again with the same plan after an
+ *  ambiguous failure: the same key makes the server replay it, never re-apply. */
+export async function writeCommit(plan: PlannedCommit): Promise<CommitResult> {
+  if (!plan.items.length) return { applied: 0, unresolved: plan.unresolved }
+  const res = await api.collectionBatch(plan.items, {
+    source: 'deckpal-web',
+    note: 'Card scan',
+    // ONE KEY PER ATTEMPT (lib/commitKey.ts says why the content alone was
+    // wrong): a re-send of this plan replays it, a fresh press of Add on the
+    // same contents is a fresh write.
+    idempotencyKey: commitIdempotencyKey('scan', plan.attempt, plan.items),
+  })
+  return { applied: res.applied, unresolved: plan.unresolved }
+}
+
+/**
+ * Resolve every row to a printing and fold the lines (no write). `attempt`:
+ * a fresh lib/commitKey.ts newCommitAttempt() per press of Add.
+ */
+export async function planCommit(entries: FeedEntry[], attempt: string): Promise<PlannedCommit> {
   const unresolved: { id: string; name: string }[] = []
   const commitable = entries.filter((e): e is FeedEntry & { cardId: string } => {
     if (e.cardId !== null) return true
@@ -86,17 +125,6 @@ export async function commitFeed(entries: FeedEntry[]): Promise<CommitResult> {
   // a card, and what makes the idempotency key below describe the same shape the
   // server fingerprints.
   const items = foldCommitLines(lines)
-
-  if (!items.length) return { applied: 0, unresolved }
-
-  const res = await api.collectionBatch(items, {
-    source: 'deckpal-web',
-    note: 'Card scan',
-    // Keyed on the RESOLVED items (variant × delta), same as ripCommit.ts:
-    // idempotent across a retry of a half-succeeded batch, and a correction
-    // made after a first commit (a printing fixed via "wrong card?" and
-    // committed again) is a genuinely different key, not swallowed as a dup.
-    idempotencyKey: `scan-${items.map((i) => `${i.variantId}x${i.delta}`).sort().join(',')}`.slice(0, 200),
-  })
-  return { applied: res.applied, unresolved }
+  const unresolvedIds = new Set(unresolved.map((u) => u.id))
+  return { attempt, items, rowIds: entries.map((e) => e.id).filter((id) => !unresolvedIds.has(id)), unresolved }
 }

@@ -12,7 +12,8 @@ import { PrimaryActionBar } from '../scan/ui/PrimaryActionBar'
 import { UploadFallback } from '../scan/ui/UploadFallback'
 import { SwipeReview } from '../scan/ui/SwipeReview'
 import { HelpModal } from '../scan/ui/HelpModal'
-import { commitFeed } from '../scan/ui/commit'
+import { planCommit, writeCommit, type PlannedCommit } from '../scan/ui/commit'
+import { isDefiniteRefusal, newCommitAttempt } from '../lib/commitKey'
 import { ocrEnabledFor, uploadScanFlag, recordCaptureEvent, recordIdentityEvent, recordLockEvent } from '../scan/ui/flags'
 import {
   EMBED_NOT_ASKED,
@@ -1610,6 +1611,15 @@ export function Scan() {
     return () => window.clearTimeout(t)
   }, [celebration])
 
+  /**
+   * A WRITE WHOSE OUTCOME IS UNKNOWN (scan/ui/commit.ts PlannedCommit): the
+   * request failed without a definite answer, so it may have been applied. The
+   * next press of Add re-sends exactly it, same lines and same key, which the
+   * server replays rather than applies twice, whatever the list holds by then.
+   * Cleared by any definite answer, so every other press of Add is a new write
+   * even when the list holds exactly what an earlier one did (lib/commitKey.ts).
+   */
+  const pendingCommitRef = useRef<PlannedCommit | null>(null)
   const doCommit = useCallback(async (acknowledgedUnresolved = false) => {
     const gate = commitGate(feedRef.current, acknowledgedUnresolved, voice.hasVerifyWarnings())
     if (!gate.proceed) {
@@ -1619,10 +1629,21 @@ export function Scan() {
     setCommitConfirm(null)
     setCommitting(true)
     try {
-      const snapshot = feedRef.current
-      const result = await commitFeed(snapshot)
-      const unresolvedIds = new Set(result.unresolved.map((u) => u.id))
-      setFeed((prev) => prev.filter((e) => unresolvedIds.has(e.id)))
+      const plan = pendingCommitRef.current ?? (await planCommit(feedRef.current, newCommitAttempt()))
+      pendingCommitRef.current = plan
+      let result
+      try {
+        result = await writeCommit(plan)
+      } catch (e) {
+        if (isDefiniteRefusal(e)) pendingCommitRef.current = null
+        throw e
+      }
+      pendingCommitRef.current = null
+      // Only the rows this write was made of leave the list: a row added (or
+      // still unresolved) since stays for the next press of Add.
+      const sent = new Set(plan.rowIds)
+      const remaining = feedRef.current.filter((e) => !sent.has(e.id))
+      setFeed((prev) => prev.filter((e) => !sent.has(e.id)))
       // THE WHOLE CACHE, not a filtered one. `FeedVariant.ownedQuantity` is a
       // reading of the collection taken before this write, and this write just
       // changed it — swipe review quotes it as "resulting total", so a stale
@@ -1640,9 +1661,15 @@ export function Scan() {
       }
       // Nothing left to review — head back to a fresh scan rather than
       // leaving the reader stranded on an empty Verify screen.
-      if (unresolvedIds.size === 0) setStep('scan')
+      if (remaining.length === 0) setStep('scan')
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : 'that did not save')
+      setNotice(
+        pendingCommitRef.current
+          ? 'Couldn’t confirm that saved. Tap Add again to retry those same cards; nothing will be added twice.'
+          : e instanceof Error
+            ? e.message
+            : 'that did not save',
+      )
     } finally {
       setCommitting(false)
     }
