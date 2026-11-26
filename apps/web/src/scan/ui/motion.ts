@@ -151,28 +151,6 @@ export function bump(el: HTMLElement, peak: number, duration: number): Promise<v
   return anim.finished.then(() => anim.cancel()).catch(() => {})
 }
 
-/**
- * FLIP a set of nodes that just moved because a sibling was inserted or
- * removed. `first` is each node's rect BEFORE the DOM mutation (captured at
- * the end of the previous run); nodes are measured again now (AFTER).
- * Transform-only, no transitions on layout properties.
- */
-export function flipReflow(entries: { el: HTMLElement; first: DOMRect }[], duration: number, easing: string) {
-  if (prefersReducedMotion()) return
-  for (const { el, first } of entries) {
-    const last = el.getBoundingClientRect()
-    const dx = first.left - last.left
-    const dy = first.top - last.top
-    if (!dx && !dy) continue
-    const anim = el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], {
-      duration,
-      easing,
-      fill: 'both',
-    })
-    anim.finished.then(() => anim.cancel()).catch(() => {})
-  }
-}
-
 /** Staggered reveal of a feed entry's inner content — opacity + translateY,
  *  ~60ms step. Ported from prototype.html's `staggerReveal`. */
 export function staggerReveal(container: HTMLElement, selector: string) {
@@ -193,10 +171,9 @@ export function staggerReveal(container: HTMLElement, selector: string) {
 // The drag itself is NEVER React state — `SwipeReview.tsx` writes `transform`
 // straight to the card's style during `pointermove` (a re-render per pixel of
 // drag is exactly the jank the "refs, not a library" rule exists to avoid).
-// These two calls are the only WAAPI this needs: relax back to centre when a
-// drag doesn't cross the decision threshold, or finish the gesture by flying
-// the card off screen (also reachable from the confirm/reject BUTTONS, which
-// call `flingOut` directly with no drag at all — same finish, same feel).
+// `springBack` relaxes the card back to centre when a drag doesn't cross the
+// decision threshold; a confirmed card leaves through SwipeReview's own
+// `LeavingCard` (see below).
 
 /** Card didn't cross the swipe threshold — ease back to (0,0), a slight
  *  overshoot (`--snap`) so it reads as physical, not merely undone. */
@@ -221,23 +198,12 @@ export function springBack(el: HTMLElement, duration = 320): Promise<void> {
     })
 }
 
-/** Send the card off in `dir` (-1 left/reject, 1 right/confirm) and resolve
- *  once it's clear of the viewport. Reduced motion: a quick fade in place —
- *  the DECISION still needs a moment to register before the next card swaps
- *  in, just not a physical throw. */
-export function flingOut(el: HTMLElement, dir: -1 | 1, viewportW: number): Promise<void> {
-  if (prefersReducedMotion()) {
-    const anim = el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 120, easing: 'ease-out', fill: 'forwards' })
-    return anim.finished.then(() => anim.cancel()).catch(() => {})
-  }
-  const dx = dir * (viewportW * 0.9 + 200)
-  const rot = dir * 24
-  const anim = el.animate(
-    [{ transform: el.style.transform || 'none', opacity: 1 }, { transform: `translate(${dx}px, -10px) rotate(${rot}deg)`, opacity: 0 }],
-    { duration: 260, easing: EASE.swift, fill: 'forwards' },
-  )
-  return anim.finished.then(() => anim.cancel()).catch(() => {})
-}
+// The fling that used to live here (`flingOut`) cancelled its own animation on
+// finish, which dropped its fill and snapped the card back to where the drag
+// had left it for a frame before React swapped the next entry in: the owner's
+// "same card comes back from the right edge" (2026-11-26). SwipeReview's
+// `LeavingCard` flies a confirmed card off on a layer of its own and removes it
+// without ever cancelling the animation.
 
 /** The entry's own open reveal: `scaleY` from the top, plus opacity. */
 export function revealEntry(el: HTMLElement): Promise<void> {

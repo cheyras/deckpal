@@ -297,3 +297,48 @@ export function foldCommitLines(lines: readonly CommitLine[]): CommitLine[] {
   }
   return [...byVariant.values()]
 }
+
+/** What one row adds to its printing, counted with the rows before it (`runningOwned`). */
+export interface RunningOwned {
+  /** Owned before this row lands: the collection's count plus every EARLIER row of the same printing. */
+  before: number
+  /** ...and after it. */
+  after: number
+  /** This row is copy `copy` of `copies` rows of the same printing in this scan. */
+  copy: number
+  copies: number
+}
+
+/**
+ * THE OWNED COUNT EACH ROW WILL LEAVE BEHIND, rows of one printing counted in
+ * scan order.
+ *
+ * `FeedVariant.ownedQuantity` is the collection's count before this session, and
+ * every row of a printing carries the same snapshot, so three Oricorio ex each
+ * said "0 -> 1" (owner session 2026-11-26), which reads as though only one of
+ * them would count. They all count (commit folds them into one +3), so the
+ * second says 1 -> 2 and the third 2 -> 3.
+ *
+ * Derived, never stored: discard a row, change its printing or its quantity, and
+ * every later row of either printing recounts. Pass the feed in SCAN order (the
+ * order `feed` is kept in), whatever order the list is showing, so a row's
+ * number does not change when the reader re-sorts. Rows without a printing yet
+ * (`variantId` null) and rows at quantity 0 add nothing and get no entry.
+ */
+export function runningOwned(rows: readonly FeedEntry[]): Map<string, RunningOwned> {
+  const out = new Map<string, RunningOwned>()
+  const copies = new Map<number, number>()
+  for (const r of rows) if (r.variantId != null && r.quantity > 0) copies.set(r.variantId, (copies.get(r.variantId) ?? 0) + 1)
+  const sofar = new Map<number, { qty: number; n: number }>()
+  for (const r of rows) {
+    if (r.variantId == null || r.quantity <= 0) continue
+    const base = r.variants.find((v) => v.variantId === r.variantId)?.ownedQuantity ?? 0
+    const s = sofar.get(r.variantId) ?? { qty: 0, n: 0 }
+    const before = base + s.qty
+    s.qty += r.quantity
+    s.n += 1
+    sofar.set(r.variantId, s)
+    out.set(r.id, { before, after: before + r.quantity, copy: s.n, copies: copies.get(r.variantId)! })
+  }
+  return out
+}

@@ -36,7 +36,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { ScanMatch } from '../../lib/api'
 import { Icon } from '../../components/Icon'
 import { feedTotals, unresolvedCount } from './feed'
-import { DURATION, EASE, flipReflow } from './motion'
+import { DURATION, EASE, prefersReducedMotion } from './motion'
 import { parseSortValue, sortValue, SORT_OPTIONS, type FeedSort } from './sort'
 import type { FeedEntry } from './types'
 import { FeedEntryCard } from './FeedEntryCard'
@@ -61,6 +61,7 @@ export function VerifyFeed({
   scrollSignal = 0,
   voicePending,
   onVoiceCancel,
+  followTop = false,
 }: {
   /** Already in the reader's chosen order — see the file header for why the
    *  sorting happens above this component rather than inside it. */
@@ -72,7 +73,12 @@ export function VerifyFeed({
    *  so this component stays ignorant of the two-step flow above it. */
   headerExtra?: ReactNode
   sort: FeedSort
-  onSortChange: (sort: FeedSort) => void
+  /** Omitted where the order is fixed (Step 1's bin, newest first while
+   *  scanning): no control is drawn. */
+  onSortChange?: (sort: FeedSort) => void
+  /** Keep the top of the list in view when a row lands there (the scanning
+   *  bin, newest first): the reader is looking at what they just scanned. */
+  followTop?: boolean
   onQuantityChange: (id: string, quantity: number) => void
   onVariantChange: (id: string, variantId: number) => void
   onCorrect: (id: string, match: ScanMatch) => void
@@ -99,20 +105,55 @@ export function VerifyFeed({
   onVoiceCancel?: (actionId: string) => void
 }) {
   const rowRefs = useRef(new Map<string, HTMLDivElement>())
-  const prevRectsRef = useRef(new Map<string, DOMRect>())
+  const scrollerRef = useRef<HTMLDivElement>(null)
+  /** Each row's LAYOUT position (`offsetTop`) at the last update. */
+  const prevTopRef = useRef(new Map<string, number>())
+  const firstIdRef = useRef<string | null>(null)
 
+  // ROWS SLIDE TO WHERE THEY NOW ARE (FLIP), measured so nothing jumps.
+  //
+  // It used to save each row's getBoundingClientRect after starting the
+  // animations, and diff the next update against that. A screen rect moves with
+  // the scroll and with any transform in flight, so a scroll, the bin opening,
+  // or a slide still running at the next update (a scan lands every few
+  // seconds) made every row leap by that offset and then slide back. `offsetTop`
+  // is the row's place in the layout: it ignores the scroll and every
+  // transform. A slide still running is carried over from where it visibly is
+  // rather than restarted.
   useLayoutEffect(() => {
-    const flipEntries: { el: HTMLElement; first: DOMRect }[] = []
+    const reduced = prefersReducedMotion()
+    const next = new Map<string, number>()
     for (const [id, el] of rowRefs.current) {
-      const first = prevRectsRef.current.get(id)
-      if (first) flipEntries.push({ el, first })
+      const last = el.offsetTop
+      next.set(id, last)
+      const first = prevTopRef.current.get(id)
+      if (first === undefined || reduced) continue
+      let carried = 0
+      const running = el.getAnimations().filter((a) => a.id === 'flip')
+      if (running.length) {
+        const t = getComputedStyle(el).transform
+        if (t && t !== 'none') carried = new DOMMatrixReadOnly(t).m42
+        for (const a of running) a.cancel()
+      }
+      const dy = first - last + carried
+      if (Math.abs(dy) < 0.5) continue
+      const anim = el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], {
+        duration: DURATION.stackReflow,
+        easing: EASE.swift,
+      })
+      anim.id = 'flip'
     }
-    flipReflow(flipEntries, DURATION.stackReflow, EASE.swift)
+    prevTopRef.current = next
 
-    const next = new Map<string, DOMRect>()
-    for (const [id, el] of rowRefs.current) next.set(id, el.getBoundingClientRect())
-    prevRectsRef.current = next
-  }, [entries])
+    // A new row at the top while the reader is at (or near) the top: keep it
+    // in view. Further down they are reading something else; leave them there.
+    const firstId = entries[0]?.id ?? null
+    const scroller = scrollerRef.current
+    if (followTop && scroller && firstId && firstId !== firstIdRef.current && scroller.scrollTop < 160) {
+      scroller.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })
+    }
+    firstIdRef.current = firstId
+  }, [entries, followTop])
 
   useEffect(() => {
     if (!scrollToId) return
@@ -137,7 +178,7 @@ export function VerifyFeed({
     // `overflow-x-hidden` is not decoration — see the file header. Without it
     // `overflow-y-auto` computes the x axis to `auto` and the list drags
     // sideways, which is the 2026-09-07 ruling's complaint verbatim.
-    <div data-verify-feed className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+    <div ref={scrollerRef} data-verify-feed className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
       {/* WRAPS. At 390 px the title, both chips, the sort control and the bin's
           expand button do not fit on one line, and the previous single
           non-wrapping row is one of the two things that was actually overflowing
@@ -166,19 +207,21 @@ export function VerifyFeed({
               header does not have. `max-w-[126px]` keeps a long option label
               from setting the control's intrinsic width — the same trap the
               printing select fell into. */}
-          <select
-            data-feed-sort
-            aria-label="Sort the list"
-            value={sortValue(sort)}
-            onChange={(ev) => onSortChange(parseSortValue(ev.target.value))}
-            className="h-[26px] max-w-[126px] shrink-0 truncate rounded-full border border-border-default bg-surface-tertiary px-[8px] text-[11px] font-bold text-text-body"
-          >
-            {SORT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+          {onSortChange && (
+            <select
+              data-feed-sort
+              aria-label="Sort the list"
+              value={sortValue(sort)}
+              onChange={(ev) => onSortChange(parseSortValue(ev.target.value))}
+              className="h-[26px] max-w-[126px] shrink-0 truncate rounded-full border border-border-default bg-surface-tertiary px-[8px] text-[11px] font-bold text-text-body"
+            >
+              {SORT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          )}
           {headerExtra}
         </div>
       </div>

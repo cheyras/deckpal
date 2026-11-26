@@ -35,7 +35,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { Icon } from '../../components/Icon'
 import { Spinner } from '../../components/ui'
-import { DURATION, EASE, flipReflow, prefersReducedMotion } from './motion'
+import { DURATION, EASE, prefersReducedMotion } from './motion'
 import type { StackItem } from './types'
 
 export function IncomingStack({
@@ -49,37 +49,49 @@ export function IncomingStack({
   onNodeRef: (id: string, el: HTMLDivElement | null) => void
 }) {
   const nodesRef = useRef(new Map<string, HTMLDivElement>())
-  const prevRectsRef = useRef(new Map<string, DOMRect>())
-  const prevIdsRef = useRef(new Set<string>())
+  /** Each slot's LAYOUT position (`offsetTop`) at the last update. */
+  const prevTopRef = useRef(new Map<string, number>())
 
+  // FLIP against LAYOUT positions, as VerifyFeed does and for the same reason:
+  // a screen rect measured after this effect started its animations held the
+  // entrance's translateX/scale, so the next update replayed part of the
+  // previous move and a thumbnail jerked ~16 px on every phase change. A slide
+  // still running is carried over from where it visibly is.
   useLayoutEffect(() => {
-    const flipEntries: { el: HTMLElement; first: DOMRect }[] = []
+    const reduced = prefersReducedMotion()
+    const next = new Map<string, number>()
     for (const [id, el] of nodesRef.current) {
-      const first = prevRectsRef.current.get(id)
-      if (first) {
-        flipEntries.push({ el, first })
-      } else if (!prevIdsRef.current.has(id) && !prefersReducedMotion()) {
-        // Brand-new slot this render — its own entrance, not a FLIP.
-        const anim = el.animate(
+      const last = el.offsetTop
+      next.set(id, last)
+      const first = prevTopRef.current.get(id)
+      if (reduced) continue
+      if (first === undefined) {
+        // Brand-new slot this render: its own entrance, not a FLIP.
+        el.animate(
           [
             { opacity: 0, transform: 'translateX(14px) scale(0.92)' },
             { opacity: 1, transform: 'none' },
           ],
           { duration: 180, easing: EASE.swift, fill: 'backwards' },
         )
-        anim.finished.then(() => anim.cancel()).catch(() => {})
+        continue
       }
+      let carried = 0
+      const running = el.getAnimations().filter((a) => a.id === 'flip')
+      if (running.length) {
+        const t = getComputedStyle(el).transform
+        if (t && t !== 'none') carried = new DOMMatrixReadOnly(t).m42
+        for (const r of running) r.cancel()
+      }
+      const dy = first - last + carried
+      if (Math.abs(dy) < 0.5) continue
+      const anim = el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], {
+        duration: DURATION.stackReflow,
+        easing: EASE.swift,
+      })
+      anim.id = 'flip'
     }
-    flipReflow(flipEntries, DURATION.stackReflow, EASE.swift)
-
-    const nextRects = new Map<string, DOMRect>()
-    const nextIds = new Set<string>()
-    for (const [id, el] of nodesRef.current) {
-      nextRects.set(id, el.getBoundingClientRect())
-      nextIds.add(id)
-    }
-    prevRectsRef.current = nextRects
-    prevIdsRef.current = nextIds
+    prevTopRef.current = next
   }, [items])
 
   return (

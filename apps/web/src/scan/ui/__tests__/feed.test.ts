@@ -32,7 +32,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
 import type { ScanMatch } from '../../../lib/api'
-import { addArrival, feedTotals, foldCommitLines, isUnresolved, resolveRow } from '../feed'
+import { addArrival, feedTotals, foldCommitLines, isUnresolved, resolveRow, runningOwned } from '../feed'
 import { initialIdentity, reduceIdentity } from '../identity'
 import type { FeedEntry } from '../types'
 
@@ -345,5 +345,40 @@ describe('folding the rows back together for the write', () => {
 
   it('folds nothing to nothing', () => {
     assert.deepEqual(foldCommitLines([]), [])
+  })
+})
+
+describe('runningOwned: copies of one printing count up in scan order (owner session 2026-11-26)', () => {
+  const v = (variantId: number, ownedQuantity: number) => ({ variantId, ownedQuantity }) as unknown as FeedEntry['variants'][number]
+  const oricorio = (id: string, over: Partial<FeedEntry> = {}) =>
+    entry({ id, cardId: 'me02-018', variantId: 501, variants: [v(501, 0), v(502, 4)], ...over })
+
+  it('three copies say 0 -> 1, 1 -> 2, 2 -> 3, not 0 -> 1 three times', () => {
+    const m = runningOwned([oricorio('a'), oricorio('b'), oricorio('c')])
+    assert.deepEqual(
+      ['a', 'b', 'c'].map((id) => [m.get(id)!.before, m.get(id)!.after, m.get(id)!.copy, m.get(id)!.copies]),
+      [
+        [0, 1, 1, 3],
+        [1, 2, 2, 3],
+        [2, 3, 3, 3],
+      ],
+    )
+  })
+
+  it('starts from what the collection already holds, and a quantity of 2 counts as 2', () => {
+    const m = runningOwned([oricorio('a', { variantId: 502, quantity: 2 }), oricorio('b', { variantId: 502 })])
+    assert.deepEqual([m.get('a')!.before, m.get('a')!.after, m.get('b')!.before, m.get('b')!.after], [4, 6, 6, 7])
+  })
+
+  it('different printings of one card count separately', () => {
+    const m = runningOwned([oricorio('a'), oricorio('b', { variantId: 502 }), oricorio('c')])
+    assert.deepEqual([m.get('a')!.after, m.get('b')!.before, m.get('c')!.before], [1, 4, 1])
+  })
+
+  it('a discarded (removed), zeroed or unprinted row drops out and the later copies count down', () => {
+    const m = runningOwned([oricorio('a', { quantity: 0 }), oricorio('b', { variantId: null }), oricorio('c')])
+    assert.equal(m.has('a'), false)
+    assert.equal(m.has('b'), false)
+    assert.deepEqual([m.get('c')!.before, m.get('c')!.copy, m.get('c')!.copies], [0, 1, 1])
   })
 })
