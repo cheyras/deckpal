@@ -120,12 +120,19 @@ function partUrl(supabaseUrl, bucket, key) {
   return `${base}/storage/v1/object/${encodeURIComponent(bucket)}/${encoded}`
 }
 
+/** The public object path for the same key: no auth header, same bytes. */
+function publicPartUrl(supabaseUrl, bucket, key) {
+  const base = supabaseUrl.replace(/\/+$/, '')
+  const encoded = key.split('/').map(encodeURIComponent).join('/')
+  return `${base}/storage/v1/object/public/${encodeURIComponent(bucket)}/${encoded}`
+}
+
 async function fetchPart(url, serviceKey) {
   let lastError
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const res = await fetch(url, {
-        headers: supabaseKeyHeaders(serviceKey),
+        headers: serviceKey ? supabaseKeyHeaders(serviceKey) : {},
         signal: AbortSignal.timeout(PART_TIMEOUT_MS),
       })
       // 404 (and Storage's 400-with-a-JSON-error for a missing key) is the
@@ -205,6 +212,24 @@ async function main() {
   const supabaseUrl = process.env.SUPABASE_URL ?? ''
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
   const bucket = process.env.CARD_ART_BUCKET ?? 'card-art'
+
+  // THE PUBLIC READ, for CI jobs that hold no storage key (2026-11-25). The
+  // catalog refresh needs this model to give new sets their image vectors
+  // (tools/embed-catalog --query-model-topup). It has the deployment's URL,
+  // which is public configuration, and no service key. `card-art` is a public
+  // bucket, so it reads the same parts through the public object path. The
+  // digest check below is unchanged and is what makes the bytes trustworthy:
+  // a public read that returned anything else fails it.
+  if (process.argv.includes('--public')) {
+    if (!supabaseUrl) throw new Error('--public needs SUPABASE_URL (GET /api/public-config reports it)')
+    log(`fetching ${OBJECT_KEY}.part* from the public ${bucket} bucket`)
+    const bytes = await readParts((i) => fetchPart(publicPartUrl(supabaseUrl, bucket, `${OBJECT_KEY}.part${i}`), ''))
+    verifyDigest(bytes)
+    await mkdir(dirname(dest), { recursive: true })
+    await writeFile(dest, bytes)
+    log(`wrote ${MODEL_DEST} (${bytes.length} bytes, sha256 verified)`)
+    return
+  }
 
   if (!supabaseUrl || !serviceKey) {
     // LOUD, and then out of the way. Four lines rather than one because the

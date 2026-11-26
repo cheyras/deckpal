@@ -68,6 +68,7 @@ interface Args {
   model: string
   python: string
   batch: number
+  queryModelTopup: boolean
 }
 
 function parseArgs(argv: string[]): Args {
@@ -83,6 +84,7 @@ function parseArgs(argv: string[]): Args {
     model: process.env.EMBED_MODEL_PATH ?? join(REPO, '.cache', 'models', `${EMBED_MODEL_ID}.onnx`),
     python: process.env.PYTHON ?? 'python',
     batch: 200,
+    queryModelTopup: false,
   }
   for (let i = 0; i < argv.length; i++) {
     const t = argv[i]
@@ -94,6 +96,7 @@ function parseArgs(argv: string[]): Args {
     else if (t === '--local-out') a.localOut = next()
     else if (t === '--model') a.model = next()
     else if (t === '--python') a.python = next()
+    else if (t === '--query-model-topup') a.queryModelTopup = true
     else if (t === '--set') {
       let peek = argv[i + 1]
       while (peek !== undefined && !peek.startsWith('--')) {
@@ -180,6 +183,15 @@ const GALLERY_MODEL_SHA256: Readonly<Record<string, string>> = {
   'deckpal-card-b32-v2': '45516f0ee7ca651df5d54d9b0b31680eebd4e619140ba9b1d84704b8230e4bf3',
 }
 
+/**
+ * sha256 of the int8 QUERY export per model id — the file production queries
+ * with. Must equal scripts/fetch-embed-model.mjs `MODEL_SHA256`; the scan test
+ * suite (fetchEmbedModel.test.ts) is what stops the two from drifting.
+ */
+const QUERY_MODEL_SHA256: Readonly<Record<string, string>> = {
+  'deckpal-card-b32-v2': '67b1068b93e4e7fea1a21b8258dd1dfe7da6242f5aff402cd566bb470801691f',
+}
+
 async function sha256File(path: string): Promise<string> {
   const h = createHash('sha256')
   for await (const chunk of createReadStream(path)) h.update(chunk as Buffer)
@@ -200,8 +212,31 @@ async function startWorker(args: Args, stamp: string) {
   // write zero-shot vectors under the fine-tuned stamp — and the scanner would
   // then match fine-tuned queries against them with the fine-tuned (looser)
   // gate. Where the expected file is known, its digest is checked first.
+  // THE TOP-UP EXCEPTION (2026-11-25). The catalog refresh runs on CI, which
+  // can fetch the shipped int8 QUERY model (scripts/fetch-embed-model.mjs, the
+  // public card-art object) but not the fp32 catalogue export, which lives only
+  // on the owner's machine. Without one of them, new sets never got vectors and
+  // the scanner could not see them. Measured on Delta Reign (141 cards): int8
+  // and fp32 gallery vectors agree at cosine >= 0.984 (mean 0.990), and the
+  // owner's 17 field crops rank the same top-1 against either, similarity
+  // within 0.021. Good enough to fill a MISSING row, not to rewrite a set, so
+  // the flag is refused with --force. An fp32 run with --force over the same
+  // sets later replaces these rows.
+  if (args.queryModelTopup) {
+    if (args.force) throw new Error('--query-model-topup only fills missing rows; it cannot be combined with --force')
+    const digest = await sha256File(args.model)
+    if (digest !== QUERY_MODEL_SHA256[EMBED_MODEL_ID]) {
+      throw new Error(
+        `${args.model} is not the shipped ${EMBED_MODEL_ID} query model (sha256 ${digest.slice(0, 12)}…). ` +
+          '--query-model-topup accepts only the int8 file scripts/fetch-embed-model.mjs fetches.',
+      )
+    }
+    console.warn(`[embed] top-up: embedding MISSING rows with the int8 query model (${digest.slice(0, 12)}…)`)
+  }
   const pinned = GALLERY_MODEL_SHA256[EMBED_MODEL_ID]
-  if (pinned) {
+  if (args.queryModelTopup) {
+    // Checked against the query model's own digest above.
+  } else if (pinned) {
     const digest = await sha256File(args.model)
     if (digest !== pinned) {
       throw new Error(

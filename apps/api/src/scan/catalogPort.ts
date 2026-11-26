@@ -7,6 +7,7 @@
  * without a database, and apart from `router.ts` so `index.ts` can run the
  * startup check without importing an express Router to get at it.
  */
+import { EMBED_MODEL_ID, embedStamp } from '@deckpal/matching';
 import { q } from '../db.js';
 import { CARD_TEXT_NORMALIZER_VERSION } from '@deckpal/db/cardText';
 import type { CatalogCard, CatalogPort } from './resolve.js';
@@ -150,6 +151,27 @@ export const pgCatalogPort: CatalogPort = {
       [[...cardIds]],
     );
     return rows.map(shape);
+  },
+
+  // The open-set guard (resolve.ts `holdForTheUnindexed`): namesakes of `card`
+  // in a set with no vector at the current stamp. A set with SOME vectors is
+  // indexed, and its unvectored cards are cards with no art anywhere, which no
+  // run can fix and which must not hold their name for ever. Called only for an
+  // answer the image decided, so it costs nothing on the printed-key paths.
+  async unindexedNamesakes(card) {
+    const rows = await q<{ n: number }>(
+      `SELECT count(*)::int AS n
+         FROM card c
+         JOIN card_set cs ON cs.id = c.set_id
+         JOIN series ser  ON ser.id = cs.series_id
+        WHERE c.lang = 'en' AND c.name = $1 AND ser.tcgdex_id <> 'tcgp'
+          AND NOT EXISTS (
+            SELECT 1 FROM card c2
+              JOIN card_embedding e ON e.card_id = c2.id AND e.quality = 'low' AND e.stamp = $2
+             WHERE c2.set_id = c.set_id)`,
+      [card.name, embedStamp(EMBED_MODEL_ID)],
+    );
+    return rows[0]?.n ?? 0;
   },
 
   // The `name+denominator` rung: the printed set size of each candidate's set.

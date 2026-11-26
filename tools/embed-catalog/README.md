@@ -73,6 +73,19 @@ node --import tsx tools/embed-catalog/embed.mts --force
 | `--model <path>` | Override the ONNX path. |
 | `--python <exe>` | Override the interpreter (`PYTHON` env var also works). |
 
+## Top-ups on CI (`--query-model-topup`)
+
+The weekly catalog refresh (`.github/workflows/catalog-refresh.yml`) embeds
+every card that has no vector yet, the day its set is imported. CI cannot reach
+the fp32 export, so it embeds with the int8 QUERY model instead
+(`scripts/fetch-embed-model.mjs --public`), and `--query-model-topup` accepts
+that file and nothing else, pinned by its sha256 (`QUERY_MODEL_SHA256`).
+
+It only fills missing rows: `--force` is refused. On Delta Reign's 141 cards the
+int8 and fp32 vectors agree at cosine 0.984–0.995, and the owner's 17 field
+crops rank the same top-1 against either (decision 2026-11-25). An fp32 run with
+`--force --set <ids>` replaces those rows whenever you want them exact.
+
 ## After a run
 
 `missing-art` in the summary is expected and should not be zero: 967 catalogue

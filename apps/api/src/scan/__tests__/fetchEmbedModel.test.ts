@@ -206,3 +206,14 @@ test('the model file stays out of git — the repo carries no binaries', () => {
       'step and its whole rationale need deleting; far more likely somebody removed the wrong line.',
   );
 });
+
+test("the embed job's query-model top-up digest is the model this script fetches", () => {
+  // tools/embed-catalog/embed.mts `--query-model-topup` fills missing catalogue
+  // rows with the int8 query model on CI. It pins that file's digest itself;
+  // a re-export that changes MODEL_SHA256 here must change it there too.
+  const embedJob = readFileSync(`${ROOT}tools/embed-catalog/embed.mts`, 'utf8');
+  const pinned = embedJob.match(/QUERY_MODEL_SHA256[^{]*\{[^}]*'([^']+)':\s*'([0-9a-f]{64})'/);
+  assert.ok(pinned, 'embed.mts no longer declares QUERY_MODEL_SHA256');
+  assert.equal(pinned[1], EMBED_MODEL_ID);
+  assert.equal(pinned[2], MODEL_SHA256);
+});

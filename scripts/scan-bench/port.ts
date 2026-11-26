@@ -31,6 +31,8 @@ function trigramSimilarity(a: string, b: string): number {
   return shared / (A.size + B.size - shared)
 }
 
+const UNINDEXED = new Set((process.env.SCAN_BENCH_UNINDEXED ?? '').split(',').filter(Boolean))
+
 export function makePort(): CatalogPort & { all: CatalogCard[]; official: Map<string, number | null> } {
   const cat = loadCatalog()
   const official = new Map(cat.sets.map((s) => [s.setId, s.printedCount]))
@@ -71,6 +73,12 @@ export function makePort(): CatalogPort & { all: CatalogCard[]; official: Map<st
     },
     async officialCounts(setIds) {
       return new Map(setIds.map((s) => [s, official.get(s) ?? null]))
+    },
+    // The open-set guard, against the sets the bench's own gallery lacks:
+    // SCAN_BENCH_UNINDEXED=me06 replays a deployment whose index never saw me06.
+    async unindexedNamesakes(card) {
+      if (!UNINDEXED.size) return 0
+      return all.filter((c) => c.name === card.name && UNINDEXED.has(c.setId)).length
     },
     async byName(probe: NameProbe) {
       const scored: { c: CatalogCard; s: number; f: string }[] = []

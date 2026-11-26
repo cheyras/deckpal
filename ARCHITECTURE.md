@@ -525,6 +525,15 @@ started, and it is removed on exit. The TCGdex API server must never be run --
 it loads all 18 languages into memory per worker (measured 6.4x JSON-to-object
 expansion) and would OOM most environments.
 
+The same job keeps the scanner's image indexes in step with the catalogue
+(2026-11-25). `pnpm --filter deckpal-api scan:topup` lists the cards missing a
+dHash or a current-stamp vector and downloads their art, the two indexers fill
+only those rows (the vectors from the int8 query model,
+`tools/embed-catalog --query-model-topup`), and `scan:topup --check` fails the
+run if a card with art is still missing one. Before this, both indexers were run
+by hand and a new set stayed invisible to the scanner's image matcher until
+someone remembered.
+
 ### Prices -- daily, and the UI must say so
 
 The TCGplayer feed comes from TCGCSV, once daily. Cardmarket is likewise daily.

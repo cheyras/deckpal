@@ -149,6 +149,53 @@ jobs:
         if: ${{ always() && !inputs.skip_import }}
         run: node scripts/catalog-job-summary.mjs >> "$GITHUB_STEP_SUMMARY"
 
+      # ── The scanner's indexes follow the catalogue ─────────────────────────
+      #
+      # The scanner finds a card by its art: a dHash (`card_image_phash`) and an
+      # image vector (`card_embedding`). Both were filled by hand, and nothing
+      # filled them for a set this job had just imported. So every new set was
+      # invisible to the scanner's image matcher until someone remembered. On
+      # 2026-11-25 that was all of Delta Reign (me06), three weeks after release,
+      # and the owner's whole field test was of me06 cards.
+      #
+      # `scan:topup` lists the cards missing either row and downloads their art.
+      # The two indexers fill only what is missing. The vector rows come from the
+      # shipped int8 query model, the one file CI can fetch (public object,
+      # sha256-pinned); tools/embed-catalog/embed.mts `--query-model-topup` says
+      # why that is close enough to the fp32 catalogue model for a missing row.
+      # `--check` then turns the job RED if any card that has art still has no
+      # row: a scanner that cannot see a set should be a failed run, not a quiet one.
+      - name: Setup Python (scanner index)
+        if: ${{ !inputs.skip_import }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Scanner index top-up
+        if: ${{ !inputs.skip_import }}
+        env:
+          IMAGE_CACHE_ROOT: ${{ runner.temp }}/scan-art
+          DECKPAL_ORIGIN: https://deckpal.app
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet onnxruntime numpy pillow
+          pnpm --filter @deckpal/matching build
+          SUPABASE_URL="$(curl -fsS "$DECKPAL_ORIGIN/api/public-config" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).supabaseUrl||""))')"
+          [ -n "$SUPABASE_URL" ] || { echo "::error::public-config reported no supabaseUrl"; exit 1; }
+          export SUPABASE_URL
+          pnpm --filter deckpal-api scan:topup --sets-out "$RUNNER_TEMP/scan-sets.txt" --art-base "$SUPABASE_URL/storage/v1/object/public/card-art"
+          sets="$(cat "$RUNNER_TEMP/scan-sets.txt")"
+          if [ -n "$sets" ]; then
+            echo "indexing: $sets"
+            # shellcheck disable=SC2086 # one argument per set id, on purpose
+            pnpm --filter deckpal-api scan:index --set $sets
+            node scripts/fetch-embed-model.mjs --public
+            # shellcheck disable=SC2086
+            node --import tsx tools/embed-catalog/embed.mts --query-model-topup --python python \
+              --model apps/api/assets/embed/deckpal-card-b32-v2.onnx --set $sets
+          fi
+          pnpm --filter deckpal-api scan:topup --check
+
       # A rename is the one success that leaves work behind: card art is addressed
       # by the set's tcgdex_id (B6), so the moment the importer re-keys a set its
       # cached images are stranded under the old address and ~30 cards per set
