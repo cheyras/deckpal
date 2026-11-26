@@ -56,6 +56,7 @@ import { gateScanResponse, judgeTie, TIE_MARGIN } from '../scan/ui/tieGate'
 import { createCapturedRegions, type CapturedRegions, type RegionTrack } from '../scan/ui/regions'
 import { createLookRearm, type LookRearm } from '../scan/ui/rearm'
 import { createCardBackHolds, decideAutoCapture } from '../scan/ui/autoCapture'
+import { createFocusGate } from '../scan/ui/focusGate'
 import { useAccess } from '../lib/access'
 import { useScannerVoice } from '../scan/voice/useScannerVoice'
 import { VoiceCaption, VoiceLiveRegion, VoicePrimer, VoiceToggle, VoiceVerifyWarning, voicePrimerSeen } from '../scan/voice/VoiceControls'
@@ -373,6 +374,8 @@ export function Scan() {
   /** Tracks whose lock showed a card back (scan/ui/autoCapture.ts): never
    *  auto-captured until their look settles clear of the back, or they depart. */
   const cardBackRef = useRef(createCardBackHolds())
+  // The focus gate (scan/ui/focusGate.ts): an auto-capture waits for a sharp tick.
+  const focusGateRef = useRef(createFocusGate())
 
   // ── THE ON-DEVICE OCR LANE (scan/ocr/**), STAGED BEHIND THE DETECTOR ──────
   //
@@ -966,6 +969,11 @@ export function Scan() {
           // low `saturation` is exactly the evidence round 3 §9.7 says nobody
           // has: a real card the 0.13 threshold refuses.
           saturation: round3(engineStateRef.current?.saturation),
+          // The lock's focus measure on the tick before the capture
+          // (scan/ui/focusGate.ts), so a blurred capture can be told from a
+          // sharp one without looking at it.
+          sharpness:
+            engineStateRef.current?.sharpness == null ? null : Math.round(engineStateRef.current.sharpness),
         },
       })
       const stackItem: StackItem = {
@@ -1314,6 +1322,7 @@ export function Scan() {
       if (!presentIds.has(id)) refractoryRef.current.delete(id)
     }
     cardBackRef.current.prune(presentIds)
+    focusGateRef.current.prune(presentIds)
     // ONCE PER DETECT TICK, and this is what makes the presence signal dense
     // enough to be the refractory's clock: every remembered capture region is
     // refreshed against what is on screen right now, and retired only when
@@ -1332,6 +1341,7 @@ export function Scan() {
       regions,
       rearm,
       cardBacks: cardBackRef.current,
+      focus: { gate: focusGateRef.current, sharpness: engineState.sharpness, now: performance.now() },
     })
     if (locked) {
       // Every lock, not just the ones that become captures — a lock the
@@ -1387,6 +1397,11 @@ export function Scan() {
         // Whether this tick let go of the track's card-back hold (its look
         // settled clear of the back). One tick per release, so throttled too.
         backReleased: verdict.backReleased,
+        // The focus gate's input and verdict (focusGate.ts): how sharp the lock
+        // was, and whether it held the capture for it. The floor was set from
+        // one session; this is how the next ones re-measure it.
+        sharpness: engineState.sharpness == null ? null : Math.round(engineState.sharpness),
+        focusWait: verdict.focusWait,
       })
     }
     if (locked && verdict.fire) {
@@ -1396,6 +1411,7 @@ export function Scan() {
     // A back is locked but never captured, so "Got it" would be a promise the
     // scanner is not going to keep.
     if (locked && verdict.cardBack) setHint('That’s the back of a card — turn it over')
+    else if (locked && verdict.focusWait) setHint('Hold still — focusing…')
     else if (locked) setHint((h) => (h.startsWith('Got it') ? h : 'Got it — hold on…'))
     else if (engineState.stable.length > 0) setHint('Hold steady…')
     // THE STANDING NEEDS-YOU LINE. Only in the idle branch — while the reader is

@@ -163,6 +163,13 @@ export interface EngineState {
    * track id and the region overlap cannot (ui/rearm.ts).
    */
   look: CardLook | null
+  /**
+   * HOW SHARP THE LOCK IS on this tick: the Laplacian variance of the luma in
+   * the middle of the locked quad, on the working image (engine/sharpness.ts),
+   * or null with no lock. The capture policy waits for a sharp tick
+   * (ui/focusGate.ts).
+   */
+  sharpness: number | null
   perf: { detectMs: number; hz: number; jitterPx: number }
 }
 

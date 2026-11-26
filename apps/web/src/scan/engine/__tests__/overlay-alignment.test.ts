@@ -139,6 +139,7 @@ function stateFor(stream: { width: number; height: number }, quads: Quad[]): Eng
     locked: null,
     saturation: 0.3,
     look: null,
+    sharpness: null,
     perf: { detectMs: 30, hz: 7.5, jitterPx: 1 },
   } as unknown as EngineState
 }
