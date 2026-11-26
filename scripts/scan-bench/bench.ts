@@ -38,6 +38,7 @@ import type { ScanResolveResponse, ScanResponse } from '../../apps/web/src/lib/a
 import type { OcrRead } from '../../apps/web/src/scan/ocr/pipeline.js'
 import { identityOutcome, initialIdentity, reduceIdentity, type IdentityState } from '../../apps/web/src/scan/ui/identity.js'
 import { toResolveBody } from '../../apps/web/src/scan/ui/resolveFields.js'
+import { EMBED_K } from '../../apps/web/src/scan/ui/vectorEvidence.js'
 import { EMBED_MODEL_ID } from '../../packages/matching/src/input-spec.js'
 import { CONFIDENT_MAX } from './constants.js'
 import { assertMirror, BENCH_DIR, listDatasets, loadCatalog, loadDataset, type BenchRow } from './data.js'
@@ -85,7 +86,7 @@ const LABEL = arg(
 )!
 const OUT = arg('out', path.join(BENCH_DIR, 'runs'))!
 const DATASETS = arg('datasets')?.split(',') ?? listDatasets()
-const VECTOR_K = 5 // api.ts embedCard asks k=5
+const VECTOR_K = Number(arg('vector-k', String(EMBED_K))) // what the device asks for (vectorEvidence.ts EMBED_K)
 // The dHash distance at or under which the priors may VETO a printed key
 // (`priorsContradict`). Production passes router.ts CONFIDENT_MAX.
 const PHASH_VETO = Number(arg('phash-veto', String(CONFIDENT_MAX)))

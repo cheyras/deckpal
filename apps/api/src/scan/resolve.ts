@@ -489,6 +489,13 @@ function stripOptionalSuffix(normalized: string): string {
   return normalized.replace(OPTIONAL_SUFFIX, '').trim();
 }
 
+/** `latiasex` -> `latias`: an `ex`/`gx` glued onto a stem of 3+ letters, as OCR
+ *  reads the stylised suffix with no space. Unchanged when there is none. */
+function stripGluedSuffix(normalized: string): string {
+  const m = /^(.*[a-z]{3})(?:ex|gx)$/u.exec(normalized);
+  return m ? m[1]! : normalized;
+}
+
 /**
  * How well a read name matches a catalogue name. Lower is better; null is no
  * match. Tiers, not a score, for the same reason the ladder is a ladder.
@@ -514,6 +521,14 @@ export function nameTier(read: string, candidateName: string): 0 | 1 | 2 | null 
   const rs = stripOptionalSuffix(r);
   const cs = stripOptionalSuffix(c);
   if (rs !== '' && cs !== '' && rs === cs) return 1;
+  // THE SUFFIX READ GLUED ON: `Latiasex`, `Mewtwogx`. The rule-box suffix is
+  // printed in a stylised face right against the name, and OCR regularly reads
+  // it with no space (owner session 2026-11-26: "Latiasex" matched no Latias at
+  // all, and the capture went to the picker without the card in it). Only on a
+  // read that matched nothing exactly above, so a real name ending in those
+  // letters is still tier 0 to itself.
+  const glued = stripGluedSuffix(rs);
+  if (glued !== rs && cs !== '' && glued === cs) return 1;
 
   const budget = cs.length >= 8 ? 2 : cs.length >= 5 ? 1 : 0;
   if (budget > 0 && levenshtein(rs, cs, budget) <= budget) return 2;
@@ -655,6 +670,26 @@ export function ownerPrefixed(read: string, candidateName: string): boolean {
   const r = stripOptionalSuffix(normalizeCardName(read));
   const c = stripOptionalSuffix(normalizeCardName(candidateName));
   return r.length > 0 && c.length > r.length && c.endsWith(r) && /'s $/.test(c.slice(0, c.length - r.length));
+}
+
+/**
+ * `narrowByName` for the name-family rung, with one widening: a read with NO
+ * rule-box suffix keeps the suffixed cards of its name too (tier 1 beside tier
+ * 0). OCR drops the stylised `ex`/`V`/`GX` far more often than it invents one:
+ * owner session 2026-11-26 read Oricorio ex (me02-018) as "Oricorio", tier 0
+ * matched the 17 plain Oricorio and dropped all three Oricorio ex, and the
+ * capture went to the picker without its card. A read that DOES carry a suffix
+ * is not widened: an `ex` OCR read is evidence. Only here, where nothing is
+ * named without the vector's corroboration (`familyDone`); the number rungs
+ * keep the strict best tier.
+ */
+export function narrowByNameFamily(cands: readonly CatalogCard[], read: string): CatalogCard[] {
+  const best = narrowByName(cands, read);
+  if (!best.length || nameTier(read, best[0]!.name) !== 0) return best;
+  const r = normalizeCardName(read);
+  if (stripOptionalSuffix(r) !== r) return best;
+  const seen = new Set(best.map((c) => c.cardId));
+  return [...best, ...cands.filter((c) => !seen.has(c.cardId) && nameTier(read, c.name) === 1)];
 }
 
 /** Keep only the candidates matching `read` at the best tier any of them reach. */
@@ -1085,7 +1120,7 @@ export async function resolveCard(
   // the post-climb reviews; it returns nothing for a port without `byName` or
   // a read shorter than `MIN_NAME_PROBE`, and the rung then declines.)
   if (nameRead) {
-    const narrowed = narrowByName(await lookupName(), nameRead);
+    const narrowed = narrowByNameFamily(await lookupName(), nameRead);
     if (narrowed.length > 0) {
       // Every survivor is at the same tier — that is `narrowByName`'s
       // contract — so any of them reports it.

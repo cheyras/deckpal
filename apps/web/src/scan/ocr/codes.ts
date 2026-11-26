@@ -66,6 +66,10 @@ export const PRINTED_SETS: readonly PrintedSet[] = [
   { code: 'POR', denominator: 88, setId: 'me03' },
   { code: 'CRI', denominator: 86, setId: 'me04' },
   { code: 'PBL', denominator: 84, setId: 'me05' },
+  // Not in CROSSWALK §2.5 (it predates the set): read off the owner's own
+  // cards on 2026-11-25 as `DLR044/103` and `DLREN 045/103`, which matched no
+  // row, so every Delta Reign badge was thrown away.
+  { code: 'DLR', denominator: 103, setId: 'me06' },
 ]
 
 /** code → printed denominator (null for the four that print none). */

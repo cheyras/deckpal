@@ -58,6 +58,8 @@
     { "code": "CRI", "setId": "me04", "denominator": 86, "max": 122, "kind": "main", "verified": true,
       "note": "Shares /86 with WHT and BLK; 1 edit from DRI, which /182 separates." },
     { "code": "PBL", "setId": "me05", "denominator": 84, "max": 120, "kind": "main", "verified": true,
-      "note": "The only set in the catalogue with 84 official cards, so 039/084 resolves to exactly one card (me05-039, Dhelmise) with no badge at all." }
+      "note": "The only set in the catalogue with 84 official cards, so 039/084 resolves to exactly one card (me05-039, Dhelmise) with no badge at all." },
+    { "code": "DLR", "setId": "me06", "denominator": 103, "max": 141, "kind": "main", "verified": true,
+      "note": "Delta Reign. Added 2026-11-26: the owner's own cards read DLR044/103 and DLREN 045/103 on 2026-11-25, which matched no row; 103 official cards, 141 in the catalogue." }
   ]
 }

@@ -61,10 +61,17 @@ import { TimeoutError, withTimeout } from './deadline'
  */
 export const EMBED_TIMEOUT_MS = 8_000
 
-/** How many candidates to ask for. Five, the same k the phash identify uses and
- *  the same k round 10 drove — `fuse.ts` reads the top few and the ladder's
- *  corroboration rule never looks past them. */
-export const EMBED_K = 5
+/**
+ * How many candidates to ask for: 25, the endpoint's ceiling. It was 5, the k
+ * the phash identify uses, and `fuse.ts`'s decisive/separated rules still read
+ * only the top two, so this changes no confidence. What it changes is the ORDER
+ * of a name family the reader is shown: `rank` (resolve.ts) orders candidates
+ * by vector similarity first, and with 5 neighbours from the whole catalogue a
+ * printing of the read name was usually not among them, so the family fell
+ * back to phash and then set id. With 25 the image orders the printings of the
+ * name it read (owner session 2026-11-26).
+ */
+export const EMBED_K = 25
 
 /** The endpoint accepts at most 50 `vectorMatches` and rejects the body with a
  *  400 above that. We ask for 5; this is the guard for the day something asks

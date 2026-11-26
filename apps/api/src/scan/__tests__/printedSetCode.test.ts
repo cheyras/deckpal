@@ -35,12 +35,12 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 
 // ── The file itself ─────────────────────────────────────────────────────────
 
-test('the table holds exactly the 29 printed-era sets', () => {
+test('the table holds exactly the 30 printed-era sets (29 from CROSSWALK, DLR since)', () => {
   // CROSSWALK §2.5. Not a magic number: English cards began printing a text set
   // code with Scarlet & Violet on 2023-03-31, and 29 sets have shipped since.
   // It grows by roughly four rows a year, so a change here should be a
   // deliberate, reviewed line and never a merge artefact.
-  assert.equal(printedSetCodes().length, 29);
+  assert.equal(printedSetCodes().length, 30);
 });
 
 test('no duplicate code and no duplicate set id', () => {
@@ -114,7 +114,13 @@ test('migration 048 seeds prints_set_code for exactly the sets in the file', () 
   );
   const block = /cs\.tcgdex_id IN \(([\s\S]*?)\);/.exec(sql);
   assert.ok(block, '048 no longer has a prints_set_code seed list in the shape this test reads');
-  const seeded = [...block[1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]!).sort();
+  // ...plus every later migration that sets it for a set added since (091: me06).
+  const later = ['091_me06_prints_set_code.sql'].map((f) =>
+    readFileSync(join(HERE, '..', '..', '..', '..', '..', 'packages', 'db', 'src', 'migrations', f), 'utf8'),
+  );
+  const seeded = [block[1]!, ...later.map((s) => /cs\.tcgdex_id IN \(([\s\S]*?)\);/.exec(s)![1]!)]
+    .flatMap((b) => [...b.matchAll(/'([^']+)'/g)].map((m) => m[1]!))
+    .sort();
   const fromFile = printedSetCodes().map((c) => c.setId).sort();
   assert.deepEqual(seeded, fromFile);
 });
