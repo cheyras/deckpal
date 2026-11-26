@@ -45,6 +45,16 @@ export interface OcrFields {
   /** A code from the closed 29-set vocabulary, cross-checked against the
    *  denominator. Null unless both gates pass. */
   setCode: string | null
+  /**
+   * The badge AS READ, when this side could not resolve it but did read a
+   * number and denominator beside it: the letters left of the number (`PL` off
+   * `PL018/094`). Sent to the server as `setCode`, whose matcher scans windows
+   * one glyph longer or shorter than a code (printedSetCode.ts) and rejects on
+   * the denominator; this side's window is exactly the code's length, so a
+   * badge that lost a glyph (`PFL` read `PL`, 2026-11-25) was thrown away.
+   * Absent otherwise.
+   */
+  badgeText?: string
 }
 
 // ─────────────────────────────────────────────────────────────── distances ──
@@ -455,6 +465,9 @@ export function extractFields(reads: readonly RoiRead[]): OcrFields {
     candidates.push(badgeSource)
   }
   const setCode = resolveSetCode(candidates, denominator)
+  const before = candidates.length > 1 ? candidates[0]! : null
+  const badgeLetters = before ? before.toUpperCase().replace(/[^A-Z]/g, '') : ''
+  const badgeText = !setCode && number && denominator && badgeLetters.length >= 2 ? badgeLetters.slice(0, 8) : undefined
 
   // ── the name: most letters left after the furniture, never the topmost ────
   let name: string | null = null
@@ -469,5 +482,5 @@ export function extractFields(reads: readonly RoiRead[]): OcrFields {
     }
   }
 
-  return { name, number, denominator, setCode }
+  return badgeText ? { name, number, denominator, setCode, badgeText } : { name, number, denominator, setCode }
 }

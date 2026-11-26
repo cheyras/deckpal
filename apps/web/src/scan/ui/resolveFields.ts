@@ -37,6 +37,10 @@ export function toResolveFields(read: OcrRead): ScanResolveFields {
   // that — a window scan over `DRI` finds `DRI` at distance 0 — and it means the
   // client's own telemetry and the server's agree on one value instead of two.
   if (read.setCode) fields.setCode = read.setCode
+  // ...and when this side could not resolve the badge but read a number pair
+  // beside it, the badge as read (fields.ts `badgeText`): the server's matcher
+  // is the wider one, and the denominator it also receives is its veto.
+  else if (read.badgeText && read.denominator) fields.setCode = read.badgeText
   // THE ESCALATION RUNG (2026-09-06 ruling). `pipeline.readFields` only attaches
   // these when the full-crop pass ran AND still produced no name and no number,
   // so this and the four fields above are mutually exclusive in practice. The

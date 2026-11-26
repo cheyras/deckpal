@@ -20,6 +20,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
+import { toResolveFields } from '../../ui/resolveFields'
 import {
   cleanNameLine,
   eliminatedByDenominator,
@@ -738,10 +739,10 @@ describe('the corner confirmation — two scales must agree', () => {
 })
 
 describe('the 29-code table — CROSSWALK §2.5', () => {
-  it('has 29 rows, with no duplicate code and no duplicate set id', () => {
-    assert.equal(PRINTED_SETS.length, 29)
-    assert.equal(new Set(PRINTED_SETS.map((s) => s.code)).size, 29)
-    assert.equal(new Set(PRINTED_SETS.map((s) => s.setId)).size, 29)
+  it('has 30 rows (29 from CROSSWALK, DLR since), with no duplicate code and no duplicate set id', () => {
+    assert.equal(PRINTED_SETS.length, 30)
+    assert.equal(new Set(PRINTED_SETS.map((s) => s.code)).size, 30)
+    assert.equal(new Set(PRINTED_SETS.map((s) => s.setId)).size, 30)
   })
 
   it('carries null for exactly the four sets that print no denominator', () => {
@@ -768,5 +769,26 @@ describe('levenshtein', () => {
     assert.equal(levenshtein('', 'DRI'), 3)
     assert.equal(levenshtein('DRI', ''), 3)
     assert.equal(levenshtein('PAF', 'PAL'), 1)
+  })
+})
+
+describe('a badge this side cannot resolve still goes to the server (2026-11-25: PFL read "PL")', () => {
+  it('keeps the letters left of a read number pair as badgeText, and sends them as setCode', () => {
+    const got = extractFields([
+      { roi: 'name', lines: ['Oricorio ex'] },
+      { roi: 'strip', lines: ['PL018/094'] },
+    ])
+    assert.equal(got.setCode, null)
+    assert.equal(got.badgeText, 'PL')
+    const wire = toResolveFields({ ...got, ms: 0, pass: 'roi' })
+    assert.equal(wire.setCode, 'PL', 'the server matcher scans len±1 windows and vetoes on the denominator')
+    assert.equal(wire.denominator, '094')
+  })
+  it('sends nothing for a badge with no number pair beside it, or a single stray glyph', () => {
+    assert.equal(extractFields([{ roi: 'strip', lines: ['PL'] }]).badgeText, undefined)
+    assert.equal(extractFields([{ roi: 'strip', lines: ['R059/182'] }]).badgeText, undefined)
+  })
+  it('reads Delta Reign (DLR, /103), which the table did not know', () => {
+    assert.equal(extractFields([{ roi: 'strip', lines: ['DLR044/103'] }]).setCode, 'DLR')
   })
 })

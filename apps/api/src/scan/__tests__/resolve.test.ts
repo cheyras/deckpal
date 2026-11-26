@@ -22,6 +22,7 @@ import {
   MIN_NAME_PROBE,
   nameTier,
   narrowByName,
+  narrowByNameFamily,
   normalizeCardName,
   parseNumber,
   planNameProbe,
@@ -792,4 +793,40 @@ test('a match carries an identity and never a printing', async () => {
 
 test('the answer is capped at the same ceiling POST /scan uses', () => {
   assert.equal(MAX_MATCHES, 25);
+});
+
+// ── Owner session 2026-11-26: names OCR reads with the rule-box suffix glued on or dropped ──
+
+const fam = (cardId: string, name: string): CatalogCard => ({
+  cardId,
+  name,
+  number: cardId.split('-')[1]!,
+  numberNumeric: Number.parseInt(cardId.split('-')[1]!, 10),
+  setId: cardId.split('-')[0]!,
+  setName: '',
+  seriesId: 'sv',
+  rarity: null,
+});
+
+test('a suffix read glued to the name ("Latiasex") still reaches the name, at tier 1', () => {
+  assert.equal(nameTier('Latiasex', 'Latias ex'), 1);
+  assert.equal(nameTier('Latiasex', 'Latias'), 1);
+  assert.equal(nameTier('MewtwoGX', 'Mewtwo-GX'), 1);
+  // Not a licence to strip any two letters: a name only reaches itself or its suffixed kin.
+  assert.equal(nameTier('Latiasex', 'Latios'), null);
+});
+
+test('the name-family rung keeps the suffixed cards of an unsuffixed read (Oricorio -> Oricorio ex)', () => {
+  const cands = [fam('sm2-55', 'Oricorio'), fam('sm7-30', 'Oricorio'), fam('me02-018', 'Oricorio ex')];
+  assert.deepEqual(narrowByName(cands, 'Oricorio').map((c) => c.cardId), ['sm2-55', 'sm7-30'], 'the strict rung, unchanged');
+  assert.deepEqual(
+    narrowByNameFamily(cands, 'Oricorio').map((c) => c.cardId),
+    ['sm2-55', 'sm7-30', 'me02-018'],
+    'OCR drops the stylised ex far more often than it invents one',
+  );
+  assert.deepEqual(
+    narrowByNameFamily(cands, 'Oricorio ex').map((c) => c.cardId),
+    ['me02-018'],
+    'an ex that WAS read is evidence, not widened',
+  );
 });
