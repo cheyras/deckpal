@@ -19,6 +19,7 @@ import { useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { queuedPhotoBlob, type QueuedPhoto } from './queueDb'
 import { AuthThumb } from './AuthThumb'
+import { REASON_BY_VALUE, type QuadSuggestion } from './types'
 
 function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`
@@ -37,8 +38,12 @@ export function QueueStage({
   onRemove,
   onClear,
   onAddFiles,
+  suggestions = {},
 }: {
   items: QueuedPhoto[]
+  /** Labelling suggestions by photo id (types.ts `QuadSuggestion`). A chip only:
+   *  a suggested photo is still waiting, exactly like any other. */
+  suggestions?: Record<string, QuadSuggestion>
   usage: { bytes: number; localBytes: number; quota: number | null } | null
   /** The id currently being loaded into the editor — disables the row so a
    *  double tap cannot start two. */
@@ -183,6 +188,14 @@ export function QueueStage({
                         {it.failureReason ? 'needs action' : 'local'}
                       </span>
                     )}
+                    {suggestions[String(it.id)] && !it.pending && (
+                      <span
+                        className="pointer-events-none absolute bottom-[4px] left-[4px] rounded bg-fuchsia-500/25 px-[5px] py-[1px] text-[9px] font-bold text-fuchsia-200"
+                        title="A suggested label is ready: open it to agree or adjust. Nothing is saved until you do."
+                      >
+                        {suggestionChip(suggestions[String(it.id)]!)}
+                      </span>
+                    )}
                     {busy === it.id && (
                       <span className="absolute inset-0 flex items-center justify-center bg-black/60">
                         <span className="h-[20px] w-[20px] animate-spin rounded-full border-2 border-white/20 border-t-cyan-300" />
@@ -246,4 +259,10 @@ function AddFilesButton({ onAddFiles, compact = false }: { onAddFiles: (files: F
       />
     </label>
   )
+}
+
+/** The tile's one-line summary of a suggestion. */
+export function suggestionChip(s: QuadSuggestion): string {
+  if (s.verdict === 'reject') return `skip: ${s.invalidReason ? REASON_BY_VALUE[s.invalidReason].label.toLowerCase() : 'rejected'}`
+  return s.verdict === 'back' ? 'card back' : 'card'
 }

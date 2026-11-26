@@ -32,7 +32,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import type { Quad } from '../engine/contract'
-import { ApiError } from '../../lib/api'
+import { ApiError, api } from '../../lib/api'
 import { decodeQueueImage } from './heic'
 import { CaptureStage } from './CaptureStage'
 import { CropStage } from './CropStage'
@@ -61,9 +61,11 @@ import {
   type InvalidReason,
   type LabelSource,
   type QuadLabel,
+  type QuadSuggestion,
   type SessionStats,
 } from './types'
-import { buildWorkingFrame, isPadded, type WorkingFrame } from './workingFrame'
+import { suggestionRecord } from './suggestion'
+import { buildWorkingFrame, clampCropAllowingPad, isPadded, type WorkingFrame } from './workingFrame'
 import type { SquareCrop } from '../engine/frame'
 import type { SweepVerdict } from './sweep'
 
@@ -181,6 +183,12 @@ export function QuadLabeler() {
   const [frameKey, setFrameKey] = useState(0)
   const [source, setSource] = useState<LabelSource>('camera')
   const [seed, setSeed] = useState<SeedResult | null>(null)
+  // ── labelling SUGGESTIONS (types.ts QuadSuggestion, 2026-11-26) ──────────
+  // By queued-photo id. A suggestion opens its photo straight in the editor
+  // with its crop and corners, and Agree saves it. It never marks a photo
+  // done: only a saved label does that, exactly as before.
+  const [suggestions, setSuggestions] = useState<Record<string, QuadSuggestion>>({})
+  const [activeSuggestion, setActiveSuggestion] = useState<QuadSuggestion | null>(null)
   const [saving, setSaving] = useState(false)
   // THE DOUBLE-POST GUARD, and it is a REF rather than the `saving` state above
   // for the reason double-taps exist at all: `setSaving(true)` does not take
@@ -240,21 +248,34 @@ export function QuadLabeler() {
     warmSeed()
   }, [])
 
-  const beginEditing = useCallback((frame: WorkingFrame, from: LabelSource, verdict: SweepVerdict | null = null) => {
-    setSweep(verdict)
-    frameSeq.current += 1
-    setFrameKey(frameSeq.current)
-    setWorkingFrame(frame)
-    setSource(from)
-    setSeed(null)
-    setEditing(true)
-    void seedQuad(frame.canonical).then(setSeed)
-  }, [])
+  const beginEditing = useCallback(
+    (frame: WorkingFrame, from: LabelSource, verdict: SweepVerdict | null = null, suggestion: QuadSuggestion | null = null) => {
+      setSweep(verdict)
+      frameSeq.current += 1
+      setFrameKey(frameSeq.current)
+      setWorkingFrame(frame)
+      setSource(from)
+      setSeed(null)
+      setActiveSuggestion(suggestion)
+      setEditing(true)
+      // The detector still runs, so the row keeps its pipeline provenance; a
+      // suggestion with corners only replaces the corners it would have seeded.
+      void seedQuad(frame.canonical).then((detected) =>
+        setSeed(
+          suggestion?.corners
+            ? { ...detected, corners: suggestion.corners, topLeftIndex: suggestion.topLeftIndex ?? 0, seededFrom: 'agent' }
+            : detected,
+        ),
+      )
+    },
+    [],
+  )
 
   const reset = useCallback(() => {
     setEditing(false)
     setWorkingFrame(null)
     setSeed(null)
+    setActiveSuggestion(null)
     // A half-made crop decision must not survive into the next photo — it would
     // show the previous image's square over a new one.
     setPendingCrop(null)
@@ -267,6 +288,12 @@ export function QuadLabeler() {
    *  the two drift. */
   const refreshQueue = useCallback(async () => {
     if (!queueSupported()) return
+    // Best effort and in parallel: a deployment without the route, or a read
+    // that fails, just means no suggestions, never a queue that will not load.
+    void api
+      .scanQueueSuggestions()
+      .then((r) => setSuggestions(r.suggestions ?? {}))
+      .catch(() => {})
     try {
       const items = await listQueue()
       const usage = await queueUsage(items)
@@ -370,7 +397,15 @@ export function QuadLabeler() {
         const blob = await queuedPhotoBlob(item.id, undefined, item)
         const src = await decodeQueueImage(blob, item.name)
         workingId.current = item.id
-        setPendingCrop({ image: src, width: src.width, height: src.height, source: item.source })
+        const suggestion = suggestions[String(item.id)] ?? null
+        if (suggestion) {
+          // Straight to the editor on the suggested square; the crop stage is
+          // what a suggestion saves the reader from.
+          const crop = suggestion.crop ? clampCropAllowingPad(suggestion.crop, src.width, src.height) : undefined
+          beginEditing(buildWorkingFrame(src, src.width, src.height, crop), item.source, null, suggestion)
+        } else {
+          setPendingCrop({ image: src, width: src.width, height: src.height, source: item.source })
+        }
       } catch (e) {
         if (e instanceof ApiError && e.status === 404) {
           setQueueItems((items) => items.filter((photo) => photo.id !== item.id))
@@ -383,7 +418,7 @@ export function QuadLabeler() {
         setOpeningId(null)
       }
     },
-    [],
+    [suggestions, beginEditing],
   )
 
   const discardQueued = useCallback(
@@ -624,18 +659,20 @@ export function QuadLabeler() {
     (corners: Quad, topLeftIndex: TopLeftIndex, face: CardFace) => {
       const base = labelBase()
       if (!base || !seed) return
-      void doSave({ ...base, corners, topLeftIndex, seededTopLeftIndex: seed.topLeftIndex, face })
+      const suggestion = suggestionRecord(activeSuggestion, { corners, topLeftIndex, face })
+      void doSave({ ...base, corners, topLeftIndex, seededTopLeftIndex: seed.topLeftIndex, face, ...(suggestion ? { suggestion } : {}) })
     },
-    [labelBase, doSave, seed],
+    [labelBase, doSave, seed, activeSuggestion],
   )
 
   const saveInvalid = useCallback(
     (reason: InvalidReason) => {
       const base = labelBase()
       if (!base) return
-      void doSave({ ...base, corners: null, invalidReason: reason })
+      const suggestion = suggestionRecord(activeSuggestion, { invalidReason: reason })
+      void doSave({ ...base, corners: null, invalidReason: reason, ...(suggestion ? { suggestion } : {}) })
     },
-    [labelBase, doSave],
+    [labelBase, doSave, activeSuggestion],
   )
 
   const negatives = (Object.keys(stats.negativeByReason) as InvalidReason[]).filter(
@@ -823,6 +860,7 @@ export function QuadLabeler() {
 
       {entryMode === 'queue' && !editing && !pendingCrop && (
         <QueueStage
+          suggestions={suggestions}
           items={queueItems}
           usage={queueUsageInfo}
           busy={openingId}
@@ -864,6 +902,7 @@ export function QuadLabeler() {
             onSaveLabel={savePositive}
             onInvalid={saveInvalid}
             onDiscard={advance}
+            suggestion={activeSuggestion}
           />
         ) : (
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-[10px] text-white/60">

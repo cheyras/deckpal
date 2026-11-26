@@ -2042,6 +2042,10 @@ export const api = {
       '/dev/scan-queue',
       signal,
     ),
+  /** Labelling suggestions for queued photos, keyed by photo id
+   *  (apps/api/src/dev/queueSuggestions.ts). A suggestion is never a label. */
+  scanQueueSuggestions: (signal?: AbortSignal) =>
+    get<{ suggestions: Record<string, import('../scan/labeler/types').QuadSuggestion> }>('/dev/scan-queue/suggestions', signal),
   /** Move a batch of captures written before 2026-09-28 out of the public
    *  bucket into the private one, and say how many are left. Driven by
    *  `scan/labeler/captureMigration.ts`; see the route for the guarantees. */

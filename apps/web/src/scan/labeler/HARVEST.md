@@ -268,3 +268,26 @@ the normal case.
 Like `not_a_card` before them, they start here. A harvest must not back-fill
 them from older rows — a labeler without the button cannot have meant it, and
 `LEGACY_REASON_MAP` can only ever produce the three names it knows.
+
+---
+
+## Suggested labels (2026-11-26): `seededFrom: 'agent'` and `suggestion`
+
+Queued photos can carry a **suggestion**: an agent's good-faith guess at the
+label (`scripts/label-assist`, stored by `PUT /dev/scan-queue/suggestions`).
+A suggestion is not a label and never reaches `/dev/scan-flags`. A row only
+exists once the reader saves it in the labeler.
+
+A row reviewed from a suggestion says so:
+
+| field | meaning |
+|---|---|
+| `seededFrom: 'agent'` | the editor opened on the suggestion's corners, not the detector's |
+| `suggestion.verdict` / `invalidReason` / `confidence` / `by` | what was suggested |
+| `suggestion.agreed` | the reader saved it unchanged: same verdict and reason, corners within half a canonical px, same top-left |
+
+**Do not treat `agreed: true` rows as independent of the agent.** They are the
+owner's confirmation of an agent's answer. That is good ground truth, but the
+owner may confirm a near miss. A harvest measuring the detector against human
+quads can weight them or hold them out. Rows with `suggestion` absent were
+labelled from scratch or from the detector, exactly as before.

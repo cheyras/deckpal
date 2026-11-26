@@ -7,6 +7,7 @@ import { labelerOnlyInProduction } from '../ownerGate.js';
 import { cleanupRepairedOriginal, discardQueuePhoto, enqueueQueuePhoto, listQueuePhotos, originalId as queueFamilyId, readQueuePhoto, repairQueuePhoto, validQueuePhotoId, type QueueStore } from './queueRepair.js';
 import { createQueueLocker } from './queueLock.js';
 import { createCaptureQueueStore } from './captureQueueStore.js';
+import { readSuggestions, writeSuggestions } from './queueSuggestions.js';
 
 /**
  * The labeler's pending-photo queue — POST/GET/DELETE /dev/scan-queue.
@@ -198,6 +199,37 @@ scanQueueRouter.get(
     const photos = (await listQueuePhotos(queueStore())).map(({ id, size, meta }) => ({ id, size, ...meta }));
     photos.sort((a, b) => Date.parse(a.addedAt) - Date.parse(b.addedAt) || a.id - b.id);
     res.json({ photos });
+  }),
+);
+
+// ── GET/PUT /suggestions — labelling suggestions beside the queue ──────────
+// Registered ahead of `/:file` and `/:id`. A suggestion is never a label and
+// never moves a photo out of the queue: queueSuggestions.ts says why.
+scanQueueRouter.get(
+  '/suggestions',
+  asyncHandler(async (_req, res) => {
+    if (!hasStorageEnv()) {
+      res.json({ suggestions: {} });
+      return;
+    }
+    userCache(res);
+    res.json({ suggestions: await readSuggestions(captureStore()) });
+  }),
+);
+
+scanQueueRouter.put(
+  '/suggestions',
+  asyncHandler(async (req, res) => {
+    if (!hasStorageEnv()) throw new ApiError(501, 'storage_unavailable', 'No object store configured.');
+    const body = (req.body ?? {}) as { suggestions?: unknown };
+    if (!body.suggestions || typeof body.suggestions !== 'object' || Array.isArray(body.suggestions)) {
+      throw badRequest('suggestions (an object keyed by queue photo id) is required');
+    }
+    const entries = Object.keys(body.suggestions as object).length;
+    if (entries > 2000) throw badRequest('at most 2000 suggestions per request');
+    // One writer at a time: the store is one object, read, merged and rewritten.
+    const result = await queueLocked(0, () => writeSuggestions(captureStore(), body.suggestions as Record<string, unknown>));
+    res.json({ ok: true, ...result });
   }),
 );
 
