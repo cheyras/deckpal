@@ -108,7 +108,7 @@ rules:
 | reticle, canonical square | `engine/frame.ts` `reticleForAspect`, `squareCrop`, `modelPointsToCanonicalQuad`, `canonicalQuadToCrop` |
 | duplicate regions | `scan/ui/regions.ts` `createCapturedRegions` |
 | a card's look, the look re-arm | `engine/look.ts` `cardLook`, `captureLook`; `scan/ui/rearm.ts` `createLookRearm` |
-| the fire decision, the card-back gate | `scan/ui/autoCapture.ts` `decideAutoCapture`; `engine/cardBack.ts` `isCardBackLook` |
+| the fire decision, the card-back gate and holds | `scan/ui/autoCapture.ts` `decideAutoCapture`, `createCardBackHolds`; `engine/cardBack.ts` `isCardBackLook`, `cardBackDistance` |
 | rectification | `engine/rectify.ts` `expandQuad(CAPTURE_MARGIN)` + `rectifyImageData` at `cardRectSize()` |
 | model tensor | `engine/preprocess.ts` `rgbaToBGRPlanar` |
 

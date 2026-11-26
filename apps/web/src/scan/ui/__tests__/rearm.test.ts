@@ -260,7 +260,7 @@ test('decideAutoCapture: the shipping rule, clause by clause', async () => {
   assert.equal(decideAutoCapture(lock, one, m(true)).fire, false, 'busy')
   assert.deepEqual(
     decideAutoCapture(lock, one, m()),
-    { fire: true, repeat: false, newByLook: false, cardBack: false },
+    { fire: true, repeat: false, newByLook: false, cardBack: false, backReleased: false },
     'a fresh lock fires',
   )
   // ...it was captured:
@@ -271,41 +271,180 @@ test('decideAutoCapture: the shipping rule, clause by clause', async () => {
   assert.equal(decideAutoCapture(lock, two, m()).fire, false, 'a new card, not yet steady')
   assert.deepEqual(
     decideAutoCapture(lock, two, m()),
-    { fire: true, repeat: true, newByLook: true, cardBack: false },
+    { fire: true, repeat: true, newByLook: true, cardBack: false, backReleased: false },
     'a new card, steady',
   )
   assert.equal(decideAutoCapture(lock, two, m(true)).fire, false, 'busy still waits')
 })
 
-test('decideAutoCapture: a card back never fires, and its track is held until it turns into a card', async () => {
-  const { decideAutoCapture } = await import('../autoCapture')
+/** Scan.tsx's wiring of decideAutoCapture for one track, as the replay mirrors it. */
+async function backRig(id = 4) {
+  const { createCardBackHolds, decideAutoCapture } = await import('../autoCapture')
   const { createCapturedRegions } = await import('../regions')
-  const { CARD_BACK_LOOK, cardBackDistance, rotateLook180 } = await import('../../engine/cardBack')
   const regions = createCapturedRegions()
   const rearm = createLookRearm()
   const refractory = new Set<number>()
-  const cardBacks = new Set<number>()
-  const lock = { id: 4, quad: scene(1).quad }
-  const face = lookOf(2)
-  assert.ok(cardBackDistance(face) > REARM_NEW_MIN, 'precondition: the face is nothing like a back')
-  // Scan.tsx's handling of the verdict, as the replay mirrors it.
+  const cardBacks = createCardBackHolds()
+  const lock = { id, quad: scene(1).quad }
+  const memory = (busy = false) => ({ refractory, busy, regions, rearm, cardBacks })
   const tick = (l: Uint8Array | null, busy = false) => {
-    const v = decideAutoCapture(lock, l, { refractory, busy, regions, rearm, cardBacks })
-    if (v.cardBack) cardBacks.add(lock.id)
-    else cardBacks.delete(lock.id)
+    const v = decideAutoCapture(lock, l, memory(busy))
     if (v.fire) refractory.add(lock.id)
     return v
   }
-  assert.deepEqual(tick(CARD_BACK_LOOK), { fire: false, repeat: false, newByLook: false, cardBack: true }, 'a back locks but does not fire')
+  /** No lock this tick (the track coasts). */
+  const blink = () => decideAutoCapture(null, null, memory())
+  /** A capture fired on the lock with this look (Scan.tsx noteCapture). */
+  const captured = (l: Uint8Array) => {
+    regions.note(lock.quad, lock.id, 0, l)
+    rearm.note(l, lock.id)
+  }
+  return { tick, blink, captured, cardBacks, lock, rearm, refractory, decideAutoCapture, createCapturedRegions }
+}
+
+/** The measured back with a thumb on it, with a 3x3-cell thumb (skin tone)
+ *  over one more corner: a back the hand covers a little more than any
+ *  replayed tick did, so it is no longer within CARD_BACK_MAX_DISTANCE. */
+function thumbOverCorner(l: Uint8Array): Uint8Array {
+  const o = Uint8Array.from(l)
+  const cells = 88
+  for (let r = 8; r < 11; r++)
+    for (let c = 5; c < 8; c++) {
+      const k = r * 8 + c
+      o[k] = 175
+      o[cells + k] = 108
+      o[2 * cells + k] = 155
+    }
+  return o
+}
+
+test('decideAutoCapture: a card back never fires, and its track is held until it turns into a card', async () => {
+  const { CARD_BACK_LOOK, cardBackDistance, rotateLook180 } = await import('../../engine/cardBack')
+  const { tick, cardBacks, lock, refractory, rearm, decideAutoCapture, createCapturedRegions } = await backRig()
+  const face = lookOf(2)
+  assert.ok(cardBackDistance(face) > REARM_NEW_MIN, 'precondition: the face is nothing like a back')
+  assert.deepEqual(
+    tick(CARD_BACK_LOOK),
+    { fire: false, repeat: false, newByLook: false, cardBack: true, backReleased: false },
+    'a back locks but does not fire',
+  )
+  assert.equal(cardBacks.has(lock.id), false, 'one tick of a back refuses that tick but does not hold the track')
   assert.equal(tick(rotateLook180(CARD_BACK_LOOK)).fire, false, 'nor upside down')
+  assert.equal(cardBacks.has(lock.id), true, 'two in a row hold it')
   // A thumb slides over it for a tick: the look leaves the template, but the track is held.
-  assert.deepEqual(tick(lookOf(5)), { fire: false, repeat: false, newByLook: false, cardBack: true }, 'a one-tick change is not a card')
+  assert.deepEqual(
+    tick(lookOf(5)),
+    { fire: false, repeat: false, newByLook: false, cardBack: true, backReleased: false },
+    'a one-tick change is not a card',
+  )
   assert.equal(tick(CARD_BACK_LOOK).cardBack, true)
   // Turned face up in place: the first tick of the face is not steady yet, the second is.
   assert.equal(tick(face).fire, false, 'the face has only just appeared')
-  assert.deepEqual(tick(face), { fire: true, repeat: false, newByLook: true, cardBack: false }, 'the face has held: it fires')
+  assert.deepEqual(
+    tick(face),
+    { fire: true, repeat: false, newByLook: false, cardBack: false, backReleased: true },
+    'the face has held: the hold lets go and the fresh lock fires (not a re-arm)',
+  )
   assert.equal(cardBacks.has(lock.id), false, 'and the hold is gone')
   // Fails open: a lock with no look is judged as before.
   const other = { id: 9, quad: scene(3).quad }
-  assert.equal(decideAutoCapture(other, null, { refractory, busy: false, regions: createCapturedRegions(), rearm, cardBacks }).fire, true)
+  assert.equal(
+    decideAutoCapture(other, null, { refractory, busy: false, regions: createCapturedRegions(), rearm, cardBacks }).fire,
+    true,
+  )
+})
+
+test('decideAutoCapture: an upside-down back with a thumb over a corner never fires', async () => {
+  const { CARD_BACK_LOOK, CARD_BACK_MAX_DISTANCE, CARD_BACK_RELEASE_DISTANCE, cardBackDistance, rotateLook180 } =
+    await import('../../engine/cardBack')
+  const { BACKS, look } = await import('../../engine/__tests__/cardBackLooks')
+  const { tick, cardBacks, lock } = await backRig()
+  const thumbed = rotateLook180(look(BACKS['video lock, thumb on it']))
+  const cornered = rotateLook180(thumbOverCorner(look(BACKS['video lock, thumb on it'])))
+  const d = cardBackDistance(cornered)
+  assert.ok(
+    d > CARD_BACK_MAX_DISTANCE && d < CARD_BACK_RELEASE_DISTANCE,
+    `precondition: not a back by itself, not clear of one (${d.toFixed(3)})`,
+  )
+  // What used to release it: judged against the UPRIGHT template only, the
+  // turned back read as a different card (> REARM_NEW_MIN) and fired.
+  assert.ok(lookDistance(CARD_BACK_LOOK, cornered) > REARM_NEW_MIN, 'precondition: an upright-only refuser calls it new')
+  tick(thumbed)
+  tick(thumbed)
+  assert.equal(cardBacks.has(lock.id), true)
+  for (let i = 0; i < 6; i++) {
+    const v = tick(cornered)
+    assert.equal(v.fire, false, `tick ${i}: held still with the thumb on it, it is still a back`)
+    assert.equal(v.cardBack, true)
+  }
+})
+
+test('decideAutoCapture: one tick of a back does not hold the track; a coasting tick does not break the streak', async () => {
+  const { CARD_BACK_LOOK } = await import('../../engine/cardBack')
+  {
+    const { tick, cardBacks, lock } = await backRig()
+    assert.equal(tick(CARD_BACK_LOOK).fire, false)
+    assert.equal(cardBacks.has(lock.id), false)
+    // A real card misread as a back for one tick (a light's colour moving its
+    // chroma) costs that tick only: the next tick fires as any fresh lock does.
+    assert.equal(tick(lookOf(2)).fire, true, 'not held: the face fires at once')
+  }
+  {
+    const { tick, blink, cardBacks, lock } = await backRig()
+    tick(CARD_BACK_LOOK)
+    blink()
+    tick(CARD_BACK_LOOK)
+    assert.equal(cardBacks.has(lock.id), true, 'two lock ticks of the back, a coast between: held')
+    assert.equal(tick(lookOf(2)).fire, false, 'held: a face that has not yet held still does not fire')
+  }
+  {
+    const { tick, cardBacks, lock } = await backRig()
+    tick(CARD_BACK_LOOK)
+    tick(lookOf(2))
+    tick(CARD_BACK_LOOK)
+    assert.equal(cardBacks.has(lock.id), false, 'a face between two back ticks resets the streak')
+  }
+})
+
+test('decideAutoCapture: a real card face nearer the back than REARM_NEW_MIN still releases the hold', async () => {
+  const { CARD_BACK_LOOK, CARD_BACK_RELEASE_DISTANCE, cardBackDistance } = await import('../../engine/cardBack')
+  const { CARDS, look } = await import('../../engine/__tests__/cardBackLooks')
+  const { tick, cardBacks, lock } = await backRig()
+  // The nearest of all 20,467 English catalog images to the back.
+  const face = look(CARDS['catalog nearest'])
+  const d = cardBackDistance(face)
+  assert.ok(d < REARM_NEW_MIN && d > CARD_BACK_RELEASE_DISTANCE, `precondition: ${d.toFixed(3)}`)
+  tick(CARD_BACK_LOOK)
+  tick(CARD_BACK_LOOK)
+  assert.equal(tick(face).fire, false, 'not steady yet')
+  const v = tick(face)
+  assert.equal(v.backReleased, true)
+  assert.equal(v.fire, true, 'turned face up and held, it fires')
+  assert.equal(cardBacks.has(lock.id), false)
+})
+
+test('decideAutoCapture: a captured card flipped to its back and back again releases, and is still a repeat', async () => {
+  const { CARD_BACK_LOOK } = await import('../../engine/cardBack')
+  const { CARDS, look } = await import('../../engine/__tests__/cardBackLooks')
+  const { tick, captured, cardBacks, lock } = await backRig()
+  // The nearest of 776 real card crops to the back.
+  const face = look(CARDS['real crop nearest'])
+  assert.equal(tick(face).fire, true, 'a fresh lock fires')
+  captured(face)
+  assert.equal(tick(face).fire, false, 'the same card, still there')
+  tick(CARD_BACK_LOOK)
+  tick(CARD_BACK_LOOK)
+  assert.equal(cardBacks.has(lock.id), true, 'flipped over: held')
+  assert.equal(tick(face).cardBack, true, 'flipped back: not steady yet')
+  assert.deepEqual(
+    tick(face),
+    { fire: false, repeat: true, newByLook: false, cardBack: false, backReleased: true },
+    'steady: the hold lets go (no more "turn it over"), and it is its own capture again',
+  )
+  assert.deepEqual(
+    tick(face),
+    { fire: false, repeat: true, newByLook: false, cardBack: false, backReleased: false },
+    'and stays a repeat',
+  )
+  assert.equal(cardBacks.has(lock.id), false)
 })

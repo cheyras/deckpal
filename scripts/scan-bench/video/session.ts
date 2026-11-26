@@ -60,7 +60,7 @@ import { createTracker, TRACKER_DEFAULTS } from '../../../apps/web/src/scan/engi
 import { createCapturedRegions } from '../../../apps/web/src/scan/ui/regions'
 import { captureLook, cardLook, type CardLook } from '../../../apps/web/src/scan/engine/look'
 import { createLookRearm, type LookRearm } from '../../../apps/web/src/scan/ui/rearm'
-import { decideAutoCapture } from '../../../apps/web/src/scan/ui/autoCapture'
+import { createCardBackHolds, decideAutoCapture } from '../../../apps/web/src/scan/ui/autoCapture'
 
 // ---------------------------------------------------------------------------
 // the detect tick (index.ts createScanEngine -> tick, lines 619-736)
@@ -268,7 +268,7 @@ export function createCapturePolicy(opts: PolicyKnobs = {}): CapturePolicy {
   const busyMs = opts.busyMs ?? DEFAULT_CAPTURE_BUSY_MS
   // Scan.tsx: refractoryRef, regionsRef, rearmRef, cardBackRef.
   const refractory = new Set<number>()
-  const cardBacks = new Set<number>()
+  const cardBacks = createCardBackHolds()
   const regions = createCapturedRegions()
   const rearm = opts.rearm === false ? null : createLookRearm()
   let busyUntil = -Infinity
@@ -278,7 +278,7 @@ export function createCapturePolicy(opts: PolicyKnobs = {}): CapturePolicy {
       // its card-back hold.
       const presentIds = new Set(s.stable.map((q) => q.id))
       for (const id of refractory) if (!presentIds.has(id)) refractory.delete(id)
-      for (const id of cardBacks) if (!presentIds.has(id)) cardBacks.delete(id)
+      cardBacks.prune(presentIds)
       // Scan.tsx — ONCE PER DETECT TICK, stable and pending both. The app
       // passes Date.now(); the replay passes video time (README "Clock").
       regions.tick(tMs, [...s.stable, ...s.pending])
@@ -294,9 +294,6 @@ export function createCapturePolicy(opts: PolicyKnobs = {}): CapturePolicy {
         cardBacks,
       })
       if (!locked) return { kind: 'none' }
-      // Scan.tsx — the card-back hold follows the verdict.
-      if (v.cardBack) cardBacks.add(locked.id)
-      else cardBacks.delete(locked.id)
       if (v.cardBack) return { kind: 'cardback' }
       if (v.fire) {
         refractory.add(locked.id)

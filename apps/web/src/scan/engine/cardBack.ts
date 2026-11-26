@@ -34,10 +34,43 @@
 //   real card crops (776: owner, telemetry, video)   min 0.842   p01 0.95
 //   lock ticks on a GT card appearance (1,033)       min 0.850   p01 0.97
 //
-// 0.65 sits 0.12 below the nearest card ever measured. It refuses NOTHING on
-// the 14 ground-truth videos (no lock tick there comes near), and it is not
-// a claim to catch every back: a back the quad sees only part of, or two
-// backs under one quad, does not look like the whole design and still fires.
+// 0.65 sits 0.12 below the nearest card ever measured. Replayed over all 22
+// ground-truth videos (main at 9219ef99), the one lock tick it refuses is a
+// genuine back (ARAWSwYFz2I 26.1 s), and no capture changes. It is not a claim
+// to catch every back: a back the quad sees only part of, or two backs under
+// one quad, does not look like the whole design and still fires. Nor is it a claim
+// about a back lying sideways — see ORIENTATIONS below.
+//
+// ── RELEASING A HELD BACK ───────────────────────────────────────────────────
+//
+// A track that showed a back is held (ui/autoCapture.ts) until its look has
+// held still and sits further than CARD_BACK_RELEASE_DISTANCE from the back.
+// That threshold has two jobs pulling opposite ways, and 0.75 is where the
+// measured numbers leave room for both:
+//   - a back with a thumb or the sleeve's glare on it must stay held: the
+//     replayed back lock ticks reach 0.70, so 0.75 is 0.05 above every one;
+//   - a real card turned face up must let go: the nearest catalog card is
+//     0.770 and the nearest real crop 0.842, so 0.75 is below all of them.
+// It is deliberately NOT the look re-arm's REARM_NEW_MIN (1.0): about 1% of
+// cards sit within 1.0 of the back (catalog p01 1.04), and a card flipped to
+// its back and back again would never be "new" against its own capture.
+// A back covered further than that (a thumb over a fifth of it, held still)
+// can release and fire; the per-track hold catches the common case, the
+// one-tick thumb, not every hand.
+//
+// ── ORIENTATIONS ────────────────────────────────────────────────────────────
+//
+// The template is compared upright and turned 180°. The warp starts at the
+// quad's corner nearest the frame's top-left (rectify.orderQuadForCard), so a
+// card lying or swinging past 45° comes out SIDEWAYS (#306's decision; the
+// re-arm's captureLook carries quarter turns for exactly that), not only
+// upright or upside down. A sideways back is not modelled: a quarter turn of
+// the 8x11 grid is an 11x8 one, so a 90° template cannot be reshuffled from
+// this one — it would have to be measured from the crops warped a quarter
+// turn — and each extra template is another draw at a card that happens to
+// look like it, which nothing has measured against the 20,467 catalog cards.
+// Near 45° itself the tick has no look at all (look.orderUndecided), so the
+// gate cannot refuse it there either way (it fails open, as for a null look).
 //
 // ── WHAT IT DOES NOT DO ────────────────────────────────────────────────────
 //
@@ -48,10 +81,12 @@
 // telemetry overlap cards; the pack logo is only legible in good light.
 // Japanese backs are a different design and are not modelled.
 
-import { lookDistance, LOOK_GRID_H, LOOK_GRID_W, type CardLook } from './look'
+import { LOOK_BYTES, lookDistance, LOOK_GRID_H, LOOK_GRID_W, type CardLook } from './look'
 
 /** A look within this of the back (either way up) is a card back. See above. */
 export const CARD_BACK_MAX_DISTANCE = 0.65
+/** A held back's track lets go once its look is steady and further than this from the back. See above. */
+export const CARD_BACK_RELEASE_DISTANCE = 0.75
 
 /** The mean look of the English card back: Y, Cb, Cr cell means, channel-major, rows top to bottom. */
 export const CARD_BACK_LOOK: CardLook = Uint8Array.from([
@@ -95,15 +130,21 @@ export const CARD_BACK_LOOK: CardLook = Uint8Array.from([
 
 const CELLS = LOOK_GRID_W * LOOK_GRID_H
 
-/** A look turned 180 degrees — the same card upside down. The warp is always
- *  portrait (rectify.orderQuadForCard), so these are the only two ways round. */
+/**
+ * A tick's look turned 180 degrees — the same card upside down. A 180° turn of
+ * the 8x11 grid is still 8x11, so it is a reshuffle of the cells (a quarter
+ * turn is not; see ORIENTATIONS above). One orientation only: a capture's look
+ * (LOOK_TURNS x LOOK_BYTES) is refused rather than silently half-turned.
+ */
 export function rotateLook180(look: CardLook): CardLook {
-  const out = new Uint8Array(look.length)
+  if (look.length !== LOOK_BYTES) throw new Error(`rotateLook180: a one-turn look is ${LOOK_BYTES} bytes, not ${look.length}`)
+  const out = new Uint8Array(LOOK_BYTES)
   for (let c = 0; c < 3; c++) for (let k = 0; k < CELLS; k++) out[c * CELLS + (CELLS - 1 - k)] = look[c * CELLS + k]
   return out
 }
 
-const CARD_BACK_LOOK_TURNED = rotateLook180(CARD_BACK_LOOK)
+/** The template upside down: the back as a card lying head-down is warped. */
+export const CARD_BACK_LOOK_TURNED: CardLook = rotateLook180(CARD_BACK_LOOK)
 
 /** How far a look is from the card back, the nearer way up (lookDistance units). */
 export function cardBackDistance(look: CardLook): number {
