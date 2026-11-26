@@ -2,7 +2,7 @@
 // frame for its printed text to be read.
 //
 // THE FLOOR IS THE FARTHEST A CARD CAN BE AND STILL READ, NOT A TARGET.
-// Measured 2026-11-26 (`scripts/scan-bench/size-sweep.{py,ts}`): 292 of the
+// The sweep behind it, 2026-11-26 (`scripts/scan-bench/size-sweep.{py,ts}`): 292 of the
 // owner's card photos, each captured as the scanner would capture it at nine
 // distances (the 960 px square of the 960x1280 stream every camera capture on
 // record used, the 5% margin, 480x670, JPEG 0.85), read by the device OCR.
@@ -18,15 +18,19 @@
 // is not just missed but misread more often, and number/total is a confident
 // rung on the server. Names survive almost any distance and are never misread.
 //
-// WHY NOT HIGHER. The sweep downscales sharp still photos; a real camera at
-// distance adds noise and focus hunting, so the real knee sits a little above
-// 0.50. But the owner's live captures that were sharp read their number at
-// 0.59-0.61 (2026-11-25 field session), the image match still identifies a
-// card OCR misses, and a floor people hit is an annoyance: of the owner's 115
-// real camera captures, 0.50 would have held 6, 0.55 would hold 12 and 0.60
-// would hold 30. People hold a card at a median 0.70 of the frame, and the
-// outline drawn on screen is 0.88 of it, so 0.50 (a little over half the
-// outline's height) leaves a wide margin either side of where they aim.
+// WHY 0.60 AND NOT THE SWEEP'S 0.50 (the owner's call). The sweep downscales
+// sharp still photos, which only takes pixels away. A real camera at distance
+// is also softer: lens blur, video noise reduction that smears small text,
+// hand shake. So the sweep is a best case, and the real limit sits CLOSER than
+// 0.50 by an amount no data on record measures. 0.60 is where even the best
+// case still keeps the number on four cards in five, and where the owner's
+// sharp live captures read theirs (0.59-0.61, 2026-11-25 field session).
+//
+// WHAT IT COSTS. Of the owner's 115 real camera captures, 0.60 would have
+// asked 30 to come closer (0.50: 6). People hold a card at a median 0.70 of
+// the frame and the outline drawn on screen is 0.88 of it, so 0.60, about two
+// thirds of the outline's height, still leaves a band to aim in. Lock events
+// record `cardSide`, so a field session shows how often it is hit.
 //
 // Only AUTO-capture is held, and only on the size of the lock it is about to
 // take. The lock itself, the outline and manual capture are untouched: a card
@@ -37,8 +41,8 @@
 import type { Quad } from '../engine/contract'
 
 /** The card's LONG side as a fraction of the square the detector sees: the
- *  farthest a card can be and still read (see above). */
-export const MIN_CARD_SIDE = 0.5
+ *  farthest a card can be and still read on a real camera (see above). */
+export const MIN_CARD_SIDE = 0.6
 
 const dist = (a: readonly number[], b: readonly number[]) => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!)
 

@@ -153,7 +153,8 @@ finding out what is the next task.
 
 ## How far away can a card be? (`size-sweep.py` + `size-sweep.ts`)
 
-The size gate's floor (`apps/web/src/scan/ui/sizeGate.ts`) comes from this.
+The size gate's floor (`apps/web/src/scan/ui/sizeGate.ts`) is set against this:
+the sweep's best case, raised to 0.60 for what a real camera loses at distance.
 Each card photo in the labeler queue that holds the card at more pixels than
 the largest distance simulated is captured as the scanner would capture it at
 nine distances. Each crop uses the 960 px square, the 5% margin, 480x670 and
