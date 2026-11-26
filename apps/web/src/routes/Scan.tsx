@@ -14,7 +14,15 @@ import { SwipeReview } from '../scan/ui/SwipeReview'
 import { HelpModal } from '../scan/ui/HelpModal'
 import { planCommit, writeCommit, type PlannedCommit } from '../scan/ui/commit'
 import { isDefiniteRefusal, newCommitAttempt } from '../lib/commitKey'
-import { ocrEnabledFor, uploadScanFlag, recordCaptureEvent, recordIdentityEvent, recordLockEvent } from '../scan/ui/flags'
+import {
+  flushTickTrace,
+  ocrEnabledFor,
+  uploadScanFlag,
+  recordCaptureEvent,
+  recordIdentityEvent,
+  recordLockEvent,
+  recordTick,
+} from '../scan/ui/flags'
 import {
   EMBED_NOT_ASKED,
   type EmbedEvidence,
@@ -56,7 +64,7 @@ import type { Quad } from '../scan/engine/contract'
 import { gateScanResponse, judgeTie, TIE_MARGIN } from '../scan/ui/tieGate'
 import { createCapturedRegions, type CapturedRegions, type RegionTrack } from '../scan/ui/regions'
 import { createLookRearm, type LookRearm } from '../scan/ui/rearm'
-import { createCardBackHolds, decideAutoCapture } from '../scan/ui/autoCapture'
+import { createCardBackHolds, decideAutoCapture, REPEAT_OFFER_MS } from '../scan/ui/autoCapture'
 import { createFocusGate } from '../scan/ui/focusGate'
 import { cardSideFraction } from '../scan/ui/sizeGate'
 import { useAccess } from '../lib/access'
@@ -505,6 +513,36 @@ export function Scan() {
     [regions, rearm],
   )
   const captureBusyRef = useRef(false)
+  /**
+   * HOW LONG THE LOCK HAS BEEN A CARD THE DUPLICATE POLICY REFUSES — the track,
+   * and since when. Past REPEAT_OFFER_MS the hint offers "Tap to scan again".
+   *
+   * WHY A TAP AND NOT AN AUTOMATIC "IT WAS FLIPPED" RULE (owner session
+   * 2026-11-26: two copies of one card in a stack, the second never captured).
+   * Nothing the scanner sees can tell an identical copy put down in the same
+   * place from the same card still lying there: look, hash and embedding are
+   * identical by construction, and every transition signal measured (the look
+   * leaving and coming back, the track jumping, the region's track dying) fires
+   * on ordinary handling of ONE card as often as on a swap (the decision record
+   * of this change has the numbers). A rule built on them is a duplicate
+   * generator. So the scanner says what it sees, "Already scanned", and a tap
+   * takes it again: a real capture, read like any other, so a different card
+   * the look could not tell apart is identified as itself.
+   */
+  const repeatHoldRef = useRef<{ trackId: number; since: number } | null>(null)
+  const [offerScanAgain, setOfferScanAgain] = useState(false)
+  // The tick trace posts every few seconds; what it holds when the page is
+  // hidden or the scanner closes would otherwise be lost.
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flushTickTrace()
+    }
+    document.addEventListener('visibilitychange', onHide)
+    return () => {
+      document.removeEventListener('visibilitychange', onHide)
+      flushTickTrace()
+    }
+  }, [])
   const stackNodesRef = useRef(new Map<string, HTMLDivElement>())
   const feedThumbNodesRef = useRef(new Map<string, HTMLDivElement>())
   /**
@@ -1361,6 +1399,21 @@ export function Scan() {
       focus: { gate: focusGateRef.current, sharpness: engineState.sharpness, now: performance.now() },
       size: { frameSide: engineState.frame.width },
     })
+    // EVERY TICK into the trace (flags.ts recordTick): the per-tick state the
+    // 2 s lock recorder cannot show — what the tracker and the look did while
+    // one card was slid off a stack and the next showed.
+    const dists = rearm.lastDistances?.() ?? { steady: null, nearest: null }
+    recordTick({
+      locked: locked?.id ?? null,
+      tracks: engineState.stable,
+      frameSide: engineState.frame.width,
+      verdict: `${verdict.fire ? 'F' : ''}${verdict.repeat ? 'R' : ''}${verdict.newByLook ? 'N' : ''}${verdict.cardBack ? 'B' : ''}${verdict.tooFar ? 'T' : ''}${verdict.focusWait ? 'W' : ''}${captureBusyRef.current ? 'Y' : ''}`,
+      refuserDistance: dists.nearest,
+      steadyDistance: dists.steady,
+      regionCount: regions.count,
+      hasObj: engineState.hasObj,
+      sharpness: engineState.sharpness,
+    })
     if (locked) {
       // Every lock, not just the ones that become captures — a lock the
       // refractory set swallows is still the engine saying "I would fire at
@@ -1431,11 +1484,22 @@ export function Scan() {
       refractoryRef.current.add(locked.id)
       void runCapture(locked.id, 'auto', verdict.repeat)
     }
+    // A REPEAT THE POLICY REFUSES, once the capture that refuses it is done:
+    // the card in the frame is one already taken (or looks exactly like it).
+    // It used to say "Got it — hold on…" for as long as it was held there,
+    // which reads as a scanner about to fire that never does (owner session
+    // 2026-11-26: "it won't auto capture until I really point away").
+    const refusedRepeat = !!locked && verdict.repeat && !verdict.fire && !verdict.cardBack && !captureBusyRef.current
+    const nowMs = performance.now()
+    if (!refusedRepeat) repeatHoldRef.current = null
+    else if (repeatHoldRef.current?.trackId !== locked!.id) repeatHoldRef.current = { trackId: locked!.id, since: nowMs }
+    setOfferScanAgain(refusedRepeat && nowMs - repeatHoldRef.current!.since >= REPEAT_OFFER_MS)
     // A back is locked but never captured, so "Got it" would be a promise the
     // scanner is not going to keep.
     if (locked && verdict.cardBack) setHint('That’s the back of a card — turn it over')
     else if (locked && verdict.tooFar) setHint('Move a little closer')
     else if (locked && verdict.focusWait) setHint('Hold still — focusing…')
+    else if (refusedRepeat) setHint('Already scanned')
     else if (locked) setHint((h) => (h.startsWith('Got it') ? h : 'Got it — hold on…'))
     else if (engineState.stable.length > 0) setHint('Hold steady…')
     // THE STANDING NEEDS-YOU LINE. Only in the idle branch — while the reader is
@@ -1790,6 +1854,7 @@ export function Scan() {
                       onReportCamera={() => void reportCamera()}
                       flashSignal={flashSignal}
                       overlay={showVoice ? <VoiceCaption voice={voice} /> : null}
+                      hintAction={offerScanAgain ? { label: 'Tap to scan again', onClick: manualCapture } : null}
                       onBoxChange={(b) => {
                         // Recorded for the capture-flight courier's start pose
                         // ONLY, and deliberately NOT reported to the engine:

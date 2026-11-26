@@ -181,13 +181,17 @@ export function createScanFlagsRouter(deps: ScanFlagsDeps): Router {
       if (!store) throw new ApiError(501, 'storage_unavailable', 'No object store configured.');
 
       const body = (req.body ?? {}) as { png?: unknown; meta?: unknown };
-      if (typeof body.png !== 'string' || !body.png) throw badRequest('png (base64 string) is required');
       if (typeof body.meta !== 'object' || body.meta === null || Array.isArray(body.meta)) {
         throw badRequest('meta (object) is required');
       }
+      // THE SCANNER'S TICK TRACE (web scan/ui/flags.ts recordTick) is numbers
+      // only — a few seconds of the auto-capture policy's per-tick state — and
+      // the one record that carries no frame. Everything else still must.
+      const imageless = (body.meta as { type?: unknown }).type === 'tick-trace';
+      if (!imageless && (typeof body.png !== 'string' || !body.png)) throw badRequest('png (base64 string) is required');
 
-      const pngBytes = Buffer.from(body.png, 'base64');
-      if (pngBytes.length === 0) throw badRequest('png decoded to 0 bytes');
+      const pngBytes = typeof body.png === 'string' && body.png ? Buffer.from(body.png, 'base64') : Buffer.alloc(0);
+      if (!imageless && pngBytes.length === 0) throw badRequest('png decoded to 0 bytes');
       const metaJson = JSON.stringify(body.meta, null, 2);
       if (pngBytes.length + Buffer.byteLength(metaJson) > MAX_UPLOAD_BYTES) {
         throw new ApiError(
@@ -199,7 +203,7 @@ export function createScanFlagsRouter(deps: ScanFlagsDeps): Router {
 
       const epochMs = Date.now();
       const reason = 'scan-harness "Flag frame" capture — client-generated canvas frame, no upstream URL';
-      await store.put({
+      if (pngBytes.length) await store.put({
         objectPath: `${PREFIX}${epochMs}.png`,
         bytes: pngBytes,
         provenance: unknownProvenance(reason),

@@ -25,6 +25,7 @@ export function CameraStage({
   flashSignal,
   onBoxChange,
   overlay,
+  hintAction,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>
   camState: CamState
@@ -57,6 +58,9 @@ export function CameraStage({
   /** Drawn over the live picture, above the hint — the voice caption, which
    *  belongs where the reader is looking while they scan. */
   overlay?: ReactNode
+  /** Makes the hint pill a button: "Already scanned · Tap to scan again" while
+   *  the lock is a card the duplicate policy refuses (Scan.tsx). */
+  hintAction?: { label: string; onClick: () => void } | null
 }) {
   const slotRef = useRef<HTMLDivElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
@@ -148,9 +152,22 @@ export function CameraStage({
 
         {live && (
           <>
-            <div className="pointer-events-none absolute bottom-[14px] left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-black/55 px-[14px] py-[6px] text-[13px] font-semibold text-white backdrop-blur">
-              {hint}
-            </div>
+            {hintAction ? (
+              <button
+                type="button"
+                onClick={hintAction.onClick}
+                className="absolute bottom-[14px] left-1/2 z-30 flex -translate-x-1/2 items-center gap-[8px] whitespace-nowrap rounded-full bg-black/65 py-[6px] pl-[14px] pr-[6px] text-[13px] font-semibold text-white backdrop-blur motion-safe:animate-[sheet-panel-in_180ms_cubic-bezier(0.22,0.61,0.36,1)_both]"
+              >
+                {hint}
+                <span className="rounded-full bg-action-primary px-[10px] py-[3px] text-[12px] font-bold text-action-primary-text">
+                  {hintAction.label}
+                </span>
+              </button>
+            ) : (
+              <div className="pointer-events-none absolute bottom-[14px] left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-black/55 px-[14px] py-[6px] text-[13px] font-semibold text-white backdrop-blur">
+                {hint}
+              </div>
+            )}
             {overlay}
             <button
               type="button"

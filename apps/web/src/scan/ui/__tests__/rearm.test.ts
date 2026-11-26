@@ -448,3 +448,18 @@ test('decideAutoCapture: a captured card flipped to its back and back again rele
   )
   assert.equal(cardBacks.has(lock.id), false)
 })
+
+test('lastDistances reports what judge measured, for the tick trace (and nothing it did not)', () => {
+  // A varied look (a uniform one is degenerate to the metric), and one a touch off it.
+  const a = Uint8Array.from({ length: 264 }, (_, i) => 60 + ((i * 37) % 120))
+  const b = Uint8Array.from(a, (x, i) => (i % 5 === 0 ? x + 30 : x))
+  const r = createLookRearm()
+  r.judge(1, a, [])
+  assert.deepEqual(r.lastDistances!(), { steady: null, nearest: null }, 'first sight of a track: nothing to be steady against')
+  r.judge(1, a, [b])
+  const d = r.lastDistances!()
+  assert.equal(d.steady, 0)
+  assert.equal(d.nearest, lookDistance(a, b))
+  r.judge(null, null, [])
+  assert.deepEqual(r.lastDistances!(), { steady: null, nearest: null }, 'no lock clears it')
+})
