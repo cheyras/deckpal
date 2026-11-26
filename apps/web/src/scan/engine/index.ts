@@ -64,6 +64,7 @@ import {
 import { loadModel, type ModelSession } from './model'
 import { computeLetterbox, rgbaToBGRPlanar, MODEL_SIZE, type LetterboxTransform } from './preprocess'
 import { captureLook, cardLook } from './look'
+import { quadSharpness } from './sharpness'
 import { gradientField, quadMeanSaturation, refineQuadChecked } from './refine'
 import { CAPTURE_MARGIN, cardRectSize, CAPTURE_QUALITY, rectifyToCapture } from './rectify'
 import { createTracker } from './tracker'
@@ -765,6 +766,9 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
     // coordinates, so no transform) and on the OBSERVATION when there is one —
     // the same quad capture() warps — not the smoothed display quad.
     const look = locked && workImg ? cardLook(workImg, locked.raw ?? locked.quad) : null
+    // ...and how sharp it is, off the same pixels and the same quad
+    // (sharpness.ts). The capture policy waits for a sharp tick (ui/focusGate.ts).
+    const sharpness = locked && workImg ? quadSharpness(workImg, locked.raw ?? locked.quad) : null
 
     // Publish this tick's frame and its state together — they are a pair, and
     // `capture()` relies on them being one.
@@ -787,6 +791,7 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
       locked,
       saturation: focus ? (saturations.get(focus.id) ?? null) : null,
       look,
+      sharpness,
       perf: { detectMs, hz, jitterPx: jitter.displayedPx },
     })
   }

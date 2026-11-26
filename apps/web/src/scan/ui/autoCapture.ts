@@ -13,6 +13,7 @@ import type { Quad } from '../engine/contract'
 import { CARD_BACK_RELEASE_DISTANCE, cardBackDistance, isCardBackLook } from '../engine/cardBack'
 import { lookDistance, type CardLook } from '../engine/look'
 import type { CapturedRegions } from './regions'
+import type { FocusGate } from './focusGate'
 import { REARM_STEADY_MAX, type LookRearm } from './rearm'
 
 export interface AutoCaptureVerdict {
@@ -38,6 +39,11 @@ export interface AutoCaptureVerdict {
    * any other — a fresh one fires, a repeat still needs `newByLook`.
    */
   backReleased: boolean
+  /**
+   * The lock is held for FOCUS (focusGate.ts): this tick is not sharp enough
+   * yet. Never fires; the UI asks the reader to hold still.
+   */
+  focusWait: boolean
 }
 
 /** How many of a track's lock ticks in a row must show the back before it is held. */
@@ -142,6 +148,8 @@ export function decideAutoCapture(
     rearm: LookRearm
     /** The per-track card-back holds (createCardBackHolds). */
     cardBacks?: CardBackHolds
+    /** The focus gate (focusGate.ts) with this tick's EngineState.sharpness. */
+    focus?: { gate: FocusGate; sharpness: number | null; now: number }
   },
 ): AutoCaptureVerdict {
   const refractory = !!lock && memory.refractory.has(lock.id)
@@ -154,11 +162,17 @@ export function decideAutoCapture(
     : memory.cardBacks
       ? memory.cardBacks.judge(lock.id, look)
       : { cardBack: isCardBackLook(look), backReleased: false }
+  // Judged on every lock tick, so the track's sharpest recent frame is known
+  // by the time a capture would otherwise fire.
+  const focus = lock && memory.focus ? memory.focus.gate.judge(lock.id, memory.focus.sharpness, memory.focus.now) : null
+  const wouldFire = !!lock && !memory.busy && !back.cardBack && (!repeat || newByLook)
+  const focusWait = wouldFire && !!focus && !focus.ready
   return {
-    fire: !!lock && !memory.busy && !back.cardBack && (!repeat || newByLook),
+    fire: wouldFire && !focusWait,
     repeat,
     newByLook,
     cardBack: back.cardBack,
     backReleased: back.backReleased,
+    focusWait,
   }
 }

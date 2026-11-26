@@ -260,7 +260,7 @@ test('decideAutoCapture: the shipping rule, clause by clause', async () => {
   assert.equal(decideAutoCapture(lock, one, m(true)).fire, false, 'busy')
   assert.deepEqual(
     decideAutoCapture(lock, one, m()),
-    { fire: true, repeat: false, newByLook: false, cardBack: false, backReleased: false },
+    { fire: true, repeat: false, newByLook: false, cardBack: false, backReleased: false, focusWait: false },
     'a fresh lock fires',
   )
   // ...it was captured:
@@ -271,7 +271,7 @@ test('decideAutoCapture: the shipping rule, clause by clause', async () => {
   assert.equal(decideAutoCapture(lock, two, m()).fire, false, 'a new card, not yet steady')
   assert.deepEqual(
     decideAutoCapture(lock, two, m()),
-    { fire: true, repeat: true, newByLook: true, cardBack: false, backReleased: false },
+    { fire: true, repeat: true, newByLook: true, cardBack: false, backReleased: false, focusWait: false },
     'a new card, steady',
   )
   assert.equal(decideAutoCapture(lock, two, m(true)).fire, false, 'busy still waits')
@@ -325,7 +325,7 @@ test('decideAutoCapture: a card back never fires, and its track is held until it
   assert.ok(cardBackDistance(face) > REARM_NEW_MIN, 'precondition: the face is nothing like a back')
   assert.deepEqual(
     tick(CARD_BACK_LOOK),
-    { fire: false, repeat: false, newByLook: false, cardBack: true, backReleased: false },
+    { fire: false, repeat: false, newByLook: false, cardBack: true, backReleased: false, focusWait: false },
     'a back locks but does not fire',
   )
   assert.equal(cardBacks.has(lock.id), false, 'one tick of a back refuses that tick but does not hold the track')
@@ -334,7 +334,7 @@ test('decideAutoCapture: a card back never fires, and its track is held until it
   // A thumb slides over it for a tick: the look leaves the template, but the track is held.
   assert.deepEqual(
     tick(lookOf(5)),
-    { fire: false, repeat: false, newByLook: false, cardBack: true, backReleased: false },
+    { fire: false, repeat: false, newByLook: false, cardBack: true, backReleased: false, focusWait: false },
     'a one-tick change is not a card',
   )
   assert.equal(tick(CARD_BACK_LOOK).cardBack, true)
@@ -342,7 +342,7 @@ test('decideAutoCapture: a card back never fires, and its track is held until it
   assert.equal(tick(face).fire, false, 'the face has only just appeared')
   assert.deepEqual(
     tick(face),
-    { fire: true, repeat: false, newByLook: false, cardBack: false, backReleased: true },
+    { fire: true, repeat: false, newByLook: false, cardBack: false, backReleased: true, focusWait: false },
     'the face has held: the hold lets go and the fresh lock fires (not a re-arm)',
   )
   assert.equal(cardBacks.has(lock.id), false, 'and the hold is gone')
@@ -438,12 +438,12 @@ test('decideAutoCapture: a captured card flipped to its back and back again rele
   assert.equal(tick(face).cardBack, true, 'flipped back: not steady yet')
   assert.deepEqual(
     tick(face),
-    { fire: false, repeat: true, newByLook: false, cardBack: false, backReleased: true },
+    { fire: false, repeat: true, newByLook: false, cardBack: false, backReleased: true, focusWait: false },
     'steady: the hold lets go (no more "turn it over"), and it is its own capture again',
   )
   assert.deepEqual(
     tick(face),
-    { fire: false, repeat: true, newByLook: false, cardBack: false, backReleased: false },
+    { fire: false, repeat: true, newByLook: false, cardBack: false, backReleased: false, focusWait: false },
     'and stays a repeat',
   )
   assert.equal(cardBacks.has(lock.id), false)
