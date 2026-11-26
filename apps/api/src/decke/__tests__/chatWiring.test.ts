@@ -769,7 +769,7 @@ test('the consult runs Sonnet through the request meter, with the turn\'s abort'
 });
 
 test('the consult is held only on the Quick tier, decided once for the whole request', () => {
-  assert.match(SRC, /import \{ buildTools, CLIENT_TOOLS, SERVER_TOOLS, toolsForTier \} from '\.\.\/apps\/api\/dist\/decke\/tools\.js'/);
+  assert.match(SRC, /import \{ buildTools, CLIENT_TOOLS, SERVER_TOOLS, tierOffersConsult, toolsForTier \} from '\.\.\/apps\/api\/dist\/decke\/tools\.js'/);
   assert.match(
     CODE,
     /\.\.\.offerableTools\(toolsForTier\(buildTools\(writer, groundingForTools, repairs, emitToolEvent\(writer\), \{[\s\S]*?\}\), decision\.tier\)/,
@@ -778,6 +778,21 @@ test('the consult is held only on the Quick tier, decided once for the whole req
   // Not per step: the set handed to streamText is the one built above.
   assert.match(CODE, /tools: allDeckeTools,/);
   assert.doesNotMatch(CODE, /prepareStep:[\s\S]{0,400}toolsForTier/);
+});
+
+test('the close-game consult note is offered from the same predicate as the consult tool, on a battle pathway', () => {
+  // `buildDataTools` gets `consultOffered` from `closeGameConsultOffered`, fed
+  // `tierOffersConsult` (the predicate `toolsForTier` uses) AND the routed
+  // pathways, so the note never names a tool the request lacks and never fires
+  // on a Quick lookup routed elsewhere. A literal `true`, `decision.tier !==
+  // 'deep'`, or a bare `tierOffersConsult(...)` without the pathways would let it.
+  assert.match(SRC, /import \{ closeGameConsultOffered \} from '\.\.\/apps\/api\/dist\/decke\/closeGameConsult\.js'/);
+  assert.match(
+    CODE,
+    /\.\.\.buildDataTools\(\{[\s\S]*?consultOffered: closeGameConsultOffered\(tierOffersConsult\(decision\.tier\), decision\.pathways\),[\s\S]*?\}\),/,
+    'the close-game consult note must follow the tier that holds consult and the routed pathway',
+  );
+  assert.equal(CODE.match(/consultOffered:/g)?.length, 1, 'only the chat tool set offers the note; sub-agents never do');
 });
 
 test('a consult is not an answer: the empty-answer guard does not excuse it', () => {

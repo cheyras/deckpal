@@ -1231,7 +1231,8 @@ export function buildTools(
         'not DeckPal, and it cannot call tools. So put everything it may use in the brief — the battle_digest text, the ' +
         "reader's own words quoted, the record against that archetype — and ask one specific question. The answer comes " +
         'back to you, not the reader: keep what the brief supports and write it in your own words. It costs the reader ' +
-        'credits — never use it for lookups, small talk, a brief game, or to ask the same thing twice.',
+        'credits — never use it for lookups, small talk, or to ask the same thing twice, nor for a brief game unless its ' +
+        'battle_digest result ends with a note asking for a consult because the game was close (then the review stays brief).',
       inputSchema: z.object({
         question: z
           .string()
@@ -1277,6 +1278,18 @@ export function buildTools(
 }
 
 /**
+ * Does a request at this tier hold `consult`? Quick only.
+ *
+ * ONE PREDICATE for the tool set (`toolsForTier`) and for the close-game note
+ * on `battle_digest` (`closeGameConsult.ts`, passed to `buildDataTools` as
+ * `consultOffered` by api/chat.mjs), so the note can never tell the model to
+ * call a tool this request does not have.
+ */
+export function tierOffersConsult(tier: TierName): boolean {
+  return tier === 'quick'
+}
+
+/**
  * The tool set a request at this tier holds.
  *
  * DECIDED ONCE PER REQUEST, from the tier code chose before the first step,
@@ -1286,7 +1299,7 @@ export function buildTools(
  * same model, or a weaker one, for a second opinion it can already give.
  */
 export function toolsForTier(tools: ToolSet, tier: TierName): ToolSet {
-  if (tier === 'quick') return tools
+  if (tierOffersConsult(tier)) return tools
   const { consult: _consult, ...rest } = tools
   void _consult
   return rest

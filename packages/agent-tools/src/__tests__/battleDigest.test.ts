@@ -144,6 +144,88 @@ test('it reads the digest route for that deck and log, and renders every fact a 
   assert.ok(res.text.length <= DIGEST_TEXT_MAX);
 });
 
+// 2026-11-17: Deck-E's Quick tier may tell Haiku to `consult` on a close game
+// (apps/api/src/decke/closeGameConsult.ts). The facts it judges on travel in
+// `structured`, which only Deck-E's adapter reads; the TEXT — the whole of what
+// an MCP client receives — never mentions a consult, because MCP has no consult
+// tool.
+test('the structured echo carries the closeness facts, and the text never mentions consult', async () => {
+  for (const closeGame of [true, false]) {
+    const res = await tool().handler(
+      { deck_id: 'Toolbox Banette', log_id: 7 },
+      makeCtx(apiFor(payload({ closeGame, leadChanged: closeGame }))),
+    );
+    assert.equal(res.isError, undefined, res.text);
+    assert.deepEqual(res.structured, {
+      logId: 7,
+      closeGame,
+      endReason: 'prizes',
+      ownerKnown: true,
+      finalPrizes: { me: 6, opponent: 5 },
+      // 4-1 down after turn 9 (in the full game), won 6-5: the lead last changed at 6-5.
+      lateLeadChange: true,
+      reviewDepth: null,
+    });
+    assert.doesNotMatch(res.text, /consult/i, `closeGame ${closeGame}: the shared text must not name a Deck-E-only tool`);
+  }
+});
+
+test('a blowout with an early lead change: close by the digest verdict, but the lead changed before 3 Prizes each', async () => {
+  // Opponent took the first Prize, then the owner took the next six: 6-1. The
+  // digest calls that close (the lead changed hands); the echo says when.
+  const res = await tool().handler(
+    { deck_id: 'Toolbox Banette', log_id: 7 },
+    makeCtx(apiFor(payload({
+      finalPrizes: { me: 6, opponent: 1 },
+      prizeTimeline: [
+        { turn: 3, side: 'opponent', prizes: 1, knockedOut: 'Poltchageist', score: { me: 0, opponent: 1 } },
+        { turn: 4, side: 'me', prizes: 2, knockedOut: 'Drakloak', score: { me: 2, opponent: 1 } },
+        { turn: 6, side: 'me', prizes: 2, knockedOut: 'Dragapult ex', score: { me: 4, opponent: 1 } },
+        { turn: 8, side: 'me', prizes: 2, knockedOut: 'Dragapult ex', score: { me: 6, opponent: 1 } },
+      ],
+      leadChanged: true,
+      closeGame: true,
+    }))),
+  );
+  assert.equal(res.isError, undefined, res.text);
+  assert.deepEqual(res.structured, {
+    logId: 7,
+    closeGame: true,
+    endReason: 'prizes',
+    ownerKnown: true,
+    finalPrizes: { me: 6, opponent: 1 },
+    lateLeadChange: false,
+    reviewDepth: null,
+  });
+});
+
+test('the echo says when the owner is unknown, how it ended, and the replay review depth', async () => {
+  const unknown = await tool().handler(
+    { deck_id: 'Toolbox Banette', log_id: 7 },
+    makeCtx(apiFor(payload({
+      players: { me: null, opponent: null }, finalPrizes: null, prizeTimeline: [], endReason: 'concede',
+    }))),
+  );
+  assert.equal(unknown.structured?.ownerKnown, false);
+  assert.equal(unknown.structured?.finalPrizes, null);
+  assert.equal(unknown.structured?.endReason, 'concede');
+  assert.equal(unknown.structured?.lateLeadChange, false);
+
+  const withReplay = await tool().handler(
+    { deck_id: 'Toolbox Banette', log_id: 7 },
+    makeCtx(apiFor(payload({}, {
+      replay: {
+        players: ['PlayerB', 'PlayerA'], me: 1,
+        replay: { completed: true, replayed: 1, actions: 1, stoppedTurn: null, reason: null, unscripted: [] },
+        turns: [], attacks: [], moments: [], finalBoard: null, cards: [[], []], ending: null,
+        assessment: { score: 3, depth: 'brief', reasons: [] },
+      },
+    }))),
+  );
+  assert.equal(withReplay.isError, undefined, withReplay.text);
+  assert.equal(withReplay.structured?.reviewDepth, 'brief');
+});
+
 test('player_name is forwarded only when given, encoded', async () => {
   const api = apiFor(payload());
   await tool().handler({ deck_id: 'Toolbox Banette', log_id: 7 }, makeCtx(api));

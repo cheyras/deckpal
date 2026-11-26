@@ -56,9 +56,13 @@ import { allTools, deckeImprovementTools, type Ctx, type ToolDefinition, type To
  * was pure redundancy, and the redundancy was costing the answer.
  *
  * The INTERNAL `ToolResult.structured` is untouched and still carries data —
- * Deck-E's AI-SDK adapter reads it to render `log_cards` rows
- * (`apps/api/src/decke/adapters/aisdk.ts`). That path never goes near MCP and
- * was never affected by this; Deck-E has always received `result.text` in full.
+ * Deck-E's AI-SDK adapter (`apps/api/src/decke/adapters/aisdk.ts`) reads it to
+ * render `log_cards` rows, and (2026-11-17) reads `battle_digest`'s closeness
+ * facts to decide its Quick-tier close-game consult note
+ * (`apps/api/src/decke/closeGameConsult.ts`). Some of those facts — such as
+ * `lateLeadChange` — are NOT in the text; they are Deck-E's alone, and an MCP
+ * client has no consult tool to act on them anyway. That path never goes near
+ * MCP; Deck-E has always received `result.text` in full.
  *
  * **If it comes back, it comes back with an `outputSchema`**, so a client knows
  * what it is holding and the text is not competing with an unlabelled blob.

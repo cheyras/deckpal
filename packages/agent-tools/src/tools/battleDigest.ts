@@ -188,6 +188,45 @@ export function renderBattleDigest(p: DigestPayload, deckName: string, note?: st
   return `${last.slice(0, DIGEST_TEXT_MAX - 30)}… (digest cut at ${DIGEST_TEXT_MAX} chars)`;
 }
 
+/**
+ * The structured echo of one digest: the facts Deck-E's close-game consult note
+ * (apps/api/src/decke/closeGameConsult.ts) judges on, never rendered as text.
+ *
+ * `closeGame` is the digest's own broad verdict — the "close game" badge and
+ * line — which also counts a lead that changed hands at 1–0. The note wants a
+ * narrower one, so the raw facts travel too: how it ended, whether the owner is
+ * known, the final prizes, whether the lead changed hands once BOTH sides had
+ * taken 3 or more, and the replay's review depth when there is one.
+ */
+export function digestEcho(p: DigestPayload): Record<string, unknown> {
+  const d = p.digest;
+  return {
+    logId: p.logId,
+    closeGame: d.closeGame === true,
+    endReason: d.endReason,
+    ownerKnown: d.players.me !== null,
+    finalPrizes: d.finalPrizes ? { me: d.finalPrizes.me, opponent: d.finalPrizes.opponent } : null,
+    lateLeadChange: lateLeadChange(d.prizeTimeline),
+    reviewDepth: p.replay?.assessment?.depth ?? null,
+  };
+}
+
+/**
+ * Did the lead change hands at a point where both sides had taken 3 or more
+ * Prizes? The same tie rule as the digest's `leadChanged` (a tie keeps the
+ * previous leader), judged on the score AFTER each event.
+ */
+function lateLeadChange(events: readonly PrizeEvent[]): boolean {
+  let leader: Side | null = null;
+  for (const e of events) {
+    const { me, opponent } = e.score;
+    const ahead: Side | null = me > opponent ? 'me' : opponent > me ? 'opponent' : null;
+    if (ahead && leader && ahead !== leader && Math.min(me, opponent) >= 3) return true;
+    if (ahead) leader = ahead;
+  }
+  return false;
+}
+
 // ── The tool ─────────────────────────────────────────────────────────────────
 
 const deckPath = (deckId: string): string => `/decks/${encodeURIComponent(deckId)}`;
@@ -244,7 +283,17 @@ const battleDigestTool = defineTool({
       }
       const head = renderBattleDigest(payload, picked.value.name, picked.note);
       const mode: DigestDetail = detail ?? 'summary';
-      return ok(payload.replay ? `${head}\n${renderReplay(payload.replay, mode, REPLAY_TEXT_MAX[mode])}` : head);
+      // `structured` is the machine-readable echo only Deck-E's adapter reads;
+      // the MCP adapter never sends it (`toCallToolResult`, apps/mcp/src/adapters/mcp.ts).
+      // Deck-E reads it to decide whether to tell the Quick tier to `consult`
+      // before it writes the review (apps/api/src/decke/closeGameConsult.ts) — a
+      // line an MCP client must never see, because MCP has no consult tool. So
+      // the TEXT is identical for both front-ends and only the facts travel here.
+      return ok(
+        payload.replay ? `${head}
+${renderReplay(payload.replay, mode, REPLAY_TEXT_MAX[mode])}` : head,
+        digestEcho(payload),
+      );
     } catch (err) {
       return fail(`battle_digest failed: ${errText(err)}`);
     }

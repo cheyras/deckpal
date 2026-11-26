@@ -1695,6 +1695,7 @@ apps/api/src/decke/
                         Deep Opus 5.5 (Deep Think, consent-gated)
   deepThink.ts          Deep Think eligibility, offer/grant tokens, the two Opus routes and the balance floor (§15d)
   consult.ts            Quick asks Sonnet 5.5 one question with a brief it writes (§15d)
+  closeGameConsult.ts   on Quick + a battle pathway, a genuinely close game's digest asks for that consult (§15d)
   adapters/aisdk.ts     ToolDefinition -> the AI SDK's tool(), plus the approval policy (§15c, §15e)
   noOp.ts               "would this write change anything?" -- no dialog if not (§15e)
   focus.ts              every real tool on every step; only a spent meter cap can hide one (§15f)
@@ -1881,6 +1882,25 @@ removed on Standard and Deep by `toolsForTier`, decided once per request from th
 routed tier so the tool list (and Anthropic's cached tools prefix) never changes
 between steps; a consult that then says nothing is still an empty answer, since
 `SERVER_SET` in `api/chat.mjs` excludes it.
+
+**A close game asks for that consult where Haiku reads last (2026-11-17, narrowed
+2026-11-25).** The pathway line alone measured 0 of 2 consults on a close loss, so
+the request is also appended to the `battle_digest` result. The data flows one way:
+the shared tool (`packages/agent-tools`, `digestEcho`) puts the facts in its
+`structured` echo — `closeGame`, `endReason`, `ownerKnown`, `finalPrizes`,
+`lateLeadChange` (the lead changed hands after both sides had 3 Prizes) and the
+replay's `reviewDepth` — and leaves its text unchanged; MCP's `toCallToolResult`
+never sends `structured`, so an MCP client sees none of it. Deck-E's adapter
+(`adapters/aisdk.ts`) passes the echo to `closeGameConsultNote`
+(`closeGameConsult.ts`), which appends one model-only, conditional line ("if you
+are about to write this game's review and you hold `consult`…") when the request
+gets the note — `api/chat.mjs` passes `consultOffered` from
+`closeGameConsultOffered(tierOffersConsult(tier), pathways)`, so Quick AND a
+`battle_log`/`battle_review` route — and the game is genuinely close: not a
+concession, owner known, and a final gap of at most 2 with someone at 3, or a late
+lead change. The digest's own broad `closeGame` (the "Close game" badge) is
+unchanged. The line is conditional because recent tool outputs are replayed to
+later turns that may not hold `consult` (`toolReplay.ts`).
 
 The selected conversational tier plans, analyses and drafts guides in Deck-E's
 normal streamed tool loop rather than delegating to a nested sub-agent.

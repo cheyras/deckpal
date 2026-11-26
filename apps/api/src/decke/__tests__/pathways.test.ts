@@ -158,6 +158,25 @@ test('battle logging: after the approval, Standard games digest, consult when av
   assert.doesNotMatch(text, /Use the digest for prize gap and end reason/)
 })
 
+// 2026-11-17: live probe `battle-log-digest-consult` (a close 4–6 loss on
+// Quick) — 2 of 2 runs read the digest, skipped `consult`, and wrote the review
+// themselves. A close game is consulted on BEFORE the review, whatever its
+// depth line says; the tool-result note (closeGameConsult.ts) says the same
+// thing where he reads it last, and decides which games are close enough
+// (narrowed 2026-11-25). A close-but-brief game gets the consult and a brief
+// review — the same rule the consult tool's description states.
+test('battle logging: a close game is consulted on before any review is written', () => {
+  const text = flat(pathwayText('battle_log'))
+  assert.match(
+    text,
+    /A \*\*close\*\* game whose digest result ends with a note asking for a consult is worth one whatever its depth: when `consult` is available, call it before you write any review, never after/,
+  )
+  assert.match(text, /A close game whose depth line says \*\*brief\*\* still gets that consult, and its review stays brief/)
+  assert.match(text, /Any other brief game gets no consult/)
+  // After the digest, before the review: the order is the contract.
+  assert.match(text, /call `battle_digest`.*\*\*close\*\* game.*`review` with `edit_battle_log`/)
+})
+
 test('battle review uses stored archetype records and preserves reader notes', () => {
   const text = flat(pathwayText('battle_review'))
   assert.match(text, /per-archetype record.*absent key is a new archetype.*`games >= 3`/)

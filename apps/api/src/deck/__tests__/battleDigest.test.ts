@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { allTools } from '@deckpal/agent-tools';
 import { digestBattleLog, parseBattleLog } from '../battlelog.js';
 
 /**
@@ -292,6 +293,45 @@ test('closeness: a lopsided game is not close; a 6-4 finish is', () => {
   assert.deepEqual(tight.finalPrizes, { me: 6, opponent: 4 });
   assert.equal(tight.leadChanged, false, 'tied twice, never behind');
   assert.equal(tight.closeGame, true);
+});
+
+// 2026-11-25: `closeGame` stays broad (it drives the "Close game" badge), so a
+// blowout whose lead changed hands on the first Prize is "close". Deck-E's
+// Quick consult note (apps/api/src/decke/closeGameConsult.ts) wants a narrower
+// verdict, so battle_digest's structured echo (packages/agent-tools
+// `digestEcho`) carries the facts it judges on. The real digest of a real
+// blowout, through the real shared tool:
+test('a blowout whose lead changed early: close by the digest, and the structured echo says the lead changed before 3 each', async () => {
+  const d = digestBattleLog(
+    shortGame('All Prize cards taken. Ash wins.', [['Misty', 1], ['Ash', 2], ['Ash', 2], ['Ash', 2]]),
+    [], { playerName: 'Ash' },
+  );
+  assert.deepEqual(d.finalPrizes, { me: 6, opponent: 1 });
+  assert.equal(d.endReason, 'prizes');
+  assert.equal(d.leadChanged, true, 'Misty led 0-1, then Ash');
+  assert.equal(d.closeGame, true, 'the broad verdict is unchanged');
+
+  const def = allTools().find((t) => t.name === 'battle_digest')!;
+  const api = {
+    base: 'https://test/api',
+    get: async (path: string) => {
+      if (path === '/decks') return { decks: [{ id: 'deck-1', name: 'Pikachu', formatCode: 'standard', version: 1 }] };
+      if (path.startsWith('/decks/deck-1/logs/7/digest')) return { logId: 7, deckVersion: 1, origin: 'ptcgl', result: 'win', digest: d };
+      throw new Error(`unexpected get ${path}`);
+    },
+    send: async () => { throw new Error('a read tool sent a write'); },
+  };
+  const res = await def.handler({ deck_id: 'deck-1', log_id: 7 }, { db: { query: async () => ({ rows: [] }) }, userId: 'u1', api } as never);
+  assert.equal(res.isError, undefined, res.text);
+  assert.deepEqual(res.structured, {
+    logId: 7,
+    closeGame: true,
+    endReason: 'prizes',
+    ownerKnown: true,
+    finalPrizes: { me: 6, opponent: 1 },
+    lateLeadChange: false,
+    reviewDepth: null,
+  });
 });
 
 test('mulligans: several are counted, not just the first', () => {

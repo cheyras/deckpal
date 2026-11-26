@@ -165,8 +165,9 @@ import { createGateway } from '@ai-sdk/gateway'
 import { verifySupabaseJwt, createSupabaseJwksProvider } from '../apps/api/dist/auth.js'
 import { buildCorePrompt, buildVolatileContext } from '../apps/api/dist/decke/prompt.js'
 import { pathwayBlock } from '../apps/api/dist/decke/pathways/index.js'
-import { buildTools, CLIENT_TOOLS, SERVER_TOOLS, toolsForTier } from '../apps/api/dist/decke/tools.js'
+import { buildTools, CLIENT_TOOLS, SERVER_TOOLS, tierOffersConsult, toolsForTier } from '../apps/api/dist/decke/tools.js'
 import { runConsult } from '../apps/api/dist/decke/consult.js'
+import { closeGameConsultOffered } from '../apps/api/dist/decke/closeGameConsult.js'
 import { TIERS, TRIAGE, budgetFor } from '../apps/api/dist/decke/models.js'
 import { runTriage } from '../apps/api/dist/decke/triage.js'
 import { answeringAsk, carriedFromHistory, decideTier, quickRefusalRetry, raisedToStandard, resumesApproval } from '../apps/api/dist/decke/tiers.js'
@@ -1156,6 +1157,14 @@ async function serve(request) {
           // Log-only, for the one line a tripped breaker writes.
           conversationId,
           grounding: groundingForTools,
+          // ── AND, ON QUICK, A CLOSE GAME GETS A CONSULT ───────────────────
+          //
+          // The same predicate `toolsForTier` uses above, so a close game's
+          // `battle_digest` tells him to `consult` only in a request that holds
+          // it — and only on a pathway that writes or reviews a game, so a
+          // lookup on another pathway never buys one. Measured 0 of 2 consults
+          // on a close loss without it; see `decke/closeGameConsult.ts`.
+          consultOffered: closeGameConsultOffered(tierOffersConsult(decision.tier), decision.pathways),
         }),
         // Web research stays a separate tool because its search model and
         // metering differ from the conversational agent.

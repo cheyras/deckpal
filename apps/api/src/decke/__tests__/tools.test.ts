@@ -435,6 +435,16 @@ test('consult is held only on the Quick tier, and taking it changes nothing else
   assert.ok('consult' in all)
 })
 
+test('consult description agrees with the battle_log pathway on a close-but-brief game', () => {
+  // 2026-11-25: the pathway says a close game whose digest asks for a consult
+  // gets one even when its depth line says brief; the tool's own description
+  // must not forbid what the pathway and the digest note ask for.
+  const consult = (buildTools(noopWriter) as unknown as Record<string, { description?: string }>).consult!
+  const text = (consult.description ?? '').replace(/\s+/g, ' ')
+  assert.match(text, /nor for a brief game unless its battle_digest result ends with a note asking for a consult because the game was close \(then the review stays brief\)/)
+  assert.doesNotMatch(text, /small talk, a brief game,/)
+})
+
 test('consult input is one bounded question and one bounded brief', () => {
   const consult = (buildTools(noopWriter) as unknown as Record<string, ConsultTool>).consult!
   const ok = (input: unknown) => consult.inputSchema.safeParse(input).success
