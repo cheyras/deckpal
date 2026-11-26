@@ -235,6 +235,9 @@ export type LockOutcome =
   | { kind: 'region' }
   /** A lock the card-back gate refused (engine/cardBack.ts, autoCapture.ts). */
   | { kind: 'cardback' }
+  /** A lock the size gate held: the card is too small in frame to read
+   *  (ui/sizeGate.ts). A user is told to come closer; footage cannot. */
+  | { kind: 'far' }
   /** `why: 'look'`: a repeat the look re-arm let through (ui/rearm.ts). */
   | { kind: 'fire'; why?: 'look' }
 
@@ -248,6 +251,9 @@ export interface PolicyKnobs {
   /** The look re-arm (ui/rearm.ts) ships; `false` replays the policy without
    *  it, which is the shipping policy before 2026-10-10. */
   rearm?: boolean
+  /** The size gate (ui/sizeGate.ts) ships; `false` replays the policy
+   *  without it, which is the shipping policy before 2026-11-26. */
+  sizeGate?: boolean
 }
 
 export interface CapturePolicy {
@@ -283,18 +289,21 @@ export function createCapturePolicy(opts: PolicyKnobs = {}): CapturePolicy {
       // passes Date.now(); the replay passes video time (README "Clock").
       regions.tick(tMs, [...s.stable, ...s.pending])
       const locked = s.locked
-      // THE SHIPPING DECISION (scan/ui/autoCapture.ts), called exactly as
-      // Scan.tsx calls it. `--no-rearm` substitutes a re-arm that never judges
-      // a card new, which is the policy before 2026-10-10.
+      // THE SHIPPING DECISION (scan/ui/autoCapture.ts), called as Scan.tsx
+      // calls it, less the focus gate. `--no-rearm` substitutes a re-arm that
+      // never judges a card new, which is the policy before 2026-10-10;
+      // `--no-size-gate` drops the size gate, the policy before 2026-11-26.
       const v = decideAutoCapture(locked, extras.look ?? null, {
         refractory,
         busy: tMs < busyUntil,
         regions,
         rearm: rearm ?? NEVER_NEW,
         cardBacks,
+        size: opts.sizeGate === false ? undefined : { frameSide: CANONICAL_SIZE },
       })
       if (!locked) return { kind: 'none' }
       if (v.cardBack) return { kind: 'cardback' }
+      if (v.tooFar) return { kind: 'far' }
       if (v.fire) {
         refractory.add(locked.id)
         busyUntil = tMs + busyMs

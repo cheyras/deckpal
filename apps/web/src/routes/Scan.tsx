@@ -57,6 +57,7 @@ import { createCapturedRegions, type CapturedRegions, type RegionTrack } from '.
 import { createLookRearm, type LookRearm } from '../scan/ui/rearm'
 import { createCardBackHolds, decideAutoCapture } from '../scan/ui/autoCapture'
 import { createFocusGate } from '../scan/ui/focusGate'
+import { cardSideFraction } from '../scan/ui/sizeGate'
 import { useAccess } from '../lib/access'
 import { useScannerVoice } from '../scan/voice/useScannerVoice'
 import { VoiceCaption, VoiceLiveRegion, VoicePrimer, VoiceToggle, VoiceVerifyWarning, voicePrimerSeen } from '../scan/voice/VoiceControls'
@@ -1333,8 +1334,9 @@ export function Scan() {
     // THE DECISION (scan/ui/autoCapture.ts — the offline replay runs the same
     // function): a lock fires unless it is busy, a card back, or a REPEAT (this
     // track already captured, or this place) whose card looks like the capture
-    // behind it. Every tick, lock or not, so the look re-arm's steadiness is
-    // current.
+    // behind it — and not until the card is big enough in frame to read
+    // (sizeGate.ts) and sharp (focusGate.ts). Every tick, lock or not, so the
+    // look re-arm's steadiness is current.
     const verdict = decideAutoCapture(locked, engineState.look, {
       refractory: refractoryRef.current,
       busy: captureBusyRef.current,
@@ -1342,6 +1344,7 @@ export function Scan() {
       rearm,
       cardBacks: cardBackRef.current,
       focus: { gate: focusGateRef.current, sharpness: engineState.sharpness, now: performance.now() },
+      size: { frameSide: engineState.frame.width },
     })
     if (locked) {
       // Every lock, not just the ones that become captures — a lock the
@@ -1402,6 +1405,11 @@ export function Scan() {
         // one session; this is how the next ones re-measure it.
         sharpness: engineState.sharpness == null ? null : Math.round(engineState.sharpness),
         focusWait: verdict.focusWait,
+        // The size gate's input and verdict (sizeGate.ts): the card's long side
+        // as a fraction of the frame, and whether it held the capture for it.
+        // The floor was set from a simulated sweep; this is the field's answer.
+        cardSide: round3(cardSideFraction(locked.quad, engineState.frame.width)),
+        tooFar: verdict.tooFar,
       })
     }
     if (locked && verdict.fire) {
@@ -1411,6 +1419,7 @@ export function Scan() {
     // A back is locked but never captured, so "Got it" would be a promise the
     // scanner is not going to keep.
     if (locked && verdict.cardBack) setHint('That’s the back of a card — turn it over')
+    else if (locked && verdict.tooFar) setHint('Move a little closer')
     else if (locked && verdict.focusWait) setHint('Hold still — focusing…')
     else if (locked) setHint((h) => (h.startsWith('Got it') ? h : 'Got it — hold on…'))
     else if (engineState.stable.length > 0) setHint('Hold steady…')

@@ -44,6 +44,7 @@ node --import tsx scripts/scan-bench/video/replay.ts clip.mp4 --start 10 --end 4
 | `--busy-ms` | 500 | how long a capture holds `captureBusyRef` (see Deviations) |
 | `--lock-ticks` | shipping `DEFAULT_LOCK_TICKS` | the lock dwell, to replay another value |
 | `--no-rearm` | off | replay the policy without the look re-arm (`scan/ui/rearm.ts`) |
+| `--no-size-gate` | off | replay the policy without the size gate (`scan/ui/sizeGate.ts`), the policy before 2026-11-26 |
 | `--batch` | 16 | LC050 frames per sidecar call |
 | `--timeline-every` | fps | ticks between timeline tiles (1 per second by default) |
 | `--out` | `~/deckpal-data/video-bench` | output root |
@@ -171,7 +172,11 @@ are smooth downscales, as `drawModelInput` and `grabWork` make them.
    (`--aim` points it somewhere else for a whole run; see below). Most
    shorts are 608x1080, so the 960 square carries only 608 px of real detail.
    Captures are softer than a phone's, and blur comes from the source's own
-   30 fps exposure.
+   30 fps exposure. The same goes for distance: a card the size gate holds
+   (`scan/ui/sizeGate.ts`, too small to read) is one a real user is told to
+   come closer to, and footage cannot. `summary.json`'s `farTracks` counts the
+   locked tracks that never fired for it: the gate's cost on a video, which a
+   phone would mostly not pay.
 
 ## Aiming the phone (`--aim`)
 
