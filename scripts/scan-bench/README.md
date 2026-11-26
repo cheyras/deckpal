@@ -111,6 +111,20 @@ cards) named the wrong printing, nearly all vintage reprints with the same art
 (Base Set vs Base Set 2, Legendary Collection, Celebrations Classic
 Collection). Only rows that went through step 4 become benchmark labels.
 
+## Leave-one-set-out: the scanner on a set the index has not seen
+
+The owner's 2026-11-25 field test was of a set (me06) production had never
+indexed. To replay that state, give the bench a root whose `phash-index.json`
+and vector gallery lack the set, and name it in `SCAN_BENCH_UNINDEXED` so the
+local port answers `unindexedNamesakes` as production would:
+
+```bash
+SCAN_BENCH_DIR=~/deckpal-data/scan-bench-loso SCAN_BENCH_UNINDEXED=me06   node --import tsx scripts/scan-bench/bench.ts --vectors <stale gallery tag> --label loso
+```
+
+The number to watch there is WRONG, which must be 0: an index that has not seen
+a set must make the scanner ask, never name the nearest older printing.
+
 ## Caveats, read before trusting a number
 
 - **Most crops are 229×320**, the size scan telemetry keeps, not the 480×670

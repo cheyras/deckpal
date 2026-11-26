@@ -1581,7 +1581,7 @@ manual, and `image-warm.yml` follows each catalog refresh.
 
 | Workflow | Schedule | What it does |
 |---|---|---|
-| `catalog-refresh.yml` | Sundays 04:30 UTC | `card` / `card_set` in step with upstream TCGdex |
+| `catalog-refresh.yml` | Sundays 04:30 UTC | `card` / `card_set` in step with upstream TCGdex; then the scanner's dHash and image-vector rows for any card missing them (`scan:topup`, red if a card with art is still missing one) |
 | `price-refresh.yml` | every 15 min, plus 02:10 and 21:10 UTC | polls TCGCSV's `last-updated.txt` and ingests on change; nightly Cardmarket ingest, all-users value snapshot, set-progress reconcile |
 | `price-backfill.yml` | manual only | replays TCGCSV daily archives into `price_observation` for a past range |
 | `price-rollup.yml` | 3rd of the month, 04:20 UTC (armed 2026-08-30) | tiered retention: rolls old months into weekly/monthly OHLC `price_bucket` rows, verifies them against the source, then retires and later DROPS the daily partition |

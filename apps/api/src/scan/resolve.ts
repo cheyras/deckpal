@@ -189,6 +189,17 @@ export interface CatalogPort {
    * unchanged.
    */
   officialCounts?(setIds: readonly string[]): Promise<Map<string, number | null>>;
+  /**
+   * How many cards that share `card`'s exact name sit in a set the image index
+   * has NOT SEEN: a set with no vector at the current stamp. Those cards cannot
+   * be anyone's nearest picture, so a vector that picked one of their namesakes
+   * may only have picked the closest card the index happens to hold
+   * (`holdForTheUnindexed`). A card with no art in an otherwise indexed set does
+   * not count: nobody can index it, and it must not block its name for ever.
+   *
+   * OPTIONAL like the rest: a port without it skips the guard.
+   */
+  unindexedNamesakes?(card: CatalogCard): Promise<number>;
 }
 
 // ── Request / response ──────────────────────────────────────────────────────
@@ -1181,7 +1192,30 @@ export async function resolveCard(
     : opts.fusion
       ? await letDecisiveVectorSpeak(out)
       : out;
-  return opts.artSiblings ? await openThePrinting(reviewed, opts.artSiblings) : reviewed;
+  const held = await holdForTheUnindexed(reviewed);
+  return opts.artSiblings ? await openThePrinting(held, opts.artSiblings) : held;
+
+  /**
+   * THE IMAGE INDEX ONLY KNOWS WHAT IT HOLDS.
+   *
+   * The owner's 2026-11-25 field test was all Delta Reign (me06), a set with no
+   * vector at all. A Masquerain from it was read `Masquerain`, and the closest
+   * Masquerain the index held was Obsidian Flames' sv03-007. The name agreed
+   * with the picture, so the ladder called it 'corroborated' and named the
+   * wrong card with confidence. Name and picture are not independent there:
+   * both say "a Masquerain", and only the index's blind spot chose which.
+   *
+   * So an answer the image decided is held whenever a namesake of its lead sits
+   * in a set the index has not seen (`unindexedNamesakes`). The catalog refresh
+   * now indexes every new set the day it is imported (`scan:topup`). This is the
+   * guard for the days in between, and for whatever else slips.
+   */
+  async function holdForTheUnindexed(o: ResolveOutcome): Promise<ResolveOutcome> {
+    if (!o.confident || (o.resolvedBy !== 'vector' && o.resolvedBy !== 'corroborated')) return o;
+    const lead = o.matches[0];
+    if (!lead || !port.unindexedNamesakes) return o;
+    return (await port.unindexedNamesakes(lead)) > 0 ? { ...o, confident: false } : o;
+  }
 
   /**
    * A CONFIDENT PICTURE IS NOT A CONFIDENT PRINTING (artFamilies.ts). On the
