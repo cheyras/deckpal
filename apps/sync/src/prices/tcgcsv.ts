@@ -7,6 +7,7 @@
 
 import { fetchText, fetchJson, RateLimited } from './http.js';
 import { linkTcgcsvProducts } from './linkTcgcsv.js';
+import { fillPrizePack, PRIZE_PACK_GROUP, type PrizePackResult } from './prizePack.js';
 import { toMinor, type TcgcsvPriceEnvelope, type TcgcsvPriceRow, type Metrics } from './types.js';
 import {
   type Queryable, type PricePoint, appendObservations, upsertCurrent, ensureObservationPartition,
@@ -75,6 +76,8 @@ export interface PriceIngestResult {
   pricedVariants: number; unmatchedRows: number; skipped: boolean; stamp: string;
   /** What the link pass did before the walk (linkTcgcsv.ts); zeros when it had nothing to do. */
   linkedVariants: number; assignedGroups: number;
+  /** Play! Pokémon stamped printings the link pass added (prizePack.ts). */
+  prizePackAdded: number;
 }
 
 // Reusable per-set writer: given already-fetched price rows, join + write. Returns rows written.
@@ -102,6 +105,50 @@ export async function writeSetPrices(
   return { observations, matched: points.length, unmatched };
 }
 
+/**
+ * Price a TCGplayer group by product id across EVERY set. `writeSetPrices` cannot: it joins one
+ * set's group to that set's variants, and a Prize Pack product (prizePack.ts) belongs to no set's
+ * group, so every stamped printing went unpriced, TCGdex's own included.
+ *
+ * The join is (product id, printing), like the set walk. One fallback: a product TCGplayer prices
+ * in exactly one printing, linked from exactly one variant, is that variant even when the printing
+ * names differ. TCGdex files some cosmos stamps as "reverse" and the importer writes "Reverse
+ * Holofoil" for them; TCGplayer sells the same card as "Holofoil".
+ */
+export async function writeProductGroupPrices(
+  client: Queryable, prices: TcgcsvPriceRow[], capturedAt: Date, runId: number | null,
+): Promise<{ observations: number; matched: number; unmatched: number }> {
+  if (prices.length === 0) return { observations: 0, matched: 0, unmatched: 0 };
+  const pids = [...new Set(prices.map((p) => p.productId))];
+  const { rows } = await client.query<{ id: string; pid: number; printing: string | null }>(
+    `SELECT id, tcgplayer_product_id AS pid, tcgplayer_printing AS printing
+       FROM card_variant WHERE tcgplayer_product_id = ANY($1::int[])`,
+    [pids],
+  );
+  const byPid = new Map<number, { id: number; printing: string | null }[]>();
+  for (const r of rows) {
+    const pid = Number(r.pid);
+    (byPid.get(pid) ?? byPid.set(pid, []).get(pid)!).push({ id: Number(r.id), printing: r.printing });
+  }
+  const rowsPerPid = new Map<number, number>();
+  for (const p of prices) rowsPerPid.set(p.productId, (rowsPerPid.get(p.productId) ?? 0) + 1);
+
+  const points: PricePoint[] = [];
+  let unmatched = 0;
+  for (const row of prices) {
+    const vs = byPid.get(row.productId) ?? [];
+    let hit = vs.filter((v) => v.printing === row.subTypeName);
+    if (hit.length === 0 && vs.length === 1 && rowsPerPid.get(row.productId) === 1) hit = vs;
+    if (hit.length === 0) { unmatched++; continue; }
+    for (const v of hit) {
+      points.push({ cardVariantId: v.id, sourceId: SOURCE_ID, sourceCode: SOURCE_CODE, currency: CURRENCY, metrics: tcgplayerMetrics(row) });
+    }
+  }
+  const observations = await appendObservations(client, points, capturedAt, runId);
+  await upsertCurrent(client, points, capturedAt);
+  return { observations, matched: points.length, unmatched };
+}
+
 export interface IngestOpts {
   sets?: string[]; force?: boolean;
   /** Run the link pass (default true). Off only for tests and for isolating a price bug. */
@@ -113,9 +160,11 @@ export interface IngestDeps {
   fetchLastUpdated?: () => Promise<string>;
   fetchGroupPrices?: (groupId: number) => Promise<TcgcsvPriceRow[]>;
   linkProducts?: typeof linkTcgcsvProducts;
+  /** The Prize Pack fill (prizePack.ts), run inside the link step on a full run. */
+  fillPrizePack?: (client: Queryable) => Promise<PrizePackResult>;
 }
 
-interface LinkStepResult { linked: number; assigned: number; failure: string | null }
+interface LinkStepResult { linked: number; assigned: number; prizePackAdded: number; failure: string | null }
 
 /**
  * The link pass as its OWN sync_run job (`products-tcgcsv`), keyed on TCGCSV's stamp like the price
@@ -126,20 +175,47 @@ interface LinkStepResult { linked: number; assigned: number; failure: string | n
  */
 async function runLinkStep(
   client: Queryable, stamp: string, filter: string[] | null, link: typeof linkTcgcsvProducts,
+  prizePack: (client: Queryable) => Promise<PrizePackResult>,
 ): Promise<LinkStepResult> {
   let runId: number | null = null;
   try {
     runId = await startRun(client, 'products-tcgcsv', filter ? null : stamp);
     const r = await link(client, { sets: filter });
     const failed = r.failedSets.length;
-    await finishRun(client, runId, failed ? 'failed' : 'ok', {
-      rowsWritten: r.variantsLinked, itemsSeen: r.setsScanned, itemsFailed: failed,
-      cursor: { groupsAssigned: r.groupsAssigned, unresolvedSets: r.unresolvedSets },
-      error: failed ? `${failed} set(s) failed: ${r.failedSets.slice(0, 5).map((f) => `${f.set}: ${f.error}`).join('; ')}` : undefined,
+    // The Prize Pack printings (prizePack.ts) are a product-link job on the same daily stamp, so
+    // they share this run rather than needing a job of their own. Only a full run does them:
+    // `--sets` narrows the per-set walk, and group 22880 spans every set. A failure here costs the
+    // stamped printings, not the links above or today's prices, and still turns the run red.
+    let pp: PrizePackResult | null = null;
+    let ppFailure: string | null = null;
+    if (!filter) {
+      try {
+        pp = await prizePack(client);
+      } catch (err) {
+        if (err instanceof RateLimited) throw err;
+        try { await client.query('ROLLBACK'); } catch { /* nothing open */ }
+        ppFailure = `Prize Pack printings: ${err instanceof Error ? err.message : String(err)}`;
+        console.error(`[prices] link pass: ${ppFailure}`);
+      }
+    }
+    const errors = [
+      ...(failed ? [`${failed} set(s) failed: ${r.failedSets.slice(0, 5).map((f) => `${f.set}: ${f.error}`).join('; ')}`] : []),
+      ...(ppFailure ? [ppFailure] : []),
+    ];
+    await finishRun(client, runId, errors.length ? 'failed' : 'ok', {
+      rowsWritten: r.variantsLinked + (pp ? pp.added + pp.linked : 0), itemsSeen: r.setsScanned,
+      itemsFailed: failed + (ppFailure ? 1 : 0),
+      cursor: {
+        groupsAssigned: r.groupsAssigned, unresolvedSets: r.unresolvedSets,
+        ...(pp ? { prizePack: { added: pp.added, linked: pp.linked, covered: pp.covered, skipped: pp.skipped } } : {}),
+      },
+      error: errors.length ? errors.join(' | ') : undefined,
     });
     return {
-      linked: r.variantsLinked, assigned: r.groupsAssigned,
-      failure: failed ? `${failed} set(s) could not be linked (${r.failedSets[0]!.set}: ${r.failedSets[0]!.error})` : null,
+      linked: r.variantsLinked + (pp?.linked ?? 0), assigned: r.groupsAssigned, prizePackAdded: pp?.added ?? 0,
+      failure: failed
+        ? `${failed} set(s) could not be linked (${r.failedSets[0]!.set}: ${r.failedSets[0]!.error})`
+        : ppFailure,
     };
   } catch (err) {
     try { await client.query('ROLLBACK'); } catch { /* nothing open */ }
@@ -149,7 +225,7 @@ async function runLinkStep(
       try { await finishRun(client, runId, 'failed', { error: err instanceof Error ? err.message : String(err) }); } catch { /* see above */ }
     }
     if (err instanceof RateLimited) throw err; // TCGCSV's policy is to stop the whole run
-    return { linked: 0, assigned: 0, failure: err instanceof Error ? err.message : String(err) };
+    return { linked: 0, assigned: 0, prizePackAdded: 0, failure: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -191,10 +267,15 @@ export async function ingestTcgcsvPrices(
     // from the price skip, so a failed link pass is retried on the next tick even though today's
     // prices are already in. A failure is held and thrown once the prices that CAN be written are
     // written, so the job goes red rather than cards staying unpriced behind a green dashboard.
-    let linkRun: LinkStepResult = { linked: 0, assigned: 0, failure: null };
+    let linkRun: LinkStepResult = { linked: 0, assigned: 0, prizePackAdded: 0, failure: null };
     if (opts.link !== false) {
       const due = !!filter || !!opts.force || (await lastOkStamp(client, 'products-tcgcsv')) !== stamp;
-      if (due) linkRun = await runLinkStep(client, stamp, filter, deps.linkProducts ?? linkTcgcsvProducts);
+      if (due) {
+        linkRun = await runLinkStep(
+          client, stamp, filter, deps.linkProducts ?? linkTcgcsvProducts,
+          deps.fillPrizePack ?? ((c) => fillPrizePack(c)),
+        );
+      }
     }
     const linkFailed = (): Error =>
       new Error(`the TCGCSV link pass failed, so cards TCGdex has no TCGplayer id for stay unpriced: ${linkRun.failure}`);
@@ -204,6 +285,7 @@ export async function ingestTcgcsvPrices(
       return {
         sets: 0, groupsFetched: 0, observations: 0, current: 0, pricedVariants: 0, unmatchedRows: 0,
         skipped: true, stamp, linkedVariants: linkRun.linked, assignedGroups: linkRun.assigned,
+        prizePackAdded: linkRun.prizePackAdded,
       };
     }
 
@@ -221,6 +303,16 @@ export async function ingestTcgcsvPrices(
         observations += r.observations; matched += r.matched; unmatched += r.unmatched;
         lastGroup = s.groupId;
       }
+      // Prize Pack printings belong to no set's group: price them by product id (above).
+      if (!filter) {
+        const prices = await walkPrices(PRIZE_PACK_GROUP);
+        groupsFetched++;
+        await client.query('BEGIN');
+        const r = await writeProductGroupPrices(client, prices, capturedAt, runId);
+        await client.query('COMMIT');
+        observations += r.observations; matched += r.matched; unmatched += r.unmatched;
+        lastGroup = PRIZE_PACK_GROUP;
+      }
     } catch (err) {
       try { await client.query('ROLLBACK'); } catch { /* ignore */ }
       await finishRun(client, runId, 'partial', { rowsWritten: observations, itemsSeen: groupsFetched, cursor: { lastGroup }, error: (err as Error).message });
@@ -231,6 +323,7 @@ export async function ingestTcgcsvPrices(
     return {
       sets: sets.length, groupsFetched, observations, current: matched, pricedVariants: matched,
       unmatchedRows: unmatched, skipped: false, stamp, linkedVariants: linkRun.linked, assignedGroups: linkRun.assigned,
+      prizePackAdded: linkRun.prizePackAdded,
     };
   } finally {
     await unlock(client, 'prices-tcgcsv');

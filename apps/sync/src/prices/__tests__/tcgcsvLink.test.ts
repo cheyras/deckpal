@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { ingestTcgcsvPrices, type IngestDeps } from '../tcgcsv.js';
 import { RateLimited } from '../http.js';
 import type { LinkResult } from '../linkTcgcsv.js';
+import type { PrizePackResult } from '../prizePack.js';
 
 /**
  * How the link pass is SEQUENCED around the price ingest, without a database.
@@ -57,10 +58,17 @@ const STAMP = '2026-10-01T20:05:00Z';
 const linkResult = (over: Partial<LinkResult> = {}): LinkResult => ({
   dryRun: false, setsScanned: 3, groupsAssigned: 1, variantsLinked: 10, unresolvedSets: 0, failedSets: [], perSet: [], ...over,
 });
-const deps = (link: IngestDeps['linkProducts'], calls: { n: number }): IngestDeps => ({
+const prizePackResult = (): PrizePackResult => ({
+  dryRun: false, products: 0, added: 0, linked: 0, covered: 0, collapsed: 0, skipped: {}, addedBySet: {}, recomputedProgressRows: 0,
+});
+const deps = (
+  link: IngestDeps['linkProducts'], calls: { n: number },
+  prizePack: IngestDeps['fillPrizePack'] = async () => prizePackResult(),
+): IngestDeps => ({
   fetchLastUpdated: async () => STAMP,
   fetchGroupPrices: async () => [],
   linkProducts: async (...a) => { calls.n++; return link!(...a); },
+  fillPrizePack: prizePack,
 });
 const jobStatus = (c: ReturnType<typeof fakeClient>, job: string) => c.runs.filter((r) => r.job === job).map((r) => r.status);
 
@@ -161,4 +169,36 @@ test('if even recording the link run fails, prices still run and the job fails l
   );
   assert.equal(calls.n, 0);
   assert.deepEqual(jobStatus(c, 'prices-tcgcsv'), ['ok']);
+});
+
+// ── the Prize Pack printings ride the link step (prizePack.ts) ──
+
+test('the Prize Pack fill runs in the link step of a full run, and the walk prices its group', async () => {
+  const c = fakeClient(); const calls = { n: 0 }; let pp = 0; const groups: number[] = [];
+  const d = deps(async () => linkResult(), calls, async () => { pp++; return { ...prizePackResult(), added: 7, linked: 2 }; });
+  d.fetchGroupPrices = async (g) => { groups.push(g); return []; };
+  const r = await ingestTcgcsvPrices(c as never, {}, d);
+  assert.equal(pp, 1);
+  assert.equal(r.prizePackAdded, 7);
+  assert.equal(r.linkedVariants, 12, 'stamped printings it linked count with the link pass');
+  assert.deepEqual(groups, [22880], 'no set walks group 22880, so the ingest prices it by product id');
+});
+
+test('a run restricted to some sets leaves the Prize Pack group alone', async () => {
+  const c = fakeClient(); const calls = { n: 0 }; let pp = 0; const groups: number[] = [];
+  const d = deps(async () => linkResult(), calls, async () => { pp++; return prizePackResult(); });
+  d.fetchGroupPrices = async (g) => { groups.push(g); return []; };
+  await ingestTcgcsvPrices(c as never, { sets: ['svp'] }, d);
+  assert.equal(pp, 0);
+  assert.deepEqual(groups, []);
+});
+
+test('a Prize Pack failure costs only the stamped printings: links and prices land, the job fails', async () => {
+  const c = fakeClient(); const calls = { n: 0 };
+  await assert.rejects(
+    ingestTcgcsvPrices(c as never, {}, deps(async () => linkResult(), calls, async () => { throw new Error('HTTP 502'); })),
+    /link pass failed.*Prize Pack printings: HTTP 502/s,
+  );
+  assert.deepEqual(jobStatus(c, 'prices-tcgcsv'), ['ok']);
+  assert.deepEqual(jobStatus(c, 'products-tcgcsv'), ['failed']);
 });

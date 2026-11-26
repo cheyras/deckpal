@@ -103,9 +103,14 @@ export function foilLabel(code: string): string {
 export function subtypeLabel(code: string): string {
   return SUBTYPE_LABEL[code] ?? humanize(code);
 }
+/** Stamps whose printed name is not their TCGdex code humanized. */
+const STAMP_LABEL: Record<string, string> = {
+  // TCGdex's code for the stamp printed on Prize Pack cards, which reads "Play! Pokémon".
+  'player-rewards-program': 'Play! Pokémon',
+};
 export function stampLabel(code: string): string {
   // display-only; e.g. 'gamestop' -> 'Gamestop Stamp', 'jason-klaczynski' -> 'Jason Klaczynski Stamp'
-  return `${humanize(code)} Stamp`;
+  return `${STAMP_LABEL[code] ?? humanize(code)} Stamp`;
 }
 
 // ── the normalized facet tuple ───────────────────────────────────────────────
