@@ -362,15 +362,6 @@ export interface ResolveOptions {
    */
   fusion?: FusionInput;
   /**
-   * WHO READ THE PRINTED FIELDS. 'ocr' (absent means this) is the device's
-   * PaddleOCR, which reads characters and leaves out what it cannot see: a key
-   * it produces is either real or garbage, and the ladder's key rules are built
-   * on that. 'vlm' is a vision model (`readCard.ts`), which reads a damaged
-   * strip into a PLAUSIBLE field: `198` for `182`, a set code from memory. Its
-   * answers therefore pass `holdTheModelsKeys` before they may be confident.
-   */
-  readSource?: 'ocr' | 'vlm';
-  /**
    * THE PRINTING GUARD. The other printings that show the same picture as a
    * card (artFamilies.ts), or none. When given, a CONFIDENT answer that no
    * printed key decided — the vector, the hash, a name that every printing
@@ -460,8 +451,7 @@ export const MAX_MATCHES = 25;
 /**
  * A trailing `(…)` with no `)` inside it, and the whitespace around it, gone.
  * Written without a regex: `/\s*\([^)]*\)\s*$/` backtracks quadratically on a
- * long run of spaces (CodeQL js/polynomial-redos), and a vision model's or an
- * OCR read's text reaches it.
+ * long run of spaces (CodeQL js/polynomial-redos), and an OCR read reaches it.
  */
 function stripTrailingParenthetical(s: string): string {
   const t = s.trimEnd();
@@ -1216,44 +1206,8 @@ export async function resolveCard(
     : opts.fusion
       ? await letDecisiveVectorSpeak(out)
       : out;
-  const held = await holdForTheUnindexed(opts.readSource === 'vlm' ? await holdTheModelsKeys(reviewed) : reviewed);
+  const held = await holdForTheUnindexed(reviewed);
   return opts.artSiblings ? await openThePrinting(held, opts.artSiblings) : held;
-
-  /**
-   * A KEY A VISION MODEL READ MUST NOT BE CONTRADICTED.
-   *
-   * Device OCR leaves out what it cannot read, so a key it produces is real or
-   * garbage. A vision model reads a damaged strip into a plausible field, and a
-   * plausible field is usually a real key. Replayed on 261 benchmark cards with
-   * Claude Sonnet 5.5's reads (2026-11-25), the ladder named 239 right and 4
-   * wrong, three of them decided by a key the model misread:
-   *   * `PAR` read off an sv10 Arcanine (badge+number: Iron Moth);
-   *   * `022/198` for Dolliv `022/182` (name+number: the sv01 Dolliv, while the
-   *     picture decisively said the sv10 one);
-   *   * `174/197` off Lacey `139/142` (number+denominator: Bouffalant).
-   *
-   * So an answer a PRINTED KEY decided, from a model's read, is held when the
-   * read name does not agree with it, or the vector is decisive for another
-   * card that does not share its picture. It stays `matched` with the same list;
-   * it only stops being confident.
-   *
-   * Answers the picture decided ('vector', 'corroborated') are not held for a
-   * misread number: there the name and the picture agree, and the misread
-   * strip of a blurred crop (`001/191` off Azurill `080/103`) is the noise. Doing
-   * so cost 52 right answers on the same replay.
-   */
-  async function holdTheModelsKeys(o: ResolveOutcome): Promise<ResolveOutcome> {
-    if (!o.confident || o.resolvedBy === 'vector' || o.resolvedBy === 'corroborated') return o;
-    const lead = o.matches[0];
-    if (!lead) return o;
-    const hold = { ...o, confident: false };
-    if (nameRead && !nameAgrees(nameRead, lead.name) && !readIsFragmentOf(nameRead, lead.name)) return hold;
-    if (vector?.decisive && vector.cardId && vector.cardId !== lead.cardId) {
-      const samePicture = opts.artSiblings?.(vector.cardId).includes(lead.cardId) ?? false;
-      if (!samePicture) return hold;
-    }
-    return o;
-  }
 
   /**
    * THE IMAGE INDEX ONLY KNOWS WHAT IT HOLDS.
