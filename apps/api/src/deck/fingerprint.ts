@@ -62,7 +62,10 @@ function norm(s: string | null | undefined): string {
  * same: Delphox me04-013 says "Basic {R} Energy" and its reprint mep-074 says
  * "Basic Fire Energy", and they are one card. Only effect text goes through
  * this — never the card name or the attack cost (see `@deckpal/db/energyText`).
- * Text with no symbol is unchanged, so its hash does not move.
+ * HTML tags are dropped too (30th Celebration `<em>` reminder text hashes like the
+ * untagged printing). Text with no `{X}` symbol AND no tag is unchanged, so its
+ * hash does not move; text with either does, which is why the refresh always
+ * runs `fingerprint:index --all`.
  */
 function normText(s: string | null | undefined): string {
   return norm(canonicalEnergyText(s));

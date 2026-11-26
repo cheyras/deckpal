@@ -103,8 +103,29 @@ test('names and costs are not folded: "Basic {R} Energy" and "Basic Fire Energy"
   assert.notEqual(playableFingerprint(cost('{R}')), playableFingerprint(cost('Fire')));
 });
 
-test('a card with no Energy symbol keeps the exact hash it had before the fold', () => {
+test('a card with no Energy symbol and no HTML tag keeps the exact hash it had before the fold', () => {
   // Computed with the pre-2026-11-17 fingerprint.ts. If this moves, `fingerprint:index --all` would
-  // rewrite every row instead of only the ones that carry a symbol.
+  // rewrite every row instead of only the ones that carry a `{X}` symbol or an HTML tag. (Text with
+  // a tag DOES move — see the <em> test below — and that is intended.)
   assert.equal(playableFingerprint(baseCharizard), '658408e964b252ddac30aab3c3428a0fc2c4dc0f3b3837a5046b4cc90caf89af');
+});
+
+test('tagged reminder text (30th Celebration <em>) hashes the same as the untagged printing', () => {
+  // Every tag is dropped, not only the energy-symbol span, so this hash differs from the
+  // pre-2026-11-17 one for the tagged printing: the two printings now group as one card.
+  const reminder = (r: string): FingerprintInput => ({
+    ...baseCharizard,
+    attacks: [{ name: 'Burning Darkness', cost: 'Fire,Fire', damage: '180', effect: `plus 30 more per prize taken ${r}` }],
+  });
+  const tagged = reminder('<em>(You can\'t use more than 1 GX attack in a game.)</em>');
+  const plain = reminder('(You can\'t use more than 1 GX attack in a game.)');
+  assert.equal(playableFingerprint(tagged), playableFingerprint(plain));
+});
+
+test('an empty energy-symbol span still hashes as its type, never as nothing', () => {
+  const t = (type: string): FingerprintInput => ({
+    name: 'X', category: 'Trainer', effect: `Attach a Basic <span class="energy-symbol ${type}" title="${type}"></span> Energy card.`,
+  });
+  assert.notEqual(playableFingerprint(t('Fire')), playableFingerprint(t('Water')));
+  assert.equal(playableFingerprint(t('Fire')), playableFingerprint({ name: 'X', category: 'Trainer', effect: 'Attach a Basic {R} Energy card.' }));
 });

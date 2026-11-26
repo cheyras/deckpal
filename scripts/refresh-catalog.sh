@@ -110,9 +110,16 @@ pnpm --filter deckpal-sync import:catalog
 # importer writes AFTER the card row exists, so there is no moment during the
 # import when it is computable. It is a pass, and it runs here.
 #
-# Only rows with no hash, so a weekly refresh pays for what upstream added.
-# After changing fingerprint.ts itself, run it once with --all.
-pnpm --filter deckpal-api fingerprint:index
+# Every row, every time (--all). The hash is a contract BETWEEN rows: if only
+# new rows were hashed, a change to fingerprint.ts would leave old rows on the
+# old definition and new rows on the new one, and the reprint-legality oracle
+# (apps/api/src/deck/db.ts buildReprintOracle) would stop seeing an old
+# printing's legal reprint — a legal deck would validate NOT_IN_FORMAT. With
+# --all the definition heals itself on the next refresh. It is idempotent and
+# cheap: `IS DISTINCT FROM` writes only the rows whose hash actually moved
+# (~23.5k rows scanned, the same scan identical-prints:index already does).
+# Preview a definition change with `fingerprint:index --all --dry-run`.
+pnpm --filter deckpal-api fingerprint:index --all
 
 # Materialize groups of ordinary cards with identical gameplay text. Promo sets
 # are deliberately left out; stamped variants are excluded when a reader's

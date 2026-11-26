@@ -125,7 +125,9 @@ searchRouter.get(
     if (hpMin !== undefined) where.push(`c.hp >= ${p(hpMin)}`);
     if (hpMax !== undefined) where.push(`c.hp <= ${p(hpMax)}`);
     // Rules text compares with Energy symbols spelled out on both sides ({R} = Fire), so a filter for
-    // "Fire Energy" also finds the printings that say "{R} Energy" (@deckpal/db/energyText).
+    // "Fire Energy" also finds the printings that say "{R} Energy" (@deckpal/db/energyText). Only the
+    // EFFECT column is folded (gated, so symbol-free rows skip it); attack/Ability names never carry
+    // symbols and are compared as stored. Pinned by src/__tests__/search-energy-text.test.ts.
     if (attack) where.push(`EXISTS (SELECT 1 FROM card_attack a WHERE a.card_id = c.id AND (a.name ILIKE ${p(`%${canonicalEnergyText(attack)}%`)} OR ${canonicalEnergyTextSql('a.effect')} ILIKE $${params.length}))`);
     if (ability) where.push(`EXISTS (SELECT 1 FROM card_ability ab WHERE ab.card_id = c.id AND (ab.name ILIKE ${p(`%${canonicalEnergyText(ability)}%`)} OR ${canonicalEnergyTextSql('ab.effect')} ILIKE $${params.length}))`);
     if (artist.length) where.push(`c.illustrator = ANY(${p(artist)})`);

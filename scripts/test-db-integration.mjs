@@ -381,6 +381,25 @@ try {
     assert.equal(evidence.status, 'passed');
     result.cases.push(evidence);
   }
+  // Energy-symbol fold (2026-11-17): canonicalEnergyTextSql on the real regex dialect, compared
+  // with the TS canonicalEnergyText. A pure expression over a parameter: no migrations, no fixture.
+  {
+    assertNoEnvFile();
+    await run(join(bindir, 'psql'), ['-X', '-v', 'ON_ERROR_STOP=1', '-c',
+      'CREATE DATABASE deckpal_ci_energytext OWNER deckpal_ci_fixture']);
+    const caseFile = join(scratch, 'energy-text-sql.json');
+    await run(process.execPath, ['--import', join(REPO, 'node_modules', 'tsx', 'dist', 'loader.mjs'),
+      join(REPO, 'apps', 'api', 'src', '__integration__', 'energyText.mjs')], {
+      timeoutMs: 120_000,
+      env: {
+        PGUSER: 'deckpal_ci_fixture', PGDATABASE: 'deckpal_ci_energytext',
+        DECKPAL_TEST_ROOT: scratch, DECKPAL_TEST_MARKER: marker, DECKPAL_TEST_RESULT: caseFile,
+      },
+    });
+    const evidence = JSON.parse(readFileSync(caseFile, 'utf8'));
+    assert.equal(evidence.status, 'passed');
+    result.cases.push(evidence);
+  }
   // Bulk list tooling (Phase 4): search_cards' finish filter and edit_list's add_search choose
   // printings in SQL, so only a database proves which variant ids get written.
   {

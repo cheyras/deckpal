@@ -94,7 +94,7 @@ pnpm --filter @deckpal/db migrate:status
 # exits 1 ("not one row could be hashed"). On a fresh project skip both here;
 # refresh-catalog.sh (step 6) runs them after it imports, and after any other
 # first import (e.g. step 5) run them then.
-pnpm --filter deckpal-api fingerprint:index
+pnpm --filter deckpal-api fingerprint:index --all
 pnpm --filter deckpal-api identical-prints:index
 ```
 
@@ -114,8 +114,14 @@ pnpm --filter deckpal-api identical-prints:index
 > The following `identical-prints:index` pass writes the safe ordinary-print
 > groups used by deck ownership; promo sets are excluded, and stamped variants
 > are filtered when ownership is resolved. `scripts/refresh-catalog.sh` runs
-> both passes after every import. After changing `fingerprint.ts` itself, run
-> `fingerprint:index --all` and then rerun `identical-prints:index`.
+> both passes after every import, and since 2026-11-17 it runs
+> `fingerprint:index --all` (every row, writing only the ones whose hash moved),
+> so a change to `fingerprint.ts` heals on the next weekly refresh with no manual
+> step. To apply one sooner, or by hand outside the refresh, run
+> `fingerprint:index --all` and then `identical-prints:index`; never the NULL-only
+> form after a definition change, which would leave old rows on the old hash and
+> break reprint legality between them. `fingerprint:index --all --dry-run` reports
+> how many rows (and which cards) would change and writes nothing.
 
 > **On 075 (OAuth connections) and the deploy window.** Apply it before, or
 > right after, the deploy that ships it. Until it is applied, every existing

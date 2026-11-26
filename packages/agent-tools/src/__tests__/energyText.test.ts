@@ -49,40 +49,88 @@ test('text with no symbol is returned as the same string; unknown letters and nu
   assert.equal(canonicalEnergyText('basic {r} energy'), 'basic Fire energy');
 });
 
+test('every HTML tag is dropped, so tagged and untagged reminder text compare equal', () => {
+  // 30th Celebration wraps some reminder text in <em>; the same words untagged are the same card.
+  // This is why "symbol-free text hashes as before" only holds for text with no `{X}` AND no tag.
+  const tagged = 'Flip a coin. If heads, this attack does 30 more damage. <em>(You can\'t use more than 1 GX attack in a game.)</em>';
+  const plain = 'Flip a coin. If heads, this attack does 30 more damage. (You can\'t use more than 1 GX attack in a game.)';
+  assert.equal(canonicalEnergyText(tagged), plain);
+  assert.equal(canonicalEnergyText(plain), plain);
+  assert.equal(canonicalEnergyText('<b>Bold</b> and <br/>break'), 'Bold and break');
+});
+
+test('a bare angle bracket in prose is not a tag and is kept', () => {
+  const s = 'If this Pokémon has HP < 50 and > 10 remaining, heal it.';
+  assert.equal(canonicalEnergyText(s), s);
+  assert.equal(canonicalEnergyText('Damage <= 30 or 1 < 2 {R}'), 'Damage <= 30 or 1 < 2 Fire');
+});
+
+test('an EMPTY energy-symbol span still names its type (read from the class), so types never merge', () => {
+  const empty = (t: string): string => `Attach a Basic <span class="energy-symbol ${t}" title="${t}"></span> Energy card.`;
+  assert.equal(canonicalEnergyText(empty('Fire')), 'Attach a Basic Fire Energy card.');
+  assert.equal(canonicalEnergyText(empty('Water')), 'Attach a Basic Water Energy card.');
+  assert.notEqual(canonicalEnergyText(empty('Fire')), canonicalEnergyText(empty('Water')));
+  // The class wins over the inner text, and a span naming no known type falls back to its inner text.
+  assert.equal(canonicalEnergyText('<span class="energy-symbol Fire">R</span>'), 'Fire');
+  assert.equal(canonicalEnergyText('<span class="energy-symbol Plasma">Plasma</span>'), 'Plasma');
+});
+
 /**
  * PARITY: the SQL twin, parsed back out and replayed in JS, gives exactly what the TS function gives.
  * Postgres' `replace()` is a literal, case-sensitive, replace-all; `regexp_replace(…, 'g')` is a
- * global regex replace. Those are the only two operations the SQL may contain.
+ * global regex replace whose `\1` is JS's `$1`; the outer CASE is the "has a `{` or `<`" gate.
+ * Those are the only operations the SQL may contain. The database integration suite
+ * (`apps/api/src/__integration__/energyText.mjs`) runs the same SQL on real PostgreSQL.
  */
+const GATE_HEAD = "CASE WHEN strpos(__X__, '{') > 0 OR strpos(__X__, '<') > 0 THEN ";
+const GATE_TAIL = ' ELSE __X__ END';
+
 function replaySql(sql: string, input: string): string {
+  assert.ok(sql.startsWith(GATE_HEAD) && sql.endsWith(GATE_TAIL), `ungated SQL: ${sql.slice(0, 80)}`);
+  if (!input.includes('{') && !input.includes('<')) return input;
+  const body = sql.slice(GATE_HEAD.length, -GATE_TAIL.length);
   const ops: Array<(s: string) => string> = [];
   const re = /replace\(|regexp_replace\(/g;
   // The expression is nested inside-out, so the innermost (last-opened) call runs first.
-  let rest = sql.slice(sql.indexOf('__X__') + '__X__'.length);
+  let rest = body.slice(body.indexOf('__X__') + '__X__'.length);
   while (rest.length) {
     const m = /^, '((?:[^']|'')*)', '((?:[^']|'')*)'(, 'g')?\)/.exec(rest);
     assert.ok(m, `unparsed SQL tail: ${rest}`);
     const [whole, from, to, global] = m;
-    if (global) ops.push((s) => s.replace(new RegExp(from!, 'g'), to!));
+    if (global) ops.push((s) => s.replace(new RegExp(from!, 'g'), to!.replace(/\\(\d)/g, '$$$1')));
     else ops.push((s) => s.split(from!).join(to!));
     rest = rest.slice(whole.length);
   }
-  assert.equal(ops.length, (sql.match(re) ?? []).length, 'every call was replayed');
+  assert.equal(ops.length, (body.match(re) ?? []).length, 'every call was replayed');
   return ops.reduce((s, op) => op(s), input);
 }
 
+/** Every fold case the TS and SQL twins must agree on. Shared in spirit with the integration suite. */
+const PARITY_SAMPLES = [
+  'Once during your turn, you may discard a Basic {R} Energy card from your hand.',
+  'Attach a Basic <span class="energy-symbol Lightning" title="Lightning">Lightning</span> Energy card.',
+  'Attach a Basic <span class="energy-symbol Fire" title="Fire"></span> Energy card.',
+  'This attack does 30 more damage for each {C} in your opponent\'s Active Pokémon\'s Retreat Cost.',
+  'Search your deck for up to 2 {G}, {W}, {L}, {P}, {F}, {D}, {M}, {N} or {Y} Energy cards.',
+  'Heal 30 damage. <em>(You can\'t use more than 1 GX attack in a game.)</em>',
+  'If this Pokémon has HP < 50 and > 10 remaining, heal it.',
+  'Flip {X} coins.',
+  'No symbols at all.',
+];
+
 test('the SQL fold is the TS fold (parsed and replayed)', () => {
   const sql = canonicalEnergyTextSql('__X__');
-  assert.match(sql, /^(replace\()+regexp_replace\(__X__, '<\[\^<>\]\*>', '', 'g'\)/);
-  const samples = [
-    'Once during your turn, you may discard a Basic {R} Energy card from your hand.',
-    'Attach a Basic <span class="energy-symbol Lightning" title="Lightning">Lightning</span> Energy card.',
-    'This attack does 30 more damage for each {C} in your opponent\'s Active Pokémon\'s Retreat Cost.',
-    'Search your deck for up to 2 {G}, {W}, {L}, {P}, {F}, {D}, {M}, {N} or {Y} Energy cards.',
-    'Flip {X} coins.',
-    'No symbols at all.',
-  ];
-  for (const s of samples) assert.equal(replaySql(sql, s), canonicalEnergyText(s), s);
+  assert.ok(sql.startsWith(GATE_HEAD), 'rows with neither { nor < skip the fold');
+  assert.match(sql, /THEN (replace\()+regexp_replace\(regexp_replace\(__X__, '<span /);
+  for (const s of PARITY_SAMPLES) assert.equal(replaySql(sql, s), canonicalEnergyText(s), s);
+});
+
+test('KNOWN DIFFERENCE: the SQL fold is upper-case only, the TS fold is not', () => {
+  // The catalogue always writes `{R}`; only a search TERM can be `{r}`, and terms go through TS.
+  const sql = canonicalEnergyTextSql('__X__');
+  const lower = 'Discard a Basic {r} Energy card.';
+  assert.equal(canonicalEnergyText(lower), 'Discard a Basic Fire Energy card.');
+  assert.equal(replaySql(sql, lower), lower, 'SQL leaves a lower-case symbol alone');
 });
 
 // ── search_cards wiring ─────────────────────────────────────────────────────

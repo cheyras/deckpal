@@ -54,12 +54,23 @@ import { computeFingerprints } from './db.js';
 export interface IndexResult {
   /** Rows considered. */
   scanned: number;
-  /** Rows given a fingerprint they did not have, or a different one. */
+  /** Rows given a fingerprint they did not have, or a different one (on a dry run: that WOULD be). */
   written: number;
   /** Rows whose data is too thin to fingerprint; left NULL on purpose. */
   tooThin: number;
   /** Rows already correct — only counted on a full recompute. */
   unchanged: number;
+  /** On a dry run only: every row whose stored fingerprint would change, in id order. */
+  changes?: FingerprintChange[];
+}
+
+/** One row a dry run would rewrite. `before` is null for a row never hashed. */
+export interface FingerprintChange {
+  id: number;
+  tcgdexId: string;
+  name: string;
+  before: string | null;
+  after: string;
 }
 
 /** How many cards to hydrate per round trip. Five queries per chunk, whatever the size. */
@@ -69,28 +80,40 @@ export interface IndexOptions {
   /**
    * Recompute rows that already have a fingerprint.
    *
-   * Default false, so the ordinary post-import run touches only what is new.
-   * Pass true after changing `fingerprint.ts` itself — the hash is a contract
-   * between rows, and half the table on an old definition is worse than none.
+   * `scripts/refresh-catalog.sh` always passes it (since 2026-11-17): the hash
+   * is a contract between rows, half the table on an old definition is worse
+   * than none, and a change to `fingerprint.ts` must not wait on somebody
+   * remembering a manual step. `IS DISTINCT FROM` keeps it cheap: an unchanged
+   * row is not written. Without it only NULL rows are filled.
    */
   all?: boolean;
+  /**
+   * Compute and compare, write nothing. The result's `changes` lists every row
+   * whose stored fingerprint would move: the pre-flight for a definition change.
+   */
+  dryRun?: boolean;
   chunk?: number;
   onProgress?: (done: number, total: number) => void;
+  /** The hash source. Tests inject one; production uses {@link computeFingerprints}. */
+  compute?: (pool: pg.Pool, ids: number[]) => Promise<Map<number, string | null>>;
 }
 
 export async function indexFingerprints(pool: pg.Pool, opts: IndexOptions = {}): Promise<IndexResult> {
   const size = opts.chunk ?? CHUNK;
-  const { rows } = await pool.query<{ id: string }>(
-    opts.all
-      ? `SELECT id FROM card ORDER BY id`
-      : `SELECT id FROM card WHERE playable_fingerprint IS NULL ORDER BY id`,
+  const compute = opts.compute ?? computeFingerprints;
+  const { rows } = await pool.query<{ id: string; tcgdex_id: string; name: string; fp: string | null }>(
+    `SELECT id, tcgdex_id, name, playable_fingerprint AS fp FROM card
+      ${opts.all ? '' : 'WHERE playable_fingerprint IS NULL'}
+      ORDER BY id`,
   );
   const ids = rows.map((r) => Number(r.id));
+  const stored = new Map(rows.map((r) => [Number(r.id), r]));
   const out: IndexResult = { scanned: ids.length, written: 0, tooThin: 0, unchanged: 0 };
+  if (opts.dryRun) out.changes = [];
 
   for (let i = 0; i < ids.length; i += size) {
     const slice = ids.slice(i, i + size);
-    const fps = await computeFingerprints(pool, slice);
+    const fps = await compute(pool, slice);
 
     // Only the rows that HAVE a fingerprint are written. A null is the absence
     // of a claim, and the column already holds null for them.
@@ -101,7 +124,18 @@ export async function indexFingerprints(pool: pg.Pool, opts: IndexOptions = {}):
       else out.tooThin += 1;
     }
 
-    if (pairs.length) {
+    if (opts.dryRun) {
+      // The comparison the UPDATE's `IS DISTINCT FROM` makes, done here instead.
+      for (const [id, fp] of pairs) {
+        const row = stored.get(id)!;
+        const before = row.fp?.trim() || null;
+        if (before === fp) out.unchanged += 1;
+        else {
+          out.written += 1;
+          out.changes!.push({ id, tcgdexId: row.tcgdex_id, name: row.name, before, after: fp });
+        }
+      }
+    } else if (pairs.length) {
       // One statement per chunk. `IS DISTINCT FROM` makes a no-op recompute
       // free and lets `written` mean "actually changed" rather than "visited".
       const values = pairs.map((_, n) => `($${n * 2 + 1}::bigint, $${n * 2 + 2}::char(64))`).join(',');
