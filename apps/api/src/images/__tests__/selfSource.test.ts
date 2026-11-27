@@ -59,3 +59,20 @@ test('a small scan is upscaled to the slot, a tiny or non-card image is refused'
   const junk = await encodeToSlot(Buffer.from('<html>not found</html>'), 'low');
   assert.equal(junk.ok, false);
 });
+
+test('the product-list read names its client (TCGCSV refuses Node\'s default agent)', async () => {
+  const { groupProducts, GROUP_FETCH_USER_AGENT } = await import('../selfSource.js');
+  const real = globalThis.fetch;
+  let sent: Headers | null = null;
+  globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+    sent = new Headers(init?.headers);
+    return new Response(JSON.stringify({ results: [{ productId: 7, name: 'Decidueye', extendedData: [{ name: 'Number', value: '001/015' }] }] }));
+  }) as typeof fetch;
+  try {
+    const products = await groupProducts(987654);
+    assert.equal(sent!.get('user-agent'), GROUP_FETCH_USER_AGENT);
+    assert.deepEqual(products?.get(7), { name: 'Decidueye', number: '001/015' });
+  } finally {
+    globalThis.fetch = real;
+  }
+});

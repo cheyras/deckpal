@@ -56,14 +56,19 @@ export type SelfSourceResult =
  * Every product in a group (TCGCSV), memoised per warm instance so a set's worth of fills reads it
  * once — the identity check's input. The URL is a constant host plus an integer, never input.
  */
+/** A generic client name: TCGCSV refuses an anonymous `node` agent. */
+export const GROUP_FETCH_USER_AGENT = 'DeckPal image tier';
 const GROUP_TTL_MS = 60 * 60 * 1000;
 const groups = new Map<number, { at: number; products: Map<number, ProductRecord> }>();
 
-async function groupProducts(groupId: number): Promise<Map<number, ProductRecord> | null> {
+export async function groupProducts(groupId: number): Promise<Map<number, ProductRecord> | null> {
   const hit = groups.get(groupId);
   if (hit && Date.now() - hit.at < GROUP_TTL_MS) return hit.products;
   if (!Number.isSafeInteger(groupId) || groupId <= 0) return null;
+  // TCGCSV answers 401 to Node's default `node` user agent (measured 2026-11-27, the first live
+  // fill: every card came back "group unreadable"). Any named client is served.
   const res = await fetch(`https://tcgcsv.com/tcgplayer/3/${groupId}/products`, {
+    headers: { 'user-agent': GROUP_FETCH_USER_AGENT, accept: 'application/json' },
     signal: AbortSignal.timeout(8_000),
   });
   if (!res.ok) return null;
