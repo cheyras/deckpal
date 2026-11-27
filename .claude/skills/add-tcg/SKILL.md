@@ -338,6 +338,12 @@ keep game-specific specifics in the game's runbook / the slot's `image-slots.md`
   can migrate between releases without a schema change. Cross-referencing two catalog APIs
   (e.g. TCGdex vs pokemontcg.io) can confirm that a logo field is null on one source while a real
   image exists at the URL the other source returns for the same set.
+- **A fallback source is invisible if the client gates its request on the primary source's field.**
+  The primary's column is NULL for exactly the rows the fallback exists to fill, so `if (row.logoUrl)
+  <img>` hides every fallback asset while the image tier happily serves it — a `curl` audit passes
+  and users still see text. After wiring any fallback, check the **rendered page** asks for the asset,
+  for every slot that shares the pattern (fixing it for symbols did not fix it for logos). Attempt
+  the image and degrade on error rather than predicting availability from a catalog field.
 
 ## Definition of done (adding a TCG, or a refresh)
 

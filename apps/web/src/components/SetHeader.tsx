@@ -11,7 +11,6 @@ import { Icon } from './Icon'
 import { PurchaseSetMenu } from './PurchaseSetMenu'
 import { SignInPrompt } from './SignInPrompt'
 import { useSignedIn } from '../lib/session'
-import { bundledSetLogo } from '../lib/releasedSetAssets'
 
 
 export function SetHeader({ data, goal, onGoalChange }: { data: SetDetailResponse; goal: Goal; onGoalChange: (goal: Goal) => void }) {
@@ -157,7 +156,12 @@ export function SetHeader({ data, goal, onGoalChange }: { data: SetDetailRespons
           <h1 className="flex h-[132px] min-w-[135px] items-center">
             {/* logoError: display set name as plain text (React-rendered, not
                 innerHTML) to prevent XSS from a crafted set name. */}
-            {(set.images.logoUrl || bundledSetLogo(set.setId)) && !logoError ? (
+            {/* Attempted for every set, never gated on `images.logoUrl`: that
+                column is NULL for exactly the sets the approved fallback
+                crosswalk sources, so gating on it hid logos the image tier
+                was serving (see SeriesDetail's SetRow). The name stands in
+                only once SetLogo's whole ladder has failed. */}
+            {!logoError ? (
               <SetLogo
                 setId={set.setId}
                 alt={set.name}

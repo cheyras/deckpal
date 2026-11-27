@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
 import { api, type SeriesDetailResponse, type SetSummary } from '../lib/api'
@@ -7,7 +8,6 @@ import { UpcomingSetRow } from '../components/UpcomingSetRow'
 import { fmtCalendarDate, setLevelLabel, setLevelFromCounts } from '../lib/format'
 import { CARD_SEARCH_DEFAULTS } from './setSearch'
 import { useLateEntrance } from '../lib/lateEntrance'
-import { bundledSetLogo } from '../lib/releasedSetAssets'
 import { errorMeta, usePageMeta, type PageMeta } from '../lib/seo'
 
 /**
@@ -34,6 +34,15 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
   // Absent for a logged-out visitor — the row then shows the set's own facts
   // (name, date, symbol) and no completion bar, rather than an empty 0/0 bar.
   const c = set.progress?.complete
+  // The logo is attempted for EVERY set; the name stands in only once the whole
+  // ladder (object URL → image tier → bundled asset) has failed. Gating the
+  // attempt on `set.logoUrl` hid every logo the approved fallback crosswalk
+  // sources, because that column is NULL for exactly those sets — Temporal
+  // Forces, the Trainer and Galarian Galleries, My First Battle and eight more
+  // rendered as plain text while the image tier was serving their logo. Same
+  // bug, same fix, as SetSymbolTile's symbol gate on 2026-08-29. Rows are keyed
+  // by set id, so this never carries over from one set to another.
+  const [logoFailed, setLogoFailed] = useState(false)
   return (
     <Link
       to="/series/$series/$set"
@@ -80,11 +89,12 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
             'linear-gradient(135deg, var(--color-surface-quaternary), var(--color-surface-tertiary))',
         }}
       >
-        {set.logoUrl || bundledSetLogo(set.setId) ? (
+        {!logoFailed ? (
           <SetLogo
             setId={set.setId}
             imgClassName="max-h-[64px] max-w-[112px]"
             platedImgClassName="max-h-[54px] max-w-[96px]"
+            onError={() => setLogoFailed(true)}
           />
         ) : (
           <span className="px-[6px] text-center text-[14px] text-text-muted">{set.name}</span>
