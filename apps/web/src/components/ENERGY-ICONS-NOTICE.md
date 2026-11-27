@@ -6,6 +6,13 @@ Dragon, Colorless) are **original geometric recreations** authored for this
 project. They are hand-written inline SVG paths — not copied, traced, or
 extracted from any third-party asset set, game rip, or scan.
 
+Where things live (2026-11-27): the glyph artwork is in `energyGlyphs.tsx`,
+on its own, so that replacing a glyph is an edit to that one file. The token
+it sits on — the coloured, raised disc — is `EnergyIcon.tsx` plus the
+`.energy-token` rule and the `--color-energy-*` tokens in `theme.css`; that
+half is ordinary UI styling, not glyph artwork. A replacement glyph has to
+meet the same bar as the ones above, and this notice is updated with it.
+
 ## Why they are original (research trail)
 
 Investigated, in the order the task prescribed:
@@ -30,7 +37,7 @@ glyphs as SVG."* So the glyphs here were authored from scratch.
 
 Released into the **public domain under CC0 1.0**
 (<https://creativecommons.org/publicdomain/zero/1.0/>). No rights reserved on
-the glyph artwork in `EnergyIcon.tsx`.
+the glyph artwork in `energyGlyphs.tsx` (formerly inline in `EnergyIcon.tsx`).
 
 ## Trademark note
 

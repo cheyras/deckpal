@@ -3,7 +3,9 @@
  *
  * Two visual variants:
  *   - `underline` (default): a horizontal strip with a bottom-border indicator,
- *     used for page sections (Profile, CardDetail, DeckBuilder).
+ *     used for page sections (Profile, CardDetail, DeckBuilder). With `fill`
+ *     the tabs share the strip's width — for a strip that heads a panel, as
+ *     CardDetail's does.
  *   - `pill`: a rounded segmented control, used for mode toggles (Insights).
  *     Supports `size: 'sm'` for compact/muted toggles (currency picker) and
  *     `size: 'md'` (default) for primary toggles.
@@ -30,6 +32,13 @@ export interface TabsProps {
   value: string
   onChange?: (key: string) => void
   className?: string
+  /**
+   * Underline variant only — share the strip's width equally between the tabs
+   * instead of packing them at the start. For a strip that HEADS a panel (the
+   * card detail's Card | Price | TCG), where the tabs are the panel's top edge
+   * rather than a row of links floating above it.
+   */
+  fill?: boolean
 }
 
 export function Tabs({
@@ -39,6 +48,7 @@ export function Tabs({
   value,
   onChange,
   className,
+  fill = false,
 }: TabsProps) {
   if (variant === 'pill') {
     const containerCls =
@@ -77,7 +87,7 @@ export function Tabs({
     >
       {items.map((item) => {
         const active = item.key === value
-        const cls = `shrink-0 whitespace-nowrap border-b-2 px-[12px] py-[10px] text-[14px] ${
+        const cls = `${fill ? 'flex-1 text-center' : 'shrink-0'} whitespace-nowrap border-b-2 px-[12px] py-[10px] text-[14px] ${
           active
             ? 'border-action-primary font-semibold text-text-primary'
             : 'border-transparent font-medium text-text-muted hover:text-text-body'

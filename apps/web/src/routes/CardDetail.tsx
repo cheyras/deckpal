@@ -93,6 +93,33 @@ function QtyStepper({
 const VARIANT_GRID =
   'grid grid-cols-[minmax(0,1fr)_auto] gap-x-[8px] gap:grid-cols-[minmax(0,1fr)_84px_108px] gap:gap-x-[12px] nav:gap-x-[16px]'
 
+// ── The tabbed panel ────────────────────────────────────────────────────────
+// Card | Price | TCG and the content they switch are ONE object: a panel whose
+// top edge is the tab strip. It used to be a strip floating over a column of
+// separate boxes — tabs, then a pair of low-contrast "Variant … Qty" labels
+// hanging in the gap, then each variant in its own card — which read as three
+// things that happened to be stacked (owner review, 2026-11-27).
+//
+// The pattern is the tabbed card (Material's tabs-in-a-card; Bootstrap's
+// `card-header-tabs`; GitHub's Write | Preview box): the strip is the panel's
+// header, its rule is the panel's own divider, and every tab's content lives
+// in the panel body. Inside it, lists are an inset grouped list (iOS): one
+// surface, rows parted by hairlines, the column header as the list's first row
+// rather than a caption above it.
+//
+// Every section of the body uses the same inset, so the header labels, the
+// rows and the dividers line up on one edge whichever tab is open.
+// 16px at every width: on desktop the detail column is only ~444px, and a
+// wider inset squeezed the variant column until "Found in Booster Packs"
+// wrapped — the old per-row cards had a 16px inset too.
+const PANEL_X = 'px-[16px]'
+// The hairline between rows and sections. divider-subtle is stone-700 — on the
+// panel's stone-800 it reads as a rule, not as a gap. Two utilities because
+// `divide-y` colours its children's borders from `divide-*`, never `border-*`;
+// without the pair a list's hairlines fall back to currentColor (white).
+const PANEL_RULE = 'border-divider-subtle'
+const PANEL_ROWS = 'divide-y divide-divider-subtle'
+
 function VariantRow({
   v,
   onAdjust,
@@ -108,8 +135,10 @@ function VariantRow({
   // (Astra review, PR #212).
   const next = useCurrentPathAsNext()
   return (
+    // A row of the panel's grouped list, not a card of its own: the panel
+    // supplies the surface and the hairline above it (see PANEL_X).
     <div
-      className="rounded-lg bg-surface-tertiary p-[16px]"
+      className={`${PANEL_X} py-[14px]`}
       data-owned={(v.quantity ?? 0) > 0 ? 'true' : 'false'}
       // The variant id is a database key, so it is unique on the page and is
       // not text anybody upstream can choose — which is the whole test a
@@ -143,7 +172,7 @@ function VariantRow({
                 href={v.buyUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-[8px] inline-flex h-[30px] w-fit shrink-0 items-center gap-[6px] whitespace-nowrap rounded-lg bg-surface-secondary px-[8px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover"
+                className="mt-[8px] inline-flex h-[30px] w-fit shrink-0 items-center gap-[6px] whitespace-nowrap rounded-lg bg-surface-tertiary px-[8px] text-[14px] font-bold text-text-primary hover:bg-action-default-hover"
               >
                 <Icon name="external" size={14} className="shrink-0 text-action-brand" />
                 <span>TCGplayer</span>
@@ -285,7 +314,7 @@ function PriceTab({ cardId }: { cardId: string }) {
   )
 
   return (
-    <div className="mt-[16px]">
+    <div className={`${PANEL_X} pb-[16px] pt-[14px]`}>
       <div className="flex flex-wrap gap-[6px]">
         {PRICE_RANGES.map((r) => (
           <button
@@ -373,16 +402,18 @@ function TcgTab({ cardId }: { cardId: string }) {
   })
 
   if (isLoading) return <Spinner label="Checking formats…" />
-  if (error) return <ErrorState message={(error as Error).message} />
+  if (error) return <ErrorState message={(error as Error).message} className={PANEL_X} />
   if (!data) return null
 
+  // The formats are rows of the panel's grouped list, like the variants on the
+  // Card tab — not a stack of separate boxes inside it.
   return (
-    <div className="mt-[16px]">
-      <ul className="flex flex-col gap-[8px]">
+    <div>
+      <ul className={PANEL_ROWS}>
         {data.formats.map((f) => (
           <li
             key={f.format}
-            className="flex flex-wrap items-center justify-between gap-[8px] rounded-lg bg-surface-secondary px-[14px] py-[10px]"
+            className={`flex flex-wrap items-center justify-between gap-[8px] ${PANEL_X} py-[12px]`}
           >
             <span className="text-[15px] font-semibold text-text-primary">
               {FORMAT_LABEL[f.format] ?? f.format}
@@ -402,7 +433,7 @@ function TcgTab({ cardId }: { cardId: string }) {
           </li>
         ))}
       </ul>
-      <p className="mt-[12px] text-[14px] text-text-muted">
+      <p className={`border-t ${PANEL_RULE} ${PANEL_X} py-[12px] text-[14px] text-text-muted`}>
         Format rules verified {data.checkedAt.slice(0, 10)}.
       </p>
     </div>
@@ -636,20 +667,28 @@ function CardDetailBody({
                 {data.card.printedTotal ? `/${data.card.printedTotal}` : ''}
               </div>
 
-              {/* tabs */}
-              <Tabs items={tabs} value={tab} onChange={setTab} className="mt-[20px]" />
+              {/* The tabbed panel: the strip is the panel's header and each
+                  tab's content is its body (see PANEL_X). The surface and
+                  radius are the app's panel vocabulary — DeckBuilder's panels
+                  use the same three classes — so premium.css gives it the same
+                  relief as every other raised panel, and classic gets the
+                  border. The 6px header inset keeps the active tab's raised
+                  tile (premium) off the panel's rounded corners. */}
+              <div className="mt-[20px] rounded-xl border border-border-default bg-surface-secondary">
+                <Tabs fill items={tabs} value={tab} onChange={setTab} className="px-[6px] pt-[4px]" />
 
-              {tab === DECK_TAB.key && deckSlot}
-              {tab === 'Card' && (
-                <CardTab
-                  data={shown!}
-                  showAdditional={showAdditional}
-                  setShowAdditional={setShowAdditional}
-                  onAdjust={onAdjust}
-                />
-              )}
-              {tab === 'Price' && <PriceTab cardId={cardId} />}
-              {tab === 'TCG' && <TcgTab cardId={cardId} />}
+                {tab === DECK_TAB.key && <div className={`${PANEL_X} pb-[16px]`}>{deckSlot}</div>}
+                {tab === 'Card' && (
+                  <CardTab
+                    data={shown!}
+                    showAdditional={showAdditional}
+                    setShowAdditional={setShowAdditional}
+                    onAdjust={onAdjust}
+                  />
+                )}
+                {tab === 'Price' && <PriceTab cardId={cardId} />}
+                {tab === 'TCG' && <TcgTab cardId={cardId} />}
+              </div>
             </div>
           </div>
         </div>
@@ -745,28 +784,36 @@ function CardTab({
 
   return (
     <>
-      {/* variant table */}
+      {/* variant table — the panel's first section. Its column header is the
+          list's own first row (same inset, same grid, a rule under it), so it
+          reads as the head of the rows below and not as a caption floating
+          between the tabs and the first card. */}
       <div
-        className="mt-[16px]"
         data-decke-variant-table
         data-decke-landmark="[data-decke-variant-table]"
         data-decke-label="the variant rows"
         data-decke-rank="container"
       >
-        <div className={`${VARIANT_GRID} mb-[8px] items-center px-[16px] text-[14px] text-text-muted`}>
+        <div
+          className={`${VARIANT_GRID} ${PANEL_X} items-center whitespace-nowrap pb-[8px] pt-[12px] text-[12px] font-bold uppercase tracking-wide text-text-secondary`}
+        >
           <span>Variant</span>
-          {/* Hidden on mobile (price label goes with the row, not the header column) */}
+          {/* Hidden on mobile (price label goes with the row, not the header
+              column). One line: set in caps it is wider than its 84px track,
+              and wrapping it to two lines knocked the whole header row out of
+              line; right-aligned, the overflow runs into the gap, not into
+              "Variant". */}
           <span className="hidden text-right gap:block">Market Price</span>
           <span className="text-right">Qty</span>
         </div>
-        <div className="flex flex-col gap-[10px]">
+        <div className={`${PANEL_ROWS} border-t ${PANEL_RULE}`}>
           {standard.map((v) => (
             <VariantRow key={v.variantId} v={v} onAdjust={onAdjust} />
           ))}
         </div>
 
         {special.length > 0 && (
-          <div className="mt-[10px]">
+          <div className={`border-t ${PANEL_RULE}`}>
             <button
               onClick={() => setShowAdditional(!showAdditional)}
               // PRESSABLE, and reviewed as such: the handler toggles one piece
@@ -778,13 +825,14 @@ function CardTab({
               data-decke-landmark="[data-decke-additional-variants]"
               data-decke-label="the Additional Variants disclosure"
               data-decke-clickable
-              className="flex w-full items-center gap-[8px] py-[10px] text-[14px] font-semibold text-text-primary"
+              aria-expanded={showAdditional}
+              className={`flex w-full items-center gap-[8px] ${PANEL_X} py-[12px] text-[14px] font-semibold text-text-primary`}
             >
               <Icon name="chevron-down" size={18} className={showAdditional ? '' : '-rotate-90'} />
               Additional Variants ({special.length})
             </button>
             {showAdditional && (
-              <div className="flex flex-col gap-[10px]">
+              <div className={`${PANEL_ROWS} border-t ${PANEL_RULE}`}>
                 {special.map((v) => (
                   <VariantRow key={v.variantId} v={v} onAdjust={onAdjust} />
                 ))}
@@ -800,6 +848,7 @@ function CardTab({
           column of the variant grid above and have no element of their own, so
           without this Deck-E could only ever ring a whole row. */}
       <div
+        className={`border-t ${PANEL_RULE} ${PANEL_X} pb-[16px] pt-[14px]`}
         data-decke-price-block
         data-decke-landmark="[data-decke-price-block]"
         data-decke-label="the price and buying block"
@@ -810,19 +859,19 @@ function CardTab({
             href={buyUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-[16px] inline-flex h-[40px] items-center gap-[8px] rounded-lg bg-action-brand px-[16px] text-[14px] font-bold text-action-brand-text hover:opacity-90"
+            className="mb-[10px] inline-flex h-[40px] items-center gap-[8px] rounded-lg bg-action-brand px-[16px] text-[14px] font-bold text-action-brand-text hover:opacity-90"
           >
             <Icon name="external" size={16} /> Buy on TCGplayer
           </a>
         )}
-        <p className="mt-[10px] text-[14px] text-text-muted">
+        <p className="text-[14px] text-text-muted">
           Prices from TCGplayer and Cardmarket, updated daily. DeckPal earns nothing from these links.
         </p>
       </div>
 
       {/* attacks */}
       {c.attacks.length > 0 && (
-        <div className="mt-[24px] border-t border-divider-subtle pt-[16px]">
+        <div className={`border-t ${PANEL_RULE} ${PANEL_X} pt-[16px]`}>
           {c.attacks.map((a) => (
             <div key={a.name} className="mb-[16px]">
               <div className="flex items-center justify-between">
@@ -850,7 +899,7 @@ function CardTab({
       )}
 
       {/* attribute grid */}
-      <div className="mt-[24px] grid grid-cols-2 gap-x-[40px] gap-y-[32px] border-t border-divider-subtle pt-[24px]">
+      <div className={`grid grid-cols-2 gap-x-[40px] gap-y-[32px] border-t ${PANEL_RULE} ${PANEL_X} pb-[24px] pt-[20px]`}>
         {c.types.length > 0 && (
           <Attribute label="Type">
             {c.types.map((t) => (
