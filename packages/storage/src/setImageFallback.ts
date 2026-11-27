@@ -1,7 +1,7 @@
 import type { SetImageKind } from './paths.js';
 
 /**
- * Set-image fallback crosswalk — the 50 (setId, kind) pairs the catalog cannot
+ * Set-image fallback crosswalk — the 53 (setId, kind) pairs the catalog cannot
  * source (`card_set.logo_url` / `card_set.symbol_url` are NULL for them) but for
  * which an approved image EXISTS upstream and has been fetched + confirmed.
  *
@@ -13,6 +13,8 @@ import type { SetImageKind } from './paths.js';
  * Source: `inputs/fill-worklist.json` (generated 2026-08-29). Every URL below
  * has been fetched and confirmed to return an image. DO NOT re-derive this list,
  * DO NOT add to it, DO NOT drop from it — the owner approved it on 2026-08-29.
+ * The three rows at the end of the table are PROPOSED (2026-11-27) and need the
+ * owner's per-file acceptance, recorded in their decision file, before merge.
  *
  * ── Why classes are EXCLUDED (do not helpfully "complete" the table) ──────────
  *
@@ -59,7 +61,7 @@ export interface SetImageFallbackEntry {
 }
 
 /**
- * The 50 approved (setId, kind) → sourceUrl mappings. A literal table, never
+ * The 53 approved (setId, kind) → sourceUrl mappings. A literal table, never
  * read from a file at runtime. Exported so tests and tooling can enumerate it.
  */
 export const SET_IMAGE_FALLBACK_TABLE: readonly SetImageFallbackEntry[] = [
@@ -128,6 +130,22 @@ export const SET_IMAGE_FALLBACK_TABLE: readonly SetImageFallbackEntry[] = [
   // TCGdex has this one under `en` after all; the first pass only ever asked
   // the catalog, which stores NULL for it.
   { setId: 'ex5.5', kind: 'symbol', sourceUrl: 'https://assets.tcgdex.net/en/ex/ex5.5/symbol.webp' },
+
+  // ── PROPOSED 2026-11-27: Delta Reign + McDonald's Collection 2026 ──────────
+  // Three Bulbagarden Archives files. Like the 2026-08-29 and 2026-09-03 ones,
+  // each needs the owner's per-file acceptance; NOT GIVEN YET — HOLD this change
+  // until it is recorded in
+  // decisions/2026/2026-11-27-delta-reign-and-mcdonald-s-2026-imagery-from-bulbagarden-archives.md.
+  // Both sets released 2026-11-06; TCGdex publishes no logo or symbol for
+  // either in any language yet, and pokemontcg.io 404s. When TCGdex lands them
+  // the catalog column wins and these rows simply stop being consulted.
+  // The logo is MediaWiki's 800px rendition of `File:ME6 Logo EN.png`
+  // (1920×919, 1.59 MB): the tier stores set imagery as fetched, and 446 KB is
+  // in line with the largest logos already served; 800px still covers the
+  // 290px header at 2.75x.
+  { setId: 'me06', kind: 'logo', sourceUrl: 'https://archives.bulbagarden.net/media/upload/thumb/e/e9/ME6_Logo_EN.png/800px-ME6_Logo_EN.png' },
+  { setId: 'me06', kind: 'symbol', sourceUrl: 'https://archives.bulbagarden.net/media/upload/4/44/SetSymbolDelta_Reign.png' },
+  { setId: '2026me', kind: 'symbol', sourceUrl: 'https://archives.bulbagarden.net/media/upload/4/49/SetSymbolMcDonalds_Collection_2026.png' },
 ];
 
 const FALLBACK_BY_KEY: ReadonlyMap<string, string> = new Map(
