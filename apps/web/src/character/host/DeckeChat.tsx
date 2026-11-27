@@ -49,8 +49,9 @@ import { ChatMarkdown } from './chat/ChatMarkdown'
 import { ActivityLine } from './chat/ActivityLine'
 import { SourcesList } from './chat/SourcesList'
 import { mergeSources } from './chat/sourcesState'
-import { panelBox, readPanelViewport } from './panelViewport'
-import { composerFocused, consumesScroll } from './panelScrollLock'
+import { panelBox, readPanelViewport } from '../../lib/viewport/panelViewport'
+import { composerFocused, consumesScroll } from '../../lib/viewport/panelScrollLock'
+import { keyboardLikelyUp } from '../../lib/viewport/keyboard'
 import { KbDiag, kbDiagMode } from './KbDiag'
 import { parkFloor } from './parkFloor'
 import { CreditChip, DeckeNotice, type NoticeTone } from './chat/DeckeNotice'
@@ -423,7 +424,7 @@ export function DeckeComposer({
 
     // indicator, where the inset is larger than either number.
 
-    style={{ paddingBottom: bottomPad ? `max(${bottomPadPx}px, env(safe-area-inset-bottom))` : 12 }}
+    style={{ paddingBottom: bottomPad ? `max(${bottomPadPx}px, var(--decke-safe-bottom, env(safe-area-inset-bottom)))` : 12 }}
 
   >
 
@@ -1841,6 +1842,7 @@ export function DeckeChat({
       panel.style.removeProperty('--decke-panel-top')
       panel.style.removeProperty('--decke-panel-h')
       panel.style.removeProperty('--decke-panel-bottom')
+      panel.style.removeProperty('--decke-safe-bottom')
     }
     if (desktop || !visible || shownMinimised) {
       clear()
@@ -1860,6 +1862,20 @@ export function DeckeChat({
       panel.style.setProperty('--decke-panel-top', `${box.top}px`)
       panel.style.setProperty('--decke-panel-h', `${box.height}px`)
       panel.style.setProperty('--decke-panel-bottom', 'auto')
+      // THE PHANTOM GAP. WebKit keeps reporting `env(safe-area-inset-bottom)`
+      // while the keyboard covers the home indicator (WebKit 217754), so the
+      // composer's padding reserved ~34px of nothing above the keyboard. With
+      // the keyboard up the inset is zero; the composer reads this variable
+      // and falls back to the real inset the rest of the time.
+      const kbUp =
+        composerFocused(panel) &&
+        keyboardLikelyUp({
+          visualHeight: vv.height,
+          scale: vv.scale,
+          layoutHeight: document.documentElement.clientHeight,
+        })
+      if (kbUp) panel.style.setProperty('--decke-safe-bottom', '0px')
+      else panel.style.removeProperty('--decke-safe-bottom')
     }
     apply()
     // THE DOCUMENT SCROLL IS THE ONE THAT MATTERS, and it is the one the

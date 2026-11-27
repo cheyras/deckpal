@@ -117,3 +117,41 @@ export function composerFocused(panel: Element, doc: Document = document): boole
   if (!a || !panel.contains(a)) return false
   return a.tagName === 'TEXTAREA' || a.tagName === 'INPUT' || (a as HTMLElement).isContentEditable
 }
+
+/**
+ * The `<input>` types that raise a text keyboard. Everything else — radio,
+ * checkbox, range, color, file, the date/time pickers, buttons — either raises
+ * no keyboard at all or a picker wheel, and must not lock the page.
+ */
+const TEXT_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', 'tel', 'password', 'number'])
+
+/** What `isTextEntry` reads off an element. Pure, so it can be pinned without a DOM. */
+export type FocusProbe = {
+  tagName: string
+  /** `HTMLInputElement.type`, which is `'text'` for a missing or unknown type. */
+  type?: string
+  readOnly?: boolean
+  isContentEditable?: boolean
+}
+
+/**
+ * Does focusing this raise a TEXT keyboard? Stricter than `composerFocused`,
+ * which Deck-E's panel keeps as-is (its only field is the composer). A sheet
+ * holds radios, checkboxes and sliders too, and those must not count.
+ */
+export function isTextEntry(el: FocusProbe | null | undefined): boolean {
+  if (!el) return false
+  if (el.isContentEditable) return true
+  const tag = el.tagName.toUpperCase()
+  if (el.readOnly && (tag === 'TEXTAREA' || tag === 'INPUT')) return false
+  if (tag === 'TEXTAREA') return true
+  if (tag === 'INPUT') return TEXT_INPUT_TYPES.has((el.type ?? 'text').toLowerCase())
+  return false
+}
+
+/** Is a text-entry field inside `root` focused? See `isTextEntry`. */
+export function textEntryFocused(root: Element, doc: Document = document): boolean {
+  const a = doc.activeElement
+  if (!a || !root.contains(a)) return false
+  return isTextEntry(a as HTMLInputElement)
+}

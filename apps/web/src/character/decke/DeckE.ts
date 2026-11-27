@@ -990,7 +990,7 @@ export class DeckE {
     // existed, which is exactly the kind of thing that costs an afternoon. The
     // software keyboard is the case: iOS animates the visual viewport up over
     // roughly a fifth of a second, the chat panel is re-placed against it every
-    // frame (`host/panelViewport.ts`), and his park box rides along inside it —
+    // frame (`lib/viewport/panelViewport.ts`), and his park box rides along inside it —
     // while `scroll` fires once at the start and never again.
     //
     // Without this he TRAILS the composer for the whole slide, then whatever
