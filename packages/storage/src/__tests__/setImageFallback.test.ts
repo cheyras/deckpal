@@ -4,7 +4,7 @@ import { SET_IMAGE_FALLBACK_TABLE, setImageFallbackUrl } from '../setImageFallba
 import type { SetImageKind } from '../paths.js';
 
 /**
- * The set-image fallback crosswalk — the 50 (setId, kind) pairs the warmer fills
+ * The set-image fallback crosswalk — the 53 (setId, kind) pairs the warmer fills
  * when the catalog column is NULL, plus the residue that must stay blank.
  *
  * What would actually break if this drifted:
@@ -17,15 +17,17 @@ import type { SetImageKind } from '../paths.js';
  *  - a set we already serve from the catalog resolving non-null — the fallback
  *    would race the catalog and re-fetch a file that already exists.
  *
- * Source of truth: inputs/fill-worklist.json (generated 2026-08-29). 50 fill,
- * 40 residue. The two exclusion rulings that must hold: McDonald's LOGOS
+ * Source of truth: inputs/fill-worklist.json (generated 2026-08-29): 50 fill,
+ * 40 residue; plus three rows proposed on 2026-11-27 (Delta Reign logo + symbol,
+ * McDonald's Collection 2026 symbol), pending the owner's per-file acceptance —
+ * new sets, so they were never residue. The two exclusion rulings that must hold: McDonald's LOGOS
  * (trademark, DECISIONS.md 2026-08-10) and the Trainer Kit LOGOS (owner decision
  * 2026-08-29 — one byte-identical wordmark across four EX Trainer Kit sets).
  */
 
-describe('setImageFallbackUrl — the 50 approved pairs resolve to their exact URL', () => {
-  it('the table holds exactly the 50 approved pairs (no silent add or drop)', () => {
-    assert.equal(SET_IMAGE_FALLBACK_TABLE.length, 50);
+describe('setImageFallbackUrl — the 53 approved pairs resolve to their exact URL', () => {
+  it('the table holds exactly the 53 approved pairs (no silent add or drop)', () => {
+    assert.equal(SET_IMAGE_FALLBACK_TABLE.length, 53);
   });
 
   it('every approved pair resolves to its exact approved sourceUrl', () => {
@@ -50,10 +52,19 @@ describe('setImageFallbackUrl — the 50 approved pairs resolve to their exact U
       ['base1', 'symbol', 'https://images.pokemontcg.io/base1/symbol.png'],
       ['tk-ex-m', 'symbol', 'https://images.pokemontcg.io/tk2b/symbol.png'],
       ['2016xy', 'symbol', 'https://images.pokemontcg.io/mcd16/symbol.png'],
+      ['me06', 'logo', 'https://archives.bulbagarden.net/media/upload/thumb/e/e9/ME6_Logo_EN.png/800px-ME6_Logo_EN.png'],
+      ['me06', 'symbol', 'https://archives.bulbagarden.net/media/upload/4/44/SetSymbolDelta_Reign.png'],
+      ['2026me', 'symbol', 'https://archives.bulbagarden.net/media/upload/4/49/SetSymbolMcDonalds_Collection_2026.png'],
     ];
     for (const [setId, kind, url] of cases) {
       assert.equal(setImageFallbackUrl(setId, kind), url);
     }
+  });
+
+  it('the McDonald’s Collection 2026 LOGO stays null like every other year', () => {
+    // Only its printed SYMBOL was accepted; the trademark ruling on the logos
+    // (DECISIONS.md 2026-08-10) covers new years too.
+    assert.equal(setImageFallbackUrl('2026me', 'logo'), null);
   });
 
   it('the (setId, kind) pairing is exact — a kind not approved for a set is null', () => {
@@ -150,7 +161,7 @@ describe('setImageFallbackUrl — the excluded classes stay null', () => {
 });
 
 describe('setImageFallbackUrl — sets we already serve resolve to null', () => {
-  // A set whose (setId, kind) is NOT in the 50-entry table is served from the
+  // A set whose (setId, kind) is NOT in the 53-entry table is served from the
   // catalog (or has no source at all). The fallback must not re-route it.
   const SERVED: Array<[string, SetImageKind]> = [
     ['sv01', 'logo'], ['sv01', 'symbol'],
