@@ -55,11 +55,15 @@ Existing fillers to reuse rather than reinvent — both already write through th
   2026-08-31 for fetching from a source the owner rejected on legal grounds. The
   enforcement is the upstream allow-list in `packages/storage/src/upstream.ts` — a host
   that is not on it cannot be fetched from at all, so "just point the warmer at X" is not
-  a workaround. **TCGplayer images are the documented rejection**: their terms forbid
-  automated collection outside the API, bar redistributing
-  content to end users, and new API access is not being granted. See
-  `research/CARD-ART-SOURCES.md` for the full source evaluation, the approved candidate
-  (pokemontcg.io), and the documented residue of cards no approved source covers.
+  a workaround. See `research/CARD-ART-SOURCES.md` for the full source evaluation, the
+  approved candidate (pokemontcg.io), and the documented residue.
+- **Self-sourced is the last rung.** For CARD art no approved source has, the cloud image tier
+  itself falls back to a self-sourced image of the card's plainest linked printing, after an
+  identity check, and re-encodes it to the slot (`apps/api/src/images/selfSource.ts`). So a card
+  gap is filled by `warm:cloud`, not by a new warmer. Art found anywhere else goes in by hand with
+  `pnpm --filter deckpal-api art:self-source` (same encode, same choke point, recorded with where
+  it was found). TCGdex replaces any of it once it has the card (`art:upgrade`, weekly). Its
+  source and rules live in owner-only notes: do not document them in tracked files.
 
 If you need something they don't do, add a command in `apps/images/src/` — **not** a loose script
 in `scripts/`. Loose scripts are exactly how 1,970 files ended up in the cache with no record of

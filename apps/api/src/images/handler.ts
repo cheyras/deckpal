@@ -2,11 +2,13 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   FAILURE_CACHE_CONTROL,
   IMMUTABLE_CACHE_CONTROL,
+  SELF_SOURCED_CACHE_CONTROL,
   PLACEHOLDER_CONTENT_TYPE,
   PLACEHOLDER_WEBP,
   fetchSourceBytesWithExtensionFallback,
   fromUrl,
   getManifestRow,
+  isSelfSourced,
   imageSubPathFromUrl,
   objectExists,
   parseImagePath,
@@ -19,6 +21,7 @@ import {
   SET_IMAGE_FALLBACK_POLICY,
   type ParsedImage,
 } from '@deckpal/storage';
+import { selfSourceCardArt } from './selfSource.js';
 
 /**
  * The cloud image tier: `/deckpal/images/*` on Vercel.
@@ -70,10 +73,12 @@ function sendNotFound(res: ServerResponse, reason: string): void {
   res.end('not found');
 }
 
-function sendRedirect(res: ServerResponse, location: string, cache: 'HIT' | 'FILLED'): void {
+function sendRedirect(
+  res: ServerResponse, location: string, cache: 'HIT' | 'FILLED', cacheControl = IMMUTABLE_CACHE_CONTROL,
+): void {
   res.statusCode = 302;
   res.setHeader('Location', location);
-  res.setHeader('Cache-Control', IMMUTABLE_CACHE_CONTROL);
+  res.setHeader('Cache-Control', cacheControl);
   res.setHeader('X-Cache', cache);
   hardenHeaders(res);
   res.end();
@@ -152,6 +157,11 @@ export interface ResolvedSource {
   provenanceWasUnknown: boolean;
   /** Set only for a crosswalk URL, which fetches under its own tighter policy. */
   viaFallback?: boolean;
+  /**
+   * The row records a SELF-SOURCED card (@deckpal/storage `self-source.ts`), so this is the
+   * TCGdex derivation tried first, and a success replaces the row's provenance.
+   */
+  replacesSelfSourced?: boolean;
 }
 
 /**
@@ -172,6 +182,12 @@ export function resolveSourceFromManifest(
   // fully determined by the request path and there is nothing to look up.
   if (asset.kind === 'sprite') {
     return { url: asset.canonicalSourceUrl, provenanceWasUnknown: false };
+  }
+  // A self-sourced card is never refetched from where it came from: those bytes were re-encoded
+  // to our slot, and TCGdex is preferred whenever it has the card. So it resolves like a card with
+  // no recorded source — the TCGdex derivation, with the self-source fallback behind it in `fill`.
+  if (asset.kind === 'card' && isSelfSourced(row?.source_url)) {
+    return { url: asset.canonicalSourceUrl, provenanceWasUnknown: false, replacesSelfSourced: true };
   }
   if (row?.source_url) {
     return { url: row.source_url, provenanceWasUnknown: false };
@@ -228,6 +244,28 @@ async function fill(res: ServerResponse, asset: ParsedImage): Promise<void> {
     : await fetchSourceBytesWithExtensionFallback(source.url);
   const fetched = attempt.result;
   if (!fetched.ok) {
+    // CARD art no approved upstream has: self-source it (our own encode of the linked product's
+    // image). Anything else keeps the honest placeholder.
+    if (asset.kind === 'card') {
+      const self = await selfSourceCardArt(asset.ref, asset.quality);
+      if (self.ok) {
+        await putStorageAsset({
+          cacheKey: asset.cacheKey,
+          kind: asset.assetKind,
+          relativePath: asset.relativePath,
+          bytes: self.bytes,
+          provenance: fromUrl(self.sourceUrl, self.etag),
+          contentType: 'image/webp',
+          cacheControl: SELF_SOURCED_CACHE_CONTROL,
+          replace: true,
+        });
+        res.setHeader('X-Fill-Ms', String(Date.now() - started));
+        sendRedirect(res, publicObjectUrl(asset.relativePath), 'FILLED');
+        return;
+      }
+      sendFailure(res, asset, `upstream ${fetched.httpStatus}: ${fetched.reason}; ${self.reason}`);
+      return;
+    }
     sendFailure(res, asset, `upstream ${fetched.httpStatus}: ${fetched.reason}`);
     return;
   }
@@ -255,6 +293,7 @@ async function fill(res: ServerResponse, asset: ParsedImage): Promise<void> {
       bytes: fetched.bytes,
       provenance: fromUrl(servedBy, fetched.etag),
       contentType: fetched.contentType,
+      replace: source.replacesSelfSourced === true,
     });
 
     if (source.provenanceWasUnknown) {
@@ -264,6 +303,54 @@ async function fill(res: ServerResponse, asset: ParsedImage): Promise<void> {
 
   res.setHeader('X-Fill-Ms', String(Date.now() - started));
   sendRedirect(res, publicObjectUrl(asset.relativePath), 'FILLED');
+}
+
+/** The one host whose card art replaces every other source. */
+const TCGDEX_HOST = 'assets.tcgdex.net';
+
+/**
+ * `?refresh=tcgdex`: swap a card's art for TCGdex's, in place, once TCGdex has it.
+ *
+ * Only a card whose recorded source is NOT TCGdex is touched (self-sourced, pokemontcg.io,
+ * anything else). TCGdex's own derivation is the only URL fetched, under the default policy, and
+ * the bytes are written only if it served a real image. Anything else falls through to the
+ * ordinary HIT/fill. The weekly catalog refresh sends this for every such card
+ * (`pnpm --filter deckpal-api art:upgrade`). It costs anyone who sends it one manifest read and
+ * at most one TCGdex fetch, and can only ever write TCGdex's art.
+ *
+ * Answers `no-store`: a cached answer would stop next week's check from reaching this function.
+ */
+async function refreshFromTcgdex(res: ServerResponse, asset: ParsedImage & { kind: 'card' }): Promise<boolean> {
+  const row = await getManifestRow(asset.cacheKey);
+  if (!row?.source_url) return false;
+  let host: string | null = null;
+  try { host = new URL(row.source_url).hostname; } catch { /* a note, not a URL: self-sourced */ }
+  if (host === TCGDEX_HOST) return false;
+  const attempt = await fetchSourceBytesWithExtensionFallback(asset.canonicalSourceUrl);
+  if (!attempt.result.ok) {
+    res.setHeader('X-Image-Refresh', 'kept');
+    return false;
+  }
+  await putStorageAsset({
+    cacheKey: asset.cacheKey,
+    kind: asset.assetKind,
+    relativePath: asset.relativePath,
+    bytes: attempt.result.bytes,
+    provenance: fromUrl(attempt.url, attempt.result.etag),
+    contentType: attempt.result.contentType,
+    replace: true,
+  });
+  res.setHeader('X-Image-Refresh', 'swapped');
+  sendRedirect(res, publicObjectUrl(asset.relativePath), 'FILLED', 'no-store');
+  return true;
+}
+
+function wantsTcgdexRefresh(url: string | undefined): boolean {
+  try {
+    return new URL(url ?? '', 'http://local').searchParams.get('refresh') === 'tcgdex';
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -301,8 +388,13 @@ export async function handleImageRequest(
   const asset = parsed.asset;
 
   try {
+    const refresh = asset.kind === 'card' && wantsTcgdexRefresh(req.url);
+    if (refresh) {
+      if (await refreshFromTcgdex(res, asset)) return;
+      res.setHeader('Cache-Control', 'no-store');
+    }
     if (await objectExists(asset.relativePath)) {
-      sendRedirect(res, publicObjectUrl(asset.relativePath), 'HIT');
+      sendRedirect(res, publicObjectUrl(asset.relativePath), 'HIT', refresh ? 'no-store' : undefined);
       return;
     }
     await fill(res, asset);

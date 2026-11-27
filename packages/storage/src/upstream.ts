@@ -69,6 +69,10 @@ import { lookup } from 'node:dns/promises';
  * silently go back and fetch more. It answers with the placeholder and
  * `host '<x>' is not an allow-listed image upstream` instead.
  *
+ * Self-sourced card art (`self-source.ts`) is fetched under its own `SELF_SOURCE_POLICY`, is
+ * always re-encoded before it is stored, and is deliberately not on this list, so a recorded
+ * self-sourced URL is never refetched and stored raw by the default path.
+ *
  * Approving a new source is therefore a deliberate act: add the host above,
  * with the same one-line justification the two entries carry, plus a
  * DECISIONS.md entry recording who approved it and on what licensing basis.
