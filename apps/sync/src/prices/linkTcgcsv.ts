@@ -26,7 +26,7 @@ import type {
   TcgcsvPriceEnvelope, TcgcsvPriceRow, TcgcsvProductEnvelope, TcgcsvProductRow,
 } from './types.js';
 import {
-  acceptGroup, candidateGroups, planSetLinks,
+  KNOWN_SET_GROUPS, acceptGroup, candidateGroups, planSetLinks,
   type GroupRef, type GroupScore, type LinkCard, type PlanResult, type SkipReason,
 } from './linkMatch.js';
 
@@ -101,14 +101,14 @@ export async function setsWithGaps(client: Queryable, filter: string[] | null): 
     `SELECT s.id, s.tcgdex_id, s.name, s.abbreviation, s.ptcgl_code, s.tcgplayer_group_id AS g
        FROM card_set s
       WHERE ($1::text[] IS NULL OR s.tcgdex_id = ANY($1))
-        AND (s.tcgplayer_group_id IS NULL OR EXISTS (
+        AND (s.tcgplayer_group_id IS NULL OR s.tcgdex_id = ANY($2::text[]) OR EXISTS (
               SELECT 1 FROM card c JOIN card_variant cv ON cv.card_id = c.id
                WHERE c.set_id = s.id
                  AND cv.tcgplayer_product_id IS NULL
                  AND cv.variant_kind_code IN ('normal','holo','reverse',
                                               'normal-stamp-1st-edition','holo-stamp-1st-edition')))
       ORDER BY s.id`,
-    [filter],
+    [filter, Object.keys(KNOWN_SET_GROUPS)],
   );
   return rows;
 }
@@ -168,6 +168,12 @@ export async function linkTcgcsvProducts(client: Queryable, opts: LinkOpts = {})
     let groupId = s.g == null ? null : Number(s.g);
     let outcome: SetLinkReport['groupOutcome'] = 'kept';
     let plan: PlanResult;
+    // A hand-matched group wins over none, and over one the name rules picked (linkMatch.ts).
+    const known = KNOWN_SET_GROUPS[s.tcgdex_id] ?? null;
+    if (known != null && groupId !== known) {
+      groupId = known;
+      outcome = 'assigned';
+    }
 
     if (groupId != null) {
       const d = await data(groupId);
@@ -203,8 +209,9 @@ export async function linkTcgcsvProducts(client: Queryable, opts: LinkOpts = {})
       try {
         if (outcome === 'assigned') {
           const g = await client.query(
-            `UPDATE card_set SET tcgplayer_group_id = $2 WHERE id = $1 AND tcgplayer_group_id IS NULL RETURNING id`,
-            [setId, groupId],
+            `UPDATE card_set SET tcgplayer_group_id = $2
+              WHERE id = $1 AND (tcgplayer_group_id IS NULL OR $3::boolean) RETURNING id`,
+            [setId, groupId, known != null],
           );
           assignedNow = g.rows.length > 0;
         }

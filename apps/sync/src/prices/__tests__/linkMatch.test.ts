@@ -300,3 +300,11 @@ test('a tiny set can be accepted on its own size, a big one cannot on three coin
   assert.ok('groupId' in acceptGroup([scored(1, 2, 2)], 2));
   assert.deepEqual(acceptGroup([scored(1, 3, 3)], 300), { rejected: 'weak-agreement' });
 });
+
+test('the hand-matched groups are whole TCGplayer group ids, one per set', async () => {
+  const { KNOWN_SET_GROUPS } = await import('../linkMatch.js');
+  for (const [set, group] of Object.entries(KNOWN_SET_GROUPS)) {
+    assert.ok(Number.isSafeInteger(group) && group > 0, `${set} -> ${group}`);
+  }
+  assert.equal(KNOWN_SET_GROUPS['2024sv'], 24163);
+});
