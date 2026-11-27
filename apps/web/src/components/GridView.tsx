@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { defaultRangeExtractor, useWindowVirtualizer } from '@tanstack/react-virtual'
 import type { CardRow } from '../lib/api'
-import { CardTile } from './CardTile'
+import { CardTile, CARD_TILE_FOOTER_H } from './CardTile'
 import { ConfirmModal } from './ListModals'
 import { CARD_ASPECT_RATIO_INVERSE } from '../lib/cardGeometry'
 
@@ -16,7 +16,9 @@ const MIN_TILE_SM = 150
 const GAP_X = 53
 const GAP_X_SM = 23
 const GAP_Y = 30
-const FOOTER = 74
+// The tile's footer is a fixed-height box sized by this same constant
+// (CardTile), so the arithmetic below and the painted tile cannot disagree.
+const FOOTER = CARD_TILE_FOOTER_H
 // The art-height ratio for row-height arithmetic — height / width, the exact
 // reciprocal of CardImage's aspect (lib/cardGeometry.ts). MEASUREMENT-CRITICAL:
 // if this disagrees with the painted aspect, virtualised rows overlap, total
@@ -122,6 +124,31 @@ export function GridView({
     },
   })
 
+  // ── ROWS MUST MOVE WHEN THE ROW HEIGHT CHANGES ──────────────────────────────
+  //
+  // `estimateSize` is NOT one of the virtualizer's cache keys (virtual-core
+  // memoizes row offsets on count, scrollMargin, gap, lanes… and its own size
+  // cache — not on the estimator). The first render has no measured width, so
+  // it guesses a 200px tile and caches every row's offset at THAT pitch
+  // (383px). When the ResizeObserver reports the real width, each row is drawn
+  // at the new `rowH`, but still placed at the old pitch unless something else
+  // happens to invalidate the cache — a change of column count, or of
+  // `scrollMargin`. With the same column count (4 at every desktop width), it
+  // never did. Once a tile is wider than ~234px — a set page at ~1550px and up
+  // with the sidebar open, i.e. most desktop monitors — each row is taller than
+  // the pitch it was placed at, and the next row was drawn OVER the bottom of
+  // it: over the footer's collector number and rarity (owner, 2026-11-27: "the
+  // cards below a row are like going up and covering some of the content…
+  // especially on desktop"). Measured at 1600px: rows placed 383px apart, 442px
+  // tall, 10.8px overlap. A window resize that kept the column count did the
+  // same thing in either direction.
+  //
+  // `measure()` drops the cache, so offsets are recomputed with the CURRENT
+  // estimator. A layout effect, so the corrected rows commit before paint.
+  useLayoutEffect(() => {
+    virtualizer.measure()
+  }, [virtualizer, rowH])
+
   return (
     <div ref={gridRef}>
       <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
@@ -143,7 +170,7 @@ export function GridView({
                 // (the element `data-decke-card` sits on) fill the whole row
                 // track, i.e. `rowH`, which BAKES IN the 30px `GAP_Y` that is
                 // meant to be empty space *between* rows. So the Link's measured
-                // box ran 30px past its own visible content (art + 74px footer),
+                // box ran 30px past its own visible content (art + footer),
                 // and `elementHighlight`'s halo adds another 6px outward on top of
                 // that (`INSET = -6` in `ui/elementHighlight.ts`) — landing the
                 // ring's bottom edge 6px INSIDE the next row's tile. That is the
@@ -158,10 +185,11 @@ export function GridView({
                 // only CardTile into these cells, across all three Link branches
                 // CardTile can take (set-page sheet, species-page sheet, plain
                 // nav). Nothing inside CardTile depends on the Link filling the
-                // row — the remove button, the "+N Variants" badge, the owned-qty
-                // chip and VariantCounters are all absolutely positioned against
-                // the inner `<div className="relative">` that wraps just the art,
-                // not against the Link, so none of them shift. TableView (the
+                // row — the remove button is absolutely positioned against the
+                // inner `<div className="relative">` that wraps just the art, and
+                // the "+N Variants" note, the owned-qty chip and VariantCounters
+                // sit in the footer's fixed-height strip (since 2026-11-27; they
+                // used to overlay the art), so none of them shift. TableView (the
                 // 'binder' view) is a separate sibling of GridView, never rendered
                 // into this grid, so it is untouched. The only observable change
                 // is that the Link's click/hover target stops extending into the

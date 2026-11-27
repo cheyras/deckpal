@@ -55,15 +55,17 @@ test('drift shifts the ring vertically without touching its size', () => {
 //
 // GridView.tsx's row is a `display: grid` container of explicit height `rowH`,
 // where (GridView.tsx:75) `rowH = round(tileW * IMG_RATIO + FOOTER + GAP_Y)`,
-// `IMG_RATIO = 337 / 245` (the card art's aspect ratio), `FOOTER = 74` (the
-// name/price/number footer) and `GAP_Y = 30` (the space a virtualized reader
-// expects to see BETWEEN rows, not inside one). A CardTile's outer
+// `IMG_RATIO = 337 / 245` (the card art's aspect ratio), `FOOTER = 86` (the
+// name/price/number footer plus its badge strip — CardTile's
+// `CARD_TILE_FOOTER_H`, 74 before the badges moved off the art) and
+// `GAP_Y = 30` (the space a virtualized reader expects to see BETWEEN rows, not
+// inside one). A CardTile's outer
 // `<Link data-decke-card>` — the exact element Deck-E rings — is that grid
 // item, so which box `getBoundingClientRect()` returns for it depends entirely
 // on `alignItems`.
 
 const GAP_Y = 30
-const FOOTER = 74
+const FOOTER = 86
 const IMG_RATIO = 337 / 245
 
 /** A tile's true visible content height: the art plus its footer, with no gap

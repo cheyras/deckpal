@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import type { SetDetailResponse } from '../lib/api'
 import type { Goal } from '../routes/setSearch'
@@ -14,7 +14,21 @@ import { useSignedIn } from '../lib/session'
 import { bundledSetLogo } from '../lib/releasedSetAssets'
 
 
-export function SetHeader({ data, goal, onGoalChange }: { data: SetDetailResponse; goal: Goal; onGoalChange: (goal: Goal) => void }) {
+export function SetHeader({
+  data,
+  goal,
+  onGoalChange,
+  back,
+}: {
+  data: SetDetailResponse
+  goal: Goal
+  onGoalChange: (goal: Goal) => void
+  /**
+   * The page's back link. It shares the header's first row with the set mark
+   * and the actions, so the page passes it in rather than rendering it above.
+   */
+  back?: ReactNode
+}) {
   const { set, progress } = data
   // `progress` is absent for a logged-out visitor. Two of the three header
   // actions are per-user too: Purchase Set builds a cart of the cards you still
@@ -143,39 +157,29 @@ export function SetHeader({ data, goal, onGoalChange }: { data: SetDetailRespons
   // as part of the page rather than as a banner pasted onto it.
   return (
     <div>
-      <div className="flex flex-col gap-[20px] pb-[8px] pt-[4px]">
-        {/* Row 1 — set identity on the left, actions pushed to the right. */}
-        <div className="flex flex-wrap items-center gap-x-[24px] gap-y-[16px]">
-          {/* A11Y-04: SetDetail had zero headings — the visible title is the
-              same visual weight as every sibling catalog page's `<h1>`
-              (SeriesDetail, CardDetail, SpeciesDetail) but was a plain `<span>`
-              or, in the (more common) logo branch below, an `<img>` with no
-              heading wrapper at all. This element wraps BOTH branches so the
-              page carries exactly one `<h1>` regardless of whether a set has a
-              logo asset — the logo's own `alt={set.name}` still gives the
-              image its accessible name; the heading role is what was missing. */}
-          <h1 className="flex h-[132px] min-w-[135px] items-center">
-            {/* logoError: display set name as plain text (React-rendered, not
-                innerHTML) to prevent XSS from a crafted set name. */}
-            {(set.images.logoUrl || bundledSetLogo(set.setId)) && !logoError ? (
-              <SetLogo
-                setId={set.setId}
-                alt={set.name}
-                imgClassName="max-h-[132px] max-w-[290px]"
-                platedImgClassName="max-h-[114px] max-w-[290px]"
-                plateClassName="rounded-lg px-[16px] py-[12px]"
-                onError={() => setLogoError(true)}
-              />
-            ) : (
-              <span className="font-display text-[38px] font-black text-text-primary">{set.name}</span>
-            )}
-          </h1>
+      <div className="flex flex-col gap-[20px] pb-[8px]">
+        {/* Row 1 — the back link on the left; the set mark and the actions on
+            the right. They used to sit on the LOGO's row, which on a phone
+            wrapped them onto a line of their own under the logo: a 40px row of
+            two right-aligned controls and a band of empty page beside the logo
+            (owner, 2026-11-27: "these 2 buttons… really probably don't need
+            their own line… could reasonably be moved like up to the top right
+            here [the breadcrumb row]… maybe not even on desktop"). The back
+            link's row was already there and already mostly empty, at every
+            width, so they live there at every width now; the logo row is free
+            to give its right-hand side to the progress bar (row 2). */}
+        <div className="flex flex-wrap items-center gap-x-[12px] gap-y-[10px]">
+          {back && <div className="min-w-0">{back}</div>}
 
           <div className="ml-auto flex items-center gap-[10px]">
             <SetSymbolTile setId={set.setId} name={set.name} size={40} />
 
-            {/* Desktop inline actions — hidden on mobile, shown at gap+ */}
-            <div className="hidden items-center gap-[10px] gap:flex">
+            {/* Desktop inline actions — hidden below md, where the three of
+                them and the back link no longer fit on one row (Shop + Purchase
+                Set + Print Checklist is ~420px). They switched at `gap` (567px)
+                when they sat on the logo's row and could wrap; on the back
+                link's row a wrap would recreate the empty line this fixed. */}
+            <div className="hidden items-center gap-[10px] md:flex">
               {shopLink()}
               {!signedOut && (
                 <>
@@ -190,11 +194,11 @@ export function SetHeader({ data, goal, onGoalChange }: { data: SetDetailRespons
               )}
             </div>
 
-            {/* Mobile Actions disclosure — shown on mobile, hidden at gap+ (issue #154).
+            {/* Mobile Actions disclosure — shown below md, hidden at md+ (issue #154).
                 Uses a plain disclosure (button + panel) with Escape/outside/focus-exit
                 dismissal, not ARIA menu roles — menu roles require arrow-key roving
                 which is overkill for 2-3 ordinary buttons/links. */}
-            <div className="relative gap:hidden" ref={actionsRef}>
+            <div className="relative md:hidden" ref={actionsRef}>
               <button
                 ref={actionsTriggerRef}
                 onClick={() => setActionsOpen((o) => !o)}
@@ -250,8 +254,37 @@ export function SetHeader({ data, goal, onGoalChange }: { data: SetDetailRespons
           </div>
         )}
 
-        {/* Row 2 — the collection/level progress gets the full width to itself. */}
-        <div className="w-full">
+        {/* Row 2 — the set's identity, and its progress. Stacked on a phone;
+            from md the progress sits BESIDE the logo, in the space the actions
+            used to leave empty (the logo is at most 290px of a ~700–1165px
+            row). */}
+        <div className="flex flex-col gap-[20px] md:flex-row md:items-center md:gap-[40px]">
+          {/* A11Y-04: SetDetail had zero headings — the visible title is the
+              same visual weight as every sibling catalog page's `<h1>`
+              (SeriesDetail, CardDetail, SpeciesDetail) but was a plain `<span>`
+              or, in the (more common) logo branch below, an `<img>` with no
+              heading wrapper at all. This element wraps BOTH branches so the
+              page carries exactly one `<h1>` regardless of whether a set has a
+              logo asset — the logo's own `alt={set.name}` still gives the
+              image its accessible name; the heading role is what was missing. */}
+          <h1 className="flex h-[132px] min-w-[135px] items-center md:max-w-[50%] md:shrink-0">
+            {/* logoError: display set name as plain text (React-rendered, not
+                innerHTML) to prevent XSS from a crafted set name. */}
+            {(set.images.logoUrl || bundledSetLogo(set.setId)) && !logoError ? (
+              <SetLogo
+                setId={set.setId}
+                alt={set.name}
+                imgClassName="max-h-[132px] max-w-[290px]"
+                platedImgClassName="max-h-[114px] max-w-[290px]"
+                plateClassName="rounded-lg px-[16px] py-[12px]"
+                onError={() => setLogoError(true)}
+              />
+            ) : (
+              <span className="font-display text-[38px] font-black leading-[44px] text-text-primary">{set.name}</span>
+            )}
+          </h1>
+
+          <div className="w-full md:min-w-0 md:flex-1">
           {progress ? (
             // Deck-E's landmark for "how far through this set am I". It sits on
             // a wrapper INSIDE the `progress` branch rather than on the row
@@ -271,6 +304,7 @@ export function SetHeader({ data, goal, onGoalChange }: { data: SetDetailRespons
               detail={`Mark which of these ${set.cardCountTotal.toLocaleString()} cards you own.`}
             />
           )}
+          </div>
         </div>
 
         {/* 6-column stat strip (UI-SPEC §3.7) */}

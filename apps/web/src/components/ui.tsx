@@ -2,8 +2,8 @@ import { Link } from '@tanstack/react-router'
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Button } from './ui/Button'
 import { Icon } from './Icon'
-import { EnergyIcon } from './EnergyIcon'
 import { useArtSrc } from '../lib/useArtSrc'
+import { printedSetCode } from '../lib/printedSetCode'
 
 // Re-export new primitives from ui/ so existing `import { X } from '../components/ui'`
 // call sites keep working without a mass import-rewrite.
@@ -181,26 +181,35 @@ export function BackPill({ to, params, label }: { to: string; params?: Record<st
 
 // --- Set-symbol fallbacks ----------------------------------------------------
 // Some sets legitimately have no warmed symbol (49 of 218) — and a few families
-// (Black Star Promos, energy sets, McDonald's Collection) either have no symbol
-// or a generic one that doesn't convey what the set is. For those we render a
-// small authored mark; for everything else we derive a readable acronym tag from
-// the set code/id (e.g. `mep`→MEP, `mee`→MEE, `swsh12.5gg`→GG) — never a bare ◆.
+// (Black Star Promos, McDonald's Collection) either have no symbol or a generic
+// one that doesn't convey what the set is. For those we render a small authored
+// mark; for everything else we derive a readable acronym tag from the set
+// code/id (e.g. `mep`→MEP, `swsh12.5gg`→GG) — never a bare ◆.
+
+// Sets from Scarlet & Violet on print a CODE as their mark (MEG, PBL, SVE, MEE);
+// those tiles draw it as a vector badge instead of the image — see
+// lib/printedSetCode.ts for why (low-res rasters, the "M.EG" smudge).
 
 // Black Star Promo set ids across every series (name also carries "Black Star Promos").
 const BLACK_STAR_PROMO_IDS = new Set([
   'basep', 'bwp', 'dpp', 'hgssp', 'mep', 'np', 'smp', 'svp', 'swshp', 'xyp',
 ])
-// Energy sets (full-art / basic-energy printings) — show all the type symbols.
-const ENERGY_SET_IDS = new Set(['mee', 'sve'])
 
-type SetMark = 'promo' | 'energy' | null
+type SetMark = 'promo' | null
 
 // Classify a set into a special-mark family from its id and/or name. Works from
 // the id alone (so callers that don't pass a name — e.g. CardDetail — still get
 // the right mark); the name is a secondary signal for robustness.
 //
-// There is deliberately no McDonald's branch (issue #15). The two marks below are
-// original artwork standing in for *Pokémon TCG* families that have no per-set
+// There used to be an 'energy' family that drew a 3×2 cluster of energy-type
+// icons for `sve` / `mee` and any set named "… Energy". Removed 2026-11-27: those
+// sets print a code (SVE, MEE) like every other modern set, and the owner asked
+// for it — the cluster was the one tile on a series page that did not say which
+// set it was. They are in lib/printedSetCode.ts; the catalog has no other
+// energy set, and a future one falls through to its symbol or a derived tag.
+//
+// There is deliberately no McDonald's branch (issue #15). The mark below is
+// original artwork standing in for a *Pokémon TCG* family that has no per-set
 // symbol upstream. A McDonald's branch instead reproduced a third-party corporate
 // trademark (the Golden Arches) as app chrome — the same exposure the Poké Ball /
 // POKÉMON wordmark icons were replaced for (DECISIONS.md 2026-08-09). Those sets
@@ -210,7 +219,6 @@ function setMarkKind(setId?: string | null, name?: string | null): SetMark {
   const id = (setId ?? '').toLowerCase()
   const nm = name ?? ''
   if (BLACK_STAR_PROMO_IDS.has(id) || /black star promos?/i.test(nm)) return 'promo'
-  if (ENERGY_SET_IDS.has(id) || /\benergy\b/i.test(nm)) return 'energy'
   return null
 }
 
@@ -277,28 +285,35 @@ function PromoStarMark({ size }: { size: number }) {
   )
 }
 
-// Composed mark: a small cluster of the Pokémon energy-type symbols, standing in
-// for an energy set's thumbnail.
-function EnergySymbolsMark({ size }: { size: number }) {
-  const types = ['grass', 'fire', 'water', 'lightning', 'psychic', 'fighting']
-  const icon = Math.round(size * 0.3)
+// The printed set code drawn the way the card prints it: white capitals in a
+// dark rounded box. Vector, so it is as sharp at 28px on a 3× phone as at 64px
+// on a desktop — the whole point (lib/printedSetCode.ts). Decorative like the
+// symbol image it replaces (alt=""): the tile always sits beside the set's name.
+function PrintedCodeMark({ code, size }: { code: string; size: number }) {
   return (
-    <div
-      className="grid grid-cols-3 place-items-center"
-      style={{ gap: size * 0.02, width: '84%', height: '84%' }}
-    >
-      {types.map((t) => (
-        <EnergyIcon key={t} type={t} size={icon} />
-      ))}
-    </div>
+    <svg width={Math.round(size * 0.86)} viewBox="0 0 40 24" aria-hidden="true" data-printed-code={code}>
+      <rect x="0.5" y="0.5" width="39" height="23" rx="4.5" style={{ fill: 'var(--color-surface-on-light-text)' }} />
+      <text
+        x="20"
+        y="16.6"
+        textAnchor="middle"
+        fontSize="12.5"
+        fontWeight="800"
+        letterSpacing="0.4"
+        style={{ fill: 'var(--color-surface-on-light)', fontFamily: 'var(--font-sans)' }}
+      >
+        {code}
+      </text>
+    </svg>
   )
 }
 
-// White rounded set-symbol tile (UI-SPEC §3.7). The symbol is served locally from
-// the WebP cache by set id. When a set belongs to a special family (Black Star
-// Promo, energy) we render an authored mark; when it has no warmed symbol (or the
-// fetch fails) we render a derived acronym tag — never a bare ◆, no broken image,
-// no layout shift. `name` is optional & backward-compatible.
+// White rounded set-symbol tile (UI-SPEC §3.7). A set whose mark is its printed
+// code gets that code as a vector badge; otherwise the symbol is served from the
+// image tier by set id. When a set belongs to a special family (Black Star Promo)
+// and has no symbol we render an authored mark; when it has no warmed symbol (or
+// the fetch fails) we render a derived acronym tag — never a bare ◆, no broken
+// image, no layout shift. `name` is optional & backward-compatible.
 export function SetSymbolTile({
   setId,
   name,
@@ -310,21 +325,23 @@ export function SetSymbolTile({
 }) {
   const [failed, setFailed] = useState(false)
   const mark = setMarkKind(setId, name)
+  const code = printedSetCode(setId)
   // `hasSymbol` (Boolean(set.symbolUrl)) used to gate the image attempt, but the
   // catalog column is NULL for exactly the sets the fallback crosswalk now
   // sources, so the tile would never ask for an asset that exists. Attempt the
-  // image for every non-energy set and let the image-tier ladder degrade: object
-  // URL → /deckpal/images → the authored mark (promo) or the derived tag. A set
-  // that HAS a real symbol prefers it; the authored mark is the promo fallback
-  // when the image ladder exhausts (no real symbol), not the derived tag.
-  const showImg = Boolean(setId && mark !== 'energy' && !failed)
+  // image for every set without a printed code and let the image-tier ladder
+  // degrade: object URL → /deckpal/images → the authored mark (promo) or the
+  // derived tag. A set that HAS a real symbol prefers it; the authored mark is the
+  // promo fallback when the image ladder exhausts (no real symbol), not the
+  // derived tag.
+  const showImg = Boolean(setId && !code && !failed)
   return (
     <div
       className="flex shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface-on-light"
       style={{ width: size, height: size }}
     >
-      {mark === 'energy' ? (
-        <EnergySymbolsMark size={size} />
+      {code ? (
+        <PrintedCodeMark code={code} size={size} />
       ) : showImg ? (
         <SetSymbolImg setId={setId!} onExhausted={() => setFailed(true)} />
       ) : mark === 'promo' ? (

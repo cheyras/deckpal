@@ -11,7 +11,31 @@ import { Icon } from './Icon'
 import { variantMeta } from '../lib/variantStyle'
 import { CardLink } from './CardLink'
 
-import { VariantBadge } from './VariantChip'
+import { VariantChip } from './VariantChip'
+
+// ── The footer, and why its height is a constant ─────────────────────────────
+//
+// GridView virtualizes rows and never measures a tile: it computes a row's
+// height as art + CARD_TILE_FOOTER_H + gap. So the footer is a FIXED-height box
+// (set from this constant, not left to its content) and GridView imports the
+// number from here — the tile and the row arithmetic cannot disagree.
+//
+//   pt 10 + name/price 23 + number/rarity 23 + strip (mt 6 + 24) = 86
+//
+// The strip is the last line: the "+N Variants" note (or, on a list, which
+// printing this row is) on the left, the per-variant count boxes (or an owned
+// total) on the right. All of those used to be absolutely positioned OVER THE
+// BOTTOM OF THE CARD ART — exactly where a card prints its collector number,
+// rarity mark, set code, weakness/retreat and the end of its attack text. The
+// owner (2026-11-27): "the number and the rarity get covered up". On the page's
+// own surface they cover nothing, and an empty count box reads as an empty slot
+// instead of a hole through the card (the "half-hidden" Tropius chip: an
+// outlined, transparent box with card art showing through it).
+//
+// The strip is reserved on every tile, filled or not, so a row's names and
+// numbers line up and every row is the same height.
+const STRIP_H = 24
+export const CARD_TILE_FOOTER_H = 10 + 23 + 23 + 6 + STRIP_H
 
 // Per-variant quantity counters — the small count boxes under each tile.
 //
@@ -46,7 +70,10 @@ function VariantCounters({ card, setId, seed }: { card: { cardId: string; name: 
 
   return (
     <div
-      className="px-card-counters absolute bottom-[8px] right-[8px] flex items-center gap-[4px]"
+      // `px-card-counters` is no longer needed for its premium.css z-index (the
+      // boxes are off the art now) but is the hook tests/browser/writes.mjs
+      // finds the counters by.
+      className="px-card-counters flex shrink-0 items-center gap-[4px]"
       title={online ? undefined : 'Offline — reconnect to change your collection'}
     >
       {standard.map(({ v, meta, qty }) => (
@@ -116,38 +143,8 @@ export function CardTile({
           alt={`${card.name} — ${fmtNumber(card.number)}`}
           eager={eager}
         />
-        {owned === true && qty > 0 && (
-          <span className="px-card-badge absolute bottom-[8px] right-[8px] rounded-md bg-action-primary px-[7px] py-[2px] text-[14px] font-extrabold leading-[16px] text-action-primary-text shadow-panel">
-            ×{qty}
-          </span>
-        )}
-        {/* This badge sits on ARBITRARY card art, so it cannot rely on a
-            half-transparent grey the way a badge on a known surface can:
-            rgb(64 64 64 / 0.5) behind text-text-muted (#7f8596) disappears over
-            the bright half of a card and reads as text spilling off its own
-            background. A dark scrim plus body-weight text holds up over both a
-            black holo border and a pale green frame. */}
-        {/* THE SPECIFIC PRINTING WINS OVER THE CATALOGUE COUNT.
-            `card.variant` is present only on list rows, where the reader is
-            asking "which printing did I add?" — and `+N Variants` answers "how
-            many other printings exist", which is a different question and was
-            being mistaken for the first one (2026-08-29 walkthrough). On the set
-            page there is no `card.variant`, every printing is on screen anyway,
-            and the count is the useful fact, so nothing there changes. */}
-        {card.variant ? (
-          <VariantBadge variant={card.variant} />
-        ) : (
-          card.variantCount > 1 && (
-            <span className="px-card-badge absolute bottom-[8px] left-[8px] rounded-md bg-overlay-scrim-strong px-[8px] py-[3px] text-[12px] font-medium leading-[18px] text-text-body backdrop-blur-sm">
-              <span className="font-bold text-text-primary">+{card.variantCount - 1}</span> Variants
-            </span>
-          )
-        )}
-        {badge && (
-          <span className="px-card-badge absolute bottom-[8px] right-[8px] rounded-md bg-action-primary-strong px-[8px] py-[3px] text-[12px] font-bold leading-[18px] text-action-primary-strong-text">
-            {badge}
-          </span>
-        )}
+        {/* The one control still ON the art: a list's remove button, top-right,
+            clear of the number and rarity at the bottom. */}
         {onRemove && (
           <button
             onClick={(e) => {
@@ -156,26 +153,23 @@ export function CardTile({
               onRemove()
             }}
             aria-label={`Remove ${card.name}`}
-            // `px-card-badge`: not a badge, but it earns the same premium-skin
-            // rule (theme.css/premium.css §"Counters and overlay badges sit at
-            // z-index 2") for the same reason the counters and the +N/owned
-            // badges need it — the card-art lift on hover/focus (premium.css
-            // §"Card art") promotes `.px-card-art` to z-index 1, and without a
-            // matching z-index this button sat BELOW that lifted layer despite
-            // being later in the DOM: on a real mouse, hovering far enough to
-            // see the (formerly invisible) button also covered it, so it was
-            // unclickable in the premium skin whether or not it was visible.
+            // `px-card-badge`: not a badge, but it earns the premium-skin rule
+            // (premium.css §"Counters and overlay badges sit at z-index 2") —
+            // the card-art lift on hover/focus (premium.css §"Card art")
+            // promotes `.px-card-art` to z-index 1, and without a matching
+            // z-index this button sat BELOW that lifted layer despite being
+            // later in the DOM: on a real mouse, hovering far enough to see the
+            // (formerly invisible) button also covered it, so it was unclickable
+            // in the premium skin whether or not it was visible.
             className="px-card-badge absolute right-[8px] top-[8px] flex h-[28px] w-[28px] items-center justify-center rounded-full bg-action-danger-fill text-action-danger-text hover:bg-action-danger-fill-hover"
           >
             <Icon name="close" size={16} />
           </button>
         )}
-        {showCounters && (
-          <VariantCounters card={{ cardId: `${set}-${card.number}`, name: card.name }} setId={set} seed={card.standardVariants} />
-        )}
       </div>
-      {/* Footer block — 74px, uniform for virtualization */}
-      <div className="pt-[10px]">
+      {/* Footer block — fixed height (CARD_TILE_FOOTER_H, see the top of this
+          file), uniform for virtualization. */}
+      <div className="flex flex-col pt-[10px]" style={{ height: CARD_TILE_FOOTER_H }}>
         <div className="flex items-baseline justify-between gap-[8px]">
           <span className="font-display truncate text-[16px] font-normal leading-[23px] text-text-primary">
             {card.name}
@@ -189,6 +183,41 @@ export function CardTile({
           <span className="text-[14px] leading-[23px] text-text-secondary" title={card.rarity ?? ''}>
             <RarityMark rarity={card.rarity} />
           </span>
+        </div>
+        {/* The strip: what is said ABOUT the card, under it rather than on it. */}
+        <div className="mt-[6px] flex min-w-0 items-center justify-between gap-[8px]" style={{ height: STRIP_H }}>
+          {/* THE SPECIFIC PRINTING WINS OVER THE CATALOGUE COUNT.
+              `card.variant` is present only on list rows, where the reader is
+              asking "which printing did I add?" — and `+N Variants` answers "how
+              many other printings exist", which is a different question and was
+              being mistaken for the first one (2026-08-29 walkthrough). On the
+              set page there is no `card.variant`, every printing is on screen
+              anyway, and the count is the useful fact. */}
+          {card.variant ? (
+            <VariantChip variant={card.variant} className="min-w-0 text-text-secondary" />
+          ) : card.variantCount > 1 ? (
+            <span className="min-w-0 truncate text-[12px] font-medium leading-[18px] text-text-muted">
+              <span className="font-bold text-text-secondary">+{card.variantCount - 1}</span>{' '}
+              {card.variantCount - 1 === 1 ? 'Variant' : 'Variants'}
+            </span>
+          ) : (
+            <span aria-hidden="true" />
+          )}
+          <div className="flex shrink-0 items-center gap-[6px]">
+            {owned === true && qty > 0 && (
+              <span className="rounded-md bg-action-primary px-[7px] py-[2px] text-[14px] font-extrabold leading-[16px] text-action-primary-text shadow-panel">
+                ×{qty}
+              </span>
+            )}
+            {badge && (
+              <span className="rounded-md bg-action-primary-strong px-[8px] py-[3px] text-[12px] font-bold leading-[18px] text-action-primary-strong-text">
+                {badge}
+              </span>
+            )}
+            {showCounters && (
+              <VariantCounters card={{ cardId: `${set}-${card.number}`, name: card.name }} setId={set} seed={card.standardVariants} />
+            )}
+          </div>
         </div>
       </div>
     </>
