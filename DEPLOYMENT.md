@@ -1618,6 +1618,18 @@ stamp re-derives them. To run it now or read what it would do, dispatch
 price arrives with the next price ingest. See
 `decisions/2026/2026-10-01-tcgplayer-ids-tcgdex-lacks-are-now-derived-from-tcgcsv-so-those-cards-can-be-pri.md`.
 
+**Play! Pokémon (Prize Pack) stamped printings come from the same link step.** On
+a full run (no `--sets`), after the link pass, `apps/sync/src/prices/prizePack.ts`
+reads TCGplayer group 22880 ("Prize Pack Series Cards") and adds each stamped
+printing TCGdex does not list as a `source='tcgcsv'` variant of the card it
+reprints, matched on collector number, printed set size and name. Stamped kinds
+are tier `special`, so they appear under a card's other printings, never as a
+check mark on its tile. The walk then prices group 22880 by product id across
+every set (`writeProductGroupPrices`). Same `products-tcgcsv` run, same retry
+rules, no new secret, variable or migration. To run it now, dispatch
+`price-refresh.yml` with job `prize-pack`; to read what it would add, run
+`pnpm --filter deckpal-sync prices prize-pack --dry-run` against a database.
+
 **Verifying it is alive:** `GET /api/health` → `syncs` reports the last
 successful run per job, straight from `sync_run`. That block is what diagnosed
 the original outage and is the authoritative check — a green Actions run only
