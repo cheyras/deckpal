@@ -347,6 +347,8 @@ const fold = (s: string | null | undefined): string => (s ?? '').toLowerCase().r
  * "McDonald's Promos 2024") or the cards print another set's numbers (Classic Collection), so
  * `acceptGroup` can never agree. Without a group a set is never priced. A known group is
  * authoritative: it replaces a group the name rules picked (the two DP trainer kits had one).
+ * mee and mfb added the same day: every printing of their missing cards is stamped, and the
+ * group was confirmed product by product.
  */
 export const KNOWN_SET_GROUPS: Readonly<Record<string, number>> = {
   '2023sv': 23306, // McDonald's Promos 2023
@@ -357,6 +359,8 @@ export const KNOWN_SET_GROUPS: Readonly<Record<string, number>> = {
   miscp: 2374, // Miscellaneous Cards & Products
   'tk-dp-l': 1541, // DP Trainer Kit: Manaphy & Lucario
   'tk-dp-m': 1541, // DP Trainer Kit: Manaphy & Lucario
+  mee: 24461, // MEE: Mega Evolution Energies
+  mfb: 23330, // My First Battle
 };
 
 /**
