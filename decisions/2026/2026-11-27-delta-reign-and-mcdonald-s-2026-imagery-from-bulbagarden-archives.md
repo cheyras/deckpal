@@ -50,9 +50,10 @@ owner already accepted (2026-08-29); its *logo* stays excluded under the
 
 **Implications:**
 
-- Needs `fix/set-logo-audit` (the UI change that attempts a logo for every
-  set) — without it the series row and set header never ask for a logo whose
-  `card_set.logo_url` is NULL, which is every crosswalk logo.
+- Needs `fix/set-logo-audit` (the API reports a crosswalk URL as the set's
+  `logoUrl` / `symbolUrl`). Without it the API reports `card_set.logo_url`,
+  which is NULL for `me06`, and the series row and set header never ask for
+  the logo.
 - The fill is the deployed image tier's own lazy fill after deploy (or
   `pnpm --filter deckpal-images warm:cloud -- --assets sets`); provenance is
   `fromUrl(<URL actually fetched>)` through `putStorageAsset`, as for every
