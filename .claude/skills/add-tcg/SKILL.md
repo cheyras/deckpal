@@ -342,8 +342,11 @@ keep game-specific specifics in the game's runbook / the slot's `image-slots.md`
   The primary's column is NULL for exactly the rows the fallback exists to fill, so `if (row.logoUrl)
   <img>` hides every fallback asset while the image tier happily serves it — a `curl` audit passes
   and users still see text. After wiring any fallback, check the **rendered page** asks for the asset,
-  for every slot that shares the pattern (fixing it for symbols did not fix it for logos). Attempt
-  the image and degrade on error rather than predicting availability from a catalog field.
+  for every slot that shares the pattern (fixing it for symbols did not fix it for logos). The fix
+  depends on the slot's box: in a fixed-size box, attempt the image and degrade on error; in a box
+  whose size depends on its content, have the server report the source it will actually fill from
+  (primary, else fallback), so the client never requests an asset that does not exist and never
+  reflows when the request fails.
 
 ## Definition of done (adding a TCG, or a refresh)
 

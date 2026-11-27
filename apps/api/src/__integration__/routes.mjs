@@ -208,6 +208,32 @@ try {
     names: released.sets.map((set) => set.name),
   });
 
+  // Set chrome reports the approved crosswalk when the catalog column is NULL
+  // (2026-11-27). The SPA asks for a set's logo only when `logoUrl` is non-null,
+  // and `card_set.logo_url` is NULL for exactly the sets the crosswalk fills, so
+  // reporting the bare column hid 15 logos the image tier was serving. Give row 2
+  // a crosswalk id (its logo_url is NULL) and row 1 a catalog URL, then restore.
+  const row2 = (await client.query('SELECT tcgdex_id FROM card_set WHERE id = 2')).rows[0];
+  await client.query("UPDATE card_set SET tcgdex_id = 'swsh12tg' WHERE id = 2");
+  await client.query("UPDATE card_set SET logo_url = 'https://assets.tcgdex.net/en/me/newer/logo' WHERE id = 1");
+  const chrome = await get('/series/mega-evolution');
+  const tg = chrome.sets.find((set) => set.setId === 'swsh12tg');
+  assert.equal(tg.logoUrl, 'https://images.pokemontcg.io/swsh12tg/logo.png',
+    'a crosswalk logo with a NULL catalog column must be reported');
+  assert.equal(tg.symbolUrl, 'https://images.pokemontcg.io/swsh12tg/symbol.png');
+  assert.equal(chrome.sets.find((set) => set.setId === 'newer').logoUrl,
+    'https://assets.tcgdex.net/en/me/newer/logo', 'the catalog column wins');
+  assert.equal(chrome.sets.find((set) => set.setId === 'same-a').logoUrl, null,
+    'a set with no logo anywhere stays null');
+  await client.query('UPDATE card_set SET tcgdex_id = $1 WHERE id = 2', [row2.tcgdex_id]);
+  await client.query('UPDATE card_set SET logo_url = NULL WHERE id = 1');
+  evidence.cases.push({
+    name: 'set_chrome_reports_crosswalk_when_catalog_column_null',
+    crosswalkLogo: tg.logoUrl,
+    catalogWins: true,
+    noSourceNull: true,
+  });
+
   const history = await get('/cards/base1-1/prices?range=30d&currency=JPY');
   assert.equal(history.currency, 'JPY');
   assert.equal(history.range, '30d');

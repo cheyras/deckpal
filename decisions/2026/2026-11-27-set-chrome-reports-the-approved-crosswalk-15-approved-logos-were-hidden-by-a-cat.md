@@ -1,19 +1,19 @@
 ---
 date: "2026-11-27"
-title: "Set logos are attempted for every set; 15 approved logos were hidden by a catalog-column gate"
+title: "Set chrome reports the approved crosswalk; 15 approved logos were hidden by a catalog-column gate"
 decided_by: "Claude Opus 5.5 on behalf of @cheyras (2026-11-27 feedback pass, workstream F); @cheyras reviews before merge"
 areas: ["images","frontend","catalog"]
 supersedes: []
 ---
-## 2026-11-27 — Set logos are attempted for every set; 15 approved logos were hidden by a catalog-column gate
+## 2026-11-27 — Set chrome reports the approved crosswalk; 15 approved logos were hidden by a catalog-column gate
 **Decided by:** Claude Opus 5.5 on behalf of @cheyras (2026-11-27 feedback pass, workstream F); @cheyras reviews before merge
 
-**Decision:** The series page's set row (`SeriesDetail.tsx`) and the set page
-header (`SetHeader.tsx`) now ask for a set's logo for EVERY set, and fall back
-to the set's name only once `SetLogo`'s whole ladder (object URL → image tier →
-bundled asset) has failed. They no longer gate the attempt on the catalog's
-`logo_url` column. This is the logo half of the fix the 2026-08-29 crosswalk
-decision made for symbols (`SetSymbolTile`); the logo half was missed.
+**Decision:** The API's set chrome (`logoUrl` / `symbolUrl` on
+`GET /series/:slug`, `GET /sets/:setId` and `GET /cards/:id`) now reports the
+catalog column, else the approved set-image crosswalk entry
+(`setChromeUrl` in `apps/api/src/images/setChrome.ts`) — the same order the
+image tier resolves in. The SPA's gate (`set.logoUrl || bundledSetLogo(...)` in
+the series row and set header) is unchanged and now sees those logos.
 
 **Why:** The owner reported Crown Zenith Galarian Gallery, Silver Tempest and
 Lost Origin Trainer Gallery with no logo. An audit of all 203 catalog sets
@@ -23,24 +23,33 @@ series pages found that **15 sets have an approved logo the image tier serves,
 which the app never displays**: `sv05` Temporal Forces, `sm3.5` Shining Legends,
 `sm7.5` Dragon Majesty, `mfb` My First Battle, `bog`, `svp`, `sve`, `cel25cc`,
 `swsh4.5sv`, `sma`, `swsh12.5gg`, `swsh12tg`, `swsh11tg`, `swsh10tg` and
-`swsh9tg`. All 15 are in the owner-approved crosswalk
-(`packages/storage/src/setImageFallback.ts`), and `card_set.logo_url` is NULL
-for every one of them — which is the definition of a crosswalk entry. So the UI
-gate `set.logoUrl || bundledSetLogo(...)` rendered the name text for exactly the
-sets the crosswalk exists to fill. The image tier's `curl → 302` check passed the
-whole time; only the rendered DOM showed the gap.
+`swsh9tg`. All 15 are in the owner-approved crosswalk, and `card_set.logo_url`
+is NULL for every one of them — which is the definition of a crosswalk entry.
+The SPA only asks for a logo when `logoUrl` is non-null, so it rendered the name
+for exactly the sets the crosswalk exists to fill. The tier's `curl → 302` check
+passed the whole time; only the rendered page showed the gap.
+
+**Why not "attempt the logo for every set" (what `SetSymbolTile` does).** It was
+the first version of this fix, and CI's Deck-E scroll test caught the cost: the
+symbol tile is a fixed-size box, the logo slot is not. In the set header a
+logo-less set's failed image is swapped for its name a couple of round trips
+later, the header row reflows on a phone, and the page jumps under the reader.
+Every logo-less set (about 40 — Trainer Kits, McDonald's, promo pools) would also
+spend two failing requests per view. The server already knows which sets the
+tier can source, so it says so, and the client never asks for what does not
+exist.
 
 **Implications:**
 
-- Gating the attempt on a catalog column is the wrong shape for any slot with a
-  fallback source: the column is NULL for exactly the rows the fallback serves.
-  Attempt, then degrade. This also self-heals: a logo that later appears in the
-  tier (a crosswalk entry, a catalog refresh, a recorded manifest source) shows
-  without another UI change.
-- Cost: a set with no logo anywhere now spends one object-URL miss and one
-  image-tier miss (404, `max-age=60`) per view before its name appears — the
-  same trade `SetSymbolTile` already makes for symbols. Worst page is
-  `/series/trainer-kits` (20 such sets).
+- `logoUrl` / `symbolUrl` keep their documented meaning — the upstream URL the
+  set's image is filled from — but can now be a pokemontcg.io or Bulbagarden
+  URL as well as TCGdex. Clients still load set imagery from
+  `/deckpal/images/sets/<id>/…`, never from these URLs. `API.md` says so.
+- Not self-healing for an image that only a recorded manifest source knows
+  (none today; the 30th Celebration pair is covered by `bundledSetLogo`). A new
+  source for a set goes in the crosswalk, and the API reports it from then on.
+- `/api/series`' representative-set choice (`repHasLogo`) still reads the
+  catalog column in SQL; no series is affected today.
 - Subset rows now show their parent's wordmark (the approved crosswalk files for
   `swsh12.5gg`, `swsh*tg`, `cel25cc`, `swsh4.5sv`, `sma` are the parent's logo,
   as the 2026-08-29 decision recorded for their symbols). `bog` and `sve` show
@@ -63,7 +72,7 @@ whole time; only the rendered DOM showed the gap.
   2026-09-03), and the crosswalk is frozen to the owner's approval, so these
   two are put to the owner as a scoped question rather than added here. The
   same applies to `File:SetSymbolMcDonalds Collection 2026.png` for `2026me`'s
-  symbol.
+  symbol. If they are accepted, this change is what makes them show.
 - Residue after this change (renders the name / derived tag, by design or for
   want of a source): logos for `me06`, `mee`, `mep`, `miscp`, `exu`, `ex5.5`,
   `xya`, the 13 McDonald's Collection sets (trademark ruling, 2026-08-10) and
