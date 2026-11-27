@@ -1630,6 +1630,19 @@ rules, no new secret, variable or migration. To run it now, dispatch
 `price-refresh.yml` with job `prize-pack`; to read what it would add, run
 `pnpm --filter deckpal-sync prices prize-pack --dry-run` against a database.
 
+**Sets TCGdex has not published yet are held in `apps/sync/src/catalog/supplements.ts`.**
+Today that is McDonald's Collection 2026 (TCGplayer group 24938). Each card there
+names the card it reprints, and its rules text, types, regulation mark and reprint
+fingerprint are copied from that card; its printing and TCGplayer product come from
+the vendored list. `import:catalog` runs it after every import, so the weekly
+`catalog-refresh.yml` and a fresh database both get it; dispatch `price-refresh.yml`
+with job `catalog-supplement` to run it now, or
+`pnpm --filter deckpal-sync catalog:supplement --dry-run` to see what it would write.
+It only inserts rows that do not exist. When TCGdex publishes the set under the same
+name, the import's rename step re-keys these rows in place and the supplement reports
+`superseded` and writes nothing; delete the entry from `SUPPLEMENT_SETS` then. No new
+secret, variable or migration.
+
 **Verifying it is alive:** `GET /api/health` → `syncs` reports the last
 successful run per job, straight from `sync_run`. That block is what diagnosed
 the original outage and is the authoritative check — a green Actions run only
