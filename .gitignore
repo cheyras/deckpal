@@ -96,8 +96,9 @@ deploy/
 # ── design-system editor request queue (dev-only, never committed) ───────
 /design-requests/
 
-# ── machine-local agent instructions (not portable) ─────────────────────
+# ── machine-local agent instructions and owner-only notes (not portable) ─
 CLAUDE.local.md
+*.local.md
 .vercel
 
 # ── agent scheduler state (live session state, never committed) ──────────

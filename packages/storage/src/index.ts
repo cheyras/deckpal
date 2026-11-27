@@ -75,7 +75,20 @@ export {
   upsertImageObjectRow,
   type ImageAssetKind,
 } from './manifest.js';
-export { fetchSourceBytesWithExtensionFallback } from './fetch-source.js';
+export { fetchSourceBytes, fetchSourceBytesWithExtensionFallback } from './fetch-source.js';
+export {
+  SELF_SOURCED_CACHE_CONTROL,
+  SELF_SOURCE_POLICY,
+  SLOT_SIZE,
+  PRODUCT_IMAGE_HOST,
+  cardArtProduct,
+  isSelfSourced,
+  pickArtProduct,
+  productMatchesCard,
+  type ArtCard,
+  type ProductRecord,
+  productImageUrl,
+} from './self-source.js';
 export {
   fromUrl,
   putStorageAsset,

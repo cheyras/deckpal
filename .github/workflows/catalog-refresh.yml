@@ -149,6 +149,21 @@ jobs:
         if: ${{ always() && !inputs.skip_import }}
         run: node scripts/catalog-job-summary.mjs >> "$GITHUB_STEP_SUMMARY"
 
+      # ── TCGdex art replaces every other source ──────────────────────────────
+      #
+      # Card art TCGdex lacks is self-sourced (our own encode;
+      # apps/api/src/images/selfSource.ts) or came from an approved fallback.
+      # The moment TCGdex has the card, its art is used instead. `art:upgrade` asks TCGdex about every card whose art is
+      # not TCGdex's and sends the deployed image tier `?refresh=tcgdex` for the
+      # ones it now serves; the tier re-checks and swaps them in place. Reads
+      # the database only; the write happens inside the tier.
+      - name: Swap in TCGdex art where TCGdex now has the card
+        if: ${{ !inputs.skip_import }}
+        run: |
+          set -euo pipefail
+          pnpm --filter @deckpal/storage build
+          pnpm --filter deckpal-api art:upgrade --base https://deckpal.app
+
       # ── The scanner's indexes follow the catalogue ─────────────────────────
       #
       # The scanner finds a card by its art: a dHash (`card_image_phash`) and an

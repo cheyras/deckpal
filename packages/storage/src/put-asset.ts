@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import {
   deleteManifestRow,
   insertManifestRow,
+  replaceManifestProvenance,
   upsertImageObjectRow,
   type ImageAssetKind,
 } from './manifest.js';
@@ -103,6 +104,15 @@ export interface PutStorageAssetInput {
   provenance: Provenance;
   /** Override the sniffed content type. You almost never know better than the bytes. */
   contentType?: string;
+  /**
+   * The bytes REPLACE an asset that already has a row, from a different source (a self-sourced
+   * card TCGdex now has art for). The row's provenance and measurements are rewritten — AFTER
+   * the upload succeeds, so a failed upload can never leave a row claiming bytes it does not
+   * describe. Without this, an existing row is left as it is.
+   */
+  replace?: boolean;
+  /** Object cache lifetime. Self-sourced art uses `SELF_SOURCED_CACHE_CONTROL`. */
+  cacheControl?: string;
 }
 
 export interface PutStorageAssetResult {
@@ -144,7 +154,7 @@ export async function putStorageAsset(
   });
 
   // 2. Publish.
-  const upload = await uploadObject(relativePath, bytes, contentType);
+  const upload = await uploadObject(relativePath, bytes, contentType, input.cacheControl);
   if (!upload.ok) {
     if (outcome === 'inserted') {
       await deleteManifestRow(cacheKey).catch(() => undefined);
@@ -153,6 +163,12 @@ export async function putStorageAsset(
     throw new Error(
       `[storage] upload failed for ${relativePath}: HTTP ${upload.status} ${upload.error ?? ''}`,
     );
+  }
+
+  // 2b. A replacement rewrites the existing row's provenance, now that the bytes it describes
+  //     are the ones published.
+  if (outcome === 'exists' && input.replace) {
+    await replaceManifestProvenance({ cacheKey, contentType, byteSize: bytes.length, sourceUrl, etag });
   }
 
   // 3. Measure the published copy. See the module doc for why this is last and

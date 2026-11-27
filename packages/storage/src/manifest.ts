@@ -43,6 +43,42 @@ function restUrl(path: string): string {
   return `${storageEnv().supabaseUrl}/rest/v1/${path}`;
 }
 
+/** A read-only PostgREST GET under the service role; throws on a non-2xx answer. */
+export async function restGet<T>(path: string, timeoutMs = 8_000): Promise<T[]> {
+  const res = await fetch(restUrl(path), {
+    headers: restHeaders({ accept: 'application/json' }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) throw new Error(`[rest] read failed: HTTP ${res.status}`);
+  return (await res.json()) as T[];
+}
+
+/**
+ * Replace an existing row's provenance and measurements: the asset's bytes are being replaced
+ * from a different source (a self-sourced card that TCGdex now has, or a re-encode of one).
+ */
+export async function replaceManifestProvenance(
+  input: Omit<InsertManifestInput, 'kind' | 'relativePath'>,
+  timeoutMs = 8_000,
+): Promise<void> {
+  const res = await fetch(restUrl(`image_asset?cache_key=eq.${encodeURIComponent(input.cacheKey)}`), {
+    method: 'PATCH',
+    headers: restHeaders({ 'content-type': 'application/json', prefer: 'return=minimal' }),
+    body: JSON.stringify({
+      source_url: input.sourceUrl,
+      etag: input.etag,
+      content_type: input.contentType,
+      byte_size: input.byteSize,
+      fetched_at: new Date().toISOString(),
+    }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`[manifest] provenance update failed: HTTP ${res.status} ${body.slice(0, 200)}`);
+  }
+}
+
 /** The manifest row for a cache key, or null when the asset was never recorded. */
 export async function getManifestRow(
   cacheKey: string,

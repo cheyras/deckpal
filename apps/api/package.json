@@ -17,6 +17,8 @@
     "prove:deck": "node --import tsx src/deck/prove.ts",
     "scan:index": "node --import tsx src/scan/index.ts",
     "scan:topup": "node --import tsx src/scan/topup.ts",
+    "art:upgrade": "node --import tsx src/images/artCli.ts upgrade",
+    "art:self-source": "node --import tsx src/images/artCli.ts self-source",
     "test:images": "node --import tsx --test src/images/__tests__/*.test.ts",
     "test:stripe-contract": "node ../../scripts/stripe-contract-check.mjs",
     "test:integration": "node ../../scripts/test-db-integration.mjs",

@@ -108,8 +108,10 @@ describe('resolveSourceFromManifest — card behaviour is unchanged', () => {
     assert.equal(result.provenanceWasUnknown, true);
   });
 
+  // An approved upstream: a recorded source on any other host is SELF-SOURCED, which resolves
+  // TCGdex-first instead (selfSource.test.ts).
   test('a card with a recorded source uses it (never the crosswalk)', () => {
-    const recorded = 'https://example.test/card-art.webp';
+    const recorded = 'https://images.pokemontcg.io/sv3pt5/102.png';
     const result = resolveSourceFromManifest(card, { source_url: recorded });
     assert.ok(result !== null);
     assert.equal(result.url, recorded);
