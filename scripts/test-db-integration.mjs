@@ -381,6 +381,27 @@ try {
     assert.equal(evidence.status, 'passed');
     result.cases.push(evidence);
   }
+  // The sets TCGdex has not published yet (catalog/supplements.ts): every migration, the real
+  // INSERT ... SELECT copies, then the real catalog import taking the set over from a fixture.
+  {
+    assertNoEnvFile();
+    await run(join(bindir, 'psql'), ['-X', '-v', 'ON_ERROR_STOP=1', '-c',
+      'CREATE DATABASE deckpal_ci_supplement OWNER deckpal_ci_fixture']);
+    await run(join(bindir, 'psql'), ['-X', '-v', 'ON_ERROR_STOP=1', '-d',
+      'deckpal_ci_supplement', '-c', 'CREATE EXTENSION vector']);
+    const caseFile = join(scratch, 'supplement-sets.json');
+    await run(process.execPath, ['--import', join(REPO, 'node_modules', 'tsx', 'dist', 'loader.mjs'),
+      join(REPO, 'apps', 'api', 'src', '__integration__', 'supplementSets.mjs')], {
+      timeoutMs: 240_000,
+      env: {
+        PGUSER: 'deckpal_ci_fixture', PGDATABASE: 'deckpal_ci_supplement',
+        DECKPAL_TEST_ROOT: scratch, DECKPAL_TEST_MARKER: marker, DECKPAL_TEST_RESULT: caseFile,
+      },
+    });
+    const evidence = JSON.parse(readFileSync(caseFile, 'utf8'));
+    assert.equal(evidence.status, 'passed');
+    result.cases.push(evidence);
+  }
   // set_progress goal 'numbered': every migration, then the tool handler over
   // real rows. The card-number predicate is SQL, so only a database proves it.
   {

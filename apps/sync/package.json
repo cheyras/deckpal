@@ -12,6 +12,7 @@
     "start": "node dist/index.js",
     "run-once": "tsx src/run-once.ts",
     "import:catalog": "tsx src/catalog/cli.ts",
+    "catalog:supplement": "tsx src/catalog/supplementCli.ts",
     "import:dex": "tsx src/dex/cli.ts",
     "prices": "tsx src/prices/cli.ts"
   },

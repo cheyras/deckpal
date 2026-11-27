@@ -4,7 +4,9 @@
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { makePool } from '@deckpal/db';
 import { importCatalog } from './import.js';
+import { fillSupplementSets } from './supplements.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '..', '..', '..', '..'); // apps/sync/src/catalog -> repo root
@@ -12,8 +14,23 @@ const dataDir = process.argv[2] ?? process.env.CATALOG_DATA_DIR ?? join(repoRoot
 
 const t0 = Date.now();
 console.log(`[catalog-import] reading ${dataDir}`);
+// The sets TCGdex has not published yet (supplements.ts) go in after the import, so a fresh
+// database gets them with everything else and a set TCGdex has just taken over is left alone.
+async function supplement() {
+  const pool = makePool(1);
+  const client = await pool.connect();
+  try {
+    return await fillSupplementSets(client);
+  } finally {
+    client.release();
+    await pool.end();
+  }
+}
+
 importCatalog(dataDir)
-  .then((s) => {
+  .then(async (s) => {
+    const sup = await supplement();
+    console.log(`[catalog-import] supplement sets: ${JSON.stringify(sup.sets)}`);
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
     console.log(`[catalog-import] done in ${secs}s`);
     console.log(JSON.stringify(s, null, 2));

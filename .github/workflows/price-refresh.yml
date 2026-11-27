@@ -60,7 +60,7 @@ on:
         description: 'Which job to run by hand'
         type: choice
         default: prices-tcgcsv
-        options: [prices-tcgcsv, link-tcgcsv, prize-pack, prices-cardmarket, snapshot]
+        options: [prices-tcgcsv, link-tcgcsv, prize-pack, catalog-supplement, prices-cardmarket, snapshot]
       force:
         description: 'Ingest even when the upstream stamp is unchanged'
         type: boolean
@@ -182,6 +182,13 @@ jobs:
       - name: Prize Pack printings
         if: steps.what.outputs.job == 'prize-pack'
         run: pnpm --filter deckpal-sync prices prize-pack
+
+      # The sets TCGdex has not published yet (apps/sync/src/catalog/supplements.ts). The weekly
+      # catalog refresh runs this after its import; this is the same pass on demand. Their prices
+      # follow with the next ingest, which walks the new set's TCGplayer group like any other.
+      - name: Catalog supplement sets
+        if: steps.what.outputs.job == 'catalog-supplement'
+        run: pnpm --filter deckpal-sync catalog:supplement
 
       - name: Cardmarket price ingest
         if: steps.what.outputs.job == 'prices-cardmarket'
