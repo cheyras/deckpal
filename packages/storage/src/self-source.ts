@@ -64,15 +64,26 @@ interface VariantRow {
   sort_order: number;
 }
 
+/** Stamps and jumbo sizes a printing carries: a printing with none is the card's plain print. */
+const marks = (code: string): number => (code.match(/stamp/g)?.length ?? 0) + (code.includes('jumbo') ? 1 : 0);
+
 /**
- * The linked product whose image is this card's art: the plainest printing we link.
- * Primary first, then the earliest-sorted; a stamped printing never (its image shows the
- * stamp, which is not the card's art). Null when the card links no unstamped product.
+ * The linked product whose image is this card's art: the plainest printing we link. Primary
+ * first, then the earliest-sorted. A stamped or jumbo printing only when the card HAS no plain
+ * printing — a card printed only with a stamp (a theme deck's, a promotion's) is its stamped
+ * print — and then the one with the fewest marks. A card with an unlinked plain printing gets
+ * none: a stamp it does not carry would be the wrong art.
  */
 export function pickArtProduct(rows: VariantRow[]): number | null {
-  const plain = rows.filter((r) => r.tcgplayer_product_id != null && !r.variant_kind_code.includes('stamp'));
-  plain.sort((a, b) => Number(b.is_primary) - Number(a.is_primary) || a.sort_order - b.sort_order);
-  return plain[0]?.tcgplayer_product_id ?? null;
+  const order = (x: VariantRow, y: VariantRow): number =>
+    marks(x.variant_kind_code) - marks(y.variant_kind_code)
+    || Number(y.is_primary) - Number(x.is_primary)
+    || x.sort_order - y.sort_order;
+  const linked = rows.filter((r) => r.tcgplayer_product_id != null).sort(order);
+  const best = linked[0];
+  if (!best) return null;
+  if (marks(best.variant_kind_code) === 0) return best.tcgplayer_product_id;
+  return rows.every((r) => marks(r.variant_kind_code) > 0) ? best.tcgplayer_product_id : null;
 }
 
 /** What the tier needs to know about a card to self-source and check its art. */

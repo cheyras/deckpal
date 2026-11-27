@@ -341,6 +341,25 @@ export interface SetRef {
 const fold = (s: string | null | undefined): string => (s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 
 /**
+ * Sets whose TCGplayer group the name and number rules cannot find, matched by hand on 2026-11-27
+ * (each group's products checked against our cards by name and number). TCGdex gives none of them
+ * a group, and either the names differ from TCGplayer's ("McDonald's Collection 2024" is
+ * "McDonald's Promos 2024") or the cards print another set's numbers (Classic Collection), so
+ * `acceptGroup` can never agree. Without a group a set is never priced. A known group is
+ * authoritative: it replaces a group the name rules picked (the two DP trainer kits had one).
+ */
+export const KNOWN_SET_GROUPS: Readonly<Record<string, number>> = {
+  '2023sv': 23306, // McDonald's Promos 2023
+  '2024sv': 24163, // McDonald's Promos 2024
+  cel25cc: 2931, // Celebrations: Classic Collection
+  exu: 1398, // EX Unseen Forces (the Unown Collection is listed in the set's own group)
+  'ex5.5': 2214, // Kids WB Promos
+  miscp: 2374, // Miscellaneous Cards & Products
+  'tk-dp-l': 1541, // DP Trainer Kit: Manaphy & Lucario
+  'tk-dp-m': 1541, // DP Trainer Kit: Manaphy & Lucario
+};
+
+/**
  * Groups worth FETCHING for a set — cheap filter, not a decision. Matches on the printed set code
  * (TCGdex id, its abbreviation, or its PTCGL code against TCGCSV's abbreviation) or on the group
  * name with its era prefix ("SV: ", "SWSH: ") removed. Whether a candidate is actually this set

@@ -36,13 +36,27 @@ test('the product-image host is fetchable only under the self-source policy, nev
   assert.throws(() => productImageUrl(0));
 });
 
-test('the art product is the primary unstamped printing, never a stamped one', () => {
-  const v = (pid: number | null, kind: string, primary: boolean, sort: number) =>
-    ({ tcgplayer_product_id: pid, variant_kind_code: kind, is_primary: primary, sort_order: sort });
+const v = (pid: number | null, kind: string, primary: boolean, sort: number) =>
+  ({ tcgplayer_product_id: pid, variant_kind_code: kind, is_primary: primary, sort_order: sort });
+
+test('the art product is the primary plain printing, ahead of any stamped one', () => {
   assert.equal(pickArtProduct([v(1, 'normal-stamp-player-rewards-program', false, 2), v(2, 'reverse', false, 1), v(3, 'normal', true, 0)]), 3);
   assert.equal(pickArtProduct([v(null, 'holo', true, 0), v(9, 'reverse', false, 1)]), 9);
-  assert.equal(pickArtProduct([v(5, 'holo-stamp-ace-trainer', false, 0)]), null);
   assert.equal(pickArtProduct([]), null);
+});
+
+test('a card printed only with a stamp is its stamped print, the least-marked one', () => {
+  // My First Battle: every printing carries the deck's stamp.
+  assert.equal(pickArtProduct([v(523984, 'normal-blue-border-stamp-bulbasaur-stamp-pokeball', false, 1), v(523985, 'normal-stamp-bulbasaur', true, 0)]), 523985);
+  // Mega Evolution Energy 009: only the 30th-anniversary stamped print exists.
+  assert.equal(pickArtProduct([v(713248, 'holo-stamp-30th-anniversary', true, 0)]), 713248);
+  // A jumbo is a last resort.
+  assert.equal(pickArtProduct([v(1, 'holo-jumbo', false, 1), v(2, 'holo-stamp-mcdonalds', true, 0)]), 2);
+});
+
+test('a card with an unlinked plain printing gets no stamped art', () => {
+  // MEP promo: the plain holo has no product; its set-logo stamped print would be the wrong art.
+  assert.equal(pickArtProduct([v(null, 'holo', true, 0), v(685494, 'holo-stamp-set-logo', false, 1)]), null);
 });
 
 test('the product\'s record must name the card at its number', () => {
