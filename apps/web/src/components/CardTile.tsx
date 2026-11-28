@@ -107,6 +107,7 @@ export function CardTile({
   onRemove,
   badge,
   ownership,
+  showSet = false,
 }: {
   card: CardRow
   seriesSlug: string
@@ -114,6 +115,12 @@ export function CardTile({
   eager?: boolean
   onRemove?: () => void
   badge?: string
+  /**
+   * Print the card's set after its number. For grids that span sets — search
+   * results and a species page — where "#001" alone matched a dozen tiles and
+   * nothing on any of them said which printing was which.
+   */
+  showSet?: boolean
   // Optional owned-state rendering (species detail / signed-in grid): dim un-owned
   // cards, and stamp a quantity chip on owned ones. Omitted on
   // the set page, which is unaffected.
@@ -174,13 +181,25 @@ export function CardTile({
           <span className="font-display truncate text-[16px] font-normal leading-[23px] text-text-primary">
             {card.name}
           </span>
-          <span className="shrink-0 text-[16px] font-normal leading-[23px] text-change-positive">
+          {/* No price is a muted dash, not a green one: in the price colour the
+              dash read as a stray green rule beside the name. */}
+          <span
+            className={`shrink-0 text-[16px] font-normal leading-[23px] ${
+              card.price?.market != null ? 'text-change-positive' : 'text-text-muted'
+            }`}
+          >
             {fmtPrice(card.price)}
           </span>
         </div>
-        <div className="flex items-center justify-between">
-          <span className="text-[14px] leading-[23px] text-text-muted">{fmtNumber(card.number)}</span>
-          <span className="text-[14px] leading-[23px] text-text-secondary" title={card.rarity ?? ''}>
+        <div className="flex items-center justify-between gap-[8px]">
+          <span
+            className="min-w-0 truncate text-[14px] leading-[23px] text-text-muted"
+            title={showSet && card.setName ? `${fmtNumber(card.number)} · ${card.setName}` : undefined}
+          >
+            {fmtNumber(card.number)}
+            {showSet && card.setName ? ` · ${card.setName}` : ''}
+          </span>
+          <span className="shrink-0 text-[14px] leading-[23px] text-text-secondary" title={card.rarity ?? ''}>
             <RarityMark rarity={card.rarity} />
           </span>
         </div>

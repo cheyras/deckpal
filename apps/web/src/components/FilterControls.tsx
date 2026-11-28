@@ -1,5 +1,6 @@
 import type { CardSearch, SortKey, ViewMode, Ownership } from '../routes/setSearch'
 import { Icon } from './Icon'
+import { useScrollEdge } from '../lib/useScrollEdge'
 
 type Patch = (p: Partial<CardSearch>) => void
 
@@ -47,15 +48,21 @@ export function OwnershipButtons({
   activeKey: string
   onSelect: (key: string) => void
 }) {
+  const edge = useScrollEdge({ axis: 'x' })
   return (
-    <div className="scroll-x flex items-center gap-[20px]">
+    // The buttons are bare text, so their line box was the whole hit target —
+    // about 20px tall. `py-3` grows each one to 44px and the row's `-my-3`
+    // gives the same 24px back, so nothing on the page moves. The padding sits
+    // inside the strip's own box, which matters: a scroll-x row clips anything
+    // that overflows it vertically, hit area included.
+    <div ref={edge} className="scroll-x scroll-edge-x -my-3 flex items-center gap-[20px]">
       {items.map((o) => {
         const active = o.key === activeKey
         return (
           <button
             key={o.key}
             onClick={() => onSelect(o.key)}
-            className={`whitespace-nowrap text-[14px] font-medium ${
+            className={`whitespace-nowrap py-3 text-[14px] font-medium ${
               active ? 'font-semibold text-text-primary' : 'text-text-secondary hover:text-text-body'
             }`}
           >
@@ -87,16 +94,28 @@ export function SearchBox({ value, onChange }: { value: string; onChange: (v: st
  * SetDetail's SortChips — delegates to the generic SortChipStrip below.
  * Kept for backward compatibility with the existing `{ search, patch }` API.
  */
-export function SortChips({ search, patch }: { search: CardSearch; patch: Patch }) {
+export function SortChips({ search, patch, className }: { search: CardSearch; patch: Patch; className?: string }) {
   return (
     <SortChipStrip
       items={SET_SORTS}
       activeKey={search.sort}
       activeDir={search.dir}
       onSort={(key, dir) => patch({ sort: key as SortKey, dir })}
+      className={className}
     />
   )
 }
+
+/**
+ * For a chip strip that scrolls on a phone: bleed it out to the screen edges
+ * (the page gutter is 16px below `nav`) and pad it back in, so the chips rest
+ * where the page's text does but scroll out under the edge fade rather than
+ * stopping 16px short of it. From `sm` the strip shares its row and stays put.
+ * The /design tab strip does the same. The `!` on max-width is needed:
+ * `.scroll-x` (theme.css) caps the row at `max-width: 100%` and is unlayered,
+ * so it outranks any plain Tailwind utility.
+ */
+export const CHIP_STRIP_BLEED = '-mx-4 px-4 scroll-px-4 max-w-none! sm:mx-0 sm:px-0 sm:max-w-full!'
 
 /**
  * Generic sort chip strip — usable by SetDetail, ListDetail, SearchResults,
@@ -124,8 +143,13 @@ export function SortChipStrip({
   onSort: (key: string, dir: 'asc' | 'desc') => void
   className?: string
 }) {
+  // On a phone the strip is wider than the screen (Number · Name · Rarity ·
+  // Price · Artist is ~520px). It used to stop dead at the gutter, slicing
+  // "Price" in half with nothing to say the row scrolls; the edge fade is the
+  // design system's "there is more this way" (theme.css "The scroll edge").
+  const edge = useScrollEdge({ axis: 'x' })
   return (
-    <div className={`scroll-x flex items-center gap-[12px]${className ? ` ${className}` : ''}`}>
+    <div ref={edge} className={`scroll-x scroll-edge-x flex items-center gap-[12px]${className ? ` ${className}` : ''}`}>
       {items.map((s) => {
         const active = s.key === activeKey
         return (
@@ -205,18 +229,20 @@ export function ViewToggle({ view, patch }: { view: ViewMode; patch: Patch }) {
     { key: 'binder', label: 'Binder', icon: 'binder' },
   ]
   return (
-    <div className="flex items-center justify-end gap-[20px]">
+    <div className="-my-1 flex items-center justify-end gap-[20px]">
       {/* min-h: with no vertical padding the hit target was just the 14px line
           box — measured 21px tall, below the 24px WCAG 2.5.8 floor and well
           under a comfortable thumb target. It grows the target without moving
-          the label, which stays optically centred. */}
+          the label, which stays optically centred. 44px is the thumb size; the
+          row's `-my-1` hands back the 8px it gained over the old 36px, so the
+          rows around it do not move. */}
       {items.map((it) => {
         const active = view === it.key
         return (
           <button
             key={it.key}
             onClick={() => patch({ view: it.key })}
-            className={`min-h-[36px] items-center gap-[5px] text-[14px] font-medium ${it.key === 'table' ? 'hidden md:flex' : 'flex'}`}
+            className={`min-h-[44px] items-center gap-[5px] text-[14px] font-medium ${it.key === 'table' ? 'hidden md:flex' : 'flex'}`}
           >
             <Icon name={it.icon} size={16} className={active ? 'text-action-primary' : 'text-icon-default'} />
             <span className={active ? 'text-text-primary' : 'text-text-secondary'}>{it.label}</span>

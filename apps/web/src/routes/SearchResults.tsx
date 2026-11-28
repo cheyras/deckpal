@@ -3,7 +3,7 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { useSearch, useNavigate } from '@tanstack/react-router'
 import { api, type CardRow, type SearchCard } from '../lib/api'
 import { Content, Spinner, ErrorState } from '../components/ui'
-import { SortChipStrip } from '../components/FilterControls'
+import { CHIP_STRIP_BLEED, SortChipStrip } from '../components/FilterControls'
 import { Icon } from '../components/Icon'
 import { GridView } from '../components/GridView'
 import { type GlobalSearch, type GlobalSortKey } from './globalSearch'
@@ -51,6 +51,7 @@ function toCardRow(c: SearchCard): CardRow {
     // same mechanism list pages use.
     seriesSlug: c.series.slug,
     setId: c.set.setId,
+    setName: c.set.name,
   }
 }
 
@@ -127,8 +128,15 @@ export function SearchResults() {
           <span className="pointer-events-none absolute left-[14px] text-icon-default">
             <Icon name="search" size={20} />
           </span>
+          {/* Focus the box only when there is nothing in it yet. Arriving with
+              a query (the header search, a shared link, Back) means the
+              results are what you came for — and on a phone an autofocused
+              field raises the keyboard straight over them. */}
           <input
-            autoFocus
+            autoFocus={!search.q.trim()}
+            type="search"
+            enterKeyHint="search"
+            aria-label="Search cards"
             value={term}
             onChange={(e) => setTerm(e.target.value)}
             placeholder="Search every card by name or number…"
@@ -142,7 +150,7 @@ export function SearchResults() {
             activeKey={search.sort}
             activeDir={search.dir}
             onSort={(key, dir) => patch({ sort: key as GlobalSortKey, dir })}
-            className="mt-[16px]"
+            className={`mt-[16px] ${CHIP_STRIP_BLEED}`}
           />
         )}
       </div>
@@ -173,7 +181,7 @@ export function SearchResults() {
                   data-decke-label="the search results grid"
                   data-decke-rank="container"
                 >
-                  <GridView cards={cards} seriesSlug="" setId="" />
+                  <GridView cards={cards} seriesSlug="" setId="" showSet />
                 </div>
               )}
 

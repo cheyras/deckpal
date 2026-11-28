@@ -82,7 +82,8 @@ export function TableView({ cards, seriesSlug, setId, reveal, activeCard }: {
         : card.variantCount > 1 ? <span className="text-text-muted">{card.variantCount} variants</span>
           : <span className="text-text-muted" aria-label="No variant">—</span> },
     { id: 'price', header: 'Price', align: 'right', headerClassName: 'w-[85px] lg:w-[100px]', className: 'w-[85px] lg:w-[100px] font-medium text-change-positive',
-      cell: card => fmtPrice(card.price) },
+      // No price: a muted dash, as on the grid tile — not a green one.
+      cell: card => card.price?.market != null ? fmtPrice(card.price) : <span className="text-text-muted" aria-label="No price">—</span> },
     ...(signedIn === true ? [{ id: 'quantity', header: 'Quantity', align: 'right' as const,
       headerClassName: 'w-[150px] lg:w-[180px]', className: 'w-[150px] lg:w-[180px]',
       cell: (card: CardRow) => {

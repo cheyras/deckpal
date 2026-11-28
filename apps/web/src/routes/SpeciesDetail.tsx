@@ -72,6 +72,7 @@ function toCardRow(c: SpeciesDetailCard, seriesSlug: string | null): CardRow {
         }),
     seriesSlug: seriesSlug ?? undefined,
     setId: c.set.setId,
+    setName: c.set.name,
   }
 }
 
@@ -198,7 +199,9 @@ export function SpeciesDetail() {
             {sp.captured === undefined ? (
               <SignInPrompt title="Track this Pokémon" />
             ) : (
-              <label className="flex cursor-pointer items-center gap-[8px] text-[14px] text-text-body">
+              // `py-3 -my-3`: the whole label is the 44px target (the box
+              // alone is 13px), without moving the row.
+              <label className="-my-3 flex cursor-pointer items-center gap-[8px] py-3 text-[14px] text-text-body">
                 <input type="checkbox" checked={ownedOnly} onChange={(e) => setOwnedOnly(e.target.checked)} />
                 Owned only
               </label>
@@ -217,7 +220,7 @@ export function SpeciesDetail() {
                 {ownedOnly ? 'You own none of this species yet.' : 'No cards found for this species.'}
               </div>
             ) : (
-              <GridView cards={cards} seriesSlug="" setId="" ownership={sp.captured !== undefined} />
+              <GridView cards={cards} seriesSlug="" setId="" ownership={sp.captured !== undefined} showSet />
             )}
           </div>
         </>

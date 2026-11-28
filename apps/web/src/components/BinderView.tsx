@@ -9,7 +9,7 @@ import { CARD_ASPECT_RATIO_CSS, CARD_RADIUS_CSS } from '../lib/cardGeometry'
 // Binder view (UI-SPEC §3.25).
 //
 // A real, paged binder. Pockets are laid out per the selected layout tab
-// (9 / 12 / 4 / 16 per page). An owned card renders at full brightness; an
+// (4 / 9 / 12 / 16 per page). An owned card renders at full brightness; an
 // unowned pocket keeps the dimmed "Slot #N" treatment so it reads as a "need".
 //
 // This is a single-user, self-hosted app: there is no paid tier and no PRO
@@ -19,13 +19,16 @@ import { CARD_ASPECT_RATIO_CSS, CARD_RADIUS_CSS } from '../lib/cardGeometry'
 // collection-tracked) can force every present card bright; otherwise ownership
 // drives per-pocket brightness in every mode.
 
-// Pocket layouts. `cols` drives the CSS grid; `perPage = cols * rows`.
+// Pocket layouts. `cols` drives the CSS grid; `perPage = cols * rows`. In
+// size order (the tabs read 9 · 12 · 4 · 16 before); 9-pocket, the standard
+// binder page, is still the one a binder opens on.
 const LAYOUTS = [
+  { label: '4-Pocket', cols: 2, rows: 2 },
   { label: '9-Pocket', cols: 3, rows: 3 },
   { label: '12-Pocket', cols: 4, rows: 3 },
-  { label: '4-Pocket', cols: 2, rows: 2 },
   { label: '16-Pocket', cols: 4, rows: 4 },
 ] as const
+const DEFAULT_LAYOUT = 1
 
 function Pocket({
   card,
@@ -169,7 +172,7 @@ export function BinderView({
 }) {
   void mode // retained for call-site compatibility; behavior is now uniform
   const [stackVariants, setStackVariants] = useState(true)
-  const [layoutIdx, setLayoutIdx] = useState(0)
+  const [layoutIdx, setLayoutIdx] = useState(DEFAULT_LAYOUT)
   const [page, setPage] = useState(0)
 
   const layout = LAYOUTS[layoutIdx]
@@ -185,7 +188,12 @@ export function BinderView({
 
   return (
     <div>
-      {/* pocket-layout tabs (UI-SPEC §3.25) */}
+      {/* pocket-layout tabs (UI-SPEC §3.25). Each tab's `before:` box reaches
+          20px above it, a 44px target where the ~24px text box was, without
+          growing the tab itself (premium paints the selected tab as a raised
+          tile, and a taller tab is a taller tile). Every tab carries the 2px
+          underline slot, so the selected one no longer sits a pixel lower
+          than its neighbours. */}
       <div className="mb-[16px] flex items-center gap-[24px] border-b border-divider-subtle">
         {LAYOUTS.map((l, i) => (
           <button
@@ -195,10 +203,10 @@ export function BinderView({
               setPage(0)
             }}
             aria-pressed={i === layoutIdx}
-            className={`pb-[3px] text-[14px] ${
+            className={`relative border-b-2 pb-[3px] text-[14px] before:absolute before:inset-x-0 before:-top-5 before:bottom-0 before:content-[''] ${
               i === layoutIdx
-                ? 'border-b-2 border-action-primary font-[650] text-text-primary'
-                : 'font-medium text-text-muted'
+                ? 'border-action-primary font-[650] text-text-primary'
+                : 'border-transparent font-medium text-text-muted'
             }`}
           >
             {l.label}

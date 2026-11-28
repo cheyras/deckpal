@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
 import { api, type CardDetailResponse, type ValueRange, type Variant } from '../lib/api'
 import { catalogPath, errorMeta, usePageMeta, type PageMeta } from '../lib/seo'
@@ -8,7 +8,7 @@ import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
 import { EnergyIcon } from '../components/EnergyIcon'
 import { RarityMark } from '../components/RarityMark'
-import { fmtPrice, fmtCalendarDate, fmtNumber, fmtRelative, fmtMoney } from '../lib/format'
+import { fmtPrice, fmtCalendarDate, fmtNumber, fmtPrintedTotal, fmtRelative, fmtMoney } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
 import { useOwnedCounts } from '../lib/collectionWrites'
 import { useCurrentPathAsNext } from '../lib/landingRoute'
@@ -20,6 +20,7 @@ import { rangeWindow } from '../lib/insightsCaption'
 import { bucketDayLabel, bucketRangeLabel, chartPoints, grainCaption } from '../lib/priceGrain'
 import { Sheet, SheetBar } from '../components/ui/Sheet'
 import { useLateEntrance } from '../lib/lateEntrance'
+import { CARD_ASPECT_RATIO_CSS, CARD_RADIUS_CSS } from '../lib/cardGeometry'
 
 function QtyStepper({
   v,
@@ -181,15 +182,23 @@ function VariantRow({
           </div>
         </div>
 
-        {/* Market Price column — spans full width on mobile (row 2), col 2 on gap+ */}
-        <div className="col-[1/-1] row-[2] min-w-0 gap:col-[auto] gap:row-[auto] gap:text-right">
+        {/* Market Price column — spans full width on mobile (row 2), col 2 on gap+.
+            On mobile it is indented past the swatch (12px + the 8px gap), so
+            the price lines up under the variant's name and "Found in…" line
+            instead of under the swatch. In the 84px desktop column "as of 5
+            hours ago" broke over three lines; there the column header already
+            says what the time is, so it drops the "as of" and fits on one. */}
+        <div className="col-[1/-1] row-[2] min-w-0 pl-[20px] gap:col-[auto] gap:row-[auto] gap:pl-0 gap:text-right">
           {price && price.market != null ? (
             <div className="text-[16px] font-medium text-change-positive">{fmtPrice(price)}</div>
           ) : (
             <div className="text-[14px] text-text-muted">No price</div>
           )}
           {price?.pricedAt && (
-            <div className="text-[14px] leading-[14px] text-text-muted">as of {fmtRelative(price.pricedAt)}</div>
+            <div className="text-[12px] leading-[16px] text-text-muted gap:whitespace-nowrap">
+              <span className="gap:hidden">as of </span>
+              {fmtRelative(price.pricedAt)}
+            </div>
           )}
         </div>
 
@@ -434,7 +443,9 @@ function TcgTab({ cardId }: { cardId: string }) {
         ))}
       </ul>
       <p className={`border-t ${PANEL_RULE} ${PANEL_X} py-[12px] text-[14px] text-text-muted`}>
-        Format rules verified {data.checkedAt.slice(0, 10)}.
+        {/* The app's own date style ("Jul 27, 2026"), not the raw ISO
+            "2026-07-27" this line was the only place to show. */}
+        Format rules verified {fmtCalendarDate(data.checkedAt.slice(0, 10))}.
       </p>
     </div>
   )
@@ -507,6 +518,52 @@ export function CardDetail() {
     <Content cap={1165}>
       <CardDetailBody cardId={cardId} backTo={{ series, set }} />
     </Content>
+  )
+}
+
+/**
+ * Below `nav` the art and the details stack. On a tablet (640–1067px) the
+ * stack spanned the whole sheet or page: the art sat centred at 396px while
+ * the name hugged the left edge, the copy-link button the right, and a variant
+ * row put its price 700px from its name. Capped and centred, the column reads
+ * as one piece, the way it does on a phone. From `nav` the two-column layout
+ * takes over unchanged.
+ */
+const STACKED_CAP = 'mx-auto w-full max-w-[600px] nav:mx-0 nav:max-w-none'
+
+/** The set's name, if any loaded view of that set is already in the cache. */
+function cachedSetName(qc: QueryClient, setId: string): string | undefined {
+  if (!setId) return undefined
+  for (const [, d] of qc.getQueriesData<{ set?: { name?: string } }>({ queryKey: ['set', setId] })) {
+    if (d?.set?.name) return d.set.name
+  }
+  return undefined
+}
+
+/**
+ * What the card body shows while its card is on the way: the art's own box,
+ * at the art's own size, with the spinner inside it.
+ *
+ * A bare spinner made the sheet open at about half height and then JUMP to
+ * full height when the card landed (and the standalone page reflow the same
+ * way). The art is the tallest thing in the body and its box is fixed by the
+ * card's proportions, so reserving it means the sheet opens at the size it is
+ * going to be. The detail column is left empty rather than faked.
+ */
+function CardDetailPlaceholder() {
+  return (
+    <div className={`flex flex-col gap-[32px] nav:flex-row ${STACKED_CAP}`} role="status" aria-label="Loading card…">
+      <div
+        className="relative mx-auto flex w-full max-w-[396px] shrink-0 items-center justify-center bg-surface-tertiary nav:mx-0"
+        style={{ aspectRatio: CARD_ASPECT_RATIO_CSS, borderRadius: CARD_RADIUS_CSS }}
+      >
+        <Spinner inline size={32} className="text-action-primary" />
+      </div>
+      {/* Below nav the column stacks under the art; this holds the title
+          block's height (name, set, number) so the sheet does not grow again
+          when they arrive. */}
+      <div className="min-h-[160px] min-w-0 flex-1 nav:min-h-0" />
+    </div>
   )
 }
 
@@ -590,15 +647,21 @@ function CardDetailBody({
     if (data && variant) owned.set({ setId, card: { cardId, name: data.card.name }, variant }, newQty)
   }
 
+  // Until the card lands, name the set from any view of it already loaded (you
+  // usually came from it), so the back link does not read "Set" and then
+  // widen into the set's name a moment later.
+  const qc = useQueryClient()
+  const setLabel = data?.card.set.name ?? cachedSetName(qc, setId) ?? 'Set'
+
   return (
     <>
       {!inSheet && (
         <div className="mb-[16px]">
-          <BackPill to="/series/$series/$set" params={{ series: seriesSlug, set: setId }} label={data?.card.set.name ?? 'Set'} />
+          <BackPill to="/series/$series/$set" params={{ series: seriesSlug, set: setId }} label={setLabel} />
         </div>
       )}
 
-      {isLoading && <Spinner label="Loading card…" />}
+      {isLoading && <CardDetailPlaceholder />}
       {error && <ErrorState message={(error as Error).message} className={enter} />}
 
       {data && (
@@ -612,7 +675,7 @@ function CardDetailBody({
               opacity: 0.5,
             }}
           />
-          <div className="flex flex-col gap-[32px] nav:flex-row">
+          <div className={`flex flex-col gap-[32px] nav:flex-row ${STACKED_CAP}`}>
             {/* Hero image. On the two-column (desktop) layout it sticks to the
                 top while the detail column scrolls — `self-start` is required or
                 the flex row stretches the item and sticky has no slack to move
@@ -641,12 +704,14 @@ function CardDetailBody({
             <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-[16px]">
                 <h1 data-route-announcement={`${data.card.name} — ${data.card.set.name} ${fmtNumber(data.card.number)}`} className="text-[40px] font-bold leading-[44px] text-text-primary">{data.card.name}</h1>
+                {/* The disc stays 36px; the `before:` box gives it the 44px
+                    hit target a thumb needs, without moving the title. */}
                 <button
                   type="button"
                   onClick={copyCardLink}
                   aria-label={linkCopied ? 'Link copied' : 'Copy link to this card'}
                   aria-live="polite"
-                  className="flex h-[36px] w-[36px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default hover:bg-action-default-hover"
+                  className="relative flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-full bg-surface-tertiary text-icon-default before:absolute before:-inset-1 before:content-[''] hover:bg-action-default-hover"
                 >
                   <Icon name={linkCopied ? 'check' : 'link'} size={16} />
                 </button>
@@ -664,7 +729,7 @@ function CardDetailBody({
               </div>
               <div className="mt-[6px] text-[14px] text-text-muted">
                 {fmtNumber(data.card.number)}
-                {data.card.printedTotal ? `/${data.card.printedTotal}` : ''}
+                {data.card.printedTotal ? `/${fmtPrintedTotal(data.card.number, data.card.printedTotal)}` : ''}
               </div>
 
               {/* The tabbed panel: the strip is the panel's header and each

@@ -1,13 +1,13 @@
 import { useDesktopTable } from '../lib/useDesktopTable'
 import { useEffect, useMemo, useState } from 'react'
-import { useQuery, keepPreviousData } from '@tanstack/react-query'
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useParams, useSearch, useNavigate } from '@tanstack/react-router'
-import { api, type SetDetailResponse } from '../lib/api'
+import { api, type SeriesDetailResponse, type SeriesIndexResponse, type SetDetailResponse } from '../lib/api'
 import { fmtCalendarDate } from '../lib/format'
 import { catalogPath, errorMeta, usePageMeta, type PageMeta } from '../lib/seo'
 import { Content, Spinner, ErrorState, BackPill } from '../components/ui'
 import { SetHeader } from '../components/SetHeader'
-import { OwnershipStrip, SearchBox, SortChips, VariantLegend, ViewToggle } from '../components/FilterControls'
+import { CHIP_STRIP_BLEED, OwnershipStrip, SearchBox, SortChips, VariantLegend, ViewToggle } from '../components/FilterControls'
 import { GridView, type GridReveal } from '../components/GridView'
 import { BinderView } from '../components/BinderView'
 import { TableView } from '../components/TableView'
@@ -123,6 +123,14 @@ function setMeta(data: SetDetailResponse): PageMeta {
 
 export function SetDetail() {
   const { series, set } = useParams({ from: '/series/$series/$set' })
+  // While the set loads, the back link is named from the series pages already
+  // in the cache (you usually came from one), so it does not say "Series" and
+  // then widen into "Mega Evolution" when the set lands. A cold deep link has
+  // nothing cached and keeps the generic word.
+  const qc = useQueryClient()
+  const cachedSeriesName =
+    qc.getQueryData<SeriesDetailResponse>(['series', series])?.series.name ??
+    qc.getQueryData<SeriesIndexResponse>(['series'])?.series.find((s) => s.slug === series)?.name
   const search = useSearch({ from: '/series/$series/$set' })
   const navigate = useNavigate({ from: '/series/$series/$set' })
   // Logged out, the API omits every card's `ownership` block, so the Have/Need/
@@ -249,7 +257,7 @@ export function SetDetail() {
           stands alone, in a row the same 40px tall so it does not jump. */}
       {!data && (
         <div className="mb-[20px] flex min-h-[40px] items-center">
-          <BackPill to="/series/$series" params={{ series }} label="Series" />
+          <BackPill to="/series/$series" params={{ series }} label={cachedSeriesName ?? 'Series'} />
         </div>
       )}
 
@@ -285,13 +293,18 @@ export function SetDetail() {
               {/* Full-width own row on mobile so the sort chips scroll within the
                   viewport instead of spilling off-page; shares the row on sm+. */}
               <div className="w-full min-w-0 sm:w-auto sm:flex-1">
-                <SortChips search={search} patch={patch} />
+                <SortChips search={search} patch={patch} className={CHIP_STRIP_BLEED} />
               </div>
             </div>
             {!signedOut && <OwnershipStrip search={search} patch={patch} counts={counts} />}
             <div className="flex flex-wrap items-center justify-between gap-[12px]">
-              <VariantLegend />
+              {/* The legend keys the per-variant count boxes, which only exist
+                  signed in (CardTile, TableView). Signed out it explained
+                  colours that appear nowhere on the page, and its outlined
+                  swatches read as three unticked checkboxes. */}
+              {!signedOut && <VariantLegend />}
               <div
+                className={signedOut ? 'sm:ml-auto' : undefined}
                 data-decke-view-toggle
                 data-decke-landmark="[data-decke-view-toggle]"
                 data-decke-label={desktopTable ? 'the grid / table / binder view toggle' : 'the grid / binder view toggle'}
@@ -316,7 +329,14 @@ export function SetDetail() {
           >
             {cards.length === 0 ? (
               <div className="py-[60px] text-center text-[14px] text-text-muted">
-                {allCards.length === 0 ? 'No cards in this set yet.' : 'No cards match this filter.'}
+                {/* A search runs on the server, so an empty answer leaves
+                    `allCards` empty too — which used to say "No cards in this
+                    set yet." about a set of 120 cards. */}
+                {search.q.trim()
+                  ? `No cards match “${search.q.trim()}”.`
+                  : allCards.length === 0
+                    ? 'No cards in this set yet.'
+                    : 'No cards match this filter.'}
               </div>
             ) : effectiveView === 'grid' ? (
               <GridView cards={cards} seriesSlug={series} setId={set} reveal={reveal} />
