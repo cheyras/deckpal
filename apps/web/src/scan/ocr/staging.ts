@@ -2,10 +2,10 @@
 //
 // The rule is one sentence — "not until the camera is live and the detector is
 // ready" — and it is here as its own module rather than as an `if` inside
-// `Scan.tsx` for the reason `scan/ui/regions.ts` gives at length about the
-// captured-region policy: a rule that lives inside a React component can only be
-// tested by a re-implementation of itself, and a re-implementation can agree
-// with its test while disagreeing with the product.
+// `Scan.tsx` for the reason `scan/ui/autoCapture.ts` gives about the capture
+// decision: a rule that lives inside a React component can only be tested by a
+// re-implementation of itself, and a re-implementation can agree with its test
+// while disagreeing with the product.
 //
 // ── WHY THE ORDER MATTERS ───────────────────────────────────────────────────
 //

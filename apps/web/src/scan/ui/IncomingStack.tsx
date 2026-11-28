@@ -41,12 +41,16 @@ import type { StackItem } from './types'
 export function IncomingStack({
   items,
   onNodeRef,
+  currentEpisodeId = null,
 }: {
   items: StackItem[]
   /** Mirrors every mount/unmount into the parent's own node map, so Scan.tsx
    *  can measure a slot's rect at flight time without owning this list's
    *  render loop. */
   onNodeRef: (id: string, el: HTMLDivElement | null) => void
+  /** The capture the pill's "Scanned ✓" is about, while it is still here: ringed, so
+   *  the pill and the spinner thumbnail are visibly the same scan (design §3.2). */
+  currentEpisodeId?: string | null
 }) {
   const nodesRef = useRef(new Map<string, HTMLDivElement>())
   /** Each slot's LAYOUT position (`offsetTop`) at the last update. */
@@ -111,15 +115,22 @@ export function IncomingStack({
             else nodesRef.current.delete(item.id)
             onNodeRef(item.id, el)
           }}
+          data-stack-id={item.id}
           data-stack-phase={item.identity.phase}
+          data-current-episode={item.id === currentEpisodeId || undefined}
           className={`relative w-[54px] shrink-0 overflow-hidden rounded-md shadow-panel ${
-            item.identity.phase === 'needs-you'
-              ? 'ring-2 ring-warning'
-              : item.identity.phase === 'confident'
-                ? 'ring-1 ring-change-positive'
-                : 'ring-1 ring-surface-tertiary'
+            item.id === currentEpisodeId
+              ? 'ring-2 ring-action-primary'
+              : item.identity.phase === 'needs-you'
+                ? 'ring-2 ring-warning'
+                : item.identity.phase === 'confident'
+                  ? 'ring-1 ring-change-positive'
+                  : 'ring-1 ring-surface-tertiary'
           }`}
-          style={{ aspectRatio: '63 / 88' }}
+          // HELD, NOT SHOWN, while the capture's courier is on its way here
+          // (handoff.ts): one capture, one image. The courier's landing frame
+          // shows it (imperatively, the same frame) before this prop clears.
+          style={{ aspectRatio: '63 / 88', visibility: item.arriving ? 'hidden' : undefined }}
         >
           <img src={item.previewUrl} alt="" className="h-full w-full object-cover" />
           <StackPhaseOverlay item={item} />
@@ -162,7 +173,7 @@ function StackPhaseOverlay({ item }: { item: StackItem }) {
 
   if (phase === 'pending') {
     return (
-      <div className="absolute inset-0 flex items-center justify-center bg-black/45 backdrop-blur-[1px]">
+      <div data-stack-overlay className="absolute inset-0 flex items-center justify-center bg-black/45 backdrop-blur-[1px]">
         <Spinner inline size={18} className="text-action-primary-strong" />
       </div>
     )
@@ -170,7 +181,7 @@ function StackPhaseOverlay({ item }: { item: StackItem }) {
 
   if (phase === 'confident') {
     return (
-      <div ref={markRef} className="absolute inset-0 flex items-center justify-center bg-change-positive/75">
+      <div ref={markRef} data-stack-overlay className="absolute inset-0 flex items-center justify-center bg-change-positive/75">
         <Icon name="check" size={22} strokeWidth={3} className="text-surface-primary" />
       </div>
     )
@@ -181,7 +192,7 @@ function StackPhaseOverlay({ item }: { item: StackItem }) {
   // is asked on the row this thumbnail is about to become, so there is nothing
   // here to tap and nothing to read beyond "this one is going down marked".
   return (
-    <div ref={markRef} className="absolute inset-0 flex items-center justify-center bg-warning/75">
+    <div ref={markRef} data-stack-overlay className="absolute inset-0 flex items-center justify-center bg-warning/75">
       <Icon name="alert" size={20} strokeWidth={3} className="text-surface-primary" />
     </div>
   )

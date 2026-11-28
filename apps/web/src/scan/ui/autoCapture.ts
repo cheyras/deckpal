@@ -1,34 +1,40 @@
 // THE AUTO-CAPTURE DECISION for one detect tick, as a function — so the offline
 // replay (scripts/scan-bench/video) runs THIS and not a copy of Scan.tsx's
-// rules, for the reason regions.ts gives at length: a re-implementation can
-// agree with a test and disagree with the product.
+// rules: a re-implementation can agree with a test and disagree with the
+// product.
 //
-// Scan.tsx owns the memories (the refractory set, the captured regions, the
-// look re-arm, the card-back holds) and the busy flag. This reads the
-// refractory set and the regions, and advances the two memories that are
-// measured tick to tick — the re-arm's steadiness and the card-back holds —
-// which is why it is called once per tick, lock or not.
+// WHETHER a lock may fire is the presentation machine's (presentation.ts): a
+// card still lying where it was taken never fires; any break in that
+// continuity followed by a steady card always does. Until 2026-11-27 this
+// asked three geometric memories instead (the per-track refractory, the
+// captured regions, the look re-arm), and their "cannot tell" was shown as
+// "Already scanned" on new cards. They are gone; see the decision file
+// 2026-11-27 "a flip is always captured".
+//
+// What is left here is the gates a lock must also pass — not busy, not a card
+// back, big enough to read (sizeGate.ts), sharp (focusGate.ts) — and the
+// card-back holds. Called once per tick, lock or not: the machine and the
+// holds are measured tick to tick.
 
 import type { Quad } from '../engine/contract'
 import { CARD_BACK_RELEASE_DISTANCE, cardBackDistance, isCardBackLook } from '../engine/cardBack'
 import { lookDistance, type CardLook } from '../engine/look'
-import type { CapturedRegions } from './regions'
 import type { FocusGate } from './focusGate'
-import { REARM_STEADY_MAX, type LookRearm } from './rearm'
+import { STEADY_MAX, type FireKind, type Presentation, type PresentationReport } from './presentation'
 import { isTooFar } from './sizeGate'
 
 export interface AutoCaptureVerdict {
-  /** Fire a capture on the lock now. */
+  /** Fire a capture on the lock now (and then call `presentation.fire` with `kind`). */
   fire: boolean
-  /** The lock is a REPEAT: its track was already captured, or its place is. */
-  repeat: boolean
   /**
-   * ...and the look re-arm judged the card in it a different one from the
-   * capture(s) behind that refusal (rearm.ts). Only ever true on a repeat:
-   * with nothing refusing the lock there is nothing to be different from. A
-   * card back turned face up is NOT this — that is `backReleased`.
+   * What the presentation machine would fire on this lock: `first` (nothing
+   * taken yet), `disturbed` (a card after a break), `drift` (a silent probe:
+   * the look moved off the reference with nothing seen to cover it). Null in
+   * WATCHING — the card taken is still there — or with no lock.
    */
-  newByLook: boolean
+  kind: FireKind | null
+  /** The machine's own report for this tick: its state, `d`, the tick class, a break declared. */
+  presentation: PresentationReport
   /**
    * The lock is a CARD BACK (engine/cardBack.ts): its look is the back's this
    * tick, or its track is held as a back (CardBackHolds). Never fires.
@@ -37,31 +43,23 @@ export interface AutoCaptureVerdict {
   /**
    * This tick let go of the track's card-back hold: its look held still and
    * left the back (CARD_BACK_RELEASE_DISTANCE). The lock is then judged like
-   * any other — a fresh one fires, a repeat still needs `newByLook`.
+   * any other.
    */
   backReleased: boolean
   /**
    * The lock is held for FOCUS (focusGate.ts): this tick is not sharp enough
-   * yet. Never fires; the UI asks the reader to hold still.
+   * yet. Never fires; the UI asks the reader to hold still. Only reported on a
+   * lock that would otherwise fire.
    */
   focusWait: boolean
   /**
    * The lock is held for SIZE (sizeGate.ts): the card is too small in the
    * frame for its text to read. Never fires; the UI asks the reader to come a
    * little closer. Only reported on a lock that would otherwise fire, so a
-   * repeat or a card back is never told to come closer.
+   * card already taken or a card back is never told to come closer.
    */
   tooFar: boolean
 }
-
-/**
- * How long a lock must sit refused as a repeat, its capture done, before the
- * hint offers "Tap to scan again" (Scan.tsx repeatHoldRef). Long enough that
- * the card just captured, still in the reader's hand as they reach for the
- * next, does not flash an offer; short enough that a second copy put down on
- * the first is one beat and a tap.
- */
-export const REPEAT_OFFER_MS = 1_000
 
 /** How many of a track's lock ticks in a row must show the back before it is held. */
 export const CARD_BACK_LATCH_TICKS = 2
@@ -69,8 +67,8 @@ export const CARD_BACK_LATCH_TICKS = 2
 /**
  * THE CARD-BACK HOLDS, per track. A lock whose look is the back's is refused on
  * that tick; CARD_BACK_LATCH_TICKS of them in a row HOLD the track, and a held
- * track stays refused until its look has held still (REARM_STEADY_MAX, the
- * re-arm's own steadiness rule, against the track's previous lock look) and
+ * track stays refused until its look has held still (STEADY_MAX, the
+ * presentation machine's steadiness rule, against the track's previous lock look) and
  * sits further than CARD_BACK_RELEASE_DISTANCE from the back, either way up —
  * which is what turning it face up in place looks like — or it departs.
  * "In a row" counts the track's lock ticks: a tick its lock blinks off
@@ -87,12 +85,11 @@ export const CARD_BACK_LATCH_TICKS = 2
  * tick of a real card misread as a back costs that tick only; a latched hold on
  * one costs it until it is steady and clear of the back, so it takes two.
  *
- * WHY ITS OWN RELEASE RULE, not the look re-arm's "different card" verdict:
- * that needs REARM_NEW_MIN (1.0) from the back, which about 1% of real cards
- * never reach, and it judges the face against the back only — a captured card
- * flipped to its back and back again is a repeat of its own capture, so it
- * would never be "new" and its track would stay held on the wrong hint.
- * Released, it is a repeat again and the re-arm decides it as it would have.
+ * WHY ITS OWN RELEASE RULE, not "a different card by look": that needed the
+ * old re-arm's 1.0 from the back, which about 1% of real cards never reach.
+ * Released, the lock is judged like any other by the presentation machine: a
+ * captured card turned over and back has broken its episode, so it is taken
+ * again and identity flags it as the same card (repeat.ts).
  */
 export interface CardBackHolds {
   /**
@@ -126,7 +123,7 @@ export function createCardBackHolds(): CardBackHolds {
         t.held &&
         look &&
         before &&
-        lookDistance(look, before) <= REARM_STEADY_MAX &&
+        lookDistance(look, before) <= STEADY_MAX &&
         cardBackDistance(look) > CARD_BACK_RELEASE_DISTANCE
       ) {
         t.held = false
@@ -146,11 +143,11 @@ export function createCardBackHolds(): CardBackHolds {
 }
 
 /**
- * Call once per detect tick, lock or not — the re-arm's steadiness is measured
- * tick to tick — after the refractory set and the card-back holds have dropped
- * departed tracks and the regions have been ticked. Fires when there is a lock,
- * nothing is busy, it is not a card back, and it is either not a repeat or a
- * different card by look.
+ * Call once per detect tick, lock or not, after the card-back holds have
+ * dropped departed tracks. Fires when the presentation machine has a candidate
+ * (presentation.ts), nothing is busy, it is not a card back, and the card is
+ * close enough and sharp. The caller then calls `presentation.fire` with
+ * `verdict.kind` when it starts the capture.
  *
  * Without `cardBacks` (a caller that keeps no holds) a back is refused on the
  * ticks it shows and nothing more.
@@ -159,10 +156,13 @@ export function decideAutoCapture(
   lock: { id: number; quad: Quad } | null,
   look: CardLook | null,
   memory: {
-    refractory: ReadonlySet<number>
+    /** The presentation machine (createPresentation). Observed once, here. */
+    presentation: Presentation
+    /** EngineState.spotLook: the look on the quad the machine watches. */
+    spotLook?: CardLook | null
+    /** The caller's clock, ms (the machine's photosensitivity gap and its records). */
+    now: number
     busy: boolean
-    regions: CapturedRegions
-    rearm: LookRearm
     /** The per-track card-back holds (createCardBackHolds). */
     cardBacks?: CardBackHolds
     /** The focus gate (focusGate.ts) with this tick's EngineState.sharpness. */
@@ -172,11 +172,7 @@ export function decideAutoCapture(
     size?: { frameSide: number; minSide?: number }
   },
 ): AutoCaptureVerdict {
-  const refractory = !!lock && memory.refractory.has(lock.id)
-  const regionLooks = lock ? memory.regions.suppressingLooks(lock.quad) : []
-  const repeat = refractory || regionLooks.length > 0
-  const refusers = [...(refractory ? [memory.rearm.lookOfTrack(lock!.id)] : []), ...regionLooks]
-  const newByLook = memory.rearm.judge(lock?.id ?? null, look, refusers)
+  const report = memory.presentation.observe({ now: memory.now, lock, look, spotLook: memory.spotLook ?? null })
   const back = !lock
     ? { cardBack: false, backReleased: false }
     : memory.cardBacks
@@ -189,13 +185,13 @@ export function decideAutoCapture(
   // be spent (focusGate's FOCUS_MAX_WAIT_MS settle) on frames that were never
   // going to be taken. A gap past the gate's LOCK_GAP_MS restarts the wait.
   const focus = lock && memory.focus && !small ? memory.focus.gate.judge(lock.id, memory.focus.sharpness, memory.focus.now) : null
-  const wouldFire = !!lock && !memory.busy && !back.cardBack && (!repeat || newByLook)
+  const wouldFire = !!lock && !memory.busy && !back.cardBack && report.candidate !== null
   const tooFar = wouldFire && small
   const focusWait = wouldFire && !tooFar && !!focus && !focus.ready
   return {
     fire: wouldFire && !tooFar && !focusWait,
-    repeat,
-    newByLook,
+    kind: report.candidate,
+    presentation: report,
     cardBack: back.cardBack,
     backReleased: back.backReleased,
     focusWait,

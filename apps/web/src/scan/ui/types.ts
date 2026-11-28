@@ -43,10 +43,9 @@ export interface FeedVariant {
  * happens when the wait ends is `feed.ts`.
  */
 export interface StackItem {
-  /** Unique per capture — NOT the engine's track id. The same track id is
-   *  refused a second capture by the refractory set while it is held, so
-   *  this never collides either way, but a capture's identity should not be
-   *  borrowed from the tracker's bookkeeping. */
+  /** Unique per capture — NOT the engine's track id: one track can be
+   *  captured more than once (a break in its presentation episode), and a
+   *  capture's identity should not be borrowed from the tracker's bookkeeping. */
   id: string
   trackId: number
   /** Object URL for the rectified capture blob. Ownership transfers to the
@@ -57,6 +56,8 @@ export interface StackItem {
   capturedAt: number
   /** The race this capture is in, and the phase the thumbnail renders from. */
   identity: IdentityState
+  /** Its courier is still on the way to the tray: the slot holds its place, hidden (handoff.ts). */
+  arriving?: boolean
 }
 
 /**
@@ -111,9 +112,9 @@ export interface FeedEntry {
    * question the merge should never have made possible.
    */
   captureId: string | null
-  /** The engine track this capture came off, so discarding the row can release
-   *  the refractory hold and let the same card be scanned again. -1 on the
-   *  upload path, null once the row is named and the hold no longer matters. */
+  /** The engine track this capture came off (telemetry; until 2026-11-27 a
+   *  discard released this track's refractory hold). -1 on the upload path,
+   *  null once the row is named. */
   captureTrackId: number | null
   /**
    * THE SETTLED RACE, RIDING DOWN WITH THE CAPTURE — and only on a row that is
@@ -177,4 +178,11 @@ export interface FeedEntry {
    *  list view's stepper/correct/report affordances intentionally leave it
    *  alone — editing a row there does not, by itself, mean "reviewed". */
   verified: boolean
+  /**
+   * "SAME AS LAST SCAN" — the row id of the scan this one broke from, when
+   * identity named the two the same card (repeat.ts; decision 2026-11-27 "a flip
+   * is always captured"). A flag, never a merge: the row is a real row, kept as
+   * a copy, with the chip and the row's remove as its way out. Absent otherwise.
+   */
+  repeatOf?: string | null
 }

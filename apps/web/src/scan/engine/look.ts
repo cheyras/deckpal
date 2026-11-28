@@ -1,10 +1,21 @@
 // THE CARD'S LOOK — a tiny colour layout of whatever card a quad bounds, so the
-// capture policy can tell "the same card, still there" from "a different card,
-// put down in the same place".
+// capture policy can tell "the card, still there and untouched" from "something
+// moved over it, or it changed".
 //
-// ── WHY THE POLICY NEEDS IT ─────────────────────────────────────────────────
+// ── WHAT THE POLICY ASKS OF IT NOW (2026-11-27) ─────────────────────────────
 //
-// Auto-capture refuses a lock it has already captured: per TRACK (Scan.tsx's
+// The presentation machine (ui/presentation.ts) compares a TICK's look with the
+// looks of the first ticks after a capture — tick against tick, a tight band —
+// to notice a break in continuity. It no longer asks the look "is this the
+// same card as that capture?": two cards of one set and type sit under any
+// threshold often enough (19 % of 6,156 unrelated pairs on the owner's crops at
+// 1.0; White Flare cards 0.44-0.99 apart, PR #416) that the answer was shown
+// as "Already scanned" on new cards. Identity answers that, after the capture
+// (ui/repeat.ts). What follows is the history of why the look exists.
+//
+// ── WHY THE POLICY NEEDED IT ────────────────────────────────────────────────
+//
+// Auto-capture refused a lock it had already captured: per TRACK (Scan.tsx's
 // refractory) and per PLACE (ui/regions.ts). Both are right for the case they
 // were built on — one card held in front of the camera for thirty locks — and
 // both are blind to the case a stack produces: the next card lands exactly
@@ -126,7 +137,7 @@ function gridMeans(d: Uint8ClampedArray, out: Uint8Array, off: number): void {
  * is chosen by POSITION (rectify.orderQuadForCard), so a card lying past 45°
  * comes out of capture() sideways or upside down — 3 of the owner's 42
  * session-1 captures did — and its look then fails to match the very card it
- * is, still lying there (owner-rearm.ts: a Marill re-captured at 1.45). The
+ * is, still lying there (owner-rearm.ts, retired 2026-11-27: a Marill re-captured at 1.45). The
  * turns are warped from the full-resolution capture, not reshuffled from the
  * 8x11 grid: a quarter turn of a portrait grid is a landscape one, which does
  * not resample back to 8x11 without smearing the layout. A tick's look stays

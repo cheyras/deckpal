@@ -15,9 +15,12 @@ import { describe, it } from 'node:test'
 
 import type { Quad } from '../contract'
 import { polyIoU } from '../geometry'
-import { isCardShaped, isSingleCardShaped, DEFAULT_LOCK_MIN_SATURATION } from '../index'
+import { DEFAULT_CADENCE_MS, isCardShaped, isSingleCardShaped, DEFAULT_LOCK_MIN_SATURATION } from '../index'
+import type { CardLook } from '../look'
 import { judgeTie, gateScanResponse, TIE_MARGIN } from '../../ui/tieGate'
-import { createCapturedRegions, REGION_DEPARTURE_MS } from '../../ui/regions'
+import { createPresentation } from '../../ui/presentation'
+import { lookOf } from '../../ui/__tests__/lookScenes'
+import { replayPresentation, type StreamEvent } from './presentationReplay'
 import type { ScanMatch, ScanResponse } from '../../../lib/api'
 
 // ── WHY THE FIXTURES ARE IN THE REPO ────────────────────────────────────────
@@ -65,50 +68,31 @@ const locks = (rs: Record<string, unknown>[]) =>
 // ---------------------------------------------------------------------------
 // 1. Duplicates — presence, not a timer
 // ---------------------------------------------------------------------------
+//
+// RE-BASELINED 2026-11-27 (decision "a flip is always captured"). This section
+// used to replay the captured-region policy (scan/ui/regions.ts) over this
+// run; that policy is gone, replaced by the presentation episode
+// (scan/ui/presentation.ts), and the replay below drives the replacement over
+// the same stream (`presentationReplay.ts`). The numbers, old and new:
+//
+//   card run (15 recorded captures of ONE card)
+//     regions, 5 s departure, this file's event replay     9
+//     regions, 5 s departure, round 3's tick replay        7
+//     presentation, a dropout leaves the card on its spot  7
+//     presentation, every dropout a departure              9
+//   clutter run (4 separate presentations)                 4 -> 4
+//
+// The truth on this desktop fake camera is between the two presentation rows:
+// its detector loses a STATIC card for 4.7-11.4 s, which the device's spot look
+// (EngineState.spotLook) reads as the card still there, but this stream has no
+// pixels to say so. The phone does not have those dropouts at all
+// (owner-session-2: "no track means no card").
 
-/** THE SHIPPING POLICY, not a copy of it. This used to be a hand-reproduction of
- *  the logic inlined in Scan.tsx, which is evidence only for as long as nobody
- *  edits one of the two; it now drives `scan/ui/regions.ts` directly. */
-function makeRegions(departMs: number) {
-  const R = createCapturedRegions({ departureMs: departMs })
-  // A region follows the TRACK it was captured from now, not anything that
-  // overlaps it — see regions.ts's header, where the owner session measures
-  // overlap adopting 63% of real card changes. The synthetic fixtures below are
-  // all ONE object, so one synthetic id is their faithful model; `replay` passes
-  // each harvested event's real `trackId` instead.
-  const ONE = 1
-  return {
-    tick(now: number, tracks: readonly Quad[], ids?: readonly number[]) {
-      R.tick(now, tracks.map((quad, i) => ({ id: ids?.[i] ?? ONE, quad })))
-    },
-    suppressed: (quad: Quad) => R.suppressed(quad),
-    note: (quad: Quad, now: number, id: number = ONE) => R.note(quad, id, now),
-    get count() {
-      return R.count
-    },
-  }
-}
-
-/** Replay a harvested run: locks are the presence signal, captures ask to fire. */
-function replay(rs: Record<string, unknown>[], departMs: number) {
-  const timeline = [
-    ...locks(rs).map((e) => ({ t: e.epochMs, kind: 'lock' as const, q: e.quad, id: e.trackId })),
-    ...caps(rs).map((e) => ({ t: e.epochMs, kind: 'cap' as const, q: e.quad, id: e.trackId })),
-  ].sort((a, b) => a.t - b.t || (a.kind === 'lock' ? -1 : 1))
-  const R = makeRegions(departMs)
-  let taken = 0
-  let blocked = 0
-  for (const e of timeline) {
-    R.tick(e.t, [e.q], [e.id])
-    if (e.kind !== 'cap') continue
-    if (R.suppressed(e.q)) blocked++
-    else {
-      taken++
-      R.note(e.q, e.t, e.id)
-    }
-  }
-  return { taken, blocked }
-}
+const TICK_MS = DEFAULT_CADENCE_MS
+/** A gap this small is the recorder's 2 s throttle, not the card leaving (round 3's empty band). */
+const CONTINUOUS_MS = 2_750
+const present = (rs: Record<string, unknown>[], gap: 'card' | 'empty') =>
+  replayPresentation(rs as unknown as StreamEvent[], { continuousMs: CONTINUOUS_MS, cardOf: () => 'the card', gap, manuals: false }).fires
 
 describe('e2e round 2 — one card must not become fifteen captures', () => {
   it('the drive artifacts are present', () => {
@@ -140,126 +124,90 @@ describe('e2e round 2 — one card must not become fifteen captures', () => {
     assert.ok(overlapping >= 12, `expected >=12 of 14 consecutive pairs to overlap, got ${overlapping}`)
   })
 
-  it('THE FIX: at the shipped departure window, fifteen captures of one card become nine or fewer', {
+  it('THE PRESENTATION EPISODE: fifteen captures of one card become seven to nine', {
     skip: haveR2 ? false : 'artifacts unavailable',
   }, () => {
-    // A LOWER BOUND, and deliberately reported as one. The only presence signal
-    // the drive recorded is lock-events, which the recorder throttles to 1 per
-    // 2 s — and consecutive quads 2 s apart sometimes overlap below the
-    // threshold, so the region loses its card and retires when production would
-    // not have. Production refreshes from `engineState` every detect tick
-    // (~8 Hz), where consecutive quads of one card overlap almost completely.
-    //
-    // AND THE BOUND GOT LOOSER ON 2026-09-05, WHICH IS WORTH SAYING OUT LOUD.
-    // `replay` here ticks the policy ONCE PER RECORDED EVENT, and this run's
-    // events are 2.7-17 s apart. At the old 12 s departure a region survived
-    // several of those gaps; at 5 s it barely survives one, so this model now
-    // retires regions far earlier than production would and reports 9 captures
-    // where the tick-cadence replay of the same footage reports 7. Round 3's
-    // file has that replay and its header explains why event-driven ticking is
-    // the wrong model (`e2e-round3-regressions.test.ts`, "Round 2's replay
-    // ticked the region policy once per RECORDED EVENT. That is a bad model").
-    // The assertion is therefore kept as a bound and not tightened into a
-    // number this model cannot support.
-    //
-    // Either way this fixture pays for the shortening: 6 -> 7 on the honest
-    // replay, 6 -> 9 on this one. It is the desktop fake camera, whose detector
-    // loses a static card for 4.7-11.4 s at a stretch, and neither of the
-    // owner's phone sessions reproduces that — `regions.REGION_DEPARTURE_MS`
-    // carries the measurement that moved the constant anyway.
-    const r = replay(R2RUN, REGION_DEPARTURE_MS)
-    assert.equal(r.taken + r.blocked, 15, 'all fifteen captures are offered to the policy')
-    assert.ok(r.blocked >= 6, `expected >=6 of 15 suppressed even on the sparse signal, got ${r.blocked}`)
-    assert.ok(r.taken <= 9, `expected <=9 captures from one card, got ${r.taken}`)
-    // The one claim this model IS strong enough for: whatever the window, it
-    // must beat the 2.5 s timer the round found useless, which took all 15.
-    assert.ok(r.taken < 15 * 0.7, `the policy must still remove a third of the duplicates, got ${r.taken}/15`)
+    // Re-baselined (see the section header): the regions took this to 9 (7 on
+    // the tick replay). The episode takes it to 7 when a dropout leaves the
+    // card on its spot, which is what the spot look sees on a device — two on
+    // the clip's loop boundaries (58 s), where the card really does leave and
+    // come back; the rest where this fake camera's tracker re-ids the card
+    // (fifteen ids for one card) onto a quad off its spot, which the episode
+    // counts as supporting evidence of a swap (`reidIsHard`; without it, 4) —
+    // and to 9, the same 9, when every dropout is read as the card leaving.
+    // The phone does not churn ids like this (owner-session-2: one track per
+    // presentation).
+    const kept = present(R2RUN, 'card')
+    const gone = present(R2RUN, 'empty')
+    assert.equal(kept.length, 7, `card on its spot through the dropouts: ${kept.map((f) => (f.t / 1000).toFixed(1)).join(' ')}`)
+    assert.equal(kept.filter((f) => Math.abs(f.t / 1000 - 58) < 1.5 || Math.abs(f.t / 1000 - 116) < 1.5).length, 2, 'two on the loop boundaries')
+    assert.equal(gone.length, 9, `every dropout a departure: ${gone.length}`)
+    assert.ok(gone.length < 15 * 0.7, 'still well under the 15 the 2.5 s timer took')
+    assert.ok(gone.slice(1).every((f) => f.kind === 'disturbed'), 'every later one is a capture after a break, which identity flags as the same card')
   })
 
-  it('ON THIS FIXTURE the departure clock is doing the work, and that is the honest reading', {
+  it('there is no clock left: each capture after the first is one departure and return', {
     skip: haveR2 ? false : 'artifacts unavailable',
   }, () => {
-    // This test used to assert the opposite — "it is presence, not a timer",
-    // because a 14x change in the departure constant moved nothing. That was
-    // true of the OVERLAP-following region, and the owner session
-    // (regions.ts's header) is why overlap-following is gone: overlap adopts
-    // 63% of real card changes, so it cannot be an identity test and a region
-    // that lives on it lives forever.
-    //
-    // A region now follows the TRACK it was captured from, and round 2's own
-    // harvest is the worst case for that: its fifteen captures of ONE physical
-    // card carry fifteen DIFFERENT track ids (2, 3, 5, 7, 9, 15, ...) — the
-    // tracker lost and re-acquired the card between every one of them. Every
-    // region here is therefore anchored to a track that is already dead, is
-    // never refreshed, and retires purely on the clock. So on this fixture the
-    // answer IS a function of the constant, monotonically:
-    //
-    //   depart   0.9 s  2.5 s  5 s  9 s  12 s  20 s  30 s
-    //   taken     15     12     9    8    6     6     5
-    //
-    // That is a real cost of the identity gate and it is stated rather than
-    // hidden. What buys it back is that the tracker churns like this on a
-    // compressed MJPEG fake camera and does NOT on a real device: over the
-    // owner session's 176 quads a card keeps its track id across 93% of
-    // consecutive sightings, which is where the presence half of the policy
-    // does its work.
-    //
-    // (Round 5's re-anchor bridge shaves exactly one capture off the 0.9 s
-    // column — one within-throttle rebirth now re-anchors a region that used
-    // to expire — and touches nothing from 2.5 s up, where the departure
-    // clock already outlived that churn.)
-    const table = [900, 2_500, 5_000, 9_000, 12_000, 30_000].map((d) => replay(R2RUN, d).taken)
-    assert.deepEqual(table, [14, 12, 9, 8, 6, 5], `departure sweep moved: ${table.join(', ')}`)
-    for (let i = 1; i < table.length; i++) {
-      assert.ok(table[i] <= table[i - 1], 'a longer window must never take MORE captures')
-    }
+    // The regions' answer here was a function of their departure constant
+    // (0.9 s -> 14, 5 s -> 9, 30 s -> 5). The episode has no constant to sweep:
+    // read as departures, the fires are exactly the reconstructed absences.
+    const L = locks(R2RUN)
+    const absences = L.slice(1).filter((l, i) => l.epochMs - L[i].epochMs > CONTINUOUS_MS).length
+    assert.equal(present(R2RUN, 'empty').length, 1 + absences)
   })
 
   it('...without suppressing genuinely separate presentations', {
     skip: haveR2 ? false : 'artifacts unavailable',
   }, () => {
     // The clutter run's four captures are 17-34s apart with IoU 0.32-0.38 — the
-    // object left and came back. All four must still be taken, at every
-    // departure value the card run was checked at.
-    for (const dep of [900, 2_500, 5_000, 9_000, 13_000]) {
-      const r = replay(R2CLUTTER, dep)
-      assert.equal(r.taken, caps(R2CLUTTER).length, `depart ${dep}: separate presentations must all capture`)
-      assert.equal(r.blocked, 0, `depart ${dep}: nothing may be suppressed here`)
+    // object left and came back. All four are still taken.
+    assert.equal(present(R2CLUTTER, 'empty').length, caps(R2CLUTTER).length, 'separate presentations must all capture')
+  })
+
+  it('a card lifted away and another put down in its spot captures', () => {
+    const p = createPresentation()
+    const card = (dx: number): Quad => [
+      [100 + dx, 100],
+      [280 + dx, 100],
+      [280 + dx, 351],
+      [100 + dx, 351],
+    ]
+    let t = 0
+    const tick = (lock: number | null, look: CardLook | null, spot: CardLook | null = look) => {
+      t += TICK_MS
+      return p.observe({ now: t, lock: lock === null ? null : { id: lock, quad: card(0) }, look, spotLook: p.watchQuad() ? spot : null })
     }
-  })
-
-  it('a region retires once nothing overlaps it, so a swapped card captures', () => {
-    const R = makeRegions(900)
-    const card = (dx: number): Quad => [
-      [100 + dx, 100],
-      [280 + dx, 100],
-      [280 + dx, 351],
-      [100 + dx, 351],
-    ]
-    R.tick(0, [card(0)])
-    R.note(card(0), 0)
-    assert.ok(R.suppressed(card(0)), 'the same card in the same place is suppressed')
+    tick(1, lookOf(1))
+    p.fire({ kind: 'first', now: t, captureId: 'a', trackId: 1, quad: card(0), look: lookOf(1) })
+    for (let i = 0; i < 4; i++) assert.equal(tick(1, lookOf(1)).candidate, null, 'the same card in the same place is not taken again')
     // Nothing on screen for a second: the card was lifted away.
-    R.tick(1000, [])
-    assert.equal(R.count, 0, 'the region must retire once the card departs')
-    assert.ok(!R.suppressed(card(0)), 'a new card in that spot must capture')
+    for (let i = 0; i < 8; i++) tick(null, null, lookOf(60))
+    let fired = null
+    for (let i = 0; i < 4 && !fired; i++) fired = tick(2, lookOf(2)).candidate
+    assert.equal(fired, 'disturbed', 'a new card in that spot must capture')
   })
 
-  it('a region FOLLOWS drift, so a slowly-moving card never escapes its own region', () => {
-    const R = makeRegions(900)
+  it('the spot FOLLOWS drift, so a slowly-moving card is never taken again', () => {
+    const p = createPresentation()
     const card = (dx: number): Quad => [
       [100 + dx, 100],
       [280 + dx, 100],
       [280 + dx, 351],
       [100 + dx, 351],
     ]
-    R.tick(0, [card(0)])
-    R.note(card(0), 0)
+    let t = 0
+    p.observe({ now: t, lock: { id: 1, quad: card(0) }, look: lookOf(1), spotLook: null })
+    p.fire({ kind: 'first', now: t, captureId: 'a', trackId: 1, quad: card(0), look: lookOf(1) })
     // Drift 150px over 25 ticks — far enough that the ORIGINAL quad no longer
     // overlaps the final one at all.
-    for (let i = 1; i <= 25; i++) R.tick(i * 120, [card(i * 6)])
+    for (let i = 1; i <= 25; i++) {
+      t += TICK_MS
+      const r = p.observe({ now: t, lock: { id: 1, quad: card(i * 6) }, look: lookOf(1, { exposure: i % 2 ? 0.95 : 1 }), spotLook: lookOf(1) })
+      assert.equal(r.state, 'watching', `tick ${i}`)
+    }
     assert.ok(polyIoU(card(0), card(150)) < 0.5, 'the card really did move out of its start position')
-    assert.ok(R.suppressed(card(150)), 'the region must have followed it')
+    assert.ok(polyIoU(p.watchQuad()!, card(150)) >= 0.5, 'the spot must have followed it')
   })
 })
 

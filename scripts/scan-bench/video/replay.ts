@@ -8,8 +8,8 @@
  *
  * Flags: --fps 8 (detect cadence)  --busy-ms 500 (capture busy window)
  *        --lock-ticks N (default: the shipping DEFAULT_LOCK_TICKS)
- *        --no-rearm (replay the policy without the look re-arm, ui/rearm.ts)
  *        --no-size-gate (replay the policy without the size gate, ui/sizeGate.ts)
+ *        --tuning '{"settleTicks":1}' (the presentation machine's thresholds, ui/presentation.ts)
  *        --batch 16 (LC050 frames per sidecar call)  --timeline-every 8 (ticks)
  *        --out <dir> (default ~/deckpal-data/video-bench)
  *        --aim x,y,side (point the phone: the engine square's SOURCE rect; phone.ts aimedGeometry)
@@ -88,7 +88,7 @@ function arg(name: string, dflt: string): string {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : dflt
 }
 /** Flags that take no value: they must not swallow the argument after them. */
-const BOOLEAN_FLAGS = new Set(['--no-rearm', '--no-size-gate', '--second-look'])
+const BOOLEAN_FLAGS = new Set(['--no-size-gate', '--second-look'])
 
 function positional(): string[] {
   const out: string[] = []
@@ -223,11 +223,13 @@ const tName = (tMs: number) => (tMs / 1000).toFixed(3).padStart(8, '0')
 interface TrackLog {
   firstLockMs: number
   firedMs: number | null
-  regionTicks: number
+  /** Lock ticks held because the episode was WATCHING: the card taken still in view. */
+  watchingTicks: number
   busyTicks: number
   cardBackTicks: number
   farTicks: number
-  refractoryTicks: number
+  /** Lock ticks after a break that had not settled yet. */
+  settlingTicks: number
   logged: Set<string>
 }
 
@@ -236,9 +238,9 @@ interface CaptureRow {
   t: number
   i: number
   file: string
-  suppressed: false | 'region' | 'busy' | 'cardback' | 'far'
-  /** 'look': a repeat the look re-arm let through. */
-  why?: 'look'
+  suppressed: false | 'watching' | 'busy' | 'cardback' | 'far'
+  /** Why the presentation episode fired (presentation.ts): first, disturbed, drift (a silent probe). */
+  fireKind?: string
   trackId: number
   trackAge: number
   quad: number[][] | null
@@ -251,8 +253,8 @@ interface CaptureRow {
   parallel: number | null
   motionPx: number | null
   sharpness: number
-  regionCount: number
-  regionsExpired: number
+  /** The presentation machine's state when the row was written. */
+  state: string
   trackFiredAt?: number | null
 }
 
@@ -287,8 +289,8 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
   const knobs: PolicyKnobs & { lockTicks?: number; aim?: string; secondLook?: Record<string, unknown> } = {
     busyMs,
     lockTicks,
-    rearm: !process.argv.includes('--no-rearm'),
     sizeGate: !process.argv.includes('--no-size-gate'),
+    ...(arg('tuning', '') ? { tuning: JSON.parse(arg('tuning', '{}')) } : {}),
     ...(aim ? { aim: aimArg } : {}),
     ...(secondLook
       ? { secondLook: { scale: secondLookScale, gate: secondLookGate, agree: secondLookAgree, quad: secondLookQuad } }
@@ -333,12 +335,16 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
     lockTicks: 0,
     captures: 0,
     captureFailures: 0,
-    regionSuppressedTicks: 0,
+    /** Lock ticks the episode held: the card taken, still there. */
+    watchingTicks: 0,
+    /** Captures by why the episode fired. */
+    firstFires: 0,
+    disturbedFires: 0,
+    driftFires: 0,
     busyTicks: 0,
     cardBackTicks: 0,
     /** Lock ticks the size gate held (ui/sizeGate.ts): the card too small to read. */
     farTicks: 0,
-    lookFires: 0,
     /** Second look (--second-look): ticks that ran it, ticks whose answer it
      *  replaced, and ticks it lifted from below the acquire threshold to above. */
     secondLookTicks: 0,
@@ -361,9 +367,9 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
   async function writeCrop(
     s: TickState,
     f: StreamFrame,
-    kind: 'fire' | 'region' | 'busy' | 'cardback' | 'far',
+    kind: 'fire' | 'watching' | 'busy' | 'cardback' | 'far',
     motionPx: number | undefined,
-    why?: 'look',
+    fireKind?: string,
   ): Promise<CaptureRow | null> {
     const locked = s.locked!
     const cap = captureFromSquare(locked, f.square)
@@ -378,7 +384,7 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
       i: f.index,
       file: rel,
       suppressed: kind === 'fire' ? false : kind,
-      ...(why ? { why } : {}),
+      ...(fireKind ? { fireKind } : {}),
       trackId: locked.id,
       trackAge: locked.age,
       quad: rq(cap.quad),
@@ -391,8 +397,7 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
       parallel: r3(oppositeSideRatio(cap.quad)),
       motionPx: motionPx === undefined ? null : r1(motionPx),
       sharpness: Math.round(laplacianVariance(cap.pixels)),
-      regionCount: policy.regionCount,
-      regionsExpired: policy.regionsExpired,
+      state: policy.state,
     }
     rows.push(row)
     const tile: Tile = {
@@ -407,9 +412,10 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
   }
 
   async function onTick(f: StreamFrame, out: RawModelOut & { h1?: number }, work: ImageDataLike): Promise<void> {
-    const s = engine.tick(out.points, out.hasObj, work)
+    // The spot the episode watches is read on this tick's pixels (engine.watch).
+    const s = engine.tick(out.points, out.hasObj, work, policy.watchQuad())
     const motionBy = motion.update([...s.stable, ...s.pending])
-    const outcome = policy.decide(f.tMs, s, { look: s.look })
+    const outcome = policy.decide(f.tMs, s, { look: s.look, spotLook: s.spotLook })
     stats.ticks++
     if (s.gateOpen) stats.gateOpenTicks++
     if (s.observed) stats.observedTicks++
@@ -427,11 +433,11 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
     if (locked) {
       let log = tracks.get(locked.id)
       if (!log) {
-        log = { firstLockMs: f.tMs, firedMs: null, regionTicks: 0, busyTicks: 0, cardBackTicks: 0, farTicks: 0, refractoryTicks: 0, logged: new Set() }
+        log = { firstLockMs: f.tMs, firedMs: null, watchingTicks: 0, busyTicks: 0, cardBackTicks: 0, farTicks: 0, settlingTicks: 0, logged: new Set() }
         tracks.set(locked.id, log)
       }
       if (outcome.kind === 'fire') {
-        const row = await writeCrop(s, f, 'fire', motionBy.get(locked.id), outcome.why)
+        const row = await writeCrop(s, f, 'fire', motionBy.get(locked.id), outcome.fireKind)
         if (!row) {
           // index.ts:838 throws; Scan.tsx:1217-1221 releases the hold.
           policy.failed(locked.id)
@@ -440,13 +446,15 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
         } else {
           policy.captured(f.tMs, (locked.raw ?? locked.quad) as Quad, locked.id, lastPixels!)
           stats.captures++
-          if (outcome.why === 'look') stats.lookFires++
+          if (outcome.fireKind === 'first') stats.firstFires++
+          else if (outcome.fireKind === 'drift') stats.driftFires++
+          else stats.disturbedFires++
           log.firedMs = f.tMs
         }
-      } else if (outcome.kind === 'region' || outcome.kind === 'busy' || outcome.kind === 'cardback' || outcome.kind === 'far') {
-        if (outcome.kind === 'region') {
-          log.regionTicks++
-          stats.regionSuppressedTicks++
+      } else if (outcome.kind === 'watching' || outcome.kind === 'busy' || outcome.kind === 'cardback' || outcome.kind === 'far') {
+        if (outcome.kind === 'watching') {
+          log.watchingTicks++
+          stats.watchingTicks++
         } else if (outcome.kind === 'cardback') {
           log.cardBackTicks++
           stats.cardBackTicks++
@@ -463,8 +471,8 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
           log.logged.add(outcome.kind)
           await writeCrop(s, f, outcome.kind, motionBy.get(locked.id))
         }
-      } else if (outcome.kind === 'refractory') {
-        log.refractoryTicks++
+      } else if (outcome.kind === 'settling') {
+        log.settlingTicks++
       }
     }
     if (event) lastEvents.push(event)
@@ -486,9 +494,11 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
         }),
         pending: s.pending.map((t) => ({ id: t.id, age: t.age })),
         locked: locked?.id ?? null,
-        // The lock's look (EngineState.look), so the re-arm's thresholds can be re-fitted offline.
+        // The lock's look (EngineState.look) and the spot's (spotLook), so the
+        // episode's thresholds (presentation.ts) can be re-fitted offline.
         ...(s.look ? { look: Buffer.from(s.look).toString('base64') } : {}),
-        regions: policy.regionCount,
+        ...(s.spotLook ? { spot: Buffer.from(s.spotLook).toString('base64') } : {}),
+        st: policy.state,
         ...(event ? { event } : {}),
       }) + '\n',
     )
@@ -514,7 +524,7 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
         .raw()
         .toBuffer()
       const fired = lastEvents.includes('fire')
-      const supp = lastEvents.includes('region') || lastEvents.includes('busy') || lastEvents.includes('cardback') || lastEvents.includes('far')
+      const supp = lastEvents.includes('watching') || lastEvents.includes('busy') || lastEvents.includes('cardback') || lastEvents.includes('far')
       timeline.push({
         image: { data: small, width: 208, height: 208, channels: 3 },
         lines: [
@@ -585,7 +595,8 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
   fs.writeFileSync(path.join(outDir, 'captures.jsonl'), rows.map((r) => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : ''))
 
   const lockEpisodes = [...tracks.values()]
-  const regionOnly = lockEpisodes.filter((l) => l.firedMs === null && l.regionTicks > 0)
+  /** Locked tracks that never fired because the episode was watching: the card taken, still there (or a new one the episode never saw break). */
+  const watchingOnly = lockEpisodes.filter((l) => l.firedMs === null && l.watchingTicks > 0)
   const busyDeferred = lockEpisodes.filter((l) => l.busyTicks > 0)
   const cardBackOnly = lockEpisodes.filter((l) => l.firedMs === null && l.cardBackTicks > 0)
   const farOnly = lockEpisodes.filter((l) => l.firedMs === null && l.farTicks > 0)
@@ -603,7 +614,7 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
     blockers,
     lockedTracks: lockEpisodes.length,
     capturedTracks: lockEpisodes.filter((l) => l.firedMs !== null).length,
-    regionSuppressedTracks: regionOnly.length,
+    watchingHeldTracks: watchingOnly.length,
     busyDeferredTracks: busyDeferred.length,
     busyDeferredThenFired: busyDeferred.filter((l) => l.firedMs !== null).length,
     /** Locked tracks the card-back gate refused and that never fired. */
@@ -619,7 +630,7 @@ async function replayVideo(input: string, lc050: Lc050, outRoot: string): Promis
 
   const title = [
     `${videoId}  ${probe.width}x${probe.height}  ${probe.durationS.toFixed(1)}s  square ${geo.nativeSquarePx}px native  @${fps}Hz`,
-    `ticks ${stats.ticks}  lock ticks ${stats.lockTicks}  locked tracks ${lockEpisodes.length}  captures ${stats.captures}  region-suppressed tracks ${regionOnly.length}  busy-deferred ${busyDeferred.length}`,
+    `ticks ${stats.ticks}  lock ticks ${stats.lockTicks}  locked tracks ${lockEpisodes.length}  captures ${stats.captures}  watching-held tracks ${watchingOnly.length}  busy-deferred ${busyDeferred.length}`,
   ]
   await contactSheet(captureTiles, { thumbW: 192, thumbH: 268, cols: 8, title, out: path.join(outDir, 'contact.png') })
   if (suppressedTiles.length) {
@@ -656,11 +667,11 @@ async function main(): Promise<void> {
   } finally {
     await lc050.close()
   }
-  console.log('\nvideo            ticks  lockTicks  lockedTrk  captures  regionSupTrk  busyDefTrk  cardBackTrk  sharpness(med)  wall')
+  console.log('\nvideo            ticks  lockTicks  lockedTrk  captures  watchHeldTrk  busyDefTrk  cardBackTrk  sharpness(med)  wall')
   for (const s of results as Array<Record<string, any>>) {
     console.log(
       `${String(s.videoId).padEnd(16)} ${String(s.ticks).padStart(5)}  ${String(s.lockTicks).padStart(9)}  ${String(s.lockedTracks).padStart(9)}  ` +
-        `${String(s.captures).padStart(8)}  ${String(s.regionSuppressedTracks).padStart(12)}  ${String(s.busyDeferredTracks).padStart(10)}  ${String(s.cardBackTracks).padStart(11)}  ` +
+        `${String(s.captures).padStart(8)}  ${String(s.watchingHeldTracks).padStart(12)}  ${String(s.busyDeferredTracks).padStart(10)}  ${String(s.cardBackTracks).padStart(11)}  ` +
         `${String(s.sharpness?.median ?? '-').padStart(14)}  ${s.replay.wallS}s`,
     )
   }

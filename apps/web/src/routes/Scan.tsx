@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { useSearch, useNavigate } from '@tanstack/react-router'
 import { api, type ScanMatch, type ScanResponse } from '../lib/api'
 import { Icon } from '../components/Icon'
@@ -22,6 +23,7 @@ import {
   recordIdentityEvent,
   recordLockEvent,
   recordTick,
+  recordTraceEvent,
 } from '../scan/ui/flags'
 import {
   EMBED_NOT_ASKED,
@@ -59,13 +61,25 @@ import {
 } from '../scan/ui/deadline'
 import { toScanBytes } from '../scan/ui/uploadNormalize'
 import { canonicalSquareMap, framePointToCss, quadPose } from '../scan/ui/coords'
-import { bump, DURATION, flyArc, rectRelativeTo } from '../scan/ui/motion'
+import { DURATION } from '../scan/ui/motion'
 import type { FeedEntry, FeedVariant, StackItem } from '../scan/ui/types'
 import type { Quad } from '../scan/engine/contract'
+import type { CardLook } from '../scan/engine/look'
 import { gateScanResponse, judgeTie, TIE_MARGIN } from '../scan/ui/tieGate'
-import { createCapturedRegions, type CapturedRegions, type RegionTrack } from '../scan/ui/regions'
-import { createLookRearm, type LookRearm } from '../scan/ui/rearm'
-import { createCardBackHolds, decideAutoCapture, REPEAT_OFFER_MS } from '../scan/ui/autoCapture'
+import { createCardBackHolds, decideAutoCapture } from '../scan/ui/autoCapture'
+import { createPresentation, MIN_FIRE_GAP_MS, type FireKind, type Presentation } from '../scan/ui/presentation'
+import {
+  captureLookDistance,
+  identityKeyOf,
+  normName,
+  normNumber,
+  resolveRepeat,
+  sameCard,
+  type IdentityKey,
+  type RepeatResolution,
+} from '../scan/ui/repeat'
+import { initialStatus, nextStatus, type StatusActionId, type StatusFacts, type StatusMessage } from '../scan/ui/statusLine'
+import { createLaunchQueue, deliverToRow, deliverToTray, rectIn } from '../scan/ui/handoff'
 import { createFocusGate } from '../scan/ui/focusGate'
 import { cardSideFraction } from '../scan/ui/sizeGate'
 import { useAccess } from '../lib/access'
@@ -217,6 +231,7 @@ export function Scan() {
     error: engineError,
     state: engineState,
     capture,
+    watch: watchSpot,
   } = useScanEngine(videoRef, engineActive)
 
   // Mirrored into a ref so the capture pipeline can attach the gate state that
@@ -233,8 +248,11 @@ export function Scan() {
 
   const [stack, setStack] = useState<StackItem[]>([])
   const [feed, setFeed] = useState<FeedEntry[]>([])
-  const [flashSignal, setFlashSignal] = useState(0)
-  const [hint, setHint] = useState('Point the camera at a card')
+  /** The capture flash (CameraStage): one per capture that becomes, or may become, a row. */
+  const [flash, setFlash] = useState<{ seq: number; quad: Quad | null }>({ seq: 0, quad: null })
+  /** What the status pill says (statusLine.ts), and which scan its "Scanned ✓" is about. */
+  const [status, setStatus] = useState<StatusMessage>(() => initialStatus(0).shown)
+  const [currentEpisodeId, setCurrentEpisodeId] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [committing, setCommitting] = useState(false)
   /** The unresolved-rows confirm (`feed.commitGate`), and the row "Go back to
@@ -401,7 +419,6 @@ export function Scan() {
     else setVoicePrimerOpen(true)
   }
 
-  const refractoryRef = useRef(new Set<number>())
   /** Tracks whose lock showed a card back (scan/ui/autoCapture.ts): never
    *  auto-captured until their look settles clear of the back, or they depart. */
   const cardBackRef = useRef(createCardBackHolds())
@@ -480,64 +497,93 @@ export function Scan() {
   }, [])
 
   /**
-   * THE CAPTURED-REGION REFRACTORY — duplicate captures. The policy, its
-   * constants and the evidence that sized them live in `scan/ui/regions.ts`,
-   * so the regression replay drives the SHIPPING object rather than a copy of
-   * it. This route only feeds it ticks and asks it questions.
+   * THE PRESENTATION EPISODE (scan/ui/presentation.ts) — when the scanner takes
+   * a card again. A card that has stayed in view since it was taken is never
+   * taken again; any break in that continuity followed by a steady card always
+   * is, and whether it was the same card is asked afterwards, by identity
+   * (scan/ui/repeat.ts). Until 2026-11-27 three geometric memories decided this
+   * (the per-track refractory, the captured regions, the look re-arm) and their
+   * "cannot tell" was shown as "Already scanned" on new cards — the owner's
+   * Cheren, Lillipup and Gothorita. Lazily, exactly once: this component
+   * re-renders on every detect tick.
    */
-  const regionsRef = useRef<CapturedRegions | null>(null)
-  // Lazily, and exactly once. `useRef(createCapturedRegions())` would re-run the
-  // factory on EVERY render and throw the result away, and this component
-  // re-renders on every detect tick.
-  regionsRef.current ??= createCapturedRegions()
-  const regions = regionsRef.current
+  const presentationRef = useRef<Presentation | null>(null)
+  presentationRef.current ??= createPresentation()
+  const presentation = presentationRef.current
 
-  const ageRegions = useCallback(
-    (tracks: readonly RegionTrack[]) => {
-      regions.tick(Date.now(), tracks)
-    },
-    [regions],
-  )
+  /** What each capture was, for deciding afterwards whether it was the same card as the one before. */
+  interface CaptureMeta {
+    kind: FireKind
+    prevCaptureId: string | null
+    /** Pressed from the "Scanned ✓" pill's "Scan again". */
+    scanAgain: boolean
+    /** A silent drift probe (presentation.ts): no flash, no tray, until identity says it is a card. */
+    probe: boolean
+    quad: Quad
+    look: CardLook | null
+  }
+  const captureMetaRef = useRef(new Map<string, CaptureMeta>())
+  /** Each settled capture's identity key (repeat.ts), kept for the next capture to be compared with. */
+  const identityKeysRef = useRef(new Map<string, IdentityKey | null>())
+  /** Resolves once a capture has settled (or failed, or been dropped): the next capture's comparison waits on it. */
+  const settledRef = useRef(new Map<string, { done: Promise<void>; resolve: () => void }>())
+  const settleSignal = useCallback((id: string) => {
+    let s = settledRef.current.get(id)
+    if (!s) {
+      let resolve: () => void = () => {}
+      const done = new Promise<void>((r) => (resolve = r))
+      s = { done, resolve }
+      settledRef.current.set(id, s)
+    }
+    return s
+  }, [])
 
-  const alreadyCapturedHere = useCallback((quad: Quad): boolean => regions.suppressed(quad), [regions])
   /**
-   * THE LOOK RE-ARM (scan/ui/rearm.ts): the one refusal above that is wrong —
-   * a DIFFERENT card put down where the last one was, on the same track or the
-   * same region. Same lazy-once construction as the regions.
-   */
-  const rearmRef = useRef<LookRearm | null>(null)
-  rearmRef.current ??= createLookRearm()
-  const rearm = rearmRef.current
-
-  const noteCapture = useCallback(
-    (result: CaptureResult) => {
-      // The look of the frame actually taken (CaptureResult.look — every
-      // capture has one, manual or automatic, locked or not), kept with the
-      // region and with the track: the two things that can refuse a later lock.
-      regions.note(result.quad, result.trackId, Date.now(), result.look)
-      rearm.note(result.look, result.trackId)
-    },
-    [regions, rearm],
-  )
-  const captureBusyRef = useRef(false)
-  /**
-   * HOW LONG THE LOCK HAS BEEN A CARD THE DUPLICATE POLICY REFUSES — the track,
-   * and since when. Past REPEAT_OFFER_MS the hint offers "Tap to scan again".
+   * THE NAME THE PILL MAY USE, per capture — and only once it is FINAL.
    *
-   * WHY A TAP AND NOT AN AUTOMATIC "IT WAS FLIPPED" RULE (owner session
-   * 2026-11-26: two copies of one card in a stack, the second never captured).
-   * Nothing the scanner sees can tell an identical copy put down in the same
-   * place from the same card still lying there: look, hash and embedding are
-   * identical by construction, and every transition signal measured (the look
-   * leaving and coming back, the track jumping, the region's track dying) fires
-   * on ordinary handling of ONE card as often as on a swap (the decision record
-   * of this change has the numbers). A rule built on them is a duplicate
-   * generator. So the scanner says what it sees, "Already scanned", and a tap
-   * takes it again: a real capture, read like any other, so a different card
-   * the look could not tell apart is identified as itself.
+   * The scan-recognition lane (PR #416) found the hash can name a wrong card
+   * first: a blurred Joltik hashed 5 bits from Raticate, cleared the tie gate,
+   * and was on screen before the vector and the read agreed on Joltik, which
+   * `narrowedIdentity` then corrected. The ROW keeps that behaviour (it is
+   * that lane's call). The PILL does not repeat a provisional name: it says
+   * "Scanned ✓ identifying…" until the capture's second answer has reported (or
+   * none was asked for), then "Got it — {name}" with the name that stuck.
    */
-  const repeatHoldRef = useRef<{ trackId: number; since: number } | null>(null)
-  const [offerScanAgain, setOfferScanAgain] = useState(false)
+  const finalNameRef = useRef(new Map<string, string | null>())
+  const raceDoneRef = useRef(new Set<string>())
+  const rowNameRef = useRef(new Map<string, string | null>())
+
+  /**
+   * THE STATUS LINE'S FACTS (scan/ui/statusLine.ts). The detect tick and the
+   * capture pipeline write these; one 125 ms clock reads them into the arbiter,
+   * which decides what the pill says. Nothing writes the pill directly any more:
+   * that was the flicker (S2).
+   */
+  const statusFactsRef = useRef<Omit<StatusFacts, 'now' | 'watchingName' | 'unresolved'>>({
+    notice: null,
+    capture: null,
+    landed: null,
+    same: null,
+    watching: false,
+    aim: null,
+    steady: false,
+  })
+  const statusSeqRef = useRef({ notice: 0, capture: 0, landed: 0, same: 0 })
+  /** The last capture the reader SAW (a silent probe is not one until promoted): what "Scanned ✓" is about. */
+  const visibleCaptureIdRef = useRef<string | null>(null)
+  /** The row the "Same card again" pill's Undo removes. */
+  const sameRowRef = useRef<string | null>(null)
+  /** SAME_AFTER_BREAK 'ask': the capture held in the tray, and how to answer it. */
+  const askRef = useRef<{ captureId: string; answer: (add: boolean) => void } | null>(null)
+  const pushNotice = useCallback((text: string) => {
+    statusFactsRef.current.notice = { seq: ++statusSeqRef.current.notice, text }
+  }, [])
+
+  const captureBusyRef = useRef(false)
+  /** When the last capture started — a capture holds the busy flag for at least MIN_FIRE_GAP_MS. */
+  const lastCaptureStartRef = useRef(0)
+  /** Landings launch in settle order, at least 150 ms apart (handoff.ts). */
+  const launchQueueRef = useRef(createLaunchQueue())
   // The tick trace posts every few seconds; what it holds when the page is
   // hidden or the scanner closes would otherwise be lost.
   useEffect(() => {
@@ -654,45 +700,29 @@ export function Scan() {
     [applyVariants],
   )
 
-  /** Fly an <img> of `previewUrl`, sized `from`, into `targetEl`'s current
-   *  rect — the shared courier used for both capture→stack and stack→feed. */
-  const flyToTarget = useCallback(
-    async (
-      previewUrl: string,
-      from: { cx: number; cy: number; rotDeg?: number; width: number; height: number },
-      targetEl: HTMLElement,
-    ) => {
-      const layer = flyLayerRef.current
-      const wrap = stageWrapRef.current
-      if (!layer || !wrap || !from.width || !from.height) return
-      const toRect = rectRelativeTo(targetEl, wrap)
-      const img = document.createElement('img')
-      img.src = previewUrl
-      img.alt = ''
-      Object.assign(img.style, {
-        position: 'absolute',
-        left: '0',
-        top: '0',
-        width: `${from.width}px`,
-        height: `${from.height}px`,
-        borderRadius: '6px',
-        objectFit: 'cover',
-        boxShadow: '0 10px 20px rgba(0,0,0,0.45)',
-      })
-      layer.appendChild(img)
-      const scale = toRect.width ? toRect.width / from.width : 1
-      await flyArc(
-        img,
-        { cx: from.cx, cy: from.cy, rotDeg: from.rotDeg ?? 0, scale: 1 },
-        { cx: toRect.cx, cy: toRect.cy, rotDeg: 0, scale },
-        from.width,
-        from.height,
-        { duration: DURATION.flyStack, arcPx: 20 },
-      )
-      img.remove()
-    },
-    [],
-  )
+  /** The stage's fly layer, and the coordinates every courier is placed in. */
+  const flyLayer = () => flyLayerRef.current
+  /** The bin's scroller (Step 1's VerifyFeed). */
+  const binScroller = () => stageWrapRef.current?.querySelector<HTMLElement>('[data-verify-feed]') ?? null
+
+  /**
+   * The pill may name a capture once BOTH have happened: its row has landed,
+   * and its second answer has reported (see `finalNameRef`). Then it says
+   * "Got it — {name}" — if the reader is still looking at that card, and it was
+   * not a flagged copy (that one has its own message, with Undo).
+   */
+  const flaggedRef = useRef(new Set<string>())
+  const landedIdsRef = useRef(new Set<string>())
+  const markFinal = useCallback((id: string) => {
+    if (!landedIdsRef.current.has(id) || !raceDoneRef.current.has(id) || finalNameRef.current.has(id)) return
+    const name = rowNameRef.current.get(id) ?? null
+    finalNameRef.current.set(id, name)
+    if (id !== visibleCaptureIdRef.current || !statusFactsRef.current.watching || flaggedRef.current.has(id)) return
+    statusFactsRef.current.landed = {
+      seq: ++statusSeqRef.current.landed,
+      text: name ? `Got it — ${name}` : 'Needs you — it’s in the list',
+    }
+  }, [])
 
   /**
    * Writes a SETTLED capture into the feed — named or not.
@@ -707,9 +737,12 @@ export function Scan() {
    * updater where it went. Since 2026-09-07 that is always A NEW ROW: every scan
    * is its own item, so there is no longer an existing row it could have merged
    * into and the answer is simply this capture's id.
+   *
+   * `repeatOf` (2026-11-27): the row this scan broke from, when identity named
+   * the two the same card — the "Same as last scan" flag (repeat.ts).
    */
   const addFeedEntry = useCallback(
-    (st: IdentityState, stackItem: StackItem): string => {
+    (st: IdentityState, stackItem: StackItem, repeatOf: string | null = null): string => {
       const identity = st.match
       // THE CAPTURE'S OWN ID, named or not (2026-09-07). It used to be
       // `identity.cardId` for a named row, which was the dedupe key; with every
@@ -732,8 +765,8 @@ export function Scan() {
         capturePreviewUrl: stackItem.previewUrl,
         captureBlob: stackItem.blob,
         captureId: stackItem.id,
-        // Held only while the row is still a question — the discard path uses it
-        // to release the refractory hold so the same card can be re-scanned.
+        // The engine track this capture came off (telemetry only since
+        // 2026-11-27: there is no per-track hold left to release).
         captureTrackId: identity ? null : stackItem.trackId,
         // The meter shows what NAMED the card (`rowMeter`): the hash's distance
         // on a hash-named row, the picture's cosine on a ladder-named one, and
@@ -757,10 +790,11 @@ export function Scan() {
         // this capture (`recordRowOutcome`). A named row is not asking anything
         // and carries none of it.
         identity: identity ? null : st,
+        repeatOf,
       }
+      rowNameRef.current.set(rowId, identity?.name ?? null)
       setFeed((prev) => addArrival(prev, entry))
       if (identity) void loadVariants(identity.cardId)
-      setHint(identity ? `Got it — ${identity.name}` : 'That one needs you — it’s in the list')
       return rowId
     },
     [loadVariants],
@@ -785,7 +819,65 @@ export function Scan() {
   }, [])
 
   /**
-   * A capture's identity has SETTLED — the marker, then the courier to the list.
+   * THE TRAY → ROW HAND-OFF (scan/ui/handoff.ts): one capture, one image.
+   *
+   * The row goes in synchronously (flushSync), newest first, with its picture
+   * HIDDEN; in the same frame a courier is cloned from the tray thumbnail —
+   * ring, wash and tick included — and the thumbnail is hidden. The courier
+   * homes on the row's picture every frame (the list may scroll, another row
+   * may land above it), and on the frame it lands the picture is shown, the
+   * courier removed, and the picture bumps. Then the tray item goes and the
+   * thumbnails left in the tray slide up.
+   *
+   * No flight when the camera is hidden (the bin expanded): the row fades in on
+   * its own. Under reduced motion: no travel, the thumbnail fades out and the
+   * row's picture fades in.
+   */
+  const handOff = useCallback(
+    async (item: StackItem, st: IdentityState, repeatOf: string | null) => {
+      const layer = flyLayer()
+      const insertRow = () =>
+        flushSync(() => {
+          addFeedEntry(st, item, repeatOf)
+        })
+      if (!layer) insertRow()
+      else {
+        await deliverToRow({
+          id: item.id,
+          layer,
+          stackEl: stackNodesRef.current.get(item.id) ?? null,
+          insertRow,
+          // The row id IS the capture id (addFeedEntry).
+          thumb: () => feedThumbNodesRef.current.get(item.id) ?? null,
+          scroller: binScroller(),
+        })
+      }
+      dropStackItem(item.id)
+    },
+    [addFeedEntry, dropStackItem],
+  )
+
+  /**
+   * A drift probe identity named a DIFFERENT card (or could not say it was the
+   * same): it was a capture after all. It flashes now and joins the tray, as
+   * any capture does at its shutter (repeat.ts: "promoted").
+   */
+  const promoteProbe = useCallback(async (item: StackItem) => {
+    const meta = captureMetaRef.current.get(item.id)
+    if (meta) meta.probe = false
+    setFlash((f) => ({ seq: f.seq + 1, quad: null }))
+    statusFactsRef.current.capture = { seq: ++statusSeqRef.current.capture, at: performance.now() }
+    visibleCaptureIdRef.current = item.id
+    lastCaptureIdRef.current = item.id
+    const shown = { ...item, identity: identitiesRef.current.get(item.id) ?? item.identity }
+    flushSync(() => setStack((prev) => (prev.some((s) => s.id === item.id) ? prev : [shown, ...prev])))
+    // The tray's own entrance for a slot (IncomingStack, 180 ms).
+    await new Promise<void>((r) => window.setTimeout(r, 200))
+  }, [])
+
+  /**
+   * A capture's identity has SETTLED — same card or not, then the courier to
+   * the list.
    *
    * ONE FLIGHT FOR BOTH VERDICTS, which is the 2026-09-06 ruling in code: "if
    * the resolution is 'needs your input' they should still go down to the list".
@@ -796,57 +888,93 @@ export function Scan() {
    * THE CAMERA (`DURATION.confirmTick`) and only then moves down. A flight that
    * starts the instant the answer lands is a card that vanishes from under the
    * reader's eye with no statement that anything was decided.
+   *
+   * SAME CARD OR NOT (2026-11-27, scan/ui/repeat.ts) is asked here, by identity,
+   * against the capture this one broke from — waiting for that one to settle
+   * too (both are usually in the tray). A different card is a row; the same
+   * card after a break is a row FLAGGED "Same as last scan" with an Undo; a
+   * drift probe of the same card is the one capture ever dropped.
    */
   const landCapture = useCallback(
     async (item: StackItem) => {
       // Never fly out of a thumbnail the arrival courier has not delivered yet.
       await settleWithin(arrivalsRef.current.get(item.id) ?? Promise.resolve(), 3000)
-      await new Promise<void>((r) => window.setTimeout(r, DURATION.confirmTick))
       // THE VERDICT, READ FROM THE AUTHORITATIVE MAP rather than from the
       // `StackItem` this callback closed over — which may be a render behind.
-      //
-      // Until 2026-09-07 this line did more than that: there is a ~240 ms window
-      // between scheduling a flight and writing the row, and one ordering fitted
-      // through it — the 6 s deadline flipped a capture to needs-you, the resolve
-      // it was still waiting for landed confident a moment later, and the row was
-      // written after that. The re-read meant the late answer was honoured by the
-      // flight already in the air instead of needing a second one.
-      //
-      // That ordering cannot happen now. A capture does not settle until every
-      // started signal has reported, so the phase read here is the phase that was
-      // there when the flight was scheduled — the ruling's "it leaves the stack
-      // exactly once, in a final state", seen from the courier's end. The re-read
-      // stays because reading the current map is right regardless, and because a
-      // silent revert to the stale closure is not a thing to leave lying about.
+      // Settled phases are terminal (2026-09-07), so this is the phase that was
+      // there when the flight was scheduled.
       const st = identitiesRef.current.get(item.id) ?? item.identity
-      const rowId = addFeedEntry(st, item)
-      await nextFrame()
-      const wrap = stageWrapRef.current
-      const stackEl = stackNodesRef.current.get(item.id)
-      // The row this capture landed on — its own, or the one it merged into.
-      const thumbEl = feedThumbNodesRef.current.get(rowId)
-      if (thumbEl && wrap) {
-        // The thumbnail's rect, unless there is no thumbnail to measure — the
-        // camera is `hidden` while the bin is expanded, and a hidden element
-        // measures 0x0, which would launch the courier out of the top-left
-        // corner of the screen. `?? thumbEl` alone did not catch that: the node
-        // is still in the map, it just has no box. Landing on itself is a
-        // no-visible-flight, which is the right answer for a list the reader is
-        // looking at full-screen.
-        const stackRect = stackEl ? rectRelativeTo(stackEl, wrap) : null
-        const fromRect = stackRect && stackRect.width ? stackRect : rectRelativeTo(thumbEl, wrap)
-        await settleWithin(
-          flyToTarget(
-            item.previewUrl,
-            { cx: fromRect.cx, cy: fromRect.cy, width: fromRect.width || 54, height: fromRect.height || 75 },
-            thumbEl,
-          ),
-          2000,
-        )
+      const key = identityKeyOf(st)
+      identityKeysRef.current.set(item.id, key)
+      settleSignal(item.id).resolve()
+
+      const meta = captureMetaRef.current.get(item.id)
+      const prevId = meta && meta.kind !== 'first' ? meta.prevCaptureId : null
+      let resolution: RepeatResolution = { action: 'row', promoted: false }
+      let same: boolean | null = null
+      if (meta && prevId) {
+        await settleWithin(settleSignal(prevId).done, IDENTITY_BACKSTOP_MS)
+        same = sameCard(identityKeysRef.current.get(item.id) ?? key, identityKeysRef.current.get(prevId) ?? null)
+        resolution = resolveRepeat({
+          kind: meta.kind,
+          same,
+          lookDistance: captureLookDistance(meta.look, captureMetaRef.current.get(prevId)?.look),
+          scanAgain: meta.scanAgain,
+        })
       }
-      dropStackItem(item.id)
+      const outcome = {
+        captureId: item.id,
+        kind: meta?.kind ?? null,
+        prevCaptureId: prevId,
+        same,
+        action: resolution.action as string,
+        flagged: resolution.action === 'flagged',
+        scanAgain: !!meta?.scanAgain,
+        undone: false,
+      }
+      if (resolution.action === 'discard') {
+        // The only capture ever dropped: a probe taken with NO disturbance seen,
+        // named the same card, at a close look. Nobody saw it; nothing says so.
+        recordTraceEvent('repeat-outcome', outcome)
+        presentation.discardProbe(item.id)
+        dropStackItem(item.id)
+        return
+      }
+      if (meta?.probe) await promoteProbe(item)
+      await new Promise<void>((r) => window.setTimeout(r, DURATION.confirmTick))
+
+      let flagged = resolution.action === 'flagged'
+      if (resolution.action === 'ask') {
+        // SAME_AFTER_BREAK 'ask': held in the tray, nothing added until the
+        // reader answers — and skipped if the next capture fires first.
+        const add = await new Promise<boolean>((answer) => {
+          askRef.current = { captureId: item.id, answer }
+          statusFactsRef.current.same = { seq: ++statusSeqRef.current.same, ask: true }
+        })
+        askRef.current = null
+        statusFactsRef.current.same = null
+        if (!add) {
+          recordTraceEvent('repeat-outcome', { ...outcome, action: 'skipped' })
+          dropStackItem(item.id)
+          return
+        }
+        flagged = true
+        outcome.action = 'added'
+      }
+      outcome.flagged = flagged
+      recordTraceEvent('repeat-outcome', outcome)
+      if (flagged) flaggedRef.current.add(item.id)
+
+      await launchQueueRef.current.wait()
+      await handOff(item, st, flagged ? prevId : null)
+      if (flagged) {
+        sameRowRef.current = item.id
+        if (resolution.action !== 'ask') statusFactsRef.current.same = { seq: ++statusSeqRef.current.same }
+      }
+      landedIdsRef.current.add(item.id)
+      markFinal(item.id)
     },
-    [addFeedEntry, dropStackItem, flyToTarget],
+    [dropStackItem, handOff, markFinal, presentation, promoteProbe, settleSignal],
   )
 
   /**
@@ -911,6 +1039,9 @@ export function Scan() {
       }
 
       if (next.phase === 'discarded') {
+        // Nothing for a later capture to be compared with.
+        identityKeysRef.current.set(id, null)
+        settleSignal(id).resolve()
         dropStackItem(id)
         return
       }
@@ -937,12 +1068,11 @@ export function Scan() {
           void landCapture(item)
         }
       }
-      // No hint is set here on purpose. The auto-capture effect rewrites the
-      // hint on every detect tick (~8x/s), so anything announced from a
-      // one-shot callback is gone before it is read; the standing "N need you"
-      // line lives in that effect instead, off `unresolvedRef`.
+      // No pill text is set here: the status line (statusLine.ts) reads its
+      // facts on its own clock, and "Got it — {name}" waits for the capture's
+      // name to be final (`markFinal`).
     },
-    [dropStackItem, landCapture],
+    [dropStackItem, landCapture, settleSignal],
   )
 
   // ── the needs-input row's affordances, one screen down from where they were ──
@@ -973,15 +1103,19 @@ export function Scan() {
 
   /** The full capture → stack → identify → feed pipeline for one engine capture. */
   const handleCaptured = useCallback(
-    async (result: CaptureResult, trigger: 'auto' | 'manual', rearmed = false) => {
+    async (result: CaptureResult, trigger: 'auto' | 'manual', captureId: string) => {
       const previewUrl = trackUrl(URL.createObjectURL(result.blob))
-      // Minted BEFORE the capture record so both halves of this capture's
-      // telemetry carry it: the `capture-event` posted below, and the
-      // `identity-event` posted minutes later when the reader finally decides
-      // what the card was. Without a shared key the second is unattributable —
-      // which is the shape round 7's 26 unknown outcomes already had.
-      const captureId = makeId('cap')
-      lastCaptureIdRef.current = captureId
+      // Minted BEFORE the shutter (by the caller, so the presentation episode
+      // and both halves of this capture's telemetry carry it: the
+      // `capture-event` posted below, and the `identity-event` posted minutes
+      // later when the reader finally decides what the card was). Without a
+      // shared key the second is unattributable — which is the shape round 7's
+      // 26 unknown outcomes already had.
+      const meta = captureMetaRef.current.get(captureId)
+      // The look the drift discard compares (repeat.ts): the captured pixels'.
+      if (meta) meta.look = result.look
+      const probe = !!meta?.probe
+      if (!probe) lastCaptureIdRef.current = captureId
       // The matcher's verdict, handed to the recorder below as a promise so the
       // capture record can carry it (scan/ui/flags.ts `CaptureEventInput.outcome`).
       // The record's frame and crop are snapshotted before this ever settles.
@@ -999,9 +1133,13 @@ export function Scan() {
         detail: {
           captureId,
           trigger,
-          // An automatic capture the look re-arm let through a repeat refusal
-          // (scan/ui/rearm.ts) — the field count of what that rule fires.
-          rearmed,
+          // Why the presentation machine fired (scan/ui/presentation.ts):
+          // first, disturbed (a card after a break), drift (a silent probe), or
+          // manual — and the capture it broke from, for the same-card check.
+          kind: meta?.kind ?? null,
+          prevCaptureId: meta?.prevCaptureId ?? null,
+          probe,
+          scanAgain: !!meta?.scanAgain,
           quad: result.quad,
           trackId: result.trackId,
           // THE UNITS THIS QUAD IS IN — canonical 416 space, from the engine's
@@ -1056,7 +1194,10 @@ export function Scan() {
           markArrived = r
         }),
       )
-      setStack((prev) => [stackItem, ...prev])
+      // Into the tray HIDDEN, in this very frame, with the courier that carries
+      // its picture there made in the same task below (handoff.ts). A silent
+      // drift probe is not shown at all until identity promotes it.
+      if (!probe) flushSync(() => setStack((prev) => [{ ...stackItem, arriving: true }, ...prev]))
 
       // Identify runs CONCURRENTLY with the fly-to-stack visual — the
       // network round trip overlaps travel time instead of waiting behind a
@@ -1259,7 +1400,19 @@ export function Scan() {
             const top = resolvedIdentity(outcome.resolved)
             if (!top) return prev
             // The ladder named it, so its meter is the ladder's (`rowMeter`).
-            return resolveRow(prev, row.id, { ...top, ...rowMeter({ ...top, similarity: top.similarity ?? null }, 'printing') })
+            const next = resolveRow(prev, row.id, { ...top, ...rowMeter({ ...top, similarity: top.similarity ?? null }, 'printing') })
+            // The name that stuck, for the pill (`finalNameRef`), and the key a
+            // later capture is compared with. A "Same as last scan" flag set on
+            // the hash's name is re-asked on this one: a corrected row that is
+            // no longer the card before loses its flag (repeat.ts).
+            rowNameRef.current.set(row.id, top.name)
+            const key: IdentityKey = { cardId: top.cardId, name: normName(top.name), number: normNumber(top.number) }
+            identityKeysRef.current.set(row.id, key)
+            if (!row.repeatOf) return next
+            const still = sameCard(key, identityKeysRef.current.get(row.repeatOf) ?? null)
+            if (still !== false) return next
+            flaggedRef.current.delete(row.id)
+            return next.map((e) => (e.id === row.id ? { ...e, repeatOf: null } : e))
           })
         } catch {
           // An enrichment that can break a capture is worse than no enrichment —
@@ -1279,37 +1432,54 @@ export function Scan() {
           dispatchIdentity(stackItem.id, { type: 'backstop' })
         } finally {
           window.clearTimeout(backstopTimer)
+          // The second answer has reported (or none was asked for): the name
+          // the pill may now use, once the row has landed and any late
+          // correction above has been applied.
+          void nextFrame().then(() => {
+            raceDoneRef.current.add(stackItem.id)
+            markFinal(stackItem.id)
+          })
         }
       })()
 
-      await nextFrame()
-      const stackEl = stackNodesRef.current.get(stackItem.id)
-      const wrap = stageWrapRef.current
-      if (stackEl && wrap) {
+      // THE CAPTURE → TRAY COURIER (handoff.ts): the slot went in hidden, above;
+      // the courier is made in the same task, at the captured quad's pose, and
+      // homes on the slot (which may slide as other captures arrive). On the
+      // frame it lands the slot is shown and the courier removed. No separate
+      // bump: the landing IS the beat.
+      const stackEl = probe ? null : stackNodesRef.current.get(stackItem.id)
+      const layer = flyLayerRef.current
+      const camBox = stageWrapRef.current?.querySelector<HTMLElement>('[data-scan-camera-view]') ?? null
+      if (stackEl && layer && camBox && camBox.getBoundingClientRect().width > 0) {
         const box = cameraBoxRef.current
         const frame = frameSizeRef.current
         const stream = streamSizeRef.current
-        // Approximate start pose from the captured quad's frame-space pose,
-        // mapped through THE SAME `canonicalSquareMap` the reticle/quad overlay
-        // uses — and this comment used to say that while the two had silently
-        // diverged, which the 2026-09-04 owner session caught: the overlay was
-        // on contain math and the courier on cover, so every thumbnail launched
-        // ~54 px right of the quad that had just been highlighted. One helper,
-        // one call, both places. Falls back to a plausible center-of-frame card
-        // size if the box/frame haven't been measured yet (should not happen in
-        // practice — start() only runs once a video frame exists).
-        let from = { cx: box.width / 2, cy: box.height * 0.42, rotDeg: 0, width: 130, height: (130 * 88) / 63 }
+        // Start pose from the captured quad's frame-space pose, mapped through
+        // THE SAME `canonicalSquareMap` the reticle/quad overlay uses (they once
+        // diverged — contain vs cover — and every thumbnail launched ~54 px off
+        // the quad that had just been highlighted), then into the fly layer's
+        // coordinates from the camera box's own place on the stage. Falls back
+        // to a plausible centre-of-frame card if nothing is measured yet.
+        let pose = { cx: box.width / 2, cy: box.height * 0.42, rotDeg: 0, width: 130, height: (130 * 88) / 63 }
         if (box.width && box.height && frame.width && frame.height) {
           const map = canonicalSquareMap(box.width, box.height, stream.width, stream.height, frame.width)
-          const pose = quadPose(result.quad)
-          const [cx, cy] = framePointToCss(map, pose.cx, pose.cy)
-          from = { cx, cy, rotDeg: pose.rotDeg, width: pose.width * map.scale, height: pose.height * map.scale }
+          const q = quadPose(result.quad)
+          const [cx, cy] = framePointToCss(map, q.cx, q.cy)
+          pose = { cx, cy, rotDeg: q.rotDeg, width: q.width * map.scale, height: q.height * map.scale }
         }
-        // Animations are awaited but never allowed to block: `anim.finished`
-        // is also suspended while the document is hidden.
-        await settleWithin(flyToTarget(previewUrl, from, stackEl), 2000)
-        await settleWithin(bump(stackEl, 1.04, DURATION.settle), 1000)
+        const origin = rectIn(camBox, layer)
+        // Never allowed to block: it carries its own deadline (rAF is
+        // suspended while the document is hidden).
+        await deliverToTray({
+          id: stackItem.id,
+          previewUrl,
+          layer,
+          from: { left: origin.left + pose.cx - pose.width / 2, top: origin.top + pose.cy - pose.height / 2, width: pose.width, height: pose.height },
+          fromRotDeg: pose.rotDeg,
+          slot: () => stackNodesRef.current.get(stackItem.id) ?? null,
+        })
       }
+      if (!probe) setStack((prev) => prev.map((s) => (s.id === stackItem.id ? { ...s, arriving: false } : s)))
       // THE CAPTURE PATH ENDS HERE. The thumbnail is on the stack, the race is
       // running behind it, and `runCapture`'s `finally` is about to release
       // `captureBusyRef` — the next card can be scanned now. Whether this one
@@ -1317,13 +1487,43 @@ export function Scan() {
       // function's, and no longer anything the reader has to wait through.
       markArrived()
     },
-    [dispatchIdentity, flyToTarget, trackUrl, step],
+    [dispatchIdentity, markFinal, trackUrl, step],
   )
 
+  /** What a capture is, from the moment its shutter fires (the presentation episode's side of it). */
+  interface CaptureStart {
+    captureId: string
+    kind: FireKind
+    prevCaptureId: string | null
+    probe: boolean
+    scanAgain: boolean
+    quad: Quad
+    look: CardLook | null
+  }
+
   const runCapture = useCallback(
-    async (trackId: number, trigger: 'auto' | 'manual' = 'auto', rearmed = false) => {
+    async (trackId: number, trigger: 'auto' | 'manual', start: CaptureStart) => {
       captureBusyRef.current = true
-      setFlashSignal((n) => n + 1)
+      lastCaptureStartRef.current = performance.now()
+      captureMetaRef.current.set(start.captureId, {
+        kind: start.kind,
+        prevCaptureId: start.prevCaptureId,
+        scanAgain: start.scanAgain,
+        probe: start.probe,
+        quad: start.quad,
+        look: start.look,
+      })
+      settleSignal(start.captureId)
+      if (!start.probe) {
+        // THE FLASH AND "Captured ✓", AT THE SHUTTER — not when the capture
+        // resolves (S1: "there's no question that it captured just now").
+        setFlash((f) => ({ seq: f.seq + 1, quad: start.quad }))
+        statusFactsRef.current.capture = { seq: ++statusSeqRef.current.capture, at: performance.now() }
+        visibleCaptureIdRef.current = start.captureId
+        // SAME_AFTER_BREAK 'ask': a question still open when the next card is
+        // taken is answered "skip".
+        askRef.current?.answer(false)
+      }
       try {
         // ONE BACKSTOP OVER THE WHOLE PIPELINE. Every await inside now has its
         // own deadline, but this is the guarantee that does not depend on
@@ -1332,37 +1532,46 @@ export function Scan() {
         // difference between one lost capture and a scanner that is dead until
         // the page is reloaded.
         const result = await withTimeout(capture(trackId), CAPTURE_TIMEOUT_MS, 'capture')
-        // Record WHERE this capture happened — and WHICH TRACK it was — before
-        // the slow half of the pipeline runs, so a second lock arriving 200 ms
-        // later on a fresh track id is already suppressed by the time it asks.
-        // The track id is the region's identity handle from here on: it is what
-        // decides whether the card is still there, so a region can no longer be
-        // kept alive by the next card put down in the same place (regions.ts).
-        // ...and WHAT it looked like: the card a later lock here is compared
-        // against before it may fire through this refusal (rearm.ts).
-        noteCapture(result)
-        await withTimeout(handleCaptured(result, trigger, rearmed), CAPTURE_TIMEOUT_MS, 'capture')
+        await withTimeout(handleCaptured(result, trigger, start.captureId), CAPTURE_TIMEOUT_MS, 'capture')
       } catch (e) {
         // The track vanished, the engine refused, or something ran past its
-        // deadline — release the refractory hold so the SAME presence can retry
-        // rather than being silently ignored for the rest of its dwell.
-        refractoryRef.current.delete(trackId)
+        // deadline — put the presentation machine back as it was, so the SAME
+        // presentation retries rather than being taken as watched.
+        presentation.failed(start.captureId)
+        settleSignal(start.captureId).resolve()
         setNotice(e instanceof Error ? e.message : 'that capture did not go through')
-        // Put the reader back in a scanning state explicitly. Without this the
-        // hint keeps whatever "Got it — hold on…" it was showing when the
-        // capture died, which reads as a hang even though the engine is fine.
-        setHint('Point the camera at a card')
+        pushNotice('That capture didn’t go through — try again')
       } finally {
+        // A capture holds the busy flag for at least the photosensitivity gap
+        // (presentation.ts MIN_FIRE_GAP_MS): a manual press straight after an
+        // automatic capture cannot flash twice inside it.
+        const left = MIN_FIRE_GAP_MS - (performance.now() - lastCaptureStartRef.current)
+        if (left > 0) await new Promise<void>((r) => window.setTimeout(r, left))
         captureBusyRef.current = false
       }
     },
-    [capture, handleCaptured, noteCapture],
+    [capture, handleCaptured, presentation, pushNotice, settleSignal],
   )
 
-  // ── auto-capture: a persisted lock, refractory until the track departs
-  //    and returns (ripSession.ts's departure-then-return precedent, applied
-  //    to track ids instead of card ids) — or until a DIFFERENT card by look
-  //    sits in it (scan/ui/rearm.ts). Only runs in Step 1. ──
+  // Leaving Step 1 forgets the episode and the last capture; expanding the bin
+  // suspends the episode (the camera is hidden, so continuity is unknown).
+  useEffect(() => {
+    if (step !== 'scan') {
+      presentation.reset({ forget: true })
+      watchSpot(null)
+    } else if (binExpanded) {
+      presentation.reset()
+      watchSpot(null)
+    }
+    statusFactsRef.current.watching = false
+  }, [step, binExpanded, presentation, watchSpot])
+
+  // ── AUTO-CAPTURE: the presentation episode (scan/ui/presentation.ts) ──
+  //
+  // A card held still is never taken again. Any break in its continuity — a
+  // hand over it, the card leaving, the look moving off it — followed by a
+  // steady card always is, and identity decides afterwards whether it was the
+  // same card (landCapture). Only runs in Step 1.
   useEffect(() => {
     // `binExpanded` hides the camera without stopping it (the stream and the
     // engine deliberately survive an expand/collapse — see the CameraStage
@@ -1373,53 +1582,48 @@ export function Scan() {
     // automatic firing only, and collapsing the bin resumes it.
     if (!engineState || step !== 'scan' || binExpanded) return
     const presentIds = new Set(engineState.stable.map((q) => q.id))
-    for (const id of refractoryRef.current) {
-      if (!presentIds.has(id)) refractoryRef.current.delete(id)
-    }
     cardBackRef.current.prune(presentIds)
     focusGateRef.current.prune(presentIds)
-    // ONCE PER DETECT TICK, and this is what makes the presence signal dense
-    // enough to be the refractory's clock: every remembered capture region is
-    // refreshed against what is on screen right now, and retired only when
-    // nothing has overlapped it for REGION_DEPARTURE_MS. Pending tracks count —
-    // a card that briefly drops below the stability bar has not departed.
-    ageRegions([...engineState.stable, ...engineState.pending])
     const locked = engineState.locked
+    const now = performance.now()
     // THE DECISION (scan/ui/autoCapture.ts — the offline replay runs the same
-    // function): a lock fires unless it is busy, a card back, or a REPEAT (this
-    // track already captured, or this place) whose card looks like the capture
-    // behind it — and not until the card is big enough in frame to read
-    // (sizeGate.ts) and sharp (focusGate.ts). Every tick, lock or not, so the
-    // look re-arm's steadiness is current.
+    // function): the presentation machine says whether this lock MAY fire, and
+    // the gates — busy, a card back, too far to read (sizeGate.ts), not sharp
+    // yet (focusGate.ts) — whether it does now. Every tick, lock or not: the
+    // machine classes every tick of the episode it is watching.
     const verdict = decideAutoCapture(locked, engineState.look, {
-      refractory: refractoryRef.current,
+      presentation,
+      spotLook: engineState.spotLook,
+      now,
       busy: captureBusyRef.current,
-      regions,
-      rearm,
       cardBacks: cardBackRef.current,
-      focus: { gate: focusGateRef.current, sharpness: engineState.sharpness, now: performance.now() },
+      focus: { gate: focusGateRef.current, sharpness: engineState.sharpness, now },
       size: { frameSide: engineState.frame.width },
     })
-    // EVERY TICK into the trace (flags.ts recordTick): the per-tick state the
-    // 2 s lock recorder cannot show — what the tracker and the look did while
-    // one card was slid off a stack and the next showed.
-    const dists = rearm.lastDistances?.() ?? { steady: null, nearest: null }
+    const p = verdict.presentation
+    // EVERY TICK into the trace (flags.ts recordTick, v2): the per-tick state
+    // the 2 s lock recorder cannot show — what the tracker and the look did
+    // while one card was slid off a stack and the next showed.
     recordTick({
       locked: locked?.id ?? null,
       tracks: engineState.stable,
       frameSide: engineState.frame.width,
-      verdict: `${verdict.fire ? 'F' : ''}${verdict.repeat ? 'R' : ''}${verdict.newByLook ? 'N' : ''}${verdict.cardBack ? 'B' : ''}${verdict.tooFar ? 'T' : ''}${verdict.focusWait ? 'W' : ''}${captureBusyRef.current ? 'Y' : ''}`,
-      refuserDistance: dists.nearest,
-      steadyDistance: dists.steady,
-      regionCount: regions.count,
+      verdict: `${verdict.fire ? 'F' : ''}${verdict.cardBack ? 'B' : ''}${verdict.tooFar ? 'T' : ''}${verdict.focusWait ? 'W' : ''}${captureBusyRef.current ? 'Y' : ''}`,
+      state: p.state,
+      d: p.d,
+      cls: p.cls,
+      fromSpot: p.fromSpot,
+      episode: p.episode,
+      breakKind: p.breakKind,
+      steadyDistance: p.sd,
       hasObj: engineState.hasObj,
       sharpness: engineState.sharpness,
     })
     if (locked) {
       // Every lock, not just the ones that become captures — a lock the
-      // refractory set swallows is still the engine saying "I would fire at
-      // this", and those are exactly the ones no capture record would show.
-      // Throttled to 1 per 2s inside the recorder.
+      // episode holds is still the engine saying "I would fire at this", and
+      // those are exactly the ones no capture record would show. Throttled to
+      // 1 per 2s inside the recorder.
       void recordLockEvent(videoRef.current, {
         quad: locked.quad,
         trackId: locked.id,
@@ -1430,26 +1634,15 @@ export function Scan() {
         frame: engineState.frame,
         cameraBox: cameraBoxRef.current,
         perf: engineState.perf,
-        // As before — not held by the refractory, not busy — plus a refractory
-        // hold the look re-arm saw through, minus a card back.
-        wouldCapture:
-          (!refractoryRef.current.has(locked.id) || verdict.newByLook) && !captureBusyRef.current && !verdict.cardBack,
-        // So the NEXT drive can measure the refractory instead of inferring it:
-        // how many regions are live, and whether this lock was one of them.
-        regionCount: regions.count,
-        suppressedByRegion: alreadyCapturedHere(locked.quad),
-        // ── REGION GRACE EXPIRY, round 4's instrument ────────────────────────
-        // Round 3 could see THAT a lock was free (`suppressedByRegion: false`)
-        // but not WHY, and the why turned out to be the whole finding: the
-        // region had expired during a multi-second detector dropout. These two
-        // integers say it directly instead of making the next reader
-        // reconstruct it from gaps between event timestamps — which is what
-        // round 3 had to do, at a 2 s recorder throttle that blurs everything
-        // shorter than that. `regionsExpired` is cumulative for the page;
-        // `sinceRegionExpiryMs` is null until the first expiry, so "this free
-        // lock came 40 ms after a region retired" is one subtraction away.
-        regionsExpired: regions.expired,
-        sinceRegionExpiryMs: regions.msSinceExpiry(Date.now()),
+        // The machine would fire this lock now, gates aside, and nothing is busy.
+        wouldCapture: verdict.kind !== null && !captureBusyRef.current && !verdict.cardBack,
+        // THE PRESENTATION EPISODE (2026-11-27), replacing the region fields:
+        // the machine's state, the look distance it classed this tick by, and
+        // the kind it would fire.
+        presentation: p.state,
+        episode: p.episode,
+        lookDistance: p.d === null ? null : round3(p.d),
+        fireKind: verdict.kind,
         // The clutter gate's own input, for the track this lock is about. See
         // EngineState.saturation: 0.13 has never been shown a low-saturation
         // card, and this is how a real device tells us where real cards sit.
@@ -1457,12 +1650,6 @@ export function Scan() {
         // (0.018 above the mail, 0.019 below the least colourful card) and
         // keeps the payload a handful of bytes.
         saturation: round3(engineState.saturation),
-        // Whether this lock is a REPEAT whose card is different by look
-        // (rearm.ts) — never true on a fresh lock, nor on a card back turned
-        // face up (that is `backReleased`). True on about one tick per re-arm,
-        // so this throttled stream undercounts them; the capture-event's
-        // `rearmed` is the reliable count.
-        newByLook: verdict.newByLook,
         // Whether the card-back gate (engine/cardBack.ts) refused this lock —
         // the field count of what it catches, and of any card it should not.
         cardBack: verdict.cardBack,
@@ -1481,57 +1668,111 @@ export function Scan() {
         tooFar: verdict.tooFar,
       })
     }
-    if (locked && verdict.fire) {
-      refractoryRef.current.add(locked.id)
-      void runCapture(locked.id, 'auto', verdict.repeat)
+    if (locked && verdict.fire && verdict.kind) {
+      const captureId = makeId('cap')
+      const rec = presentation.fire({ kind: verdict.kind, now, captureId, trackId: locked.id, quad: locked.quad, look: engineState.look })
+      recordTraceEvent('episode-fire', { ...rec })
+      void runCapture(locked.id, 'auto', {
+        captureId,
+        kind: verdict.kind,
+        prevCaptureId: rec.prevCaptureId,
+        // A drift (the look moved off the card with nothing seen to cover it)
+        // fires a SILENT probe: no flash, no tray, until identity says it is a
+        // different card (repeat.ts).
+        probe: verdict.kind === 'drift',
+        scanAgain: false,
+        quad: locked.quad,
+        look: engineState.look,
+      })
     }
-    // A REPEAT THE POLICY REFUSES, once the capture that refuses it is done:
-    // the card in the frame is one already taken (or looks exactly like it).
-    // It used to say "Got it — hold on…" for as long as it was held there,
-    // which reads as a scanner about to fire that never does (owner session
-    // 2026-11-26: "it won't auto capture until I really point away").
-    const refusedRepeat = !!locked && verdict.repeat && !verdict.fire && !verdict.cardBack && !captureBusyRef.current
-    const nowMs = performance.now()
-    if (!refusedRepeat) repeatHoldRef.current = null
-    else if (repeatHoldRef.current?.trackId !== locked!.id) repeatHoldRef.current = { trackId: locked!.id, since: nowMs }
-    setOfferScanAgain(refusedRepeat && nowMs - repeatHoldRef.current!.since >= REPEAT_OFFER_MS)
-    // A back is locked but never captured, so "Got it" would be a promise the
-    // scanner is not going to keep.
-    if (locked && verdict.cardBack) setHint('That’s the back of a card — turn it over')
-    else if (locked && verdict.tooFar) setHint('Move a little closer')
-    else if (locked && verdict.focusWait) setHint('Hold still — focusing…')
-    else if (refusedRepeat) setHint('Already scanned')
-    else if (locked) setHint((h) => (h.startsWith('Got it') ? h : 'Got it — hold on…'))
-    else if (engineState.stable.length > 0) setHint('Hold steady…')
-    // THE STANDING NEEDS-YOU LINE. Only in the idle branch — while the reader is
-    // aiming at something the hint belongs to that card, and interrupting a lock
-    // to mention an older capture would be the scanner talking over itself. But
-    // with nothing in frame there is nothing better to say.
-    //
-    // It points DOWN now, not right: since 2026-09-06 the captures it is about
-    // are amber rows in the list below, not thumbnails parked on the camera.
-    else if (unresolvedRef.current > 0)
-      setHint(
-        unresolvedRef.current === 1
-          ? 'One scan needs you — it’s in the list below'
-          : `${unresolvedRef.current} scans need you — they’re in the list below`,
-      )
-    else setHint('Point the camera at a card')
-  }, [engineState, step, runCapture, binExpanded, ageRegions, alreadyCapturedHere, regions, rearm])
+    // The spot the engine reports the look of next tick: where the episode's
+    // card lies (EngineState.spotLook).
+    watchSpot(presentation.watchQuad())
+    // THE STATUS LINE'S FACTS from this tick (its own clock reads them).
+    const f = statusFactsRef.current
+    f.watching = presentation.current()?.state === 'watching'
+    f.aim = !locked ? null : verdict.cardBack ? 'back' : verdict.tooFar ? 'closer' : verdict.focusWait ? 'focus' : null
+    f.steady = !!locked || engineState.stable.length > 0
+  }, [engineState, step, runCapture, binExpanded, presentation, watchSpot])
 
-  const manualCapture = useCallback(() => {
-    if (!engineState || captureBusyRef.current) {
-      setNotice('The scanner is not ready yet.')
-      return
-    }
-    const candidate = engineState.locked ?? engineState.stable.find((q) => !q.coasting) ?? engineState.stable[0]
-    if (!candidate) {
-      setNotice('No card in view yet — line one up in the frame.')
-      return
-    }
-    refractoryRef.current.add(candidate.id)
-    void runCapture(candidate.id, 'manual')
-  }, [engineState, runCapture])
+  // THE STATUS LINE'S CLOCK (scan/ui/statusLine.ts): one decision every 125 ms
+  // from the facts above, with memory — enter delays, dwells, exit holds — so
+  // the pill says one thing long enough to be read.
+  useEffect(() => {
+    if (step !== 'scan') return
+    let line = initialStatus(performance.now())
+    const timer = window.setInterval(() => {
+      const visible = visibleCaptureIdRef.current
+      line = nextStatus(line, {
+        ...statusFactsRef.current,
+        now: performance.now(),
+        watchingName: visible ? (finalNameRef.current.get(visible) ?? null) : null,
+        unresolved: unresolvedRef.current,
+      })
+      const shown = line.shown
+      setStatus((prev) => (prev === shown ? prev : shown))
+      setCurrentEpisodeId(shown.key === 'scanned' ? visible : null)
+    }, 125)
+    return () => window.clearInterval(timer)
+  }, [step])
+
+  const manualCapture = useCallback(
+    (scanAgain = false) => {
+      if (!engineState || captureBusyRef.current) {
+        setNotice('The scanner is not ready yet.')
+        return
+      }
+      const candidate = engineState.locked ?? engineState.stable.find((q) => !q.coasting) ?? engineState.stable[0]
+      if (!candidate) {
+        setNotice('No card in view yet — line one up in the frame.')
+        return
+      }
+      // A manual capture fires in any state but busy, and opens an episode like
+      // any other: a card held still after it is not taken again.
+      const captureId = makeId('cap')
+      const look = engineState.locked?.id === candidate.id ? engineState.look : null
+      const rec = presentation.fire({ kind: 'manual', now: performance.now(), captureId, trackId: candidate.id, quad: candidate.quad, look })
+      recordTraceEvent('episode-fire', { ...rec, scanAgain })
+      void runCapture(candidate.id, 'manual', {
+        captureId,
+        kind: 'manual',
+        prevCaptureId: rec.prevCaptureId,
+        probe: false,
+        scanAgain,
+        quad: candidate.quad,
+        look,
+      })
+    },
+    [engineState, presentation, runCapture],
+  )
+
+  /** The status pill's buttons. */
+  const onStatusAction = useCallback(
+    (a: StatusActionId) => {
+      if (a === 'scan-again') manualCapture(true)
+      else if (a === 'add-copy') askRef.current?.answer(true)
+      else if (a === 'skip') askRef.current?.answer(false)
+      else if (a === 'undo') {
+        // UNDO "Same card again": the flagged row goes, through the scanner's
+        // one door for a remove (undoRemove.ts, #417) — so the toast names
+        // what went ("Removed Herdier") and itself offers it back. The label
+        // that calibrates the rule: a flagged copy undone was a false break.
+        const rowId = sameRowRef.current
+        if (!rowId) return
+        sameRowRef.current = null
+        const row = feedRef.current.find((e) => e.id === rowId)
+        removeWithUndo(feedRef.current, rowId, setFeed, {
+          onRestored: () => recordTraceEvent('repeat-outcome', { captureId: rowId, undone: false, restored: true }),
+        })
+        recordTraceEvent('repeat-outcome', { captureId: rowId, undone: true, flagged: true, same: true })
+        // The card in view is the scan it was flagged against; the pill's
+        // "Same card again" has nothing left to say.
+        if (row?.repeatOf && visibleCaptureIdRef.current === rowId) visibleCaptureIdRef.current = row.repeatOf
+        statusFactsRef.current.same = null
+      }
+    },
+    [manualCapture],
+  )
 
   const reportEntry = useCallback(async (entry: FeedEntry) => {
     await uploadScanFlag(entry.captureBlob, {
@@ -1614,29 +1855,23 @@ export function Scan() {
   /**
    * "Discard and retake" from a needs-input row's picker.
    *
-   * The row goes, and — the part `removeEntry` cannot do — the engine's
-   * refractory hold on the track this capture came off is RELEASED, so the same
-   * card presenting again is a capture rather than a suppression. That was
-   * `retakeStackItem`'s job while the picker lived on the thumbnail; the
-   * affordance moved to the row and took its meaning with it.
-   *
-   * The captured REGION is left alone on purpose: it retires on its own clock
-   * once the card leaves (regions.ts), and a card still lying in frame is one
-   * the reader is about to move anyway — which is what a retake is.
+   * The row goes, and — the part `removeEntry` cannot do — if the card is the
+   * one the presentation episode is still watching, the episode is let go, so
+   * the same card held there is taken again (as a fresh capture, not as "the
+   * same as last scan": the last scan was thrown away).
    *
    * Undoable like every other remove. Undo brings the ROW back and nothing
-   * else: the released hold stays released (the engine may already have
-   * captured the card again, and re-holding a track would suppress that), and
-   * the retake already recorded in the capture's identity record stays — it
-   * is what the reader said at the time.
+   * else: the episode stays let go (the engine may already have captured the
+   * card again), and the retake already recorded in the capture's identity
+   * record stays — it is what the reader said at the time.
    */
   const discardEntry = useCallback(
     (entry: FeedEntry) => {
       recordRowOutcome(entry, { type: 'retake' })
-      if (typeof entry.captureTrackId === 'number') refractoryRef.current.delete(entry.captureTrackId)
+      if (entry.captureId && presentation.current()?.captureId === entry.captureId) presentation.reset({ forget: true })
       removeWithUndo(feedRef.current, entry.id, setFeed, { verb: 'Discarded' })
     },
-    [recordRowOutcome],
+    [presentation, recordRowOutcome],
   )
   // An Undo for a list that has gone (the reader left /scan) must not stay up.
   useEffect(() => () => dismissRemovalUndo(), [])
@@ -1870,7 +2105,9 @@ export function Scan() {
                       camState={camState}
                       engineState={engineState}
                       engineError={engineError}
-                      hint={hint}
+                      status={status}
+                      onStatusAction={onStatusAction}
+                      currentEpisodeId={currentEpisodeId}
                       stackItems={stack}
                       onStackNodeRef={(id, el) => {
                         if (el) stackNodesRef.current.set(id, el)
@@ -1878,9 +2115,8 @@ export function Scan() {
                       }}
                       onRetry={() => void retryCamera()}
                       onReportCamera={() => void reportCamera()}
-                      flashSignal={flashSignal}
+                      flash={flash}
                       overlay={showVoice ? <VoiceCaption voice={voice} /> : null}
-                      hintAction={offerScanAgain ? { label: 'Tap to scan again', onClick: manualCapture } : null}
                       onBoxChange={(b) => {
                         // Recorded for the capture-flight courier's start pose
                         // ONLY, and deliberately NOT reported to the engine:
@@ -1894,7 +2130,7 @@ export function Scan() {
                     <div className="flex h-[44px] shrink-0 items-center gap-[8px] overflow-x-auto border-b border-divider-subtle bg-surface-secondary px-[12px]">
                       <button
                         type="button"
-                        onClick={manualCapture}
+                        onClick={() => manualCapture()}
                         className="flex h-[30px] shrink-0 items-center gap-[6px] rounded-full bg-action-primary px-[14px] text-[13px] font-bold text-action-primary-text hover:bg-action-primary-hover"
                       >
                         <Icon name="plus" size={14} /> Capture
@@ -1933,6 +2169,7 @@ export function Scan() {
                 sort={{ key: 'scan', dir: 'desc' }}
                 followTop
                 clearFab={totalQuantity === 0}
+                currentEpisodeId={currentEpisodeId}
                 title="Cards"
                 headerExtra={
                   <>

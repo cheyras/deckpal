@@ -12,8 +12,7 @@ import {
   FOCUS_MAX_WAIT_MS,
   createFocusGate,
 } from '../focusGate'
-import { createCapturedRegions } from '../regions'
-import { createLookRearm } from '../rearm'
+import { createPresentation } from '../presentation'
 
 test('a blurred tick waits; the same track sharp a moment later is ready', () => {
   // The field Hypno: captured at 155, then by the same track at 508, 0.85 s later.
@@ -63,10 +62,9 @@ test('decideAutoCapture holds a blurred lock and fires the sharp one', () => {
   const lock = { id: 7, quad }
   const focus = createFocusGate()
   const memory = (sharpness: number | null, now: number) => ({
-    refractory: new Set<number>(),
+    presentation: createPresentation(),
+    now,
     busy: false,
-    regions: createCapturedRegions(),
-    rearm: createLookRearm(),
     focus: { gate: focus, sharpness, now },
   })
   const blurred = decideAutoCapture(lock, null, memory(150, 0))

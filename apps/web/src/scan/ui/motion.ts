@@ -21,7 +21,14 @@
 // animation library. A CSS `transition` is used only for discrete STATE
 // recolors (a quad's stroke going cyan → green on lock), which is what the
 // prototype itself does too (`.quad-inner { transition: border-color }`).
+//
+// ONE DOCUMENTED EXCEPTION (2026-11-27): the camera → list couriers
+// (handoff.ts) are driven by requestAnimationFrame, not WAAPI. A courier homes
+// on its target's rect AS IT IS EACH FRAME (the list scrolling, another row
+// landing above it), and a keyframe fixed at launch cannot. It still moves by
+// `transform` and `opacity` only.
 import { prefersReducedMotion } from '../../lib/reducedMotion'
+import { DURATION as TOKENS, EASE as TOKEN_EASE } from '../../lib/motion'
 
 // Re-exported rather than each caller importing two modules: every file in
 // this directory already reaches for `./motion` for its easings/durations,
@@ -41,16 +48,62 @@ export const EASE = {
   settle: 'cubic-bezier(0.22, 0.61, 0.36, 1)',
 } as const
 
+/**
+ * THE CAPTURE FLASH (2026-11-27, design §3.1). The owner (S1): "make it way
+ * more clear when there's a scan, like have the whole camera like flash to
+ * white and then fade back… there's no question that it captured just now".
+ * It was 80 ms peaking at 0.75 for about one frame. Now, from the #410 motion
+ * tokens (lib/motion.ts), with no new token:
+ *
+ *   0 → 50 ms     up to 0.92, linear
+ *   50 → 120 ms   held (DURATION.instant)
+ *   120 → 540 ms  down to 0 on EASE.enter (DURATION.instant + DURATION.slower):
+ *                 a fast fall, then a long tail
+ *
+ * Reduced motion keeps the feedback, gentler (theme.css: "reduced motion
+ * removes TRAVEL, not feedback"): up to 0.5 with no hold, gone over
+ * DURATION.fast. Captures are never closer than presentation.ts's
+ * MIN_FIRE_GAP_MS (400 ms), so this is under 3 flashes a second.
+ */
+export const FLASH = {
+  total: TOKENS.instant + TOKENS.slower,
+  rise: 50,
+  hold: TOKENS.instant,
+  peak: 0.92,
+  reducedPeak: 0.5,
+  reducedTotal: TOKENS.fast,
+} as const
+
+/** The flash's keyframes and timing, for `el.animate` (opacity only). */
+export function flashAnimation(reduced: boolean): { keyframes: Keyframe[]; options: KeyframeAnimationOptions } {
+  if (reduced) {
+    return {
+      keyframes: [
+        { opacity: FLASH.reducedPeak, easing: TOKEN_EASE.enter },
+        { opacity: 0 },
+      ],
+      options: { duration: FLASH.reducedTotal },
+    }
+  }
+  return {
+    keyframes: [
+      { opacity: 0, offset: 0, easing: 'linear' },
+      { opacity: FLASH.peak, offset: FLASH.rise / FLASH.total, easing: 'linear' },
+      { opacity: FLASH.peak, offset: FLASH.hold / FLASH.total, easing: TOKEN_EASE.enter },
+      { opacity: 0, offset: 1 },
+    ],
+    options: { duration: FLASH.total },
+  }
+}
+
 /** Milliseconds at 1x — prototype.html's `T` budget, unchanged. */
 export const DURATION = {
-  flash: 80,
-  flyStack: 300,
-  settle: 90,
+  // `flyStack`, `settle`, `flyFeed`, `entryReveal` and `dupFly` timed the
+  // keyframed couriers and the row's scaleY reveal until 2026-11-27; the
+  // hand-off (handoff.ts) and the capture flash take the #410 tokens in
+  // lib/motion.ts instead.
   stackReflow: 200,
-  flyFeed: 320,
-  entryReveal: 300,
   stagger: 60,
-  dupFly: 300,
   // `dupBump` was here until 2026-09-07. It timed the bump a row played when a
   // re-presentation of the same card merged INTO it; there is no merge any more
   // (every scan is its own row — `feed.ts`), and a token nothing can spend reads
@@ -64,104 +117,21 @@ export const DURATION = {
   confirmTick: 240,
 } as const
 
-/** `el`'s rect expressed relative to `origin` (both from getBoundingClientRect). */
-export function rectRelativeTo(el: Element, origin: Element) {
-  const o = origin.getBoundingClientRect()
-  const r = el.getBoundingClientRect()
-  return {
-    left: r.left - o.left,
-    top: r.top - o.top,
-    width: r.width,
-    height: r.height,
-    cx: r.left - o.left + r.width / 2,
-    cy: r.top - o.top + r.height / 2,
-  }
-}
-
-export interface FlightPose {
-  cx: number
-  cy: number
-  rotDeg?: number
-  scale?: number
-}
-
-/** 3-waypoint transform keyframes: start pose → perpendicular-arc midpoint →
- *  end pose. Ported from prototype.html's `arcFlight` — the bow keeps a fast
- *  transit from reading as a straight-line teleport. `w`/`h` are the flying
- *  element's own box size (the translate keyframes position its CENTER). */
-export function arcKeyframes(from: FlightPose, to: FlightPose, w: number, h: number, arcPx: number): Keyframe[] {
-  const startRot = from.rotDeg ?? 0
-  const endRot = to.rotDeg ?? 0
-  const startScale = from.scale ?? 1
-  const endScale = to.scale ?? 1
-  const mx = (from.cx + to.cx) / 2
-  const my = (from.cy + to.cy) / 2
-  const ddx = to.cx - from.cx
-  const ddy = to.cy - from.cy
-  const len = Math.hypot(ddx, ddy) || 1
-  const px = mx + (-ddy / len) * arcPx
-  const py = my + (ddx / len) * arcPx
-  const tl = (cx: number, cy: number) => `translate(${cx - w / 2}px, ${cy - h / 2}px)`
-  return [
-    { transform: `${tl(from.cx, from.cy)} rotate(${startRot}deg) scale(${startScale})` },
-    {
-      transform: `${tl(px, py)} rotate(${startRot * 0.5}deg) scale(${(startScale + endScale) / 2})`,
-      offset: 0.5,
-    },
-    { transform: `${tl(to.cx, to.cy)} rotate(${endRot}deg) scale(${endScale})` },
-  ]
-}
-
-/**
- * Fly `el` (already appended to a shared, absolutely-positioned overlay
- * layer, `position: absolute; left: 0; top: 0`) from `from` to `to` along an
- * arc. Resolves once the flight finishes; the caller removes `el`. Collapses
- * to a short, straight, reduced-motion-safe fade under
- * `prefers-reduced-motion`.
- */
-export function flyArc(
-  el: HTMLElement,
-  from: FlightPose,
-  to: FlightPose,
-  w: number,
-  h: number,
-  opts: { duration: number; arcPx?: number; easing?: string },
-): Promise<void> {
-  const reduced = prefersReducedMotion()
-  const duration = reduced ? Math.min(150, opts.duration) : opts.duration
-  const arcPx = reduced ? 0 : (opts.arcPx ?? 20)
-  const kf = arcKeyframes(from, to, w, h, arcPx)
-  const anim = el.animate(kf, { duration, easing: opts.easing ?? EASE.swift, fill: 'forwards' })
-  return anim.finished
-    .then(() => {
-      anim.cancel()
-    })
-    .catch(() => {
-      /* animation was cancelled (e.g. unmount mid-flight) — the caller's cleanup still runs */
-    })
-}
-
-/** A short scale bump — 1 → peak → 1. Used for the micro-settle after a
- *  courier lands, and the duplicate-merge bounce. */
-export function bump(el: HTMLElement, peak: number, duration: number): Promise<void> {
-  if (prefersReducedMotion()) return Promise.resolve()
-  const anim = el.animate([{ transform: 'scale(1)' }, { transform: `scale(${peak})`, offset: 0.5 }, { transform: 'scale(1)' }], {
-    duration,
-    easing: EASE.swift,
-    fill: 'both',
-  })
-  return anim.finished.then(() => anim.cancel()).catch(() => {})
-}
+// The keyframed flights that lived here (`arcKeyframes`, `flyArc`, `bump`,
+// `rectRelativeTo`) were the capture → tray → row couriers until 2026-11-27.
+// They flew to a rect measured once at launch, and the row they aimed at was
+// still moving; the couriers are handoff.ts's now, homing every frame.
 
 /** Staggered reveal of a feed entry's inner content — opacity + translateY,
- *  ~60ms step. Ported from prototype.html's `staggerReveal`. */
-export function staggerReveal(container: HTMLElement, selector: string) {
+ *  ~60ms step, the first part `startDelay` in. Ported from prototype.html's
+ *  `staggerReveal`. */
+export function staggerReveal(container: HTMLElement, selector: string, startDelay = 0) {
   if (prefersReducedMotion()) return
   const parts = container.querySelectorAll<HTMLElement>(selector)
   parts.forEach((p, i) => {
     const anim = p.animate([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'translateY(0)' }], {
       duration: 240,
-      delay: DURATION.stagger * i,
+      delay: startDelay + DURATION.stagger * i,
       easing: EASE.swift,
       fill: 'backwards',
     })
@@ -207,20 +177,17 @@ export function springBack(el: HTMLElement, duration = 320): Promise<void> {
 // `LeavingCard` flies a confirmed card off on a layer of its own and removes it
 // without ever cancelling the animation.
 
-/** The entry's own open reveal: `scaleY` from the top, plus opacity. */
-export function revealEntry(el: HTMLElement): Promise<void> {
-  const reduced = prefersReducedMotion()
-  el.style.transformOrigin = 'top center'
-  const from = reduced ? { opacity: 0, transform: 'translateY(-6px)' } : { opacity: 0, transform: 'scaleY(0.82) translateY(-10px)' }
-  const anim = el.animate([from, { opacity: 1, transform: 'none' }], {
-    duration: reduced ? 150 : DURATION.entryReveal,
-    easing: EASE.swift,
+/**
+ * The entry's own open reveal: OPACITY ONLY (2026-11-27). It was a scaleY from
+ * the top, and a courier flying at a row that was still scaling landed where the
+ * row had been (design §1.3, S5). The row takes its full height at once; the
+ * rows below slide (VerifyFeed's FLIP) and this fades it in.
+ */
+export function revealEntry(el: HTMLElement): void {
+  const anim = el.animate([{ opacity: 0 }, { opacity: 1 }], {
+    duration: TOKENS.base,
+    easing: TOKEN_EASE.enter,
     fill: 'backwards',
   })
-  return anim.finished
-    .then(() => {
-      anim.cancel()
-      el.style.transformOrigin = ''
-    })
-    .catch(() => {})
+  anim.finished.then(() => anim.cancel()).catch(() => {})
 }
