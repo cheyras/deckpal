@@ -363,14 +363,14 @@ export function Auth() {
           {isSignup ? (
             <>
               Already have an account?{' '}
-              <button type="button" onClick={() => goTo('signin')} className="font-semibold text-link hover:text-link-hover">
+              <button type="button" onClick={() => goTo('signin')} className="touch-hit font-semibold text-link hover:text-link-hover">
                 Sign in
               </button>
             </>
           ) : (
             <>
               New to DeckPal?{' '}
-              <button type="button" onClick={() => goTo('signup')} className="font-semibold text-link hover:text-link-hover">
+              <button type="button" onClick={() => goTo('signup')} className="touch-hit font-semibold text-link hover:text-link-hover">
                 Create a free account
               </button>
             </>

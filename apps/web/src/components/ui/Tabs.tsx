@@ -63,7 +63,8 @@ export function Tabs({
 
     const itemBase =
       size === 'sm'
-        ? 'h-[28px] rounded-full px-3 text-[12px] font-bold'
+        ? // 28px, so it takes a 44px box under a thumb (`touch-hit`).
+          'touch-hit h-[28px] rounded-full px-3 text-[12px] font-bold'
         : 'h-[36px] rounded-full px-5 text-[14px] font-semibold'
 
     return (
