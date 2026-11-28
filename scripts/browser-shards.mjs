@@ -39,6 +39,8 @@ export const durations = {
   'payment-history': 15,
   'payment-history-proof': 20,
   'scanner-voice-proof': 20,
+  // Measured ~40s locally: a Vite fixture, Chromium at 428 and 390 with touch.
+  'scan-review-list-proof': 50,
   'list-table-virtualization': 8,
   'profile-owned-cards': 30,
   // Estimated from local runs (build + Chromium 70s + WebKit 9s, drawing off).

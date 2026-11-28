@@ -98,19 +98,26 @@ describe('the sort control', () => {
 })
 
 describe('the running total', () => {
-  it('says UNIQUE CARDS, not rows', () => {
-    // Three scans of one card. Before 2026-09-07 a row was a card and
-    // `entries.length` was a fair answer to both halves of the chip; a row is
-    // one scan now, so "3 cards · 3 unique" would be a lie the reader can see.
+  it('counts CARDS, and names the card that is there more than once', () => {
+    // Three scans of one card. Before 2026-09-07 a row was a card; a row is one
+    // scan now, so the count is by quantity. And since 2026-11-27 the second
+    // half NAMES the repeat — "9 cards · 8 unique" had the owner working out
+    // that he had two Durants (feed.repeatedLabel).
     const html = render([entry('cap-1'), entry('cap-2'), entry('cap-3')])
     assert.match(html, />3<\/b> cards/)
-    assert.match(html, />1<\/b> unique/)
+    assert.match(html, /3× Murkrow/)
+    assert.equal(html.includes('unique'), false)
   })
 
   it('counts quantity, so a stepped-up row is more than one card', () => {
     const html = render([entry('cap-1', { quantity: 4 })])
     assert.match(html, />4<\/b> cards/)
-    assert.match(html, />1<\/b> unique/)
+  })
+
+  it('says nothing more than the count when every card is different', () => {
+    const html = render([entry('cap-1'), entry('cap-2', { cardId: 'sv10-001', name: 'Joltik' })])
+    assert.match(html, />2<\/b> cards/)
+    assert.equal(html.includes('data-feed-repeated'), false)
   })
 
   it('still says how many rows are waiting on the reader', () => {
@@ -138,5 +145,43 @@ describe('the list cannot be dragged sideways', () => {
     const header = html.match(/<div class="(sticky[^"]*)"/)?.[1] ?? ''
     assert.notEqual(header, '', 'the sticky header is still there')
     assert.match(header, /flex-wrap/)
+  })
+
+  it('but the chip TRUNCATES before the controls wrap — a header that changes height moves every row', () => {
+    // 2026-11-27: removing one of two Herdiers shortened the chip, the header
+    // lost a line, and every row moved 32px under the reader's finger.
+    const html = render([entry('cap-1'), entry('cap-2')])
+    const group = html.match(/<div class="(flex min-w-0 flex-1 items-center justify-end[^"]*)"/)?.[1] ?? ''
+    assert.notEqual(group, '', 'the control group is there')
+    assert.equal(/flex-wrap/.test(group), false)
+    assert.match(html, /<span class="truncate" data-feed-repeated="true">2× Murkrow<\/span>/)
+  })
+})
+
+describe('a swipe stays in the list (owner session 2026-11-27)', () => {
+  it('contains overscroll, so a swipe off either end never scrolls the document behind', () => {
+    const scroller = render([entry('cap-1')]).match(/<div data-verify-feed="true" class="([^"]*)"/)?.[1] ?? ''
+    assert.match(scroller, /overscroll-y-contain/)
+  })
+})
+
+describe("Deck-E's launcher", () => {
+  it('gets clearance under a list with nothing below it, and none when a bar is there', () => {
+    const html = renderToStaticMarkup(
+      createElement(VerifyFeed, {
+        entries: [entry('cap-1')],
+        sort: DEFAULT_SORT,
+        clearFab: true,
+        onQuantityChange: () => {},
+        onVariantChange: () => {},
+        onCorrect: () => {},
+        onRemove: () => {},
+        onReport: async () => {},
+        onOpenDetail: () => {},
+        registerThumbNode: () => {},
+      }),
+    )
+    assert.match(html, /data-fab-clear="true"/)
+    assert.equal(render([entry('cap-1')]).includes('data-fab-clear'), false)
   })
 })

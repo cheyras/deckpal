@@ -312,3 +312,40 @@ describe('the match meter', () => {
     assert.equal(html.includes('· dist'), false)
   })
 })
+
+// ── WHERE A ROW'S REMOVE IS (owner session 2026-11-27) ──────────────────────
+//
+// A tap meant for a half-scrolled Herdier removed the Galvantula under it: the
+// remove was a × pinned to each row's TOP EDGE, so with the Herdier's top under
+// the sticky header the only × beside it was the next row's. The browser replay
+// (tests/browser/scanReviewList.mts) measures it; these pin what the row is
+// made of so the × cannot quietly come back to the edge.
+
+describe("a row's remove is in its own control line", () => {
+  it('nothing is pinned to the row edge any more', () => {
+    for (const html of [render(NAMED), render(row())]) {
+      assert.equal(/absolute right-[6px] top-[6px]/.test(html), false)
+    }
+  })
+
+  it('on a card row at one copy, the stepper’s left button IS the remove, and says so', () => {
+    const html = render(NAMED)
+    assert.match(html, /aria-label="Remove Murkrow"/)
+    assert.equal(html.includes('One fewer Murkrow'), false, 'no minus that silently removes')
+    const line = html.slice(html.indexOf('class="fe-row'))
+    assert.ok(line.includes('aria-label="Remove Murkrow"'), 'inside the row’s own control line')
+  })
+
+  it('at two copies it is a minus again, and there is no remove to hit by accident', () => {
+    const html = render({ ...NAMED, quantity: 2 })
+    assert.match(html, /aria-label="One fewer Murkrow"/)
+    assert.equal(html.includes('aria-label="Remove Murkrow"'), false)
+  })
+
+  it('a needs-input row keeps a way to clear it, beside "pick a match"', () => {
+    const html = render(row())
+    const line = html.slice(html.indexOf('class="fe-row'))
+    assert.match(line, /aria-label="Remove this capture"/)
+    assert.match(line, /pick a match/)
+  })
+})

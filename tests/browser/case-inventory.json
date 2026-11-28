@@ -298,6 +298,8 @@
   "{\"case\":\"route-split-navigation\",\"label\":\"selfhost\"}",
   "{\"case\":\"scan-camera\"}",
   "{\"case\":\"scan-harness-opencv\"}",
+  "{\"case\":\"scan-review-list-proof\",\"width\":390}",
+  "{\"case\":\"scan-review-list-proof\",\"width\":428}",
   "{\"case\":\"scanner-voice-proof\",\"width\":1440}",
   "{\"case\":\"scanner-voice-proof\",\"width\":390}",
   "{\"case\":\"second-device-stable-identity\",\"label\":\"cloud\",\"width\":1440}",

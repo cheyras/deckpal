@@ -123,19 +123,86 @@ export function firstUnresolvedId(rows: readonly { id: string; cardId: string | 
  * to collapse them under), so collapsing them in the COUNT would tell the reader
  * they scanned one thing when they scanned four.
  */
-export function feedTotals(rows: readonly { cardId: string | null; quantity: number }[]): {
+export function feedTotals(rows: readonly { cardId: string | null; quantity: number; name?: string }[]): {
   cards: number
   unique: number
+  /** The cards the batch holds more than one copy of, most copies first —
+   *  what the header names instead of a bare "unique" count. */
+  repeated: { name: string; copies: number }[]
 } {
-  const named = new Set<string>()
+  const named = new Map<string, { name: string; copies: number }>()
   let cards = 0
   let unnamed = 0
   for (const r of rows) {
     cards += r.quantity
-    if (r.cardId === null) unnamed += 1
-    else named.add(r.cardId)
+    if (r.cardId === null) {
+      unnamed += 1
+      continue
+    }
+    const seen = named.get(r.cardId)
+    if (seen) seen.copies += r.quantity
+    else named.set(r.cardId, { name: r.name ?? '', copies: r.quantity })
   }
-  return { cards, unique: named.size + unnamed }
+  const repeated = [...named.values()]
+    .filter((c) => c.copies > 1)
+    .sort((a, b) => b.copies - a.copies || a.name.localeCompare(b.name))
+  return { cards, unique: named.size + unnamed, repeated }
+}
+
+/**
+ * The header chip's second half (owner session 2026-11-27, pin 7).
+ *
+ * It said "9 cards · 8 unique", and the owner had to stop: "What does eight
+ * unique… Do I have 2 of the same card? Oh, yes, I have 2 Durants." The number
+ * was right and it answered a question nobody asks. What the reader wants from
+ * it is WHICH card is there twice — that is how a double scan gets caught — so
+ * it says so:
+ *
+ *   no card twice            nothing; "9 cards" is the whole story
+ *   one or two cards repeat  their names: "2× Durant", "2× Durant, 2× Herdier"
+ *   more than that           how many extra copies: "5 duplicates"
+ *
+ * Unnamed rows never count as copies of each other (see `feedTotals`).
+ */
+export function repeatedLabel(totals: { cards: number; unique: number; repeated: readonly { name: string; copies: number }[] }): string | null {
+  const { repeated } = totals
+  if (repeated.length === 0) return null
+  if (repeated.length <= 2 && repeated.every((c) => c.name)) return repeated.map((c) => `${c.copies}× ${c.name}`).join(', ')
+  const extra = totals.cards - totals.unique
+  return `${extra} duplicate${extra === 1 ? '' : 's'}`
+}
+
+// ── THE REMOVAL RULE (owner session 2026-11-27) ─────────────────────────────
+//
+// "Verify (9). I had 10 before. Why am I down to nine?" A tap meant for one row
+// removed another, instantly and silently, and the only way back was to find
+// the card and scan it again. Every destructive remove in the scanner now goes
+// through these two, so the one that took a row can always put it back.
+
+/** A row that left the list, and where it was — enough to put it back. */
+export interface RemovedRow {
+  row: FeedEntry
+  /** Its index in SCAN order (the feed array), not in whatever the screen was sorted by. */
+  index: number
+}
+
+/** Take one row out. The same array back, and `null`, when it is not there. */
+export function takeRow(feed: FeedEntry[], rowId: string): { feed: FeedEntry[]; removed: RemovedRow | null } {
+  const index = feed.findIndex((e) => e.id === rowId)
+  if (index < 0) return { feed, removed: null }
+  return { feed: [...feed.slice(0, index), ...feed.slice(index + 1)], removed: { row: feed[index]!, index } }
+}
+
+/**
+ * Undo: the row goes back to its own place in scan order, exactly as it was —
+ * same id, printing, quantity and capture. Its place is clamped to the list as
+ * it is now (rows before it may have gone too). Restoring a row that is already
+ * back is a no-op, so a double-tapped Undo cannot make two of it.
+ */
+export function restoreRow(feed: FeedEntry[], removed: RemovedRow): FeedEntry[] {
+  if (feed.some((e) => e.id === removed.row.id)) return feed
+  const at = Math.min(removed.index, feed.length)
+  return [...feed.slice(0, at), removed.row, ...feed.slice(at)]
 }
 
 // ── THE ARRIVAL RULE ────────────────────────────────────────────────────────

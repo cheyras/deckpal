@@ -69,6 +69,8 @@ import { createCardBackHolds, decideAutoCapture, REPEAT_OFFER_MS } from '../scan
 import { createFocusGate } from '../scan/ui/focusGate'
 import { cardSideFraction } from '../scan/ui/sizeGate'
 import { useAccess } from '../lib/access'
+import { useFixedScreen } from '../lib/fixedScreen'
+import { dismissRemovalUndo, removeWithUndo } from '../scan/ui/undoRemove'
 import { useScannerVoice } from '../scan/voice/useScannerVoice'
 import { VoiceCaption, VoiceLiveRegion, VoicePrimer, VoiceToggle, VoiceVerifyWarning, voicePrimerSeen } from '../scan/voice/VoiceControls'
 
@@ -189,6 +191,10 @@ export function Scan() {
   const [binExpanded, setBinExpanded] = useState(false)
   const [reviewMode, setReviewMode] = useState<ReviewMode>('list')
   const [helpOpen, setHelpOpen] = useState(false)
+  // This route IS the screen: the document behind it must not scroll, or a
+  // swipe that leaves the list scrolls it invisibly and iOS keeps the next
+  // touch for it (lib/fixedScreen.ts — owner session 2026-11-27).
+  useFixedScreen()
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const stageWrapRef = useRef<HTMLDivElement>(null)
@@ -1572,9 +1578,30 @@ export function Scan() {
     }
   }, [engineState])
 
-  const changeQuantity = useCallback((id: string, quantity: number) => {
-    setFeed((prev) => prev.flatMap((e) => (e.id !== id ? [e] : quantity <= 0 ? [] : [{ ...e, quantity }])))
+  /**
+   * A row leaves the list by the reader's hand — and can come back.
+   *
+   * Owner session 2026-11-27: a tap meant for one row removed another, silently,
+   * and the card had to be found and scanned again. Every remove now names what
+   * it took and offers Undo (scan/ui/undoRemove.ts, the app's own toast), which
+   * puts the row back in its place in scan order exactly as it was.
+   */
+  const removeEntry = useCallback((id: string) => {
+    removeWithUndo(feedRef.current, id, setFeed)
   }, [])
+
+  /** The stepper. Going below one is a remove — the list's (where the button
+   *  says so) and swipe review's — so it takes the same undoable path. */
+  const changeQuantity = useCallback(
+    (id: string, quantity: number) => {
+      if (quantity <= 0) {
+        removeEntry(id)
+        return
+      }
+      setFeed((prev) => prev.map((e) => (e.id === id ? { ...e, quantity } : e)))
+    },
+    [removeEntry],
+  )
 
   /** The reader naming the printing is what moves the slot out of `needs-pick`
    *  — `printingPicked`, not `variantId`, because `loadVariants` already sets a
@@ -1582,10 +1609,6 @@ export function Scan() {
    *  default, not a decision. */
   const changeVariant = useCallback((id: string, variantId: number) => {
     setFeed((prev) => prev.map((e) => (e.id === id ? { ...e, variantId, printingPicked: true } : e)))
-  }, [])
-
-  const removeEntry = useCallback((id: string) => {
-    setFeed((prev) => prev.filter((e) => e.id !== id))
   }, [])
 
   /**
@@ -1600,15 +1623,23 @@ export function Scan() {
    * The captured REGION is left alone on purpose: it retires on its own clock
    * once the card leaves (regions.ts), and a card still lying in frame is one
    * the reader is about to move anyway — which is what a retake is.
+   *
+   * Undoable like every other remove. Undo brings the ROW back and nothing
+   * else: the released hold stays released (the engine may already have
+   * captured the card again, and re-holding a track would suppress that), and
+   * the retake already recorded in the capture's identity record stays — it
+   * is what the reader said at the time.
    */
   const discardEntry = useCallback(
     (entry: FeedEntry) => {
       recordRowOutcome(entry, { type: 'retake' })
       if (typeof entry.captureTrackId === 'number') refractoryRef.current.delete(entry.captureTrackId)
-      setFeed((prev) => prev.filter((e) => e.id !== entry.id))
+      removeWithUndo(feedRef.current, entry.id, setFeed, { verb: 'Discarded' })
     },
     [recordRowOutcome],
   )
+  // An Undo for a list that has gone (the reader left /scan) must not stay up.
+  useEffect(() => () => dismissRemovalUndo(), [])
 
   /**
    * The reader naming a row — from a needs-input row's picker, or from a matched
@@ -1901,6 +1932,7 @@ export function Scan() {
                 entries={binView}
                 sort={{ key: 'scan', dir: 'desc' }}
                 followTop
+                clearFab={totalQuantity === 0}
                 title="Cards"
                 headerExtra={
                   <>
@@ -1971,6 +2003,8 @@ export function Scan() {
                 entries={view}
                 sort={feedSort}
                 onSortChange={changeSort}
+                // No Add bar under the list when nothing in it can commit yet.
+                clearFab={commitCount === 0}
                 title="Verify"
                 onQuantityChange={changeQuantity}
                 onVariantChange={changeVariant}
@@ -2027,7 +2061,7 @@ export function Scan() {
             looking at. Swipe review is the one place they are not, so it hands
             the reader back to the list first. */}
         {commitConfirm && (
-          <div className="absolute inset-x-[14px] bottom-[14px] z-[61] rounded-xl border border-warning/60 bg-surface-secondary p-[12px] shadow-elevated motion-safe:animate-[sheet-panel-in_180ms_cubic-bezier(0.22,0.61,0.36,1)_both]">
+          <div data-fab-lift className="absolute inset-x-[14px] bottom-[14px] z-[61] rounded-xl border border-warning/60 bg-surface-secondary p-[12px] shadow-elevated motion-safe:animate-[sheet-panel-in_180ms_cubic-bezier(0.22,0.61,0.36,1)_both]">
             <div className="flex items-start gap-[8px]">
               <Icon name="alert" size={16} className="mt-[2px] shrink-0 text-warning" />
               <span className="flex-1 text-[13px] font-semibold text-text-primary">{commitConfirm.prompt}</span>
@@ -2057,7 +2091,7 @@ export function Scan() {
         )}
 
         {notice && (
-          <div className="absolute inset-x-[14px] bottom-[14px] z-[60] flex items-center gap-[8px] rounded-xl border border-border-default bg-surface-secondary p-[10px] text-[13px] text-text-muted shadow-elevated">
+          <div data-fab-lift className="absolute inset-x-[14px] bottom-[14px] z-[60] flex items-center gap-[8px] rounded-xl border border-border-default bg-surface-secondary p-[10px] text-[13px] text-text-muted shadow-elevated">
             <Icon name="alert" size={15} />
             <span className="flex-1">{notice}</span>
             <button type="button" onClick={() => setNotice(null)} className="text-text-muted hover:text-text-primary">

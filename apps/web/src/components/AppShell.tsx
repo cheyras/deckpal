@@ -880,7 +880,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-surface-primary">
+    // `app-shell`: a fixed full-screen route drops this min-height while it is
+    // mounted (theme.css, `html[data-fixed-screen]`), so the document behind it
+    // has no runway to scroll.
+    <div className="app-shell min-h-screen bg-surface-primary">
       <SkipLink />
       <Sidebar
         collapsed={collapsed}

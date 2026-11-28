@@ -49,6 +49,11 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener)
 }
 
+/** The toast showing now, for code outside React (and its tests). */
+export function currentToast(): Toast | null {
+  return current
+}
+
 export function useToast(): Toast | null {
   return useSyncExternalStore(subscribe, () => current, () => null)
 }
