@@ -425,25 +425,27 @@ export function deriveTypes(
 // ── Palette ──────────────────────────────────────────────────────────────────
 
 /**
- * Each type's colour, as the box paints it. Seeded from the app's energy
- * tokens (--color-energy-* in theme.css) and then tuned for a lit, printed
- * surface: Darkness and Metal are given a little more hue than the flat
- * tokens so a dark box still reads as a COLOUR, and Dragon keeps the gold of
- * the modern card frame. These are art direction, not tokens — the tokens
- * stay the source for icons and chips.
+ * Each type's colour, as the box paints it. These follow the energy tokens
+ * (--color-energy-* in theme.css, matched to the symbols printed on the
+ * cards), so the box and the energy tokens on its band agree. They are
+ * written out rather than read from CSS because the palette maths needs
+ * numbers. Fighting is pulled a little towards earth, so a Fighting box is not
+ * mistaken for a Fire one at a glance, and Darkness is a shade deeper, to
+ * read as a dark box rather than a teal one. If the tokens are retuned, update
+ * these with them.
  */
 export const TYPE_COLORS: Record<EnergyType, string> = {
-  Grass: '#4fae55',
-  Fire: '#e2622f',
-  Water: '#3d8fd8',
-  Lightning: '#efc11a',
-  Psychic: '#9c52b4',
-  Fighting: '#ad6a3b',
-  Darkness: '#34506a',
-  Metal: '#8796ab',
-  Fairy: '#e283b4',
-  Dragon: '#c49a32',
-  Colorless: '#d8d3c4',
+  Grass: '#4fa83b',
+  Fire: '#e0472c',
+  Water: '#2b9de0',
+  Lightning: '#f5c41f',
+  Psychic: '#a052b8',
+  Fighting: '#b8642f',
+  Darkness: '#1d5a6d',
+  Metal: '#a8a9a5',
+  Fairy: '#dc4c8c',
+  Dragon: '#b09a2c',
+  Colorless: '#ebe9e3',
 }
 
 export const MOTIF_FOR_TYPE: Record<EnergyType, MotifKind> = {

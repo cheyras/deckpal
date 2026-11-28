@@ -14,6 +14,7 @@ import {
   provisionalDeckArt,
   quantizeSwatch,
   rankCandidates,
+  TYPE_COLORS,
   type ArtCardFacts,
   type ArtCardRow,
 } from '../deckArt/derive'
@@ -247,7 +248,7 @@ test('the provisional box: neutral for a plain deck, typed for a GLC deck, never
 // ── palette ──────────────────────────────────────────────────────────────────
 
 test('the box takes the leading type; the studio takes the art', () => {
-  const fire = hexToOklch('#e2622f')
+  const fire = hexToOklch(TYPE_COLORS.Fire)
   const p = derivePalette(['Fire', 'Psychic'], { l: 0.6, c: 0.12, h: 300 })
   assert.ok(Math.abs(hueDelta(hexToOklch(p.box).h, fire.h)) < 8, 'box hue follows Fire')
   assert.ok(Math.abs(hueDelta(hexToOklch(p.wall).h, 300)) < 12, 'wall hue follows the art')
