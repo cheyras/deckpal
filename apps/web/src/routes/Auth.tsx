@@ -378,14 +378,16 @@ export function Auth() {
         </p>
       </AuthCard>
 
+      {/* Its two links were the muted body colour with no underline: links you
+          could only find by hovering, which a phone cannot do. */}
       {isSignup && (
         <p className="mt-[16px] text-center text-[14px] leading-[1.6] text-text-muted">
           By creating an account you agree to keep it civil. DeckPal is AGPL-3.0 open source —{' '}
-          <Link to="/" className="text-text-secondary hover:text-link">
+          <Link to="/" className="text-text-secondary underline decoration-text-muted underline-offset-2 hover:text-link">
             read what it does
           </Link>{' '}
           and{' '}
-          <Link to="/privacy" className="text-text-secondary hover:text-link">
+          <Link to="/privacy" className="text-text-secondary underline decoration-text-muted underline-offset-2 hover:text-link">
             how it handles your data
           </Link>
           .

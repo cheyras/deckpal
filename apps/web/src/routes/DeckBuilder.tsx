@@ -485,7 +485,7 @@ function DeckAddModal({ format, onClose, onAdd, isAdding, wasAdded }: {
 // ── Test-hand modal ───────────────────────────────────────────────────────────
 function TestHandModal({ deckId, onClose }: { deckId: string; onClose: () => void }) {
   const [seed, setSeed] = useState<number | undefined>(undefined)
-  const { data, isFetching } = useQuery({
+  const { data, isFetching, error: handError, refetch: retryHand } = useQuery({
     queryKey: ['testhand', deckId, seed],
     queryFn: ({ signal }) => api.testHand(deckId, seed, signal),
   })
@@ -493,7 +493,14 @@ function TestHandModal({ deckId, onClose }: { deckId: string; onClose: () => voi
   return (
     <Modal title="Test Hand" onClose={onClose} wide>
       <div className="flex flex-col gap-[16px]">
-        {!data && <div className="py-[40px] text-center text-[14px] text-text-muted">Shuffling…</div>}
+        {/* A failed draw used to leave "Shuffling…" on screen for good. */}
+        {!data && !handError && <div className="py-[40px] text-center text-[14px] text-text-muted">Shuffling…</div>}
+        {!data && handError && (
+          <div role="alert" className="flex flex-col items-center gap-[10px] py-[40px] text-center text-[14px] text-text-muted">
+            Couldn’t deal a test hand right now.
+            <Button variant="secondary" size="sm" onClick={() => void retryHand()}>Retry</Button>
+          </div>
+        )}
         {data && (
           <>
             <div className="flex flex-wrap items-center gap-x-[20px] gap-y-[6px] text-[14px]">
@@ -511,7 +518,8 @@ function TestHandModal({ deckId, onClose }: { deckId: string; onClose: () => voi
                   <div className={`relative overflow-hidden ${c.isBasicPokemon ? 'ring-2 ring-change-positive' : ''}`} style={{ borderRadius: CARD_RADIUS_CSS }}>
                     {c.image ? <img src={c.image} alt={c.name} className="w-full object-cover" style={{ aspectRatio: CARD_ASPECT_RATIO_CSS }} /> : <div className="w-full bg-surface-tertiary" style={{ aspectRatio: CARD_ASPECT_RATIO_CSS }} />}
                   </div>
-                  <span className="line-clamp-2 text-center text-[14px] leading-[13px] text-text-secondary">{c.name}</span>
+                  {/* leading under the font size stacked a two-line name onto itself. */}
+                  <span className="line-clamp-2 text-center text-[14px] leading-[17px] text-text-secondary">{c.name}</span>
                 </div>
               ))}
             </div>
@@ -577,7 +585,7 @@ function ExportModal({ deckId, onClose }: { deckId: string; onClose: () => void 
 // the per-card missing list.
 function BuyMissingModal({ deckId, onClose }: { deckId: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false)
-  const { data } = useQuery({ queryKey: ['pricing', deckId], queryFn: ({ signal }) => api.deckPricing(deckId, signal) })
+  const { data, error: pricingError, refetch: retryPricing } = useQuery({ queryKey: ['pricing', deckId], queryFn: ({ signal }) => api.deckPricing(deckId, signal) })
   const { data: me, error: meError } = useQuery({ queryKey: ['deck-massentry', deckId], queryFn: ({ signal }) => api.deckMassEntry(deckId, signal) })
   const copy = async () => {
     const text = me?.text || data?.massEntryText
@@ -587,7 +595,14 @@ function BuyMissingModal({ deckId, onClose }: { deckId: string; onClose: () => v
   return (
     <Modal title="Buy Missing Cards" onClose={onClose} wide>
       <div className="flex flex-col gap-[14px]">
-        {!data && <div className="py-[30px] text-center text-[14px] text-text-muted">Pricing…</div>}
+        {/* A failed pricing request used to leave "Pricing…" on screen for good. */}
+        {!data && !pricingError && <div className="py-[30px] text-center text-[14px] text-text-muted">Pricing…</div>}
+        {!data && pricingError && (
+          <div role="alert" className="flex flex-col items-center gap-[10px] py-[30px] text-center text-[14px] text-text-muted">
+            Couldn’t price this deck right now.
+            <Button variant="secondary" size="sm" onClick={() => void retryPricing()}>Retry</Button>
+          </div>
+        )}
         {data && (
           <>
             <div className="flex flex-wrap items-center gap-x-[24px] gap-y-[6px] text-[14px]">
