@@ -3,7 +3,8 @@ import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-quer
 import { Link, useParams } from '@tanstack/react-router'
 import { api, type CardDetailResponse, type ValueRange, type Variant } from '../lib/api'
 import { catalogPath, errorMeta, usePageMeta, type PageMeta } from '../lib/seo'
-import { Content, Spinner, ErrorState, BackPill, SetSymbolTile, Tabs } from '../components/ui'
+import { Content, Spinner, ErrorState, BackPill, Tabs } from '../components/ui'
+import { SetSymbolTile } from '../components/SetSymbolTile'
 import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
 import { EnergyIcon } from '../components/EnergyIcon'
@@ -717,7 +718,11 @@ function CardDetailBody({
                 </button>
               </div>
               <div className="mt-[10px] flex items-center gap-[10px]">
-                <SetSymbolTile setId={data.card.set.setId} size={28} />
+                {/* The card's own print line: for a set that prints its code,
+                    the regulation box and the plate as THIS card prints them
+                    ([G] [SVI EN]) — the only place the app shows a card's
+                    regulation mark beside its set. */}
+                <SetSymbolTile setId={data.card.set.setId} size={28} regulationMark={data.card.regulationMark} />
                 <Link
                   to="/series/$series/$set"
                   params={{ series: seriesSlug, set: setId }}
