@@ -915,6 +915,28 @@ body {
   }
 }
 
+/* A toast rises the last few pixels into its place at the foot of the screen
+   — an arrival, so it decelerates — rather than popping in. Reduced motion
+   keeps the fade. */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.toast-in {
+  animation: toast-in var(--duration-base) var(--ease-enter) backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast-in {
+    animation: sheet-scrim-in var(--duration-base) var(--ease-standard) backwards;
+  }
+}
+
 /* Thin scrollbars on horizontal chip rows */
 .scroll-x {
   overflow-x: auto;

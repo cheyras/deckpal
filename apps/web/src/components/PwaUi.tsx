@@ -61,7 +61,7 @@ function UpdateToast() {
   useEffect(() => onNeedRefresh(() => setShow(true)), [])
   if (!show) return null
   return (
-    <div className="pointer-events-auto flex items-center gap-[12px] rounded-lg bg-surface-quaternary py-[10px] pl-[16px] pr-[10px] shadow-2xl ring-1 ring-border-default">
+    <div className="toast-in pointer-events-auto flex items-center gap-[12px] rounded-lg bg-surface-quaternary py-[10px] pl-[16px] pr-[10px] shadow-2xl ring-1 ring-border-default">
       <Icon name="sparkle" size={16} className="text-action-primary" />
       <span className="text-[14px] font-bold text-text-primary">Update available</span>
       <button
@@ -72,7 +72,7 @@ function UpdateToast() {
       </button>
       <button
         onClick={() => setShow(false)}
-        className="flex h-[28px] w-[28px] items-center justify-center rounded-md text-icon-default hover:bg-action-default-hover"
+        className="touch-hit flex h-[28px] w-[28px] items-center justify-center rounded-md text-icon-default hover:bg-action-default-hover"
         aria-label="Dismiss"
       >
         <Icon name="close" size={16} />
@@ -95,7 +95,7 @@ function OfflineBanner() {
   return (
     <div
       role="status"
-      className="pointer-events-auto flex max-w-[520px] items-start gap-[10px] rounded-lg bg-surface-quaternary px-[14px] py-[10px] shadow-2xl ring-1 ring-border-default"
+      className="toast-in pointer-events-auto flex max-w-[520px] items-start gap-[10px] rounded-lg bg-surface-quaternary px-[14px] py-[10px] shadow-2xl ring-1 ring-border-default"
     >
       <span className="mt-[1px] text-action-primary">
         <Icon name="alert" size={18} />

@@ -20,7 +20,9 @@ export interface ToastViewProps {
 
 export function ToastView({ tone, message, actionLabel, onAction, onDismiss }: ToastViewProps) {
   return (
-    <div className="pointer-events-auto flex w-full max-w-[480px] items-center gap-3 rounded-lg bg-surface-quaternary py-2 pl-3.5 pr-2 shadow-2xl ring-1 ring-border-default">
+    // `toast-in`: it rises into place on the motion tokens instead of being
+    // there on the next frame (theme.css).
+    <div className="toast-in pointer-events-auto flex w-full max-w-[480px] items-center gap-3 rounded-lg bg-surface-quaternary py-2 pl-3.5 pr-2 shadow-2xl ring-1 ring-border-default">
       <Icon
         name={tone === 'error' ? 'alert' : 'check-circle'}
         size={18}
@@ -40,7 +42,7 @@ export function ToastView({ tone, message, actionLabel, onAction, onDismiss }: T
         type="button"
         onClick={onDismiss}
         aria-label="Dismiss"
-        className="flex h-[36px] w-[32px] shrink-0 items-center justify-center rounded-md text-icon-default hover:bg-action-default-hover"
+        className="touch-hit flex h-[36px] w-[32px] shrink-0 items-center justify-center rounded-md text-icon-default hover:bg-action-default-hover"
       >
         <Icon name="close" size={16} />
       </button>
@@ -91,6 +93,9 @@ export function Toaster() {
           onBlur={() => setHeld(false)}
         >
           <ToastView
+            // A new toast is a new arrival, so it enters again rather than
+            // swapping its words in place.
+            key={toast.id}
             tone={toast.tone}
             message={toast.message}
             actionLabel={toast.action?.label}
