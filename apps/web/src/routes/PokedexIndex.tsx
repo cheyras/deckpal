@@ -4,6 +4,9 @@ import { Link } from '@tanstack/react-router'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { api, type SpeciesGridRow } from '../lib/api'
 import { Content, Spinner, ErrorState, ProgressBar, useDismiss } from '../components/ui'
+import { Icon } from '../components/Icon'
+import { CHIP_STRIP_BLEED } from '../components/FilterControls'
+import { useScrollEdge } from '../lib/useScrollEdge'
 import { SpriteTile } from '../components/SpriteTile'
 import { SpeciesName } from '../components/SpeciesName'
 import { fmtNumber, typeColor } from '../lib/format'
@@ -178,7 +181,8 @@ function OwnFilterMenu({ value, onChange }: { value: Own; onChange: (o: Own) => 
       {open && (
         <div
           role="menu"
-          className="absolute right-0 z-20 mt-[6px] w-[168px] overflow-hidden rounded-lg border border-border-default bg-surface-primary py-[4px] shadow-lg"
+          // Opens out of its button (motion tokens) instead of blinking in.
+          className="absolute right-0 z-20 mt-[6px] w-[168px] overflow-hidden rounded-lg border border-border-default bg-surface-primary py-[4px] shadow-lg origin-top-right transition-[opacity,scale] duration-(--duration-fast) ease-enter starting:scale-95 starting:opacity-0 motion-reduce:starting:scale-100"
         >
           {(['all', 'captured', 'uncaptured'] as const).map((o) => (
             <button
@@ -213,6 +217,7 @@ export function PokedexIndex() {
   const [own, setOwn] = useState<Own>('all')
   const [q, setQ] = useState('')
   const signedOut = useSignedIn() === false
+  const genEdge = useScrollEdge({ axis: 'x' })
 
   // `pageSize: '1025'` is today's National Dex size, not a promise every
   // future dex fits in one request — `api.dexAll` follows
@@ -312,7 +317,9 @@ export function PokedexIndex() {
 
       {/* filters */}
       <div className="mt-[20px] flex flex-col gap-[12px]">
-        <div className="scroll-x flex gap-[8px]">
+        {/* All + Gen 1–9 is wider than a phone; the edge fade says the row
+            scrolls instead of cutting "Gen 5" in half at the gutter. */}
+        <div ref={genEdge} className={`scroll-x scroll-edge-x flex gap-[8px] ${CHIP_STRIP_BLEED}`}>
           {GENS.map((g) => (
             <button
               key={g}
@@ -327,12 +334,22 @@ export function PokedexIndex() {
           ))}
         </div>
         <div className="flex items-center gap-[12px]">
-          <label className="relative flex items-center" style={{ flex: 1, maxWidth: 320 }}>
+          {/* Full width on a phone (it stopped 40px short of the grid's edge),
+              320px beside the filter from sm. 16px text below sm: iOS zooms
+              the whole page into any field set smaller than that. The icon is
+              the one every other search field in the catalog carries. */}
+          <label className="relative flex min-w-0 flex-1 items-center sm:max-w-[320px]">
+            <span className="pointer-events-none absolute left-[12px] text-icon-default">
+              <Icon name="search" size={16} />
+            </span>
             <input
+              type="search"
+              enterKeyHint="search"
+              aria-label="Search species"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search species…"
-              className="h-[38px] w-full rounded-lg border border-border-default bg-surface-primary px-[14px] text-[14px] text-text-primary placeholder:text-text-muted"
+              className="h-[38px] w-full rounded-lg border border-border-default bg-surface-primary pl-[36px] pr-[14px] text-[16px] text-text-primary placeholder:text-text-muted sm:text-[14px]"
             />
           </label>
           {!signedOut && <OwnFilterMenu value={own} onChange={setOwn} />}

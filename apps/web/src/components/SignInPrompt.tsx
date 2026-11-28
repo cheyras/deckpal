@@ -41,10 +41,14 @@ export function SignInPrompt({
         'flex flex-wrap items-center gap-x-[16px] gap-y-[10px]',
         banner
           ? 'justify-between rounded-lg border border-border-default bg-surface-tertiary px-[20px] py-[16px]'
-          : 'justify-end',
+          : // Right-aligned only where it sits BESIDE something (md+: the set
+            // logo, the Pokédex title). Stacked on a phone it is a block of its
+            // own, and right-aligned text there read as a ragged left edge
+            // with the buttons drifting off after it.
+            'justify-start md:justify-end',
       ].join(' ')}
     >
-      <div className={banner ? 'min-w-0' : 'min-w-0 text-right'}>
+      <div className={banner ? 'min-w-0' : 'min-w-0 text-left md:text-right'}>
         <div className="text-[14px] font-semibold leading-[21px] text-text-primary">{title}</div>
         {detail && <div className="text-[14px] leading-[19px] text-text-muted">{detail}</div>}
       </div>
