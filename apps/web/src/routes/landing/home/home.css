@@ -234,6 +234,12 @@
     0 0 0 1px var(--hm-hair),
     0 40px 80px -30px rgb(0 0 0 / 0.75);
 }
+/* Phones get the film's 1:1 cut (heroVideo.ts HERO_PHONE_MEDIA; keep in step). */
+@media (max-width: 640px) {
+  .hm-video {
+    aspect-ratio: 1 / 1;
+  }
+}
 @media (min-width: 900px) {
   .hm-video {
     margin-top: 48px;

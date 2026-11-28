@@ -32,7 +32,7 @@ import { join, resolve } from 'node:path'
 import type { Plugin } from 'vite'
 import { appJsonLd, faqJsonLd, renderConnectStatic, renderFeaturesStatic, renderLandingStatic, renderLlmsFull } from '../src/routes/landing/staticHtml'
 import { COPY } from '../src/routes/landing/copy'
-import { HERO_POSTER_SIZES, HERO_VIDEO } from '../src/routes/landing/heroVideo'
+import { HERO_PHONE_MEDIA, HERO_PHONE_POSTER_SIZES, HERO_POSTER_SIZES, HERO_VIDEO } from '../src/routes/landing/heroVideo'
 
 const ORIGIN = 'https://deckpal.app'
 
@@ -80,11 +80,19 @@ function prerender(shell: string, page: Page): string {
   return html.replace(marker, () => `${marker}${page.body}`)
 }
 
-/** Preload for the hero poster, AVIF (every browser the CSP and the build target support decodes it). */
+/** Preload for the hero poster, AVIF (every browser the CSP and the build target support decodes it).
+ *  With a phone cut, two hints split by media, so each viewport fetches only the still it will paint. */
 export function posterPreload(): string {
-  const { name, widths } = HERO_VIDEO.poster
-  const set = widths.map((w) => `/marketing/landing/${name}-${w}.avif ${w}w`).join(', ')
-  return `<link rel="preload" as="image" type="image/avif" imagesrcset="${set}" imagesizes="${HERO_POSTER_SIZES}" />`
+  const link = (name: string, widths: readonly number[], sizes: string, media?: string) => {
+    const set = widths.map((w) => `/marketing/landing/${name}-${w}.avif ${w}w`).join(', ')
+    return `<link rel="preload" as="image" type="image/avif" imagesrcset="${set}" imagesizes="${sizes}"${media ? ` media="${media}"` : ''} />`
+  }
+  const { poster, phone } = HERO_VIDEO
+  if (!phone) return link(poster.name, poster.widths, HERO_POSTER_SIZES)
+  return [
+    link(phone.poster.name, phone.poster.widths, HERO_PHONE_POSTER_SIZES, HERO_PHONE_MEDIA),
+    link(poster.name, poster.widths, HERO_POSTER_SIZES, `not all and ${HERO_PHONE_MEDIA}`),
+  ].join('\n')
 }
 
 export function landingPrerender(): Plugin {

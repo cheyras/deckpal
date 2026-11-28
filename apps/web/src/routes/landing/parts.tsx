@@ -165,6 +165,7 @@ export function Photo({
   eager = false,
   className = '',
   style,
+  art,
 }: {
   name: PhotoName
   alt: string
@@ -172,11 +173,15 @@ export function Photo({
   eager?: boolean
   className?: string
   style?: CSSProperties
+  /** Art direction: a different photo where `media` matches (e.g. a square crop on phones). */
+  art?: { name: PhotoName; media: string; sizes: string }
 }) {
   const p = PHOTOS[name]
   const mid = p.widths[1]
   return (
     <picture className={className} style={style}>
+      {art && <source media={art.media} type="image/avif" srcSet={srcSet(art.name, 'avif')} sizes={art.sizes} />}
+      {art && <source media={art.media} type="image/webp" srcSet={srcSet(art.name, 'webp')} sizes={art.sizes} />}
       <source type="image/avif" srcSet={srcSet(name, 'avif')} sizes={sizes} />
       <source type="image/webp" srcSet={srcSet(name, 'webp')} sizes={sizes} />
       <img

@@ -6,7 +6,8 @@
  *   1. Both pages render for a visitor with NO session, with one h1 each, and
  *      fit the phone: no sideways scroll at 390px.
  *   2. axe finds nothing at WCAG 2.2 AA (the same tags as `a11y.mjs`).
- *   3. The hero video slot holds its 16:9 box. While no film is configured
+ *   3. The hero video slot holds its 16:9 box (1:1 at 390 when the film has a
+ *      phone cut, with the square poster and film). While no film is configured
  *      (landing/heroVideo.ts) it asks for no media at all; once one is, it
  *      fetches only the configured same-origin files and plays muted inline.
  *   4. The card orbit is paused while off screen and runs while on it (it is
@@ -25,7 +26,7 @@ import path from 'node:path'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { buildWeb, serve, contextFor } from './support.mjs'
-import { HERO_VIDEO } from '../../apps/web/src/routes/landing/heroVideo.ts'
+import { HERO_VIDEO, heroSourcesFor } from '../../apps/web/src/routes/landing/heroVideo.ts'
 
 const AXE_SRC = readFileSync(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8')
 const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']
@@ -81,15 +82,27 @@ export async function checkLanding(browser, server, out) {
     // Full motion for the orbit check; contextFor defaults to reduced motion.
     const { context, page } = await contextFor(browser, server, width, { reducedMotion: 'no-preference' })
     const media = []
-    page.on('request', (r) => { if (r.resourceType() === 'media') media.push(r.url()) })
+    const posters = []
+    page.on('request', (r) => {
+      if (r.resourceType() === 'media') media.push(r.url())
+      const m = new URL(r.url()).pathname.match(/^\/marketing\/landing\/(hero(?:-square)?)-\d+\./)
+      if (m) posters.push(m[1])
+    })
     try {
       await page.goto(server.origin + '/', { waitUntil: 'networkidle' })
       await page.getByRole('heading', { level: 1 }).waitFor()
       assert.equal(new URL(page.url()).pathname, '/', `${width}: a signed-out visitor must stay on /`)
       assert.equal(await page.getByRole('heading', { level: 1 }).count(), 1, `${width}: one h1`)
 
+      // Phone-width visitors get the 1:1 cut when there is one (HERO_PHONE_MEDIA is max-width 640px).
+      const phone = width === 390 && !!HERO_VIDEO.phone
+      const ratio = phone ? 1 : 16 / 9
       const slot = await page.locator('.hm-video').boundingBox()
-      assert.ok(slot && Math.abs(slot.width / slot.height - 16 / 9) < 0.02, `${width}: the video slot is 16:9 (${slot?.width}x${slot?.height})`)
+      assert.ok(slot && Math.abs(slot.width / slot.height - ratio) < 0.02, `${width}: the video slot is ${phone ? '1:1' : '16:9'} (${slot?.width}x${slot?.height})`)
+      const poster = await page.locator('.hm-video-poster img').evaluate((i) => i.currentSrc)
+      assert.equal(poster.includes('/hero-square-'), phone, `${width}: the poster is the ${phone ? 'square' : '16:9'} still (${poster})`)
+      // The LCP still: the preload hint and the <picture> agree, so only this viewport's poster is fetched.
+      assert.deepEqual([...new Set(posters)], [phone ? 'hero-square' : 'hero'], `${width}: poster stills fetched: ${posters.join(', ')}`)
       assert.ok(slot.y < (width === 390 ? 844 : 900), `${width}: the video slot starts above the fold (y=${slot.y})`)
 
       const ring = (sel) => page.evaluate((s) => {
@@ -108,7 +121,8 @@ export async function checkLanding(browser, server, out) {
       if (HERO_VIDEO.sources.length === 0) assert.deepEqual(media, [], `${width}: no film is configured, so no media may be requested`)
       else {
         // The film is same-origin (the CSP's media-src is 'self'), and only the configured files are fetched.
-        const allowed = new Set(HERO_VIDEO.sources.map((s) => s.src))
+        // Only this viewport's cut: a phone never pays for the 16:9 film, nor a laptop for the square one.
+        const allowed = new Set(heroSourcesFor(HERO_VIDEO, phone).map((s) => s.src))
         for (const url of media) assert.ok(allowed.has(new URL(url).pathname), `${width}: unexpected media request ${url}`)
         // It is attached after load and plays muted and inline, so a visitor sees it without pressing play.
         await page.locator('.hm-video').scrollIntoViewIfNeeded()

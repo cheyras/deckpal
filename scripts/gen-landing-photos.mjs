@@ -39,7 +39,7 @@ const FINAL_DIR = path.join(RAW_DIR, 'final');
 const OUT_DIR = path.join(REPO_ROOT, 'apps', 'web', 'public', 'marketing', 'landing');
 
 /** Responsive widths per shot; the full-bleed bands get the wide set. */
-const WIDTHS = { hero: [2560, 1600, 960], closing: [2560, 1600, 960] };
+const WIDTHS = { hero: [2560, 1600, 960], 'hero-square': [1080, 720, 480], closing: [2560, 1600, 960] };
 const DEFAULT_WIDTHS = [1600, 960, 640];
 const BUDGET_KB = 250; // at the largest width; smaller widths scale by area
 

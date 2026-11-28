@@ -35,7 +35,7 @@ Every photograph in this directory except `github.*` and the hero film (`hero.*`
   encode [--only a,b]` writes the AVIF/WebP widths here plus `MANIFEST.json` (measured
   from disk). Raw candidates and finals live in the gitignored `.marketing-raw/landing/`.
 
-## The hero film (`hero.webm`, `hero.mp4`, and the `hero-*` poster)
+## The hero film (`hero.*`, `hero-square.*`, and the `hero-*` and `hero-square-*` posters)
 
 A 28 s silent, anime-style film, approved by the owner on 2026-11-28. It was made outside this
 repository, in the owner's separate `deckpal-marketing` workspace, where every prompt, take,
@@ -58,5 +58,9 @@ licence and build script is kept.
 - **Encoding:** 1920x1080 at 24 fps; VP9 (`hero.webm`, listed first) and H.264 High with
   `+faststart` (`hero.mp4`), no audio track. The poster is the film's first frame, lightly
   denoised, encoded by `node scripts/gen-landing-photos.mjs encode --only hero`.
+- **Phone cut:** `hero-square.webm` and `hero-square.mp4` are the same film at 1080x1080, reframed
+  shot by shot from the same renders, with the same timing, encoding and absence of audio. Phones
+  below 640px wide get this cut instead of the 16:9 one. Its poster `hero-square-*` (1080/720/480)
+  is its own first frame, encoded with `--only hero-square`.
 
 These files are part of the DeckPal repository and covered by its `AGPL-3.0-only` licence.

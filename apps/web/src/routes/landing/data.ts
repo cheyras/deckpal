@@ -158,6 +158,7 @@ export function useLivePrices(ids: readonly string[], enabled: boolean): Record<
  *  MANIFEST.json and tools/landing-photos). Widths are what was encoded. */
 export const PHOTOS = {
   hero: { widths: [2560, 1600, 960], w: 3, h: 2 },
+  'hero-square': { widths: [1080, 720, 480], w: 1, h: 1 },
   plan: { widths: [1600, 960, 640], w: 4, h: 3 },
   playtest: { widths: [1600, 960, 640], w: 4, h: 3 },
   tune: { widths: [1600, 960, 640], w: 4, h: 3 },
