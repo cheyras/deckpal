@@ -29,8 +29,10 @@ import {
 
 export {
   cardCacheKey,
+  cardImageSegment,
   cardRelativePath,
   cardSourceUrl,
+  localIdFromImageSegment,
   setImageCacheKey,
   setImageRelativePath,
   setImageSourceUrl,

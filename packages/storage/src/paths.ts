@@ -18,6 +18,9 @@
  * Upstream asset URL:  …/{localId}/{quality}.webp
  * Stored relative path: images/{lang}/{serie}/{set}/{localId}.{quality}.webp
  *
+ * (The two local ids no path segment can carry, `!` and `?`, are spelled out in the
+ * public address and the stored path — see `cardImageSegment`.)
+ *
  * Zero dependencies (not even `node:path`) — separators are always '/', which is
  * what both POSIX disk paths and object keys want.
  */
@@ -41,18 +44,79 @@ export function isQuality(v: string): v is Quality {
   return (QUALITIES as readonly string[]).includes(v);
 }
 
+// ── Card numbers an image address cannot carry ───────────────────────────────
+/**
+ * Two cards are numbered with punctuation: the Unown Collection's `!` and `?` (set `exu`).
+ * Neither character can be an image path segment (`SEGMENT` below), so their ADDRESS spells the
+ * character out: `/deckpal/images/en/ex/exu/question/low.webp`, stored as
+ * `images/en/ex/exu/question.low.webp`.
+ *
+ * Only the address changes. The card id, the local id and the catalog keep TCGdex's spelling, and
+ * so do the cache key (it carries the card id) and the canonical TCGdex URL (`cardSourceUrl`).
+ *
+ * TCGdex spells the `?` card's local id as the three characters `%3F` (card id `exu-%3F`). Its
+ * database names each card's file after the local id, `?` is not a legal file name everywhere, so
+ * the file is `%3F.ts`, and its compiler takes the local id from the file name. The catalog
+ * imports that verbatim, which is why the API shows the card's number as `%3F`.
+ *
+ * No card is numbered `exclamation` or `question`, so the two segments cannot collide.
+ */
+const SPELLED_OUT: ReadonlyArray<{ printed: string; localId: string; segment: string }> = [
+  { printed: '!', localId: '!', segment: 'exclamation' },
+  { printed: '?', localId: '%3F', segment: 'question' },
+];
+
+/**
+ * The number printed on the card: the local id with TCGdex's percent-escapes decoded
+ * (`%3F` → `?`). Anything that is not a valid escape is returned as it is.
+ */
+export function printedLocalId(localId: string): string {
+  if (!localId.includes('%')) return localId;
+  try {
+    return decodeURIComponent(localId);
+  } catch {
+    return localId;
+  }
+}
+
+/** The image address segment for a card's local id: the local id, or its spelled-out name. */
+export function cardImageSegment(localId: string): string {
+  const printed = printedLocalId(localId);
+  return SPELLED_OUT.find((s) => s.printed === printed)?.segment ?? localId;
+}
+
+/** The inverse of `cardImageSegment`: the catalog's local id an address segment names. */
+export function localIdFromImageSegment(segment: string): string {
+  return SPELLED_OUT.find((s) => s.segment === segment)?.localId ?? segment;
+}
+
 export function cardRelativePath(ref: CardRef, quality: Quality): string {
-  return `images/${LANG}/${ref.serie}/${ref.set}/${ref.localId}.${quality}.webp`;
+  return `images/${LANG}/${ref.serie}/${ref.set}/${cardImageSegment(ref.localId)}.${quality}.webp`;
 }
 
 // image_asset.cache_key — deterministic, stable, matches the schema comment shape
-// ('card:<setId>-<localId>:<quality>'). The card id is TCGdex's own `{set}-{localId}`.
+// ('card:<setId>-<localId>:<quality>'). The card id is TCGdex's own `{set}-{localId}`,
+// so it keeps the catalog's local id even where the address spells it out.
 export function cardCacheKey(ref: CardRef, quality: Quality): string {
   return `card:${ref.set}-${ref.localId}:${quality}`;
 }
 
+/**
+ * TCGdex's own URL for the art. Its asset store keys a card by the local id exactly as its
+ * database spells it, so the local id is percent-encoded once on the way out: `%3F` is requested
+ * as `%253F` and `!` as itself (both measured against TCGdex's French Unown, which it serves).
+ * Every other local id is already URL-safe and comes out unchanged.
+ */
 export function cardSourceUrl(ref: CardRef, quality: Quality): string {
-  return `https://assets.tcgdex.net/${LANG}/${ref.serie}/${ref.set}/${ref.localId}/${quality}.webp`;
+  return `https://assets.tcgdex.net/${LANG}/${ref.serie}/${ref.set}/${encodeURIComponent(ref.localId)}/${quality}.webp`;
+}
+
+/**
+ * The public address of a card's art — what the API emits (`cardImages()` in apps/api db.ts) and
+ * what both image tiers parse back with `parseImagePath`.
+ */
+export function cardImageAddress(ref: CardRef, quality: Quality): string {
+  return `${IMAGE_URL_PREFIX}${LANG}/${ref.serie}/${ref.set}/${cardImageSegment(ref.localId)}/${quality}.webp`;
 }
 
 // ── Set imagery (logo + symbol) ──────────────────────────────────────────────
@@ -132,6 +196,7 @@ export const IMAGE_URL_PREFIX = '/deckpal/images/';
  * `base1`, `sv03.5`, `A1a`, `P-A`, `tk-bw-e`, `TG05`, `006`. Anything else is
  * rejected outright, which (with the explicit '..' check below) makes traversal
  * impossible: no '/', no '\', no leading dot, no percent-escapes left to decode.
+ * The two card numbers it cannot represent travel spelled out (`cardImageSegment`).
  */
 const SEGMENT = /^[A-Za-z0-9][A-Za-z0-9.-]*$/;
 
@@ -255,17 +320,18 @@ export function parseImagePath(subPath: string): ParseImagePathResult {
     };
   }
 
-  // Card art: {lang}/{serie}/{set}/{localId}/{low|high}.webp
+  // Card art: {lang}/{serie}/{set}/{localId}/{low|high}.webp — the localId segment as
+  // `cardImageSegment` spells it, mapped back to the catalog's local id for the ref.
   if (segments.length === 5) {
-    const [lang, serie, set, localId, file] = segments as [string, string, string, string, string];
-    if (!safeSegment(serie) || !safeSegment(set) || !safeSegment(localId)) {
+    const [lang, serie, set, segment, file] = segments as [string, string, string, string, string];
+    if (!safeSegment(serie) || !safeSegment(set) || !safeSegment(segment)) {
       return { ok: false, reason: 'not-found' };
     }
     const m = /^(low|high)\.webp$/.exec(file);
     const qual = m?.[1];
     // Structurally a card path, but not one we serve → 400 (apps/images parity).
     if (!qual || !isQuality(qual) || lang !== LANG) return { ok: false, reason: 'bad-request' };
-    const ref: CardRef = { serie, set, localId };
+    const ref: CardRef = { serie, set, localId: localIdFromImageSegment(segment) };
     return {
       ok: true,
       asset: {

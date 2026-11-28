@@ -40,6 +40,21 @@ test('unpadded local ids survive verbatim (older eras are not zero-padded upstre
   );
 });
 
+test('the Unown "!" and "?" cards address their spelled-out objects', () => {
+  // The API emits these addresses (cardImageAddress); the object keeps the same segment.
+  assert.equal(
+    objectUrlFor(BASE, '/deckpal/images/en/ex/exu/question/low.webp'),
+    `${BASE}images/en/ex/exu/question.low.webp`,
+  );
+  assert.equal(
+    objectUrlFor(BASE, '/deckpal/images/en/ex/exu/exclamation/high.webp'),
+    `${BASE}images/en/ex/exu/exclamation.high.webp`,
+  );
+  // The old spellings were never servable and still are not: the proxy answers them.
+  assert.equal(objectUrlFor(BASE, '/deckpal/images/en/ex/exu/%3F/low.webp'), null);
+  assert.equal(objectUrlFor(BASE, '/deckpal/images/en/ex/exu/!/low.webp'), null);
+});
+
 test('set imagery keeps its sub-path unchanged', () => {
   assert.equal(
     objectUrlFor(BASE, '/deckpal/images/sets/sv03.5/logo.webp'),

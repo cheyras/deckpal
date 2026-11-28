@@ -571,7 +571,11 @@ Two outbound paths were hardened on 2026-08-27 (GitHub issue #96, six critical
   than from the URL we were handed, so the scheme, host and port of the socket
   we open are never derived from the input; only the path survives, and it is
   checked after one decode against the same `[A-Za-z0-9.-]` id space
-  `parseImagePath` allows.
+  `parseImagePath` allows. Two exceptions exist since 2026-11-28, for the only
+  two card numbers TCGdex keys with punctuation (the Unown `!` and `?`): `!`,
+  and the one literal escape `%3F` (TCGdex's spelling of the `?` card, sent as
+  `%253F`). `%` on its own is still refused, so `%00`, `%20` and further escape
+  layers are too.
   The pre-existing content checks (image content-type, magic-byte sniff,
   non-empty, under 8 MB) are unchanged and remain complementary: they catch a
   bad *body* from a good host, the allow-list catches a bad *host*.

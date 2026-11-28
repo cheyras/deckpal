@@ -225,7 +225,10 @@ Set imagery: `sets/<setId>/<logo|symbol>.webp` in both.
 
 The public URL keeps upstream's shape
 (`/deckpal/images/<lang>/<serie>/<set>/<localId>/<low|high>.webp`); the stored
-path is derived from it.
+path is derived from it. The two local ids a segment cannot carry, the Unown `!`
+and `?` (`exu`), are spelled out in both: `exclamation` and `question`
+(`cardImageSegment`). The card id, the cache key and the TCGdex URL keep the
+catalog's local id.
 
 **Why:** The image service/CDN, warmers, and manifest all assume this layout.
 A miss serves a placeholder (never an error).

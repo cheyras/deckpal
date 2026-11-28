@@ -47,6 +47,20 @@ test('card art: high quality moves too', () => {
   assert.equal(mv?.newKey, 'card:swsh9tg-TG30:high');
 });
 
+test('card art: a spelled-out card round-trips, keyed by its card id', () => {
+  // The `?` card is stored as `question` and keyed `card:<set>-%3F` (the catalog's local id).
+  const mv = deriveMove(
+    { cache_key: 'card:exu-%3F:low', kind: 'card', relative_path: 'images/en/ex/exu/question.low.webp' },
+    { from: 'exu', to: 'exu2' },
+  );
+  assert.deepEqual(mv, {
+    oldKey: 'card:exu-%3F:low',
+    oldPath: 'images/en/ex/exu/question.low.webp',
+    newKey: 'card:exu2-%3F:low',
+    newPath: 'images/en/ex/exu2/question.low.webp',
+  });
+});
+
 test('set imagery moves with the set', () => {
   const mv = deriveMove(
     { cache_key: 'set:swsh9.5tg:logo', kind: 'set-logo', relative_path: 'sets/swsh9.5tg/logo.webp' },

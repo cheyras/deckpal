@@ -4,6 +4,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { makePool } from '@deckpal/db';
 import { EMBED_MODEL_ID, embedStamp } from '@deckpal/matching';
+import { cardRelativePath, cardSourceUrl, type CardRef } from '@deckpal/storage/paths';
 import type pg from 'pg';
 import { ALGO } from './phash.js';
 
@@ -43,7 +44,6 @@ import { ALGO } from './phash.js';
  */
 
 const CACHE_ROOT = process.env.IMAGE_CACHE_ROOT ?? '/home/cheyras/pokedex/cache';
-const LANG = 'en';
 const QUALITY = 'low';
 /** Same fence as index.ts: Pocket is digital-only, and its rows were purged. */
 export const EXCLUDED_SERIES = ['tcgp'];
@@ -57,21 +57,27 @@ export interface TopupTarget {
   needs_embed: boolean;
 }
 
-/** Where the indexers look for a card's art (index.ts / embed.mts `cardPath`). */
-export function cachePath(root: string, t: Pick<TopupTarget, 'serie' | 'set' | 'local_id'>): string {
-  return join(root, 'images', LANG, t.serie, t.set, `${t.local_id}.${QUALITY}.webp`);
+type ArtTarget = Pick<TopupTarget, 'serie' | 'set' | 'local_id'>;
+const ref = (t: ArtTarget): CardRef => ({ serie: t.serie, set: t.set, localId: t.local_id });
+
+/**
+ * Where the indexers look for a card's art (index.ts / embed.mts `cardPath`): the
+ * stored layout, `cardRelativePath` in @deckpal/storage, under IMAGE_CACHE_ROOT.
+ */
+export function cachePath(root: string, t: ArtTarget): string {
+  return join(root, cardRelativePath(ref(t), QUALITY));
 }
 
 /**
  * The art's sources, in order: the deployment's own public card-art bucket
  * (what production serves), then TCGdex, of which the bucket is a byte-identical
- * mirror for every card TCGdex has.
+ * mirror for every card TCGdex has. Both come from @deckpal/storage's path
+ * algebra, so the `!` and `?` cards are asked for where each source keeps them.
  */
-export function artUrls(bucketBase: string | null, t: Pick<TopupTarget, 'serie' | 'set' | 'local_id'>): string[] {
-  const rel = `${encodeURIComponent(t.serie)}/${encodeURIComponent(t.set)}/${encodeURIComponent(t.local_id)}`;
+export function artUrls(bucketBase: string | null, t: ArtTarget): string[] {
   const urls: string[] = [];
-  if (bucketBase) urls.push(`${bucketBase.replace(/\/+$/, '')}/images/${LANG}/${rel}.${QUALITY}.webp`);
-  urls.push(`https://assets.tcgdex.net/${LANG}/${rel}/${QUALITY}.webp`);
+  if (bucketBase) urls.push(`${bucketBase.replace(/\/+$/, '')}/${encodeURI(cardRelativePath(ref(t), QUALITY))}`);
+  urls.push(cardSourceUrl(ref(t), QUALITY));
   return urls;
 }
 

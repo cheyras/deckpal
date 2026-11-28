@@ -194,6 +194,8 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --quiet onnxruntime numpy pillow
+          # The art paths come from @deckpal/storage's path algebra (all three steps below).
+          pnpm --filter @deckpal/storage build
           pnpm --filter @deckpal/matching build
           SUPABASE_URL="$(curl -fsS "$DECKPAL_ORIGIN/api/public-config" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).supabaseUrl||""))')"
           [ -n "$SUPABASE_URL" ] || { echo "::error::public-config reported no supabaseUrl"; exit 1; }

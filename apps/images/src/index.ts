@@ -13,6 +13,7 @@ import {
 import {
   cardAbsolutePath,
   cardCacheKey,
+  localIdFromImageSegment,
   setImageAbsolutePath,
   type CardRef,
   type SetImageKind,
@@ -174,7 +175,9 @@ function makeCardHandler(onAccess: typeof touchLastAccess) {
       return;
     }
     const quality: Quality = qual;
-    const ref: CardRef = { serie, set, localId };
+    // The segment is the address form (`question` for the `?` card); the ref, and so the
+    // cache key, carries the catalog's local id. The on-disk path spells it out again.
+    const ref: CardRef = { serie, set, localId: localIdFromImageSegment(localId) };
     const abs = cardAbsolutePath(ref, quality);
 
     if (!existsSync(abs)) {

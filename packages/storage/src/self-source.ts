@@ -1,4 +1,4 @@
-import type { CardRef, Quality } from './paths.js';
+import { printedLocalId, type CardRef, type Quality } from './paths.js';
 import { IMAGE_SOURCE_HOSTS, type UpstreamPolicy } from './upstream.js';
 import { restGet } from './manifest.js';
 
@@ -142,7 +142,8 @@ const numberKey = (s: string): string => s.trim().toLowerCase().replace(/^([a-z-
  * Is this product the card? Its name must contain the card's, and its number must be the card's —
  * unless the product's printed denominator is not this set's size, which is how a reprint set
  * prints the ORIGINAL card's number (Classic Collection prints Charizard as 4/102). A letter suffix
- * is part of the number: Aquapolis 103a and 103b are different cards.
+ * is part of the number: Aquapolis 103a and 103b are different cards. The card's side is its
+ * PRINTED number, so the catalog's `%3F` is compared as the `?` the product lists (`?/28`).
  */
 export function productMatchesCard(product: ProductRecord, card: Pick<ArtCard, 'name' | 'localId' | 'printedTotal'>): boolean {
   const pName = ` ${fold(product.name)} `;
@@ -151,5 +152,5 @@ export function productMatchesCard(product: ProductRecord, card: Pick<ArtCard, '
   if (!product.number) return true;
   const [num, total] = product.number.split('/');
   if (total && card.printedTotal && Number(total) !== card.printedTotal) return true;
-  return numberKey(num ?? '') === numberKey(card.localId);
+  return numberKey(num ?? '') === numberKey(printedLocalId(card.localId));
 }

@@ -22,9 +22,11 @@ import {
   QUALITIES,
   SELF_SOURCED_CACHE_CONTROL,
   cardCacheKey,
+  cardImageAddress,
   cardRelativePath,
   cardSourceUrl,
   fromUrl,
+  localIdFromImageSegment,
   putStorageAsset,
   type CardRef,
 } from '@deckpal/storage';
@@ -65,11 +67,14 @@ async function upgrade(): Promise<void> {
     for (const r of rows) {
       const m = r.relative_path.match(PATH);
       if (!m) { tally.unparsed++; continue; }
-      const [, serie, set, localId, quality] = m as unknown as [string, string, string, string, 'low' | 'high'];
-      if (!(await tcgdexServes(cardSourceUrl({ serie, set, localId }, quality)))) continue;
+      const [, serie, set, segment, quality] = m as unknown as [string, string, string, string, 'low' | 'high'];
+      // The stored path carries the address segment (`question` for the `?` card); TCGdex keys the
+      // card by its local id.
+      const ref: CardRef = { serie, set, localId: localIdFromImageSegment(segment) };
+      if (!(await tcgdexServes(cardSourceUrl(ref, quality)))) continue;
       tally.tcgdexHas++;
       if (dryRun) { console.log(`would swap\t${r.relative_path}\t(from ${r.source_url})`); continue; }
-      const url = `${base}/deckpal/images/en/${serie}/${set}/${encodeURIComponent(localId)}/${quality}.webp?refresh=tcgdex`;
+      const url = `${base}${cardImageAddress(ref, quality)}?refresh=tcgdex`;
       try {
         const res = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(30_000) });
         const outcome = res.headers.get('x-image-refresh');
@@ -117,11 +122,12 @@ async function selfSource(): Promise<void> {
   for (const quality of QUALITIES) {
     const encoded = await encodeToSlot(bytes, quality);
     if (!encoded.ok) throw new Error(`${cardId} ${quality}: ${encoded.reason}`);
+    const native = `from ${encoded.native.width}x${encoded.native.height}${encoded.rotated ? ', turned upright' : ''}`;
     if (out) {
       mkdirSync(out, { recursive: true });
       const file = join(out, `${cardId}.${quality}.webp`);
       writeFileSync(file, encoded.bytes);
-      console.log(`wrote ${file} (${encoded.bytes.length} bytes, from ${encoded.native.width}x${encoded.native.height})`);
+      console.log(`wrote ${file} (${encoded.bytes.length} bytes, ${native})`);
       continue;
     }
     const r = await putStorageAsset({
@@ -134,7 +140,7 @@ async function selfSource(): Promise<void> {
       cacheControl: SELF_SOURCED_CACHE_CONTROL,
       replace: true,
     });
-    console.log(`stored ${r.relativePath} (${r.byteSize} bytes, from ${encoded.native.width}x${encoded.native.height})`);
+    console.log(`stored ${r.relativePath} (${r.byteSize} bytes, ${native})`);
   }
 }
 

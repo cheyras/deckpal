@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import pg from 'pg';
 import { loadEnv, makePool, type Queryable } from '@deckpal/db';
+import { cardImageAddress } from '@deckpal/storage/paths';
 import { pct } from './insights/trainerLevel.js';
 
 /**
@@ -441,10 +442,12 @@ export function shapePrice(r: PriceRow): Price {
 }
 
 // ── Image references ─────────────────────────────────────────────────────────
-// The API returns image *paths*, never bytes — the image service on 3701 serves
-// them (behind nginx at the same /deckpal/ base). The card path is a pure
-// function of (series tcgdex_id, set tcgdex_id, card local_id); see
-// apps/images/src/layout.ts. localId is used verbatim (TCGdex's own padding).
+// The API returns image *paths*, never bytes — the image tier serves them. The
+// card path is a pure function of (series tcgdex_id, set tcgdex_id, card
+// local_id), built by `cardImageAddress` in @deckpal/storage paths.ts, the
+// module both tiers parse it back with. localId is used verbatim (TCGdex's own
+// padding), except the two numbers no address can carry, `!` and `?`, which it
+// spells out (`cardImageSegment`).
 
 export interface CardImages {
   low: string;
@@ -452,8 +455,8 @@ export interface CardImages {
 }
 
 export function cardImages(serieTcgdexId: string, setTcgdexId: string, localId: string): CardImages {
-  const base = `/deckpal/images/en/${serieTcgdexId}/${setTcgdexId}/${localId}`;
-  return { low: `${base}/low.webp`, high: `${base}/high.webp` };
+  const ref = { serie: serieTcgdexId, set: setTcgdexId, localId };
+  return { low: cardImageAddress(ref, 'low'), high: cardImageAddress(ref, 'high') };
 }
 
 // ── TCGplayer buy URL ────────────────────────────────────────────────────────

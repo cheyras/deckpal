@@ -9,6 +9,7 @@
  * publicly cached) when the Build section scrolls near; the numbers below are the
  * fallback, recorded the same day, so the demo never shows an empty cart. */
 import { useEffect, useState } from 'react'
+import { cardImageAddress } from '@deckpal/storage/paths'
 import { api } from '../../lib/api'
 import { directArtUrl } from '../../lib/cardArt'
 
@@ -43,7 +44,8 @@ export function artUrl(id: string, size: 'low' | 'high' = 'low'): string {
   const set = id.slice(0, cut)
   const num = id.slice(cut + 1)
   const serie = set.replace(/^([a-z]+).*$/, '$1').replace(/^mee$/, 'me')
-  const path = `/deckpal/images/en/${serie}/${set}/${num}/${size}.webp`
+  // The same address builder the API uses, so the image tier parses it back.
+  const path = cardImageAddress({ serie, set, localId: num }, size)
   return directArtUrl(path) ?? path
 }
 
