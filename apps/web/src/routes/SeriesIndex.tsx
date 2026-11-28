@@ -216,27 +216,37 @@ function Controls({ prefs, onChange, onSave, saved, signedOut, stacked = false }
           </option>
         ))}
       </select>
+      {/* B13: the arrows and ticks were text glyphs, drawn in whatever
+          fallback font had them; they are the shared Icon now. */}
       <button
         type="button"
-        className={ctrl}
+        className={`${ctrl} inline-flex items-center justify-center gap-[6px]`}
         aria-label={prefs.sortDir === 'asc' ? 'Ascending' : 'Descending'}
         onClick={() => onChange({ ...prefs, sortDir: prefs.sortDir === 'asc' ? 'desc' : 'asc' })}
       >
-        {prefs.sortDir === 'asc' ? '↑ Asc' : '↓ Desc'}
+        <Icon name={prefs.sortDir === 'asc' ? 'arrow-up' : 'arrow-down'} size={14} />
+        {prefs.sortDir === 'asc' ? 'Asc' : 'Desc'}
       </button>
       {/* Both of these sort/group on ownership the visitor doesn't have yet. */}
       {!signedOut && (
         <button
           type="button"
-          className={[ctrl, prefs.groupByOwned ? 'text-action-primary' : ''].join(' ')}
+          className={[ctrl, 'inline-flex items-center justify-center gap-[6px]', prefs.groupByOwned ? 'text-action-primary' : ''].join(' ')}
           aria-pressed={prefs.groupByOwned}
           onClick={() => onChange({ ...prefs, groupByOwned: !prefs.groupByOwned })}
         >
-          {prefs.groupByOwned ? '✓ ' : ''}Group by owned
+          {prefs.groupByOwned && <Icon name="check" size={14} />}
+          Group by owned
         </button>
       )}
-      <button type="button" className={ctrl} onClick={onSave}>
-        {saved ? 'Saved ✓' : 'Save as default'}
+      <button type="button" className={`${ctrl} inline-flex items-center justify-center gap-[6px]`} onClick={onSave}>
+        {saved ? (
+          <>
+            Saved <Icon name="check" size={14} />
+          </>
+        ) : (
+          'Save as default'
+        )}
       </button>
     </div>
   )
@@ -272,7 +282,7 @@ function MobileControls(props: ControlsProps) {
         <div
           role="group"
           aria-label="Sort & group options"
-          className="absolute right-0 z-20 mt-[6px] w-[210px] rounded-lg border border-border-default bg-surface-primary p-[10px] shadow-lg"
+          className="absolute right-0 z-20 mt-[6px] w-[210px] rounded-lg border border-border-default bg-surface-primary p-[10px] shadow-lg origin-top-right transition-[opacity,scale] duration-(--duration-fast) ease-enter starting:scale-95 starting:opacity-0 motion-reduce:starting:scale-100"
         >
           <Controls {...props} stacked />
         </div>
@@ -360,8 +370,11 @@ export function SeriesIndex() {
         <div className="min-w-0">
           <h1 className="mb-[4px] text-[24px] font-bold leading-[36px] text-text-primary">Series</h1>
           <p className="text-[14px] text-text-muted">
+            {/* The count used to wear the link colour, the same pink as every
+                real link on the catalog pages, but it is not one — tapping it
+                did nothing. Emphasis without the false affordance. */}
             Every Pokémon TCG (English) era.{' '}
-            <span className="text-link">{data?.series.length ?? 0} series</span>.
+            <span className="font-semibold text-text-body">{data?.series.length ?? 0} series</span>.
           </p>
         </div>
         {data && (
@@ -442,7 +455,7 @@ export function SeriesIndex() {
                   data-decke-label="the button that reveals the series you have not collected"
                 >
                   <span>Show {others.length} series with no cards collected</span>
-                  <span className="text-text-muted">▼</span>
+                  <Icon name="chevron-down" size={16} className="text-text-muted" />
                 </button>
               </div>
             ))}
