@@ -27,7 +27,8 @@ test('ME-era sets map to verified PTCGL codes (not uppercased tcgdex ids)', () =
   assert.deepEqual(ptcglCodeForSet('me03'), { code: 'POR', live: true });
   assert.deepEqual(ptcglCodeForSet('me04'), { code: 'CRI', live: true });
   assert.deepEqual(ptcglCodeForSet('me05'), { code: 'PBL', live: true });
-  assert.equal(ptcglCodeForSet('base1'), null);           // no PTCGL code exists
+  assert.deepEqual(ptcglCodeForSet('me06'), { code: 'DLR', live: true });
+  assert.equal(ptcglCodeForSet('base1'), null);          // no PTCGL code exists
   assert.equal(ptcglCodeForSet('xy1')!.live, false);      // code exists, set not in Live
 });
 
@@ -37,6 +38,15 @@ test('normal card: PTCGL code + leading zeros stripped (PTCGL rejects "PBL 039")
     noReprint,
   );
   assert.match(text, /^4 Dhelmise PBL 39$/m);
+  assert.equal(warnings.length, 0);
+});
+
+test('Delta Reign exports as DLR (was a "no PTCG Live printing" warning)', async () => {
+  const { text, warnings } = await buildPtcglExport(
+    [row({ name: 'Talonflame ex', localId: '088', category: 'Pokemon', setTcgdexId: 'me06', setName: 'Delta Reign', quantity: 2 })],
+    noReprint,
+  );
+  assert.match(text, /^2 Talonflame ex DLR 88$/m);
   assert.equal(warnings.length, 0);
 });
 

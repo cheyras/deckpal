@@ -26,6 +26,7 @@
     "POR": { "set": "me03", "kind": "main", "note": "Perfect Order. Verified 2026-07-30: limitlesstcg.com/cards + NAIC 2026 lists (Meowth ex POR 62, Telepathic Psychic Energy POR 88 = me03-088)." },
     "CRI": { "set": "me04", "kind": "main", "note": "Chaos Rising. Verified 2026-07-30: limitlesstcg.com/cards + JP Championships 2026 lists (Prism Tower CRI 80 = me04-080)." },
     "PBL": { "set": "me05", "kind": "main", "note": "Pitch Black. Verified 2026-07-30: limitlesstcg.com/cards/PBL (120 cards, 17 Jul 26) + JP Championships 2026 Dhelmise lists (Dhelmise PBL 39, Banette PBL 34, Gwynn PBL 78 — all match me05 local ids)." },
+    "DLR": { "set": "me06", "kind": "main", "note": "Delta Reign. Verified 2026-11-28: limitlesstcg.com/cards/DLR (141 cards, 6 Nov 26) and limitlesstcg.com/cards/DLR/88 = Talonflame ex, matching me06-088; the cards print DLR (migration 091)." },
     "MEE": { "set": "mee", "kind": "energy" },
     "PR-ME": { "set": "mep", "kind": "promo", "note": "TCGdex mep has 0 cards today (§1.7.2)" },
 
