@@ -50,11 +50,14 @@ function artSummary(types: readonly string[], featured: readonly { name: string 
   return parts.join(', ')
 }
 
-function DeckCard({ deck }: { deck: DeckSummary }) {
+/** Tiles dressed in the first render (the rest are dressed in idle slices; useDeckArt). */
+const FIRST_SCREEN_TILES = 6
+
+function DeckCard({ deck, eager = false }: { deck: DeckSummary; eager?: boolean }) {
   // Battle record footer line — only once the deck has any scored logs.
   const rec = deck.record && deck.record.wins + deck.record.losses + deck.record.ties > 0 ? deck.record : null
   const ref = useRef<HTMLAnchorElement>(null)
-  const art = useDeckArt(deck, ref)
+  const art = useDeckArt(deck, ref, eager)
   const said = art.pending ? '' : artSummary(art.spec.types, art.spec.featured)
   return (
     <Link
@@ -64,7 +67,7 @@ function DeckCard({ deck }: { deck: DeckSummary }) {
       search={DECK_SEARCH_DEFAULTS}
       className="da-host flex flex-col overflow-hidden rounded-xl border border-border-default bg-surface-tertiary transition-colors hover:border-surface-quaternary"
     >
-      <DeckBoxArt spec={art.spec} deckId={deck.id} name={deck.name} pending={art.pending} arrived={art.arrived} near={art.near}>
+      <DeckBoxArt spec={art.spec} deckId={deck.id} name={deck.name} pending={art.pending} arrived={art.arrived} near={art.near} dressed={art.dressed}>
         <span className="absolute left-[10px] top-[10px]">
           <TileLegality legal={deck.legal} />
         </span>
@@ -548,7 +551,7 @@ export function DecksIndex() {
           data-decke-label="the deck list"
           data-decke-rank="container"
         >
-          {decks.map((d) => <DeckCard key={d.id} deck={d} />)}
+          {decks.map((d, i) => <DeckCard key={d.id} deck={d} eager={i < FIRST_SCREEN_TILES} />)}
         </div>
       )}
 

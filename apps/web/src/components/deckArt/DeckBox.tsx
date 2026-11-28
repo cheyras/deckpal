@@ -152,6 +152,7 @@ export function DeckBoxArt({
   pending = false,
   arrived = false,
   near = true,
+  dressed = true,
   treatment,
   children,
 }: {
@@ -165,6 +166,8 @@ export function DeckBoxArt({
   arrived?: boolean
   /** the tile is near the viewport: only then are its art images requested */
   near?: boolean
+  /** the tile may draw its title and artwork yet (useDeckArt's idle dressing) */
+  dressed?: boolean
   /** force a title treatment (the /design gallery); otherwise picked from the deck */
   treatment?: TreatmentId
   /** overlays (badges) drawn above the scene */
@@ -184,8 +187,8 @@ export function DeckBoxArt({
       : slots.map((slot) => ({ card: featured[0] ?? null, slot }))
 
   const density = screenDensity()
-  const boxArt = near ? artUrl(spec.art.box, density) : null
-  const backdropArt = near ? artUrl(spec.art.backdrop, density) : null
+  const boxArt = near && dressed ? artUrl(spec.art.box, density) : null
+  const backdropArt = near && dressed ? artUrl(spec.art.backdrop, density) : null
   const title = treatment ?? pickTreatment(deckId, spec.style)
   // The title zone: above the band, clear of the cards on the left.
   const zoneLeft = slots.length ? CLEAR : 7
@@ -299,7 +302,7 @@ export function DeckBoxArt({
             {/* Not while pending: the treatment follows the deck's style, which is
                 not known yet, and a title that changed typeface on arrival would
                 read as a glitch. The blank box is the loading state. */}
-            {name.trim() && !pending && <TitleArt name={name} treatment={title} palette={spec.palette} zone={zone} idPrefix={id} />}
+            {name.trim() && !pending && dressed && <TitleArt name={name} treatment={title} palette={spec.palette} zone={zone} idPrefix={id} />}
             <rect y={BAND_Y} width={FW} height={BAND_H} style={{ fill: v('band') }} />
             <rect y={BAND_Y + BAND_H} width={FW} height={FH - BAND_Y - BAND_H} style={{ fill: v('boxDeep') }} />
             <line x1={0} y1={BAND_Y + 0.4} x2={FW} y2={BAND_Y + 0.4} style={{ stroke: v('accent') }} strokeWidth={0.8} opacity={0.85} />

@@ -2,10 +2,16 @@
  * Deck-box art (components/deckArt). See research/DECK-BOX-ART.md for why it
  * is built this way; the short version is in the rules below:
  *
- *  - No 3D transforms, no filters, no backdrop-filter, no will-change. Every
- *    tile is plain painted content, so scrolling the grid is pure compositor
- *    work and the page holds no extra GPU layers per deck.
- *  - Off-screen tiles skip rendering entirely (content-visibility).
+ *  - No 3D transforms, no CSS filters, no backdrop-filter, no will-change.
+ *    Every tile is plain painted content (its gradient maps are SVG filters
+ *    applied once at paint), so scrolling the grid is pure compositor work and
+ *    the page holds no extra GPU layers per deck.
+ *  - Every tile is laid out and painted ONCE, up front. Pass 1 used
+ *    content-visibility: auto to skip off-screen tiles; with generated art and
+ *    a typeset title on every box, that turned "skip" into "lay out and paint
+ *    each tile in the very frame it scrolls into view", and measured as 3–7
+ *    dropped frames per throttled scroll against 0 without it. Only the
+ *    IMAGES are lazy (requested when a tile nears the viewport).
  *  - Sizes are in container units (cqw) of the art box itself, so the scene
  *    scales with the tile and nothing has to be measured in script.
  *  - Motion is a garnish and compositor-only: the cards rise in (translate +
@@ -22,10 +28,8 @@
   overflow: hidden;
   isolation: isolate;
   container-type: inline-size;
-  /* Skip style/layout/paint for tiles far off screen. The aspect-ratio fixes
-     the box's size without its content, so skipping can never shift layout. */
-  content-visibility: auto;
-  contain-intrinsic-size: auto 200px;
+  /* A tile's repaints (an image arriving) stay inside the tile. */
+  contain: layout paint style;
   /* The studio: a cyclorama sweep (wall → floor with no horizon line), a key
      light pooled behind the box, a softer pool on the floor, and a vignette. */
   background:

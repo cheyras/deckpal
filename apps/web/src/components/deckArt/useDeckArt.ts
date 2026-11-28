@@ -122,7 +122,7 @@ if (typeof window !== 'undefined') {
   window.addEventListener('scroll', () => { lastScroll = performance.now() }, { passive: true, capture: true })
 }
 
-function scrollRest(quietMs = 160, maxWaitMs = 3000): Promise<void> {
+function scrollRest(quietMs = 160, maxWaitMs = 8000): Promise<void> {
   const start = performance.now()
   return new Promise((resolve) => {
     const check = () => {
@@ -180,6 +180,68 @@ export function useNearViewport(ref: RefObject<Element | null>): boolean {
   return near
 }
 
+// ── Dressing tiles a few at a time, in quiet idle time ───────────────────────
+// A dressed tile — typeset title, gradient-mapped artwork — costs real layout
+// and paint the first time it is drawn: measured on a 4×-throttled phone
+// profile, all twenty at once was a 260 ms task at load. So only the first
+// screen is dressed in the first render; the rest are queued and dressed two
+// at a time in idle callbacks, nearest-to-the-viewport first, and never while
+// the page is scrolling (a tile dressed mid-scroll would spend its layout in
+// the frame the finger is moving). Until then a tile shows its colours, box
+// and cards — everything but the title and the artwork.
+
+const DRESS_PER_SLICE = 2
+interface Undressed {
+  near: boolean
+  dress: () => void
+}
+const undressed = new Set<Undressed>()
+let dressScheduled = false
+
+const idle: (cb: () => void) => void =
+  typeof window !== 'undefined' && 'requestIdleCallback' in window
+    ? (cb) => window.requestIdleCallback(cb, { timeout: 600 })
+    : (cb) => setTimeout(cb, 60)
+
+function scheduleDressing() {
+  if (dressScheduled || undressed.size === 0) return
+  dressScheduled = true
+  idle(() => {
+    dressScheduled = false
+    if (performance.now() - lastScroll < 160) {
+      setTimeout(scheduleDressing, 160)
+      return
+    }
+    // Near tiles first, then the rest in the order they mounted (list order).
+    const batch = [...undressed].sort((a, b) => Number(b.near) - Number(a.near)).slice(0, DRESS_PER_SLICE)
+    for (const t of batch) {
+      undressed.delete(t)
+      t.dress()
+    }
+    scheduleDressing()
+  })
+}
+
+/** Whether the tile may draw its title and artwork yet (see above). `eager` = first screen. */
+function useDressed(eager: boolean, near: boolean): boolean {
+  const [dressed, setDressed] = useState(eager)
+  const entry = useRef<Undressed | null>(null)
+  useEffect(() => {
+    if (dressed) return
+    const t: Undressed = { near: false, dress: () => setDressed(true) }
+    entry.current = t
+    undressed.add(t)
+    scheduleDressing()
+    return () => {
+      undressed.delete(t)
+    }
+  }, [dressed])
+  useEffect(() => {
+    if (entry.current) entry.current.near = near
+  }, [near])
+  return dressed
+}
+
 // ── The hook ─────────────────────────────────────────────────────────────────
 
 export interface DeckArtState {
@@ -190,14 +252,17 @@ export interface DeckArtState {
   arrived: boolean
   /** the tile has come near the viewport (its art images may load) */
   near: boolean
+  /** the tile may draw its title and artwork (first screen at once, the rest in idle slices) */
+  dressed: boolean
 }
 
-export function useDeckArt(deck: DeckSummary, ref: RefObject<Element | null>): DeckArtState {
+export function useDeckArt(deck: DeckSummary, ref: RefObject<Element | null>, eager = false): DeckArtState {
   const qc = useQueryClient()
   const key = artKey(deck)
   const cached = useMemo(() => readSpec(deck.id, key), [deck.id, key])
   const empty = deck.totalCount === 0
   const near = useNearViewport(ref)
+  const dressed = useDressed(eager, near)
   const provisional = useMemo(() => provisionalDeckArt(deck.id, deck.glcType, empty), [deck.id, deck.glcType, empty])
   // Was this tile's art already known when it mounted? Then nothing "arrives".
   const knownAtMount = useRef(!!cached || empty)
@@ -219,5 +284,5 @@ export function useDeckArt(deck: DeckSummary, ref: RefObject<Element | null>): D
   // A failed derivation (detail 404, network) settles on the provisional box
   // rather than leaving placeholder cards up forever.
   const pending = !cached && !empty && !q.data && !q.isError
-  return { spec, pending, arrived: !knownAtMount.current && !!q.data, near }
+  return { spec, pending, arrived: !knownAtMount.current && !!q.data, near, dressed }
 }
