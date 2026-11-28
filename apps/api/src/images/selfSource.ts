@@ -5,11 +5,15 @@ import {
   cardArtProduct,
   fetchSourceBytes,
   productMatchesCard,
+  productNamesCard,
   productImageUrl,
+  sameCardName,
+  type ArtCard,
   type CardRef,
   type ProductRecord,
   type Quality,
 } from '@deckpal/storage';
+import { PRICE_LINK_OVERRIDES, type PriceLinkOverride } from '@deckpal/db/priceLinkOverrides';
 
 /**
  * The self-source fallback for card art (@deckpal/storage `self-source.ts`): the linked product's
@@ -106,20 +110,65 @@ export async function groupProducts(groupId: number): Promise<Map<number, Produc
 }
 
 /**
- * Fetch and encode the self-sourced art for one card slot. Refuses unless the product's record,
- * in the card's set's group, names this card at this number.
+ * The verified link entry (`@deckpal/db/priceLinkOverrides`) behind this card's linked product,
+ * or null. It counts only for the exact product it verified, and only while the card is still the
+ * one it pinned: same set, same number, same name. Any other card gets the ordinary check.
+ */
+export function verifiedArtLink(
+  set: string,
+  card: Pick<ArtCard, 'name' | 'localId' | 'productId'>,
+  table: readonly PriceLinkOverride[] = PRICE_LINK_OVERRIDES,
+): PriceLinkOverride | null {
+  return table.find((o) =>
+    o.setId === set && o.localId === card.localId && o.productId === card.productId
+    && sameCardName(o.cardName, card.name)) ?? null;
+}
+
+/** The product group a card's linked product is checked in: a verified entry's, else its set's. */
+export function artProductGroup(card: Pick<ArtCard, 'groupId'>, verified: PriceLinkOverride | null): number | null {
+  return verified ? verified.groupId : card.groupId;
+}
+
+export type ArtProductCheck = { ok: true } | { ok: false; reason: string };
+
+/**
+ * The identity check of a card's linked product against its group's records. Pure.
+ *
+ * Ordinarily the product must be in the set's group and its record must name this card at this
+ * number (`productMatchesCard`). A product a verified entry covers is looked up in the entry's
+ * group instead, and the entry's checked identity stands in for the number, which the record can
+ * list wrong; its name must still name the card.
+ */
+export function checkArtProduct(
+  card: Pick<ArtCard, 'name' | 'localId' | 'productId' | 'printedTotal'>,
+  verified: PriceLinkOverride | null,
+  products: ReadonlyMap<number, ProductRecord>,
+): ArtProductCheck {
+  const record = products.get(card.productId);
+  if (!record) {
+    return { ok: false, reason: `product ${card.productId} is not in ${verified ? 'its verified group' : "the set's group"}` };
+  }
+  const matches = verified ? productNamesCard(record.name, card.name) : productMatchesCard(record, card);
+  if (!matches) {
+    return { ok: false, reason: `product ${card.productId} is "${record.name}" ${record.number ?? ''}, not this card`.trim() };
+  }
+  return { ok: true };
+}
+
+/**
+ * Fetch and encode the self-sourced art for one card slot. Refuses unless the product's record
+ * names this card (`checkArtProduct`), and the image is a card (`encodeToSlot`).
  */
 export async function selfSourceCardArt(ref: CardRef, quality: Quality): Promise<SelfSourceResult> {
   const card = await cardArtProduct(ref);
   if (!card) return { ok: false, reason: 'no linked product' };
-  if (card.groupId == null) return { ok: false, reason: 'set has no product group to check against' };
-  const products = await groupProducts(card.groupId);
-  if (!products) return { ok: false, reason: `product group ${card.groupId} unreadable` };
-  const record = products.get(card.productId);
-  if (!record) return { ok: false, reason: `product ${card.productId} is not in the set's group` };
-  if (!productMatchesCard(record, card)) {
-    return { ok: false, reason: `product ${card.productId} is "${record.name}" ${record.number ?? ''}, not this card`.trim() };
-  }
+  const verified = verifiedArtLink(ref.set, card);
+  const groupId = artProductGroup(card, verified);
+  if (groupId == null) return { ok: false, reason: 'set has no product group to check against' };
+  const products = await groupProducts(groupId);
+  if (!products) return { ok: false, reason: `product group ${groupId} unreadable` };
+  const checked = checkArtProduct(card, verified, products);
+  if (!checked.ok) return checked;
   const url = productImageUrl(card.productId);
   const fetched = await fetchSourceBytes(url, 12_000, SELF_SOURCE_POLICY);
   if (!fetched.ok) return { ok: false, reason: `product image ${fetched.httpStatus}: ${fetched.reason}` };

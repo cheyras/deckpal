@@ -308,3 +308,17 @@ test('the hand-matched groups are whole TCGplayer group ids, one per set', async
   }
   assert.equal(KNOWN_SET_GROUPS['2024sv'], 24163);
 });
+
+test('the catalog import keeps a hand-matched group instead of resetting it to upstream', async () => {
+  const { catalogSetGroup } = await import('../linkMatch.js');
+  // Upstream gives these sets no group; the import used to write that null every week.
+  assert.equal(catalogSetGroup('cel25cc', null), 2931);
+  assert.equal(catalogSetGroup('exu', null), 1398);
+  assert.equal(catalogSetGroup('mfb', null), 23330);
+  // A known group wins over upstream's, as it does in the link pass.
+  assert.equal(catalogSetGroup('tk-dp-m', 9999), 1541);
+  // Every other set keeps exactly what upstream (or the release overlay) says.
+  assert.equal(catalogSetGroup('sv01', 22873), 22873);
+  assert.equal(catalogSetGroup('sv01', null), null);
+  assert.equal(catalogSetGroup('constructor', null), null);
+});

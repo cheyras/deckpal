@@ -364,6 +364,17 @@ export const KNOWN_SET_GROUPS: Readonly<Record<string, number>> = {
 };
 
 /**
+ * The group the catalog import writes for a set: a hand-matched group (above) wins over the one
+ * upstream gives, as it does in the link pass. Without this, every weekly import reset these sets
+ * to upstream's none, and they stayed group-less until the next link pass put it back, so whatever
+ * ran in between (the image warm the refresh triggers, which checks a card's product against its
+ * set's group) found no group to check against.
+ */
+export function catalogSetGroup(setId: string, upstream: number | null): number | null {
+  return Object.hasOwn(KNOWN_SET_GROUPS, setId) ? KNOWN_SET_GROUPS[setId]! : upstream;
+}
+
+/**
  * Groups worth FETCHING for a set — cheap filter, not a decision. Matches on the printed set code
  * (TCGdex id, its abbreviation, or its PTCGL code against TCGCSV's abbreviation) or on the group
  * name with its era prefix ("SV: ", "SWSH: ") removed. Whether a candidate is actually this set

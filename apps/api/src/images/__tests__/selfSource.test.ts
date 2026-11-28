@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
-import { parseImagePath, type ParsedImage } from '@deckpal/storage';
+import { parseImagePath, type ArtCard, type ParsedImage, type ProductRecord } from '@deckpal/storage';
 import { resolveSourceFromManifest } from '../handler.js';
-import { encodeToSlot } from '../selfSource.js';
+import { artProductGroup, checkArtProduct, encodeToSlot, verifiedArtLink } from '../selfSource.js';
 
 /**
  * The self-source rules in the image tier, without a network: how a self-sourced card resolves,
@@ -130,4 +130,91 @@ test('the product-list read names its client (TCGCSV refuses Node\'s default age
   } finally {
     globalThis.fetch = real;
   }
+});
+
+// ── the identity check of a card's linked product (pure: no catalog, no network) ─────────────
+
+const artCard = (over: Partial<ArtCard> & Pick<ArtCard, 'name' | 'localId' | 'productId'>): ArtCard =>
+  ({ groupId: null, printedTotal: null, ...over });
+const records = (...rows: [number, string, string | null][]): Map<number, ProductRecord> =>
+  new Map(rows.map(([id, name, number]) => [id, { name, number }]));
+
+test('a verified link whose record lists the wrong number now passes; without it the same record is refused', () => {
+  // tk-xy-n-29 Switch: its record lists 4/30, which is the deck's Bunnelby.
+  const card = artCard({ name: 'Switch', localId: '29', productId: 98024, printedTotal: 30, groupId: 1532 });
+  const deck = records([98024, 'Switch (Noivern)', '4/30'], [97999, 'Bunnelby', '4/30']);
+  const verified = verifiedArtLink('tk-xy-n', card);
+  assert.equal(verified?.productId, 98024);
+  assert.deepEqual(checkArtProduct(card, verified, deck), { ok: true });
+  assert.deepEqual(checkArtProduct(card, null, deck),
+    { ok: false, reason: 'product 98024 is "Switch (Noivern)" 4/30, not this card' });
+
+  // tk-sm-r-3 Lightning Energy: its record lists 2/30, the #2 card's number.
+  const energy = artCard({ name: 'Lightning Energy', localId: '3', productId: 152852, printedTotal: 30, groupId: 2069 });
+  const kit = records([152852, 'Lightning Energy (#3)', '2/30'], [152851, 'Lightning Energy (#2)', '2/30']);
+  assert.deepEqual(checkArtProduct(energy, verifiedArtLink('tk-sm-r', energy), kit), { ok: true });
+  assert.equal(checkArtProduct(energy, null, kit).ok, false);
+});
+
+test("a verified link is checked in its own group, not the set's", () => {
+  // sm10-195a and mep-Museum are listed outside their sets' groups.
+  const cases = [
+    { set: 'sm10', group: 1938, record: [216699, 'Dedenne GX - 195a/214', '195a/214'] as [number, string, string | null],
+      card: artCard({ name: 'Dedenne GX', localId: '195a', productId: 216699, printedTotal: 214, groupId: 1919 }) },
+    { set: 'mep', group: 1528, record: [678659, 'Pikachu at the Museum', null] as [number, string, string | null],
+      card: artCard({ name: 'Pikachu at the Museum', localId: 'Museum', productId: 678659, groupId: 24451 }) },
+  ];
+  for (const { set, group, record, card } of cases) {
+    const verified = verifiedArtLink(set, card);
+    assert.equal(artProductGroup(card, verified), group, `${set}-${card.localId}`);
+    assert.deepEqual(checkArtProduct(card, verified, records(record)), { ok: true });
+    // The set's own group does not list it, which is what refused it before.
+    assert.equal(artProductGroup(card, null), card.groupId);
+    assert.deepEqual(checkArtProduct(card, null, records()),
+      { ok: false, reason: `product ${card.productId} is not in the set's group` });
+  }
+});
+
+test("a verified link still needs its product in its group, and the product's name to name the card", () => {
+  const card = artCard({ name: 'Switch', localId: '29', productId: 98024, printedTotal: 30, groupId: 1532 });
+  const verified = verifiedArtLink('tk-xy-n', card);
+  assert.ok(verified);
+  assert.deepEqual(checkArtProduct(card, verified, records([97999, 'Bunnelby', '4/30'])),
+    { ok: false, reason: 'product 98024 is not in its verified group' });
+  assert.deepEqual(checkArtProduct(card, verified, records([98024, 'Potion (Noivern)', '4/30'])),
+    { ok: false, reason: 'product 98024 is "Potion (Noivern)" 4/30, not this card' });
+});
+
+test('a verified link counts only for its own product, set, number and name', () => {
+  const base = { name: 'Switch', localId: '29', productId: 98024 };
+  assert.ok(verifiedArtLink('tk-xy-n', base));
+  // Another product on the same card (a relink upstream) gets the ordinary check.
+  assert.equal(verifiedArtLink('tk-xy-n', { ...base, productId: 97999 }), null);
+  // The card renamed, renumbered or moved: the entry no longer describes it.
+  assert.equal(verifiedArtLink('tk-xy-n', { ...base, name: 'Switch Cart' }), null);
+  assert.equal(verifiedArtLink('tk-xy-n', { ...base, localId: '28' }), null);
+  assert.equal(verifiedArtLink('tk-xy-sy', base), null);
+  // A card no entry covers.
+  assert.equal(verifiedArtLink('sv01', { name: 'Pikachu', localId: '63', productId: 1 }), null);
+  // The pin compares names folded, so the catalog's curly apostrophe still matches.
+  assert.ok(verifiedArtLink('xya', { name: 'Trainers’ Mail', localId: '92a', productId: 133815 }));
+});
+
+test('every card without a verified link keeps the full name and number check', () => {
+  // Aquapolis a/b: the twin's product is refused on the letter.
+  const porygon = artCard({ name: 'Porygon', localId: '103b', productId: 88306, printedTotal: 147, groupId: 1397 });
+  assert.equal(verifiedArtLink('ecard2', porygon), null);
+  assert.equal(checkArtProduct(porygon, null, records([88306, 'Porygon (103a)', '103a/147'])).ok, false);
+  // The main-set product on a reprint card is refused on the number it carries.
+  const reshiram = artCard({ name: 'Reshiram', localId: 'CC020', productId: 250301, printedTotal: 25, groupId: 2931 });
+  assert.equal(verifiedArtLink('cel25cc', reshiram), null);
+  assert.equal(checkArtProduct(reshiram, null, records([250301, 'Reshiram', '002/025'])).ok, false);
+  // A product of another card is refused on the name.
+  const sw = artCard({ name: 'Switch', localId: '33', productId: 524028, printedTotal: 48, groupId: 23330 });
+  assert.equal(checkArtProduct(sw, null, records([524028, 'Potion (Pikachu)', null])).ok, false);
+  // The right product still passes the ordinary check.
+  const unown = artCard({ name: 'Unown', localId: '%3F', productId: 90167, printedTotal: 28, groupId: 1398 });
+  assert.deepEqual(checkArtProduct(unown, null, records([90167, 'Unown (?)', '?/28'])), { ok: true });
+  // No group at all stays a refusal.
+  assert.equal(artProductGroup(artCard({ name: 'Unown', localId: '!', productId: 90166 }), null), null);
 });

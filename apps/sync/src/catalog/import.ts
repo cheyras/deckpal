@@ -22,6 +22,7 @@ import {
 } from './transform.js';
 import { getOverlay, resolveReleasePriceLink } from './releasePriceLinks.js';
 import { OVERRIDES, overrideVariantLink } from './priceLinkOverrides.js';
+import { catalogSetGroup } from '../prices/linkMatch.js';
 
 interface RawSet {
   id: string;
@@ -383,7 +384,8 @@ export async function importCatalog(dataDir: string): Promise<ImportSummary> {
           // languages would want `localized ?? official`; this importer only
           // ever loads CATALOGUE = 'en'.
           st.abbreviation?.official ?? st.abbreviations?.official ?? null,
-          st.thirdParty?.tcgplayer ?? getOverlay(st.id)?.groupId ?? null,
+          // A hand-matched group (KNOWN_SET_GROUPS) survives the import instead of being reset.
+          catalogSetGroup(st.id, st.thirdParty?.tcgplayer ?? getOverlay(st.id)?.groupId ?? null),
           /promo/i.test(st.name), st.logo ?? null, st.symbol ?? null,
         ],
       );

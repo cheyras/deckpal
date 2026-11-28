@@ -36,6 +36,8 @@ test('the corrections the table exists for are in it', () => {
   assert.equal(get('cel25cc-CC020', 'holo-stamp-25th-celebration')?.productId, 250337);
   assert.equal(get('mfb-34', 'normal-stamp-pikachu')?.productId, 524035);
   assert.equal(get('tk-sm-r-2', 'normal')?.productId, 152851);
+  // a right upstream id pinned, because the product's listed number is wrong
+  assert.deepEqual([get('tk-sm-r-3', 'normal')?.productId, get('tk-sm-r-3', 'normal')?.was], [152852, 152852]);
   // a missing one filled
   assert.equal(get('tk-xy-n-29', 'normal')?.productId, 98024);
   assert.equal(get('tk-hs-g-20', 'normal')?.was, null);

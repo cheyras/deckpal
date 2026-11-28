@@ -89,6 +89,8 @@ export {
   isSelfSourced,
   pickArtProduct,
   productMatchesCard,
+  productNamesCard,
+  sameCardName,
   type ArtCard,
   type ProductRecord,
   productImageUrl,
