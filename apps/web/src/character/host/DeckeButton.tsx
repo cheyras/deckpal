@@ -184,7 +184,8 @@ export function DeckeButton({
       className={[
         // Its size and inset are the tokens the page's clearance is built
         // from (`--fab-size`, `--fab-inset`), so the two cannot drift apart.
-        'group fixed bottom-(--fab-inset) right-(--fab-inset)',
+        // `decke-fab`: dims and stands down under the phone nav drawer (theme.css).
+        'decke-fab group fixed bottom-(--fab-inset) right-(--fab-inset)',
         // Above the phone scrim (24) and panel (25) while standing in for the
         // character, who will appear on the canvas above at 30. At rest, back
         // down to ordinary page chrome.
@@ -200,7 +201,10 @@ export function DeckeButton({
         // split by PROPERTY: the fade that says he showed up is kept, the
         // 320ms rise-and-scale that is the actual movement is dropped. The
         // hover/press scale goes with it, for the same reason.
-        'motion-safe:animate-[decke-button-in_320ms_cubic-bezier(0.2,0.9,0.3,1)_both]',
+        // `backwards`, not `both`: the end state is the button's own style, and
+        // a fill that outlives the entrance pins opacity at 1 for ever — which
+        // is what kept it bright under the nav drawer's dimming (theme.css).
+        'motion-safe:animate-[decke-button-in_320ms_cubic-bezier(0.2,0.9,0.3,1)_backwards]',
         'motion-reduce:animate-[decke-calm-in_220ms_ease-out_backwards] motion-reduce:transition-none',
         loading ? 'decke-button--waking' : '',
         failed ? 'decke-button--failed' : '',

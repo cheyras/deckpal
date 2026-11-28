@@ -851,7 +851,64 @@ body {
 }
 .back-plate-shape .back-face {
   fill: var(--back-face);
-  transition: fill 140ms ease;
+  transition: fill var(--duration-fast) var(--ease-standard);
+}
+/* The plate is drawn 28px tall, which is a fingertip short of a target. On a
+   touch screen its hit box grows to --spacing-hit, centred on the plate, so it
+   looks the same and takes a thumb. */
+@media (pointer: coarse) {
+  .back-plate::after {
+    content: '';
+    position: absolute;
+    inset: calc((var(--spacing-hit) - 28px) / -2) 0;
+  }
+}
+
+/* ── touch-hit: a full-size target for a control drawn smaller ──────────────
+ * Dense rows (a deck's − / + / ×, a 30px stepper) draw their controls below
+ * the 44px minimum on purpose; growing the drawing would crowd the row. On a
+ * coarse pointer this lays an invisible box of at least --spacing-hit, centred
+ * on the control, over it. It sets `position: relative`, so it goes on a
+ * control that is not itself positioned, and it spills past the control's
+ * edges, so give neighbours room enough that the boxes do not overlap. */
+@utility touch-hit {
+  @media (pointer: coarse) {
+    position: relative;
+    &::after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: max(100%, var(--spacing-hit));
+      height: max(100%, var(--spacing-hit));
+      translate: -50% -50%;
+    }
+  }
+}
+
+/* ── Small popovers (KebabMenu) ─────────────────────────────────────────────
+ * A menu that hangs off its trigger grows out of it — a short fade with a 4px
+ * drop and a hint of scale from the corner it hangs from — rather than being
+ * there on the next frame. `fast`: a menu is a small state change, not an
+ * overlay. Reduced motion keeps the fade and drops the travel. */
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.popover-in {
+  transform-origin: top right;
+  animation: popover-in var(--duration-fast) var(--ease-enter) backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .popover-in {
+    animation: sheet-scrim-in var(--duration-fast) var(--ease-standard) backwards;
+  }
 }
 
 /* Thin scrollbars on horizontal chip rows */
@@ -1123,6 +1180,27 @@ body {
 @media (min-width: 1068px) {
   .app-main[data-drawer-open] {
     opacity: 1;
+  }
+}
+/* Deck-E's launcher is fixed page chrome OUTSIDE `main`, so it did not dim
+   with the page: it sat at full strength in the corner of an open drawer, the
+   one bright thing under a modal, and a tap on it opened the chat behind the
+   menu. It dims and stands down with the page it belongs to. */
+@media (max-width: 1067.98px) {
+  /* Comes back up with the page, at the page's pace. Its own hover/press
+     transform keeps the button's 200ms; under reduced motion only the fade. */
+  .decke-fab {
+    transition-property: transform, opacity;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .decke-fab {
+      transition-property: opacity;
+    }
+  }
+  body:has(.app-main[data-drawer-open]) .decke-fab {
+    opacity: 0.2;
+    pointer-events: none;
+    transition: opacity var(--duration-slow) var(--ease-sheet);
   }
 }
 

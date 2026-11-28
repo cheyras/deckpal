@@ -15,6 +15,7 @@
  */
 import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
+import { useScrollEdge } from '../../lib/useScrollEdge'
 
 export interface TabItem {
   key: string
@@ -50,6 +51,10 @@ export function Tabs({
   className,
   fill = false,
 }: TabsProps) {
+  // A strip wider than the screen (Profile's seven tabs at 390px) used to end
+  // in a tab cut in half at the glass. It fades out under its edge instead,
+  // the way /design's tab row does — and only once there is more to scroll to.
+  const edge = useScrollEdge({ axis: 'x' })
   if (variant === 'pill') {
     const containerCls =
       size === 'sm'
@@ -83,7 +88,8 @@ export function Tabs({
   // underline variant
   return (
     <div
-      className={`scroll-x flex gap-1.5 border-b border-divider-subtle${className ? ` ${className}` : ''}`}
+      ref={edge}
+      className={`scroll-x scroll-edge-x flex gap-1.5 border-b border-divider-subtle${className ? ` ${className}` : ''}`}
     >
       {items.map((item) => {
         const active = item.key === value
