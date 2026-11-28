@@ -15,6 +15,8 @@ import { useAccess } from '../lib/access'
 import { GLOBAL_SEARCH_DEFAULTS } from '../routes/globalSearch'
 import { APP_HEADER_LANDMARK } from '../character/host/panelViewport'
 import { SkipLink } from './SkipLink'
+import { DURATION } from '../lib/motion'
+import { prefersReducedMotion } from '../lib/reducedMotion'
 
 // A11Y-05: `MobileDrawer`'s Tab trap and initial-focus target. Duplicated from
 // `Sheet.tsx` (which keeps its own copy private) rather than exported and
@@ -39,7 +41,7 @@ function ProfileChip() {
   return (
     <Link
       to="/profile"
-      className="flex items-center gap-[8px] rounded-full bg-surface-tertiary py-[6px] pl-[6px] pr-[14px] hover:bg-action-default-hover"
+      className="flex items-center gap-2 rounded-full bg-surface-tertiary py-1.5 pl-1.5 pr-3.5 hover:bg-action-default-hover"
       aria-label="Your profile"
     >
       {/* The level badge used to be absolutely positioned over the avatar's
@@ -52,7 +54,7 @@ function ProfileChip() {
       <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-raised text-icon-default">
         <AvatarDisc url={avatar.data?.avatarUrl} iconSize={20} fallbackClass="text-icon-default" />
       </span>
-      <span className="shrink-0 rounded-full bg-action-primary px-[6px] py-[1px] text-[12px] font-extrabold leading-[16px] text-action-primary-text">
+      <span className="shrink-0 rounded-full bg-action-primary px-1.5 py-px text-[12px] font-extrabold leading-[16px] text-action-primary-text">
         {level}
       </span>
       <span className="text-[14px] font-semibold text-text-primary">{username}</span>
@@ -70,18 +72,18 @@ function SignInChip() {
   // the current page updates `next` too (Astra review, PR #212).
   const next = useCurrentPathAsNext()
   return (
-    <div className="flex items-center gap-[8px]">
+    <div className="flex items-center gap-2">
       <Link
         to="/auth"
         search={{ next } as never}
-        className="flex h-[38px] items-center rounded-full px-[14px] text-[14px] font-semibold text-text-body hover:text-text-primary"
+        className="flex h-[38px] items-center rounded-full px-3.5 text-[14px] font-semibold text-text-body hover:text-text-primary"
       >
         Sign in
       </Link>
       <Link
         to="/auth"
         search={{ mode: 'signup', next } as never}
-        className="flex h-[38px] items-center rounded-full bg-action-primary px-[16px] text-[14px] font-semibold text-action-primary-text hover:opacity-90"
+        className="flex h-[38px] items-center rounded-full bg-action-primary px-4 text-[14px] font-semibold text-action-primary-text hover:opacity-90"
       >
         Sign up free
       </Link>
@@ -172,7 +174,7 @@ function NavRow({
     <span
       className={[
         'px-nav-row flex h-[56px] items-center',
-        collapsed ? 'justify-center px-0' : 'gap-[14px] px-[24px]',
+        collapsed ? 'justify-center px-0' : 'gap-3.5 px-6',
         active ? 'bg-surface-secondary text-text-primary' : 'text-text-muted hover:text-text-body',
       ].join(' ')}
       data-active={active ? 'true' : 'false'}
@@ -189,12 +191,12 @@ function NavRow({
         <>
           <span className="flex-1 text-[14px] font-normal leading-[21px]">{item.label}</span>
           {item.soon && (
-            <span className="rounded-full bg-surface-tertiary px-[8px] py-[2px] text-[12px] font-bold uppercase tracking-wide text-text-muted">
+            <span className="rounded-full bg-surface-tertiary px-2 py-0.5 text-[12px] font-bold uppercase tracking-wide text-text-muted">
               Soon
             </span>
           )}
           {locked && (
-            <span className="rounded-full bg-surface-tertiary px-[8px] py-[2px] text-[12px] font-bold uppercase tracking-wide text-text-muted">
+            <span className="rounded-full bg-surface-tertiary px-2 py-0.5 text-[12px] font-bold uppercase tracking-wide text-text-muted">
               Sign in
             </span>
           )}
@@ -299,13 +301,13 @@ function SeriesSubNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const { data, isLoading, error } = useQuery({ queryKey: ['series'], queryFn: ({ signal }) => api.series(signal) })
   if (isLoading) {
-    return <div className="py-[8px] pl-[62px] pr-[24px] text-[14px] text-text-muted">Loading series…</div>
+    return <div className="py-2 pl-[62px] pr-6 text-[14px] text-text-muted">Loading series…</div>
   }
   if (error || !data?.series.length) {
-    return <div className="py-[8px] pl-[62px] pr-[24px] text-[14px] text-text-muted">No series</div>
+    return <div className="py-2 pl-[62px] pr-6 text-[14px] text-text-muted">No series</div>
   }
   return (
-    <div className="pb-[6px]">
+    <div className="pb-1.5">
       {data.series.map((s) => {
         const active = pathname === `/series/${s.slug}` || pathname.startsWith(`/series/${s.slug}/`)
         return (
@@ -315,7 +317,7 @@ function SeriesSubNav({ onNavigate }: { onNavigate?: () => void }) {
             params={{ series: s.slug }}
             onClick={onNavigate}
             className={[
-              'block py-[8px] pl-[62px] pr-[24px] text-[14px] leading-[18px]',
+              'block py-2 pl-[62px] pr-6 text-[14px] leading-[18px]',
               active ? 'font-medium text-text-primary' : 'text-text-muted hover:text-text-body',
             ].join(' ')}
           >
@@ -350,7 +352,7 @@ function ExpandableNavRow({
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="block w-full text-left">
         <span
           className={[
-            'px-nav-row flex h-[56px] items-center gap-[14px] px-[24px]',
+            'px-nav-row flex h-[56px] items-center gap-3.5 px-6',
             active ? 'bg-surface-secondary text-text-primary' : 'text-text-muted hover:text-text-body',
           ].join(' ')}
           data-active={active ? 'true' : 'false'}
@@ -398,7 +400,7 @@ function Sidebar({
       <div
         className={[
           'flex h-[78px] shrink-0 items-center border-b border-border-default',
-          collapsed ? 'justify-center px-0' : 'gap-[10px] px-[20px]',
+          collapsed ? 'justify-center px-0' : 'gap-2.5 px-5',
         ].join(' ')}
       >
         {collapsed ? (
@@ -429,7 +431,7 @@ function Sidebar({
           </>
         )}
       </div>
-      <nav className="flex-1 overflow-y-auto py-[6px]">
+      <nav className="flex-1 overflow-y-auto py-1.5">
         {visibleNav(permissions).map((item) => {
           if (item.expandable) {
             return <ExpandableNavRow key={item.label} item={item} collapsed={collapsed} />
@@ -446,6 +448,52 @@ function Sidebar({
         })}
       </nav>
     </aside>
+  )
+}
+
+/**
+ * Keeps the drawer mounted for its exit animation after `open` falls.
+ *
+ * `closing` is the window between the two: the drawer is still drawn, sliding
+ * out, but it is no longer the modal — no role, no trap, inert — so whatever
+ * the reader reaches for next gets the tap and the focus straight away.
+ */
+function usePresence(open: boolean, exitMs: number): { present: boolean; closing: boolean } {
+  const [present, setPresent] = useState(open)
+  useEffect(() => {
+    if (open) {
+      setPresent(true)
+      return
+    }
+    if (!present) return
+    const id = window.setTimeout(() => setPresent(false), prefersReducedMotion() ? DURATION.base : exitMs)
+    return () => window.clearTimeout(id)
+  }, [open, present, exitMs])
+  return { present: present || open, closing: present && !open }
+}
+
+/**
+ * The menu glyph that turns INTO the close glyph — see `.menu-toggle-icon` in
+ * theme.css. It reads its state from the button's `aria-expanded`, so it has
+ * no prop to fall out of step with.
+ */
+function MenuToggleIcon() {
+  return (
+    <svg
+      className="menu-toggle-icon"
+      width={24}
+      height={24}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <line className="menu-toggle-top" x1="4" y1="7" x2="20" y2="7" />
+      <line className="menu-toggle-mid" x1="4" y1="12" x2="20" y2="12" />
+      <line className="menu-toggle-bottom" x1="4" y1="17" x2="20" y2="17" />
+    </svg>
   )
 }
 
@@ -500,9 +548,15 @@ function MobileDrawer({
       // duplicate selector rather than an import — see `DeckeChat.tsx`'s
       // `prefersReducedMotion` for the same call elsewhere in this codebase).
       if (e.key !== 'Tab') return
-      const nodes = Array.from(
+      // The loop is the drawer's controls AND the header button that opened
+      // it — that button is the drawer's one visible close control now (it
+      // turns into the ✕), so a keyboard has to be able to reach it.
+      // `tabIndex >= 0` leaves out the screen-reader dismiss below.
+      const toggle = document.querySelector<HTMLElement>('button[aria-controls="mobile-nav-drawer"]')
+      const inPanel = Array.from(
         panel.querySelectorAll<HTMLElement>(FOCUSABLE),
-      ).filter((el) => el.offsetParent !== null || el === document.activeElement)
+      ).filter((el) => el.tabIndex >= 0 && (el.offsetParent !== null || el === document.activeElement))
+      const nodes = toggle ? [toggle, ...inPanel] : inPanel
       e.preventDefault()
       if (nodes.length === 0) { panel.focus(); return }
       // WebKit's default keyboard setting skips ordinary links and buttons on
@@ -526,7 +580,7 @@ function MobileDrawer({
     if (!open) return
     const id = requestAnimationFrame(() => {
       const panel = panelRef.current
-      const first = panel?.querySelector<HTMLElement>(FOCUSABLE)
+      const first = Array.from(panel?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []).find((el) => el.tabIndex >= 0)
       ;(first ?? panel)?.focus({ preventScroll: true })
     })
     return () => {
@@ -534,45 +588,53 @@ function MobileDrawer({
       if (returnFocusRef.current) document.querySelector<HTMLElement>('button[aria-label="Menu"]')?.focus({ preventScroll: true })
     }
   }, [open, returnFocusRef])
-  if (!open) return null
+  // Still drawn for the length of its exit, so it can slide away rather than
+  // vanish. See `usePresence`.
+  const { present, closing } = usePresence(open, DURATION.base)
+  if (!present) return null
   const top = 'calc(64px + env(safe-area-inset-top))'
   return (
     <>
-      {/* tap-anywhere-outside backdrop */}
-      <div
-        className="fixed inset-0 z-(--z-sticky) nav:hidden"
-        style={{ top }}
-        onClick={onClose}
-        aria-hidden="true"
-      />
+      {/* tap-anywhere-outside backdrop. Gone the moment the drawer starts to
+          leave: a tap on the page during the exit is a tap on the page. The
+          dimming itself is `main` fading (theme.css, `.app-main`). */}
+      {open && (
+        <div
+          className="fixed inset-0 z-(--z-sticky) nav:hidden"
+          style={{ top }}
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
       <div
         ref={panelRef}
         id="mobile-nav-drawer"
         tabIndex={-1}
-        className="fixed left-0 z-(--z-overlay) w-[280px] max-w-[85vw] overflow-y-auto border-r border-border-default bg-surface-primary nav:hidden"
+        className="nav-drawer fixed left-0 z-(--z-overlay) w-[280px] max-w-[85vw] overflow-y-auto border-r border-border-default bg-surface-primary nav:hidden"
         style={{ top, height: `calc(100dvh - ${top})`, paddingBottom: 'env(safe-area-inset-bottom)' }}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Navigation"
+        data-closing={closing || undefined}
+        // Leaving, it is no longer the modal — nothing outside should be told
+        // it is under one, and nothing inside it should take focus.
+        role={closing ? undefined : 'dialog'}
+        aria-modal={closing ? undefined : 'true'}
+        aria-label={closing ? undefined : 'Navigation'}
+        inert={closing || undefined}
       >
-        {/* A11Y-05 (adversarial-review follow-up): with `aria-modal="true"`,
-            assistive tech that honors modality treats everything outside this
-            dialog — including the header's "Menu" button, which is now this
-            drawer's own toggle — as unreachable. Escape and a backdrop tap
-            still close it, but neither is available to every touch
-            screen-reader gesture set, so the dialog needs its own in-panel,
-            labelled dismiss control rather than depending on either. */}
-        <div className="flex justify-end px-[8px] pt-[8px]">
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close navigation"
-            className="flex h-[40px] w-[40px] items-center justify-center rounded-full text-icon-default hover:bg-surface-secondary hover:text-icon-hover"
-          >
-            <Icon name="close" size={20} />
-          </button>
-        </div>
-        <div className="px-[16px] pb-[20px]" onClick={onClose}>
+        {/* ONE close control, and it is the header button that opened the
+            drawer: it turns into the ✕ (MenuToggleIcon). The drawer's own
+            "Close navigation" ✕ in this corner was a second X a thumb-width
+            away from the first, and the owner asked for it to go.
+
+            A11Y-05 still holds, and this is how. With `aria-modal="true"`,
+            assistive tech that honours modality treats everything outside
+            this dialog — that header button included — as unreachable, and
+            Escape or a backdrop tap are not available to every touch
+            screen-reader gesture set. So the dialog keeps a labelled dismiss
+            of its own, VISUALLY HIDDEN: a screen reader finds it in the
+            dialog, a sighted reader sees one ✕, and the keyboard reaches the
+            header button through the Tab loop above. Last in the panel, so it
+            is never where focus lands on open. */}
+        <div className="px-4 pb-5 pt-4" onClick={onClose}>
           {signedOut ? (
             <Link
               to="/auth"
@@ -584,7 +646,7 @@ function MobileDrawer({
           ) : (
             <Link
               to="/profile"
-              className="flex h-[48px] items-center justify-center gap-[8px] rounded-full bg-action-primary text-[14px] font-semibold text-action-primary-text"
+              className="flex h-[48px] items-center justify-center gap-2 rounded-full bg-action-primary text-[14px] font-semibold text-action-primary-text"
             >
               <span className="h-[26px] w-[26px] shrink-0 overflow-hidden rounded-full">
                 <AvatarDisc url={avatar.data?.avatarUrl} iconSize={18} fallbackClass="text-action-primary-text" />
@@ -605,6 +667,9 @@ function MobileDrawer({
             ),
           )}
         </nav>
+        <button type="button" className="sr-only" tabIndex={-1} onClick={onClose}>
+          Close navigation
+        </button>
       </div>
     </>
   )
@@ -648,16 +713,16 @@ function Header({
         paddingRight: 'env(safe-area-inset-right)',
       }}
     >
-      <div className="flex h-[64px] items-center gap-[12px] px-[16px] nav:h-[78px] nav:px-[24px]">
+      <div className="flex h-[64px] items-center gap-3 px-4 nav:h-[78px] nav:px-6">
         {/* mobile: burger + brand */}
         <button
           onClick={onBurger}
-          className="flex h-[44px] w-[44px] items-center justify-center rounded-full text-icon-default nav:hidden"
+          className="flex size-hit items-center justify-center rounded-full text-icon-default nav:hidden"
           aria-label="Menu"
           aria-expanded={drawerOpen}
           aria-controls="mobile-nav-drawer"
         >
-          <Icon name={drawerOpen ? 'close' : 'menu'} size={24} />
+          <MenuToggleIcon />
         </button>
         <span className="flex min-w-0 items-center nav:hidden">
           <BrandLogo height={22} />
@@ -677,7 +742,7 @@ function Header({
               onChange={(e) => setTerm(e.target.value)}
               placeholder="Search Cards…"
               aria-label="Search cards"
-              className="h-[46px] w-full rounded-lg border border-border-default bg-surface-primary pl-[46px] pr-[14px] text-[16px] text-text-primary placeholder:text-text-muted"
+              className="h-[46px] w-full rounded-lg border border-border-default bg-surface-primary pl-[46px] pr-3.5 text-[16px] text-text-primary placeholder:text-text-muted"
             />
           </label>
         </form>
@@ -703,7 +768,7 @@ function Header({
           <Link
             to="/scan"
             aria-label="Scan a card"
-            className="flex h-[44px] w-[44px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default hover:bg-action-default-hover hover:text-icon-hover nav:h-[42px] nav:w-auto nav:gap-[8px] nav:px-[16px]"
+            className="flex h-[44px] w-[44px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default hover:bg-action-default-hover hover:text-icon-hover nav:h-[42px] nav:w-auto nav:gap-2 nav:px-4"
           >
             <Icon name="camera" size={20} />
             <span className="hidden text-[14px] font-semibold text-text-primary nav:inline">Scan</span>
@@ -718,7 +783,7 @@ function Header({
             `undefined` (still resolving) renders neither — a flash of "Sign in"
             in front of a signed-in user reads as a bug, and ProfileChip's
             authenticated query must not fire before we know there is a session. */}
-        <div className="hidden items-center gap-[12px] nav:flex">
+        <div className="hidden items-center gap-3 nav:flex">
           {signedIn === true && <ProfileChip />}
           {signedIn === false && <SignInChip />}
         </div>
@@ -776,6 +841,31 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => desktop.removeEventListener('change', closeForDesktop)
   }, [drawerOpen])
   useEffect(() => {
+    // `html[data-scrolled]` raises the scroll edge under the header once the
+    // page has actually moved (theme.css `.app-header-edge`). Past 2px, not 0:
+    // main.tsx parks every page at scrollY 1 for Safari 26.
+    //
+    // NOT while a sheet holds the page: `lockScroll` pins the body, which reads
+    // as scrollY 0, and dropping the edge then would fade it back in under the
+    // reader the moment the sheet slid away.
+    let frame = 0
+    const update = () => {
+      frame = 0
+      if (document.body.style.position === 'fixed') return
+      document.documentElement.toggleAttribute('data-scrolled', window.scrollY > 2)
+    }
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(update)
+    }
+    update()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      if (frame) cancelAnimationFrame(frame)
+      window.removeEventListener('scroll', onScroll)
+      document.documentElement.removeAttribute('data-scrolled')
+    }
+  }, [])
+  useEffect(() => {
     // Deck-E's launcher sits above the phone drawer. Opening chat dismisses
     // that modal first, without returning focus to the now-obscured Menu button.
     const onDeckeOpening = () => {
@@ -804,8 +894,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         setDrawerOpen((o) => !o)
       }} drawerOpen={drawerOpen} signedIn={signedIn} permissions={permissions} />
       <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} returnFocusRef={drawerReturnFocus} signedIn={signedIn} permissions={permissions} />
-      <main id="main" tabIndex={-1} className={drawerOpen ? 'app-main opacity-20 nav:opacity-100' : 'app-main'}>
-        <div className="app-content pt-[64px] nav:pt-[78px]">{children}</div>
+      <main id="main" tabIndex={-1} className="app-main" data-drawer-open={drawerOpen || undefined}>
+        {/* The scroll edge under the header — theme.css `.app-header-edge`. */}
+        <div aria-hidden className="app-header-edge" />
+        <div className="app-content pt-16 nav:pt-[78px]">{children}</div>
       </main>
       {/* Fixed sidebar occupies the left rail at ≥1068; offset main + header to match.
        *

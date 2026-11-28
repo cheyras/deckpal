@@ -20,8 +20,8 @@ export function Field({ label, error, hint, ...input }: FieldProps) {
   const msgId = `${id}-msg`
   const invalid = Boolean(error)
   return (
-    <div className="mb-[16px]">
-      <label htmlFor={id} className="mb-[6px] block text-[14px] font-semibold text-text-secondary">
+    <div className="mb-4">
+      <label htmlFor={id} className="mb-1.5 block text-[14px] font-semibold text-text-secondary">
         {label}
       </label>
       <input
@@ -30,13 +30,13 @@ export function Field({ label, error, hint, ...input }: FieldProps) {
         aria-invalid={invalid || undefined}
         aria-describedby={error || hint ? msgId : undefined}
         className={[
-          'block w-full rounded-[10px] border bg-surface-tertiary px-[14px] py-[12px] text-[15px] text-text-primary',
+          'block w-full rounded-[10px] border bg-surface-tertiary px-3.5 py-3 text-[15px] text-text-primary',
           'placeholder:text-text-muted disabled:opacity-60',
           invalid ? 'border-error' : 'border-action-ghost-border focus:border-surface-raised',
         ].join(' ')}
       />
       {(error || hint) && (
-        <p id={msgId} className={`mt-[6px] text-[14px] ${invalid ? 'text-error' : 'text-text-muted'}`}>
+        <p id={msgId} className={`mt-1.5 text-[14px] ${invalid ? 'text-error' : 'text-text-muted'}`}>
           {error || hint}
         </p>
       )}

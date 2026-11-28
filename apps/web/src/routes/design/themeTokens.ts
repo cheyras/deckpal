@@ -17,6 +17,8 @@ export type TokenCategory =
   | 'font'
   | 'text'
   | 'ease'
+  | 'motion'
+  | 'spacing'
   | 'breakpoint'
   | 'z'
 
@@ -31,16 +33,19 @@ export interface TokenInfo {
 }
 
 function categorize(name: string, block: 'theme' | 'root'): TokenCategory {
-  // :root holds two families: z-index layers and the variant gradient fills.
-  // Gradients take the permissive free-text treatment (they are full
-  // linear-gradient() expressions consumed via var(), so they DO live-preview).
+  // :root holds z-index layers, the variant gradient fills and a few layout
+  // constants (header height, FAB clearance, scroll-edge band). Everything but
+  // z takes the permissive free-text treatment (they are full CSS expressions
+  // consumed via var(), so they DO live-preview).
   if (block === 'root') return name.startsWith('--z-') ? 'z' : 'ease'
+  if (name === '--spacing' || name.startsWith('--spacing-')) return 'spacing'
+  if (name.startsWith('--duration-')) return 'motion'
   if (name.startsWith('--color-')) return 'color'
   if (name.startsWith('--radius-')) return 'radius'
   if (name.startsWith('--shadow-')) return 'shadow'
   if (name.startsWith('--font-')) return 'font'
   if (name.startsWith('--text-')) return 'text'
-  if (name.startsWith('--ease-')) return 'ease'
+  if (name.startsWith('--ease-')) return 'motion'
   if (name.startsWith('--breakpoint-')) return 'breakpoint'
   return 'color' // fallback — should not happen with well-formed theme.css
 }
@@ -58,6 +63,7 @@ function isLivePreviewable(cat: TokenCategory): boolean {
 function noteFor(cat: TokenCategory, name: string): string | undefined {
   if (cat === 'breakpoint') return 'Applies on save only (media queries use literal values)'
   if (cat === 'shadow') return 'Save-then-HMR (Tailwind inlines shadow values into --tw-shadow)'
+  if (name === '--spacing') return 'The grid unit: every numeric spacing utility is a multiple of it'
   if (name.endsWith('--line-height')) return 'Paired with its size token'
   return undefined
 }

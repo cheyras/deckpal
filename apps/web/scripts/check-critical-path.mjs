@@ -27,7 +27,11 @@ import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gzipSync } from 'node:zlib'
 
-const BUDGET_KB = 230
+// 230 → 232 on 2026-11-27: the shared Sheet gained drag-to-dismiss and the
+// scroll edge (~2.5 kB gzipped), and Sheet is on the critical path because the
+// header's bug reporter imports it through ListModals. See
+// decisions/2026/2026-11-27-spacing-and-motion-tokens-one-close-control-drag-to-dismiss-sheets.md.
+const BUDGET_KB = 232
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const DIST = resolve(process.argv[2] || join(HERE, '..', 'dist'))

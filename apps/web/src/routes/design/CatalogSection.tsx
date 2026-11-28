@@ -56,15 +56,15 @@ export function CatalogSection({ section, title, editable }: CatalogSectionProps
 
   if (galleries.length === 0) {
     return (
-      <div className="rounded-lg bg-surface-secondary p-[16px]">
-        <h3 className="text-[14px] font-semibold text-text-primary mb-[8px]">{title}</h3>
+      <div className="rounded-lg bg-surface-secondary p-4">
+        <h3 className="text-[14px] font-semibold text-text-primary mb-2">{title}</h3>
         <p className="text-[12px] text-text-muted">No {section} gallery files found yet.</p>
       </div>
     )
   }
 
   return (
-    <div className="space-y-[16px]">
+    <div className="space-y-4">
       <h3 className="text-[16px] font-semibold text-text-primary">{title}</h3>
       {galleries.map((gallery) => (
         <GalleryEntry key={gallery.name} gallery={gallery} editable={editable} />
@@ -102,18 +102,18 @@ function GalleryEntry({ gallery, editable }: GalleryEntryProps) {
   return (
     <div className="rounded-lg bg-surface-secondary overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-[16px] py-[10px] bg-surface-tertiary/50">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-surface-tertiary/50">
         <div>
           <h4 className="text-[14px] font-semibold text-text-primary">{gallery.name}</h4>
           {gallery.description && (
-            <p className="text-[11px] text-text-muted mt-[2px]">{gallery.description}</p>
+            <p className="text-[11px] text-text-muted mt-0.5">{gallery.description}</p>
           )}
-          <p className="text-[10px] text-text-muted font-mono mt-[2px]">{gallery.source}</p>
+          <p className="text-[10px] text-text-muted font-mono mt-0.5">{gallery.source}</p>
         </div>
         {gallery.knobs && Object.keys(gallery.knobs).length > 0 && (
           <button
             onClick={() => setShowKnobs(!showKnobs)}
-            className="h-[28px] rounded-full bg-surface-quaternary px-[12px] text-[11px] text-text-muted hover:text-text-primary"
+            className="h-[28px] rounded-full bg-surface-quaternary px-3 text-[11px] text-text-muted hover:text-text-primary"
           >
             {showKnobs ? 'Hide knobs' : 'Knobs'}
           </button>
@@ -121,19 +121,19 @@ function GalleryEntry({ gallery, editable }: GalleryEntryProps) {
       </div>
 
       {/* Variants grid */}
-      <div className="p-[16px]">
-        <div className="flex flex-wrap gap-[12px]">
+      <div className="overflow-x-auto p-4">
+        <div className="flex flex-wrap gap-3">
           {gallery.variants.map((variant, i) => (
             <div
               key={i}
-              className="rounded-lg border border-border-default bg-surface-primary p-[12px] min-w-[120px]"
+              className="rounded-lg border border-border-default bg-surface-primary p-3 min-w-[120px]"
             >
-              <div className="text-[10px] text-text-muted mb-[8px] font-medium">{variant.label}</div>
+              <div className="text-[10px] text-text-muted mb-2 font-medium">{variant.label}</div>
               {isOverlay ? (
                 <>
                   <button
                     onClick={() => setOpenVariant(i)}
-                    className="w-full rounded-lg border border-dashed border-border-default bg-surface-tertiary/40 px-[10px] py-[16px] text-[11px] text-text-muted hover:border-action-primary hover:text-text-primary"
+                    className="w-full rounded-lg border border-dashed border-border-default bg-surface-tertiary/40 px-2.5 py-4 text-[11px] text-text-muted hover:border-action-primary hover:text-text-primary"
                   >
                     Preview: {gallery.name} — click to open
                   </button>
@@ -159,7 +159,7 @@ function GalleryEntry({ gallery, editable }: GalleryEntryProps) {
         </div>
 
         {error && (
-          <div className="mt-[8px] rounded bg-halo-error px-[8px] py-[4px] text-[11px] text-error">
+          <div className="mt-2 rounded bg-halo-error px-2 py-1 text-[11px] text-error">
             {error}
           </div>
         )}
@@ -167,18 +167,18 @@ function GalleryEntry({ gallery, editable }: GalleryEntryProps) {
 
       {/* Interactive knob instance */}
       {showKnobs && gallery.knobs && (
-        <div className="border-t border-border-default px-[16px] py-[12px] space-y-[12px]">
+        <div className="border-t border-border-default px-4 py-3 space-y-3">
           <div className="text-[11px] font-medium text-text-muted uppercase tracking-wide">
             Interactive
           </div>
-          <div className="flex flex-col gap-[16px] lg:flex-row">
+          <div className="flex flex-col gap-4 lg:flex-row">
             {/* Preview */}
-            <div className="rounded-lg border border-border-default bg-surface-primary p-[16px] min-w-[200px]">
+            <div className="rounded-lg border border-border-default bg-surface-primary p-4 min-w-[200px]">
               {isOverlay ? (
                 <>
                   <button
                     onClick={() => setKnobPreviewOpen(true)}
-                    className="w-full rounded-lg border border-dashed border-border-default bg-surface-tertiary/40 px-[10px] py-[16px] text-[11px] text-text-muted hover:border-action-primary hover:text-text-primary"
+                    className="w-full rounded-lg border border-dashed border-border-default bg-surface-tertiary/40 px-2.5 py-4 text-[11px] text-text-muted hover:border-action-primary hover:text-text-primary"
                   >
                     Preview: {gallery.name} (interactive) — click to open
                   </button>
@@ -201,7 +201,7 @@ function GalleryEntry({ gallery, editable }: GalleryEntryProps) {
               )}
             </div>
             {/* Knobs */}
-            <div className="flex-1 space-y-[6px]">
+            <div className="flex-1 space-y-1.5">
               {Object.entries(gallery.knobs).map(([key, def]) => (
                 <KnobControl
                   key={key}
@@ -213,7 +213,7 @@ function GalleryEntry({ gallery, editable }: GalleryEntryProps) {
               ))}
               <button
                 onClick={() => setKnobState({ ...gallery.defaults })}
-                className="mt-[8px] h-[28px] rounded bg-surface-quaternary px-[12px] text-[11px] text-text-muted hover:text-text-primary"
+                className="mt-2 h-[28px] rounded bg-surface-quaternary px-3 text-[11px] text-text-muted hover:text-text-primary"
               >
                 Reset to defaults
               </button>
@@ -298,20 +298,20 @@ function AgentComposer({
     <div className="border-t border-border-default">
       <button
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-[6px] px-[16px] py-[8px] text-[11px] text-text-muted hover:text-text-primary hover:bg-surface-tertiary/30"
+        className="flex w-full items-center gap-1.5 px-4 py-2 text-[11px] text-text-muted hover:text-text-primary hover:bg-surface-tertiary/30"
       >
         <span className="text-[13px]">{open ? '▾' : '▸'}</span>
         Send to agent
       </button>
 
       {open && (
-        <div className="px-[16px] pb-[12px] space-y-[8px]">
+        <div className="px-4 pb-3 space-y-2">
           {/* Pre-filled context display */}
-          <div className="flex flex-wrap gap-[6px]">
-            <span className="rounded bg-surface-quaternary px-[6px] py-[1px] text-[9px] font-mono text-text-muted">
+          <div className="flex flex-wrap gap-1.5">
+            <span className="rounded bg-surface-quaternary px-1.5 py-px text-[9px] font-mono text-text-muted">
               {gallery.name}
             </span>
-            <span className="rounded bg-surface-quaternary px-[6px] py-[1px] text-[9px] font-mono text-text-muted">
+            <span className="rounded bg-surface-quaternary px-1.5 py-px text-[9px] font-mono text-text-muted">
               {gallery.source}
             </span>
           </div>
@@ -322,14 +322,14 @@ function AgentComposer({
             onChange={(e) => setIntent(e.target.value)}
             placeholder={`Describe what to change in ${gallery.name}... (e.g. "increase the md height to 46px", "add a new outline variant")`}
             rows={3}
-            className="w-full rounded-lg border border-border-default bg-surface-primary px-[12px] py-[8px] text-[12px] text-text-primary placeholder:text-text-muted/60 focus:border-action-primary focus:outline-none resize-y"
+            className="w-full rounded-lg border border-border-default bg-surface-primary px-3 py-2 text-[12px] text-text-primary placeholder:text-text-muted/60 focus:border-action-primary focus:outline-none resize-y"
           />
 
           <div className="flex items-center justify-between">
             <button
               onClick={handleSubmit}
               disabled={!intent.trim() || submitting}
-              className="h-[28px] rounded-full bg-action-primary px-[14px] text-[11px] font-bold text-action-primary-text hover:bg-action-primary-hover disabled:opacity-50"
+              className="h-[28px] rounded-full bg-action-primary px-3.5 text-[11px] font-bold text-action-primary-text hover:bg-action-primary-hover disabled:opacity-50"
             >
               {submitting ? 'Submitting...' : 'Submit request'}
             </button>

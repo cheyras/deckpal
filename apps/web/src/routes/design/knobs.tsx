@@ -32,7 +32,7 @@ export function ColorKnob({ value, onChange, label }: ColorKnobProps) {
   }
 
   return (
-    <div className="flex items-center gap-[8px]">
+    <div className="flex items-center gap-2">
       <label className="text-[11px] text-text-muted min-w-[100px] truncate" title={label}>
         {label}
       </label>
@@ -56,7 +56,7 @@ export function ColorKnob({ value, onChange, label }: ColorKnobProps) {
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-[28px] w-[120px] rounded border border-border-default bg-surface-secondary px-[8px] text-[11px] text-text-primary font-mono"
+        className="h-[28px] w-[120px] rounded border border-border-default bg-surface-secondary px-2 text-[11px] text-text-primary font-mono"
       />
       {isRgb && (
         <input
@@ -101,7 +101,7 @@ export function PxKnob({ value, onChange, label, min = 0, max = 9999, step = 1 }
   const num = parseFloat(value) || 0
 
   return (
-    <div className="flex items-center gap-[8px]">
+    <div className="flex items-center gap-2">
       <label className="text-[11px] text-text-muted min-w-[100px] truncate" title={label}>
         {label}
       </label>
@@ -118,7 +118,7 @@ export function PxKnob({ value, onChange, label, min = 0, max = 9999, step = 1 }
         max={max}
         step={step}
         onChange={(e) => onChange(`${e.target.value}px`)}
-        className="h-[28px] w-[70px] rounded border border-border-default bg-surface-secondary px-[8px] text-[11px] text-text-primary text-center font-mono"
+        className="h-[28px] w-[70px] rounded border border-border-default bg-surface-secondary px-2 text-[11px] text-text-primary text-center font-mono"
       />
       <button
         className="h-[28px] w-[28px] rounded border border-border-default bg-surface-tertiary text-text-primary text-[14px] hover:bg-surface-quaternary"
@@ -147,7 +147,7 @@ export function NumberKnob({ value, onChange, label, min = -9999, max = 9999, st
   const num = parseInt(value, 10) || 0
 
   return (
-    <div className="flex items-center gap-[8px]">
+    <div className="flex items-center gap-2">
       <label className="text-[11px] text-text-muted min-w-[100px] truncate" title={label}>
         {label}
       </label>
@@ -158,7 +158,7 @@ export function NumberKnob({ value, onChange, label, min = -9999, max = 9999, st
         max={max}
         step={step}
         onChange={(e) => onChange(e.target.value)}
-        className="h-[28px] w-[80px] rounded border border-border-default bg-surface-secondary px-[8px] text-[11px] text-text-primary text-center font-mono"
+        className="h-[28px] w-[80px] rounded border border-border-default bg-surface-secondary px-2 text-[11px] text-text-primary text-center font-mono"
       />
     </div>
   )
@@ -175,7 +175,7 @@ interface TextKnobProps {
  */
 export function TextKnob({ value, onChange, label }: TextKnobProps) {
   return (
-    <div className="flex items-center gap-[8px]">
+    <div className="flex items-center gap-2">
       <label className="text-[11px] text-text-muted min-w-[100px] truncate" title={label}>
         {label}
       </label>
@@ -183,7 +183,7 @@ export function TextKnob({ value, onChange, label }: TextKnobProps) {
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-[28px] flex-1 rounded border border-border-default bg-surface-secondary px-[8px] text-[11px] text-text-primary font-mono"
+        className="h-[28px] flex-1 rounded border border-border-default bg-surface-secondary px-2 text-[11px] text-text-primary font-mono"
       />
     </div>
   )
@@ -201,14 +201,14 @@ interface SelectKnobProps {
  */
 export function SelectKnob({ value, onChange, label, options }: SelectKnobProps) {
   return (
-    <div className="flex items-center gap-[8px]">
+    <div className="flex items-center gap-2">
       <label className="text-[11px] text-text-muted min-w-[100px] truncate" title={label}>
         {label}
       </label>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-[28px] rounded border border-border-default bg-surface-secondary px-[8px] text-[11px] text-text-primary"
+        className="h-[28px] min-w-0 flex-1 truncate rounded border border-border-default bg-surface-secondary px-2 text-[11px] text-text-primary"
       >
         {options.map((opt) => (
           <option key={opt} value={opt}>
@@ -231,12 +231,12 @@ interface BooleanKnobProps {
  */
 export function BooleanKnob({ value, onChange, label }: BooleanKnobProps) {
   return (
-    <div className="flex items-center gap-[8px]">
+    <div className="flex items-center gap-2">
       <label className="text-[11px] text-text-muted min-w-[100px] truncate" title={label}>
         {label}
       </label>
       <button
-        className={`h-[28px] rounded border px-[12px] text-[11px] font-medium ${
+        className={`h-[28px] rounded border px-3 text-[11px] font-medium ${
           value
             ? 'border-action-primary bg-action-primary/20 text-action-primary'
             : 'border-border-default bg-surface-tertiary text-text-muted'
@@ -263,7 +263,7 @@ interface PropNumberKnobProps {
  */
 export function PropNumberKnob({ value, onChange, label, min = 0, max = 1000, step = 1 }: PropNumberKnobProps) {
   return (
-    <div className="flex items-center gap-[8px]">
+    <div className="flex items-center gap-2">
       <label className="text-[11px] text-text-muted min-w-[100px] truncate" title={label}>
         {label}
       </label>
@@ -274,7 +274,7 @@ export function PropNumberKnob({ value, onChange, label, min = 0, max = 1000, st
         max={max}
         step={step}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="h-[28px] w-[80px] rounded border border-border-default bg-surface-secondary px-[8px] text-[11px] text-text-primary text-center font-mono"
+        className="h-[28px] w-[80px] rounded border border-border-default bg-surface-secondary px-2 text-[11px] text-text-primary text-center font-mono"
       />
     </div>
   )

@@ -13,7 +13,7 @@ import { useTopbar } from '../../lib/useTopbar'
 export function TopbarToggle() {
   const current = useTopbar()
   return (
-    <div className="inline-flex rounded-full bg-surface-tertiary p-[3px]" role="group" aria-label="Top bar">
+    <div className="inline-flex rounded-full bg-surface-tertiary p-0.5" role="group" aria-label="Top bar">
       {(['cover', 'flat'] as const).map((option) => {
         const active = current === option
         return (
@@ -27,7 +27,7 @@ export function TopbarToggle() {
             aria-pressed={active}
             title={option === 'cover' ? 'Translucent, blurred, grained' : 'Opaque — the pre-effect header'}
             className={[
-              'h-[26px] rounded-full px-[12px] text-[12px] font-bold capitalize',
+              'h-[26px] rounded-full px-3 text-[12px] font-bold capitalize',
               active ? 'bg-action-primary text-action-primary-text' : 'text-text-muted hover:text-text-primary',
             ].join(' ')}
           >
