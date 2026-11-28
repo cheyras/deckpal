@@ -2,36 +2,66 @@
 // `#camera-view`). Live video, the reticle + tracked-quad overlay, the
 // incoming stack docked on the right edge, a hint pill, and the permission-
 // flow overlays (requesting/denied/error) ported from the previous Scan.tsx.
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Icon } from '../../components/Icon'
+import { DURATION as TOKENS, EASE as TOKEN_EASE } from '../../lib/motion'
 import { QuadOverlay } from './QuadOverlay'
-import { squareSide } from './coords'
+import { canonicalSquareMap, framePointToCss, squareSide } from './coords'
 import { IncomingStack } from './IncomingStack'
-import { DURATION, prefersReducedMotion } from './motion'
-import type { EngineState } from '../engine/contract'
+import { flashAnimation, prefersReducedMotion } from './motion'
+import type { EngineState, Quad } from '../engine/contract'
 import type { CamState } from './camera'
+import type { StatusActionId, StatusMessage } from './statusLine'
 import type { StackItem } from './types'
+
+const ACTION_LABEL: Record<StatusActionId, string> = {
+  'scan-again': 'Scan again',
+  undo: 'Undo',
+  'add-copy': 'Add copy',
+  skip: 'Skip',
+}
+
+/** The pill's text, with the status line's "✓" drawn as the shared check Icon (AGENTS.md B13). */
+function StatusText({ text }: { text: string }) {
+  const parts = text.split('✓')
+  return (
+    <>
+      {parts.map((p, i) => (
+        <Fragment key={i}>
+          {i > 0 && <Icon name="check" size={13} strokeWidth={3} className="inline-block align-[-2px] text-change-positive" />}
+          {p}
+        </Fragment>
+      ))}
+    </>
+  )
+}
 
 export function CameraStage({
   videoRef,
   camState,
   engineState,
   engineError,
-  hint,
+  status,
+  onStatusAction,
   stackItems,
   onStackNodeRef,
   onRetry,
   onReportCamera,
-  flashSignal,
+  flash,
   onBoxChange,
   overlay,
-  hintAction,
+  currentEpisodeId = null,
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>
   camState: CamState
   engineState: EngineState | null
   engineError: string | null
-  hint: string
+  /** The status line's current message (statusLine.ts) — the pill under the picture. */
+  status: StatusMessage
+  /** One of the pill's buttons was pressed. */
+  onStatusAction?: (id: StatusActionId) => void
+  /** The capture the pill's "Scanned ✓" is about: its tray thumbnail is ringed. */
+  currentEpisodeId?: string | null
   /** Captures still waiting on a verdict, plus the one or two showing theirs on
    *  the way out. Nothing in the stack is interactive — the 2026-09-06 ruling
    *  sends every settled capture down to the list, where the reader acts on it —
@@ -40,12 +70,15 @@ export function CameraStage({
   onStackNodeRef: (id: string, el: HTMLDivElement | null) => void
   onRetry: () => void
   onReportCamera: () => void
-  /** Incremented once per capture — pulses a brief white flash across the
-   *  stage (prototype.html's `.quad-flash`, applied to the whole camera box
-   *  rather than threaded per-quad into the SVG overlay: same beat, simpler
-   *  wiring, and just as legible since a capture already freezes nothing
-   *  else on screen). */
-  flashSignal: number
+  /**
+   * THE CAPTURE FLASH: `seq` changes once per capture that becomes (or may
+   * become) a row, at the moment capture() is called — the whole camera to
+   * white and back (motion.ts FLASH, 540 ms; gentler under reduced motion), and
+   * the captured quad's outline solid white for the hold, then back to the
+   * lock's green. `quad` is canonical; null for a capture with no quad on
+   * screen (a promoted drift probe).
+   */
+  flash: { seq: number; quad: Quad | null }
   /** Reports this box's rendered CSS size up to Scan.tsx, which needs it (plus
    *  the engine's own `frame` and `stream` dimensions) to place the
    *  capture-flight courier at the captured quad's actual on-screen pose —
@@ -58,13 +91,12 @@ export function CameraStage({
   /** Drawn over the live picture, above the hint — the voice caption, which
    *  belongs where the reader is looking while they scan. */
   overlay?: ReactNode
-  /** Makes the hint pill a button: "Already scanned · Tap to scan again" while
-   *  the lock is a card the duplicate policy refuses (Scan.tsx). */
-  hintAction?: { label: string; onClick: () => void } | null
 }) {
   const slotRef = useRef<HTMLDivElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
   const flashRef = useRef<HTMLDivElement>(null)
+  const outlineRef = useRef<SVGPolygonElement>(null)
+  const pillTextRef = useRef<HTMLSpanElement>(null)
   const [box, setBox] = useState({ width: 0, height: 0 })
   /**
    * THE SQUARE, SIZED EXPLICITLY — because `aspect-square` did not deliver one.
@@ -114,16 +146,45 @@ export function CameraStage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [box.width, box.height])
 
-  useEffect(() => {
-    if (flashSignal === 0 || !flashRef.current || prefersReducedMotion()) return
-    const anim = flashRef.current.animate([{ opacity: 0 }, { opacity: 0.75, offset: 0.3 }, { opacity: 0 }], {
-      duration: DURATION.flash,
-      easing: 'ease-out',
-    })
+  // THE FLASH — opacity only, WAAPI. Under reduced motion it stays, gentler.
+  // A LAYOUT effect: started in the commit that carries the new seq, before
+  // the browser paints it, so the white is up within one frame of the shutter.
+  useLayoutEffect(() => {
+    if (flash.seq === 0 || !flashRef.current) return
+    const reduced = prefersReducedMotion()
+    const { keyframes, options } = flashAnimation(reduced)
+    const anim = flashRef.current.animate(keyframes, options)
     anim.finished.then(() => anim.cancel()).catch(() => {})
-  }, [flashSignal])
+    // ...and the captured outline, white over the lock's green for the hold.
+    const outline = outlineRef.current
+    if (outline && flash.quad) {
+      const o = outline.animate(
+        [
+          { opacity: 1, offset: 0 },
+          { opacity: 1, offset: reduced ? 0 : TOKENS.instant / (TOKENS.instant + TOKENS.slow), easing: TOKEN_EASE.enter },
+          { opacity: 0, offset: 1 },
+        ],
+        { duration: reduced ? TOKENS.fast : TOKENS.instant + TOKENS.slow },
+      )
+      o.finished.then(() => o.cancel()).catch(() => {})
+    }
+  }, [flash])
+
+  // The pill's text cross-fades on a change (DURATION.instant, opacity only).
+  useEffect(() => {
+    const el = pillTextRef.current
+    if (!el || prefersReducedMotion()) return
+    const a = el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: TOKENS.instant, easing: TOKEN_EASE.standard })
+    a.finished.then(() => a.cancel()).catch(() => {})
+  }, [status.text])
 
   const live = camState === 'live'
+  const flashPoints = (() => {
+    const s = engineState
+    if (!flash.quad || !s || !box.width || !box.height || !s.frame.width) return null
+    const map = canonicalSquareMap(box.width, box.height, s.stream?.width ?? 0, s.stream?.height ?? 0, s.frame.width)
+    return flash.quad.map(([x, y]) => framePointToCss(map, x, y).join(',')).join(' ')
+  })()
 
   return (
     // The SLOT: whatever space the flex parent has for the camera. It exists
@@ -146,28 +207,47 @@ export function CameraStage({
         style={side ? { width: side, height: side } : { maxHeight: '100%' }}
       >
         <video ref={videoRef} playsInline muted autoPlay className="absolute inset-0 h-full w-full object-cover" />
-        <div ref={flashRef} className="pointer-events-none absolute inset-0 z-40 bg-white opacity-0" />
+        {/* THE FLASH: above the quad overlay and the tray, below the pill. */}
+        <div ref={flashRef} data-capture-flash className="pointer-events-none absolute inset-0 z-40 bg-white opacity-0" />
+        {flashPoints && (
+          <svg className="pointer-events-none absolute inset-0 z-[41] h-full w-full" aria-hidden="true">
+            <polygon ref={outlineRef} points={flashPoints} fill="none" stroke="white" strokeWidth={4} strokeLinejoin="round" opacity={0} />
+          </svg>
+        )}
         {live && <QuadOverlay state={engineState} box={box} />}
-        {live && <IncomingStack items={stackItems} onNodeRef={onStackNodeRef} />}
+        {live && <IncomingStack items={stackItems} onNodeRef={onStackNodeRef} currentEpisodeId={currentEpisodeId} />}
 
         {live && (
           <>
-            {hintAction ? (
-              <button
-                type="button"
-                onClick={hintAction.onClick}
-                className="absolute bottom-[14px] left-1/2 z-30 flex -translate-x-1/2 items-center gap-[8px] whitespace-nowrap rounded-full bg-black/65 py-[6px] pl-[14px] pr-[6px] text-[13px] font-semibold text-white backdrop-blur motion-safe:animate-[sheet-panel-in_180ms_cubic-bezier(0.22,0.61,0.36,1)_both]"
-              >
-                {hint}
-                <span className="rounded-full bg-action-primary px-[10px] py-[3px] text-[12px] font-bold text-action-primary-text">
-                  {hintAction.label}
-                </span>
-              </button>
-            ) : (
-              <div className="pointer-events-none absolute bottom-[14px] left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-black/55 px-[14px] py-[6px] text-[13px] font-semibold text-white backdrop-blur">
-                {hint}
-              </div>
-            )}
+            {/* THE STATUS PILL (statusLine.ts decides what it says). One
+                element whatever it says, so it never jumps: a fixed minimum
+                width, the text cross-fading, and a button only when the
+                message carries one. */}
+            <div
+              data-scan-status={status.key}
+              role="status"
+              aria-live="polite"
+              className={`absolute bottom-[14px] left-1/2 z-50 flex min-w-[200px] max-w-[calc(100%-56px)] -translate-x-1/2 items-center justify-center gap-[8px] whitespace-nowrap rounded-full bg-black/60 py-[6px] text-[13px] font-semibold text-white backdrop-blur ${
+                status.actions.length ? 'pl-[14px] pr-[6px]' : 'pointer-events-none px-[14px]'
+              }`}
+            >
+              <span ref={pillTextRef} data-scan-status-text className="min-w-0 truncate">
+                <StatusText text={status.text} />
+              </span>
+              {status.actions.map((a) => (
+                <button
+                  key={a}
+                  type="button"
+                  data-status-action={a}
+                  onClick={() => onStatusAction?.(a)}
+                  className={`shrink-0 rounded-full px-[10px] py-[3px] text-[12px] font-bold ${
+                    a === 'skip' ? 'bg-white/15 text-white' : 'bg-action-primary text-action-primary-text'
+                  }`}
+                >
+                  {ACTION_LABEL[a]}
+                </button>
+              ))}
+            </div>
             {overlay}
             <button
               type="button"

@@ -157,12 +157,25 @@ export interface EngineState {
   saturation: number | null
   /**
    * THE LOCK'S LOOK — a 264-byte colour layout of the locked card on this
-   * tick's working image (engine/look.ts), or null with no lock. The capture
-   * policy compares it with the looks of recent captures to tell a different
-   * card put down in the same place from the same card still there, which the
-   * track id and the region overlap cannot (ui/rearm.ts).
+   * tick's working image (engine/look.ts), or null with no lock. The
+   * presentation machine (ui/presentation.ts) compares it, tick to tick, with
+   * the look of the card its episode captured: the same card still lying there
+   * stays quiet; a hand, a slide or a swap moves it. (Until 2026-11-27 the look
+   * re-arm compared it with capture looks to tell a different card from the
+   * same one, which it cannot do reliably — decision "a flip is always
+   * captured".)
    */
   look: CardLook | null
+  /**
+   * THE SPOT LOOK — the look of whatever sits on the quad the UI asked the
+   * engine to watch (`ScanEngine.watch`), on this tick's working image, or
+   * null when nothing is watched. The presentation machine
+   * (ui/presentation.ts) watches the spot a capture was taken on, so a tick
+   * with no lock there can still say whether the card is: a detector dropout
+   * over an untouched card reads as the card, a hand over it does not. One
+   * 48x66 warp per tick, and only while watching.
+   */
+  spotLook: CardLook | null
   /**
    * HOW SHARP THE LOCK IS on this tick: the Laplacian variance of the luma in
    * the middle of the locked quad, on the working image (engine/sharpness.ts),
@@ -215,6 +228,12 @@ export interface ScanEngine {
    * so the engine has no interest in the display's dimensions at all.
    */
   capture(trackId: number): Promise<CaptureResult>
+  /**
+   * The quad (canonical coordinates) whose look the next ticks report as
+   * `EngineState.spotLook`, or null to stop. Read at the next tick; changes
+   * nothing else the engine does.
+   */
+  watch(quad: Quad | null): void
 }
 
 export interface EngineOptions {

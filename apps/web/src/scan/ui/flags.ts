@@ -357,7 +357,7 @@ export async function recordIdentityEvent(input: {
  *
  * This is the record that answers "what was it looking at when it decided to
  * fire", including for the locks that DON'T become captures because the
- * refractory set already holds the track.
+ * presentation episode is still watching the card they show.
  */
 export async function recordLockEvent(video: HTMLVideoElement | null, detail: Record<string, unknown>): Promise<void> {
   const now = Date.now()
@@ -385,26 +385,39 @@ export async function recordLockEvent(video: HTMLVideoElement | null, detail: Re
   }
 }
 
-// ── THE TICK TRACE ───────────────────────────────────────────────────────────
+/// ── THE TICK TRACE (v2, 2026-11-27) ─────────────────────────────────────────
 //
 // The lock recorder above is throttled to one event per 2 s, and every question
-// the 2026-11-26 owner session raised about the duplicate policy lives between
-// two of those: what the tracker did while one card was slid off a stack and
-// the next one showed, whether the look left and came back, how long a refused
-// lock sat there. This records the policy's per-tick state, numbers only (no
-// frame), and posts it every TRACE_FLUSH_MS as one `tick-trace` record.
+// about when the scanner takes a card again lives between two of those: what
+// the tracker did while one card was slid off a stack and the next one showed,
+// how far the look moved, whether a hand covered the card. This records the
+// policy's per-tick state, numbers only (no frame), and posts it every
+// TRACE_FLUSH_MS as one `tick-trace` record (the one record type the
+// scan-flags endpoint takes without an image).
 //
 // A row: `t` ms since the trace began; `L` the locked track or null; `k` the
 // live tracks as [id, centre x, centre y (canonical px), long side (frame
-// fraction x 1000), coasting 0/1]; `v` the verdict as letters (F fire, R repeat,
-// N new by look, B card back, T too far, W focus wait, Y busy); `rn` the lock's
-// look distance to the nearest capture behind a refusal; `sd` its distance to
-// the same track's previous lock look; `rc` live regions; `ho` has-object;
-// `sh` sharpness. Ticks with nothing in frame are skipped; `t` says where.
+// fraction x 1000), coasting 0/1]; `v` the verdict as letters (F fire, B card
+// back, T too far, W focus wait, Y busy); `st` the presentation machine's state
+// (I idle, W watching, B broken, ui/presentation.ts); `d` the look distance it
+// classed the tick by and `cls` the class (q quiet, s soft, h hard), with `sp`
+// 1 when `d` came from the spot look rather than a lock; `ep` the episode; `bk`
+// a break declared on this tick (d disturbed, r drift); `sd` the lock's
+// distance to the same track's previous lock look; `ho` has-object; `sh`
+// sharpness. Ticks with nothing in frame and nothing watched are skipped; `t`
+// says where.
+//
+// v2 dropped v1's `rn` (distance to the capture behind a refusal) and `rc`
+// (live regions): the refusal and the regions are gone. The record also carries
+// `events`, the two policy events the rows cannot show (see recordTraceEvent):
+// `episode-fire` and `repeat-outcome`. They ride inside the tick-trace record,
+// not as records of their own, so the endpoint's one image-less type covers them.
 
+export const TICK_TRACE_VERSION = 2
 const TRACE_FLUSH_MS = 10_000
 const TRACE_MAX_ROWS = 150
 let traceRows: Record<string, unknown>[] = []
+let traceEvents: Record<string, unknown>[] = []
 let traceStartedAt = 0
 let traceFirstRowAt = 0
 
@@ -413,21 +426,27 @@ export interface TickTraceRow {
   tracks: Array<{ id: number; quad: ReadonlyArray<readonly number[]>; coasting?: boolean }>
   frameSide: number
   verdict: string
-  refuserDistance: number | null
+  /** The presentation machine's state after this tick. */
+  state: 'idle' | 'watching' | 'broken'
+  d: number | null
+  cls: 'quiet' | 'soft' | 'hard' | null
+  fromSpot: boolean
+  episode: number | null
+  breakKind: 'disturbed' | 'drift' | null
   steadyDistance: number | null
-  regionCount: number
   hasObj: number | null
   sharpness: number | null
 }
 
+const r2 = (x: number | null | undefined) => (x == null || !Number.isFinite(x) ? null : Math.round(x * 100) / 100)
+
 /** One detect tick of the auto-capture policy into the trace. Never throws. */
 export function recordTick(row: TickTraceRow): void {
   try {
-    if (!row.tracks.length && row.locked === null) return
+    if (!row.tracks.length && row.locked === null && row.state === 'idle') return
     const now = Date.now()
     if (!traceStartedAt) traceStartedAt = now
-    if (!traceRows.length) traceFirstRowAt = now
-    const r2 = (x: number | null) => (x === null || !Number.isFinite(x) ? null : Math.round(x * 100) / 100)
+    if (!traceRows.length && !traceEvents.length) traceFirstRowAt = now
     traceRows.push({
       t: now - traceStartedAt,
       L: row.locked,
@@ -440,29 +459,65 @@ export function recordTick(row: TickTraceRow): void {
         return [tr.id, Math.round(cx), Math.round(cy), Math.round((1000 * side) / Math.max(1, row.frameSide)), tr.coasting ? 1 : 0]
       }),
       v: row.verdict,
-      rn: r2(row.refuserDistance),
+      st: row.state === 'idle' ? 'I' : row.state === 'watching' ? 'W' : 'B',
+      d: r2(row.d),
+      cls: row.cls ? row.cls[0] : null,
+      ...(row.fromSpot ? { sp: 1 } : {}),
+      ep: row.episode,
+      ...(row.breakKind ? { bk: row.breakKind === 'drift' ? 'r' : 'd' } : {}),
       sd: r2(row.steadyDistance),
-      rc: row.regionCount,
       ho: r2(row.hasObj),
       sh: row.sharpness === null ? null : Math.round(row.sharpness),
     })
-    if (traceRows.length >= TRACE_MAX_ROWS || now - traceFirstRowAt >= TRACE_FLUSH_MS) flushTickTrace()
+    maybeFlush(now)
   } catch {
     // Instrumentation never breaks the scanner.
   }
 }
 
+/**
+ * The policy events the rows cannot show, into the same trace (numbers and
+ * capture ids only):
+ *
+ *   episode-fire    a capture opened an episode: `{ep, kind, prevCaptureId,
+ *                   captureId, hardTicks, softTicks, brokenMs, vacantTicks}`
+ *                   (presentation.ts FireRecord).
+ *   repeat-outcome  what identity made of it: `{captureId, same, flagged,
+ *                   undone, scanAgain, action}` (repeat.ts). `undone` is the
+ *                   label that calibrates the rule — a flagged copy the reader
+ *                   undid was a false break.
+ */
+export function recordTraceEvent(type: 'episode-fire' | 'repeat-outcome', detail: Record<string, unknown>): void {
+  try {
+    const now = Date.now()
+    if (!traceStartedAt) traceStartedAt = now
+    if (!traceRows.length && !traceEvents.length) traceFirstRowAt = now
+    traceEvents.push({ type, t: now - traceStartedAt, ...detail })
+    maybeFlush(now)
+  } catch {
+    // As above.
+  }
+}
+
+function maybeFlush(now: number): void {
+  if (traceRows.length >= TRACE_MAX_ROWS || now - traceFirstRowAt >= TRACE_FLUSH_MS) flushTickTrace()
+}
+
 /** Post what the trace holds now (also on leaving the page). */
 export function flushTickTrace(): void {
-  if (!traceRows.length) return
+  if (!traceRows.length && !traceEvents.length) return
   const rows = traceRows
+  const events = traceEvents
   traceRows = []
+  traceEvents = []
   void postEvent('', {
     type: 'tick-trace',
     source: 'scan-tick-trace',
+    version: TICK_TRACE_VERSION,
     epochMs: Date.now(),
     traceStartedAt,
     pipelineVersion: PIPELINE_VERSION,
     rows,
+    events,
   })
 }

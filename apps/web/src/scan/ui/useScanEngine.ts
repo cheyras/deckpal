@@ -6,7 +6,7 @@
 // loop it drove — this hook only ever touches the engine boundary.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { loadScanEngine } from './engineLoader'
-import type { CaptureResult, EngineState, ScanEngine } from '../engine/contract'
+import type { CaptureResult, EngineState, Quad, ScanEngine } from '../engine/contract'
 
 export type EngineStatus = 'idle' | 'loading' | 'ready' | 'error'
 
@@ -16,6 +16,8 @@ export interface UseScanEngine {
   /** Latest per-detect-tick state, or null before the first tick. */
   state: EngineState | null
   capture: (trackId: number) => Promise<CaptureResult>
+  /** ScanEngine.watch: the quad whose look the next ticks report as `spotLook`. */
+  watch: (quad: Quad | null) => void
 }
 
 export function useScanEngine(videoRef: React.RefObject<HTMLVideoElement | null>, active: boolean): UseScanEngine {
@@ -75,5 +77,9 @@ export function useScanEngine(videoRef: React.RefObject<HTMLVideoElement | null>
     return engine.capture(trackId)
   }, [])
 
-  return { status, error, state, capture }
+  const watch = useCallback((quad: Quad | null) => {
+    engineRef.current?.watch(quad)
+  }, [])
+
+  return { status, error, state, capture, watch }
 }

@@ -55,11 +55,13 @@
 // lib/fixedScreen.ts for why that document scrolling cost the reader a second
 // of a list that would not move.
 import type { ReactNode } from 'react'
-import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ScanMatch } from '../../lib/api'
 import { Icon } from '../../components/Icon'
+import { DURATION as TOKENS, EASE as TOKEN_EASE } from '../../lib/motion'
 import { feedTotals, repeatedLabel, unresolvedCount } from './feed'
-import { DURATION, EASE, prefersReducedMotion } from './motion'
+import { FOLLOW_TOP_PX, listScrolledAway } from './handoff'
+import { DURATION, prefersReducedMotion } from './motion'
 import { parseSortValue, sortValue, SORT_OPTIONS, type FeedSort } from './sort'
 import type { FeedEntry } from './types'
 import { FeedEntryCard } from './FeedEntryCard'
@@ -96,7 +98,10 @@ export function VerifyFeed({
   onVoiceCancel,
   followTop = false,
   clearFab = false,
+  currentEpisodeId = null,
 }: {
+  /** The scan the camera's "Scanned ✓" pill is about, once it is a row: ringed (design §3.2). */
+  currentEpisodeId?: string | null
   /** Already in the reader's chosen order — see the file header for why the
    *  sorting happens above this component rather than inside it. */
   entries: FeedEntry[]
@@ -160,24 +165,39 @@ export function VerifyFeed({
   /** Have the rows been still long enough for a remove to mean the row under
    *  the finger? Asked by each row at the moment a remove is pressed. */
   const rowsSettled = useCallback(() => performance.now() - shiftedAtRef.current >= SETTLE_MS, [])
+  /** Rows that landed above the reader while they were scrolled down: the "N new ↑" pill (2026-11-27). */
+  const [newAbove, setNewAbove] = useState(0)
 
   // THE READER'S HANDS, and every other thing that moves the rows. Passive
   // listeners only: nothing here may hold a touch scroll for the main thread.
+  //
+  // The same facts go on the element as `data-touch` / `data-user-scroll-at`,
+  // which is where the hand-off's courier reads them (handoff.ts
+  // `listScrolledAway`): a scan landing above a reader who has scrolled the
+  // list down flies to its top edge and fades, rather than at a row they
+  // cannot see.
   useEffect(() => {
     const scroller = scrollerRef.current
     if (!scroller) return
     const touch = () => {
       touchingRef.current = true
       touchedAtRef.current = performance.now()
+      scroller.dataset.touch = '1'
+      scroller.dataset.userScrollAt = String(touchedAtRef.current)
     }
     const release = () => {
       touchingRef.current = false
       touchedAtRef.current = performance.now()
+      delete scroller.dataset.touch
+      scroller.dataset.userScrollAt = String(touchedAtRef.current)
     }
     const scrolled = () => {
       const now = performance.now()
-      if (now > ourScrollUntilRef.current) touchedAtRef.current = now
-      else markShift(now)
+      if (now > ourScrollUntilRef.current) {
+        touchedAtRef.current = now
+        scroller.dataset.userScrollAt = String(now)
+      } else markShift(now)
+      if (scroller.scrollTop < FOLLOW_TOP_PX) setNewAbove(0)
     }
     const resized = () => markShift()
     const opts = { passive: true } as const
@@ -206,6 +226,12 @@ export function VerifyFeed({
     }
   }, [])
 
+  /** Has the reader taken the list away from its top: a finger on it, a
+   *  scroll of their own in the last FOLLOW_IDLE_MS, or scrolled down? (The
+   *  courier asks the same of the element's marks: handoff.ts listScrolledAway.) */
+  const away = (scroller: HTMLElement) =>
+    touchingRef.current || performance.now() - touchedAtRef.current <= FOLLOW_IDLE_MS || listScrolledAway(scroller)
+
   /** A scroll WE start (follow-the-newest, "Go back to them") moves the rows
    *  under the reader just as a slide does, and is not the reader's scrolling. */
   const scrollOurselves = (go: () => void) => {
@@ -227,6 +253,33 @@ export function VerifyFeed({
   // rather than restarted.
   useLayoutEffect(() => {
     const reduced = prefersReducedMotion()
+    const scroller = scrollerRef.current
+    const firstId = entries[0]?.id ?? null
+    const landedAbove = followTop && !!scroller && !!firstId && firstIdRef.current !== null && firstId !== firstIdRef.current
+    // A SCAN LANDING ABOVE A READER WHO SCROLLED DOWN does not move what they
+    // are reading (2026-11-27; the iOS shift the review-list lane, #417, left
+    // for this one). The list is newest first, so a landing inserts above
+    // them: the scroll position is moved by exactly what the insert pushed the
+    // rows down, measured on the row that was on top before, and the rows are
+    // not slid (on screen they did not move). Done by hand, not by the
+    // browser's scroll anchoring, because iOS Safari has none
+    // (`overflow-anchor: none` below keeps Chrome from doing it twice).
+    if (landedAbove && scroller && away(scroller)) {
+      const anchor = rowRefs.current.get(firstIdRef.current!)
+      const before = prevTopRef.current.get(firstIdRef.current!)
+      if (anchor && before !== undefined) {
+        const shift = anchor.offsetTop - before
+        // Ours, not the reader's scrolling (and on screen nothing moved).
+        ourScrollUntilRef.current = performance.now() + 50
+        if (shift) scroller.scrollTop += shift
+      }
+      const next = new Map<string, number>()
+      for (const [id, el] of rowRefs.current) next.set(id, el.offsetTop)
+      prevTopRef.current = next
+      setNewAbove((n) => n + 1)
+      firstIdRef.current = firstId
+      return
+    }
     const next = new Map<string, number>()
     for (const [id, el] of rowRefs.current) {
       const last = el.offsetTop
@@ -246,16 +299,19 @@ export function VerifyFeed({
       }
       const dy = first - last + carried
       if (Math.abs(dy) < 0.5) continue
+      // The rows a new scan lands above open the space for it (design §4.3):
+      // DURATION.base on EASE.enter, the #410 tokens.
       const anim = el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], {
-        duration: DURATION.stackReflow,
-        easing: EASE.swift,
+        duration: TOKENS.base,
+        easing: TOKEN_EASE.enter,
       })
       anim.id = 'flip'
     }
     prevTopRef.current = next
 
     // A new row at the top while the reader is at (or near) the top: keep it
-    // in view. Further down they are reading something else; leave them there.
+    // in view. Further down they are reading something else; leave them there
+    // (and the landing above them was compensated, with "1 new ↑").
     //
     // AND NEVER UNDER A FINGER (owner session 2026-11-27, "I won't be able to
     // start scrolling"). This used to fire whenever a scan landed and the list
@@ -264,10 +320,7 @@ export function VerifyFeed({
     // against their thumb. On WebKit, which has no scroll anchoring, that is
     // every swipe that starts near the top while scans are landing. It now
     // waits until they have let go and been idle for a second.
-    const firstId = entries[0]?.id ?? null
-    const scroller = scrollerRef.current
-    const idle = !touchingRef.current && performance.now() - touchedAtRef.current > FOLLOW_IDLE_MS
-    if (followTop && scroller && firstId && firstId !== firstIdRef.current && scroller.scrollTop > 0 && scroller.scrollTop < 160 && idle) {
+    if (landedAbove && scroller && scroller.scrollTop > 0 && !away(scroller)) {
       scrollOurselves(() => scroller.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' }))
     }
     firstIdRef.current = firstId
@@ -305,8 +358,10 @@ export function VerifyFeed({
     // `overflow-y-auto` computes the x axis to `auto` and the list drags
     // sideways, which is the 2026-09-07 ruling's complaint verbatim.
     // `overscroll-y-contain` keeps a swipe that runs off either end in the list
-    // (see the file header and lib/fixedScreen.ts).
-    <div ref={scrollerRef} data-verify-feed className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain">
+    // (see the file header and lib/fixedScreen.ts). `overflow-anchor: none`:
+    // a landing above the reader is compensated by hand (the layout effect),
+    // for iOS, which has no scroll anchoring; Chrome must not do it twice.
+    <div ref={scrollerRef} data-verify-feed className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain [overflow-anchor:none]">
       {/* WRAPS. At 390 px the title, both chips, the sort control and the bin's
           expand button do not fit on one line, and the previous single
           non-wrapping row is one of the two things that was actually overflowing
@@ -371,6 +426,24 @@ export function VerifyFeed({
         </div>
       </div>
 
+      {newAbove > 0 && (
+        // Zero height: the pill floats over the rows and takes no layout, or
+        // its arrival would itself move what the reader is looking at.
+        <div className="pointer-events-none sticky top-[52px] z-[6] flex h-0 justify-center overflow-visible">
+          <button
+            type="button"
+            data-new-above={newAbove}
+            onClick={() => {
+              setNewAbove(0)
+              scrollerRef.current?.scrollTo({ top: 0, behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
+            }}
+            className="pointer-events-auto inline-flex h-[28px] items-center gap-[4px] rounded-full bg-action-primary px-[12px] text-[12px] font-bold text-action-primary-text shadow-elevated"
+          >
+            {newAbove} new <Icon name="arrow-up" size={12} />
+          </button>
+        </div>
+      )}
+
       {entries.length === 0 ? (
         <div className="px-[14px] pb-[24px] pt-[8px] text-center text-[13px] text-text-muted">
           Point the camera at a card to start building your batch.
@@ -400,6 +473,7 @@ export function VerifyFeed({
                 voicePending={voicePending?.get(entry.id)}
                 onVoiceCancel={onVoiceCancel}
                 rowsSettled={rowsSettled}
+                current={entry.id === currentEpisodeId}
               />
             </div>
           ))}

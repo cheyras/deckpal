@@ -11,31 +11,37 @@
 //   duration as round 4, 19 distinct track ids in both, and captures went
 //   5 -> 10 with `regionsExpired` 3 -> 9. The tracker re-ids a continuously
 //   present card every few seconds; a region anchored to the dead id was
-//   never refreshed, expired at REGION_DEPARTURE_MS with the card still on
-//   it, and the next lock fired as a duplicate — two of them 4.3 s and 4.5 s
-//   after the previous capture at quad IoU 0.64 and 0.84, which only an
-//   expiry under a present card can produce.
+//   never refreshed, expired with the card still on it, and the next lock
+//   fired as a duplicate — two of them 4.3 s and 4.5 s after the previous
+//   capture at quad IoU 0.64 and 0.84, which only an expiry under a present
+//   card can produce.
 //
-// The fix is REGION_BRIDGE_MS (regions.ts): a track standing on a region
-// within the bridge of the card's last sighting re-anchors the region (a
-// rebirth); past the bridge nothing does (a departure or a swap). These tests
-// drive the failure shape directly, because the lock-stream replays in the
-// round-2/3/owner files are throttled to 2 s and cannot see sub-second
-// rebirths at all — the round-3 replay scores 6 captures under BOTH follow
-// rules while the live build took 10. The live number is the re-drive's to
-// verify; the mechanism is fenced here.
+// The fix then was REGION_BRIDGE_MS: a track standing on a region within the
+// bridge of the card's last sighting re-anchored it (a rebirth); past the
+// bridge nothing did (a departure or a swap).
+//
+// RE-BASELINED 2026-11-27 (decision "a flip is always captured"). The regions
+// and their bridge are gone; the presentation episode (scan/ui/presentation.ts)
+// replaced them, and it never asks the tracker who a card is. It reads the
+// LOOK on the card's spot: a card re-id'd every few seconds is the same look,
+// still there, and is never taken again; a different card on the spot is a
+// different look, and is taken however quickly it arrived. The same shapes,
+// driven against the replacement:
+//
+//   the round-5 defect (id churn under a present card)    duplicate -> none
+//   a swap faster than the bridge (1.5 s)                  adopted   -> taken
+//   a rebirth after a long detector dropout                duplicate after
+//                                                          the window -> none
+//                                                          (the spot look)
 
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
 import type { Quad } from '../contract'
 import { polyIoU } from '../geometry'
-import {
-  createCapturedRegions,
-  REGION_BRIDGE_MS,
-  REGION_DEPARTURE_MS,
-  REGION_SAME_IOU,
-} from '../../ui/regions'
+import type { CardLook } from '../look'
+import { createPresentation, EPISODE_IOU } from '../../ui/presentation'
+import { lookOf } from '../../ui/__tests__/lookScenes'
 
 const TICK_MS = 120
 
@@ -45,104 +51,82 @@ const card = (dx = 0, dy = 0): Quad => [
   [280 + dx, 351 + dy],
   [100 + dx, 351 + dy],
 ]
+const A = lookOf(1)
+const B = lookOf(2)
+const HAND = lookOf(50)
+const held = (i: number): CardLook => [A, lookOf(1, { exposure: 0.95 }), lookOf(1, { shift: 2 })][i % 3]!
 
-/** One continuously present card whose track id is reborn every `churnMs`,
- *  with the rebirth arriving on the very next tick — the live shape: the
- *  detector never stops seeing the card, only the tracker's id changes. */
-function churnTick(R: ReturnType<typeof createCapturedRegions>, untilMs: number, churnMs: number) {
-  let id = 1
-  for (let t = 0; t <= untilMs; t += TICK_MS) {
-    if (t > 0 && t % churnMs < TICK_MS) id++
-    R.tick(t, [{ id, quad: card(id % 3, id % 2) }])
+/** A presentation machine with card A captured at t = 0, on track 1. */
+function captured() {
+  const p = createPresentation()
+  let t = 0
+  p.observe({ now: t, lock: { id: 1, quad: card() }, look: A, spotLook: null })
+  p.fire({ kind: 'first', now: t, captureId: 'cap-a', trackId: 1, quad: card(), look: A })
+  const tick = (lock: { id: number; quad: Quad } | null, look: CardLook | null, spot: CardLook | null) => {
+    t += TICK_MS
+    return p.observe({ now: t, lock, look: lock ? look : null, spotLook: p.watchQuad() ? spot : null })
   }
-  return id
+  return { p, tick, now: () => t }
 }
 
-describe('e2e round 5 — a region must survive the tracker re-iding a card that never left', () => {
-  it('THE DEFECT, REPRODUCED: without the bridge, churn expires the region under a present card', () => {
-    const R = createCapturedRegions({ bridgeMs: 0 })
-    R.tick(0, [{ id: 1, quad: card() }])
-    R.note(card(), 1, 0)
-    // Id churns every 3 s; the card itself never leaves. The round-5 build
-    // froze here: nothing refreshed the region past the first rebirth.
-    churnTick(R, 20_000, 3_000)
-    assert.equal(R.expired, 1, 'the frozen region expired with the card still on it')
-    assert.ok(!R.suppressed(card()), 'and the next lock is a duplicate capture — the defect')
+describe('e2e round 5 — a card the tracker re-ids, never taken again; a card swapped in, always taken', () => {
+  it('THE ROUND-5 DEFECT, DRIVEN: id churn every 3 s under a present card takes nothing', () => {
+    const { tick } = captured()
+    let id = 1
+    for (let t = TICK_MS, i = 0; t <= 30_000; t += TICK_MS, i++) {
+      if (t % 3_000 < TICK_MS) id++
+      const r = tick({ id, quad: card(id % 3, id % 2) }, held(i), held(i))
+      assert.equal(r.candidate, null, `t=${t}: track ${id} is the same card`)
+      assert.equal(r.state, 'watching')
+    }
+    assert.ok(id >= 10, `the fixture churned through ${id} ids`)
   })
 
-  it('THE FIX: the bridge re-anchors across every rebirth and the card stays suppressed', () => {
-    const R = createCapturedRegions()
-    R.tick(0, [{ id: 1, quad: card() }])
-    R.note(card(), 1, 0)
-    const lastId = churnTick(R, 30_000, 3_000)
-    assert.ok(lastId >= 10, `the fixture churned through ${lastId} ids`)
-    assert.equal(R.expired, 0, 'a continuously present card never expires its region')
-    assert.ok(R.suppressed(card()), 'no duplicate: the region followed the card through every rebirth')
+  it('the episode FOLLOWS its card across a rebirth and a slide, exactly as it does without one', () => {
+    const { p, tick } = captured()
+    tick({ id: 2, quad: card(4) }, A, A)
+    for (let s = 2; s <= 40; s++) assert.equal(tick({ id: 2, quad: card(s * 10) }, held(s), held(s)).state, 'watching')
+    assert.ok(polyIoU(p.watchQuad()!, card(400)) >= EPISODE_IOU, 'the spot travelled with the card')
+    assert.ok(polyIoU(p.watchQuad()!, card()) < EPISODE_IOU, 'and left the spot it started from')
   })
 
-  it('the re-anchored region FOLLOWS its new track, exactly as an original one would', () => {
-    const R = createCapturedRegions()
-    R.tick(0, [{ id: 1, quad: card() }])
-    R.note(card(), 1, 0)
-    // Rebirth on the next tick, then the card slides across the frame.
-    R.tick(TICK_MS, [{ id: 2, quad: card(4) }])
-    for (let t = 2; t <= 40; t++) R.tick(t * TICK_MS, [{ id: 2, quad: card(t * 10) }])
-    assert.ok(R.suppressed(card(400)), 'suppression travelled with the re-anchored track')
-    assert.ok(!R.suppressed(card()), 'and left the spot it started from')
-  })
-
-  it('THE FENCE THE BRIDGE MUST NOT CROSS: past it, a newcomer on the spot is never adopted', () => {
-    // A swap: the card leaves (track dies), a hand takes longer than the
-    // bridge, a different card lands on the same spot. The region must freeze
-    // — suppression continues while it lives, but its clock must run out at
-    // departure, NOT be refreshed by the newcomer. Adoption here is the owner
-    // session's disaster (regions.ts header: one region swallowed 115 locks).
-    const R = createCapturedRegions()
-    R.tick(0, [{ id: 1, quad: card() }])
-    R.note(card(), 1, 0)
-    const gone = REGION_BRIDGE_MS + 2 * TICK_MS
-    R.tick(gone, []) // the bridge window passes with nothing on screen
+  it('A SWAP FASTER THAN THE OLD BRIDGE IS TAKEN: a different card on the spot, half a second later', () => {
+    // The bridge's fence was "past it, a newcomer on the spot is never adopted"
+    // — and inside it (1.5 s) one was. Here the hand takes 250 ms.
+    const { tick } = captured()
+    for (let i = 0; i < 4; i++) tick({ id: 1, quad: card() }, held(i), held(i))
+    tick(null, null, HAND)
+    tick(null, null, HAND)
     const swapped = card(10)
-    assert.ok(polyIoU(card(), swapped) >= REGION_SAME_IOU, 'the swap really is on the spot')
-    // The newcomer sits there well past the departure window. If it were
-    // adopted, the region would refresh forever; frozen, it must retire
-    // exactly one departure window after the ORIGINAL card was last seen.
-    for (let t = gone; t <= REGION_DEPARTURE_MS + 4 * TICK_MS; t += TICK_MS) {
-      R.tick(t, [{ id: 2, quad: swapped }])
+    assert.ok(polyIoU(card(), swapped) >= EPISODE_IOU, 'the swap really is on the spot')
+    let kind = null
+    let n = 0
+    while (!kind && n < 6) {
+      kind = tick({ id: 2, quad: swapped }, B, B).candidate
+      n++
     }
-    assert.equal(R.expired, 1, 'the region retired on its own clock despite the newcomer')
-    assert.ok(!R.suppressed(swapped), 'and the replacement card is capturable')
+    assert.equal(kind, 'disturbed')
+    assert.ok(n <= 3, `taken on its third steady tick at most (${n})`)
   })
 
-  it('the bridge is sized between the tracker grace and a human swap, and stays put', () => {
-    // 240 ms is the tracker's own coasting grace (graceFrames 2 x 120 ms) —
-    // any rebirth takes at least one dead tick, so the bridge must exceed it
-    // with room. 3.6 s is the owner session's fastest measured sighting gap
-    // across a real swap; the bridge must sit well under it so no measured
-    // swap re-anchors. Both bounds are measurements, not taste.
-    assert.ok(REGION_BRIDGE_MS >= 3 * 240, `bridge ${REGION_BRIDGE_MS} must cover a rebirth with margin`)
-    assert.ok(REGION_BRIDGE_MS <= 2_000, `bridge ${REGION_BRIDGE_MS} must stay under the fastest measured swap`)
+  it('...and one swapped in with no hand seen at all, on the very next tick, still is', () => {
+    // The tracker keeps the id (round 5's own churn says it may not, the stack
+    // video 46OLXH5 says it can). The look changes from A to B between two
+    // ticks: two hard ticks (B is far from A), a break, and B settles.
+    const { tick } = captured()
+    for (let i = 0; i < 4; i++) tick({ id: 1, quad: card() }, held(i), held(i))
+    let kind = null
+    for (let i = 0; i < 6 && !kind; i++) kind = tick({ id: 1, quad: card() }, B, B).candidate
+    assert.equal(kind, 'disturbed')
   })
 
-  it('a rebirth AFTER a long detector dropout is not re-anchored — conservative on purpose', () => {
+  it('a rebirth AFTER a long detector dropout over the untouched card is the same card', () => {
     // Round 3 measured 4.7-11.4 s dropouts with NO track at all on a present
-    // card. A rebirth after one of those arrives past the bridge: the region
-    // is frozen, lives out its departure clock, and a late re-lock may fire.
-    // That duplicate is the price of not adopting swaps; it existed under the
-    // overlap follow too (round 4 kept 2 residuals) and only the departure
-    // clock can absorb it.
-    const R = createCapturedRegions()
-    R.tick(0, [{ id: 1, quad: card() }])
-    R.note(card(), 1, 0)
-    const back = REGION_BRIDGE_MS + 5 * TICK_MS
-    for (let t = TICK_MS; t < back; t += TICK_MS) R.tick(t, [])
-    R.tick(back, [{ id: 2, quad: card() }])
-    // Still suppressed (the region is alive) but NOT re-anchored: the clock
-    // keeps running from t=0 and the region retires at departure.
-    assert.ok(R.suppressed(card()), 'inside the departure window the spot is still suppressed')
-    for (let t = back + TICK_MS; t <= REGION_DEPARTURE_MS + 2 * TICK_MS; t += TICK_MS) {
-      R.tick(t, [{ id: 2, quad: card() }])
-    }
-    assert.equal(R.expired, 1, 'the frozen region retired on the departure clock')
+    // card. The regions froze and let a late re-lock fire as a duplicate once
+    // their window ran out. The spot look reads the card that is still there.
+    const { tick } = captured()
+    for (let t = 0; t < 11_400; t += TICK_MS) assert.equal(tick(null, null, held(t)).state, 'watching')
+    const r = tick({ id: 2, quad: card() }, A, A)
+    assert.equal(r.candidate, null, 'no duplicate after the dropout')
   })
 })

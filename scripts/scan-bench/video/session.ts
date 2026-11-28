@@ -10,8 +10,9 @@
 //   tracker              engine/tracker.ts     createTracker
 //   lock                 engine/index.ts       createLockPolicy
 //   reticle              engine/frame.ts       reticleForAspect
-//   duplicate regions    scan/ui/regions.ts    createCapturedRegions
-//   the fire decision    scan/ui/autoCapture.ts decideAutoCapture (re-arm, card back)
+//   when a card is taken scan/ui/presentation.ts createPresentation (the episode)
+//   the fire decision    scan/ui/autoCapture.ts decideAutoCapture (gates, card back)
+//   the look, spot look  engine/look.ts        cardLook
 //   rectification        engine/rectify.ts     expandQuad + rectifyImageData
 //
 // What IS mirrored is only the GLUE that wires them, because that glue lives
@@ -57,10 +58,9 @@ import {
   type RectifiedImage,
 } from '../../../apps/web/src/scan/engine/rectify'
 import { createTracker, TRACKER_DEFAULTS } from '../../../apps/web/src/scan/engine/tracker'
-import { createCapturedRegions } from '../../../apps/web/src/scan/ui/regions'
-import { captureLook, cardLook, type CardLook } from '../../../apps/web/src/scan/engine/look'
-import { createLookRearm, type LookRearm } from '../../../apps/web/src/scan/ui/rearm'
+import { cardLook, type CardLook } from '../../../apps/web/src/scan/engine/look'
 import { createCardBackHolds, decideAutoCapture } from '../../../apps/web/src/scan/ui/autoCapture'
+import { createPresentation, type FireKind, type PresentationTuning } from '../../../apps/web/src/scan/ui/presentation'
 
 // ---------------------------------------------------------------------------
 // the detect tick (index.ts createScanEngine -> tick, lines 619-736)
@@ -83,12 +83,15 @@ export interface TickState {
   saturationOf: (id: number) => number | undefined
   /** EngineState.look: index.ts's cardLook of the lock on the working image. */
   look: CardLook | null
+  /** EngineState.spotLook: the look on the watched quad (engine.watch), off the same image. */
+  spotLook: CardLook | null
 }
 
 export interface ReplayEngine {
   /** One detect tick: the model's raw output for this frame plus the refiner's
-   *  working image (the canonical square at CANONICAL_SIZE). */
-  tick(points: readonly number[], hasObj: number, work: ImageDataLike): TickState
+   *  working image (the canonical square at CANONICAL_SIZE), and the quad the
+   *  policy watches (ScanEngine.watch). */
+  tick(points: readonly number[], hasObj: number, work: ImageDataLike, watched?: Quad | null): TickState
   readonly reticle: Rect
 }
 
@@ -105,7 +108,7 @@ export function createReplayEngine(opts: { lockTicks?: number } = {}): ReplayEng
 
   return {
     reticle,
-    tick(points, hasObj, work) {
+    tick(points, hasObj, work, watched = null) {
       const quads: Quad[] = []
       let tickSaturation: number | null = null
       // index.ts:649-660 — decode once, gate, refine against the working image
@@ -163,6 +166,8 @@ export function createReplayEngine(opts: { lockTicks?: number } = {}): ReplayEng
         saturationOf,
         // index.ts — the lock's look, on the observation, off the working image.
         look: locked ? cardLook(work, locked.raw ?? locked.quad) : null,
+        // index.ts — the watched spot's look.
+        spotLook: watched ? cardLook(work, watched) : null,
       }
     },
   }
@@ -207,133 +212,125 @@ export function lockBlockers(t: TrackedQuad, reticle: Rect, sat: number | undefi
 }
 
 // ---------------------------------------------------------------------------
-// the auto-capture policy (Scan.tsx useEffect, lines 1237-1306; runCapture, 1197-1232)
+// the auto-capture policy (Scan.tsx's auto-capture effect and runCapture)
 // ---------------------------------------------------------------------------
 
 /**
  * How long `captureBusyRef` stays true after a capture fires — the one piece of
  * the policy that is browser TIMING rather than logic, so it is a parameter.
  *
- * runCapture (Scan.tsx:1197) holds the flag across `capture()` (one full-res
- * getImageData + the 480x670 warp + a JPEG encode) and `handleCaptured` up to
- * `markArrived()` (Scan.tsx:1192): `nextFrame()`, the fly-to-stack courier
- * (motion.ts DURATION.flyStack = 300 ms) and the bump (DURATION.settle = 90 ms).
- * Identify, OCR and the embed are detached from it (Scan.tsx:991-1006), so they
- * do not count. ~80 ms of capture work + one frame + 300 + 90 ≈ 500 ms.
+ * runCapture holds the flag across `capture()` (one full-res getImageData + the
+ * 480x670 warp + a JPEG encode) and `handleCaptured` up to `markArrived()`: the
+ * capture → tray courier (handoff.ts TO_TRAY_MS = DURATION.slow, 300 ms), and
+ * at least presentation.ts MIN_FIRE_GAP_MS (400 ms) from the shutter. Identify,
+ * OCR and the embed are detached from it, so they do not count. ~80 ms of
+ * capture work + one frame + 300 ≈ 400-500 ms.
  */
 export const DEFAULT_CAPTURE_BUSY_MS = 500
 
 export type LockOutcome =
   | { kind: 'none' }
-  /** A lock on a track this session already captured — Scan.tsx's per-track
-   *  refractory. The same presentation continuing, not a duplicate. */
-  | { kind: 'refractory' }
+  /** The presentation episode is WATCHING: the card taken is still in view (presentation.ts). */
+  | { kind: 'watching' }
+  /** The episode broke and this lock has not settled yet (mid-slide, half-covered). */
+  | { kind: 'settling' }
   /** A lock that arrived while a previous capture's pipeline held the busy flag. */
   | { kind: 'busy' }
-  /** A lock on a fresh track that overlaps a live captured region — the
-   *  duplicate suppression (regions.ts), or its fast-swap cost. */
-  | { kind: 'region' }
   /** A lock the card-back gate refused (engine/cardBack.ts, autoCapture.ts). */
   | { kind: 'cardback' }
   /** A lock the size gate held: the card is too small in frame to read
    *  (ui/sizeGate.ts). A user is told to come closer; footage cannot. */
   | { kind: 'far' }
-  /** `why: 'look'`: a repeat the look re-arm let through (ui/rearm.ts). */
-  | { kind: 'fire'; why?: 'look' }
+  /** A capture: why the machine fired (first, disturbed, drift — a silent
+   *  probe the device drops if identity names it the same card at a close
+   *  look; this replay has no identity, so it counts every probe). */
+  | { kind: 'fire'; fireKind: FireKind; captureId: string; prevCaptureId: string | null }
 
-/** What the policy reads beyond the tick's state: EngineState.look. */
+/** What the policy reads beyond the tick's state: EngineState.look and EngineState.spotLook. */
 export interface TickExtras {
   look?: CardLook | null
+  spotLook?: CardLook | null
 }
 
 export interface PolicyKnobs {
   busyMs?: number
-  /** The look re-arm (ui/rearm.ts) ships; `false` replays the policy without
-   *  it, which is the shipping policy before 2026-10-10. */
-  rearm?: boolean
+  /** Override the presentation machine's thresholds (presentation.ts PresentationTuning): `--tuning '{"settleTicks":1}'`. */
+  tuning?: Partial<PresentationTuning>
   /** The size gate (ui/sizeGate.ts) ships; `false` replays the policy
    *  without it, which is the shipping policy before 2026-11-26. */
   sizeGate?: boolean
 }
 
 export interface CapturePolicy {
-  /** One detect tick's decision, made against the tick's EngineState. */
+  /** One detect tick's decision, made against the tick's EngineState. A fire opens the episode (presentation.fire). */
   decide(tMs: number, s: TickState, extras?: TickExtras): LockOutcome
-  /** runCapture's success path: remember the region, the capture's look, start the busy window. */
+  /** runCapture's success path: nothing to remember any more beyond the episode the fire opened. */
   captured(tMs: number, quad: Quad, trackId: number, pixels: RectifiedImage): void
-  /** runCapture's catch: release the refractory hold so the presence can retry. */
+  /** runCapture's catch: the machine goes back as it was, so the presentation retries. */
   failed(trackId: number): void
-  readonly regionCount: number
-  readonly regionsExpired: number
+  /** The quad the engine reports the spot look of next tick (engine.watch). */
+  watchQuad(): Quad | null
+  /** The machine's state after the last tick. */
+  readonly state: 'idle' | 'watching' | 'broken'
 }
-
-/** A re-arm that never judges a card new: `--no-rearm`. */
-const NEVER_NEW: LookRearm = { judge: () => false, note: () => {}, lookOfTrack: () => null }
 
 export function createCapturePolicy(opts: PolicyKnobs = {}): CapturePolicy {
   const busyMs = opts.busyMs ?? DEFAULT_CAPTURE_BUSY_MS
-  // Scan.tsx: refractoryRef, regionsRef, rearmRef, cardBackRef.
-  const refractory = new Set<number>()
+  // Scan.tsx: presentationRef, cardBackRef.
+  const presentation = createPresentation(opts.tuning)
   const cardBacks = createCardBackHolds()
-  const regions = createCapturedRegions()
-  const rearm = opts.rearm === false ? null : createLookRearm()
   let busyUntil = -Infinity
+  let seq = 0
+  let lastCaptureId: string | null = null
+  let state: CapturePolicy['state'] = 'idle'
   return {
     decide(tMs, s, extras = {}) {
-      // Scan.tsx — a track that left `stable` loses its refractory hold, and
-      // its card-back hold.
       const presentIds = new Set(s.stable.map((q) => q.id))
-      for (const id of refractory) if (!presentIds.has(id)) refractory.delete(id)
       cardBacks.prune(presentIds)
-      // Scan.tsx — ONCE PER DETECT TICK, stable and pending both. The app
-      // passes Date.now(); the replay passes video time (README "Clock").
-      regions.tick(tMs, [...s.stable, ...s.pending])
       const locked = s.locked
       // THE SHIPPING DECISION (scan/ui/autoCapture.ts), called as Scan.tsx
-      // calls it, less the focus gate. `--no-rearm` substitutes a re-arm that
-      // never judges a card new, which is the policy before 2026-10-10;
-      // `--no-size-gate` drops the size gate, the policy before 2026-11-26.
+      // calls it, less the focus gate. `--no-size-gate` drops the size gate,
+      // the policy before 2026-11-26. The app's clock is performance.now();
+      // the replay passes video time (README "Clock").
       const v = decideAutoCapture(locked, extras.look ?? null, {
-        refractory,
+        presentation,
+        spotLook: extras.spotLook ?? null,
+        now: tMs,
         busy: tMs < busyUntil,
-        regions,
-        rearm: rearm ?? NEVER_NEW,
         cardBacks,
         size: opts.sizeGate === false ? undefined : { frameSide: CANONICAL_SIZE },
       })
+      state = v.presentation.state
       if (!locked) return { kind: 'none' }
       if (v.cardBack) return { kind: 'cardback' }
       if (v.tooFar) return { kind: 'far' }
-      if (v.fire) {
-        refractory.add(locked.id)
+      if (v.fire && v.kind) {
+        const captureId = `cap-${++seq}`
+        const rec = presentation.fire({ kind: v.kind, now: tMs, captureId, trackId: locked.id, quad: locked.quad, look: extras.look ?? null })
+        lastCaptureId = captureId
         busyUntil = tMs + busyMs
-        return v.repeat ? { kind: 'fire', why: 'look' } : { kind: 'fire' }
+        state = 'watching'
+        return { kind: 'fire', fireKind: v.kind, captureId, prevCaptureId: rec.prevCaptureId }
       }
-      // The reported reason: the first clause that refused, in the order it used to be.
-      if (v.repeat && refractory.has(locked.id)) return { kind: 'refractory' }
+      if (v.presentation.state === 'watching') return { kind: 'watching' }
       if (tMs < busyUntil) return { kind: 'busy' }
-      return { kind: 'region' }
+      return { kind: 'settling' }
     },
-    captured(tMs, quad, trackId, pixels) {
-      // Scan.tsx noteCapture(result) with engine.capture()'s CaptureResult.look:
-      // the region, and the look of the captured pixels inside the same margin
-      // the warp added, kept with the region and with the track. The app does
-      // this once capture() resolves (tens of ms after the tick); no tick can
-      // land in between, so the replay notes it at the tick.
-      const look = captureLook(pixels, CAPTURE_MARGIN)
-      regions.note(quad, trackId, tMs, look)
-      rearm?.note(look, trackId)
+    captured() {
+      // The episode was opened at the fire; the device records the capture's
+      // look for the drift discard (repeat.ts), which needs identity this
+      // replay does not run.
     },
-    failed(trackId) {
-      // Scan.tsx — and the busy flag clears in the `finally`.
-      refractory.delete(trackId)
+    failed() {
+      // Scan.tsx runCapture's catch — and the busy flag clears in the `finally`.
+      if (lastCaptureId) presentation.failed(lastCaptureId)
       busyUntil = -Infinity
     },
-    get regionCount() {
-      return regions.count
+    watchQuad() {
+      return presentation.watchQuad()
     },
-    get regionsExpired() {
-      return regions.expired
+    get state() {
+      return state
     },
   }
 }

@@ -51,9 +51,17 @@ import { fileURLToPath } from 'node:url'
 import { describe, it } from 'node:test'
 
 import type { Quad } from '../contract'
-import { polyIoU } from '../geometry'
 import { DEFAULT_CADENCE_MS } from '../index'
-import { createCapturedRegions, REGION_DEPARTURE_MS, REGION_SAME_IOU, REGION_BRIDGE_MS, type RegionTrack } from '../../ui/regions'
+import { flaggedRepeats, replayPresentation, type StreamEvent } from './presentationReplay'
+
+/**
+ * The retired captured-region policy's constants (scan/ui/regions.ts, removed
+ * 2026-11-27, decision "a flip is always captured"). This session is the one
+ * that moved the departure window from 12 s to 5 s, and its measurements below
+ * are about those numbers: kept as the record, not as anything that ships.
+ */
+const REGION_DEPARTURE_MS = 5_000
+const REGION_BRIDGE_MS = 1_500
 
 // ── WHY THE FIXTURES ARE IN THE REPO ────────────────────────────────────────
 //
@@ -478,112 +486,60 @@ describe('owner session 2 — THE SWEEP that moved REGION_DEPARTURE_MS', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 5. THE GEOMETRIC REPLAY — the real policy, driven, as a mechanism check
+// 5. THE SHIPPING POLICY, DRIVEN — the presentation episode on this session
 // ---------------------------------------------------------------------------
 //
-// Everything above is arithmetic on recorded instants. This drives the SHIPPING
-// `createCapturedRegions` over a reconstructed presence signal, so the mechanism
-// itself is exercised rather than described.
+// RE-BASELINED 2026-11-27 (decision "a flip is always captured"). This section
+// drove the captured regions (scan/ui/regions.ts, retired) over a
+// reconstructed presence signal; it now drives their replacement, the
+// presentation episode (scan/ui/presentation.ts), over the session's own lock
+// stream (presentationReplay.ts), with each lock's card taken from the ground
+// truth above (one track per presentation on this phone, so a track's card is
+// its capture's). While nothing is locked the spot reads as empty: this
+// session's own measurement, "no track means no card" (§3).
 //
-// ITS ONE HONEST LIMIT, and it is not in the conservative direction, which is
-// why the sweep above is not built on it. A region FOLLOWS its track, so while
-// the hand lifts a card away the region goes with it — and the last position
-// that motion reaches is not recorded anywhere. This replay can only freeze a
-// region at its last RECORDED quad, which is still square in the reticle, so it
-// suppresses swaps that production let through. Measured: 28 of the 35
-// subsequent presentations overlap the previous CAPTURE at >= REGION_SAME_IOU
-// and the shipped build suppressed 21 of them. The replay therefore
-// over-suppresses at long windows, which FLATTERS a shortening.
+//                                          regions 5 s   regions 12 s   episode
+//   presentations captured (of 35 locked)      35            35           35
+//   captures over 2.5 s after the card          0            16            0
+//   the one card presented twice (sv10-127)  captured      captured     captured
+//                                           twice         twice        twice
 
 const TICK_MS = DEFAULT_CADENCE_MS
+const truthOfTrack = new Map<number, string>()
+for (const p of PRES) truthOfTrack.set(p.trackId, p.truth && p.truth !== 'CARD-BACK' ? p.truth : `track-${p.trackId}`)
 
-function quadAt(p: Pres, t: number): Quad {
-  let best: Ev = p.cap
-  let bd = Math.abs(p.birth + p.lat * 1000 - t)
-  for (const l of p.locks) {
-    const d = Math.abs(l.epochMs - t)
-    if (d < bd) {
-      bd = d
-      best = l
-    }
-  }
-  return best.quad
+function episode() {
+  return replayPresentation(ALL as unknown as StreamEvent[], {
+    continuousMs: 2_750,
+    tickMs: TICK_MS,
+    cardOf: (e) => truthOfTrack.get(e.trackId) ?? `track-${e.trackId}`,
+    gap: 'empty',
+  })
 }
 
-function replay(departureMs: number) {
-  const R = createCapturedRegions({ departureMs })
-  const refractory = new Set<number>()
-  const verdict = new Map<number, boolean>()
-  const fired: Array<{ t: number; pres: Pres }> = []
-  const end = Math.max(...PRES.map((p) => p.lastSeen))
-  let li = 0
-  for (let t = PRES[0].birth; t <= end; t += TICK_MS) {
-    const live = PRES.filter((p) => t >= p.birth && t <= p.lastSeen)
-    R.tick(t, live.map((p) => ({ id: p.trackId, quad: quadAt(p, t) }) as RegionTrack))
-    for (const id of [...refractory]) if (!live.some((p) => p.trackId === id)) refractory.delete(id)
-    while (li < LOCKS.length && LOCKS[li].epochMs <= t + TICK_MS) {
-      verdict.set(LOCKS[li].id, R.suppressed(LOCKS[li].quad))
-      li++
+describe('owner session 2 — the presentation episode, driven', () => {
+  it('every presentation is captured once, at its first lock', { skip }, () => {
+    const { fires } = episode()
+    const locked = PRES.filter((p) => p.locks.length)
+    assert.equal(locked.length, 35)
+    assert.equal(fires.length, 35, `${fires.length} captures for 35 locked presentations`)
+    assert.equal(new Set(fires.map((f) => f.event.trackId)).size, 35, 'one per presentation, none twice')
+    for (const f of fires) {
+      const p = PRES.find((x) => x.trackId === f.event.trackId)!
+      const lat = (f.at - p.birth) / 1000
+      assert.ok(lat < FLOOR + 0.2, `track ${p.trackId} captured ${lat.toFixed(2)}s after it appeared (floor ${FLOOR.toFixed(2)}s)`)
     }
-    for (const p of live) {
-      // "locked" starts five ticks after birth — every first lock in this
-      // session is at age 5, so that is not an assumption, it is the data.
-      if (t < p.birth + (5 / p.cap.perf.hz) * 1000) continue
-      if (refractory.has(p.trackId)) continue
-      const quad = quadAt(p, t)
-      if (R.suppressed(quad)) continue
-      refractory.add(p.trackId)
-      fired.push({ t, pres: p })
-      R.note(quad, p.trackId, t)
-    }
-  }
-  return { fired, verdict, expired: R.expired }
-}
-
-describe('owner session 2 — the shipping policy, driven', () => {
-  it('THE LIMIT, MEASURED: a region follows its card off the spot and this replay cannot', { skip }, () => {
-    let overlapping = 0
-    let overlappingAndFree = 0
-    for (let i = 1; i < PRES.length; i++) {
-      const p = PRES[i]
-      if (!p.locks.length) continue
-      if (polyIoU(PRES[i - 1].quad, p.locks[0].quad) < REGION_SAME_IOU) continue
-      overlapping++
-      if (!p.locks[0].suppressedByRegion) overlappingAndFree++
-    }
-    assert.equal(overlapping, 28, `${overlapping} of 35 presentations land on the previous capture's quad`)
-    assert.ok(overlappingAndFree >= 5, `only ${overlappingAndFree} of them were free — the lift has to move the region for that`)
-    // The consequence, stated as a number so it cannot rot: the replay agrees
-    // with the recorded suppression flags on most locks but not all, and the
-    // disagreement is one-directional.
-    const { verdict } = replay(12_000)
-    const agree = LOCKS.filter((l) => verdict.get(l.id) === !!l.suppressedByRegion).length
-    assert.ok(agree / LOCKS.length > 0.8, `replay reproduced ${agree}/${LOCKS.length} recorded suppression flags`)
-    const over = LOCKS.filter((l) => verdict.get(l.id) && !l.suppressedByRegion).length
-    const under = LOCKS.filter((l) => !verdict.get(l.id) && l.suppressedByRegion).length
-    assert.ok(over >= under, `over-suppressed ${over}, under-suppressed ${under} — the bias must be the one the header describes`)
   })
 
-  it('THE MECHANISM: driven on this session, the real policy reproduces the sweep it was measured with', { skip }, () => {
-    // Not the same numbers as the exact model — the limit above guarantees that
-    // — but the same shape, and the same answer at the point that matters: at
-    // the shipped window every presentation fires and nothing is slow, while at
-    // 12 s a third of them are still waiting.
-    const at5 = replay(REGION_DEPARTURE_MS)
-    const at12 = replay(12_000)
-    assert.ok(at5.fired.length > at12.fired.length, `${at12.fired.length} -> ${at5.fired.length} auto-captures`)
-    const lat = (r: ReturnType<typeof replay>) => {
-      const first = new Map<number, number>()
-      for (const f of r.fired) if (!first.has(f.pres.capId)) first.set(f.pres.capId, (f.t - f.pres.birth) / 1000)
-      return [...first.values()]
-    }
-    const l5 = lat(at5)
-    const l12 = lat(at12)
-    assert.equal(l5.filter((x) => x > 2.5).length, 0, 'no slow capture survives at the shipped window')
-    assert.ok(l12.filter((x) => x > 2.5).length >= 8, `the 12 s window left ${l12.filter((x) => x > 2.5).length} slow captures even on this over-suppressing replay`)
-    assert.ok(l5.reduce((a, b) => a + b, 0) < l12.reduce((a, b) => a + b, 0) / 2, 'total wait must at least halve')
-    // Monotone, and it has to be: a shorter window can never suppress more.
-    const counts = [3_000, 4_000, 5_000, 6_000, 8_000, 12_000].map((d) => replay(d).fired.length)
-    for (let i = 1; i < counts.length; i++) assert.ok(counts[i] <= counts[i - 1], `auto-captures must not rise with the window: ${counts.join(', ')}`)
+  it('the one card presented twice is captured twice, and flagged only if it came straight back', { skip }, () => {
+    const { fires } = episode()
+    const twice = fires.filter((f) => f.card === 'sv10-127')
+    assert.equal(twice.length, 2, 'both presentations of sv10-127 are rows')
+    // "Same as last scan" asks about the scan BEFORE it. Whatever came between
+    // the two sv10-127s decides the flag, and the recording says what that was.
+    const flagged = flaggedRepeats(fires)
+    const straightBack = twice[1]!.prevCard === 'sv10-127'
+    assert.equal(flagged.length, straightBack ? 1 : 0)
+    assert.ok(flagged.every((f) => f.card === 'sv10-127'), 'nothing else in the session is called a repeat')
   })
 })

@@ -81,6 +81,7 @@ import { fmtNumber } from '../../lib/format'
 import type { ScanMatch } from '../../lib/api'
 import { ocrHintLabel } from './identity'
 import { revealEntry, staggerReveal } from './motion'
+import { DURATION } from '../../lib/motion'
 import { printingState } from './printing'
 import type { FeedEntry } from './types'
 import { AlternatesPopover } from './AlternatesPopover'
@@ -101,8 +102,11 @@ export function FeedEntryCard({
   voicePending,
   onVoiceCancel,
   rowsSettled,
+  current = false,
 }: {
   entry: FeedEntry
+  /** The scan the camera's "Scanned ✓" pill is about: ringed, so the two read as one (design §3.2). */
+  current?: boolean
   onQuantityChange: (id: string, quantity: number) => void
   /** The reader says which PRINTING (same card, different variant) — not to
    *  be confused with `onCorrect`, which replaces the card identity itself. */
@@ -116,10 +120,10 @@ export function FeedEntryCard({
    * "Discard and retake" from the needs-input row's own picker.
    *
    * NOT `onRemove`. Both drop the row; only this one is the reader saying "that
-   * capture was no good, let me scan it again", which also has to release the
-   * engine's refractory hold on the track so the same card presenting again is
-   * a capture rather than a suppression. Falls back to `onRemove` when the
-   * caller has nothing to release (the upload path).
+   * capture was no good, let me scan it again", which also lets go of the
+   * presentation episode watching that card, so the same card held there is
+   * taken again. Falls back to `onRemove` when the caller has nothing to let
+   * go of (the upload path).
    */
   onDiscard?: (entry: FeedEntry) => void
   onReport: (entry: FeedEntry) => Promise<void>
@@ -197,10 +201,17 @@ export function FeedEntryCard({
   // That is the whole reason no separate "isNew" prop is threaded down from
   // Scan.tsx, and it is what keeps the 2026-09-07 sort control from playing
   // fifty entrance animations every time the reader changes the order.
+  //
+  // OPENED BY LAYOUT, NOT BY A SCALE (2026-11-27, design §4.3). The row used to
+  // play a scaleY reveal while a courier flew at a rect measured mid-reveal: the
+  // owner's "goes away and appears somewhere else". Now the row takes its height
+  // at once (the rows below slide down, VerifyFeed's FLIP), fades in, and its
+  // text staggers in from 120 ms. Its picture is the courier's to deliver
+  // (handoff.ts): hidden until the courier lands on it.
   useEffect(() => {
     if (rootRef.current) {
-      void revealEntry(rootRef.current)
-      staggerReveal(rootRef.current, '.fe-name,.fe-set,.fe-chips,.fe-conf,.fe-row')
+      revealEntry(rootRef.current)
+      staggerReveal(rootRef.current, '.fe-name,.fe-set,.fe-chips,.fe-conf,.fe-row', DURATION.instant)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -244,7 +255,9 @@ export function FeedEntryCard({
       data-entry-state={needsInput ? 'needs-input' : 'identified'}
       data-verified={entry.verified || undefined}
       data-voice-removing={voiceRemoving || undefined}
-      className={`relative flex gap-[10px] rounded-xl border p-[10px] ${voicePending?.length ? 'ring-1 ring-action-primary/60' : ''} ${
+      data-current-episode={current || undefined}
+      data-repeat-of={entry.repeatOf ?? undefined}
+      className={`relative flex gap-[10px] rounded-xl border p-[10px] ${current ? 'ring-2 ring-action-primary' : voicePending?.length ? 'ring-1 ring-action-primary/60' : ''} ${
         entry.verified
           ? 'border-change-positive/50 bg-surface-secondary'
           : needsInput
@@ -258,10 +271,14 @@ export function FeedEntryCard({
           collide, because a row has an identity or a question, never both. */}
       <div
         ref={(el) => registerThumbNode(entry.id, el)}
+        data-thumb-id={entry.id}
         role={needsInput ? 'button' : undefined}
         tabIndex={needsInput ? 0 : undefined}
         aria-label={needsInput ? 'Identify this capture, or discard it' : undefined}
-        className={`relative w-[60px] shrink-0 cursor-pointer overflow-hidden rounded-md shadow-panel ${
+        // `self-start`: the picture's own size, not the row's height — it is
+        // what the hand-off courier lands on (handoff.ts), and a box taller
+        // than its picture put the landing 20 px off it.
+        className={`relative w-[60px] shrink-0 cursor-pointer self-start overflow-hidden rounded-md shadow-panel ${
           needsInput ? 'ring-2 ring-warning' : ''
         } ${fade}`}
         onClick={() => (needsInput ? setPopoverOpen(!popoverOpen) : entry.cardId && onOpenDetail(entry.cardId))}
@@ -326,6 +343,20 @@ export function FeedEntryCard({
             </span>
           )}
         </div>
+
+        {/* SAME AS LAST SCAN (2026-11-27). The scanner took this card again
+            after something broke its view of it — a hand over it, the phone
+            away and back — and identity named it the card before. It may be a
+            real second copy (kept, zero taps) or the same card seen twice (the
+            × on this row, or Undo in the camera's pill). Advisory: a wrong
+            chip, never a lost card. */}
+        {entry.repeatOf && (
+          <div data-repeat-chip className="fe-chips mt-[3px] flex">
+            <span className="inline-flex h-[22px] items-center gap-[4px] rounded-full bg-action-primary/15 px-[8px] text-[11px] font-bold text-action-primary-strong">
+              <Icon name="copy" size={11} /> Same as last scan
+            </span>
+          </div>
+        )}
 
         {/* WHICH PRINTING — the slot the 2026-09-05 ruling puts on the row:
             "variant resolve happens there". `detecting` is the state the

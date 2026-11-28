@@ -90,7 +90,7 @@ export const DEFAULT_CADENCE_MS = 120
  * put the earliest capture ~5 ticks (~600 ms) after a card appeared — about as
  * long as a card is shown in a flip-through (0.6-0.9 s in the replayed videos,
  * scripts/scan-bench/video). Measured there on 192 card appearances, with the
- * look re-arm (ui/rearm.ts):
+ * look re-arm (ui/rearm.ts, retired 2026-11-27 for the presentation episode):
  *
  *   lockTicks   captured   auto-ID   duplicates   stray captures   wrong
  *       3          —          —           —              —           —    (no re-arm: 18% / 10% / 2 / 8)
@@ -640,6 +640,9 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
     return refineQuadChecked(quad, gradientField(img))
   }
 
+  /** The spot the UI watches (ScanEngine.watch), canonical coordinates. */
+  let watched: Quad | null = null
+
   function emit(state: EngineState) {
     lastState = state
     for (const cb of listeners) {
@@ -769,6 +772,9 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
     // ...and how sharp it is, off the same pixels and the same quad
     // (sharpness.ts). The capture policy waits for a sharp tick (ui/focusGate.ts).
     const sharpness = locked && workImg ? quadSharpness(workImg, locked.raw ?? locked.quad) : null
+    // ...and the look of the spot the UI is watching (ScanEngine.watch), off
+    // the same pixels: what lies where the last capture was taken, lock or not.
+    const spotLook = watched && workImg ? cardLook(workImg, watched) : null
 
     // Publish this tick's frame and its state together — they are a pair, and
     // `capture()` relies on them being one.
@@ -791,6 +797,7 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
       locked,
       saturation: focus ? (saturations.get(focus.id) ?? null) : null,
       look,
+      spotLook,
       sharpness,
       perf: { detectMs, hz, jitterPx: jitter.displayedPx },
     })
@@ -839,6 +846,7 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
       if (raf) cancelAnimationFrame(raf)
       raf = 0
       video = null
+      watched = null
       tracker.reset()
       gate.reset()
       lockPolicy.reset()
@@ -848,6 +856,10 @@ export const createScanEngine: CreateScanEngine = (opts: EngineOptions = {}): Sc
       // would let a capture after a restart warp a stale scene.
       capRead = null
       capWrite = capA
+    },
+
+    watch(quad: Quad | null): void {
+      watched = quad
     },
 
     onState(cb: (s: EngineState) => void): () => void {

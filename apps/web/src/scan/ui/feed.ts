@@ -217,14 +217,22 @@ export function restoreRow(feed: FeedEntry[], removed: RemovedRow): FeedEntry[] 
  * caller that can quietly grow a second opinion about it later. It stays the one
  * door into the list, with a test on it.
  *
- * APPENDS, so the array is in SCAN ORDER, oldest first. That is the canonical
- * order the rest of the screen sorts FROM (`sort.ts`), and it is the same order
- * `capturedAt` is in — but the array order is what a re-sort has to be able to
- * return to, and reconstructing it from timestamps would break the moment two
- * captures landed in the same millisecond.
+ * The array is in SCAN ORDER, oldest first: the canonical order the rest of the
+ * screen sorts FROM (`sort.ts`). The array order is what a re-sort has to be
+ * able to return to, and reconstructing it from timestamps would break the
+ * moment two captures landed in the same millisecond.
+ *
+ * IN SCAN ORDER EVEN WHEN THEY SETTLE OUT OF IT (2026-11-27). Rows arrive when
+ * their identity settles, and a slow first card can settle after a fast second
+ * one; appending put it ABOVE the second in the newest-first bin, so the
+ * courier flew past the row it had just delivered (design §4.4). So an arrival
+ * goes in after every row shuttered at or before it — the end of the array, in
+ * every case where capture order and settle order agree.
  */
 export function addArrival(feed: readonly FeedEntry[], arrival: FeedEntry): FeedEntry[] {
-  return [...feed, arrival]
+  let i = feed.length
+  while (i > 0 && feed[i - 1]!.capturedAt > arrival.capturedAt) i--
+  return [...feed.slice(0, i), arrival, ...feed.slice(i)]
 }
 
 // ── THE RESOLUTION RULE ─────────────────────────────────────────────────────

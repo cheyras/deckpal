@@ -50,7 +50,21 @@ import { polyIoU } from '../geometry'
 import { DEFAULT_CADENCE_MS } from '../index'
 import { DEFAULT_LOCK_MIN_SATURATION } from '../index'
 import { orderQuadForCard } from '../rectify'
-import { createCapturedRegions, REGION_DEPARTURE_MS, REGION_SAME_IOU, type RegionTrack } from '../../ui/regions'
+import { flaggedRepeats, replayPresentation, type StreamEvent } from './presentationReplay'
+
+/**
+ * The retired captured-region policy's constants (scan/ui/regions.ts, removed
+ * 2026-11-27, decision "a flip is always captured"): the overlap at which a
+ * region followed or suppressed, and the departure window it shipped with.
+ * Kept here because this file's MEASUREMENTS are about them — what overlap
+ * can and cannot tell — and those findings are why the policy is gone.
+ */
+const REGION_SAME_IOU = 0.5
+const REGION_DEPARTURE_MS = 5_000
+interface RegionTrack {
+  id: number
+  quad: Quad
+}
 
 // ── WHY THE FIXTURES ARE IN THE REPO ────────────────────────────────────────
 //
@@ -273,10 +287,36 @@ interface Policy {
   keep(quad: Quad, trackId: number, now: number): void
 }
 
-/** THE SHIPPING POLICY, driven — not a copy of it. */
-function shipped(departureMs = REGION_DEPARTURE_MS): Policy {
-  const R = createCapturedRegions({ departureMs })
-  return { age: (now, tracks) => void R.tick(now, tracks), ask: (q) => R.suppressed(q), keep: (q, id, now) => R.note(q, id, now) }
+/** No duplicate policy at all: every `wouldCapture` lock fires. The ceiling below. */
+function noPolicy(): Policy {
+  return { age: () => {}, ask: () => false, keep: () => {} }
+}
+
+/**
+ * THE PRESENTATION EPISODE (scan/ui/presentation.ts), the policy that ships
+ * since 2026-11-27, driven over this session's stream (presentationReplay.ts).
+ * Each event's physical card is recovered from the pictures
+ * (`card-identity.json`): a new card wherever an event is provably different
+ * from the one before it. While nothing is locked the spot is read as EMPTY —
+ * this session's own measurement (§3b): on this phone "no track" means "no
+ * card". Returns the auto-fires as indices into ALL, like `replay`.
+ */
+const CARD_OF = new Map<string, number>()
+function presentationFires(gap: 'empty' | 'card' = 'empty') {
+  if (!CARD_OF.size && ID) {
+    let card = 0
+    ID.events.forEach((e, i) => {
+      if (i > 0 && e.simToPrev !== null && e.simToPrev < DIFFERENT) card++
+      CARD_OF.set(e.file, card)
+    })
+  }
+  const r = replayPresentation(ALL as unknown as StreamEvent[], {
+    continuousMs: CONTINUOUS_MS,
+    cardOf: (e) => CARD_OF.get(e.file!) ?? -1,
+    gap,
+    manuals: false,
+  })
+  return { fired: r.fires.map((f) => f.eventIndex), fires: r.fires }
 }
 
 /**
@@ -410,43 +450,50 @@ describe('owner session 1 — THE FIX, replayed on the session that found it', (
     assert.ok(agree / LOCKS.length > 0.75, `replay reproduced ${agree}/${LOCKS.length} recorded suppression flags`)
   })
 
-  it('THE CEILING: nine of the manual presses are not the region policy to fix', { skip }, () => {
-    // With NO region at all, nine of his twenty-one manual presses still had to
-    // be manual: the card never locked, because it failed the saturation or the
-    // shape/straddle gate. Any claim about "fixing auto-capture" is bounded by
-    // this number, and the session report attributes the remainder exactly
-    // (4 below the saturation gate, 5 failing shape/straddle) — which is what
-    // the twelve below independently reproduces.
-    const ceiling = manualPressesSaved(replay(shipped(1)).fired)
-    assert.ok(ceiling <= 13, `no-region upper bound is ${ceiling} of 21`)
-    assert.ok(ceiling >= 11, `no-region upper bound is ${ceiling} of 21`)
+  it('THE CEILING: nine of the manual presses are not the duplicate policy to fix', { skip }, () => {
+    // With NO duplicate policy at all, nine of his twenty-one manual presses
+    // still had to be manual: the card never locked, because it failed the
+    // saturation or the shape/straddle gate. Any claim about "fixing
+    // auto-capture" is bounded by this number, and the session report
+    // attributes the remainder exactly (4 below the saturation gate, 5 failing
+    // shape/straddle) — which is what the twelve below independently reproduces.
+    const ceiling = manualPressesSaved(replay(noPolicy()).fired)
+    assert.ok(ceiling <= 13, `no-policy upper bound is ${ceiling} of 21`)
+    assert.ok(ceiling >= 11, `no-policy upper bound is ${ceiling} of 21`)
   })
 
-  it('THE FIX: identity-gated follow frees far more of the suppressed locks on this session', { skip }, () => {
-    const before = replay(overlapFollowing()).fired
-    const after = replay(shipped()).fired
-    assert.ok(
-      after.length >= before.length * 1.4,
-      `auto-captures ${before.length} -> ${after.length}; the identity gate must materially free the suppressed locks`,
-    )
-    const savedBefore = manualPressesSaved(before)
-    const savedAfter = manualPressesSaved(after)
-    // Two, not the three this asserted at the old 12 s departure. The gap
-    // between the two follow rules NARROWS as the window shortens, and it must:
-    // a short window retires an over-adopted region too, so overlap-following
-    // costs less when there is less time for it to be wrong. The finding is the
-    // direction, and the direction is what is fenced.
-    assert.ok(
-      savedAfter >= savedBefore + 2,
-      `manual presses made unnecessary ${savedBefore} -> ${savedAfter} of 21`,
-    )
-    // And the cost, bounded: the extra fires are overwhelmingly NEW cards, not
-    // repeats of one the reader already has.
-    const dupAfter = duplicates(after)
-    assert.ok(dupAfter <= after.length * 0.25, `${dupAfter} of ${after.length} fires are duplicates`)
+  it('RE-BASELINED: the presentation episode rescues more of his presses than the regions did, at a bounded cost', { skip }, () => {
+    // 2026-11-27. The regions (5 s, identity-gated follow) replayed on this
+    // stream: 33 auto-captures, 10 of his 21 presses made unnecessary, 4
+    // provable duplicates. The presentation episode, the spot read as empty
+    // whenever nothing is locked (this phone's own measurement, §3b):
+    //
+    //                          regions 5 s   episode
+    //   auto-captures               33          58
+    //   presses made unnecessary    10          14     (ceiling 11-13 + one more)
+    //   provable duplicates          4           8
+    //
+    // Every one of the 8 is a capture after a break whose identity names the
+    // card before it: a row flagged "Same as last scan" with Undo, not a silent
+    // second copy. That is the trade the decision file records. With the spot
+    // read as still holding the card (what a dropout over an untouched card
+    // looks like to the spot look), it is 39 / 12 / 1.
+    const { fired, fires } = presentationFires('empty')
+    assert.equal(fired.length, 58, `auto-captures ${fired.length}`)
+    const saved = manualPressesSaved(fired)
+    assert.ok(saved >= 10, `no worse than the regions' fence: ${saved} of 21 presses made unnecessary`)
+    assert.equal(saved, 14)
+    const dup = duplicates(fired)
+    assert.equal(dup, 8, `${dup} provable duplicates`)
+    assert.ok(dup <= fired.length * 0.25, `the cost, bounded: ${dup} of ${fired.length} fires are duplicates`)
+    assert.ok(fires.slice(1).every((f) => f.kind === 'disturbed'), 'every fire after the first is a capture after a break')
+    // The kinder model, for the record.
+    const kept = presentationFires('card')
+    assert.deepEqual([kept.fired.length, manualPressesSaved(kept.fired), duplicates(kept.fired)], [39, 12, 1])
+    assert.ok(flaggedRepeats(kept.fires).length <= flaggedRepeats(fires).length)
   })
 
-  it("the session's very first swap stops being swallowed", { skip }, () => {
+  it("the session's very first swap is taken", { skip }, () => {
     // t+2.9 s: a Shaymin is captured. t+8.5 s to t+19.1 s: a DIFFERENT card is
     // presented in the same spot, locks six times, and every one of those locks
     // is recorded `wouldCapture: true, suppressedByRegion: true`. It was never
@@ -460,10 +507,10 @@ describe('owner session 1 — THE FIX, replayed on the session that found it', (
     )
     // ...and the replacement really is a different card, by picture.
     assert.ok(simToCapture(first + 1, ALL[first]) < DIFFERENT, 'the replacement is provably not the captured card')
-    const after = replay(shipped()).fired
+    const { fired } = presentationFires('empty')
     assert.ok(
-      after.some((i) => i > first && i <= first + 8),
-      'the identity-gated policy must capture the replacement card',
+      fired.some((i) => i > first && i <= first + 8),
+      'the presentation episode must capture the replacement card',
     )
   })
 })
@@ -520,18 +567,14 @@ describe('owner session 1 — a phone does not lose a card it can see', () => {
     assert.ok(Math.max(...short) <= 2.4, `re-ids top out at ${Math.max(...short).toFixed(2)}s`)
     assert.ok(Math.min(...long) >= 4.1, `absences start at ${Math.min(...long).toFixed(2)}s`)
 
-    // THE FENCE THIS PUTS UNDER THE CONSTANT. It must outlast the longest gap
-    // with the card provably still there, and it must not be sized on the fake
-    // camera's 11.37 s — see regions.REGION_DEPARTURE_MS for the argument and
-    // `owner-session-2-regressions.test.ts` for the session that priced it.
-    assert.ok(
-      REGION_DEPARTURE_MS > Math.max(...short) * 1000,
-      `the window (${REGION_DEPARTURE_MS} ms) must outlast a real device's track re-id (${Math.max(...short).toFixed(2)} s)`,
-    )
-    assert.ok(
-      REGION_DEPARTURE_MS >= Math.max(...short) * 2000,
-      `and with margin: ${REGION_DEPARTURE_MS} ms is only ${(REGION_DEPARTURE_MS / (Math.max(...short) * 1000)).toFixed(1)}x the longest measured re-id`,
-    )
+    // THE FENCE THIS PUT UNDER THE REGIONS' WINDOW: it had to outlast the
+    // longest gap with the card provably still there (the retired 5 s did,
+    // twice over). The presentation episode has no window: a re-id with the
+    // card still there is the same look on the same spot (the spot look), and
+    // a real absence is a break. What this measurement still says is that the
+    // two populations are separate on this phone — which is what lets
+    // `presentationReplay`'s "no track means no card" stand as the model.
+    assert.ok(REGION_DEPARTURE_MS >= Math.max(...short) * 2000, 'the retired window outlasted every re-id with margin')
   })
 
   it('the tracker holds a stationary card for as long as it is there', { skip }, () => {
@@ -543,32 +586,12 @@ describe('owner session 1 — a phone does not lose a card it can see', () => {
     assert.equal(LOCKS.filter((l) => l.coasting).length, 0, 'no lock in this session is coasting')
   })
 
-  it('THE SWEEP: what the departure window buys and costs on 39 minutes of real use', { skip }, () => {
-    // Duplicate fires on this session are 5.8-18.1 s apart — spread across AND
-    // beyond any defensible window — so the count does not fall as the window
-    // widens. It is 2-6 at every value from 3 s to 15 s with no trend, which is
-    // the honest reading: on phone data this constant is not buying duplicate
-    // suppression, it is only deciding how long the NEXT card waits.
-    const table = [3_000, 4_000, 5_000, 6_000, 8_000, 12_000].map((d) => {
-      const f = replay(shipped(d)).fired
-      return { d, fires: f.length, dup: duplicates(f), saved: manualPressesSaved(f) }
-    })
-    for (const r of table) {
-      assert.ok(r.dup <= 6, `departure ${r.d}: ${r.dup} duplicate fires`)
-      assert.ok(r.dup >= 2, `departure ${r.d}: ${r.dup} duplicate fires`)
-    }
-    // Monotone the only way it can be: a shorter window never suppresses more.
-    for (let i = 1; i < table.length; i++) {
-      assert.ok(table[i].fires <= table[i - 1].fires, `auto-fires must not rise as the window widens: ${table.map((r) => r.fires).join(', ')}`)
-    }
-    // And at the shipped value the session gains seven automatic captures over
-    // the 12 s it replaced, for two more duplicates.
-    const at5 = table.find((r) => r.d === 5_000)!
-    const at12 = table.find((r) => r.d === 12_000)!
-    assert.equal(at5.fires - at12.fires, 7, `5 s vs 12 s: ${at12.fires} -> ${at5.fires} auto-captures`)
-    assert.equal(at5.dup - at12.dup, 2, `5 s vs 12 s: ${at12.dup} -> ${at5.dup} duplicate fires`)
-    assert.ok(at5.saved >= at12.saved, `5 s must not rescue fewer presses than 12 s (${at12.saved} -> ${at5.saved})`)
-  })
+  // THE SWEEP of the departure window (3-12 s: 2-6 duplicates at every value,
+  // no trend — "on phone data this constant is not buying duplicate
+  // suppression, it is only deciding how long the NEXT card waits") was this
+  // file's last word on the regions, and it is why they are gone. It drove
+  // scan/ui/regions.ts, retired 2026-11-27; the decision files of 2026-09-05
+  // and 2026-11-27 keep its table.
 })
 
 // ---------------------------------------------------------------------------

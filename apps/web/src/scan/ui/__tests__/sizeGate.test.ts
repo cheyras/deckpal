@@ -6,8 +6,7 @@ import assert from 'node:assert/strict'
 import type { Quad } from '../../engine/contract'
 import { decideAutoCapture } from '../autoCapture'
 import { FOCUS_FLOOR, createFocusGate } from '../focusGate'
-import { createCapturedRegions } from '../regions'
-import { createLookRearm } from '../rearm'
+import { createPresentation } from '../presentation'
 import { MIN_CARD_SIDE, cardSideFraction, isTooFar } from '../sizeGate'
 
 const FRAME = 416
@@ -43,10 +42,9 @@ test('the floor: just under it is too far, at it is not', () => {
 })
 
 const memory = (extra: Record<string, unknown> = {}) => ({
-  refractory: new Set<number>(),
+  presentation: createPresentation(),
+  now: 0,
   busy: false,
-  regions: createCapturedRegions(),
-  rearm: createLookRearm(),
   size: { frameSide: FRAME },
   ...extra,
 })
@@ -66,9 +64,12 @@ test('without the size memory nothing changes (callers that do not opt in)', () 
   assert.equal(v.tooFar, false)
 })
 
-test('a repeat is never told to come closer', () => {
-  const m = memory({ refractory: new Set([4]) })
-  const v = decideAutoCapture({ id: 4, quad: card(0.3) }, null, m)
+test('a card already taken, still lying there, is never told to come closer', () => {
+  const presentation = createPresentation()
+  const quad = card(0.3)
+  presentation.fire({ kind: 'manual', now: 0, captureId: 'cap-1', trackId: 4, quad, look: null })
+  const v = decideAutoCapture({ id: 4, quad }, null, memory({ presentation, now: 125 }))
+  assert.equal(v.presentation.state, 'watching')
   assert.equal(v.fire, false)
   assert.equal(v.tooFar, false)
 })

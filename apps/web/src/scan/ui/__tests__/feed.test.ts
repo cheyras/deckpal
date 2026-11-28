@@ -148,6 +148,19 @@ describe('a capture arriving in the list', () => {
     addArrival(before, entry({ id: 'cap-9', cardId: 'sv10-161' }))
     assert.equal(before.length, 1)
   })
+
+  it('a slow first card that settles after a fast second one still goes in in SCAN order', () => {
+    // 2026-11-27 (design §4.4): rows arrive in settle order, the list is in
+    // shutter order, so the newest-first bin shows the second card on top and
+    // the slow one's courier homes BELOW it.
+    const first = entry({ id: 'cap-1', cardId: 'sv10-161', capturedAt: 1_000 })
+    const second = entry({ id: 'cap-2', cardId: 'sv10-057', capturedAt: 2_000 })
+    const feed = addArrival(addArrival([], second), first)
+    assert.deepEqual(feed.map((e) => e.id), ['cap-1', 'cap-2'])
+    // Equal shutter times keep arrival order.
+    const tie = addArrival(feed, entry({ id: 'cap-3', capturedAt: 2_000 }))
+    assert.deepEqual(tie.map((e) => e.id), ['cap-1', 'cap-2', 'cap-3'])
+  })
 })
 
 // ── resolutions ─────────────────────────────────────────────────────────────

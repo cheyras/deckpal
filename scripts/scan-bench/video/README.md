@@ -43,7 +43,7 @@ node --import tsx scripts/scan-bench/video/replay.ts clip.mp4 --start 10 --end 4
 | `--fps` | 8 | detect cadence (field telemetry `perf.hz` ≈ 8.1) |
 | `--busy-ms` | 500 | how long a capture holds `captureBusyRef` (see Deviations) |
 | `--lock-ticks` | shipping `DEFAULT_LOCK_TICKS` | the lock dwell, to replay another value |
-| `--no-rearm` | off | replay the policy without the look re-arm (`scan/ui/rearm.ts`) |
+| `--tuning '{...}'` | the shipping values | the presentation machine's thresholds (`scan/ui/presentation.ts` `PresentationTuning`), e.g. `'{"settleTicks":1}'` |
 | `--no-size-gate` | off | replay the policy without the size gate (`scan/ui/sizeGate.ts`), the policy before 2026-11-26 |
 | `--batch` | 16 | LC050 frames per sidecar call |
 | `--timeline-every` | fps | ticks between timeline tiles (1 per second by default) |
@@ -66,8 +66,8 @@ runs with `OPENBLAS_NUM_THREADS=1`. A 60-80 s short takes 10-15 s of wall time.
 |---|---|
 | `captures/<t>.jpg` | every FIRED capture: 480x670, 5% margin, JPEG q85. `<t>` is video seconds |
 | `suppressed/<t>-<reason>-trk<id>.jpg` | the first suppressed lock of each track for each reason, warped the same way, so you can judge by eye whether the suppression refused a duplicate or a new card |
-| `captures.jsonl` | one row per fired capture (`suppressed: false`) and per suppressed lock episode (`"region"` / `"busy"` / `"cardback"`): `t`, frame index `i`, `trackId`, `trackAge`, `quad` (canonical 416), `quadStream` (960x1280 stream), `quadSource` (video px), `hasObj`, `gateOpen`, `saturation`, `aspect`, `parallel` (the straddle ratio), `motionPx`, `sharpness`, `regionCount`, `regionsExpired`, and for suppressed rows `trackFiredAt` |
-| `frames.jsonl` | one row per detect tick: `hasObj`, `gate`, `obs` (the gated, refined quad) with `obsWhy` when the tracker's reticle filter would refuse it, `sat`, `stable` tracks (`id`, `age`, coasting `c`, `q`, `mot`, and `why` when the track is not lock-eligible), `pending`, `locked`, `regions`, and `event` (`fire` / `refractory` / `busy` / `region` / `cardback` / `capture-failed`) |
+| `captures.jsonl` | one row per fired capture (`suppressed: false`) and per suppressed lock episode (`"watching"` / `"busy"` / `"cardback"` / `"far"`): `t`, frame index `i`, `trackId`, `trackAge`, `quad` (canonical 416), `quadStream` (960x1280 stream), `quadSource` (video px), `hasObj`, `gateOpen`, `saturation`, `aspect`, `parallel` (the straddle ratio), `motionPx`, `sharpness`, `state` (the presentation machine's), `fireKind` on a fire (`first` / `disturbed` / `drift`), and for suppressed rows `trackFiredAt` |
+| `frames.jsonl` | one row per detect tick: `hasObj`, `gate`, `obs` (the gated, refined quad) with `obsWhy` when the tracker's reticle filter would refuse it, `sat`, `stable` tracks (`id`, `age`, coasting `c`, `q`, `mot`, and `why` when the track is not lock-eligible), `pending`, `locked`, `look` and `spot` (the lock's and the watched spot's looks, base64), `st` (idle / watching / broken), and `event` (`fire` / `watching` / `settling` / `busy` / `cardback` / `far` / `capture-failed`) |
 | `contact.png` | the fired captures, timestamped, with sharpness/motion/saturation under each |
 | `contact-suppressed.png` | the suppressed crops |
 | `timeline.png` | the canonical frame once a second, with the reticle (grey), the observation (yellow), stable tracks (green; dark green while coasting) and the lock (red). A red border means a capture fired since the previous tile, orange means only suppressions happened |
@@ -78,9 +78,14 @@ Counts in `summary.json` and on the console:
 - **lockTicks**: ticks where the engine reported a lock.
 - **lockedTracks**: distinct track ids that reached a lock.
 - **captures**: fired captures.
-- **regionSuppressedTracks**: locked tracks that never fired because a live
-  captured region covered them. That is the duplicate suppression working, or
-  its fast-swap cost (see below).
+- **watchingHeldTracks**: locked tracks that never fired because the
+  presentation episode was WATCHING (`scan/ui/presentation.ts`): the card it
+  captured was still in view, or a new card arrived without the episode seeing
+  a break. The first is the policy working; the second is its miss, and
+  `frames.jsonl`'s `st` and looks say which.
+- **firstFires / disturbedFires / driftFires**: captures by why the episode
+  fired. A `drift` is a silent probe on the device, dropped if identity names
+  it the same card at a close look; this replay has no identity and counts it.
 - **busyDeferredTracks**: locks that arrived inside the busy window. At 8 Hz a
   new track can't lock before age 5 (625 ms), so this is almost always 0.
 - **cardBackTracks**: locked tracks that never fired because the card-back gate
@@ -107,8 +112,8 @@ rules:
 | tracker | `engine/tracker.ts` `createTracker` |
 | lock (dwell, aspect, straddle, saturation) | `engine/index.ts` `createLockPolicy` |
 | reticle, canonical square | `engine/frame.ts` `reticleForAspect`, `squareCrop`, `modelPointsToCanonicalQuad`, `canonicalQuadToCrop` |
-| duplicate regions | `scan/ui/regions.ts` `createCapturedRegions` |
-| a card's look, the look re-arm | `engine/look.ts` `cardLook`, `captureLook`; `scan/ui/rearm.ts` `createLookRearm` |
+| when a card is taken again | `scan/ui/presentation.ts` `createPresentation` (the episode) |
+| a card's look, the spot look | `engine/look.ts` `cardLook` (the lock's, and the watched quad's: `EngineState.spotLook`) |
 | the fire decision, the card-back gate and holds | `scan/ui/autoCapture.ts` `decideAutoCapture`, `createCardBackHolds`; `engine/cardBack.ts` `isCardBackLook`, `cardBackDistance` |
 | rectification | `engine/rectify.ts` `expandQuad(CAPTURE_MARGIN)` + `rectifyImageData` at `cardRectSize()` |
 | model tensor | `engine/preprocess.ts` `rgbaToBGRPlanar` |
@@ -147,9 +152,9 @@ are smooth downscales, as `drawModelInput` and `grabWork` make them.
    `convertToBlob({ quality: 0.85 })`. `check-a.ts` makes the same substitution.
 4. **Clock.** Detect ticks happen at exactly `i / fps` of video time. The
    device's ticks are a 120 ms floor plus "previous tick finished" on rAF
-   (index.ts:738-757), which measures 7.5-8.1 Hz with jitter. The regions'
-   `Date.now()` (Scan.tsx:416, :424) is replaced by tick time. Region timing
-   (5 s departure, 1.5 s bridge) is therefore quantised to 125 ms.
+   (index.ts:738-757), which measures 7.5-8.1 Hz with jitter. The presentation
+   machine's `performance.now()` is replaced by tick time, so its 400 ms
+   photosensitivity gap is quantised to 125 ms.
 5. **Capture frame.** The capture warps the tick's own frame with the tracked
    track's `raw ?? quad`. That is what `capture()` does via its double-buffered
    `capRead`. On the device the effect runs a few ms after the emit, and no
@@ -159,13 +164,13 @@ are smooth downscales, as `drawModelInput` and `grabWork` make them.
    and the 90 ms bump (motion.ts), about 500 ms in all. Identify, OCR and the
    embed are detached (Scan.tsx:991-1006) and don't count. `--busy-ms` changes
    the window.
-7. **Region note timing.** `noteCapture` runs after `capture()` resolves on the
-   device, tens of ms after the tick. Here it runs at the tick. No tick can fall
-   in between, so no decision differs.
+7. **Fire timing.** `presentation.fire` runs at the tick on the device too (the
+   capture's episode opens when `capture()` is called), so nothing differs.
 8. **Not modelled.** The `step === 'scan'` / `binExpanded` gates (assumed
-   scanning throughout), manual Capture, Discard-and-retake (which releases a
-   refractory hold), the lock recorder's 2 s throttle (not a decision), and the
-   identity race (detached from capture).
+   scanning throughout), manual Capture, Discard-and-retake (which lets the episode go), the lock
+   recorder's 2 s throttle (not a decision), and the identity race (detached
+   from capture) — so neither the same-card flag nor the drift discard
+   (`scan/ui/repeat.ts`) is replayed: every fire counts as a capture.
 9. **Nobody aims the phone.** The virtual phone is fixed to the video's centre.
    A card the creator holds off-centre, or so close that it overfills the
    square, is a card a real user would have re-aimed or backed away from
@@ -215,12 +220,11 @@ there is nothing to aim at. A user would back away; the footage cannot.
   `LC050_MODEL` set to a model whose refit never saw it
   (`export --exclude <id>`). A video added later is unseen until the next
   refit.
-- **A new card that never fired**: look in `contact-suppressed.png` for a
-  `region` row. Then trace `frames.jsonl` around it. If the previous track died
-  and the new one was born less than 1.5 s later on the same spot, that is the
-  REGION_BRIDGE_MS re-anchor adopting the new card. Each adoption refreshes the
-  region, so a fast flip-through chains it from card to card.
+- **A new card that never fired**: look in `frames.jsonl` around it. `st: watching`
+  on its locks means the episode never saw a break: compare `look` with the
+  episode's first looks (a swap of two cards of one set and type can read as
+  quiet), and check whether the tracker kept the id across it.
 - **A blurred capture**: compare `motionPx` at the fire with the same track's
   later `mot` in `frames.jsonl`. The capture fires on the first lock tick (track
-  age 5, 0.625 s after acquisition). The refractory then holds for as long as
+  age 5, 0.625 s after acquisition). The episode then holds for as long as
   the track lives, so a sharper frame a second later never replaces it.

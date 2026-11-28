@@ -216,20 +216,15 @@ hunting) does a little worse than these curves.
   `relabelled: true` say why. When the scanner disagrees with a label with
   confidence, look at the crop before believing the label.
 
-## The auto-capture re-arm on the owner's sessions (`owner-rearm.ts`)
+## The auto-capture re-arm on the owner's sessions (retired 2026-11-27)
 
-A separate question from identification: on the owner's three recorded phone
-sessions, what does the look re-arm (`apps/web/src/scan/ui/rearm.ts`) do with
-the locks the duplicate policy refuses? It computes the shipping `cardLook` /
-`captureLook` off the recorded frames and capture crops, takes the refusals
-from the builds' own flags narrowed to the shipping region policy, and lets the
-shipping judge decide. Ground truth is the session-1 NCC measure plus
-`owner-rearm-labels.json`, labelled by eye from the sheets `--sheets` writes.
-
-```bash
-node --import tsx scripts/scan-bench/owner-rearm.ts --sheets --out <dir>
-```
-
-The frames live in the main checkout's untracked
-`roadmap/plans/card-scanner-redesign/p2-work` (override: `OWNER_SESSIONS`).
-The script's header has the method, its limits and the 2026-10-10 result.
+`owner-rearm.ts` measured the look re-arm (`scan/ui/rearm.ts`) on the owner's
+three recorded phone sessions: what it did with the locks the captured-region
+policy refused. Both modules were retired on 2026-11-27 for the presentation
+episode (`scan/ui/presentation.ts`; decision "a flip is always captured"), and
+the script with them. Its by-eye labels stay, in `owner-rearm-labels.json`:
+every refused lock of those sessions marked `new <card>`, `same <card>` or
+`motion`, which is still ground truth for any later policy. The lock-stream
+replays of the same sessions now live in
+`apps/web/src/scan/engine/__tests__/owner-session*-regressions.test.ts`
+(`presentationReplay.ts`). The script is in git history before that date.
