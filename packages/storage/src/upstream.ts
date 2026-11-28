@@ -130,8 +130,14 @@ export const IMAGE_SOURCE_POLICY: UpstreamPolicy = {
  * into `%NN`, so a class that allowed `%` would allow `%00` and `%20` straight
  * back in. Same rule, same reason, as `parseImagePath` — decode first, validate
  * after.
+ *
+ * Two exceptions, for the two card numbers TCGdex keys with punctuation
+ * (`paths.ts` `cardSourceUrl`): `!`, which has no meaning in a path, and the one
+ * literal escape `%3F` (TCGdex's spelling of the `?` card's local id, sent as
+ * `%253F`). Only that exact escape is allowed, never `%` on its own, so `%00`,
+ * `%20` and a further `%25` layer are still refused.
  */
-const UPSTREAM_PATH = /^\/[A-Za-z0-9._~/-]*$/;
+const UPSTREAM_PATH = /^\/(?:[A-Za-z0-9._~!/-]|%3F)*$/;
 /** Empty, or a query of the same shape. Neither upstream uses one today. */
 const UPSTREAM_QUERY = /^[A-Za-z0-9._~&=/-]*$/;
 

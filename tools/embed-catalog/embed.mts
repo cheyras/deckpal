@@ -47,6 +47,7 @@ import { fileURLToPath } from 'node:url'
 
 import { makePool } from '../../packages/db/dist/index.js'
 import { EMBED_MODEL_ID, embedStamp, toPgVector } from '../../packages/matching/dist/index.js'
+import { cardRelativePath } from '../../packages/storage/dist/paths.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO = join(HERE, '..', '..')
@@ -56,7 +57,6 @@ const REPO = join(HERE, '..', '..')
 // built from two sets of bytes, which is the sort of thing nobody notices until
 // the match rates disagree.
 const CACHE_ROOT = process.env.IMAGE_CACHE_ROOT ?? '/home/cheyras/pokedex/cache'
-const LANG = 'en'
 
 interface Args {
   quality: 'low' | 'high'
@@ -129,12 +129,11 @@ interface Target {
   local_id: string
 }
 
-/** Local path is a pure function of (serie, set, localId, quality), matching
- *  apps/images/src/layout.ts. Replicated from the phash indexer rather than
- *  imported for the same reason it gives: no cross-app dependency for one
- *  `join`. Read-only. */
-function cardPath(t: Target, quality: string): string {
-  return join(CACHE_ROOT, 'images', LANG, t.serie, t.set, `${t.local_id}.${quality}.webp`)
+/** Local path is a pure function of (serie, set, localId, quality): the stored
+ *  layout, `cardRelativePath` in @deckpal/storage (the one the phash indexer
+ *  reads too, with `!` and `?` spelled out), under IMAGE_CACHE_ROOT. Read-only. */
+function cardPath(t: Target, quality: 'low' | 'high'): string {
+  return join(CACHE_ROOT, cardRelativePath({ serie: t.serie, set: t.set, localId: t.local_id }, quality))
 }
 
 async function fetchTargets(pool: QueryablePool, args: Args, stamp: string): Promise<Target[]> {

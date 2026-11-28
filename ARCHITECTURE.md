@@ -388,7 +388,10 @@ card-art/sets/<setId>/symbol.webp
 `packages/storage/src/paths.ts` is the authoritative path code for both tiers
 (`apps/images/src/layout.ts` re-exports it). The `/<localId>/<low|high>.webp`
 shape belongs to the upstream asset URL and the public `/deckpal/images/…`
-request URL, not to the stored object.
+request URL, not to the stored object. `<localId>` in the request URL and the
+object key is the local id itself, except the Unown `!` and `?` (`exu`), which no
+segment can carry and which are spelled `exclamation` and `question`
+(`cardImageSegment`); the cache key and the TCGdex URL keep the catalog's local id.
 
 **Provenance choke point:** All writes go through a `putAsset()` wrapper
 (`packages/storage/src/put-asset.ts`) that uploads to Supabase Storage via the
@@ -411,7 +414,8 @@ on the cloud side rather than self-reported.
 
 **CDN:** the API still emits the same relative paths self-host uses
 (`/deckpal/images/en/<serie>/<set>/<localId>/<low|high>.webp`, built by
-`cardImages()` in `apps/api/src/db.ts` and `setAssetUrl()` in
+`cardImages()` in `apps/api/src/db.ts` via `cardImageAddress()` in
+`packages/storage/src/paths.ts`, and `setAssetUrl()` in
 `apps/web/src/components/ui.tsx`), and `vercel.json` still rewrites that prefix
 to `/api/images?p=…`, a serverless function (`apps/api/src/images/handler.ts`)
 that lazily fills the bucket on demand: a MISS reads the `image_asset` row,

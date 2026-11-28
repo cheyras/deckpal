@@ -4,10 +4,14 @@ import { readFileSync } from 'node:fs';
 import {
   SPRITES_SHA,
   cardCacheKey,
+  cardImageAddress,
+  cardImageSegment,
   cardRelativePath,
   cardSourceUrl,
   imageSubPathFromUrl,
+  localIdFromImageSegment,
   parseImagePath,
+  printedLocalId,
   setImageCacheKey,
   setImageRelativePath,
   spriteRelativePath,
@@ -79,6 +83,60 @@ test('the parser agrees with the path builders it shares a module with', () => {
   assert.ok(s.ok && s.asset.kind === 'set');
   assert.equal(s.asset.relativePath, setImageRelativePath('base1', 'logo'));
   assert.equal(s.asset.cacheKey, setImageCacheKey('base1', 'logo'));
+});
+
+// ── The two card numbers an address cannot carry ─────────────────────────────
+
+test('the Unown "!" and "?" local ids map to spelled-out address segments and back', () => {
+  // The catalog keeps TCGdex's spelling: "!" as itself, "?" as the three characters %3F.
+  assert.equal(cardImageSegment('!'), 'exclamation');
+  assert.equal(cardImageSegment('%3F'), 'question');
+  assert.equal(cardImageSegment('?'), 'question', 'a literal "?" spells the same');
+  assert.equal(localIdFromImageSegment('exclamation'), '!');
+  assert.equal(localIdFromImageSegment('question'), '%3F');
+  for (const id of ['!', '%3F', '006', 'TG05', 'A', 'SWSH149', 'CC020', '50a']) {
+    assert.equal(localIdFromImageSegment(cardImageSegment(id)), id, `round trip ${id}`);
+  }
+  // Every other id is its own segment, both ways.
+  for (const id of ['006', 'TG05', 'A', 'Q', 'SWSH149']) {
+    assert.equal(cardImageSegment(id), id);
+    assert.equal(localIdFromImageSegment(id), id);
+  }
+  assert.equal(printedLocalId('%3F'), '?');
+  assert.equal(printedLocalId('!'), '!');
+  assert.equal(printedLocalId('100%'), '100%', 'not an escape: kept as it is');
+});
+
+test('the API emits the spelled-out address, and the tier parses it back to the catalog card', () => {
+  const question = { serie: 'ex', set: 'exu', localId: '%3F' };
+  const exclamation = { serie: 'ex', set: 'exu', localId: '!' };
+  assert.equal(cardImageAddress(question, 'low'), '/deckpal/images/en/ex/exu/question/low.webp');
+  assert.equal(cardImageAddress(exclamation, 'high'), '/deckpal/images/en/ex/exu/exclamation/high.webp');
+  assert.equal(cardImageAddress({ serie: 'sv', set: 'sv03.5', localId: '102' }, 'low'), '/deckpal/images/en/sv/sv03.5/102/low.webp');
+
+  for (const [ref, segment, tcgdexKey] of [[question, 'question', '%253F'], [exclamation, 'exclamation', '!']] as const) {
+    for (const quality of ['low', 'high'] as const) {
+      // Both shapes the tier receives: the literal URL and Vercel's ?p= rewrite.
+      for (const url of [cardImageAddress(ref, quality), `/api/images?p=${cardImageAddress(ref, quality).slice('/deckpal/images/'.length)}`]) {
+        const r = parseImagePath(imageSubPathFromUrl(url)!);
+        assert.ok(r.ok && r.asset.kind === 'card', url);
+        assert.deepEqual(r.asset.ref, ref, 'the ref carries the catalog local id');
+        assert.equal(r.asset.relativePath, `images/en/ex/exu/${segment}.${quality}.webp`);
+        assert.equal(r.asset.relativePath, cardRelativePath(ref, quality));
+        assert.equal(r.asset.cacheKey, `card:exu-${ref.localId}:${quality}`, 'keyed by the card id');
+        assert.equal(r.asset.cacheKey, cardCacheKey(ref, quality));
+        // TCGdex's real path: its asset store keys the "?" card by the literal %3F.
+        assert.equal(r.asset.canonicalSourceUrl, `https://assets.tcgdex.net/en/ex/exu/${tcgdexKey}/${quality}.webp`);
+        assert.equal(r.asset.canonicalSourceUrl, cardSourceUrl(ref, quality));
+      }
+    }
+  }
+});
+
+test('the old unservable spellings stay unservable rather than aliasing', () => {
+  for (const p of ['en/ex/exu/!/low.webp', 'en/ex/exu/%21/low.webp', 'en/ex/exu/%3F/low.webp', 'en/ex/exu/%253F/low.webp']) {
+    assert.deepEqual(parseImagePath(p), { ok: false, reason: 'not-found' }, p);
+  }
 });
 
 // ── Path traversal: every shape must be rejected ─────────────────────────────

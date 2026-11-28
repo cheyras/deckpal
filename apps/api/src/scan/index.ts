@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { makePool } from '@deckpal/db';
+import { cardRelativePath, type Quality } from '@deckpal/storage/paths';
 import type pg from 'pg';
 import { ALGO, hashPath, hashToBytes } from './phash.js';
 
@@ -28,7 +29,6 @@ import { ALGO, hashPath, hashToBytes } from './phash.js';
  */
 
 const CACHE_ROOT = process.env.IMAGE_CACHE_ROOT ?? '/home/cheyras/pokedex/cache';
-const LANG = 'en';
 
 interface Args {
   quality: 'low' | 'high';
@@ -67,11 +67,11 @@ interface Target {
   local_id: string;
 }
 
-// Local path is a pure function of (serie, set, localId, quality) — matches
-// apps/images/src/layout.ts (flat `<localId>.<quality>.webp`); replicated here
-// rather than imported to avoid a cross-app dependency. Read-only.
-function cardPath(t: Target, quality: string): string {
-  return join(CACHE_ROOT, 'images', LANG, t.serie, t.set, `${t.local_id}.${quality}.webp`);
+// Local path is a pure function of (serie, set, localId, quality): the stored
+// layout, `cardRelativePath` in @deckpal/storage (flat `<localId>.<quality>.webp`,
+// with `!` and `?` spelled out), under IMAGE_CACHE_ROOT. Read-only.
+function cardPath(t: Target, quality: Quality): string {
+  return join(CACHE_ROOT, cardRelativePath({ serie: t.serie, set: t.set, localId: t.local_id }, quality));
 }
 
 /**

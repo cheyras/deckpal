@@ -55,7 +55,10 @@ omit the host.
   (the source's observation time, not fetch time). Sources: `tcgcsv` (TCGplayer
   bulk, USD), `tcgdex-cardmarket` (Cardmarket, EUR), `tcgdex-tcgplayer`.
 - **Images.** The API returns image **paths**, never bytes. Card images resolve to
-  `/deckpal/images/en/{serie}/{set}/{localId}/{low|high}.webp`. Self-host serves that
+  `/deckpal/images/en/{serie}/{set}/{localId}/{low|high}.webp`, except that the two
+  local ids no path segment can carry are spelled out: the Unown `!` (`exu-!`) is
+  `…/exu/exclamation/…` and the Unown `?` (`exu-%3F`) is `…/exu/question/…`. Card ids
+  and `number` are unchanged. Self-host serves that
   path from `apps/images` on 3701 (behind nginx at the same base); on cloud it is a
   serverless function that fills the object store on demand and `302`s to the public
   object URL. **Since 2026-08-26 the SPA does not request that path first on cloud** —

@@ -22,12 +22,28 @@ const MIN_NATIVE_HEIGHT = 250;
 /** A card is ~1.40 tall per wide; anything far off is a banner, a sealed product or a placeholder. */
 const MIN_ASPECT = 1.25;
 const MAX_ASPECT = 1.55;
+const cardShaped = (tallPerWide: number): boolean => tallPerWide >= MIN_ASPECT && tallPerWide <= MAX_ASPECT;
+
+/**
+ * Turning a sideways card upright, in sharp's clockwise degrees: 270 is a quarter turn
+ * counter-clockwise. A sideways card (BREAK, the two halves of a LEGEND) is a portrait card with
+ * its content printed turned, the card's top edge running up its left side, so the name reads
+ * bottom to top and the HP sits in the top-left corner. TCGdex shows every BREAK and LEGEND card
+ * that way, and a landscape picture of one becomes that card by this turn.
+ */
+export const SIDEWAYS_TURN = 270;
 
 export type SlotEncodeResult =
-  | { ok: true; bytes: Buffer; native: { width: number; height: number } }
+  | { ok: true; bytes: Buffer; native: { width: number; height: number }; rotated: boolean }
   | { ok: false; reason: string };
 
-/** Re-encode a source image to one card slot, or refuse it. Pure: no network. */
+/**
+ * Re-encode a source image to one card slot, or refuse it. Pure: no network.
+ *
+ * A landscape source that is card-shaped once turned is a sideways card that only exists as a
+ * landscape picture: it is turned upright (`SIDEWAYS_TURN`) and then encoded like any other, its
+ * content sideways on the card as printed. A source that is card-shaped neither way stays refused.
+ */
 export async function encodeToSlot(source: Buffer, quality: Quality): Promise<SlotEncodeResult> {
   let meta: Awaited<ReturnType<ReturnType<typeof sharp>["metadata"]>>;
   try {
@@ -37,15 +53,20 @@ export async function encodeToSlot(source: Buffer, quality: Quality): Promise<Sl
   }
   const width = meta.width ?? 0;
   const height = meta.height ?? 0;
-  if (height < MIN_NATIVE_HEIGHT) return { ok: false, reason: `too small: ${width}x${height}` };
-  const aspect = height / Math.max(1, width);
-  if (aspect < MIN_ASPECT || aspect > MAX_ASPECT) return { ok: false, reason: `not card-shaped: ${width}x${height}` };
+  const rotated = width > height && cardShaped(width / Math.max(1, height));
+  // The card as it stands upright: a sideways source's width is its height.
+  const [uprightWidth, uprightHeight] = rotated ? [height, width] : [width, height];
+  if (uprightHeight < MIN_NATIVE_HEIGHT) return { ok: false, reason: `too small: ${width}x${height}` };
+  if (!cardShaped(uprightHeight / Math.max(1, uprightWidth))) return { ok: false, reason: `not card-shaped: ${width}x${height}` };
   const slot = SLOT_SIZE[quality];
-  const bytes = await sharp(source)
+  // Turned in its own pass, so the resize below sees the upright card whatever sharp's own
+  // ordering of the two operations.
+  const upright = rotated ? await sharp(source).rotate(SIDEWAYS_TURN).png().toBuffer() : source;
+  const bytes = await sharp(upright)
     .resize(slot.width, slot.height, { fit: 'cover', position: 'centre', kernel: 'lanczos3' })
     .webp({ quality: 82 })
     .toBuffer();
-  return { ok: true, bytes, native: { width, height } };
+  return { ok: true, bytes, native: { width, height }, rotated };
 }
 
 export type SelfSourceResult =

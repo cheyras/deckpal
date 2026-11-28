@@ -68,6 +68,17 @@ test('the product\'s record must name the card at its number', () => {
   assert.equal(productMatchesCard({ name: 'Decidueye', number: '001/015' }, card('Decidueye', '1', 15)), true);
 });
 
+test('the Unown "!" and "?" match their records by printed number, not the catalog\'s %3F', () => {
+  // The product records as listed in the set's group; the catalog spells "?" as TCGdex does.
+  const unown = (localId: string) => ({ name: 'Unown', localId, printedTotal: 28 });
+  assert.equal(productMatchesCard({ name: 'Unown (!)', number: '!/28' }, unown('!')), true);
+  assert.equal(productMatchesCard({ name: 'Unown (?)', number: '?/28' }, unown('%3F')), true);
+  // And they stay two different cards.
+  assert.equal(productMatchesCard({ name: 'Unown (?)', number: '?/28' }, unown('!')), false);
+  assert.equal(productMatchesCard({ name: 'Unown (!)', number: '!/28' }, unown('%3F')), false);
+  assert.equal(productMatchesCard({ name: 'Unown (A)', number: 'A/28' }, unown('%3F')), false);
+});
+
 test('a reprint set prints the original\'s number, so only the name is held to it', () => {
   // Classic Collection: Charizard is printed 4/102 in a 30-card set.
   assert.equal(productMatchesCard({ name: 'Charizard', number: '4/102' }, { name: 'Charizard', localId: '001', printedTotal: 30 }), true);

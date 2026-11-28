@@ -6,6 +6,7 @@ import {
   absoluteFromRelative,
   cardCacheKey,
   cardSourceUrl,
+  localIdFromImageSegment,
   setImageCacheKey,
   type CardRef,
   type SetImageKind,
@@ -103,7 +104,7 @@ const SET_RE = /^sets\/([^/]+)\/(logo|symbol)\.webp$/;
 export function planForPath(rel: string, catalog?: Map<string, string>): OrphanPlan | null {
   const card = CARD_RE.exec(rel);
   if (card) {
-    const [, lang, serie, set, localId, quality] = card as unknown as [
+    const [, lang, serie, set, segment, quality] = card as unknown as [
       string,
       string,
       string,
@@ -112,7 +113,9 @@ export function planForPath(rel: string, catalog?: Map<string, string>): OrphanP
       Quality,
     ];
     if (lang !== LANG || !QUALITIES.includes(quality)) return null;
-    const ref: CardRef = { serie, set, localId };
+    // The file name carries the address segment (`question` for the `?` card); the
+    // cache key and the TCGdex URL carry the catalog's local id.
+    const ref: CardRef = { serie, set, localId: localIdFromImageSegment(segment) };
     // If the catalog puts this set under a DIFFERENT serie, this file is a stray
     // copy at a path the app never serves — record it under its own key rather
     // than letting it hijack the real card's row. See `staleDuplicateKey`.

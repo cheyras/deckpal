@@ -107,6 +107,26 @@ describe('checkUpstreamUrl — host allow-list (default policy, no DNS)', () => 
     }
   });
 
+  it('accepts TCGdex\'s keys for the "!" and "?" cards, and no other escape', async () => {
+    // cardSourceUrl sends the "?" card's local id `%3F` as `%253F`, and "!" as itself.
+    for (const path of ['/en/ex/exu/!/high.webp', '/en/ex/exu/%253F/high.webp']) {
+      const res = await checkUpstreamUrl(`http://localhost${path}`, localhostPolicy(true));
+      assert.equal(res.ok, true, `${path}: ${res.ok ? '' : res.reason}`);
+      assert.equal(res.ok && res.url.href, `http://localhost${path}`, 'sent as derived, not re-decoded');
+    }
+    for (const path of [
+      '/en/ex/exu/%3F/high.webp', // a real '?' after the one decode
+      '/en/ex/exu/%2500/high.webp', // '%00' after the one decode
+      '/en/ex/exu/%2520/high.webp',
+      '/en/ex/exu/%25253F/high.webp', // another escape layer
+      '/en/ex/exu/%253f/high.webp', // only TCGdex's exact spelling
+      '/en/ex/exu/%25/high.webp',
+    ]) {
+      const res = await checkUpstreamUrl(`http://localhost${path}`, localhostPolicy(true));
+      assert.equal(res.ok, false, `${path} must be refused`);
+    }
+  });
+
   it('accepts the paths this project actually derives', async () => {
     for (const path of [
       '/en/sv/sv03.5/102/low.webp',

@@ -6,6 +6,7 @@ import {
   cardRelativePath,
   hasStorageEnv,
   headObject,
+  localIdFromImageSegment,
   moveObject,
   setImageCacheKey,
   setImageRelativePath,
@@ -147,7 +148,8 @@ export function deriveMove(row: AssetRow, rename: Rename): Move | null {
     if (set !== rename.from) return null;
     const m = /^(.+)\.(low|high)\.webp$/.exec(file);
     if (!m) return null;
-    const localId = m[1]!;
+    // The file name carries the address segment; the ref (and its cache key) the local id.
+    const localId = localIdFromImageSegment(m[1]!);
     const quality = m[2] as Quality;
     if (!(QUALITIES as readonly string[]).includes(quality)) return null;
 
