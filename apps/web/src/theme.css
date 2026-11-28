@@ -1208,27 +1208,6 @@ body {
     opacity: 1;
   }
 }
-/* Deck-E's launcher is fixed page chrome OUTSIDE `main`, so it did not dim
-   with the page: it sat at full strength in the corner of an open drawer, the
-   one bright thing under a modal, and a tap on it opened the chat behind the
-   menu. It dims and stands down with the page it belongs to. */
-@media (max-width: 1067.98px) {
-  /* Comes back up with the page, at the page's pace. Its own hover/press
-     transform keeps the button's 200ms; under reduced motion only the fade. */
-  .decke-fab {
-    transition-property: transform, opacity;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .decke-fab {
-      transition-property: opacity;
-    }
-  }
-  body:has(.app-main[data-drawer-open]) .decke-fab {
-    opacity: 0.2;
-    pointer-events: none;
-    transition: opacity var(--duration-slow) var(--ease-sheet);
-  }
-}
 
 /* Reduced motion: no travel, and the drawer still ARRIVES — it fades in and
    out where it stands, at the `base` step, the way every other entrance in this
