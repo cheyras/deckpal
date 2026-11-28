@@ -1,0 +1,149 @@
+/*
+ * Deck-box art (components/deckArt). See research/DECK-BOX-ART.md for why it
+ * is built this way; the short version is in the rules below:
+ *
+ *  - No 3D transforms, no filters, no backdrop-filter, no will-change. Every
+ *    tile is plain painted content, so scrolling the grid is pure compositor
+ *    work and the page holds no extra GPU layers per deck.
+ *  - Off-screen tiles skip rendering entirely (content-visibility).
+ *  - Sizes are in container units (cqw) of the art box itself, so the scene
+ *    scales with the tile and nothing has to be measured in script.
+ *  - Motion is a garnish and compositor-only: the cards rise in (translate +
+ *    opacity) when a deck's art arrives, and lift a little on hover. All of it
+ *    is off under prefers-reduced-motion. The palette itself swaps in one
+ *    frame on purpose — an animated colour change repaints every gradient on
+ *    the tile each frame, and measured on a throttled phone profile that was
+ *    the one thing in this design that dropped frames while scrolling.
+ */
+
+.da-root {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  isolation: isolate;
+  container-type: inline-size;
+  /* Skip style/layout/paint for tiles far off screen. The aspect-ratio fixes
+     the box's size without its content, so skipping can never shift layout. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 200px;
+  /* The studio: a cyclorama sweep (wall → floor with no horizon line), a key
+     light pooled behind the box, a softer pool on the floor, and a vignette. */
+  background:
+    radial-gradient(130% 110% at 55% 38%, transparent 52%, rgb(0 0 0 / 0.42) 100%),
+    radial-gradient(42% 60% at 64% 36%, color-mix(in oklab, var(--da-key) 72%, transparent), transparent 100%),
+    radial-gradient(60% 24% at 52% 88%, color-mix(in oklab, var(--da-key) 24%, transparent), transparent 100%),
+    linear-gradient(180deg, var(--da-wall) 0%, var(--da-wallLow) 56%, var(--da-floor) 69%, var(--da-floorLow) 100%);
+}
+
+.da-scene {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.da-energy {
+  position: absolute;
+  top: 71.11%;
+  display: flex;
+  gap: 0.9cqw;
+  translate: -50% -50%;
+  pointer-events: none;
+}
+.da-energy > * {
+  width: 4.6cqw !important;
+  height: 4.6cqw !important;
+  /* a hairline lift off the band, like a printed foil seal */
+  box-shadow: 0 0 0 0.25cqw rgb(0 0 0 / 0.35);
+  border-radius: 9999px;
+}
+
+.da-card {
+  position: absolute;
+  aspect-ratio: 63 / 88;
+  transform-origin: 50% 100%;
+  /* The card's own back: what shows while the art is on its way, and what
+     stays if it never arrives. */
+  background:
+    radial-gradient(60% 40% at 50% 50%, color-mix(in oklab, var(--da-accent) 30%, transparent), transparent 100%),
+    linear-gradient(160deg, #3d3733, #24201e);
+  border: 0.45cqw solid #4a433e;
+  box-shadow:
+    0 0.9cqw 2.2cqw rgb(0 0 0 / 0.5),
+    0 0.2cqw 0.4cqw rgb(0 0 0 / 0.35);
+  overflow: hidden;
+}
+.da-card[data-slot='main'] {
+  rotate: -4deg;
+}
+.da-card[data-slot='co'] {
+  rotate: -12deg;
+}
+.da-card[data-loaded] {
+  border-color: transparent;
+}
+.da-card img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+}
+.da-card[data-loaded] img {
+  opacity: 1;
+}
+/* A gloss line across the card, from the same key light as the box. */
+.da-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 30%, rgb(255 255 255 / 0.13) 42%, transparent 55%);
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .da-card img {
+    transition: opacity 0.25s ease;
+  }
+  .da-card {
+    transition: translate 0.22s cubic-bezier(0.2, 0.7, 0.2, 1), rotate 0.22s cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+  .da-root[data-arrived] .da-card {
+    animation: da-rise 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+  }
+  .da-root[data-arrived] .da-card + .da-card {
+    animation-delay: 0.06s;
+  }
+  .da-root[data-arrived] .da-energy {
+    animation: da-fade 0.4s ease backwards;
+  }
+}
+
+@keyframes da-rise {
+  from { opacity: 0; translate: 0 8%; }
+  to { opacity: 1; translate: 0 0; }
+}
+@keyframes da-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Hover/focus on the tile lifts the cards a touch: pointer devices only (a tap
+   on a phone must not leave a card stuck "lifted"), and never with reduced
+   motion. Keyboard focus gets the same lift. */
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .da-host:hover .da-card,
+  .da-host:focus-visible .da-card {
+    translate: 0 -4%;
+  }
+  .da-host:hover .da-card[data-slot='main'],
+  .da-host:focus-visible .da-card[data-slot='main'] {
+    rotate: -6deg;
+  }
+  .da-host:hover .da-card[data-slot='co'],
+  .da-host:focus-visible .da-card[data-slot='co'] {
+    rotate: -15deg;
+  }
+}

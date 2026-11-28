@@ -13,41 +13,72 @@ import { RecycleBin } from '../components/RecycleBin'
 import { Icon } from '../components/Icon'
 import { EnergyIcon } from '../components/EnergyIcon'
 import { fmtUsd } from '../lib/format'
-import { FORMAT_META, LegalBadge } from './deckShared'
+import { FORMAT_META } from './deckShared'
+import { DeckBoxArt } from '../components/deckArt/DeckBox'
+import { useDeckArt } from '../components/deckArt/useDeckArt'
+import { pruneSpecs } from '../components/deckArt/store'
 import { DECK_SEARCH_DEFAULTS } from './deckSearch'
 import { RecordSpans } from './deck/intelShared'
 import { useLateEntrance } from '../lib/lateEntrance'
 
+// The tile's two badges are SOLID chips. The old "Legal" was green text on a
+// 16% green tint, blurred over cropped card art, so its contrast was whatever
+// the illustration behind it happened to be (under 2:1 over a pale one).
+// These are ≥ 7:1 on the studio wall, and still above 4.5:1 even if
+// pure white were behind them.
+const TILE_CHIP = 'inline-flex items-center gap-[5px] rounded-full px-[9px] py-[3px] text-[12px] font-bold leading-[16px] shadow-sm'
+const TILE_CHIP_BG = { background: 'rgb(12 10 9 / 0.82)' }
+
+function TileLegality({ legal }: { legal: boolean }) {
+  return legal ? (
+    <span className={`${TILE_CHIP} text-text-primary`} style={TILE_CHIP_BG}>
+      <Icon name="check-circle" size={13} className="text-success" /> Legal
+    </span>
+  ) : (
+    <span className={TILE_CHIP} style={{ ...TILE_CHIP_BG, color: 'var(--color-warning)' }}>
+      <Icon name="alert" size={13} /> Not Legal
+    </span>
+  )
+}
+
+/** "Fire and Psychic energy, featuring Dragapult ex" — the art, said in words. */
+function artSummary(types: readonly string[], featured: readonly { name: string }[]): string {
+  const list = (xs: readonly string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`)
+  const parts: string[] = []
+  if (types.length) parts.push(`${list(types)} energy`)
+  if (featured.length) parts.push(`featuring ${list(featured.map((f) => f.name))}`)
+  return parts.join(', ')
+}
+
 function DeckCard({ deck }: { deck: DeckSummary }) {
   // Battle record footer line — only once the deck has any scored logs.
   const rec = deck.record && deck.record.wins + deck.record.losses + deck.record.ties > 0 ? deck.record : null
+  const ref = useRef<HTMLAnchorElement>(null)
+  const art = useDeckArt(deck, ref)
+  const said = art.pending ? '' : artSummary(art.spec.types, art.spec.featured)
   return (
     <Link
+      ref={ref}
       to="/decks/$id"
       params={{ id: deck.id }}
       search={DECK_SEARCH_DEFAULTS}
-      className="flex flex-col overflow-hidden rounded-xl border border-border-default bg-surface-tertiary transition-colors hover:border-surface-quaternary"
+      className="da-host flex flex-col overflow-hidden rounded-xl border border-border-default bg-surface-tertiary transition-colors hover:border-surface-quaternary"
     >
-      <div className="relative flex h-[132px] items-center justify-center overflow-hidden bg-surface-secondary">
-        {deck.coverImage ? (
-          <img src={deck.coverImage.low} alt="" className="h-full w-full object-cover" style={{ objectPosition: 'center 22%' }} />
-        ) : (
-          <Icon name="deck" size={40} className="text-icon-muted" />
-        )}
-        <span className="absolute right-[10px] top-[10px] inline-flex items-center gap-[4px] rounded-full bg-surface-primary/80 px-[10px] py-[3px] text-[14px] font-bold text-text-secondary backdrop-blur-sm">
+      <DeckBoxArt spec={art.spec} pending={art.pending} arrived={art.arrived}>
+        <span className="absolute left-[10px] top-[10px]">
+          <TileLegality legal={deck.legal} />
+        </span>
+        <span className={`${TILE_CHIP} absolute right-[10px] top-[10px] text-text-primary`} style={TILE_CHIP_BG}>
           {FORMAT_META[deck.formatCode].short}
           {deck.formatCode === 'glc' && deck.glcType && (
             <>
-              <span>·</span>
+              <span aria-hidden="true">·</span>
               <EnergyIcon type={deck.glcType} size={13} />
               {deck.glcType}
             </>
           )}
         </span>
-        <span className="absolute left-[10px] top-[10px]">
-          <LegalBadge legal={deck.legal} />
-        </span>
-      </div>
+      </DeckBoxArt>
       <div className="flex flex-1 flex-col gap-[8px] p-[16px]">
         <div className="flex items-start justify-between gap-[8px]">
           <span className="font-display truncate text-[16px] font-bold text-text-primary">{deck.name}</span>
@@ -66,6 +97,7 @@ function DeckCard({ deck }: { deck: DeckSummary }) {
           </span>
           <span className="text-change-positive">{fmtUsd(deck.valueUsd)}</span>
         </div>
+        {said && <span className="sr-only">{said}</span>}
       </div>
     </Link>
   )
@@ -461,6 +493,10 @@ export function DecksIndex() {
   })
 
   const decks = data?.decks ?? []
+  // Keep the per-device art cache bounded by the decks that still exist.
+  useEffect(() => {
+    if (data) pruneSpecs(new Set(data.decks.map((d) => d.id)))
+  }, [data])
 
   return (
     <Content cap={1200}>
@@ -471,10 +507,15 @@ export function DecksIndex() {
         </div>
         <div className="flex items-center gap-[10px]">
           <Button variant="secondary" onClick={() => { setErr(null); setShowImport(true) }}>
-            <Icon name="download" size={18} /> Import from PTCG Live
+            {/* At phone width the full label wrapped onto two lines inside the
+                pill; the short form keeps both buttons on one row. */}
+            <Icon name="download" size={18} />
+            <span className="whitespace-nowrap">
+              Import<span className="max-[400px]:sr-only"> from PTCG Live</span>
+            </span>
           </Button>
           <Button onClick={() => { setErr(null); setShowNew(true) }}>
-            <Icon name="plus" size={18} /> New Deck
+            <Icon name="plus" size={18} /> <span className="whitespace-nowrap">New Deck</span>
           </Button>
         </div>
       </div>
