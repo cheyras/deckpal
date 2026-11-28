@@ -37,19 +37,24 @@ Every photograph in this directory except `github.*` and the hero film (`hero.*`
 
 ## The hero film (`hero.*`, `hero-square.*`, and the `hero-*` and `hero-square-*` posters)
 
-A 28 s silent, anime-style film, approved by the owner on 2026-11-28. It was made outside this
+A 28 s silent, anime-style film (v2, the polish pass of 2026-11-28). It was made outside this
 repository, in the owner's separate `deckpal-marketing` workspace, where every prompt, take,
-licence and build script is kept.
+licence, build script and its slop log are kept.
 
 - **Key frames:** original characters and scenes drawn with the Codex CLI's image tool (the
   owner's ChatGPT account). The player and his opponent are original; Deck-E is DeckPal's own
   mascot; no character or logo from any anime or other work was generated. Pokémon appear only
   as card art.
-- **Motion:** Veo 3.1 Lite (`google/veo-3.1-lite-generate-001`) through the Vercel AI Gateway,
-  image-to-video from those key frames (first and, where it helped, last frame), 1080p, silent.
+- **Motion:** mostly 2D camera work on those key frames (punch-ins, snap zooms, shakes, whips).
+  Veo 3.1 Lite (`google/veo-3.1-lite-generate-001`, through the Vercel AI Gateway, image-to-video,
+  1080p, silent) is used only where its frames passed a frame-by-frame audit: the slam's impact,
+  the store door, the card spin and the logo burst.
+- **Deck-E** is never drawn by a model: he is rendered by DeckPal's own character runtime
+  (`src/character/decke`, the shipped rig and playbook), captured frame by frame and cel-shaded.
 - **What the model never drew:** every phone and laptop screen is a real DeckPal screen (fresh
   signed-out captures of deckpal.app and DeckPal's own browser-test captures, with real card art
-  in the tiles), keyed onto a green screen in 2D. The card layout on the store table is set
+  in the tiles), keyed onto a green screen in 2D and animated as the app behaves (taps, the deck
+  widget, the board, the battle log), with a 2D thumb whose taps land as the screen responds. The card layout on the store table is set
   flat to the Pokémon TCG play area and warped into place. All type, the DeckPal logo and the
   effects (speed lines, impact frames, sparkles) are composited.
 - **Cards:** real card art from DeckPal's own image store, as above, simplified toward the
