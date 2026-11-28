@@ -30,13 +30,14 @@ export const energyGridGallery = {
   source: 'apps/web/src/components/EnergyIcon.tsx',
   section: 'primitive',
   description:
-    '11 energy tokens: a raised disc in the card-printed energy colour carrying the type glyph. Glyphs live in energyGlyphs.tsx (swap there); unknown types get a neutral token.',
+    '11 energy tokens: a raised disc in the card-printed energy colour carrying the type glyph, traced from the printed cards (ENERGY-ICONS-NOTICE.md). Glyphs live in energyGlyphs.tsx (swap there). At 14px and below, grass and psychic draw a simplified glyph. Unknown types get a neutral token.',
   component: EnergyGrid,
   defaults: { size: 24 },
   variants: [
     { label: 'default (24px)', props: { size: 24 } },
     { label: 'chip (18px)', props: { size: 18 } },
-    { label: 'small (13px)', props: { size: 13 } },
+    { label: 'deck row (16px)', props: { size: 16 } },
+    { label: 'small (13px, simplified glyphs)', props: { size: 13 } },
     { label: 'large (40px)', props: { size: 40 } },
   ],
   knobs: {
@@ -50,7 +51,8 @@ const SAMPLE_TYPES = ['Grass', 'Fire', 'Water', 'Lightning', 'Psychic', 'Fightin
  * The token where it lives: card-detail type/weakness chips, an attack cost
  * and a retreat cost, on both the sheet's surface and the page's. These are
  * the pairings the colours were tuned against — a pale token on a stone chip,
- * a dark one on the sheet.
+ * a dark one on the sheet. Last, a light ground (deck art behind the deck-list
+ * pill), where a pale token can be lighter than what it sits on.
  */
 function EnergyInContext({ size }: { size: number }) {
   return (
@@ -86,6 +88,30 @@ function EnergyInContext({ size }: { size: number }) {
           </div>
         </div>
       ))}
+      {/* A light ground: the DecksIndex pill sits over deck art, which can be a
+          pale card scan. This is where colorless needs its rim. */}
+      <div
+        className="flex flex-col gap-[12px] rounded-xl p-[12px]"
+        style={{ background: 'linear-gradient(135deg, #f6f1e4 0%, #e9e2cf 45%, #d8cfb8 100%)' }}
+      >
+        <div className="flex flex-wrap gap-[8px]">
+          {SAMPLE_TYPES.map((t) => (
+            <span
+              key={t}
+              className="inline-flex items-center gap-[4px] rounded-full bg-surface-primary/80 px-[10px] py-[3px] text-[14px] font-bold text-text-secondary backdrop-blur-sm"
+            >
+              GLC<span>·</span>
+              <EnergyIcon type={t} size={size} />
+              {t}
+            </span>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-[6px]">
+          {SAMPLE_TYPES.map((t) => (
+            <EnergyIcon key={t} type={t} size={size} />
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
@@ -95,7 +121,7 @@ export const energyInContextGallery = {
   source: 'apps/web/src/components/EnergyIcon.tsx',
   section: 'primitive',
   description:
-    'Energy tokens in type/weakness chips, an attack cost and a retreat cost, on the sheet surface and the page surface.',
+    'Energy tokens in type/weakness chips, an attack cost and a retreat cost, on the sheet surface and the page surface; then the deck-list pill and bare tokens on light deck art, where colorless shows its rim.',
   component: EnergyInContext,
   defaults: { size: 18 },
   variants: [

@@ -669,7 +669,7 @@ button {
  * and a dark one (darkness) from dissolving into a dark chip.
  *
  * The glyph (energyGlyphs.tsx) paints in `currentColor`; `data-ink` picks it.
- * `--energy` is also what the glyph's cut-outs show through. */
+ * Its cut-outs are holes, so they show this face — gradient and all. */
 .energy-token {
   --energy: var(--color-surface-quaternary);
   position: relative;
@@ -689,11 +689,22 @@ button {
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.5),
     inset 0 -1px 1px rgb(0 0 0 / 0.22),
+    inset 0 0 0 1px var(--energy-rim, transparent),
     0 0 0 0.5px rgb(0 0 0 / 0.45),
     0 1px 1.5px rgb(0 0 0 / 0.4);
 }
 .energy-token[data-ink='light'] {
   color: var(--color-energy-ink-light);
+}
+/* THE RIM, colorless only. Its disc is the one paler than the grounds a token
+ * can land on: deck art behind the DecksIndex pill, a light card scan, any
+ * light panel. There its lit face is lighter than the ground and the 0.5px ring
+ * is a hairline, so the disc dissolves. A 1px rim a step darker than its own
+ * colour gives it an edge in both skins. It sits under the specular, so the top
+ * edge still catches the light. Every other token keeps `--energy-rim` unset,
+ * which paints nothing. */
+.energy-token[data-energy='colorless'] {
+  --energy-rim: color-mix(in oklab, var(--energy) 70%, black);
 }
 .energy-token > svg {
   display: block;

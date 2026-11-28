@@ -1,9 +1,12 @@
 # Third-party brand marks
 
 Assets in this directory are **other people's trademarks**, used under their own
-brand guidelines. Nothing here is drawn, traced or approximated by this project
-— the same rule `src/components/ENERGY-ICONS-NOTICE.md` states for energy
-symbols. A redrawn logo is still the logo, only worse.
+brand guidelines. Nothing here is drawn, traced or approximated by this project.
+A redrawn logo is still the logo, only worse.
+
+The energy-type glyphs are a different case, and do not live here: since
+2026-11-27 they are traced from the symbols printed on Pokémon TCG cards, at the
+owner's direction. Their provenance is in `src/components/ENERGY-ICONS-NOTICE.md`.
 
 ## `powered-by-stripe.svg`
 
