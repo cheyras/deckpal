@@ -870,7 +870,11 @@ body {
  * coarse pointer this lays an invisible box of at least --spacing-hit, centred
  * on the control, over it. It sets `position: relative`, so it goes on a
  * control that is not itself positioned, and it spills past the control's
- * edges, so give neighbours room enough that the boxes do not overlap. */
+ * edges, so give neighbours room enough that the boxes do not overlap.
+ *
+ * NOT on a control that paints its own `::after`: premium.css draws the sheen
+ * of `.btn-fill-*`, `.bg-action-*` and `.bg-surface-tertiary.rounded-full` in
+ * one (unlayered, so it would win, and clipped by their `overflow: hidden`). */
 @utility touch-hit {
   @media (pointer: coarse) {
     position: relative;

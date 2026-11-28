@@ -259,7 +259,8 @@ export function HistoryMenu({ viewingId, liveId, onNewChat, onOpenConversation, 
         aria-controls={panelId}
         onClick={() => setOpen((v) => !v)}
         className={[
-          'flex items-center gap-[5px] rounded-full border px-[9px] py-[3px]',
+          // `touch-hit`: a 25px pill, given a 44px box under a thumb.
+          'touch-hit flex items-center gap-[5px] rounded-full border px-[9px] py-[3px]',
           'text-[12px] font-semibold leading-[17px] motion-safe:transition-colors',
           open
             ? 'border-border-default bg-surface-secondary text-text-primary'

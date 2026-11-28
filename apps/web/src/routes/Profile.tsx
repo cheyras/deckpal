@@ -298,7 +298,7 @@ export function Profile() {
                   // cannot race each other to different pages.
                   navigate({ to: '/signed-out' })
                 }}
-                className="touch-hit ml-[4px] flex shrink-0 items-center gap-[6px] whitespace-nowrap rounded-full bg-surface-tertiary px-[12px] py-[5px] text-[14px] font-semibold text-text-muted hover:bg-action-default-hover hover:text-text-body disabled:opacity-50"
+                className="ml-[4px] flex shrink-0 items-center gap-[6px] whitespace-nowrap rounded-full bg-surface-tertiary px-[12px] py-[5px] text-[14px] font-semibold text-text-muted hover:bg-action-default-hover hover:text-text-body disabled:opacity-50"
                 title="Sign out"
               >
                 <Icon name="logout" size={16} />
