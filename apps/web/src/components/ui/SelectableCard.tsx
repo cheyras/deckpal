@@ -19,7 +19,7 @@ export function SelectableCard({ active, onClick, className, children }: Selecta
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-lg border-2 px-[14px] py-[10px] text-left ${
+      className={`rounded-lg border-2 px-3.5 py-2.5 text-left ${
         active
           ? 'border-action-primary bg-surface-tertiary'
           : 'border-transparent bg-surface-tertiary/50 hover:bg-surface-tertiary'

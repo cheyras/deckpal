@@ -34,18 +34,18 @@ const VARIANT: Record<ButtonVariant, string> = {
 
 // Size defines height, text size and inter-child gap.
 const SIZE: Record<ButtonSize, string> = {
-  sm: 'h-[36px] text-[14px] gap-[6px]',
-  md: 'h-[44px] text-[14px] gap-[8px]',
-  lg: 'h-[48px] text-[15px] gap-[8px]',
+  sm: 'h-[36px] text-[14px] gap-1.5',
+  md: 'h-[44px] text-[14px] gap-2',
+  lg: 'h-[48px] text-[15px] gap-2',
 }
 
 // Prominent variants (primary, danger) get slightly wider padding to match the
 // existing call sites; recessive variants (secondary, ghost, dashed) are narrower.
 function paddingClass(variant: ButtonVariant, size: ButtonSize): string {
   const wide = variant === 'primary' || variant === 'danger'
-  if (size === 'sm') return wide ? 'px-[18px]' : 'px-[14px]'
-  if (size === 'lg') return wide ? 'px-[24px]' : 'px-[22px]'
-  return wide ? 'px-[24px]' : 'px-[20px]' // md
+  if (size === 'sm') return wide ? 'px-4' : 'px-3.5'
+  if (size === 'lg') return wide ? 'px-7' : 'px-6'
+  return wide ? 'px-6' : 'px-5' // md
 }
 
 /**

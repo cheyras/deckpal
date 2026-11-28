@@ -1,0 +1,12 @@
+DataSet,parentLogo,show_gold,label_gold,show_silver,label_silver,show_red,label_red,show_ink,label_ink,show_yellow,label_yellow
+swsh12tg,../sources/prepared/subset-tag/parentLogo/swsh12tg.png,true,TRAINER GALLERY,false,TRAINER GALLERY,false,TRAINER GALLERY,false,TRAINER GALLERY,false,TRAINER GALLERY
+swsh11tg,../sources/prepared/subset-tag/parentLogo/swsh11tg.png,true,TRAINER GALLERY,false,TRAINER GALLERY,false,TRAINER GALLERY,false,TRAINER GALLERY,false,TRAINER GALLERY
+swsh10tg,../sources/prepared/subset-tag/parentLogo/swsh10tg.png,true,TRAINER GALLERY,false,TRAINER GALLERY,false,TRAINER GALLERY,false,TRAINER GALLERY,false,TRAINER GALLERY
+swsh9tg,../sources/prepared/subset-tag/parentLogo/swsh9tg.png,true,TRAINER GALLERY,false,TRAINER GALLERY,false,TRAINER GALLERY,false,TRAINER GALLERY,false,TRAINER GALLERY
+swsh12.5gg,../sources/prepared/subset-tag/parentLogo/swsh12.5gg.png,false,GALARIAN GALLERY,true,GALARIAN GALLERY,false,GALARIAN GALLERY,false,GALARIAN GALLERY,false,GALARIAN GALLERY
+swsh4.5sv,../sources/prepared/subset-tag/parentLogo/swsh4.5sv.png,false,SHINY VAULT,false,SHINY VAULT,false,SHINY VAULT,true,SHINY VAULT,false,SHINY VAULT
+sma,../sources/prepared/subset-tag/parentLogo/sma.png,false,SHINY VAULT,false,SHINY VAULT,false,SHINY VAULT,true,SHINY VAULT,false,SHINY VAULT
+cel25cc,../sources/prepared/subset-tag/parentLogo/cel25cc.png,false,CLASSIC COLLECTION,false,CLASSIC COLLECTION,true,CLASSIC COLLECTION,false,CLASSIC COLLECTION,false,CLASSIC COLLECTION
+30th-c,../sources/prepared/subset-tag/parentLogo/30th-c.png,false,CLASSIC COLLECTION,false,CLASSIC COLLECTION,true,CLASSIC COLLECTION,false,CLASSIC COLLECTION,false,CLASSIC COLLECTION
+exu,../sources/prepared/subset-tag/parentLogo/exu.png,false,UNOWN COLLECTION,false,UNOWN COLLECTION,false,UNOWN COLLECTION,true,UNOWN COLLECTION,false,UNOWN COLLECTION
+xya,../sources/prepared/subset-tag/parentLogo/xya.png,false,YELLOW A ALTERNATE,false,YELLOW A ALTERNATE,false,YELLOW A ALTERNATE,false,YELLOW A ALTERNATE,true,YELLOW A ALTERNATE

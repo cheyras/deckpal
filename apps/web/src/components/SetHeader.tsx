@@ -208,13 +208,17 @@ export function SetHeader({
               >
                 <Icon name="menu" size={16} className="text-action-brand" />
                 Actions
-                <Icon name="chevron-down" size={14} className={actionsOpen ? 'rotate-180 transition-transform' : 'transition-transform'} />
+                <Icon
+                  name="chevron-down"
+                  size={14}
+                  className={`transition-transform duration-(--duration-fast) ease-standard ${actionsOpen ? 'rotate-180' : ''}`}
+                />
               </button>
               {actionsOpen && (
                 <div
                   id="set-actions-panel"
                   aria-label="Set actions"
-                  className="absolute right-0 top-[44px] z-10 min-w-[180px] rounded-lg border border-border-default bg-surface-primary p-[4px] shadow-lg"
+                  className="absolute right-0 top-[44px] z-10 min-w-[180px] rounded-lg border border-border-default bg-surface-primary p-[4px] shadow-lg origin-top-right transition-[opacity,scale] duration-(--duration-fast) ease-enter starting:scale-95 starting:opacity-0 motion-reduce:starting:scale-100"
                 >
                   {shopLink(true)}
                   {!signedOut && (
@@ -273,6 +277,7 @@ export function SetHeader({
             {(set.images.logoUrl || bundledSetLogo(set.setId)) && !logoError ? (
               <SetLogo
                 setId={set.setId}
+                logoUrl={set.images.logoUrl}
                 alt={set.name}
                 imgClassName="max-h-[132px] max-w-[290px]"
                 platedImgClassName="max-h-[114px] max-w-[290px]"
@@ -323,7 +328,14 @@ export function SetHeader({
           <StatTile label="Release Date" value={fmtCalendarDate(set.releasedOn)} />
           <StatTile
             label="Cards"
-            value={set.secretCount > 0 ? `${set.printedCount} + ${set.secretCount} Secret` : `${set.printedCount}`}
+            // A promo set has no printed total, so it read "0 + 119 Secret".
+            value={
+              set.printedCount === 0
+                ? `${set.cardCountTotal}`
+                : set.secretCount > 0
+                  ? `${set.printedCount} + ${set.secretCount} Secret`
+                  : `${set.printedCount}`
+            }
           />
           <StatTile label="Most Expensive Card" value={set.mostExpensiveCard?.name ?? '—'} />
           <StatTile label="Full Set Market Value" value={fmtUsd(set.marketValueUsd)} money />

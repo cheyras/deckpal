@@ -2,8 +2,10 @@
 // roadmap/plans/card-scanner-redesign/prototype.html (round 3)'s "R3 motion
 // system" notes and its `arcFlight`/`flipPlay`/`staggerReveal` functions.
 //
-// theme.css ships exactly one motion token today (`--ease-standard: ease` —
-// see its own comment: "UI-SPEC §1.9 — only these exist"). The prototype's
+// When this was written theme.css shipped exactly one motion token
+// (`--ease-standard: ease`). It now has a full set (`--duration-*`,
+// `--ease-*`, mirrored for JS in lib/motion.ts): `spring` and `settle` below
+// are `EASE.sheet` and `EASE.enter` there, and could import them. The prototype's
 // swift-out/snap easings are NEW tokens it introduces for this feature and
 // are not yet promoted into the shared design system; adding them to
 // theme.css is a call for whoever owns that file; Scan.tsx's ownership here

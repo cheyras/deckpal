@@ -1,0 +1,36 @@
+DataSet,eraWordmark,showEraWordmark,eraText,showEraText,mascot,showMascot,line1_beside,line2_beside,showTextBeside,line1_centred,line2_centred,showTextCentred
+tk-ex-latia,../sources/prepared/product-plate/eraWordmark/_blank.png,false,EX SERIES,true,../sources/prepared/product-plate/mascot/380.png,true,TRAINER KIT,LATIAS,true,TRAINER KIT,LATIAS,false
+tk-ex-latio,../sources/prepared/product-plate/eraWordmark/_blank.png,false,EX SERIES,true,../sources/prepared/product-plate/mascot/381.png,true,TRAINER KIT,LATIOS,true,TRAINER KIT,LATIOS,false
+tk-ex-p,../sources/prepared/product-plate/eraWordmark/_blank.png,false,EX SERIES,true,../sources/prepared/product-plate/mascot/311.png,true,TRAINER KIT 2,PLUSLE,true,TRAINER KIT 2,PLUSLE,false
+tk-ex-m,../sources/prepared/product-plate/eraWordmark/_blank.png,false,EX SERIES,true,../sources/prepared/product-plate/mascot/312.png,true,TRAINER KIT 2,MINUN,true,TRAINER KIT 2,MINUN,false
+tk-dp-l,../sources/prepared/product-plate/eraWordmark/dp.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/448.png,true,TRAINER KIT,LUCARIO,true,TRAINER KIT,LUCARIO,false
+tk-dp-m,../sources/prepared/product-plate/eraWordmark/dp.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/490.png,true,TRAINER KIT,MANAPHY,true,TRAINER KIT,MANAPHY,false
+tk-hs-g,../sources/prepared/product-plate/eraWordmark/hgss.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/130.png,true,TRAINER KIT,GYARADOS,true,TRAINER KIT,GYARADOS,false
+tk-hs-r,../sources/prepared/product-plate/eraWordmark/hgss.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/26.png,true,TRAINER KIT,RAICHU,true,TRAINER KIT,RAICHU,false
+tk-bw-e,../sources/prepared/product-plate/eraWordmark/bw.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/530.png,true,TRAINER KIT,EXCADRILL,true,TRAINER KIT,EXCADRILL,false
+tk-bw-z,../sources/prepared/product-plate/eraWordmark/bw.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/571.png,true,TRAINER KIT,ZOROARK,true,TRAINER KIT,ZOROARK,false
+tk-xy-sy,../sources/prepared/product-plate/eraWordmark/xy.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/700.png,true,TRAINER KIT,SYLVEON,true,TRAINER KIT,SYLVEON,false
+tk-xy-n,../sources/prepared/product-plate/eraWordmark/xy.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/715.png,true,TRAINER KIT,NOIVERN,true,TRAINER KIT,NOIVERN,false
+tk-xy-b,../sources/prepared/product-plate/eraWordmark/xy.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/625.png,true,TRAINER KIT,BISHARP,true,TRAINER KIT,BISHARP,false
+tk-xy-w,../sources/prepared/product-plate/eraWordmark/xy.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/40.png,true,TRAINER KIT,WIGGLYTUFF,true,TRAINER KIT,WIGGLYTUFF,false
+tk-xy-latia,../sources/prepared/product-plate/eraWordmark/xy.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/380.png,true,TRAINER KIT,LATIAS,true,TRAINER KIT,LATIAS,false
+tk-xy-latio,../sources/prepared/product-plate/eraWordmark/xy.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/381.png,true,TRAINER KIT,LATIOS,true,TRAINER KIT,LATIOS,false
+tk-xy-p,../sources/prepared/product-plate/eraWordmark/xy.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/10084.png,true,TRAINER KIT,PIKACHU LIBRE,true,TRAINER KIT,PIKACHU LIBRE,false
+tk-xy-su,../sources/prepared/product-plate/eraWordmark/xy.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/245.png,true,TRAINER KIT,SUICUNE,true,TRAINER KIT,SUICUNE,false
+tk-sm-l,../sources/prepared/product-plate/eraWordmark/sm.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/745.png,true,TRAINER KIT,LYCANROC,true,TRAINER KIT,LYCANROC,false
+tk-sm-r,../sources/prepared/product-plate/eraWordmark/sm.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/10100.png,true,TRAINER KIT,ALOLAN RAICHU,true,TRAINER KIT,ALOLAN RAICHU,false
+2011bw,../sources/prepared/product-plate/eraWordmark/bw.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/_blank.png,false,McDONALD'S COLLECTION,2011,false,McDONALD'S COLLECTION,2011,true
+2012bw,../sources/prepared/product-plate/eraWordmark/bw.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/_blank.png,false,McDONALD'S COLLECTION,2012,false,McDONALD'S COLLECTION,2012,true
+2014xy,../sources/prepared/product-plate/eraWordmark/xy.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/_blank.png,false,McDONALD'S COLLECTION,2014,false,McDONALD'S COLLECTION,2014,true
+2015xy,../sources/prepared/product-plate/eraWordmark/xy.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/_blank.png,false,McDONALD'S COLLECTION,2015,false,McDONALD'S COLLECTION,2015,true
+2016xy,../sources/prepared/product-plate/eraWordmark/xy.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/_blank.png,false,McDONALD'S COLLECTION,2016,false,McDONALD'S COLLECTION,2016,true
+2017sm,../sources/prepared/product-plate/eraWordmark/sm.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/_blank.png,false,McDONALD'S COLLECTION,2017,false,McDONALD'S COLLECTION,2017,true
+2018sm,../sources/prepared/product-plate/eraWordmark/sm.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/_blank.png,false,McDONALD'S COLLECTION,2018,false,McDONALD'S COLLECTION,2018,true
+2019sm,../sources/prepared/product-plate/eraWordmark/sm.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/_blank.png,false,McDONALD'S COLLECTION,2019,false,McDONALD'S COLLECTION,2019,true
+2021swsh,../sources/prepared/product-plate/eraWordmark/swsh.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/_blank.png,false,McDONALD'S COLLECTION,2021,false,McDONALD'S COLLECTION,2021,true
+2022swsh,../sources/prepared/product-plate/eraWordmark/swsh.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/_blank.png,false,McDONALD'S COLLECTION,2022,false,McDONALD'S COLLECTION,2022,true
+2023sv,../sources/prepared/product-plate/eraWordmark/sv.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/_blank.png,false,McDONALD'S COLLECTION,2023,false,McDONALD'S COLLECTION,2023,true
+2024sv,../sources/prepared/product-plate/eraWordmark/sv.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/_blank.png,false,McDONALD'S COLLECTION,2024,false,McDONALD'S COLLECTION,2024,true
+2026me,../sources/prepared/product-plate/eraWordmark/me.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/_blank.png,false,McDONALD'S COLLECTION,2026,false,McDONALD'S COLLECTION,2026,true
+ex5.5,../sources/prepared/product-plate/eraWordmark/_blank.png,false,EX SERIES,true,../sources/prepared/product-plate/mascot/_blank.png,false,POKÉ CARD,CREATOR PACK,false,POKÉ CARD,CREATOR PACK,true
+bog,../sources/prepared/product-plate/eraWordmark/classic.png,true,EX SERIES,false,../sources/prepared/product-plate/mascot/_blank.png,false,PROMO,BEST OF GAME,false,PROMO,BEST OF GAME,true

@@ -179,6 +179,23 @@ for (const match of readFileSync(ANNOUNCEMENT_SRC, 'utf8').matchAll(LOGO_ASSET))
   if (!asset.startsWith('//') && !/^[a-z][a-z\d+.-]*:/i.test(asset)) referenced.add(asset)
 }
 
+// Bundled set logos — the official ones (`brand/`) and DeckPal's template logos
+// (`set-logos/`, made by tools/set-logo-templates) — are named by literal path in
+// `releasedSetAssets.ts`. Same trap as everything above: `**/*.webp` in both
+// ignore files, a local build that passes because the file is on disk, a 404 in
+// production. Read from the source so a new entry cannot skip the check.
+const SET_LOGO_SRC = join(HERE, '..', 'src', 'lib', 'releasedSetAssets.ts')
+const SET_LOGO_ASSET = /['"]\/((?:brand|set-logos)\/[\w.-]+\.webp)['"]/g
+let setLogoCount = 0
+for (const match of readFileSync(SET_LOGO_SRC, 'utf8').matchAll(SET_LOGO_ASSET)) {
+  referenced.add(match[1])
+  setLogoCount++
+}
+if (setLogoCount === 0) {
+  console.error(`check-precache: found no bundled set-logo paths in ${SET_LOGO_SRC} — has the table's format changed?`)
+  process.exit(1)
+}
+
 const missing = [...referenced].filter((rel) => !existsSync(join(DIST, rel.replace(/^\/+/, ''))))
 if (missing.length) {
   console.error('\ncheck-precache FAILED: runtime assets are not in the build:\n')

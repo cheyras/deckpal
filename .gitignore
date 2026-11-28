@@ -63,6 +63,12 @@ assets/sprites/
 # only this one file and does not reopen blanket card-art tracking.
 !apps/web/public/brand/pokemon-30th-celebration-logo.webp
 
+# DeckPal's template set logos (tools/set-logo-templates → ship.py), named by
+# literal path in apps/web/src/lib/releasedSetAssets.ts. Same failure mode again:
+# **/*.webp would swallow every one. Mirrored in .vercelignore; the build gate in
+# apps/web/scripts/check-precache.mjs fails if any named file is missing.
+!apps/web/public/set-logos/*.webp
+
 # Raw, full-size generations from scripts/gen-marketing-images.mjs — originals and
 # rejected candidates. Only the optimised derivatives get committed.
 .marketing-raw/

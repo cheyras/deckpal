@@ -32,7 +32,7 @@ export default {
         variant: 'card',
         label: 'Top Movers',
         children: (
-          <div className="mt-[6px] text-[14px] text-text-body">
+          <div className="mt-1.5 text-[14px] text-text-body">
             Custom content goes here — charts, tables, anything.
           </div>
         ),

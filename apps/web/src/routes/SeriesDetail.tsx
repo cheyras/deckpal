@@ -83,6 +83,7 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
         {set.logoUrl || bundledSetLogo(set.setId) ? (
           <SetLogo
             setId={set.setId}
+            logoUrl={set.logoUrl}
             imgClassName="max-h-[64px] max-w-[112px]"
             platedImgClassName="max-h-[54px] max-w-[96px]"
           />
@@ -110,22 +111,29 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
         {/* The bar now takes all the slack instead of being capped at 120px, so
             it spans to the row's right edge. The labels still hold their size —
             they are the content, the bar absorbs the squeeze. */}
+        {/* The two labels hold FIXED widths (sized for "LVL MAX" and
+            "999/999", tabular figures): when they sized to their text, every
+            row's bar was a different length — 8/30 drew a longer bar than
+            98/141 — so bars could not be compared down the list. */}
         {c ? (
           <div className="mt-[10px] flex items-center gap-[8px]">
             <ProgressBar pct={c.pct} height={4} className="min-w-[40px] flex-1" />
-            <span className="shrink-0 whitespace-nowrap text-[14px] font-bold text-action-primary">
+            <span className="min-w-[60px] shrink-0 whitespace-nowrap text-right text-[14px] font-bold text-action-primary">
               {/* QUAL-05: read the server's already-correct level rather than
                   re-deriving one from the rounded display pct. */}
               LVL {setLevelLabel(c.setLevel ?? setLevelFromCounts(c.owned, c.total))}
             </span>
-            <span className="shrink-0 whitespace-nowrap text-[14px] text-text-muted">
+            <span className="min-w-[58px] shrink-0 whitespace-nowrap text-right text-[14px] tabular-nums text-text-muted">
               {c.owned}/{c.total}
             </span>
           </div>
         ) : (
           <div className="mt-[10px] text-[14px] text-text-muted">
             {set.cardCountTotal.toLocaleString()} cards
-            {set.secretCount > 0 ? ` · ${set.secretCount} secret` : ''}
+            {/* A promo set prints no "/N" total, so every card in it is past
+                the (zero) printed count — "119 cards · 119 secret". Secret
+                rares are only a thing where there is a printed set to exceed. */}
+            {set.secretCount > 0 && set.printedCount > 0 ? ` · ${set.secretCount} secret` : ''}
           </div>
         )}
       </div>

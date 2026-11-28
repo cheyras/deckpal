@@ -181,6 +181,11 @@
      it measures 2.15:1, which is why AppShell/FilterControls' inactive-but-
      clickable icons were moved off it rather than this value being changed. */
   --color-icon-muted: #756e68;
+  /* A sheet's grab handle. It was `surface-tertiary` (#44403b), 1.4:1 on the
+     sheet it sits on — the owner found it as "a thin, small, low-contrast
+     pill" and could not tell it was there to be pulled. This clears WCAG
+     1.4.11's 3:1 on surface-secondary (3.4:1) without competing with text. */
+  --color-grabber: #7d7672;
   --color-icon-muted-strong: #534f49;
   --color-icon-disabled: #534f49;
   --color-icon-disabled-strong: #322d2b;
@@ -286,8 +291,67 @@
   --text-5xl: 48px;
   --text-5xl--line-height: 58px;
 
-  /* ── motion (UI-SPEC §1.9 — only these exist) ─────────────── */
+  /* ── spacing (the 4px grid) ───────────────────────────────────
+   * ONE unit, and Tailwind's numeric utilities are multiples of it: `p-4` is
+   * 16px, `gap-3` 12px, `py-1.5` 6px, `mt-0.5` 2px. Pinned in px rather than
+   * left at Tailwind's 0.25rem, so a step means the same thing however the
+   * root font size is set.
+   *
+   * The SANCTIONED steps, in Tailwind's names (px in brackets):
+   *   px (1, a hairline)  0.5 (2)  1 (4)  1.5 (6)  2 (8)  2.5 (10)  3 (12)
+   *   3.5 (14)  4 (16)  5 (20)  6 (24)  7 (28)  8 (32)  10 (40)  12 (48)
+   *   14 (56)  16 (64)  20 (80)
+   * Half steps exist only below 16px, where 2px is still a visible decision.
+   * Above it the grid is 4px, then 8px. Anything else — 3, 5, 7, 9, 18, 22 —
+   * is off the scale, and /design → Pending counts what is left of it
+   * (`node apps/web/scripts/spacing-audit.mjs` recounts). The same list is
+   * drawn on /design → Tokens and kept in routes/design/foundations.ts.
+   *
+   * New code writes the step (`px-4`), never a bracket (`px-[16px]`). CSS
+   * reaches the same grid with `calc(var(--spacing) * 4)`.
+   *
+   * The named keys below are ROLES, not more steps: a value that is decided
+   * once and has to agree everywhere it appears. Each one is also a utility —
+   * `px-gutter`, `size-hit`, `top-corner right-corner`. */
+  --spacing: 4px;
+  --spacing-gutter: 16px; /* a phone page's side gutter (Content's px) */
+  --spacing-hit: 44px; /* the minimum touch target, on every control */
+  /* How far a corner control's 44px box sits from its panel's top AND side
+     edges. The same number both ways is the point: the X glyph inside it then
+     sits 24.5px from each edge, so it can never read as nearer the top. */
+  --spacing-corner: 8px;
+
+  /* ── motion ───────────────────────────────────────────────────
+   * Easings are Tailwind utilities (`ease-sheet`); durations are read with
+   * `duration-(--duration-base)` or `var()` in CSS. lib/motion.ts mirrors both
+   * for code that has to animate from JS (a released drag), and a test pins the
+   * two copies together.
+   *
+   * THE RULES THEY ENCODE:
+   *   • Arrivals decelerate, departures accelerate. A thing entering is
+   *     settling into place; a thing leaving is getting out of the way.
+   *   • Exits are shorter than entrances — the reader has already decided.
+   *   • Overlays (sheet, drawer) travel on `--ease-sheet`: quick off the mark,
+   *     long settle. It is the iOS sheet curve, and the one thing that most
+   *     makes a panel feel native rather than slid.
+   *   • Reduced motion removes TRAVEL, not feedback: translate/scale collapse,
+   *     opacity fades keep their duration. See the Sheet and drawer rules.
+   *
+   *   instant 120  press feedback, toggles
+   *   fast    160  hover, colour, small state changes
+   *   base    220  fades, exits, desktop dialogs — the default
+   *   slow    300  overlay entrances: sheet, drawer
+   *   slower  420  page entrance, long travel */
   --ease-standard: ease;
+  --ease-enter: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-spring: cubic-bezier(0.34, 1.42, 0.64, 1);
+  --duration-instant: 120ms;
+  --duration-fast: 160ms;
+  --duration-base: 220ms;
+  --duration-slow: 300ms;
+  --duration-slower: 420ms;
 
   /* ── breakpoints (UI-SPEC §4.3 — 1068 is the ONE real one) ── */
   --breakpoint-gap: 567px;
@@ -346,6 +410,27 @@
    * the mobile layout, which is the one where there is no sidebar at all. */
   --app-header-h: 64px;
   --app-sidebar-w: 0px;
+
+  /* ── The floating assistant button, and the room it needs ──────────────────
+   *
+   * Deck-E's launcher floats over the bottom-right corner of every page, and it
+   * used to float over the LAST ROW of every list too — the owner, on a set
+   * list: the button "covers the last row (its LVL label cut off)". The page
+   * now ends far enough down that the last row can be scrolled clear of it.
+   *
+   * `--fab-clearance` is the button, its inset from the screen edge, and one
+   * more step of air. It is applied only while the button is on the page
+   * (`html[data-fab]`, set by DeckeButton), so an account without Deck-E does
+   * not get a band of dead space at the bottom of every page. */
+  --fab-size: 56px;
+  --fab-inset: 20px;
+  --fab-clearance: calc(var(--fab-size) + var(--fab-inset) + 16px);
+
+  /* ── The scroll edge ───────────────────────────────────────────────────────
+   * How tall the band is where scrolled content fades and blurs into the edge
+   * of the bar it is passing under. See "The scroll edge" below. */
+  --scroll-edge-size: 28px;
+  --scroll-edge-blur: 6px;
 
   /* ── Deck-E's overlay ─────────────────────────────────────────────────────
    *
@@ -411,11 +496,11 @@ body {
   }
 }
 
-/* Motion contract: the ONLY authored transitions in the app are
-   background-color 150ms on buttons and height 200ms on accordions. Anything
-   else that moves is either a bug or needs a DECISIONS.md entry. */
+/* Motion contract: the base transition on every button is a background-color
+   fade at the `fast` step. Everything else that moves takes its duration and
+   curve from the motion tokens in @theme above — see the rules written there. */
 button {
-  transition: background-color 150ms ease;
+  transition: background-color var(--duration-fast) var(--ease-standard);
 }
 
 /* A real focus ring (UI-SPEC §3.10). Keyboard focus must be visible; the design
@@ -584,7 +669,7 @@ button {
  * and a dark one (darkness) from dissolving into a dark chip.
  *
  * The glyph (energyGlyphs.tsx) paints in `currentColor`; `data-ink` picks it.
- * `--energy` is also what the glyph's cut-outs show through. */
+ * Its cut-outs are holes, so they show this face — gradient and all. */
 .energy-token {
   --energy: var(--color-surface-quaternary);
   position: relative;
@@ -604,11 +689,22 @@ button {
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.5),
     inset 0 -1px 1px rgb(0 0 0 / 0.22),
+    inset 0 0 0 1px var(--energy-rim, transparent),
     0 0 0 0.5px rgb(0 0 0 / 0.45),
     0 1px 1.5px rgb(0 0 0 / 0.4);
 }
 .energy-token[data-ink='light'] {
   color: var(--color-energy-ink-light);
+}
+/* THE RIM, colorless only. Its disc is the one paler than the grounds a token
+ * can land on: deck art behind the DecksIndex pill, a light card scan, any
+ * light panel. There its lit face is lighter than the ground and the 0.5px ring
+ * is a hairline, so the disc dissolves. A 1px rim a step darker than its own
+ * colour gives it an edge in both skins. It sits under the specular, so the top
+ * edge still catches the light. Every other token keeps `--energy-rim` unset,
+ * which paints nothing. */
+.energy-token[data-energy='colorless'] {
+  --energy-rim: color-mix(in oklab, var(--energy) 70%, black);
 }
 .energy-token > svg {
   display: block;
@@ -822,17 +918,82 @@ body {
 }
 
 .px-sheet-scrim {
-  animation: sheet-scrim-in 200ms ease-out backwards;
+  animation: sheet-scrim-in var(--duration-base) var(--ease-enter) backwards;
 }
 
 .px-sheet-panel {
   /* The iOS-sheet curve: quick off the mark, long settle. */
-  animation: sheet-panel-up 300ms cubic-bezier(0.32, 0.72, 0, 1) backwards;
+  animation: sheet-panel-up var(--duration-slow) var(--ease-sheet) backwards;
 }
 
 @media (min-width: 1068px) {
   .px-sheet-panel {
-    animation: sheet-panel-in 220ms cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+    animation: sheet-panel-in var(--duration-base) var(--ease-enter) backwards;
+  }
+}
+
+/* ── Dragging a sheet ────────────────────────────────────────────────────────
+ *
+ * While a finger has the sheet, Sheet.tsx writes `transform` (and the scrim's
+ * `opacity`) straight onto the elements every frame, and NOTHING ELSE may move
+ * them. So the entrance animation is taken off for the rest of the sheet's
+ * life the moment a drag starts — an animation outranks an inline style, and a
+ * drag that began during the slide-up would otherwise be overruled by it for
+ * the remaining frames and look like the sheet fighting the finger.
+ *
+ * `will-change` only for the duration of the gesture: promoting every sheet's
+ * panel permanently would cost a layer for nothing. */
+.px-sheet-panel[data-dragged],
+.px-sheet-scrim[data-dragged] {
+  animation: none;
+}
+.px-sheet-panel[data-dragging] {
+  will-change: transform;
+}
+.px-sheet-panel[data-dragging] * {
+  /* Text under a dragging finger must not start selecting. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* A sheet's top bar: as tall as the close control plus its inset above AND
+   below, so the ✕ sits in the bar with equal space on every side and a title
+   centred in the bar lines up with it. Derived, not chosen, so it moves if the
+   hit target or the inset ever does. */
+.sheet-bar {
+  min-height: calc(var(--spacing-hit) + 2 * var(--spacing-corner));
+}
+
+/* The grab handle. The whole top bar is the hit area, the full width of the
+   sheet; the visible pill is 36×5, the iOS proportions, sitting 6px down.
+   `touch-action: none` is what lets a pointer drag here without the browser
+   deciding it is a scroll and cancelling it a few pixels in — the "glitchy,
+   choppy" the owner felt was the gesture being taken away from them.
+   Phones only: from `nav:` up a sheet is a centred dialog with no edge to be
+   dragged towards. */
+@media (max-width: 1067px) {
+  [data-sheet-handle] {
+    touch-action: none;
+    cursor: grab;
+  }
+  [data-sheet-handle]:active {
+    cursor: grabbing;
+  }
+}
+.sheet-grabber {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  width: 36px;
+  height: 5px;
+  margin-left: -18px;
+  border-radius: 9999px;
+  background: var(--color-grabber);
+  pointer-events: none;
+}
+@media (min-width: 1068px) {
+  .sheet-grabber {
+    display: none;
   }
 }
 
@@ -868,17 +1029,28 @@ body {
 }
 
 .px-sheet-scrim[data-closing] {
-  animation: sheet-scrim-out 220ms ease-in forwards;
+  animation: sheet-scrim-out var(--duration-base) var(--ease-exit) forwards;
 }
 
 .px-sheet-panel[data-closing] {
-  animation: sheet-panel-down 220ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  animation: sheet-panel-down var(--duration-base) var(--ease-exit) forwards;
 }
 
 @media (min-width: 1068px) {
   .px-sheet-panel[data-closing] {
-    animation: sheet-panel-out 180ms ease-in forwards;
+    animation: sheet-panel-out var(--duration-fast) var(--ease-exit) forwards;
   }
+}
+
+/* A sheet dismissed by a drag has already been THROWN off the screen by the
+   gesture (Sheet.tsx animates it from where the finger let go, at the speed it
+   was let go), so the keyframed exit must not replay on top of it.
+   `data-thrown`, not `data-dragged`: a sheet that was dragged, sprung back and
+   then closed with its ✕ still wants the ordinary exit above, and the
+   `[data-closing]` rules win over `[data-dragged]` on source order. */
+.px-sheet-panel[data-thrown],
+.px-sheet-scrim[data-thrown] {
+  animation: none;
 }
 
 /* Same split on the way out: the scrim keeps fading to say the sheet left,
@@ -887,6 +1059,306 @@ body {
   .px-sheet-panel[data-closing] {
     animation-duration: 1ms;
   }
+}
+
+/* ── The phone navigation drawer (AppShell's MobileDrawer) ─────────────────
+ *
+ * It SLIDES. It used to mount at full width on one frame — the owner: "it just
+ * snaps open, and I would love it for it to, like, slide out gracefully". Same
+ * vocabulary as a sheet, turned on its side: the panel travels in from the
+ * edge it is anchored to on the sheet curve, the scrim behind it fades, and
+ * the way out is shorter and accelerates.
+ *
+ * `backwards` on the way in and `forwards` on the way out, for the reason the
+ * Sheet block gives: the end state of an entrance is the element's own style,
+ * and an exiting element is unmounted a frame after its animation ends. */
+@keyframes nav-drawer-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes nav-drawer-out {
+  to {
+    transform: translateX(-100%);
+  }
+}
+@keyframes motion-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+.nav-drawer {
+  animation: nav-drawer-in var(--duration-slow) var(--ease-sheet) backwards;
+  /* The edge it slides out from casts onto the page, so it reads as a panel
+     lying over the content rather than a column cut out of it. */
+  box-shadow: 12px 0 32px -16px rgb(0 0 0 / 0.8);
+}
+.nav-drawer[data-closing] {
+  animation: nav-drawer-out var(--duration-base) var(--ease-exit) forwards;
+}
+/* Leaving, it is already gone as far as the hand is concerned: a tap on the
+   page while the drawer is still sliding out lands on the page. */
+.nav-drawer[data-closing] {
+  pointer-events: none;
+}
+
+/* The page dims behind the open drawer by fading `main` itself, not with a
+   scrim laid over it. That is the way it always dimmed (`opacity: 0.2`), and
+   it stays that way on purpose: a scrim at a fixed z-index would have to win
+   against every z-indexed thing the routed pages put inside `main`, while an
+   opacity below 1 makes `main` its own stacking context and dims all of it at
+   once. What changes is that the dimming now TRAVELS with the drawer instead
+   of landing in one frame. */
+.app-main {
+  transition: opacity var(--duration-base) var(--ease-exit);
+}
+.app-main[data-drawer-open] {
+  opacity: 0.2;
+  transition: opacity var(--duration-slow) var(--ease-sheet);
+}
+@media (min-width: 1068px) {
+  .app-main[data-drawer-open] {
+    opacity: 1;
+  }
+}
+
+/* Reduced motion: no travel, and the drawer still ARRIVES — it fades in and
+   out where it stands, at the `base` step, the way every other entrance in this
+   file keeps its fade. */
+@media (prefers-reduced-motion: reduce) {
+  .nav-drawer {
+    animation: decke-calm-in var(--duration-base) var(--ease-standard) backwards;
+  }
+  .nav-drawer[data-closing] {
+    animation: motion-fade-out var(--duration-base) var(--ease-standard) forwards;
+  }
+}
+
+/* The menu button that BECOMES the close button. One control, three strokes:
+   the outer two rotate into an X about the centre and the middle one fades, so
+   it visibly turns into the thing that closes the drawer it opened, rather
+   than swapping one icon for another. Driven by the button's own
+   `aria-expanded`, so the state the icon shows is the state a screen reader is
+   told — they cannot disagree. */
+.menu-toggle-icon line {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition:
+    transform var(--duration-slow) var(--ease-sheet),
+    opacity var(--duration-fast) var(--ease-standard);
+}
+[aria-expanded='true'] > .menu-toggle-icon .menu-toggle-top {
+  transform: translateY(5px) rotate(45deg);
+}
+[aria-expanded='true'] > .menu-toggle-icon .menu-toggle-mid {
+  opacity: 0;
+}
+[aria-expanded='true'] > .menu-toggle-icon .menu-toggle-bottom {
+  transform: translateY(-5px) rotate(-45deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .menu-toggle-icon line {
+    transition: opacity var(--duration-fast) var(--ease-standard);
+  }
+}
+
+/* ── The close control (components/ui/CloseButton.tsx) ─────────────────────
+ *
+ * A bare X — no disc behind it. The owner, on the card sheet's grey circle:
+ * "make the X's just the icon rather than giving a whole circle around them…
+ * it wouldn't look so, like, crammed in there". So the resting state is the
+ * glyph alone, at a contrast that holds up without a backdrop to lean on, and
+ * the 44px box around it is hit area, not decoration.
+ *
+ * Feedback without the disc: the glyph brightens under a pointer and dips
+ * under the finger. The focus ring is round because the box is, so keyboard
+ * focus still gets an unmistakable shape. */
+.close-button {
+  color: var(--color-text-secondary);
+  transition:
+    color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-instant) var(--ease-standard),
+    opacity var(--duration-instant) var(--ease-standard);
+  -webkit-tap-highlight-color: transparent;
+}
+@media (hover: hover) {
+  .close-button:hover {
+    color: var(--color-text-primary);
+  }
+}
+.close-button:active {
+  opacity: 0.6;
+}
+
+/* ── The scroll edge ─────────────────────────────────────────────────────────
+ *
+ * Content that scrolls under a bar FADES and BLURS into it, the way iOS does,
+ * instead of being sliced off by a hard line. The owner, on the card sheet: "a
+ * little drop shadow that gets cut off by the top. I'd like it to be more iOS
+ * like where it kind of just fades out into that top part and like kind of
+ * blurs… make this like a pattern change everywhere".
+ *
+ * TWO LAYERS, because each fixes half of it:
+ *
+ *   1. THE FADE is a MASK on the scroll container (`.scroll-edge`). A mask
+ *      removes pixels rather than painting over them, so it is correct over
+ *      any background — grain, gradient, art — where a gradient overlay would
+ *      have to match whatever is behind it (the same reason the Deck-E
+ *      transcript fade is a mask). The fade deepens with how far the content
+ *      has scrolled — none at rest, full once it has travelled the band's own
+ *      height — so the first line of an unscrolled list is never dimmed, and
+ *      the edge cannot pop on at the first pixel of a scroll.
+ *   2. THE BLUR is a separate strip laid over that same edge
+ *      (`.scroll-edge-blur`), a backdrop-filter masked so it is strongest at
+ *      the edge and gone by the bottom of the band — a progressive blur. It
+ *      CANNOT live on the scroller itself: a backdrop filter only samples what
+ *      is behind its element, and inside the masked scroller there is nothing
+ *      behind it but the content it would be blurring away.
+ *
+ * `useScrollEdge` (lib/useScrollEdge.ts) writes the scroll position into
+ * `--scroll-edge-top` / `--scroll-edge-bottom` (0 → 1) on the scroller and
+ * mirrors it to any blur strip. The attribute selectors are there so the rules
+ * cost nothing on an element that is not using them.
+ *
+ * Not motion: reduced motion leaves it alone. It is the shape of the edge. */
+@property --scroll-edge-top {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+@property --scroll-edge-bottom {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+/* The pin cut-out (see `useScrollEdge`): a second mask layer, fully opaque,
+   the size of a sticky element that holds still at the top of the scroller.
+   Unioned with the fade, it keeps that element whole. Zero-sized — and so no
+   layer at all — when nothing is pinned. */
+.scroll-edge {
+  -webkit-mask-image:
+    linear-gradient(
+      to bottom,
+      #000 0 var(--scroll-edge-offset, 0px),
+      rgb(0 0 0 / calc(1 - var(--scroll-edge-top))) var(--scroll-edge-offset, 0px),
+      #000 calc(var(--scroll-edge-offset, 0px) + var(--scroll-edge-size)),
+      #000 calc(100% - var(--scroll-edge-size)),
+      rgb(0 0 0 / calc(1 - var(--scroll-edge-bottom))) 100%
+    ),
+    linear-gradient(#000 0 0);
+  mask-image:
+    linear-gradient(
+      to bottom,
+      #000 0 var(--scroll-edge-offset, 0px),
+      rgb(0 0 0 / calc(1 - var(--scroll-edge-top))) var(--scroll-edge-offset, 0px),
+      #000 calc(var(--scroll-edge-offset, 0px) + var(--scroll-edge-size)),
+      #000 calc(100% - var(--scroll-edge-size)),
+      rgb(0 0 0 / calc(1 - var(--scroll-edge-bottom))) 100%
+    ),
+    linear-gradient(#000 0 0);
+  -webkit-mask-size: 100% 100%, var(--scroll-edge-pin-w, 0px) var(--scroll-edge-pin-h, 0px);
+  mask-size: 100% 100%, var(--scroll-edge-pin-w, 0px) var(--scroll-edge-pin-h, 0px);
+  -webkit-mask-position: 0 0, var(--scroll-edge-pin-x, 0px) 0;
+  mask-position: 0 0, var(--scroll-edge-pin-x, 0px) 0;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+/* Horizontal strips (tab rows, chip rows): the same fade on the inline edges,
+   which is also the only "there is more this way" a touch screen gets. */
+.scroll-edge-x {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    rgb(0 0 0 / calc(1 - var(--scroll-edge-top))) 0,
+    #000 var(--scroll-edge-size),
+    #000 calc(100% - var(--scroll-edge-size)),
+    rgb(0 0 0 / calc(1 - var(--scroll-edge-bottom))) 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    rgb(0 0 0 / calc(1 - var(--scroll-edge-top))) 0,
+    #000 var(--scroll-edge-size),
+    #000 calc(100% - var(--scroll-edge-size)),
+    rgb(0 0 0 / calc(1 - var(--scroll-edge-bottom))) 100%
+  );
+}
+/* The strip sits at the scroller's leading edge (below a full-width pin, if
+   there is one) and has the pin's cut-out SUBTRACTED from it, so a pinned
+   column is neither faded nor blurred. */
+.scroll-edge-blur {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--scroll-edge-offset, 0px);
+  pointer-events: none;
+  height: var(--scroll-edge-size);
+  -webkit-backdrop-filter: blur(var(--scroll-edge-blur));
+  backdrop-filter: blur(var(--scroll-edge-blur));
+  -webkit-mask-image: linear-gradient(to bottom, #000, transparent), linear-gradient(#000 0 0);
+  mask-image: linear-gradient(to bottom, #000, transparent), linear-gradient(#000 0 0);
+  -webkit-mask-size: 100% 100%, var(--scroll-edge-pin-w, 0px) 100%;
+  mask-size: 100% 100%, var(--scroll-edge-pin-w, 0px) 100%;
+  -webkit-mask-position: 0 0, var(--scroll-edge-pin-x, 0px) 0;
+  mask-position: 0 0, var(--scroll-edge-pin-x, 0px) 0;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-composite: source-out;
+  mask-composite: subtract;
+  opacity: var(--scroll-edge-top);
+}
+.scroll-edge-blur[data-edge='bottom'] {
+  top: auto;
+  bottom: 0;
+  -webkit-mask-image: linear-gradient(to top, #000, transparent);
+  mask-image: linear-gradient(to top, #000, transparent);
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-composite: source-over;
+  mask-composite: add;
+  opacity: var(--scroll-edge-bottom);
+}
+
+/* The app header is the one bar the DOCUMENT scrolls under, so there is no
+   scroller to mask — the strip is all of it. It hangs just below the header.
+   NOT a child of the header: in `cover` mode the header is itself a backdrop
+   filter, and a backdrop filter inside another one can only see as far as its
+   parent's box, which is exactly the region this strip is not in. It lives in
+   `main` instead, so the drawer's dimming of `main` dims it too. It carries a
+   wash of the page colour as well as the blur, so the content fades as it
+   blurs, and it only appears once the page has actually scrolled — at rest it
+   would be blurring the top of the page for no reason. */
+.app-header-edge {
+  position: fixed;
+  z-index: calc(var(--z-chrome) - 1);
+  top: calc(var(--app-header-h) + env(safe-area-inset-top));
+  left: var(--app-sidebar-w);
+  right: 0;
+  height: var(--scroll-edge-size);
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--color-surface-primary) 55%, transparent),
+    transparent
+  );
+  -webkit-backdrop-filter: blur(var(--scroll-edge-blur));
+  backdrop-filter: blur(var(--scroll-edge-blur));
+  -webkit-mask-image: linear-gradient(to bottom, #000, transparent);
+  mask-image: linear-gradient(to bottom, #000, transparent);
+  opacity: 0;
+  transition: opacity var(--duration-base) var(--ease-standard);
+}
+:root[data-scrolled] .app-header-edge {
+  opacity: 1;
+}
+
+/* ── Clearance for the floating assistant button ─────────────────────────────
+ * See `--fab-clearance` above. On the routed content, so every page gets it
+ * without knowing the button exists. */
+:root[data-fab] .app-content {
+  padding-bottom: calc(var(--fab-clearance) + env(safe-area-inset-bottom));
 }
 
 /* The scanner's voice chips (scan/voice): the hold before a heard change

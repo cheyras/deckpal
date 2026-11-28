@@ -20,18 +20,18 @@ export interface ToastViewProps {
 
 export function ToastView({ tone, message, actionLabel, onAction, onDismiss }: ToastViewProps) {
   return (
-    <div className="pointer-events-auto flex w-full max-w-[480px] items-center gap-[12px] rounded-lg bg-surface-quaternary py-[8px] pl-[14px] pr-[8px] shadow-2xl ring-1 ring-border-default">
+    <div className="pointer-events-auto flex w-full max-w-[480px] items-center gap-3 rounded-lg bg-surface-quaternary py-2 pl-3.5 pr-2 shadow-2xl ring-1 ring-border-default">
       <Icon
         name={tone === 'error' ? 'alert' : 'check-circle'}
         size={18}
         className={`shrink-0 ${tone === 'error' ? 'text-error' : 'text-action-primary'}`}
       />
-      <p className="min-w-0 flex-1 py-[4px] text-[14px] leading-[19px] text-text-primary">{message}</p>
+      <p className="min-w-0 flex-1 py-1 text-[14px] leading-[19px] text-text-primary">{message}</p>
       {actionLabel && onAction && (
         <button
           type="button"
           onClick={onAction}
-          className="h-[36px] shrink-0 rounded-md bg-action-primary px-[14px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover"
+          className="h-[36px] shrink-0 rounded-md bg-action-primary px-3.5 text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover"
         >
           {actionLabel}
         </button>

@@ -27,6 +27,19 @@
  *
  * 3. **Background scroll-through.** The page behind stayed scrollable, so the
  *    sheet appeared to drift away. Locked below, position preserved.
+ *
+ * And three things it does the same way everywhere, so no caller draws its own:
+ *
+ * - **The top bar** (`SheetBar`): a grab handle on phones and one shared
+ *   `CloseButton` pinned at the same inset from the top as from the side.
+ * - **Drag to dismiss.** On a phone the bar can be pulled down, and so can the
+ *   body once it is scrolled to the top. The panel follows the finger 1:1 on
+ *   `transform` alone, written straight to the element each frame — no React
+ *   render per move, no layout. Let go, and it either leaves at the speed it
+ *   was thrown or springs back from where it was, carrying the release
+ *   velocity (sheetDrag.ts has the physics and why).
+ * - **The scroll edge.** Content scrolling under the bar fades and blurs into
+ *   it instead of being sliced off (theme.css "The scroll edge").
  */
 import {
   createContext,
@@ -38,14 +51,25 @@ import {
   useState,
   type ReactNode,
   type Ref,
+  type RefCallback,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { Icon } from '../Icon'
+import { CloseButton } from './CloseButton'
 import { prefersReducedMotion } from '../../lib/reducedMotion'
+import { useScrollEdge, SCROLL_EDGE_PIN } from '../../lib/useScrollEdge'
+import { DURATION, EASE } from '../../lib/motion'
+import {
+  createVelocityTracker,
+  dragOffset,
+  releaseDecision,
+  springEasing,
+  throwDuration,
+  velocityCubic,
+} from './sheetDrag'
 
 /**
  * Closes the sheet WITH its exit animation. A sheet that draws its own header
- * (`hideHeader`) needs this for its close button — calling the caller's raw
+ * (`headerSlot`) needs this for its close button — calling the caller's raw
  * `onClose` would unmount instantly and skip the slide-down.
  */
 const SheetCloseContext = createContext<(() => void) | null>(null)
@@ -55,8 +79,75 @@ export function useSheetClose(): () => void {
   return close
 }
 
-/** Kept in step with the exit animations in theme.css. */
-const EXIT_MS = 220
+/** Kept in step with the exit animations in theme.css (`--duration-base`). */
+const EXIT_MS = DURATION.base
+
+/** The bar's drag affordance. Every top bar a sheet draws must carry it. */
+const HANDLE = 'data-sheet-handle'
+
+/**
+ * A sheet's top bar: the phone grab handle, an optional title row, and the
+ * shared close control in the corner.
+ *
+ * The whole bar is the drag handle (`data-sheet-handle`), not just the pill —
+ * a 36×5 target is a thing you aim at, a full-width bar is a thing you grab.
+ * The bar is `sheet-bar` tall: the ✕'s 44px plus its inset above and below,
+ * so a one-line title centres on the ✕ and the ✕ has equal room on every side.
+ *
+ * Used by Sheet's default header and by any `headerSlot` that wants the same
+ * chrome around its own content (the card sheet, whose art is its heading).
+ */
+export function SheetBar({ children, className = '' }: { children?: ReactNode; className?: string }) {
+  const close = useSheetClose()
+  return (
+    <div {...{ [HANDLE]: '' }} className={`sheet-bar relative flex shrink-0 items-center ${className}`}>
+      <span aria-hidden className="sheet-grabber" />
+      {children}
+      <CloseButton corner onClick={close} />
+    </div>
+  )
+}
+
+/** Merge the caller's `contentRef` with the sheet's own. */
+function useMergedRef<T>(...refs: (Ref<T> | undefined)[]): RefCallback<T> {
+  const latest = useRef(refs)
+  latest.current = refs
+  return useCallback((node: T | null) => {
+    for (const ref of latest.current) {
+      if (!ref) continue
+      if (typeof ref === 'function') ref(node)
+      else (ref as { current: T | null }).current = node
+    }
+  }, [])
+}
+
+/** `linear()` easing, which a spring needs, is Safari 17.2+/Chrome 113+. */
+const supportsLinearEasing = (() => {
+  try {
+    return typeof CSS !== 'undefined' && CSS.supports('transition-timing-function', 'linear(0, 1)')
+  } catch {
+    return false
+  }
+})()
+
+/** The translateY a panel is currently drawn at, animations included. */
+function currentTranslateY(el: HTMLElement): number {
+  const t = getComputedStyle(el).transform
+  if (!t || t === 'none') return 0
+  try {
+    return new DOMMatrixReadOnly(t).m42
+  } catch {
+    return 0
+  }
+}
+
+function isDesktop(): boolean {
+  try {
+    return window.matchMedia('(min-width: 1068px)').matches
+  } catch {
+    return false
+  }
+}
 
 // ── Body scroll lock ─────────────────────────────────────────────────────────
 // Ref-counted, because a sheet can open a confirm sheet on top of itself and
@@ -141,6 +232,7 @@ export function Sheet({
   headerRight,
   contentClassName = '',
   contentRef,
+  scrollEdgePins,
 }: {
   /** Rendered as the sheet's heading and used as its accessible name. */
   title: string
@@ -153,6 +245,9 @@ export function Sheet({
    * mounted: an invisible, pointer-eating, focus-trapped overlay. Returning
    * `false` tells the sheet to put itself back. The billing sheet does this
    * while a payment is in flight; almost nothing else should need to.
+   *
+   * A sheet dragged off the screen asks the same question when it lands, and
+   * a refusal springs it back up.
    */
   onClose: () => void | boolean
   children: ReactNode
@@ -163,19 +258,20 @@ export function Sheet({
   ariaLabel?: string
   /**
    * Replaces the default title bar, still rendered in the sheet's fixed header
-   * region rather than inside the scroll area. The card sheet uses it for a
-   * grab handle and a floating close button in place of a heading.
+   * region rather than inside the scroll area. Wrap it in `SheetBar` to keep
+   * the grab handle, the drag gesture and the shared close control — the card
+   * sheet does exactly that with no title in it, because its art is its
+   * heading.
    */
   headerSlot?: ReactNode
   /**
    * A small mark or control sitting between the title and the close button.
    *
-   * Distinct from `headerSlot`, which REPLACES the whole bar and makes the
-   * caller responsible for the close button and the mobile grab handle. This is
-   * for the common case of wanting one badge in the corner without inheriting
-   * all of that — the billing prompt puts "Powered by Stripe" here, where a
-   * payment surface expects it, rather than spending a horizontal rule and a
-   * centred line in the body to say four words.
+   * Distinct from `headerSlot`, which REPLACES the whole bar. This is for the
+   * common case of wanting one badge in the corner without inheriting all of
+   * that — the billing prompt puts "Powered by Stripe" here, where a payment
+   * surface expects it, rather than spending a horizontal rule and a centred
+   * line in the body to say four words.
    *
    * It is given `shrink-0` and the title `min-w-0`, so a long title wraps
    * rather than crushing the accessory.
@@ -184,19 +280,63 @@ export function Sheet({
   contentClassName?: string
   /** Access to the sole scrolling body for bounded, programmatic content navigation. */
   contentRef?: Ref<HTMLDivElement>
+  /**
+   * Extra selector for sticky content the scroll edge must keep clear of
+   * (`[data-scroll-edge-pin]` is always included). See `useScrollEdge`.
+   */
+  scrollEdgePins?: string
 }) {
   const titleId = useId()
   const panelRef = useRef<HTMLDivElement>(null)
+  const scrimRef = useRef<HTMLDivElement>(null)
+  /**
+   * The scrim's COLOUR, as its own layer. The scrim element is the panel's
+   * parent (it lays the panel out), so fading the scrim itself fades the
+   * panel with it — a dragged sheet went see-through. The drag dims this
+   * instead; the scrim's own opacity stays the entrance/exit fade.
+   */
+  const backdropRef = useRef<HTMLDivElement>(null)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const edgeHostRef = useRef<HTMLDivElement>(null)
   const scrimDownRef = useRef(false)
   const returnFocusRef = useRef<HTMLElement | null>(null)
   const [closing, setClosing] = useState(false)
   const closeTimer = useRef<number | null>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
+  // ── Drag state. Refs, never React state: a re-render per pointer move is
+  // exactly the work a 60fps drag cannot afford.
+  const drag = useRef<DragState | null>(null)
+  const pending = useRef<{ id: number; y: number; t: number } | null>(null)
+  const settling = useRef<Animation[]>([])
+  const thrown = useRef(false)
+  const [tracker] = useState(() => createVelocityTracker())
+
+  const stopSettling = () => {
+    for (const a of settling.current) a.cancel()
+    settling.current = []
+  }
 
   // Play the exit, THEN tell the caller. Doing it here rather than in every
   // caller is what keeps a sheet from vanishing on one screen and sliding away
   // on another; callers still just pass a plain `onClose`.
   const requestClose = useCallback(() => {
-    if (closeTimer.current !== null) return
+    if (closeTimer.current !== null || thrown.current) return
+    // A close asked for mid-gesture (Escape while dragging) or mid-spring
+    // takes the sheet from wherever the CSS exit would expect it: at rest.
+    pending.current = null
+    if (drag.current) {
+      if (drag.current.frame) cancelAnimationFrame(drag.current.frame)
+      drag.current = null
+    }
+    stopSettling()
+    const panel = panelRef.current
+    if (panel) {
+      panel.removeAttribute('data-dragging')
+      panel.style.transform = ''
+    }
+    if (backdropRef.current) backdropRef.current.style.opacity = ''
     if (prefersReducedMotion()) {
       onClose()
       return
@@ -237,9 +377,241 @@ export function Sheet({
   useEffect(
     () => () => {
       if (closeTimer.current !== null) window.clearTimeout(closeTimer.current)
+      if (drag.current?.frame) cancelAnimationFrame(drag.current.frame)
     },
     [],
   )
+
+  // ── Drag to dismiss ────────────────────────────────────────────────────────
+
+  /** The scrim dims in step with how much of the sheet is still on screen. */
+  const scrimOpacity = (d: DragState) => (d.offset <= 0 ? d.scrimFrom : d.scrimFrom * Math.max(0, 1 - d.offset / d.height))
+
+  const paint = () => {
+    const d = drag.current
+    const panel = panelRef.current
+    if (!d || !panel) return
+    d.frame = 0
+    panel.style.transform = `translate3d(0, ${d.offset}px, 0)`
+    if (backdropRef.current) backdropRef.current.style.opacity = String(scrimOpacity(d))
+  }
+
+  /**
+   * Take hold of the panel. It is caught WHERE IT IS DRAWN — part-way through
+   * its entrance, or part-way back from a previous spring — so the grab never
+   * jumps: the running animation is read, then removed, and the inline
+   * transform takes over from exactly that point.
+   */
+  const startDrag = (clientY: number, t: number, pointerId: number | null): boolean => {
+    const panel = panelRef.current
+    const scrim = scrimRef.current
+    if (!panel || thrown.current || closeTimer.current !== null || isDesktop()) return false
+    const origin = currentTranslateY(panel)
+    // The scrim may still be fading in. Its entrance is taken off below, so
+    // the dimming carries on from here on the backdrop layer instead.
+    const scrimFrom = scrim ? Number(getComputedStyle(scrim).opacity) || 1 : 1
+    stopSettling()
+    panel.setAttribute('data-dragged', '')
+    panel.setAttribute('data-dragging', '')
+    scrim?.setAttribute('data-dragged', '')
+    drag.current = { startY: clientY, origin, offset: origin, height: panel.offsetHeight || 1, scrimFrom, pointerId, frame: 0 }
+    tracker.reset()
+    tracker.add(t, clientY)
+    paint()
+    return true
+  }
+
+  const moveDrag = (clientY: number, t: number) => {
+    const d = drag.current
+    if (!d) return
+    d.offset = dragOffset(d.origin, clientY - d.startY)
+    tracker.add(t, clientY)
+    if (!d.frame) d.frame = requestAnimationFrame(paint)
+  }
+
+  /** Back to rest, carrying the release velocity into a spring. */
+  const springBack = (from: number, velocity: number, scrimNow: number) => {
+    const panel = panelRef.current
+    const scrim = backdropRef.current
+    if (!panel) return
+    // The resting state is what the animation lands on; it plays over it.
+    panel.style.transform = ''
+    if (scrim) scrim.style.opacity = ''
+    const anims: Animation[] = []
+    if (!prefersReducedMotion() && Math.abs(from) >= 0.5) {
+      const spring = !supportsLinearEasing
+        ? { easing: EASE.sheet, duration: DURATION.slow }
+        : from > 0
+          ? // Coming back UP: critically damped, and never past rest — a
+            // bottom sheet that overshoots upward opens a gap between itself
+            // and the screen edge. Only a hard upward throw reaches the clamp.
+            springEasing({ from, to: 0, velocity, response: 0.36, damping: 1, clampOvershoot: true })
+          : // Let go after a pull UP: it drops back with a small settle, which
+            // is the rubber band letting go.
+            springEasing({ from, to: 0, velocity })
+      anims.push(
+        panel.animate([{ transform: `translate3d(0, ${from}px, 0)` }, { transform: 'translate3d(0, 0, 0)' }], {
+          duration: spring.duration,
+          easing: spring.easing,
+        }),
+      )
+    }
+    if (scrim && scrimNow < 1) {
+      anims.push(
+        scrim.animate([{ opacity: scrimNow }, { opacity: 1 }], { duration: DURATION.base, easing: EASE.enter }),
+      )
+    }
+    settling.current = anims
+  }
+
+  /**
+   * Off the bottom of the screen at the speed it was thrown, then close.
+   * Calls `onClose` directly: the travel IS the exit animation, so the
+   * keyframed one is suppressed (`data-thrown`) rather than played twice.
+   */
+  const throwAway = (d: DragState, velocity: number) => {
+    const panel = panelRef.current
+    const scrim = backdropRef.current
+    if (!panel) return
+    thrown.current = true
+    panel.setAttribute('data-thrown', '')
+    scrimRef.current?.setAttribute('data-thrown', '')
+    const target = d.height + 16
+    const distance = target - d.offset
+    const reduce = prefersReducedMotion()
+    const duration = reduce ? DURATION.base : throwDuration(distance, velocity)
+    const scrimNow = scrimOpacity(d)
+    const travel = reduce
+      ? panel.animate([{ opacity: 1 }, { opacity: 0 }], { duration, easing: EASE.standard, fill: 'forwards' })
+      : panel.animate(
+          [{ transform: `translate3d(0, ${d.offset}px, 0)` }, { transform: `translate3d(0, ${target}px, 0)` }],
+          { duration, easing: velocityCubic({ distance, velocity, duration }), fill: 'forwards' },
+        )
+    const anims = [travel]
+    if (scrim) anims.push(scrim.animate([{ opacity: scrimNow }, { opacity: 0 }], { duration, easing: EASE.standard, fill: 'forwards' }))
+    settling.current = anims
+    travel.onfinish = () => {
+      if (onCloseRef.current() !== false) return
+      // REFUSED (a payment in flight): come back up from where it landed.
+      thrown.current = false
+      panel.removeAttribute('data-thrown')
+      scrimRef.current?.removeAttribute('data-thrown')
+      panel.style.transform = reduce ? '' : `translate3d(0, ${target}px, 0)`
+      stopSettling()
+      springBack(reduce ? 0 : target, 0, 0)
+    }
+  }
+
+  const endDrag = (t: number) => {
+    const d = drag.current
+    drag.current = null
+    const panel = panelRef.current
+    if (!d || !panel) return
+    if (d.frame) cancelAnimationFrame(d.frame)
+    panel.removeAttribute('data-dragging')
+    const velocity = tracker.velocity(t)
+    if (releaseDecision({ offset: d.offset, velocity, height: d.height }) === 'dismiss') throwAway(d, velocity)
+    else springBack(d.offset, velocity, scrimOpacity(d))
+  }
+
+  // The bar: pointer events, so a mouse can drag it in a narrow window as
+  // well as a finger on a phone. Delegated from the panel, which is also what
+  // holds the capture, so a bar supplied through `headerSlot` drags with no
+  // wiring of its own beyond carrying `data-sheet-handle`.
+  const onPanelPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!e.isPrimary || (e.pointerType === 'mouse' && e.button !== 0)) return
+    const target = e.target as Element
+    if (!target.closest(`[${HANDLE}]`)) return
+    // The ✕ and anything else pressable in the bar keep their own taps.
+    if (target.closest('button, a, input, select, textarea, [role="button"]')) return
+    if (isDesktop() || thrown.current || closeTimer.current !== null) return
+    pending.current = { id: e.pointerId, y: e.clientY, t: e.timeStamp }
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId)
+    } catch {
+      // A pointer that is already gone cannot be captured; the move never comes.
+    }
+  }
+  const onPanelPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (drag.current && drag.current.pointerId === e.pointerId) {
+      moveDrag(e.clientY, e.timeStamp)
+      return
+    }
+    const p = pending.current
+    if (!p || p.id !== e.pointerId) return
+    // A few pixels of slop, so a tap on the bar stays a tap.
+    if (Math.abs(e.clientY - p.y) < 3) return
+    pending.current = null
+    if (startDrag(p.y, p.t, e.pointerId)) moveDrag(e.clientY, e.timeStamp)
+  }
+  const onPanelPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (pending.current?.id === e.pointerId) pending.current = null
+    if (drag.current && drag.current.pointerId === e.pointerId) endDrag(e.timeStamp)
+  }
+
+  // The body: a pull down while it is scrolled to the top moves the SHEET, the
+  // way an iOS sheet does, and every other touch scrolls. Touch events rather
+  // than pointer events because only a non-passive `touchmove` can take a
+  // gesture away from the browser's scrolling once it has begun; the decision
+  // is made on the first move, while it is still cancelable.
+  useEffect(() => {
+    const el = bodyRef.current
+    if (!el) return
+    let start: { x: number; y: number; t: number } | null = null
+    let mode: 'idle' | 'pending' | 'drag' | 'scroll' = 'idle'
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1 || isDesktop() || thrown.current || closeTimer.current !== null) {
+        mode = 'idle'
+        return
+      }
+      const touch = e.touches[0]
+      start = { x: touch.clientX, y: touch.clientY, t: e.timeStamp }
+      mode = el.scrollTop <= 0 && !insideScrolledOrRange(e.target, el) ? 'pending' : 'scroll'
+    }
+    const onMove = (e: TouchEvent) => {
+      if (!start || mode === 'idle' || mode === 'scroll') return
+      const touch = e.touches[0]
+      if (mode === 'pending') {
+        const dx = touch.clientX - start.x
+        const dy = touch.clientY - start.y
+        // Up or sideways is the content's, and so is anything the browser has
+        // already committed to scrolling.
+        if (dy <= 0 || Math.abs(dx) > dy || !e.cancelable || !startDrag(start.y, start.t, null)) {
+          mode = 'scroll'
+          return
+        }
+        mode = 'drag'
+      }
+      e.preventDefault()
+      moveDrag(touch.clientY, e.timeStamp)
+    }
+    const onEnd = (e: TouchEvent) => {
+      if (mode === 'drag') endDrag(e.timeStamp)
+      mode = 'idle'
+      start = null
+    }
+    el.addEventListener('touchstart', onStart, { passive: true })
+    el.addEventListener('touchmove', onMove, { passive: false })
+    el.addEventListener('touchend', onEnd)
+    el.addEventListener('touchcancel', onEnd)
+    return () => {
+      el.removeEventListener('touchstart', onStart)
+      el.removeEventListener('touchmove', onMove)
+      el.removeEventListener('touchend', onEnd)
+      el.removeEventListener('touchcancel', onEnd)
+    }
+    // The handlers read refs only; binding once is correct.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const edgeRef = useScrollEdge({
+    host: edgeHostRef,
+    pins: scrollEdgePins ? `${SCROLL_EDGE_PIN}, ${scrollEdgePins}` : SCROLL_EDGE_PIN,
+    // Without a footer the sheet's bottom IS the screen's bottom edge, where
+    // iOS lets content run to the glass rather than fading it.
+    trailing: !!footer,
+  })
+  const setBodyRef = useMergedRef<HTMLDivElement>(contentRef, bodyRef, edgeRef)
 
   // Escape closes. Tab is trapped inside the panel (plus any write toast).
   useEffect(() => {
@@ -323,12 +695,14 @@ export function Sheet({
 
   // Close on scrim click only when the gesture STARTED on the scrim. Without
   // this, selecting text in the sheet and releasing outside it closes the sheet.
+  // "The scrim" is the container or its backdrop layer, whichever is hit.
+  const onScrim = (target: EventTarget) => target === scrimRef.current || target === backdropRef.current
   const onScrimPointerDown = useCallback((e: React.PointerEvent) => {
-    scrimDownRef.current = e.target === e.currentTarget
+    scrimDownRef.current = onScrim(e.target)
   }, [])
   const onScrimClick = useCallback(
     (e: React.MouseEvent) => {
-      if (e.target === e.currentTarget && scrimDownRef.current) requestClose()
+      if (onScrim(e.target) && scrimDownRef.current) requestClose()
       scrimDownRef.current = false
     },
     [requestClose],
@@ -337,12 +711,18 @@ export function Sheet({
   return createPortal(
     <SheetCloseContext.Provider value={requestClose}>
     <div
-      className="px-sheet-scrim fixed inset-0 z-(--z-modal) flex items-end justify-center overflow-hidden overscroll-none p-0 nav:items-center nav:p-[16px]"
-      style={{ background: 'var(--color-overlay-scrim-strong)' }}
+      ref={scrimRef}
+      className="px-sheet-scrim fixed inset-0 z-(--z-modal) flex items-end justify-center overflow-hidden overscroll-none p-0 nav:items-center nav:p-4"
       data-closing={closing || undefined}
       onPointerDown={onScrimPointerDown}
       onClick={onScrimClick}
     >
+      <div
+        ref={backdropRef}
+        aria-hidden
+        className="absolute inset-0"
+        style={{ background: 'var(--color-overlay-scrim-strong)' }}
+      />
       <div
         ref={panelRef}
         role="dialog"
@@ -361,50 +741,47 @@ export function Sheet({
           MAX_W[size],
         ].join(' ')}
         onClick={(e) => e.stopPropagation()}
+        onPointerDown={onPanelPointerDown}
+        onPointerMove={onPanelPointerMove}
+        onPointerUp={onPanelPointerUp}
+        onPointerCancel={onPanelPointerUp}
       >
         {headerSlot ?? (
-          <div className="shrink-0 border-b border-border-default">
-            {/* Grab handle: reads as "this came up from the bottom" on touch. */}
-            <div className="flex justify-center pt-[8px] nav:hidden">
-              <span className="h-[4px] w-[40px] rounded-full bg-surface-tertiary" />
-            </div>
-            <div className="flex items-center justify-between gap-[12px] px-[20px] py-[12px] nav:px-[24px] nav:py-[18px]">
-              <h2 id={titleId} className="min-w-0 text-[18px] font-bold text-text-primary">
-                {title}
-              </h2>
-              <div className="flex shrink-0 items-center gap-[10px]">
-                {headerRight}
-                <button
-                  type="button"
-                  onClick={requestClose}
-                  aria-label="Close"
-                  className="-mr-[6px] flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-lg text-icon-default hover:bg-surface-tertiary"
-                >
-                  <Icon name="close" size={22} />
-                </button>
-              </div>
-            </div>
-          </div>
+          // `pr-16` keeps a long title clear of the ✕ in the corner: its 44px
+          // box, its 8px inset, and a 12px gap.
+          <SheetBar className="gap-3 border-b border-border-default pl-5 pr-16 nav:pl-6">
+            <h2 id={titleId} className="min-w-0 flex-1 py-2 text-[18px] font-bold text-text-primary">
+              {title}
+            </h2>
+            {headerRight && <div className="flex shrink-0 items-center">{headerRight}</div>}
+          </SheetBar>
         )}
 
-        {/* The ONLY scroll container. overscroll-contain stops a flick at the
-            end of the list from scrolling the page underneath. */}
-        <div
-          ref={contentRef}
-          data-sheet-content
-          className={[
-            'min-h-0 flex-1 overflow-y-auto overscroll-contain p-[20px] nav:p-[24px]',
-            contentClassName,
-          ].join(' ')}
-          style={footer ? undefined : { paddingBottom: 'calc(20px + env(safe-area-inset-bottom))' }}
-        >
-          {children}
+        <div ref={edgeHostRef} className="relative flex min-h-0 flex-1 flex-col">
+          {/* The ONLY scroll container. overscroll-contain stops a flick at the
+              end of the list from scrolling the page underneath. */}
+          <div
+            ref={setBodyRef}
+            data-sheet-content
+            className={[
+              'scroll-edge min-h-0 flex-1 overflow-y-auto overscroll-contain p-5 nav:p-6',
+              contentClassName,
+            ].join(' ')}
+            style={footer ? undefined : { paddingBottom: 'calc(var(--spacing) * 5 + env(safe-area-inset-bottom))' }}
+          >
+            {children}
+          </div>
+          {/* The blur half of the scroll edge — see theme.css. Siblings of the
+              scroller, because a backdrop filter inside the masked scroller
+              would have nothing behind it to blur. */}
+          <div aria-hidden className="scroll-edge-blur" />
+          {footer && <div aria-hidden className="scroll-edge-blur" data-edge="bottom" />}
         </div>
 
         {footer && (
           <div
-            className="shrink-0 border-t border-border-default px-[20px] py-[14px] nav:px-[24px]"
-            style={{ paddingBottom: 'calc(14px + env(safe-area-inset-bottom))' }}
+            className="shrink-0 border-t border-border-default px-5 py-3.5 nav:px-6"
+            style={{ paddingBottom: 'calc(var(--spacing) * 3.5 + env(safe-area-inset-bottom))' }}
           >
             {footer}
           </div>
@@ -414,4 +791,34 @@ export function Sheet({
     </SheetCloseContext.Provider>,
     document.body,
   )
+}
+
+interface DragState {
+  /** clientY where the gesture began. */
+  startY: number
+  /** Where the panel was drawn when it was caught. */
+  origin: number
+  /** Where it is drawn now, px below rest (negative is a rubber-banded pull up). */
+  offset: number
+  height: number
+  /** The scrim's opacity when it was caught (it may still have been fading in). */
+  scrimFrom: number
+  /** The pointer that owns the drag; `null` for a touch on the body. */
+  pointerId: number | null
+  /** The pending paint, so moves between frames coalesce into one write. */
+  frame: number
+}
+
+/**
+ * A touch that starts inside something that scrolls on its own (and is not at
+ * its top), or on a slider, belongs to that thing rather than to the sheet.
+ */
+function insideScrolledOrRange(target: EventTarget | null, root: HTMLElement): boolean {
+  let node = target instanceof Element ? target : null
+  while (node && node !== root) {
+    if (node instanceof HTMLInputElement && node.type === 'range') return true
+    if (node instanceof HTMLElement && node.scrollTop > 0 && node.scrollHeight > node.clientHeight) return true
+    node = node.parentElement
+  }
+  return false
 }

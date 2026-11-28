@@ -1,9 +1,16 @@
 # Third-party brand marks
 
 Assets in this directory are **other people's trademarks**, used under their own
-brand guidelines. Nothing here is drawn, traced or approximated by this project
-— the same rule `src/components/ENERGY-ICONS-NOTICE.md` states for energy
-symbols. A redrawn logo is still the logo, only worse.
+brand guidelines. Nothing here is drawn, traced or approximated by this project.
+A redrawn logo is still the logo, only worse.
+
+The energy-type glyphs are a different case, and do not live here: since
+2026-11-27 they are traced from the symbols printed on Pokémon TCG cards, at the
+owner's direction. Their provenance is in `src/components/ENERGY-ICONS-NOTICE.md`.
+
+DeckPal's own **template set logos** (promo pools, subsets, trainer kits and the
+other sets with no official logo) are drawn by this project, so they live in
+`../set-logos/`, not here — see `../set-logos/README.md`.
 
 ## `powered-by-stripe.svg`
 
@@ -62,8 +69,10 @@ released 2026-09-16. TCGdex publishes both sets (`30th`, 158 cards; `30th-c`,
 image tier returns art for these paths. The asset is now a permanent bundled
 fallback, not an upcoming placeholder. `SetLogo` checks `bundledSetLogo(setId)`
 from `apps/web/src/lib/releasedSetAssets.ts` after the image-tier sources are
-exhausted; `BUNDLED_SET_LOGOS` maps both `'30th'` and `'30th-c'` to
-`'/brand/pokemon-30th-celebration-logo.webp'`. When the image tier is eventually
+exhausted; `BUNDLED_SET_LOGOS` maps `'30th'` to
+`'/brand/pokemon-30th-celebration-logo.webp'`. (It mapped `'30th-c'` to the same
+file until 2026-11-27, when the Classic Collection got a template logo of its
+own in `../set-logos/`.) When the image tier is eventually
 populated by upstream, it wins and this fallback is silently bypassed — stale
 `BUNDLED_SET_LOGOS` entries are harmless.
 
@@ -71,8 +80,8 @@ populated by upstream, it wins and this fallback is silently bypassed — stale
 new one: `SET_IMAGE_FALLBACK_TABLE` in `@deckpal/storage` sources the `mfb` logo
 and nine set symbols from it under the owner's 2026-08-29 approval. That table
 is deliberately NOT touched here — it is frozen. The approval for this specific
-asset (`File:30th_Celebration_Logo_EN.png`) extends to both set entries in
-`BUNDLED_SET_LOGOS`; it does NOT extend to any other asset, CDN, or source.
+asset (`File:30th_Celebration_Logo_EN.png`) extends to its `BUNDLED_SET_LOGOS`
+entry; it does NOT extend to any other asset, CDN, or source.
 
 **Deployment inclusion.** This WebP needs the exact
 `!apps/web/public/brand/pokemon-30th-celebration-logo.webp` exception in both

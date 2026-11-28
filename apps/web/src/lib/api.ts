@@ -694,6 +694,9 @@ export interface CardRow {
   // Optional per-card routing (present on list items, which span many sets).
   seriesSlug?: string | null
   setId?: string | null
+  /** The set's display name, for grids that span sets (search, species). A tile
+   *  only prints it when its grid asks (`GridView showSet`). */
+  setName?: string | null
   // The SPECIFIC printing this row is about, present on list items only.
   //
   // A list stores `list_item.card_variant_id`, so it has always known whether

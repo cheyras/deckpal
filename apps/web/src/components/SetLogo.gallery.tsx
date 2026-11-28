@@ -24,12 +24,18 @@ export default {
       label: 'small',
       props: { setId: 'xy1', imgClassName: 'h-[40px] object-contain' },
     },
+    {
+      // A set with no official logo: DeckPal's template logo (tools/set-logo-templates).
+      label: 'template (no upstream logo)',
+      props: { setId: 'mep', logoUrl: null, imgClassName: 'h-[60px] object-contain' },
+    },
   ],
   knobs: {
     setId: { kind: 'text' },
   },
 } satisfies GalleryMeta<{
   setId: string
+  logoUrl?: string | null
   alt?: string
   imgClassName: string
   platedImgClassName?: string

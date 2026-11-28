@@ -125,6 +125,19 @@ export function DeckeButton({
     return () => window.clearTimeout(timer)
   }, [hidden, loading, failed])
 
+  // THE PAGE MAKES ROOM FOR HIM. While the launcher exists, `html[data-fab]`
+  // gives the routed content `--fab-clearance` of bottom padding (theme.css),
+  // so the last row of a list can always be scrolled out from under this
+  // button — the owner found it sitting on a set row's "LVL" label. Held for
+  // as long as this component is mounted rather than toggled with `hidden`:
+  // `hidden` flips while the chat is open, and a page that changed height
+  // under a scroll-locked overlay would land somewhere else when it let go.
+  useEffect(() => {
+    const root = document.documentElement
+    root.setAttribute('data-fab', '')
+    return () => root.removeAttribute('data-fab')
+  }, [])
+
   const warm = () => {
     if (warmed.current) return
     warmed.current = true
@@ -169,12 +182,14 @@ export function DeckeButton({
       aria-busy={loading || undefined}
       aria-expanded={chatOpen}
       className={[
-        'group fixed bottom-[20px] right-[20px]',
+        // Its size and inset are the tokens the page's clearance is built
+        // from (`--fab-size`, `--fab-inset`), so the two cannot drift apart.
+        'group fixed bottom-(--fab-inset) right-(--fab-inset)',
         // Above the phone scrim (24) and panel (25) while standing in for the
         // character, who will appear on the canvas above at 30. At rest, back
         // down to ordinary page chrome.
         overChat ? 'z-[26]' : 'z-(--z-chrome)',
-        'flex h-[56px] w-[56px] items-center justify-center rounded-full',
+        'flex size-(--fab-size) items-center justify-center rounded-full',
         'border border-border-default bg-surface-raised shadow-lg',
         'transition-transform duration-200 hover:scale-[1.06] active:scale-95',
         // His arrival, for a reader who asked for less movement. Every other

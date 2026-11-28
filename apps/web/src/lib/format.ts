@@ -104,6 +104,17 @@ export function fmtNumber(n: string): string {
   return `#${n}`
 }
 
+/**
+ * The "/084" half of "#001/084". A plain numeric collector number is shown at
+ * least three digits wide (by `fmtNumber`, or already so in the data), and the
+ * total is padded to match — the way the card itself prints it — rather than
+ * reading "#001/84" under a card that says 001/084. Lettered numbers (TG05,
+ * SWSH123) leave the total alone.
+ */
+export function fmtPrintedTotal(number: string, total: number | string): string {
+  return /^\d+$/.test(number) ? String(total).padStart(Math.max(3, number.length), '0') : String(total)
+}
+
 // Pokémon type → accent colour (for dex type pills). Lowercase slug keys, as the
 // insights backend returns them (e.g. "fire", "grass", "psychic").
 const TYPE_COLORS: Record<string, string> = {

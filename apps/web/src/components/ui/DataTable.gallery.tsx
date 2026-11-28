@@ -23,7 +23,7 @@ const manyMembers: Member[] = Array.from({ length: 3200 }, (_, index) => ({
 const columns: DataTableColumn<Member>[] = [
   { id: 'name', header: 'Member', sortable: true, className: 'min-w-[220px] max-w-[320px]', cell: member => <div>
     <span className="font-bold text-text-primary">{member.name}</span>
-    <p className="mt-[4px] text-text-muted">{member.email}</p>
+    <p className="mt-1 text-text-muted">{member.email}</p>
   </div> },
   { id: 'role', header: 'Role', cell: member => member.role },
   { id: 'status', header: 'Status', cell: member => <span className={member.status === 'Active' ? 'text-success' : 'text-error'}>{member.status}</span> },
@@ -65,7 +65,7 @@ function DataTableExampleState({ mode }: ExampleProps) {
     }} onReset={() => { setSearch(''); setStatus('all'); setOffset(0) }} resetDisabled={!search && status === 'all'}>
       <label className="block text-[14px] font-semibold text-text-secondary">Status
         <select value={status} onChange={event => { setStatus(event.target.value); setOffset(0) }}
-          className="mt-[6px] block rounded-[10px] border border-action-ghost-border bg-surface-tertiary px-[14px] py-[12px] text-[15px] text-text-primary">
+          className="mt-1.5 block rounded-[10px] border border-action-ghost-border bg-surface-tertiary px-3.5 py-3 text-[15px] text-text-primary">
           <option value="all">All statuses</option><option value="Active">Active</option><option value="Suspended">Suspended</option>
         </select>
       </label>

@@ -32,6 +32,11 @@
 !apps/web/public/models/decke/*.webp
 # Bundled upcoming-set logo: tracked files must also survive upload filtering.
 !apps/web/public/brand/pokemon-30th-celebration-logo.webp
+# DeckPal's template set logos (see the matching .gitignore negation).
+!apps/web/public/set-logos/*.webp
+# ...and the tool that makes them: ~5 MB of PhotoCraft templates and build
+# inputs that no build or function reads. Only its shipped WebPs (above) deploy.
+/tools/set-logo-templates
 .env
 .env.*
 !.env.example

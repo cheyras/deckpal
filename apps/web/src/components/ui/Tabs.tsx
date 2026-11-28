@@ -53,13 +53,13 @@ export function Tabs({
   if (variant === 'pill') {
     const containerCls =
       size === 'sm'
-        ? 'inline-flex rounded-full bg-surface-tertiary p-[3px]'
-        : 'inline-flex rounded-full bg-surface-secondary p-[4px]'
+        ? 'inline-flex rounded-full bg-surface-tertiary p-0.5'
+        : 'inline-flex rounded-full bg-surface-secondary p-1'
 
     const itemBase =
       size === 'sm'
-        ? 'h-[28px] rounded-full px-[12px] text-[12px] font-bold'
-        : 'h-[36px] rounded-full px-[20px] text-[14px] font-semibold'
+        ? 'h-[28px] rounded-full px-3 text-[12px] font-bold'
+        : 'h-[36px] rounded-full px-5 text-[14px] font-semibold'
 
     return (
       <div className={`${containerCls}${className ? ` ${className}` : ''}`}>
@@ -83,11 +83,11 @@ export function Tabs({
   // underline variant
   return (
     <div
-      className={`scroll-x flex gap-[6px] border-b border-divider-subtle${className ? ` ${className}` : ''}`}
+      className={`scroll-x flex gap-1.5 border-b border-divider-subtle${className ? ` ${className}` : ''}`}
     >
       {items.map((item) => {
         const active = item.key === value
-        const cls = `${fill ? 'flex-1 text-center' : 'shrink-0'} whitespace-nowrap border-b-2 px-[12px] py-[10px] text-[14px] ${
+        const cls = `${fill ? 'flex-1 text-center' : 'shrink-0'} whitespace-nowrap border-b-2 px-3 py-2.5 text-[14px] ${
           active
             ? 'border-action-primary font-semibold text-text-primary'
             : 'border-transparent font-medium text-text-muted hover:text-text-body'

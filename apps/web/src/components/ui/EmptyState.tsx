@@ -34,15 +34,15 @@ export function EmptyState({
 }: EmptyStateProps) {
   const base =
     variant === 'dashed'
-      ? 'flex flex-col items-center justify-center gap-[12px] rounded-xl border border-dashed border-border-default py-[80px] text-center'
-      : 'flex flex-col items-center justify-center gap-[12px] py-[80px] text-center'
+      ? 'flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border-default py-20 text-center'
+      : 'flex flex-col items-center justify-center gap-3 py-20 text-center'
 
   return (
     <div className={`${base}${className ? ` ${className}` : ''}`}>
       <Icon name={icon} size={44} className="text-icon-muted" />
       <div className="font-display text-[20px] font-bold text-text-primary">{title}</div>
       {body && <p className="text-[14px] text-text-muted">{body}</p>}
-      {children && <div className="mt-[4px] flex gap-[10px]">{children}</div>}
+      {children && <div className="mt-1 flex gap-2.5">{children}</div>}
     </div>
   )
 }

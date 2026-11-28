@@ -255,8 +255,10 @@ export function AddCardModal({
         {/* Sticky inside the sheet's scroll area: scrolling deep into results
             should never strand the field you are searching with. -mt/-mx/px
             pull it flush with the sheet padding so the sticky backdrop covers
-            the full width as rows pass under it. */}
-        <label className="sticky -top-[20px] z-(--z-raised) -mx-[20px] -mt-[20px] flex h-[48px] items-center bg-surface-secondary px-[20px] pt-[8px] nav:-mx-[24px] nav:-top-[24px] nav:px-[24px]">
+            the full width as rows pass under it. `data-scroll-edge-pin` tells
+            the sheet's scroll edge it is a bar of its own: results fade under
+            IT, rather than the field itself fading under the sheet's header. */}
+        <label data-scroll-edge-pin className="sticky -top-[20px] z-(--z-raised) -mx-[20px] -mt-[20px] flex h-[48px] items-center bg-surface-secondary px-[20px] pt-[8px] nav:-mx-[24px] nav:-top-[24px] nav:px-[24px]">
           <span className="pointer-events-none absolute left-[34px] text-icon-default nav:left-[38px]">
             <Icon name="search" size={20} />
           </span>

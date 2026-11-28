@@ -22,7 +22,7 @@ const SHORT = <p className="text-[14px] text-text-body">A short message that doe
 // break. The panel must cap at 92dvh and scroll internally rather than
 // overflowing off the top of the screen.
 const LONG = (
-  <div className="flex flex-col gap-[12px]">
+  <div className="flex flex-col gap-3">
     {Array.from({ length: 24 }, (_, i) => (
       <p key={i} className="text-[14px] text-text-body">
         Paragraph {i + 1}. The sheet caps its own height and scrolls this body,
@@ -33,7 +33,7 @@ const LONG = (
 )
 
 const ACTIONS = (
-  <div className="flex justify-end gap-[10px]">
+  <div className="flex justify-end gap-2.5">
     <Button variant="secondary">Cancel</Button>
     <Button>Save</Button>
   </div>
@@ -44,7 +44,7 @@ export const sheetGallery = {
   source: 'apps/web/src/components/ui/Sheet.tsx',
   section: 'primitive',
   description:
-    'Bottom sheet on phones, centred dialog from nav: up. Portalled to body, capped to the viewport, scroll-locked, focus-trapped.',
+    'Bottom sheet on phones, centred dialog from nav: up. Portalled to body, capped to the viewport, scroll-locked, focus-trapped. On a phone, pull the top bar (or the body, when it is scrolled to the top) down to dismiss; content scrolling under the bar fades and blurs into it.',
   component: Sheet,
   overlay: true,
   defaults: {

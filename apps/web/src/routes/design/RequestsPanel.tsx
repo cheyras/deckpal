@@ -55,9 +55,9 @@ export function RequestsPanel({ editable }: { editable: boolean }) {
   // is nothing to poll and nothing to submit.
   if (!editable) {
     return (
-      <div className="rounded-lg border border-dashed border-border-default bg-surface-secondary px-[16px] py-[24px] text-center">
+      <div className="rounded-lg border border-dashed border-border-default bg-surface-secondary px-4 py-6 text-center">
         <p className="text-[13px] text-text-muted">Change requests need the local dev server.</p>
-        <p className="text-[11px] text-text-muted mt-[4px]">
+        <p className="text-[11px] text-text-muted mt-1">
           This is the read-only view — run <span className="font-mono">pnpm dev</span> in the
           worktree to queue changes for an agent.
         </p>
@@ -66,13 +66,13 @@ export function RequestsPanel({ editable }: { editable: boolean }) {
   }
 
   return (
-    <div className="space-y-[12px]">
+    <div className="space-y-3">
       {/* Header */}
       <div className="flex items-center justify-between">
         <h3 className="text-[16px] font-semibold text-text-primary">Change Requests</h3>
-        <div className="flex items-center gap-[8px]">
+        <div className="flex items-center gap-2">
           <span
-            className={`inline-flex items-center gap-[4px] rounded-full px-[8px] py-[2px] text-[10px] font-medium ${
+            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
               agentAlive
                 ? 'bg-success/15 text-success'
                 : 'bg-surface-quaternary text-text-muted'
@@ -92,16 +92,16 @@ export function RequestsPanel({ editable }: { editable: boolean }) {
       </div>
 
       {error && (
-        <div className="rounded-lg bg-halo-error px-[12px] py-[8px] text-[12px] text-error">
+        <div className="rounded-lg bg-halo-error px-3 py-2 text-[12px] text-error">
           {error}
         </div>
       )}
 
       {/* Empty state */}
       {requests.length === 0 && !error && (
-        <div className="rounded-lg border border-dashed border-border-default bg-surface-secondary px-[16px] py-[24px] text-center">
+        <div className="rounded-lg border border-dashed border-border-default bg-surface-secondary px-4 py-6 text-center">
           <p className="text-[13px] text-text-muted">No change requests yet.</p>
-          <p className="text-[11px] text-text-muted mt-[4px]">
+          <p className="text-[11px] text-text-muted mt-1">
             Use the "Send to agent" composer on any gallery entry to create one.
           </p>
         </div>
@@ -127,7 +127,7 @@ const STATUS_STYLES: Record<string, string> = {
 function StatusChip({ status }: { status: string }) {
   return (
     <span
-      className={`inline-block rounded-full px-[8px] py-[1px] text-[10px] font-medium ${
+      className={`inline-block rounded-full px-2 py-px text-[10px] font-medium ${
         STATUS_STYLES[status] || STATUS_STYLES.queued
       }`}
     >
@@ -146,11 +146,11 @@ function RequestRow({ request }: { request: RequestWithResult }) {
     <div className="rounded-lg bg-surface-secondary overflow-hidden">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-start justify-between gap-[12px] px-[16px] py-[10px] text-left hover:bg-surface-tertiary/30"
+        className="flex w-full items-start justify-between gap-3 px-4 py-2.5 text-left hover:bg-surface-tertiary/30"
       >
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-[8px]">
-            <span className="rounded bg-surface-quaternary px-[6px] py-[1px] text-[10px] font-mono text-text-muted">
+          <div className="flex items-center gap-2">
+            <span className="rounded bg-surface-quaternary px-1.5 py-px text-[10px] font-mono text-text-muted">
               {request.kind}
             </span>
             <span className="text-[12px] font-medium text-text-primary truncate">
@@ -158,20 +158,20 @@ function RequestRow({ request }: { request: RequestWithResult }) {
             </span>
             <StatusChip status={request.status} />
           </div>
-          <p className="text-[11px] text-text-muted mt-[4px] line-clamp-2">
+          <p className="text-[11px] text-text-muted mt-1 line-clamp-2">
             {request.intent}
           </p>
         </div>
-        <span className="text-[10px] text-text-muted whitespace-nowrap flex-shrink-0 mt-[2px]">
+        <span className="text-[10px] text-text-muted whitespace-nowrap flex-shrink-0 mt-0.5">
           {formatTime(request.createdAt)}
         </span>
       </button>
 
       {expanded && (
-        <div className="border-t border-border-default px-[16px] py-[10px] space-y-[8px]">
+        <div className="border-t border-border-default px-4 py-2.5 space-y-2">
           {/* Full intent */}
           <div>
-            <div className="text-[10px] font-medium text-text-muted uppercase tracking-wide mb-[4px]">
+            <div className="text-[10px] font-medium text-text-muted uppercase tracking-wide mb-1">
               Intent
             </div>
             <p className="text-[12px] text-text-primary whitespace-pre-wrap">
@@ -182,10 +182,10 @@ function RequestRow({ request }: { request: RequestWithResult }) {
           {/* Context (if present) */}
           {request.context && Object.keys(request.context).length > 0 && (
             <div>
-              <div className="text-[10px] font-medium text-text-muted uppercase tracking-wide mb-[4px]">
+              <div className="text-[10px] font-medium text-text-muted uppercase tracking-wide mb-1">
                 Context
               </div>
-              <pre className="text-[10px] text-text-muted font-mono bg-surface-primary rounded px-[8px] py-[6px] overflow-x-auto">
+              <pre className="text-[10px] text-text-muted font-mono bg-surface-primary rounded px-2 py-1.5 overflow-x-auto">
                 {JSON.stringify(request.context, null, 2)}
               </pre>
             </div>
@@ -193,10 +193,10 @@ function RequestRow({ request }: { request: RequestWithResult }) {
 
           {/* Done: show agent result */}
           {request.status === 'done' && result && (
-            <div className="space-y-[6px]">
+            <div className="space-y-1.5">
               {result.summary && (
                 <div>
-                  <div className="text-[10px] font-medium text-text-muted uppercase tracking-wide mb-[4px]">
+                  <div className="text-[10px] font-medium text-text-muted uppercase tracking-wide mb-1">
                     Agent summary
                   </div>
                   <p className="text-[12px] text-text-primary whitespace-pre-wrap">
@@ -206,17 +206,17 @@ function RequestRow({ request }: { request: RequestWithResult }) {
               )}
               {result.filesChanged && result.filesChanged.length > 0 && (
                 <div>
-                  <div className="text-[10px] font-medium text-text-muted uppercase tracking-wide mb-[4px]">
+                  <div className="text-[10px] font-medium text-text-muted uppercase tracking-wide mb-1">
                     Files changed
                   </div>
-                  <ul className="space-y-[2px]">
+                  <ul className="space-y-0.5">
                     {result.filesChanged.map((f) => (
                       <li key={f} className="text-[11px] font-mono text-link">
                         {f}
                       </li>
                     ))}
                   </ul>
-                  <p className="text-[10px] text-success mt-[4px]">
+                  <p className="text-[10px] text-success mt-1">
                     Changes hot-reloaded into the catalog. Review via git diff.
                   </p>
                 </div>
@@ -237,7 +237,7 @@ function RequestRow({ request }: { request: RequestWithResult }) {
           {/* Failed: show error */}
           {request.status === 'failed' && result && (
             <div>
-              <div className="text-[10px] font-medium text-error uppercase tracking-wide mb-[4px]">
+              <div className="text-[10px] font-medium text-error uppercase tracking-wide mb-1">
                 Failure reason
               </div>
               <p className="text-[12px] text-error whitespace-pre-wrap">

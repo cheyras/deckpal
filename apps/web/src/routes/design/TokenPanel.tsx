@@ -97,10 +97,10 @@ export function TokenPanel({ overrides, editable }: TokenPanelProps) {
   }
 
   if (loading) {
-    return <div className="text-text-muted text-[13px] py-[20px] text-center">Loading tokens...</div>
+    return <div className="text-text-muted text-[13px] py-5 text-center">Loading tokens...</div>
   }
   if (error) {
-    return <div className="text-error text-[13px] py-[20px] text-center">Error: {error}</div>
+    return <div className="text-error text-[13px] py-5 text-center">Error: {error}</div>
   }
 
   // Group tokens by section
@@ -124,24 +124,24 @@ export function TokenPanel({ overrides, editable }: TokenPanelProps) {
   }
 
   return (
-    <div className="space-y-[4px]">
+    <div className="space-y-1">
       {/* Save all bar */}
       {overrides.count > 0 && (
-        <div className="sticky top-0 z-10 flex items-center justify-between rounded-lg bg-surface-tertiary px-[16px] py-[10px] mb-[8px]">
+        <div className="sticky top-0 z-10 flex items-center justify-between rounded-lg bg-surface-tertiary px-4 py-2.5 mb-2">
           <span className="text-[13px] text-text-body">
             {overrides.count} override{overrides.count !== 1 ? 's' : ''} pending
           </span>
-          <div className="flex gap-[8px]">
+          <div className="flex gap-2">
             <button
               onClick={overrides.resetAll}
-              className="h-[32px] rounded-full bg-surface-quaternary px-[16px] text-[12px] font-medium text-text-primary hover:bg-action-default-hover"
+              className="h-[32px] rounded-full bg-surface-quaternary px-4 text-[12px] font-medium text-text-primary hover:bg-action-default-hover"
             >
               Reset all
             </button>
             {editable && (
               <button
                 onClick={handleSaveAll}
-                className="h-[32px] rounded-full bg-action-primary px-[16px] text-[12px] font-bold text-action-primary-text hover:bg-action-primary-hover"
+                className="h-[32px] rounded-full bg-action-primary px-4 text-[12px] font-bold text-action-primary-text hover:bg-action-primary-hover"
               >
                 Save all
               </button>
@@ -151,7 +151,7 @@ export function TokenPanel({ overrides, editable }: TokenPanelProps) {
       )}
 
       {saveError && (
-        <div className="rounded-lg bg-halo-error px-[12px] py-[8px] text-[12px] text-error mb-[8px]">
+        <div className="rounded-lg bg-halo-error px-3 py-2 text-[12px] text-error mb-2">
           {saveError}
         </div>
       )}
@@ -163,15 +163,15 @@ export function TokenPanel({ overrides, editable }: TokenPanelProps) {
         return (
           <div key={group.section} className="rounded-lg bg-surface-secondary">
             <button
-              className="flex w-full items-center justify-between px-[16px] py-[10px] text-left hover:bg-surface-tertiary rounded-lg"
+              className="flex w-full items-center justify-between px-4 py-2.5 text-left hover:bg-surface-tertiary rounded-lg"
               onClick={() => toggleSection(group.section)}
             >
               <span className="text-[13px] font-semibold text-text-primary capitalize">
                 {group.section}
               </span>
-              <div className="flex items-center gap-[8px]">
+              <div className="flex items-center gap-2">
                 {overrideCount > 0 && (
-                  <span className="rounded-full bg-action-primary/20 px-[8px] py-[1px] text-[10px] font-medium text-action-primary">
+                  <span className="rounded-full bg-action-primary/20 px-2 py-px text-[10px] font-medium text-action-primary">
                     {overrideCount}
                   </span>
                 )}
@@ -184,7 +184,7 @@ export function TokenPanel({ overrides, editable }: TokenPanelProps) {
               </div>
             </button>
             {!isCollapsed && (
-              <div className="px-[16px] pb-[12px] space-y-[6px]">
+              <div className="px-4 pb-3 space-y-1.5">
                 {group.tokens.map((token) => (
                   <TokenControl
                     key={token.name}
@@ -201,7 +201,7 @@ export function TokenPanel({ overrides, editable }: TokenPanelProps) {
         )
       })}
 
-      <div className="text-[10px] text-text-muted text-center pt-[8px]">
+      <div className="text-[10px] text-text-muted text-center pt-2">
         File hash: {fileHash.slice(0, 8)} | {tokens.length} tokens
       </div>
     </div>
@@ -254,15 +254,15 @@ function TokenControl({ token, overrides, onSave, saving, editable }: TokenContr
     }
   }
 
-  const shortName = token.name.replace(/^--(color-|radius-|shadow-|font-|text-|ease-|breakpoint-|z-)/, '')
+  const shortName = token.name.replace(/^--(color-|radius-|shadow-|font-|text-|ease-|duration-|spacing-|breakpoint-|z-)/, '')
 
   return (
-    <div className="flex items-center gap-[8px] group">
+    <div className="flex items-center gap-2 group">
       <div className="flex-1 min-w-0">
         {token.category === 'color' && (
           <ColorKnob label={shortName} value={displayValue} onChange={handleChange} />
         )}
-        {(token.category === 'radius' || token.category === 'breakpoint') && (
+        {(token.category === 'radius' || token.category === 'breakpoint' || token.category === 'spacing') && (
           <PxKnob label={shortName} value={displayValue} onChange={handleChange} />
         )}
         {token.category === 'text' && (
@@ -274,7 +274,7 @@ function TokenControl({ token, overrides, onSave, saving, editable }: TokenContr
         {token.category === 'font' && (
           <SelectKnob label={shortName} value={displayValue} onChange={handleChange} options={FONT_OPTIONS} />
         )}
-        {(token.category === 'shadow' || token.category === 'ease') && (
+        {(token.category === 'shadow' || token.category === 'ease' || token.category === 'motion') && (
           <TextKnob label={shortName} value={displayValue} onChange={handleChange} />
         )}
       </div>
@@ -288,10 +288,10 @@ function TokenControl({ token, overrides, onSave, saving, editable }: TokenContr
 
       {/* Save / Reset buttons */}
       {isOverridden && (
-        <div className="flex gap-[4px] opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             onClick={() => overrides.reset(token.name)}
-            className="h-[24px] rounded bg-surface-quaternary px-[8px] text-[10px] text-text-muted hover:text-text-primary"
+            className="h-[24px] rounded bg-surface-quaternary px-2 text-[10px] text-text-muted hover:text-text-primary"
             title="Reset to disk value"
           >
             Reset
@@ -300,7 +300,7 @@ function TokenControl({ token, overrides, onSave, saving, editable }: TokenContr
             <button
               onClick={onSave}
               disabled={saving}
-              className="h-[24px] rounded bg-action-primary px-[8px] text-[10px] font-bold text-action-primary-text hover:bg-action-primary-hover disabled:opacity-50"
+              className="h-[24px] rounded bg-action-primary px-2 text-[10px] font-bold text-action-primary-text hover:bg-action-primary-hover disabled:opacity-50"
               title="Save to theme.css"
             >
               {saving ? '...' : 'Save'}

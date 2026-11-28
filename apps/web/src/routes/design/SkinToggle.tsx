@@ -14,7 +14,7 @@ export function SkinToggle() {
   const skin = useSkin()
   return (
     <div
-      className="inline-flex rounded-full bg-surface-tertiary p-[3px]"
+      className="inline-flex rounded-full bg-surface-tertiary p-0.5"
       role="group"
       aria-label="Visual skin"
     >
@@ -30,7 +30,7 @@ export function SkinToggle() {
             }}
             aria-pressed={active}
             className={[
-              'h-[26px] rounded-full px-[12px] text-[11px] font-bold capitalize',
+              'h-[26px] rounded-full px-3 text-[12px] font-bold capitalize',
               active
                 ? 'bg-action-primary text-action-primary-text'
                 : 'text-text-muted hover:text-text-primary',
