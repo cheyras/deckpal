@@ -193,18 +193,30 @@
   --color-completion-grandmaster: var(--color-brand-tertiary-400); /* amber-400 — gold reads as the top tier, and pairs against `success` in ProgressCluster */
   --color-glow-active: var(--color-brand-primary-400);
 
-  /* ── energy-type colours (EnergyIcon) ─────────────────────── */
-  --color-energy-grass: #5fb85f;
-  --color-energy-fire: #e8703a;
-  --color-energy-water: #4a97d6;
-  --color-energy-lightning: #f2c518;
-  --color-energy-psychic: #a45cb0;
-  --color-energy-fighting: #c06a3a;
-  --color-energy-darkness: #4b5566;
-  --color-energy-metal: #8b95a6;
-  --color-energy-fairy: #e58bb8;
-  --color-energy-dragon: #c6a23e;
-  --color-energy-colorless: #d6d2c6;
+  /* ── energy-type colours (EnergyIcon / .energy-token) ─────────
+   * The disc colour of each energy token, matched to the energy symbols
+   * printed on the cards rather than to a generic type palette: fire is the
+   * cards' red-orange (not an amber), darkness their deep teal (not a slate,
+   * which disappeared on stone chips), metal a neutral silver (not a blue
+   * grey), fairy the cards' magenta-pink, dragon their olive gold.
+   *
+   * These are the token's MID tone. `.energy-token` lights the top and shades
+   * the bottom from it with color-mix, so a recolour here re-shades the whole
+   * token. The glyph ink is the pair below: dark, as printed, except where the
+   * disc is too dark to carry it (darkness). */
+  --color-energy-grass: #4fa83b;
+  --color-energy-fire: #e0472c;
+  --color-energy-water: #2b9de0;
+  --color-energy-lightning: #f5c41f;
+  --color-energy-psychic: #a052b8;
+  --color-energy-fighting: #cb662b;
+  --color-energy-darkness: #1f6a80;
+  --color-energy-metal: #a8a9a5;
+  --color-energy-fairy: #dc4c8c;
+  --color-energy-dragon: #b09a2c;
+  --color-energy-colorless: #ebe9e3;
+  --color-energy-ink: #1a1614;
+  --color-energy-ink-light: #ffffff;
 
   /* ── warning ─────────────────────────────────────────────── */
   --color-warning: #ff8904; /* orange-400 */
@@ -546,6 +558,63 @@ button {
 .btn-fill-secondary:hover {
   background: linear-gradient(180deg, #454140 0%, #524e4a 100%);
   border-top-color: rgb(255 255 255 / 0.34);
+}
+
+/* Energy tokens (EnergyIcon.tsx).
+ *
+ * The CONVEX face above, at token scale: a small domed disc resting on the
+ * surface. Same light model as `.btn-fill-primary` and the variant gradients —
+ * lit from above, a specular catch along the top edge, occlusion on the bottom
+ * inner edge, a contact shadow under it — so an energy symbol reads as the same
+ * moulded material as the chip it sits in, not as a flat sticker on top of it.
+ *
+ * Skin-independent on purpose, like the .btn-fill-* faces: a token is a token
+ * in `classic` too, and the variant swatches it sits beside are shaded in both.
+ *
+ * THE FACE is a radial gradient centred above the middle rather than the
+ * buttons' straight linear one. On a pill the light runs across a long face; on
+ * a coin it pools, and a straight gradient on a circle reads as two-tone. Its
+ * stops are derived from the one `--energy` mid tone (set per type by
+ * EnergyIcon), so the theme carries one colour per type, not three.
+ *
+ * THE SHADOWS are pixel values, not proportions, because at 13px a
+ * proportional specular rounds to nothing. They were tuned at 13, 16, 18, 24
+ * and 40px on stone-700 chips and the sheet's stone-800: the 0.5px ring is
+ * what keeps a pale token (colorless, metal) from dissolving into a light chip
+ * and a dark one (darkness) from dissolving into a dark chip.
+ *
+ * The glyph (energyGlyphs.tsx) paints in `currentColor`; `data-ink` picks it.
+ * `--energy` is also what the glyph's cut-outs show through. */
+.energy-token {
+  --energy: var(--color-surface-quaternary);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  vertical-align: middle;
+  border-radius: 9999px;
+  color: var(--color-energy-ink);
+  background: radial-gradient(
+    circle at 50% 32%,
+    color-mix(in oklab, var(--energy) 66%, white) 0%,
+    var(--energy) 58%,
+    color-mix(in oklab, var(--energy) 80%, black) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.5),
+    inset 0 -1px 1px rgb(0 0 0 / 0.22),
+    0 0 0 0.5px rgb(0 0 0 / 0.45),
+    0 1px 1.5px rgb(0 0 0 / 0.4);
+}
+.energy-token[data-ink='light'] {
+  color: var(--color-energy-ink-light);
+}
+.energy-token > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
 }
 
 /* ── type: the display role ──────────────────────────────────────────────

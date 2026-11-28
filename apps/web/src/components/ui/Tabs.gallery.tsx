@@ -29,7 +29,7 @@ export default {
   source: 'apps/web/src/components/ui/Tabs.tsx',
   section: 'primitive',
   description:
-    'Shared tab strip — underline for page sections, pill for mode toggles (md primary, sm muted).',
+    'Shared tab strip — underline for page sections, pill for mode toggles (md primary, sm muted). `fill` spreads an underline strip across its container, for a strip that heads a panel (card detail: the strip is the panel’s top edge and its rule is the panel’s divider).',
   component: Tabs,
   defaults: {
     variant: 'underline',
@@ -43,6 +43,16 @@ export default {
         variant: 'underline',
         items: SECTION_ITEMS as unknown as TabsProps['items'],
         value: 'card',
+      },
+    },
+    {
+      label: 'underline / panel header (fill)',
+      props: {
+        variant: 'underline',
+        fill: true,
+        items: SECTION_ITEMS as unknown as TabsProps['items'],
+        value: 'card',
+        className: 'px-[6px] pt-[4px] rounded-t-xl border-x border-t border-border-default bg-surface-secondary',
       },
     },
     {
@@ -74,6 +84,7 @@ export default {
   knobs: {
     variant: { kind: 'select', options: ['underline', 'pill'] as const },
     size: { kind: 'select', options: ['sm', 'md'] as const },
+    fill: { kind: 'boolean' },
     value: { kind: 'text' },
   },
 } satisfies GalleryMeta<TabsProps>
