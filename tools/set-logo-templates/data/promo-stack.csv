@@ -1,0 +1,12 @@
+DataSet,wordmark,showWordmark,seriesText,showSeriesText,promoMark
+mep,../sources/prepared/promo-stack/wordmark/me.png,true,BLACK STAR,false,../sources/prepared/promo-stack/promoMark/black-star-promo.png
+svp,../sources/prepared/promo-stack/wordmark/sv.png,true,BLACK STAR,false,../sources/prepared/promo-stack/promoMark/black-star-promo.png
+swshp,../sources/prepared/promo-stack/wordmark/swsh.png,true,BLACK STAR,false,../sources/prepared/promo-stack/promoMark/black-star-promo.png
+smp,../sources/prepared/promo-stack/wordmark/sm.png,true,BLACK STAR,false,../sources/prepared/promo-stack/promoMark/black-star-promo.png
+xyp,../sources/prepared/promo-stack/wordmark/xy.png,true,BLACK STAR,false,../sources/prepared/promo-stack/promoMark/black-star-promo.png
+bwp,../sources/prepared/promo-stack/wordmark/bw.png,true,BLACK STAR,false,../sources/prepared/promo-stack/promoMark/black-star-promo.png
+hgssp,../sources/prepared/promo-stack/wordmark/hgss.png,true,BLACK STAR,false,../sources/prepared/promo-stack/promoMark/black-star-promo.png
+dpp,../sources/prepared/promo-stack/wordmark/dp.png,true,BLACK STAR,false,../sources/prepared/promo-stack/promoMark/black-star-promo.png
+np,../sources/prepared/promo-stack/wordmark/_blank.png,false,NINTENDO,true,../sources/prepared/promo-stack/promoMark/black-star-promo.png
+basep,../sources/prepared/promo-stack/wordmark/_blank.png,false,WIZARDS,true,../sources/prepared/promo-stack/promoMark/black-star-promo.png
+miscp,../sources/prepared/promo-stack/wordmark/_blank.png,false,MISCELLANEOUS,true,../sources/prepared/promo-stack/promoMark/black-star-promo.png

@@ -1093,6 +1093,14 @@ the cloud root `/` and the self-host base `/deckpal/`. When retiring an
 announcement, remove its metadata, asset and unused exact ignore exceptions
 together.
 
+The template set logos (`apps/web/public/set-logos/<setId>.webp`, made by
+`tools/set-logo-templates/`) follow the same two boundaries with one directory
+exception, `!apps/web/public/set-logos/*.webp`, in both files. The same
+`check-precache.mjs` gate reads every `/set-logos/…` and `/brand/…` path out of
+`apps/web/src/lib/releasedSetAssets.ts` and fails the build if one is missing
+from `dist/`. `.vercelignore` also drops `/tools/set-logo-templates` from the
+upload: nothing deployed reads it.
+
 ### Static asset caching (`vercel.json` → `headers`)
 
 Vercel serves every static file as `public, max-age=0, must-revalidate` by

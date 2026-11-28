@@ -16,6 +16,10 @@ export async function checkDeployAssets(dist) {
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'deckpal-assets-'))
   const logos = [...new Set(UPCOMING_SETS.map(entry => entry.logoAssetPath)
     .filter(p => p && !p.startsWith('//') && !/^[a-z][a-z\d+.-]*:/i.test(p)))]
+  const setLogoSource = fs.readFileSync(path.join(WEB, 'src/lib/releasedSetAssets.ts'), 'utf8')
+  const setLogos = [...new Set([...setLogoSource.matchAll(/['"]\/((?:brand|set-logos)\/[\w.-]+\.webp)['"]/g)]
+    .map(m => 'apps/web/public/' + m[1]))]
+  assert.ok(setLogos.length >= 60, 'Expected the bundled set logos in releasedSetAssets.ts, found ' + setLogos.length)
   const results = []
   try {
     const matcher = path.join(scratch, 'matcher')
@@ -48,8 +52,23 @@ export async function checkDeployAssets(dist) {
         results.push({ case: 'upload-exception', ignoreFile, asset: rel, removedExceptionRejected: true })
       }
       for (const rel of [...marketing, ...character]) assert.equal(ignored(rel), false, ignoreFile + ' excludes shipped control ' + rel)
-      for (const rel of ['apps/web/public/brand/unrelated-cache.webp', 'cache/probe.webp', 'assets/probe.webp'])
+      for (const rel of ['apps/web/public/brand/unrelated-cache.webp', 'cache/probe.webp', 'assets/probe.webp',
+        'apps/web/public/set-logos/nested/probe.webp', 'apps/web/public/set-logos-old/probe.webp'])
         assert.equal(ignored(rel), true, ignoreFile + ' unexpectedly includes cache ' + rel)
+      // Bundled set logos named in releasedSetAssets.ts: the official brand/ file
+      // and DeckPal's template set-logos/ (one directory exception for all 59).
+      for (const rel of setLogos) {
+        await run('git', ['ls-files', '--error-unmatch', rel])
+        assert.ok(fs.statSync(path.join(ROOT, rel)).size > 0, 'Empty source asset: ' + rel)
+        assert.equal(ignored(rel), false, ignoreFile + ' excludes ' + rel)
+      }
+      const dirException = '!apps/web/public/set-logos/*.webp'
+      assert.ok(source.split(/\r?\n/).includes(dirException), ignoreFile + ' needs exception ' + dirException)
+      fs.writeFileSync(path.join(matcher, '.gitignore'), source.split(/\r?\n/).filter(line => line !== dirException).join('\n'))
+      assert.equal(ignored('apps/web/public/set-logos/mep.webp'), true,
+        'Negative control failed: removing ' + dirException + ' from ' + ignoreFile + ' must exclude the template logos')
+      fs.writeFileSync(path.join(matcher, '.gitignore'), source)
+      results.push({ case: 'upload-exception', ignoreFile, asset: 'apps/web/public/set-logos/*.webp', count: setLogos.length, removedExceptionRejected: true })
     }
     await run(process.execPath, [path.join(WEB, 'scripts/check-precache.mjs'), dist], { env: isolatedEnv() })
     // Copy the real output, then omit each real announcement logo independently.
@@ -68,7 +87,20 @@ export async function checkDeployAssets(dist) {
       fs.copyFileSync(path.join(dist, rel), path.join(copied, rel))
       results.push({ case: 'missing-built-asset', asset: logo, omittedAssetRejected: true })
     }
-    return { logos, results, matcher: 'Git scratch gitignore semantics; Vercel CLI not invoked' }
+    // The same control for one template set logo (the gate reads releasedSetAssets.ts).
+    {
+      const rel = 'set-logos/mep.webp'
+      assert.deepEqual(fs.readFileSync(path.join(dist, rel)), fs.readFileSync(path.join(WEB, 'public', rel)),
+        'Build changed set-logo bytes: ' + rel)
+      fs.rmSync(path.join(copied, rel))
+      const result = spawnSync(process.execPath, [path.join(WEB, 'scripts/check-precache.mjs'), copied],
+        { cwd: ROOT, env: isolatedEnv(), encoding: 'utf8' })
+      assert.notEqual(result.status, 0, 'Missing built set logo must fail the actual build gate')
+      assert.ok((result.stdout + result.stderr).includes(rel), 'Gate must identify the missing set logo')
+      fs.copyFileSync(path.join(dist, rel), path.join(copied, rel))
+      results.push({ case: 'missing-built-asset', asset: '/' + rel, omittedAssetRejected: true })
+    }
+    return { logos, setLogos: setLogos.length, results, matcher: 'Git scratch gitignore semantics; Vercel CLI not invoked' }
   } finally { fs.rmSync(scratch, { recursive: true, force: true }) }
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

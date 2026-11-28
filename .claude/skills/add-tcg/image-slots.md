@@ -77,6 +77,17 @@ new `kind` outside the migration-006 CHECK list needs an additive migration.
 - image_asset kind: `set-logo` · cache_key: `set:<setId>:logo`
 - Format: webp; single.
 - Sourcing: the catalog source's set-level logo URL (Pokémon: `card_set` base URLs from TCGdex); enumerate from `card_set`. **Fallback** when `card_set.logo_url` is NULL: the approved crosswalk in `packages/storage/src/setImageFallback.ts` (`setImageFallbackUrl(setId, 'logo')` — 15 approved pairs sourced from pokemontcg.io `.png` files and Bulbagarden) — `apps/images/src/setWarmer.ts` consults it; the catalog column always takes precedence. See `apps/images/src/setWarmer.ts`.
+- **No official logo anywhere → a template logo, never a blank** (owner, 2026-11-27: "let's make that
+  our go to for those"). Promo pools, energy sets, subsets, trainer kits, McDonald's collections and
+  one-off packs have no logo of their own; DeckPal draws one with `tools/set-logo-templates/`
+  (four PhotoCraft templates: promo-stack, energy-row, subset-tag, product-plate; its README has the
+  add-a-set steps). The render ships as `apps/web/public/set-logos/<setId>.webp`, registered in
+  `TEMPLATE_SET_LOGOS` (`apps/web/src/lib/releasedSetAssets.ts`) — a bundled file, NOT an image-tier
+  object, so no `image_asset` row and no warmer. A generic stand-in is a gap too: the shared PROMO
+  star, the generic "Pokémon Trading Card Game" wordmark or a parent set's bare wordmark get a
+  template. But a set whose REAL logo exists somewhere approved is a sourcing job, not a template
+  job (`me06` Delta Reign is the live example), and the official logo always wins: the template
+  outranks only the placeholder `logoUrl` listed in its `replaces`.
 - Optimization: single small asset; graceful client fallback to a text card on 404 (no broken image).
 - Client: the series row and set header ask for the logo only when the API's `logoUrl` is non-null, and
   the API reports the catalog column **else the crosswalk URL** (`setChromeUrl`,
@@ -84,18 +95,25 @@ new `kind` outside the migration-006 CHECK list needs an additive migration.
   the crosswalk fills — is how 15 approved logos (Temporal Forces, the Trainer/Galarian Galleries, …) went
   unseen until 2026-11-27 while the tier served them. Do not "fix" that by attempting the logo for every
   set the way `SetSymbolTile` does: the logo slot is not a fixed box, so a failed attempt swaps in the
-  name late and reflows the set header on a phone (caught by CI's Deck-E scroll test).
+  name late and reflows the set header on a phone (caught by CI's Deck-E scroll test). The gate also
+  passes for a set with a bundled logo (`bundledSetLogo`), and the call site hands `SetLogo` the
+  `logoUrl` so it can rank a template above a placeholder (`templateSetLogo`).
 - Verify: `curl /deckpal/images/sets/<setId>/logo.webp` → 302 to real bytes, **and** the rendered series
   page shows an `<img>` in that set's row (a tier that serves an asset the UI never asks for is still a
-  gap); series index renders the base-set logo.
-- Game-specific: no (most TCGs have set/expansion logos).
-- Known residue (2026-08-29): 38 logo pairs stay blank — **20 Trainer Kit logos** (`tk-*`/`tk-ex-*` sets
-  share one byte-identical generic wordmark; owner decision 2026-08-29, reads as a bug across sets) and
-  **12 McDonald's Collection logos** (the `mcd*` logo files are the byte-identical corporate Golden
-  Arches, not a set logo; DECISIONS.md 2026-08-10 trademark ruling), plus 6 more (`mee`, `mep`, `xya`,
-  `exu`, `ex5.5`, `miscp`) with no approved source. These render `deriveSetTag`; do **not** "complete" the
-  crosswalk — see `packages/storage/src/setImageFallback.ts` for the exclusion rulings. The series index
-  falls back to the rep set's **symbol** tile (`/api/series.repHasLogo`).
+  gap); series index renders the base-set logo. For a template logo: the row's `<img>` src is
+  `/set-logos/<setId>.webp`, `pnpm --filter deckpal-web test:insights` passes (table, CSVs and shipped
+  files agree) and `pnpm --filter deckpal-web build` passes (it fails if a named file is missing).
+- Game-specific: no (most TCGs have set/expansion logos). The template system is Pokémon-shaped today
+  (series wordmarks, the Black Star mark); another TCG's promo pools would need their own template.
+- Known residue (2026-08-29, **closed 2026-11-27**): 38 logo pairs stayed blank — **20 Trainer Kit
+  logos** (`tk-*`/`tk-ex-*` sets share one byte-identical generic wordmark; owner decision 2026-08-29,
+  reads as a bug across sets), **12 McDonald's Collection logos** (the `mcd*` logo files are the
+  byte-identical corporate Golden Arches, not a set logo; DECISIONS.md 2026-08-10 trademark ruling),
+  plus 6 more (`mee`, `mep`, `xya`, `exu`, `ex5.5`, `miscp`) with no approved source. All of them now
+  have template logos (the kits each carry their own Pokémon; McDonald's is plain type, never their
+  mark). Still do **not** "complete" the crosswalk with those files — see
+  `packages/storage/src/setImageFallback.ts` for the exclusion rulings, which still stand for the tier.
+  The series index still falls back to the rep set's **symbol** tile (`/api/series.repHasLogo`).
 
 
 - **Residue, settled 2026-08-29 (second sourcing pass).** 50 of the 90 originally
@@ -115,9 +133,13 @@ new `kind` outside the migration-006 CHECK list needs an additive migration.
   `File:ME6 Logo EN.png` + `File:SetSymbolDelta Reign.png`, put to the owner as a scoped question
   because Bulbagarden files enter the crosswalk only per-file), plus the families above and `2026me`.
   Symbol residue: `me06`, `2026me` (Bulbagarden `SetSymbolMcDonalds Collection 2026.png`, same
-  question), `30th-c`, `mfb`, `miscp`. Subset rows show the parent's wordmark (that is what their
-  approved crosswalk file is); per-family logo templates are with the owner for review. See
-  `decisions/2026/2026-11-27-set-logos-are-attempted-for-every-set-*.md`.
+  question), `30th-c`, `mfb`, `miscp`. Subset rows showed the parent's wordmark (that is what their
+  approved crosswalk file is). See
+  `decisions/2026/2026-11-27-set-chrome-reports-the-approved-crosswalk-15-approved-logos-were-hidden-by-a-cat.md`.
+- **2026-11-27 template logos.** 59 sets (11 promo pools, 2 energy sets, 11 subsets, 20 trainer kits,
+  13 McDonald's collections, `ex5.5`, `bog`) now draw template logos; logo residue is `me06` alone,
+  pending its owner decision. See
+  `decisions/2026/2026-11-27-template-set-logos-ship-and-become-the-standard-for-sets-without-an-official-log.md`.
 - **Two lessons for the next sweep of this slot.** (1) TCGdex does NOT 404 for a
   missing asset — the request HANGS, so probe with a short deadline and treat a
   timeout as absent, or a sweep stalls and returns nothing. (2) Bulbagarden names
