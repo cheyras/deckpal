@@ -1444,6 +1444,53 @@ body {
   padding-bottom: calc(var(--fab-clearance) + env(safe-area-inset-bottom));
 }
 
+/* The same clearance for a screen that is its own scroller (the scanner).
+ * `.app-content`'s padding cannot reach inside a `position: fixed` screen, so
+ * the screen marks its own bottom edge:
+ *
+ *   [data-fab-bar]    a bottom action bar. The bar is the band the button
+ *                     lives in: its own button stops short of the launcher, and
+ *                     it is tall enough that the launcher (20px up, 56px tall)
+ *                     sits inside it rather than over the list above. The
+ *                     button is then centred on the launcher's centre.
+ *   [data-fab-clear]  a list that runs to the bottom of the screen with no bar
+ *                     under it, so its last row can scroll clear.
+ *   [data-fab-lift]   a bottom sheet-like notice (the scanner's confirm, its
+ *                     notices): lifted above the launcher instead of under it.
+ *
+ * Owner session 2026-11-27: the launcher sat on the last row's controls and on
+ * the right end of "Add N cards". */
+:root[data-fab] [data-fab-bar] {
+  padding-right: calc(var(--fab-size) + var(--fab-inset) + 8px);
+  padding-bottom: max(calc(10px + env(safe-area-inset-bottom)), calc(var(--fab-inset) + (var(--fab-size) - 44px) / 2));
+}
+:root[data-fab] [data-fab-clear] {
+  padding-bottom: calc(var(--fab-clearance) + env(safe-area-inset-bottom));
+}
+:root[data-fab] [data-fab-lift] {
+  bottom: calc(var(--fab-clearance) + env(safe-area-inset-bottom));
+}
+
+/* ── A route that is the whole screen ────────────────────────────────────────
+ * `useFixedScreen` (lib/fixedScreen.ts) sets this while a fixed app surface is
+ * mounted — the scanner. Everything such a screen shows is `position: fixed`,
+ * so the document behind it has nothing to scroll, but it still COULD scroll:
+ * the shell is `min-h-screen` (100vh, which on iOS is the viewport with the
+ * toolbar hidden) and the body keeps a 1px runway for Safari 26. A swipe that
+ * started on the camera or the title bar, or ran off the end of the list,
+ * scrolled that invisible document, and while it coasted iOS gave it every new
+ * touch: the owner's "for a second I was trying to scroll and it wasn't doing
+ * it" (2026-11-27). Here the reader cannot scroll it at all; a programmatic
+ * scroll (the router's, main.tsx's `scrollY 1`) still lands. */
+:root[data-fixed-screen],
+:root[data-fixed-screen] body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+:root[data-fixed-screen] .app-shell {
+  min-height: 0;
+}
+
 /* The scanner's voice chips (scan/voice): the hold before a heard change
  * applies, drawn as a bar that drains under the chip. It is gated with
  * `motion-safe:` and has no reduced-motion twin on purpose — the chip itself

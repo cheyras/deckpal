@@ -144,6 +144,21 @@ back with a Retry that works, a form failure stays inline with the typed input
 intact, and the counters stay disabled offline while a deck edit explains that
 it is offline. Failure-state screenshots are written for both widths.
 
+## Scanner review list
+
+`tests/browser/scanReviewList.mts` (suite `scan-review-list-proof`) mounts the
+real review list, action bar, Deck-E launcher and toaster inside /scan's
+document (fixed header, `min-h-screen` shell, the scanner's fixed screen) over
+the owner's 2026-11-27 batch, at 428×926 and 390×844 with touch. It replays the
+session's wrong-row tap (row 3 put back where it was, a finger at y=322), and
+checks that each row's remove sits in its own control line, that a second tap
+on a row still sliding into place removes nothing while a settled one does,
+that Undo restores the row in place, that no swipe moves the document behind
+the screen, that the bin does not follow a new scan under a finger, that the
+launcher covers neither the primary button nor the last row, the count chip's
+copy, and that window focus does not re-fire the reachability probe.
+`SCAN_LIST_BEFORE=1` measures without asserting, for a before/after.
+
 ## Battles tab: in-person games, archetypes, reviews, digests
 
 `tests/browser/battlesV2.mjs` mounts the deck page's real `BattlesTab`

@@ -1,5 +1,5 @@
-// Keep the payment-history and scanner-voice browser proofs in the shared
-// shard inventory. Each owns its Vite fixture, browser and output folder.
+// Keep the payment-history, scanner-voice and scan-review-list browser proofs
+// in the shared shard inventory. Each owns its Vite fixture, browser and output folder.
 export function browserSuites({ results }) {
   return [
     {
@@ -14,6 +14,13 @@ export function browserSuites({ results }) {
       async run() {
         await import('./scannerVoice.mts')
         results.push({ case: 'scanner-voice-proof', width: 1440 }, { case: 'scanner-voice-proof', width: 390 })
+      },
+    },
+    {
+      name: 'scan-review-list-proof',
+      async run() {
+        await import('./scanReviewList.mts')
+        results.push({ case: 'scan-review-list-proof', width: 390 }, { case: 'scan-review-list-proof', width: 428 })
       },
     },
   ]

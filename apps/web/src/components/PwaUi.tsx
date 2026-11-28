@@ -110,6 +110,14 @@ function OfflineBanner() {
   )
 }
 
+/**
+ * Where the toasts stand: 16px above the home indicator — or above a screen's
+ * own bottom bar, when one publishes its height as `--toast-lift` (the
+ * scanner's action bar does, so "Removed Galvantula · Undo" never lands on
+ * "Add 9 cards"). The bar's height already includes the safe area.
+ */
+const TOAST_FLOOR = 'calc(16px + max(env(safe-area-inset-bottom), var(--toast-lift, 0px)))'
+
 /** Single fixed overlay host for all PWA affordances. */
 export function PwaUi() {
   const toastHostRef = useRef<HTMLDivElement>(null)
@@ -162,7 +170,7 @@ export function PwaUi() {
       {/* Passive notices stay behind an open Sheet with the rest of the page. */}
       <div
         className="pointer-events-none fixed left-[16px] right-[16px] z-(--z-toast) flex flex-col items-end gap-[10px] nav:left-auto"
-        style={{ bottom: `calc(16px + env(safe-area-inset-bottom) + ${toastHeight ? `${toastHeight}px + 10px` : '0px'})` }}
+        style={{ bottom: `calc(${TOAST_FLOOR} + ${toastHeight ? `${toastHeight}px + 10px` : '0px'})` }}
       >
         <OfflineBanner />
         <UpdateToast />
@@ -170,7 +178,8 @@ export function PwaUi() {
       {/* Save feedback stays above a Sheet so Retry remains visible and usable. */}
       <div
         ref={toastHostRef}
-        className="pointer-events-none fixed bottom-[calc(16px_+_env(safe-area-inset-bottom))] left-[16px] right-[16px] z-(--z-toast-action) flex justify-end nav:left-auto"
+        className="pointer-events-none fixed left-[16px] right-[16px] z-(--z-toast-action) flex justify-end nav:left-auto"
+        style={{ bottom: TOAST_FLOOR }}
       >
         <Toaster />
       </div>

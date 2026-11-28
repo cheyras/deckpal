@@ -1,6 +1,14 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { api } from './api'
-import { deriveOffline, getConnectivity, setConnectivity, subscribeConnectivity, type ProbeOutcome } from './connectivity'
+import {
+  deriveOffline,
+  getConnectivity,
+  offlineRetryDelay,
+  setConnectivity,
+  shouldProbeOnFocus,
+  subscribeConnectivity,
+  type ProbeOutcome,
+} from './connectivity'
 
 /** Past this, a hung probe proves nothing — see `connectivity.ts`. */
 const PROBE_TIMEOUT_MS = 3000
@@ -15,7 +23,8 @@ const PROBE_TIMEOUT_MS = 3000
  * connection (Astra review, 2026-09-26). Self-limiting: only scheduled while
  * `offline` is true, and cancelled the moment a check clears it — never runs
  * at all on the common healthy path, so this is not the polling the rest of
- * this hook deliberately avoids.
+ * this hook deliberately avoids. The FIRST re-probe; each further one waits
+ * twice as long, up to a minute (`offlineRetryDelay`).
  */
 export const RETRY_WHILE_OFFLINE_MS = 5000
 
@@ -35,11 +44,14 @@ async function probe(): Promise<ProbeOutcome> {
  *
  * Event-driven on the healthy path — mount, `online`, `offline`, window
  * regaining `focus` — so this costs nothing while the tab sits idle online.
+ * A focus only asks again when the last answer is stale or was not "reachable"
+ * (`shouldProbeOnFocus`, connectivity.ts): iOS fires `focus` every time the
+ * page gets the screen back, and each probe is a 401 from `/me` by design.
  * The one exception is a bounded self-retry while CONFIRMED offline (see
- * `RETRY_WHILE_OFFLINE_MS`), which stops the instant a check clears it. A
- * `generation` counter drops a superseded probe's result rather than letting
- * a slow one win a race against a newer check — the flap protection: rapid
- * on/off/on only ever lands on the LATEST settled answer.
+ * `RETRY_WHILE_OFFLINE_MS`), backing off and stopping the instant a check
+ * clears it. A `generation` counter drops a superseded probe's result rather
+ * than letting a slow one win a race against a newer check — the flap
+ * protection: rapid on/off/on only ever lands on the LATEST settled answer.
  */
 export function useConnectivity(): boolean {
   const offline = useSyncExternalStore(subscribeConnectivity, () => getConnectivity() === 'offline', () => false)
@@ -48,6 +60,9 @@ export function useConnectivity(): boolean {
   useEffect(() => {
     let disposed = false
     let retryTimer: number | null = null
+    let inFlight = false
+    let last: { outcome: ProbeOutcome; at: number } | null = null
+    let offlineAttempt = 0
     const clearRetry = () => {
       if (retryTimer !== null) {
         window.clearTimeout(retryTimer)
@@ -56,26 +71,38 @@ export function useConnectivity(): boolean {
     }
     const check = () => {
       const gen = ++generation.current
+      inFlight = true
       if (getConnectivity() !== 'offline') setConnectivity('pending')
       void probe().then((outcome) => {
         if (disposed || gen !== generation.current) return // superseded by a newer check
+        inFlight = false
+        last = { outcome, at: Date.now() }
         setConnectivity(outcome)
         clearRetry()
         // See RETRY_WHILE_OFFLINE_MS: only self-schedules while confirmed
         // offline, so recovery doesn't depend on another browser event firing.
-        if (deriveOffline(outcome)) retryTimer = window.setTimeout(check, RETRY_WHILE_OFFLINE_MS)
+        if (deriveOffline(outcome)) retryTimer = window.setTimeout(check, offlineRetryDelay(offlineAttempt++, RETRY_WHILE_OFFLINE_MS))
+        else offlineAttempt = 0
       })
     }
+    // `online`/`offline` are the browser saying the link changed: always ask.
+    const onLinkChange = () => {
+      offlineAttempt = 0
+      check()
+    }
+    const onFocus = () => {
+      if (shouldProbeOnFocus(last, inFlight, Date.now())) check()
+    }
     check()
-    window.addEventListener('online', check)
-    window.addEventListener('offline', check)
-    window.addEventListener('focus', check)
+    window.addEventListener('online', onLinkChange)
+    window.addEventListener('offline', onLinkChange)
+    window.addEventListener('focus', onFocus)
     return () => {
       disposed = true
       clearRetry()
-      window.removeEventListener('online', check)
-      window.removeEventListener('offline', check)
-      window.removeEventListener('focus', check)
+      window.removeEventListener('online', onLinkChange)
+      window.removeEventListener('offline', onLinkChange)
+      window.removeEventListener('focus', onFocus)
     }
   }, [])
 

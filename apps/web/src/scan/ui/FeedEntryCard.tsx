@@ -47,6 +47,30 @@
 // allowed to shrink below its content below, and every other flex row in here
 // is `min-w-0` + wrappable for the same reason — clipping the overflow at the
 // scroller without fixing this would only have hidden the text.
+//
+// ── THE REMOVE IS IN THE ROW'S OWN CONTROLS (owner session 2026-11-27) ──────
+//
+// "Verify (9). I had 10 before. Why am I down to nine?" He meant to delete a
+// Herdier and removed the Galvantula below it. The remove used to be a 22px ×
+// pinned to the row's TOP-RIGHT CORNER — the row's edge, 16px under the stepper
+// of the row above. With the list scrolled so the Herdier's top (its name and
+// its ×) had gone under the sticky header, the only × beside the half of the
+// Herdier still showing was the NEXT row's, directly under the Herdier's
+// stepper. That is the × he pressed: it sat at viewport y≈322, which is exactly
+// where Galvantula's × is when the list is scrolled to put the Herdier's own ×
+// under the header (scanReviewList.mts replays it).
+//
+// So a row's remove now lives where nothing of another row can be mistaken for
+// it: in the row's own control line, beside its own stepper. On a card row it
+// IS the stepper's left button once the quantity is one (it already removed the
+// row there, silently, while drawn as a minus); a needs-input row, which has no
+// stepper, gets "remove" beside "pick a match". Nothing interactive is left at
+// a row's top edge.
+//
+// And it only removes the row that was under the finger when it went down: a
+// press on a row that moved in the meantime — or had moved just before (the
+// list's `rowsSettled`) — is not honoured. Every remove can be undone besides
+// (scan/ui/undoRemove.ts).
 import { useEffect, useRef, useState } from 'react'
 import { CardImage } from '../../components/CardImage'
 import { VariantChip } from '../../components/VariantChip'
@@ -76,6 +100,7 @@ export function FeedEntryCard({
   registerThumbNode,
   voicePending,
   onVoiceCancel,
+  rowsSettled,
 }: {
   entry: FeedEntry
   onQuantityChange: (id: string, quantity: number) => void
@@ -113,8 +138,35 @@ export function FeedEntryCard({
    *  (scan/voice/actions.ts) — drawn as chips they can still call back. */
   voicePending?: readonly VoiceAction[]
   onVoiceCancel?: (actionId: string) => void
+  /** The list's answer to "have the rows been still long enough that a remove
+   *  pressed now was aimed at the row under it?" (VerifyFeed). Absent: yes. */
+  rowsSettled?: () => boolean
 }) {
   const rootRef = useRef<HTMLDivElement>(null)
+  /** Where this row was, and whether the list was still, when a remove went down. */
+  const pressRef = useRef<{ top: number; settled: boolean; at: number } | null>(null)
+  const armRemove = () => {
+    pressRef.current = {
+      top: rootRef.current?.getBoundingClientRect().top ?? 0,
+      settled: rowsSettled?.() ?? true,
+      at: performance.now(),
+    }
+  }
+  /**
+   * The remove, honoured only for the row the reader aimed at: the press must
+   * have come while the list was still, and the row must not have moved
+   * between the finger going down and coming up. A keyboard press has no
+   * pointer and aims by focus, so it always counts.
+   */
+  const remove = () => {
+    const press = pressRef.current
+    pressRef.current = null
+    if (press && performance.now() - press.at < 2000) {
+      const top = rootRef.current?.getBoundingClientRect().top ?? press.top
+      if (!press.settled || Math.abs(top - press.top) > 2) return
+    }
+    onRemove(entry.id)
+  }
   const [popoverOpen, setPopoverOpenState] = useState(false)
   const [reportState, setReportState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
 
@@ -200,15 +252,6 @@ export function FeedEntryCard({
             : 'border-border-default bg-surface-secondary'
       }`}
     >
-      <button
-        type="button"
-        aria-label={`Remove ${entry.matched ? entry.name : 'this capture'}`}
-        onClick={() => onRemove(entry.id)}
-        className="absolute right-[6px] top-[6px] z-[1] flex h-[22px] w-[22px] items-center justify-center rounded-full bg-black/35 text-white/70 hover:bg-black/55 hover:text-white"
-      >
-        <Icon name="close" size={12} />
-      </button>
-
       {/* THE CAPTURE IS THE TAP TARGET on a needs-input row — "tapping opens the
           picker in place in the list". On a named row the same square opens the
           card's detail sheet, which is what it has always done; the two never
@@ -386,17 +429,49 @@ export function FeedEntryCard({
               <Icon name="bug" size={12} />
               {reportState === 'sent' ? 'reported' : reportState === 'sending' ? 'sending…' : reportState === 'error' ? 'retry' : 'report'}
             </button>
+            {/* A row with no stepper still has to be clearable — and its remove
+                sits in this line, the row's own, never on its edge. */}
+            {!entry.matched && (
+              <button
+                type="button"
+                aria-label="Remove this capture"
+                data-row-remove
+                onPointerDown={armRemove}
+                onClick={remove}
+                className="flex items-center gap-[3px] text-[11px] text-text-muted hover:text-text-secondary"
+              >
+                <Icon name="close" size={12} />
+                remove
+              </button>
+            )}
           </div>
           {entry.matched && (
             <div className="ml-auto inline-flex h-[28px] shrink-0 items-center overflow-hidden rounded-full border border-border-default bg-surface-primary">
-              <button
-                type="button"
-                aria-label={`One fewer ${entry.name}`}
-                onClick={() => onQuantityChange(entry.id, entry.quantity - 1)}
-                className="grid h-[26px] w-[28px] place-items-center text-text-secondary hover:bg-surface-tertiary hover:text-text-primary"
-              >
-                −
-              </button>
+              {/* THE LEFT BUTTON REMOVES THE ROW AT ONE, and says so. It always
+                  did remove it there — drawn as a minus, which is how a reader
+                  takes a card out of the batch without meaning to. */}
+              {entry.quantity > 1 ? (
+                <button
+                  type="button"
+                  aria-label={`One fewer ${entry.name}`}
+                  onClick={() => onQuantityChange(entry.id, entry.quantity - 1)}
+                  className="grid h-[26px] w-[28px] place-items-center text-text-secondary hover:bg-surface-tertiary hover:text-text-primary"
+                >
+                  −
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  aria-label={`Remove ${entry.name}`}
+                  title="Remove"
+                  data-row-remove
+                  onPointerDown={armRemove}
+                  onClick={remove}
+                  className="grid h-[26px] w-[28px] place-items-center text-text-secondary hover:bg-surface-tertiary hover:text-text-primary"
+                >
+                  <Icon name="close" size={12} />
+                </button>
+              )}
               <span className="min-w-[26px] text-center text-[14px] font-bold tabular-nums text-text-primary">
                 {entry.quantity}
               </span>

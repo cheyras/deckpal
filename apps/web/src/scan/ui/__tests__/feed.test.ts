@@ -32,7 +32,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
 import type { ScanMatch } from '../../../lib/api'
-import { addArrival, feedTotals, foldCommitLines, isUnresolved, resolveRow, runningOwned } from '../feed'
+import { addArrival, feedTotals, foldCommitLines, isUnresolved, repeatedLabel, resolveRow, restoreRow, runningOwned, takeRow } from '../feed'
 import { initialIdentity, reduceIdentity } from '../identity'
 import type { FeedEntry } from '../types'
 
@@ -268,17 +268,90 @@ describe('the running total', () => {
       entry({ id: 'cap-2', cardId: 'sv10-161' }),
       entry({ id: 'cap-3', cardId: 'sv10-161', quantity: 4 }),
     ]
-    assert.deepEqual(feedTotals(rows), { cards: 6, unique: 1 })
+    assert.deepEqual(feedTotals(rows), { cards: 6, unique: 1, repeated: [{ name: 'Card sv10-161', copies: 6 }] })
   })
 
   it('counts every unnamed row as its own unknown', () => {
     // They are four different unanswered questions. Collapsing them in the count
     // would tell the reader they scanned one thing.
-    assert.deepEqual(feedTotals([NEEDS_YOU, NEEDS_YOU_2, entry({ id: 'cap-9' })]), { cards: 3, unique: 3 })
+    assert.deepEqual(feedTotals([NEEDS_YOU, NEEDS_YOU_2, entry({ id: 'cap-9' })]), { cards: 3, unique: 3, repeated: [] })
   })
 
   it('is zero on an empty list', () => {
-    assert.deepEqual(feedTotals([]), { cards: 0, unique: 0 })
+    assert.deepEqual(feedTotals([]), { cards: 0, unique: 0, repeated: [] })
+  })
+})
+
+describe('the chip names the repeat (owner session 2026-11-27, pin 7)', () => {
+  // "9 cards · 8 unique" — "What does eight unique… Do I have 2 of the same
+  // card? Oh, yes, I have 2 Durants." The chip says which card instead.
+  const durant = (id: string, quantity = 1) => entry({ id, cardId: 'sv10.5w-061', name: 'Durant', quantity })
+  const herdier = (id: string) => entry({ id, cardId: 'sv10.5w-075', name: 'Herdier' })
+  const other = (id: string, n: string) => entry({ id, cardId: `sv10.5w-${n}`, name: `Card ${n}` })
+
+  it('says nothing more than the count when no card is there twice', () => {
+    assert.equal(repeatedLabel(feedTotals([durant('a'), herdier('b')])), null)
+  })
+
+  it('names the one card there more than once', () => {
+    assert.equal(repeatedLabel(feedTotals([durant('a'), herdier('b'), other('c', '031'), durant('d')])), '2× Durant')
+  })
+
+  it('counts copies by quantity, across rows', () => {
+    assert.equal(repeatedLabel(feedTotals([durant('a', 2), durant('b')])), '3× Durant')
+  })
+
+  it('names two, most copies first', () => {
+    assert.equal(repeatedLabel(feedTotals([herdier('a'), herdier('b'), durant('c'), durant('d'), durant('e')])), '3× Durant, 2× Herdier')
+  })
+
+  it('counts the extra copies once more than two cards repeat', () => {
+    const rows = [herdier('a'), herdier('b'), durant('c'), durant('d'), other('e', '031'), other('f', '031'), other('g', '031')]
+    assert.equal(repeatedLabel(feedTotals(rows)), '4 duplicates')
+  })
+
+  it('never calls two unnamed captures copies of each other', () => {
+    assert.equal(repeatedLabel(feedTotals([NEEDS_YOU, NEEDS_YOU_2])), null)
+  })
+})
+
+// ── the removal rule (owner session 2026-11-27) ─────────────────────────────
+
+describe('a removed row can be put back', () => {
+  const rows = () => [entry({ id: 'a', cardId: 'x' }), entry({ id: 'b', cardId: 'y' }), entry({ id: 'c', cardId: 'z' })]
+
+  it('takes exactly the row asked for, and says where it was in scan order', () => {
+    const { feed, removed } = takeRow(rows(), 'b')
+    assert.deepEqual(feed.map((e) => e.id), ['a', 'c'])
+    assert.equal(removed?.row.id, 'b')
+    assert.equal(removed?.index, 1)
+  })
+
+  it('is a no-op for a row already gone — the same array back', () => {
+    const before = rows()
+    const { feed, removed } = takeRow(before, 'gone')
+    assert.equal(feed, before)
+    assert.equal(removed, null)
+  })
+
+  it('UNDO PUTS IT BACK IN ITS OWN PLACE, exactly as it was', () => {
+    const start = rows().map((e) => (e.id === 'b' ? { ...e, quantity: 3, variantId: 9, printingPicked: true } : e))
+    const { feed, removed } = takeRow(start, 'b')
+    const back = restoreRow(feed, removed!)
+    assert.deepEqual(back.map((e) => e.id), ['a', 'b', 'c'])
+    assert.equal(back[1], start[1], 'the same row object: quantity, printing and capture intact')
+  })
+
+  it('clamps the place to the list as it is now', () => {
+    const { feed: one, removed: c } = takeRow(rows(), 'c')
+    const { feed: two } = takeRow(one, 'b')
+    assert.deepEqual(restoreRow(two, c!).map((e) => e.id), ['a', 'c'])
+  })
+
+  it('a second Undo cannot make two of it', () => {
+    const { feed, removed } = takeRow(rows(), 'a')
+    const once = restoreRow(feed, removed!)
+    assert.equal(restoreRow(once, removed!), once)
   })
 })
 
