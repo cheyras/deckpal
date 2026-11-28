@@ -1,14 +1,13 @@
-/* "Works with" strip, the loop diagram, and the slim stage bar that pins while
- * the four stage sections scroll past.
+/* The loop diagram and the slim stage bar that pins while the four stage
+ * sections scroll past (on /features since the 2026-11-27 redesign).
  *
- * The diagram is the page's one signature motion: a marker runs the track once
+ * The diagram is the page's signature motion: a marker runs the track once
  * when it scrolls into view, round the Plan, Playtest, Tune loop and out along
  * the branch to Build. Under reduced motion it sits at Build and never moves.
  * Each stage has one icon, used in the diagram, the stage bar and the stage
  * sections, so the three read as one system. */
 import { useEffect, useRef, useState } from 'react'
 import { Icon, type IconName } from '../../../components/Icon'
-import { AiLockup, aiIdFor } from '../aiLogos'
 import { COPY, type StageId } from '../copy'
 import { Reveal, SectionHead, useInView, usePrefersReducedMotion } from '../parts'
 
@@ -17,32 +16,6 @@ export const STAGE_ICON: Record<StageId, IconName> = {
   playtest: 'cards',
   tune: 'sliders',
   build: 'cart',
-}
-
-export function WorksWith() {
-  const w = COPY.works
-  return (
-    <section className="lp-works" aria-labelledby="works-title">
-      <div className="ls-wrap lp-works-in">
-        <p className="lp-works-lead" id="works-title">
-          {w.lead}
-        </p>
-        <ul className="lp-works-apps">
-          {w.apps.map((a) => {
-            const id = aiIdFor(a)
-            return <li key={a}>{id ? <AiLockup id={id} height={34} /> : a}</li>
-          })}
-        </ul>
-        <p className="lp-works-foot">
-          <a className="lp-link" href="#connect">
-            {w.link}
-            <Icon name="arrow-right" size={16} />
-          </a>
-          <span className="lp-muted">{w.disclaimer}</span>
-        </p>
-      </div>
-    </section>
-  )
 }
 
 // Node x positions match the centres of the four step columns below (12.5% ...).

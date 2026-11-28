@@ -1,64 +1,13 @@
-/* Hero: a league-night table from the player's seat, full bleed, with a phone
- * beside the headline playing one continuous conversation: the whole loop, from
- * a first draft to a TCGplayer cart, each task carried to its end. The words and
- * the poster photo come first; the chat starts after. It keeps playing (no
- * hover pause), stops off screen, has a pause button, and under reduced motion
- * shows the finished conversation and never moves. */
+/* The example conversation, on /features since the 2026-11-27 redesign (it was
+ * the old home hero): a phone playing one continuous conversation, the whole
+ * loop from a first draft to a TCGplayer cart, each task carried to its end. It
+ * keeps playing (no hover pause), stops off screen, has a pause button, and
+ * under reduced motion shows the finished conversation and never moves. */
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { Icon } from '../../../components/Icon'
 import { COPY, type ChatLine } from '../copy'
-import { artUrl, useLiveCatalog } from '../data'
-import { BrowseCta, ExampleTag, Photo, PrimaryCta, useOnScreen, usePrefersReducedMotion } from '../parts'
-
-const fmt = new Intl.NumberFormat('en-US')
-
-export function Hero() {
-  const h = COPY.hero
-  const cat = useLiveCatalog()
-  const trust = h.trust.replace('{cards}', fmt.format(cat.cards)).replace('{sets}', fmt.format(cat.sets))
-  return (
-    <section className="lp-hero" id="top" aria-labelledby="hero-title">
-      <div className="lp-hero-scrim" aria-hidden="true" />
-      <div className="lp-hero-wrap lp-hero-grid">
-        <div className="lp-hero-copy">
-          <p className="lp-eyebrow">{h.eyebrow}</p>
-          <h1 className="lp-h1" id="hero-title">
-            {/* Each sentence stays on one line, so lines break only between them. */}
-            <span className="lp-h1-a">
-              {(h.headlineA.match(/[^.]+\./g) ?? [h.headlineA]).map((s, i) => (
-                <Fragment key={s}>
-                  {i > 0 && ' '}
-                  <span>{s.trim()}</span>
-                </Fragment>
-              ))}
-            </span>{' '}
-            <span className="lp-h1-b">{h.headlineB}</span>
-          </h1>
-          {h.body.map((p) => (
-            <p key={p} className="lp-lede">
-              {p}
-            </p>
-          ))}
-          <div className="lp-cta-row">
-            <PrimaryCta>{h.ctaPrimary}</PrimaryCta>
-            <BrowseCta>
-              <span>
-                {h.ctaBrowse}
-                <span className="lp-btn-note">, {h.ctaBrowseNote}</span>
-              </span>
-            </BrowseCta>
-          </div>
-          <p className="lp-price">{h.price}</p>
-          <p className="lp-trust">{trust}</p>
-        </div>
-        <div className="lp-hero-visual">
-          <Photo name="hero" alt={h.photoAlt} sizes="100vw" eager className="lp-hero-photo" />
-          <HeroPhone />
-        </div>
-      </div>
-    </section>
-  )
-}
+import { artUrl } from '../data'
+import { ExampleTag, useOnScreen, usePrefersReducedMotion } from '../parts'
 
 /* ── the phone ────────────────────────────────────────────────────────────── */
 
@@ -91,7 +40,7 @@ function schedule(lines: readonly ChatLine[]): { beats: Beat[]; total: number } 
   return { beats, total: t + END_HOLD }
 }
 
-function HeroPhone() {
+export function HeroPhone() {
   const h = COPY.hero
   const lines = h.chat
   const reduced = usePrefersReducedMotion()

@@ -263,6 +263,7 @@ export default defineConfig(async ({ command }) => {
             // The prerendered documents (vite-plugins/landing-prerender.ts) are never the shell.
             'landing.html',
             'connect.html',
+            'features.html',
             // The AI apps' logos appear only on the landing and /connect; signed-in app users never need them.
             'brand/ai/**',
             'dev-assets/**',

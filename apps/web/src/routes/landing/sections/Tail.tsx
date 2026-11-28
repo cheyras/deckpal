@@ -1,8 +1,8 @@
-/* The back half of the page: built by a player (with the open-source facts),
- * connect (steps and an at-a-glance chart; the detail lives on /connect), FAQ,
- * and the closing band. CopyField and CompatTable are shared with /connect. */
+/* Shared tail pieces: the open-source facts (/features), the copy field and
+ * the full compatibility table (/connect), the FAQ and the closing band (home
+ * and /features). The landing's old Connect section and its at-a-glance chart
+ * were retired in the 2026-11-27 redesign: /connect carries the full chart. */
 import { useEffect, useRef, useState } from 'react'
-import { Link } from '@tanstack/react-router'
 import { Icon } from '../../../components/Icon'
 import { AiSymbol, aiIdFor } from '../aiLogos'
 import { COPY, type CompatRow } from '../copy'
@@ -81,123 +81,6 @@ export function CopyField({ value, label }: { value: string; label: string }) {
         <span aria-live="polite">{done ? COPY.connect.copied : COPY.connect.copy}</span>
       </button>
     </div>
-  )
-}
-
-export function ConnectSection() {
-  const c = COPY.connect
-  return (
-    <section className="lp-sec lp-connect" id="connect" aria-labelledby="connect-title">
-      <div className="ls-wrap">
-        <Reveal>
-          <SectionHead eyebrow={c.eyebrow} title={c.headline} id="connect-title">
-            <p className="lp-lede">{c.body}</p>
-          </SectionHead>
-        </Reveal>
-        <ol className="lp-connect-steps">
-          {c.steps.map((s, i) => (
-            <Reveal as="li" key={s.title} delay={i * 80} className="lp-connect-step">
-              <span className="lp-step-n" aria-hidden="true">
-                {i + 1}
-              </span>
-              <h3 className="lp-h3">{s.title}</h3>
-              <p>{s.body}</p>
-            </Reveal>
-          ))}
-        </ol>
-        <div className="lp-connect-cta">
-          <div className="lp-connect-url">
-            <CopyField value={c.mcpUrl} label="connector URL" />
-          </div>
-          <div className="lp-cta-row">
-            <a href={c.addClaudeHref} target="_blank" rel="noreferrer" className="ls-cta lp-btn lp-btn-primary">
-              <AiSymbol id="claude" size={18} decorative />
-              {c.addClaude}
-              <Icon name="external" size={16} />
-            </a>
-            <a
-              href={c.addChatgptHref}
-              target="_blank"
-              rel="noreferrer"
-              className="ls-cta lp-btn lp-btn-ghost"
-            >
-              <AiSymbol id="chatgpt" size={18} decorative />
-              {c.addChatgpt}
-              <Icon name="external" size={16} />
-            </a>
-          </div>
-          <ul className="lp-trustlist">
-            {c.trust.map((t, i) => (
-              <li key={t}>
-                <Icon name={i === 0 ? 'shield-check' : 'logout'} size={16} />
-                {t}
-              </li>
-            ))}
-          </ul>
-        </div>
-        <CompatGlance />
-      </div>
-    </section>
-  )
-}
-
-/** The landing's chart: one row per app, two answers, and a way to the detail. */
-function CompatGlance() {
-  const c = COPY.connect
-  return (
-    <div className="lp-glance">
-      <table className="lp-glance-table">
-        <caption className="sr-only">{c.summaryLabel}</caption>
-        <thead>
-          <tr>
-            <th scope="col">
-              <span className="sr-only">{c.columns.app}</span>
-            </th>
-            <th scope="col">{c.summaryFree}</th>
-            <th scope="col">{c.summaryChange}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {c.table.map((r) => {
-            const id = aiIdFor(r.app)
-            return (
-              <tr key={r.app}>
-                <th scope="row">
-                  <span className="lp-app">
-                    {id && <AiSymbol id={id} size={22} decorative />}
-                    {r.app.split(' ')[0]}
-                  </span>
-                </th>
-                <td>
-                  <Answer text={r.freeShort} ok={r.freeOk} />
-                </td>
-                <td>
-                  <Answer text={r.changeShort} ok={r.changeOk} />
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-      <div className="lp-glance-foot">
-        <Link to={c.learnMoreHref} className="ls-cta lp-btn lp-btn-ghost">
-          {c.learnMore}
-          <Icon name="arrow-right" size={16} />
-        </Link>
-        <p className="lp-muted lp-small">
-          {c.summaryNote} {c.disclaimer}
-        </p>
-      </div>
-    </div>
-  )
-}
-
-function Answer({ text, ok }: { text: string; ok: boolean }) {
-  return (
-    <span className={`lp-answer ${ok ? 'is-yes' : text === 'No' ? 'is-no' : 'is-maybe'}`}>
-      <Icon name={ok ? 'check' : text === 'No' ? 'minus' : 'alert'} size={14} strokeWidth={2.4} />
-      {text}
-    </span>
   )
 }
 
@@ -299,7 +182,8 @@ function CompatBody({ row, open, onToggle }: { row: CompatRow; open: boolean; on
 
 /* ── FAQ ──────────────────────────────────────────────────────────────────── */
 
-export function FaqSection() {
+/** `plain`: the home page asks for no eyebrow label over its headline. */
+export function FaqSection({ plain = false }: { plain?: boolean }) {
   const f = COPY.faq
   const [open, setOpen] = useState<Set<string>>(() => new Set([f.items[0].id]))
   useEffect(() => {
@@ -316,7 +200,7 @@ export function FaqSection() {
     <section className="lp-sec lp-faq" id="faq" aria-labelledby="faq-title">
       <div className="ls-wrap lp-faq-grid">
         <Reveal>
-          <SectionHead eyebrow={f.eyebrow} title={f.headline} id="faq-title" />
+          <SectionHead eyebrow={plain ? '' : f.eyebrow} title={f.headline} id="faq-title" />
         </Reveal>
         <div className="lp-faq-list">
           {f.items.map((item) => {

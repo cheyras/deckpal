@@ -1209,10 +1209,11 @@ and the collection counters stay disabled offline.
 **Search engines see each public page as its own page (2026-10-04).** Every
 route is the same `index.html`, so this takes three pieces.
 - **Prerendered documents.** For crawlers that do not run JavaScript, the build
-  writes `landing.html` and `connect.html` (`vite-plugins/landing-prerender.ts`).
-  Each is that shell with the page's words in `#root` plus its own title,
-  description and canonical. The root `middleware.ts` (Vercel Routing
-  Middleware) rewrites `/` and `/connect` to them. A vercel.json rewrite cannot do
+  writes `landing.html`, `connect.html` and `features.html`
+  (`vite-plugins/landing-prerender.ts`). Each is that shell with the page's words
+  in `#root` plus its own title, description and canonical; the landing's also
+  preloads the hero video slot's poster, its phone LCP. The root `middleware.ts`
+  (Vercel Routing Middleware) rewrites `/`, `/connect` and `/features` to them. A vercel.json rewrite cannot do
   this for `/`, because Vercel serves the real `index.html` before applying rewrites. React
   replaces the words on first commit like any other page.
 - **Runtime metadata.** For Google, which renders JavaScript, `lib/seo.ts`'s

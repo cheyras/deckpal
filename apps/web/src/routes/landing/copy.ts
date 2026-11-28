@@ -21,9 +21,6 @@ export type StageId = 'plan' | 'playtest' | 'tune' | 'build'
 
 export type CompatRow = {
   app: string
-  /** One-word cells for the landing's at-a-glance chart. */
-  freeShort: string
-  changeShort: string
   /** Free-plan cell, as written. */
   free: string
   freeOk: boolean
@@ -64,7 +61,7 @@ const FAQ: readonly FaqItem[] = [
   {
     id: 'which-ai',
     q: 'Which AI works with it?',
-    a: "Claude works on its free plan, and it is the one we have tested end to end. Going by their own docs, Grok and Mistral also take custom connectors on their free plans, while ChatGPT, Gemini and Perplexity need a paid plan, and ChatGPT's personal plans may limit connectors to reading your data. We have not tested those apps yet. The table above has the details.",
+    a: "Claude works on its free plan, and it is the one we have tested end to end. Going by their own docs, Grok and Mistral also take custom connectors on their free plans, while ChatGPT, Gemini and Perplexity need a paid plan, and ChatGPT's personal plans may limit connectors to reading your data. We have not tested those apps yet. The comparison on the Connect page has the details.",
   },
   {
     id: 'private',
@@ -86,7 +83,7 @@ const LLMS_TXT = [
     '): remote Streamable HTTP, OAuth 2.1 with PKCE and dynamic client registration, 32 tools (20 read, 12 write), Read only option at consent',
   '- Claude: add a custom connector with the URL ' + MCP_URL + ' (works on the free plan, one custom connector)',
   '- Claude Code: ' + CLAUDE_CODE_CMD,
-  '- Other apps: compatibility by plan is on the home page, last checked ' + COMPAT_CHECKED,
+  '- Other apps: compatibility by plan is on the [Connect page](https://deckpal.app/connect), last checked ' + COMPAT_CHECKED,
   '',
   '## What the tools cover',
   '- Collection: collection_summary, collection_log, collection_value, log_cards, set_progress',
@@ -98,7 +95,9 @@ const LLMS_TXT = [
   '- Guides: playbook',
   '',
   '## Product',
-  '- [Home](https://deckpal.app/): the loop (plan, playtest, tune, build), compatibility table and FAQ',
+  '- [Home](https://deckpal.app/): the loop (plan, playtest, tune, build) in short, and the FAQ',
+  '- [How it works](https://deckpal.app/features): each step in detail, example questions, and everything else DeckPal does',
+  '- [Connect](https://deckpal.app/connect): the connector URL, setup steps, and which AI apps work on which plan',
   '- [Browse the catalog](https://deckpal.app/series): no account needed',
   '- [Source code](https://github.com/cheyras/deckpal): AGPL-3.0, self-hostable',
   '- [Privacy](https://deckpal.app/privacy)',
@@ -114,12 +113,104 @@ export const COPY = {
       'Connect your AI to your cards, decks and PTCG Live battle logs. Then work on the deck together and show up to league night confident.',
   },
 
+  // The home page (`/`). Short on purpose: one idea per section, two or three
+  // lines each, and a picture of the product doing it. The detail behind every
+  // section lives on /features and /connect, and each section links there.
+  home: {
+    hero: {
+      headline: 'Build better decks with your AI.',
+      sub: 'DeckPal connects the AI you already use to your cards, decks and PTCG Live games. Then you plan, playtest and tune together.',
+      cta: 'Start free',
+      price: 'Pay what you want. $0 a month is an option.',
+      videoLabel: 'DeckPal at a league-night table',
+    },
+    loop: {
+      headline: 'How it works',
+      sub: 'Plan, playtest, tune. Repeat until it wins.',
+      steps: [
+        { id: 'plan', title: 'Plan', body: 'Bring an idea, a card you love or a winning list. Your AI saves a first draft.' },
+        { id: 'playtest', title: 'Playtest', body: 'Play it on PTCG Live and see what it really does.' },
+        { id: 'tune', title: 'Tune', body: "Paste a battle log, ask what's losing, swap in a fix." },
+        { id: 'build', title: 'Build', body: "Get a TCGplayer cart link for just the cards you're missing." },
+      ] as readonly LoopStep[],
+      again: 'Not there yet? Go round again.',
+      more: 'See each step in detail',
+    },
+    beats: {
+      plan: {
+        headline: 'Start from your binder.',
+        body: 'Your AI sees every card you own, so the first draft starts there. Then it fills the gaps with you.',
+        ask: 'What can I build from my binder?',
+        deck: 'Mega Chandelure ex / Dusknoir',
+        owned: 'You own 48 of 60',
+      },
+      playtest: {
+        headline: 'See how it really plays.',
+        body: 'Draw opening hands, or have DeckPal simulate games against other decks. Those results come from a bot, not real games, so treat them as a first look.',
+        hand: 'Opening hand',
+        verdict: 'Two Basics. No mulligan.',
+      },
+      tune: {
+        headline: 'Paste a log. Get a fix.',
+        body: "Drop in a PTCG Live battle log, or just say how it went. Your AI keeps score for each version of the deck and helps you find what's losing.",
+        log: ['Tamsin went first.', 'Chey evolved Litwick to Mega Chandelure ex.', "Tamsin's Dragapult ex used Phantom Dive."],
+        result: 'Loss vs Dragapult ex',
+        swapIn: 'In: Lampent',
+        swapOut: 'Out: Pokémon Catcher',
+      },
+      build: {
+        headline: "Buy only what's missing.",
+        body: "When the deck is ready, DeckPal makes a TCGplayer cart link for just the cards you don't own, at the cheapest printing. You check out on TCGplayer.",
+        title: 'Missing 12 cards',
+        total: 'Total',
+        button: 'Open TCGplayer cart',
+      },
+    },
+    orbit: {
+      headline: 'Every card. Every printing.',
+      // `{cards}` and `{sets}` are filled from the live catalog.
+      body: '{cards} English cards across {sets} sets, each printing tracked on its own, with prices updated daily.',
+      cta: 'Browse the catalog',
+      note: 'no account needed',
+    },
+    works: {
+      headline: 'Works with the AI you already use.',
+      body: 'Claude works on its free plan. Other apps vary by plan, and we keep the details in one place.',
+      link: 'See which apps work on which plan',
+    },
+    fair: {
+      priceTitle: 'Pay what you want',
+      priceBody: 'A monthly subscription where $0 is a real option. Raise it any time if DeckPal earns it.',
+      codeTitle: 'Built in the open',
+      codeBody: 'Every line is on GitHub. Read it, fork it, or run it yourself.',
+      codeLink: 'See the code',
+      privateTitle: 'Yours alone',
+      privateBody: 'Your collection, decks and battle logs are private to your account.',
+    },
+    faqMore: 'More about how it works',
+  },
+
+  // The /features page: everything the home page used to say in full, one click away.
+  featuresPage: {
+    title: 'How DeckPal works',
+    metaTitle: 'How DeckPal works: plan, playtest, tune, build | DeckPal',
+    metaDescription:
+      'Each step of building a Pokémon TCG deck with your AI and DeckPal, in detail: planning, playtesting, tuning from battle logs and buying the missing cards.',
+    lead: 'The whole loop, step by step, with the questions you can ask and everything else DeckPal keeps track of.',
+    back: 'Back to DeckPal',
+    links: [
+      { href: '#loop', label: 'The loop' },
+      { href: '#ask', label: 'Ask it anything' },
+      { href: '#jobs', label: 'Give it a job' },
+      { href: '#more', label: 'And more' },
+      { href: '#open-source', label: 'Open source' },
+    ],
+  },
+
   nav: {
     links: [
-      { href: '#loop', label: 'How it works' },
-      { href: '#ask', label: 'Ask it anything' },
-      { href: '#connect', label: 'Connect' },
-      { href: '#open-source', label: 'Open source' },
+      { href: '/features', label: 'How it works' },
+      { href: '/connect', label: 'Connect' },
       { href: '#faq', label: 'FAQ' },
     ],
     signIn: 'Sign in',
@@ -132,20 +223,8 @@ export const COPY = {
   exampleLabel: 'Example',
   exampleLong: 'Example answers, not a live AI',
 
+  // The example conversation on /features (HeroPhone) and the hero poster's alt text.
   hero: {
-    eyebrow: 'AI deck-building for Pokémon TCG',
-    headlineA: 'Plan it. Playtest it. Tune it.',
-    headlineB: 'All with an AI that knows your whole collection.',
-    body: [
-      'Now your favorite AI knows your cards, your decks, and how your matches went. Then it works on the deck with you, so you can build something creative, make it strong, and show up to league night confident.',
-      "Building a great deck is hard. Don't fly solo. Build your next league winner with DeckPal.",
-    ],
-    ctaPrimary: 'Start free',
-    ctaBrowse: 'Browse the catalog',
-    ctaBrowseNote: 'no account needed',
-    price: 'Pay-what-you-want monthly subscription. $0/month is an option.',
-    // `{cards}` and `{sets}` are filled from the live catalog.
-    trust: '{cards} English cards across {sets} sets, with prices updated daily',
     photoAlt:
       "A league-night table from the player's seat: Mega Chandelure ex in the active spot, Litwick, Lampent, Duskull and Dusclops on the bench.",
     demoLabel: 'An example chat with an AI connected to DeckPal',
@@ -196,9 +275,7 @@ export const COPY = {
   },
 
   works: {
-    lead: 'Plugs into the AI you already use',
     apps: ['Claude', 'ChatGPT', 'Gemini', 'Grok', 'Perplexity', 'Mistral'],
-    link: 'See what works on which plan',
     disclaimer: 'DeckPal is not affiliated with or endorsed by any of these companies.',
   },
 
@@ -525,17 +602,6 @@ export const COPY = {
     eyebrow: 'Connect',
     headline: 'Works with the AI you already use.',
     body: "DeckPal connects to Claude, ChatGPT, and other AI apps that support custom connectors. Add it once, approve it once, and you're set in about two minutes. You choose whether your AI can only read your data or read and change it, and you can disconnect any time.",
-    steps: [
-      { title: 'Connect', body: 'Add DeckPal as a custom connector in your AI app.' },
-      { title: 'Approve', body: 'Sign in to DeckPal and choose what your AI may do.' },
-      { title: 'Ask', body: 'Start a chat and ask about your cards, decks or last game.' },
-    ],
-    learnMore: 'Learn more about connecting',
-    learnMoreHref: '/connect',
-    summaryLabel: 'Which AI apps work, at a glance',
-    summaryFree: 'Free plan',
-    summaryChange: 'Can make changes',
-    summaryNote: `Plans change often. Last checked ${COMPAT_CHECKED}.`,
     mcpUrl: MCP_URL,
     copy: 'Copy',
     copied: 'Copied',
@@ -545,7 +611,6 @@ export const COPY = {
     // connector URL now lands on its Plugins settings.
     addClaudeHref: 'https://claude.ai/customize/connectors',
     addChatgptHref: 'https://chatgpt.com/settings/plugins-settings',
-    trust: ['Read only or read and change: you choose when you approve.', 'Disconnect any time in Profile, then Agent access.'],
     disclaimer: 'DeckPal is not affiliated with or endorsed by any of these companies.',
     claudeCode: CLAUDE_CODE_CMD,
     claudeCodeLabel: 'Claude Code',
@@ -570,8 +635,6 @@ export const COPY = {
     table: [
       {
         app: 'Claude',
-        freeShort: 'Yes',
-        changeShort: 'Yes',
         free: 'Yes, one connector',
         freeOk: true,
         lowest: 'Free',
@@ -582,8 +645,6 @@ export const COPY = {
       },
       {
         app: 'ChatGPT',
-        freeShort: 'No',
-        changeShort: 'Some plans',
         free: 'No',
         freeOk: false,
         lowest: 'Plus or Pro',
@@ -595,8 +656,6 @@ export const COPY = {
       },
       {
         app: 'Gemini',
-        freeShort: 'No',
-        changeShort: 'Yes',
         free: 'No',
         freeOk: false,
         lowest: 'Google AI Pro',
@@ -607,8 +666,6 @@ export const COPY = {
       },
       {
         app: 'Grok',
-        freeShort: 'Yes',
-        changeShort: 'Unclear',
         free: 'Yes, per xAI docs',
         freeOk: true,
         lowest: 'Free',
@@ -619,8 +676,6 @@ export const COPY = {
       },
       {
         app: 'Perplexity',
-        freeShort: 'No',
-        changeShort: 'Yes',
         free: 'No',
         freeOk: false,
         lowest: 'Pro',
@@ -631,8 +686,6 @@ export const COPY = {
       },
       {
         app: 'Mistral (Vibe Work)',
-        freeShort: 'Yes',
-        changeShort: 'Yes',
         free: 'Yes',
         freeOk: true,
         lowest: 'Free',
@@ -730,7 +783,7 @@ export const COPY = {
 
   closing: {
     headline: 'Got a deck idea? Make it real.',
-    body: "Connect your AI, paste in a list or describe your idea, and start on something that's yours. Whether you want a fun deck for league night or a list built to win, DeckPal's in your corner.",
+    body: "Connect your AI, describe your idea, and start on something that's yours. A fun deck for league night or a list built to win, DeckPal's in your corner.",
     primary: 'Start free',
     secondary: 'Browse the catalog',
     microline: 'No credit card. Nothing to install.',

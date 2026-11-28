@@ -1,0 +1,989 @@
+/* The home page (redesign, 2026-11-27). Scoped under `.hm`, layered on the
+ * landing's shared sheets (landing.css for .ls-wrap and the reveal, page.css for
+ * the nav, buttons, FAQ and closing band).
+ *
+ * THE LOOK. Big, soft, friendly type: Fraunces at its heaviest with the SOFT
+ * axis fully on (the app's own display face, already loaded, no new bytes).
+ * Short lines, lots of room, big rounded bands, and the product shown in small
+ * looping mocks with real card art, a few of them tilted a touch. DeckPal's own
+ * stone surfaces and accents; no new palette.
+ *
+ * MOTION CONTRACT. Only transform and opacity move, on the #410 tokens
+ * (--duration-*, --ease-*). Loops run only while on screen (`data-play`, or the
+ * `data-sN` steps from useStepLoop). Under reduced motion travel goes, fades
+ * stay, the orbit and the sparkles stand still, and every mock shows its
+ * finished frame. Nothing animates a box another box depends on: CLS = 0. */
+
+.hm {
+  --hm-band: color-mix(in srgb, var(--color-surface-secondary) 70%, var(--color-surface-primary));
+  --hm-panel: color-mix(in srgb, var(--color-surface-secondary) 92%, white 2%);
+  --hm-hair: color-mix(in srgb, white 9%, transparent);
+  --hm-cyan: var(--color-brand-primary-400);
+  --hm-pink: var(--color-brand-secondary-400);
+  --hm-amber: var(--color-brand-tertiary-400);
+  --hm-green: var(--color-change-positive);
+  --hm-sec-y: 80px;
+  --hm-radius: 32px;
+  overflow-x: clip;
+}
+@media (min-width: 900px) {
+  .hm {
+    --hm-sec-y: 120px;
+    --hm-radius: 44px;
+  }
+}
+
+/* Reveals ride the motion tokens here: arrivals decelerate. */
+.hm [data-reveal] {
+  transform: translate3d(0, 24px, 0);
+  transition:
+    opacity var(--duration-slower) var(--ease-enter),
+    transform calc(var(--duration-slower) * 1.6) var(--ease-enter);
+  transition-delay: var(--lp-delay, 0ms);
+}
+.hm [data-reveal][data-revealed] {
+  transform: none;
+}
+
+/* ── type ─────────────────────────────────────────────────────────────────── */
+
+.hm-h1,
+.hm-h2,
+.hm .lp-h2 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-variation-settings: 'SOFT' 100, 'WONK' 0;
+  color: var(--color-text-primary);
+  text-wrap: balance;
+}
+.hm-h1 {
+  font-size: clamp(46px, 11.6vw, 92px);
+  line-height: 0.96;
+  letter-spacing: -0.03em;
+}
+.hm-h2 {
+  font-size: clamp(38px, 8.6vw, 72px);
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+.hm .lp-h2 {
+  letter-spacing: -0.03em;
+}
+.hm-h3 {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.2;
+  color: var(--color-text-primary);
+}
+.hm-lead {
+  margin-top: 18px;
+  max-width: 34ch;
+  font-size: clamp(18px, 2.2vw, 21px);
+  line-height: 1.5;
+  color: var(--color-text-body);
+  text-wrap: pretty;
+}
+.hm-head {
+  text-align: center;
+}
+.hm-head .hm-lead {
+  margin-inline: auto;
+}
+.hm-muted {
+  color: var(--color-text-muted);
+}
+.hm-fine {
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+.hm-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--spacing-hit, 44px);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-link);
+  transition: gap var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+.hm-link:hover {
+  color: var(--color-link-hover);
+}
+.hm-more {
+  margin-top: 28px;
+  text-align: center;
+}
+
+.hm-sec {
+  position: relative;
+  padding-block: var(--hm-sec-y);
+}
+
+/* ── hero ─────────────────────────────────────────────────────────────────── */
+
+.hm-hero {
+  position: relative;
+  padding-top: calc(var(--lp-nav-h) + 36px);
+  padding-bottom: 48px;
+  text-align: center;
+  isolation: isolate;
+}
+@media (min-width: 900px) {
+  .hm-hero {
+    padding-top: calc(var(--lp-nav-h) + 52px);
+  }
+}
+.hm-hero-sky {
+  position: absolute;
+  inset: 0 0 30% 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 50% at 50% 0%, color-mix(in srgb, var(--hm-cyan) 22%, transparent) 0%, transparent 70%),
+    radial-gradient(40% 36% at 12% 30%, color-mix(in srgb, var(--hm-pink) 14%, transparent) 0%, transparent 70%),
+    radial-gradient(40% 36% at 90% 26%, color-mix(in srgb, var(--hm-amber) 12%, transparent) 0%, transparent 70%);
+}
+.hm-hero-in {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.hm-h1 {
+  max-width: 11ch;
+}
+@media (min-width: 900px) {
+  .hm-h1 {
+    max-width: 15ch;
+  }
+}
+.hm-sub {
+  margin-top: 22px;
+  max-width: 36ch;
+  font-size: clamp(17px, 2.4vw, 22px);
+  line-height: 1.5;
+  color: var(--color-text-body);
+  text-wrap: pretty;
+}
+.hm-hero-cta {
+  margin-top: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.hm .hm-btn-lg {
+  min-height: 56px;
+  padding-inline: 34px;
+  font-size: 18px;
+}
+.hm-price {
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+/* Sparkles: four-point stars, the energy-symbol feel without any one type. */
+.hm-spark {
+  position: absolute;
+  width: 26px;
+  aspect-ratio: 1;
+  background: var(--hm-amber);
+  clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%);
+  opacity: 0.85;
+  animation: hm-twinkle 5.2s var(--ease-standard) infinite alternate;
+}
+.hm-spark-a {
+  top: calc(var(--lp-nav-h) + 22px);
+  left: 8%;
+}
+.hm-spark-b {
+  top: 30%;
+  right: 7%;
+  width: 34px;
+  background: var(--hm-cyan);
+  animation-delay: -1.8s;
+}
+.hm-spark-c {
+  top: 46%;
+  left: 14%;
+  width: 16px;
+  background: var(--hm-pink);
+  animation-delay: -3.1s;
+}
+@keyframes hm-twinkle {
+  from {
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(0.9);
+  }
+  to {
+    transform: translate3d(0, -10px, 0) rotate(20deg) scale(1.08);
+  }
+}
+
+/* The video slot. `aspect-ratio` holds its box before a byte arrives. */
+.hm-video {
+  position: relative;
+  margin-top: 36px;
+  width: 100%;
+  max-width: 1040px;
+  aspect-ratio: 16 / 9;
+  border-radius: 24px;
+  overflow: hidden;
+  background: var(--color-surface-secondary);
+  box-shadow:
+    0 0 0 1px var(--hm-hair),
+    0 40px 80px -30px rgb(0 0 0 / 0.75);
+}
+@media (min-width: 900px) {
+  .hm-video {
+    margin-top: 48px;
+    border-radius: 32px;
+  }
+}
+.hm-video-poster,
+.hm-video-poster img,
+.hm-video-film {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  object-fit: cover;
+}
+.hm-video-film {
+  opacity: 0;
+  transition: opacity var(--duration-slower) var(--ease-enter);
+}
+.hm-video.is-playing .hm-video-film {
+  opacity: 1;
+}
+.hm-video-btn {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: grid;
+  place-items: center;
+  width: var(--spacing-hit, 44px);
+  height: var(--spacing-hit, 44px);
+  border-radius: 999px;
+  color: white;
+  background: rgb(0 0 0 / 0.55);
+  backdrop-filter: blur(6px);
+  transition: transform var(--duration-instant) var(--ease-standard);
+}
+.hm-video-btn:active {
+  transform: scale(0.94);
+}
+
+/* ── how it works: the timeline ───────────────────────────────────────────── */
+
+.hm-timeline {
+  --hm-badge: 56px;
+  position: relative;
+  margin: 48px auto 0;
+  max-width: 460px;
+  display: grid;
+  gap: 28px;
+}
+/* The dashed connector, drawn from the first badge to the last. */
+.hm-timeline::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--hm-badge) / 2 - 1px);
+  top: calc(var(--hm-badge) / 2);
+  bottom: calc(var(--hm-badge) / 2 + 28px);
+  border-left: 2px dashed color-mix(in srgb, white 26%, transparent);
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform 1100ms var(--ease-enter);
+}
+.hm-timeline.is-seen::before {
+  transform: none;
+}
+.hm-tl-step {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--hm-badge) 1fr;
+  gap: 18px;
+  align-items: start;
+}
+.hm-tl-badge {
+  display: grid;
+  place-items: center;
+  width: var(--hm-badge);
+  height: var(--hm-badge);
+  border-radius: 999px;
+  color: var(--color-surface-primary);
+  background: var(--hm-step, var(--hm-cyan));
+  box-shadow: 0 0 0 6px var(--color-surface-primary);
+  opacity: 0;
+  transform: scale(0.5);
+  transition:
+    opacity var(--duration-base) var(--ease-enter),
+    transform var(--duration-slower) var(--ease-spring);
+  transition-delay: calc(var(--i) * 160ms + 220ms);
+}
+.hm-timeline.is-seen .hm-tl-badge {
+  opacity: 1;
+  transform: none;
+}
+.hm-tl-plan {
+  --hm-step: var(--hm-cyan);
+}
+.hm-tl-playtest {
+  --hm-step: var(--hm-pink);
+}
+.hm-tl-tune {
+  --hm-step: var(--hm-amber);
+}
+.hm-tl-build {
+  --hm-step: var(--hm-green);
+}
+.hm-tl-title {
+  margin-top: 4px;
+  font-family: var(--font-display);
+  font-variation-settings: 'SOFT' 100;
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--color-text-primary);
+}
+.hm-tl-body {
+  margin-top: 4px;
+  font-size: 17px;
+  line-height: 1.5;
+  max-width: 30ch;
+}
+.hm-tl-step > div {
+  opacity: 0;
+  transform: translate3d(0, 10px, 0);
+  transition:
+    opacity var(--duration-slower) var(--ease-enter),
+    transform var(--duration-slower) var(--ease-enter);
+  transition-delay: calc(var(--i) * 160ms + 300ms);
+}
+.hm-timeline.is-seen .hm-tl-step > div {
+  opacity: 1;
+  transform: none;
+}
+.hm-tl-again {
+  margin-top: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 700;
+  color: var(--hm-amber);
+}
+@media (min-width: 900px) {
+  .hm-timeline {
+    --hm-badge: 64px;
+    max-width: none;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 32px;
+    margin-top: 64px;
+  }
+  .hm-timeline::before {
+    left: 12.5%;
+    right: 12.5%;
+    top: calc(var(--hm-badge) / 2 - 1px);
+    bottom: auto;
+    border-left: 0;
+    border-top: 2px dashed color-mix(in srgb, white 26%, transparent);
+    transform: scaleX(0);
+    transform-origin: left;
+  }
+  .hm-tl-step {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
+  .hm-tl-body {
+    margin-inline: auto;
+  }
+}
+
+/* ── the four beats ───────────────────────────────────────────────────────── */
+
+.hm-beat.is-flip {
+  margin-inline: clamp(8px, 2vw, 24px);
+  border-radius: var(--hm-radius);
+  background: var(--hm-band);
+}
+.hm-beat-in {
+  display: grid;
+  gap: 40px;
+  align-items: center;
+}
+.hm-beat-in > * {
+  min-width: 0;
+}
+.hm-beat-copy {
+  text-align: center;
+}
+.hm-beat-copy .hm-lead {
+  margin-inline: auto;
+}
+.hm-beat-badge {
+  display: inline-grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 20px;
+  border-radius: 999px;
+  color: var(--color-surface-primary);
+  background: var(--hm-step, var(--hm-cyan));
+  transform: rotate(-6deg);
+}
+#playtest .hm-beat-badge {
+  --hm-step: var(--hm-pink);
+}
+#tune .hm-beat-badge {
+  --hm-step: var(--hm-amber);
+}
+#build .hm-beat-badge {
+  --hm-step: var(--hm-green);
+}
+@media (min-width: 900px) {
+  .hm-beat-in {
+    grid-template-columns: 1fr 1fr;
+    gap: 72px;
+  }
+  .hm-beat-copy {
+    text-align: left;
+  }
+  .hm-beat-copy .hm-lead {
+    margin-inline: 0;
+  }
+  .hm-beat.is-flip .hm-beat-copy {
+    order: 2;
+  }
+}
+
+/* ── mocks ────────────────────────────────────────────────────────────────── */
+
+.hm-mock {
+  position: relative;
+  margin-inline: auto;
+  width: 100%;
+  max-width: 480px;
+  padding: 24px;
+  border-radius: 28px;
+  background: var(--hm-panel);
+  box-shadow:
+    0 0 0 1px var(--hm-hair),
+    0 30px 60px -28px rgb(0 0 0 / 0.7);
+  overflow: hidden;
+}
+.hm-beat.is-flip .hm-mock {
+  background: var(--color-surface-primary);
+}
+@media (min-width: 900px) {
+  .hm-mock {
+    rotate: 1.2deg;
+  }
+  .hm-beat.is-flip .hm-mock {
+    rotate: -1.2deg;
+  }
+}
+.hm-example {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.hm-mock-title {
+  font-weight: 800;
+  font-size: 17px;
+  color: var(--color-text-primary);
+}
+.hm-card {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 245 / 342;
+  border-radius: 5%/3.6%;
+  background: var(--color-surface-tertiary, #44403c);
+  box-shadow: 0 10px 22px -10px rgb(0 0 0 / 0.7);
+  user-select: none;
+}
+
+/* Every step-driven piece starts hidden and arrives when its step is stamped. */
+.hm-mock :is(.hm-s1, .hm-s2, .hm-s3, .hm-s4, .hm-s5) {
+  opacity: 0;
+  transition:
+    opacity var(--duration-slower) var(--ease-enter),
+    transform var(--duration-slower) var(--ease-spring);
+}
+.hm-mock[data-s1] .hm-s1,
+.hm-mock[data-s2] .hm-s2,
+.hm-mock[data-s3] .hm-s3,
+.hm-mock[data-s4] .hm-s4,
+.hm-mock[data-s5] .hm-s5 {
+  opacity: 1;
+}
+
+.hm-bubble {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 18px;
+  font-size: 15px;
+  line-height: 1.4;
+}
+.hm-bubble-you {
+  margin-left: auto;
+  margin-top: 18px;
+  border-bottom-right-radius: 6px;
+  color: var(--color-action-primary-text);
+  background: var(--hm-cyan);
+  transform: translate3d(0, 10px, 0);
+}
+.hm-mock[data-s1] .hm-bubble-you {
+  transform: none;
+}
+
+/* Plan: three binder cards fan out, then the saved deck. */
+.hm-plan-fan {
+  position: relative;
+  height: 168px;
+  margin-block: 18px 8px;
+}
+.hm-plan-card {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 104px;
+  margin-left: -52px;
+  transform: translate3d(0, 24px, 0) rotate(0deg);
+}
+.hm-mock[data-s2] .hm-plan-card {
+  transform: translate3d(calc((var(--i) - 1) * 78%), calc((var(--i) - 1) * (var(--i) - 1) * 8px), 0) rotate(calc((var(--i) - 1) * 9deg));
+  transition-delay: calc(var(--i) * 90ms);
+}
+.hm-deck {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  border-radius: 18px;
+  background: color-mix(in srgb, white 5%, transparent);
+  transform: translate3d(0, 14px, 0);
+}
+.hm-mock[data-s3] .hm-deck {
+  transform: none;
+}
+.hm-deck-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 14px;
+  color: var(--color-surface-primary);
+  background: var(--hm-cyan);
+  transform: rotate(-5deg);
+}
+.hm-deck-body {
+  display: grid;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+}
+.hm-deck-body .hm-muted {
+  color: var(--color-text-secondary);
+}
+.hm-deck-body strong {
+  color: var(--color-text-primary);
+  font-size: 15px;
+}
+.hm-meter {
+  display: block;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, white 10%, transparent);
+  overflow: hidden;
+}
+.hm-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--hm-green);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+.hm-mock[data-s4] .hm-meter > span {
+  transform: scaleX(0.8);
+  transition-duration: var(--duration-slower), 900ms;
+  transition-timing-function: var(--ease-enter);
+}
+
+/* Playtest: seven cards deal from a pile into a fan. */
+.hm-hand {
+  position: relative;
+  height: 190px;
+  margin-top: 22px;
+}
+.hm-hand-card {
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  width: 92px;
+  margin-left: -46px;
+  transform: translate3d(0, 80px, 0) scale(0.8);
+}
+.hm-mock[data-s1] .hm-hand-card {
+  transform: translate3d(calc(var(--o) * 40%), calc(var(--o) * var(--o) * 3px), 0) rotate(calc(var(--o) * 7deg));
+  transition-delay: calc(var(--i) * 110ms);
+}
+.hm-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 700;
+  transform: translate3d(0, 8px, 0) scale(0.92);
+}
+.hm-mock[data-s2] .hm-pill.hm-s2,
+.hm-mock[data-s4] .hm-pill.hm-s4 {
+  transform: none;
+}
+.hm-mock-hand {
+  text-align: center;
+}
+.hm-pill-ok {
+  color: var(--color-change-positive-label, #a4f4cf);
+  background: color-mix(in srgb, var(--hm-green) 18%, transparent);
+}
+.hm-pill-bad {
+  color: var(--color-brand-secondary-200);
+  background: color-mix(in srgb, var(--hm-pink) 18%, transparent);
+}
+
+/* Tune: a log reads in, the result lands, a swap is suggested. */
+.hm-log {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: color-mix(in srgb, black 28%, transparent);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text-body);
+}
+.hm-log-line {
+  transform: translate3d(-8px, 0, 0);
+}
+.hm-mock[data-s1] .hm-log-line.hm-s1,
+.hm-mock[data-s2] .hm-log-line.hm-s2,
+.hm-mock[data-s3] .hm-log-line.hm-s3 {
+  transform: none;
+}
+.hm-swap {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: 18px;
+  background: color-mix(in srgb, white 5%, transparent);
+  transform: translate3d(0, 12px, 0) rotate(-2deg);
+}
+.hm-mock[data-s5] .hm-swap {
+  transform: rotate(-1.5deg);
+}
+.hm-swap-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 700;
+  font-size: 15px;
+}
+.hm-swap-row.is-in {
+  color: var(--color-change-positive-label, #a4f4cf);
+}
+.hm-swap-row.is-out {
+  color: var(--color-text-secondary);
+}
+.hm-swap-card {
+  width: 40px;
+  flex: none;
+}
+
+/* Build: the missing cards, priced, and the one button. */
+.hm-missing {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+.hm-missing li {
+  display: grid;
+  grid-template-columns: 30px 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  font-size: 14px;
+  transform: translate3d(0, 8px, 0);
+}
+.hm-mock[data-s1] .hm-missing li {
+  transform: none;
+  transition-delay: calc(var(--i) * 120ms);
+}
+.hm-missing .hm-muted {
+  color: var(--color-text-secondary);
+}
+.hm-missing-card {
+  width: 30px;
+}
+.hm-missing-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-primary);
+}
+.hm-missing-price {
+  font-variant-numeric: tabular-nums;
+  min-width: 52px;
+  text-align: right;
+}
+.hm-total {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--hm-hair);
+  font-size: 16px;
+}
+.hm-total strong {
+  color: var(--color-text-primary);
+  font-size: 20px;
+}
+.hm-fakebtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+  min-height: 48px;
+  border-radius: 999px;
+  font-weight: 800;
+  color: var(--color-action-primary-text);
+  background: var(--hm-cyan);
+  transform: translate3d(0, 8px, 0);
+}
+.hm-mock[data-s3] .hm-fakebtn {
+  transform: none;
+  animation: hm-press 900ms var(--ease-spring) 500ms 1 both;
+}
+@keyframes hm-press {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(0.95);
+  }
+}
+
+/* ── the card orbit ───────────────────────────────────────────────────────── */
+
+.hm-orbit {
+  --orb: clamp(620px, 165vw, 1240px);
+  --cw: clamp(62px, 9vw, 112px);
+  min-height: calc(var(--orb) * 0.78);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  isolation: isolate;
+}
+.hm-orbit-stage {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--orb);
+  height: var(--orb);
+  margin: calc(var(--orb) / -2) 0 0 calc(var(--orb) / -2);
+  z-index: -1;
+  pointer-events: none;
+}
+.hm-ring {
+  position: absolute;
+  inset: 0;
+  animation: hm-spin 140s linear infinite;
+  animation-play-state: paused;
+  will-change: transform;
+}
+.hm-ring-outer {
+  animation-duration: 210s;
+  animation-direction: reverse;
+}
+.hm-orbit-stage[data-play] .hm-ring {
+  animation-play-state: running;
+}
+@keyframes hm-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.hm-ring-slot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--cw);
+  margin: calc(var(--cw) * -0.7) 0 0 calc(var(--cw) / -2);
+  transform: rotate(var(--a)) translate3d(0, calc(var(--r) * -1), 0) rotate(var(--t));
+}
+.hm-ring-inner .hm-ring-slot {
+  --r: calc(var(--orb) * 0.29);
+}
+.hm-ring-outer .hm-ring-slot {
+  --r: calc(var(--orb) * 0.45);
+  width: calc(var(--cw) * 1.12);
+}
+.hm-orbit-card {
+  border-radius: 6%/4.3%;
+}
+@media (max-width: 599px) {
+  .hm-orbit {
+    min-height: calc(var(--orb) * 0.98);
+  }
+  /* Half the outer ring on a phone: fewer images, same feel. */
+  .hm-ring-wide {
+    display: none;
+  }
+}
+.hm-orbit-copy {
+  position: relative;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+/* A soft dark pool behind the words so passing cards never fight them. */
+.hm-orbit-copy::before {
+  content: '';
+  position: absolute;
+  inset: -60px -40px;
+  z-index: -1;
+  background: radial-gradient(closest-side, var(--color-surface-primary) 55%, transparent);
+}
+.hm-orbit-copy .hm-lead {
+  margin-inline: auto;
+}
+.hm-orbit-mark {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  margin-bottom: 20px;
+  border-radius: 22px;
+  background: var(--color-surface-secondary);
+  box-shadow: 0 0 0 1px var(--hm-hair);
+  transform: rotate(-4deg);
+}
+.hm-orbit-cta {
+  margin-top: 26px;
+}
+
+/* ── works with ───────────────────────────────────────────────────────────── */
+
+.hm-logos {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 22px 36px;
+  margin-top: 40px;
+  color: var(--color-text-primary);
+  font-weight: 700;
+}
+
+/* ── the three promises ───────────────────────────────────────────────────── */
+
+.hm-fair {
+  padding-top: 0;
+}
+.hm-fair-grid {
+  display: grid;
+  gap: 18px;
+}
+@media (min-width: 900px) {
+  .hm-fair-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+  }
+}
+.hm-fair-tile {
+  padding: 28px;
+  border-radius: 28px;
+  background: var(--hm-band);
+  box-shadow: 0 0 0 1px var(--hm-hair);
+}
+.hm .hm-fair-tile[data-revealed] {
+  transform: rotate(var(--t, 0deg));
+}
+.hm-fair-tile p {
+  margin-top: 8px;
+  font-size: 16px;
+  line-height: 1.55;
+}
+.hm-fair-tile .hm-link {
+  font-size: 16px;
+}
+.hm-fair-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 16px;
+  border-radius: 16px;
+  color: var(--color-surface-primary);
+  background: var(--hm-amber);
+}
+.hm-fair-tile:nth-child(2) .hm-fair-icon {
+  background: var(--hm-pink);
+}
+.hm-fair-tile:nth-child(3) .hm-fair-icon {
+  background: var(--color-text-primary);
+}
+
+/* The FAQ and closing band keep their shared look, with the home's type. */
+.hm .lp-faq {
+  padding-top: var(--hm-sec-y);
+}
+
+/* ── reduced motion ───────────────────────────────────────────────────────
+   Travel goes; fades stay (theme.css's rule). The orbit and sparkles stand
+   still; the timeline and every mock are simply finished. */
+@media (prefers-reduced-motion: reduce) {
+  .hm [data-reveal] {
+    transform: none !important;
+  }
+  .hm-spark,
+  .hm-ring {
+    animation: none !important;
+  }
+  .hm-timeline::before,
+  .hm-tl-badge,
+  .hm-tl-step > div {
+    transform: none !important;
+    transition: opacity var(--duration-base) var(--ease-standard) !important;
+  }
+  .hm-timeline::before {
+    opacity: 1;
+  }
+  .hm-tl-badge,
+  .hm-tl-step > div {
+    opacity: 1 !important;
+  }
+  .hm-mock :is(.hm-s1, .hm-s2, .hm-s3, .hm-s4, .hm-s5) {
+    transition: none !important;
+    animation: none !important;
+  }
+  .hm .hm-fair-tile[data-revealed] {
+    transform: rotate(var(--t, 0deg)) !important;
+  }
+}

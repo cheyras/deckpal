@@ -26,7 +26,7 @@ import { sitemapRateLimit } from './rateLimit.js';
 const ORIGIN = (process.env.DECKPAL_PUBLIC_ORIGIN ?? 'https://deckpal.app').replace(/\/+$/, '');
 
 /** The top-level public pages, in the order a reader would meet them. */
-const PAGES = ['/', '/connect', '/series', '/pokedex', '/privacy'];
+const PAGES = ['/', '/features', '/connect', '/series', '/pokedex', '/privacy'];
 
 const esc = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');

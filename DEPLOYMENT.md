@@ -1545,9 +1545,9 @@ needs no new setting or deployment step.
    - everything else that is not a static file (`/assets/…` or a path with a
      file extension) → the SPA (`index.html`)
 
-   Before any of those, `middleware.ts` serves the prerendered landing and
-   connect documents for exactly `/` and `/connect`, because Vercel serves the
-   real `index.html` for `/` before it applies rewrites.
+   Before any of those, `middleware.ts` serves the prerendered landing,
+   connect and features documents for exactly `/`, `/connect` and `/features`,
+   because Vercel serves the real `index.html` for `/` before it applies rewrites.
 
 ### 5. Run the data-migration script (existing data)
 
