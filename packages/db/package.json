@@ -17,6 +17,10 @@
     "./energyText": {
       "types": "./src/energyText.ts",
       "default": "./dist/energyText.js"
+    },
+    "./priceLinkOverrides": {
+      "types": "./src/priceLinkOverrides.ts",
+      "default": "./dist/priceLinkOverrides.js"
     }
   },
   "scripts": {

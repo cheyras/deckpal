@@ -1620,21 +1620,28 @@ TCGCSV stamp: it runs on the first tick after a new stamp (and on the first tick
 feature first deploys, when no successful run exists),
 costs one query per tick once it has succeeded, and a failed run is retried on the
 next tick. A catalog refresh resets those columns to what TCGdex says, so the next
-stamp re-derives them. To run it now or read what it would do, dispatch
+stamp re-derives them, except a set's hand-matched group (`KNOWN_SET_GROUPS` in
+`apps/sync/src/prices/linkMatch.ts`): the import writes that group itself, so those
+sets are never group-less between a refresh and the next link pass. To run it now or read what it would do, dispatch
 `price-refresh.yml` with job `link-tcgcsv`, or locally
 `pnpm --filter deckpal-sync prices link-tcgcsv --dry-run`; a newly linked card's
 price arrives with the next price ingest. See
 `decisions/2026/2026-10-01-tcgplayer-ids-tcgdex-lacks-are-now-derived-from-tcgcsv-so-those-cards-can-be-pri.md`.
 
 **TCGplayer links TCGdex gets wrong are corrected by a verified override table.**
-`apps/sync/src/catalog/priceLinkOverrides.ts` lists printings (TCGdex card id + variant kind) whose
+`packages/db/src/priceLinkOverrides.ts` (`@deckpal/db/priceLinkOverrides`; applied by
+`apps/sync/src/catalog/priceLinkOverrides.ts`) lists printings (TCGdex card id + variant kind) whose
 TCGdex id is wrong or missing, each with the TCGplayer group, product and printing checked against
 TCGplayer's own record of the product. Both writers honour it: the catalog import writes the
 override instead of TCGdex's value, and the link pass writes it first on every run (over whatever is
 there, clearing a stored `tcgplayer_url`) and never hands its product to another card. An entry
 pins the card's set, number and name; if TCGdex re-keys or renames the card the entry is refused and
 logged, never forced. An override whose product TCGplayer lists outside the set's group is priced by
-the ingest from that group, by product id. No new secret, variable or migration. A dry run of
+the ingest from that group, by product id. The image tier's self-source identity check
+(`apps/api/src/images/selfSource.ts`) honours an entry too, for that entry's product only: it looks
+the product up in the entry's group, and the entry's verified identity stands in for a collector
+number the record lists wrong; the product's name must still name the card, and every other card
+keeps the full name-and-number check. No new secret, variable or migration. A dry run of
 `prices link-tcgcsv` reports `overridesApplied` / `overridesRefused`, and the catalog refresh's job
 summary counts the overrides and lists any refused. See
 `decisions/2026/2026-11-27-wrong-or-missing-tcgplayer-links-are-corrected-by-a-verified-per-printing-overri.md`.

@@ -135,6 +135,21 @@ export interface ProductRecord {
 const fold = (s: string): string =>
   s.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[’']/g, "'")
     .replace(/\[[^[\]]*\]/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+/**
+ * The name half of the identity check: the product's name contains the card's, as whole words
+ * ("Switch (Noivern)" names Switch; "Switcheroo" does not).
+ */
+export function productNamesCard(productName: string, cardName: string): boolean {
+  const cName = fold(cardName);
+  return cName !== '' && ` ${fold(productName)} `.includes(` ${cName} `);
+}
+
+/** Two catalog names for the same card, compared folded (accents, quotes, case, punctuation). */
+export function sameCardName(a: string, b: string): boolean {
+  const fa = fold(a);
+  return fa !== '' && fa === fold(b);
+}
+
 /** '050a' -> '50a', 'SWSH149' -> 'swsh149', 'XY39' -> 'xy39', '003' -> '3'. */
 const numberKey = (s: string): string => s.trim().toLowerCase().replace(/^([a-z-]*)0+(?=\d)/, '$1');
 
@@ -146,9 +161,7 @@ const numberKey = (s: string): string => s.trim().toLowerCase().replace(/^([a-z-
  * PRINTED number, so the catalog's `%3F` is compared as the `?` the product lists (`?/28`).
  */
 export function productMatchesCard(product: ProductRecord, card: Pick<ArtCard, 'name' | 'localId' | 'printedTotal'>): boolean {
-  const pName = ` ${fold(product.name)} `;
-  const cName = fold(card.name);
-  if (!cName || !pName.includes(` ${cName} `)) return false;
+  if (!productNamesCard(product.name, card.name)) return false;
   if (!product.number) return true;
   const [num, total] = product.number.split('/');
   if (total && card.printedTotal && Number(total) !== card.printedTotal) return true;
