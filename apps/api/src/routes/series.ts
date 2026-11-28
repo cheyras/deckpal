@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { q, q1 } from '../db.js';
 import { asyncHandler, catalogOrUserCache, notFound } from '../http.js';
 import { optionalUserId } from '../identity.js';
+import { setChromeUrl } from '../images/setChrome.js';
 import { pct } from '../insights/trainerLevel.js';
 import { compareSetOrder, mapUpcomingPlaceholder, todayIso, upcomingSetsFor } from '../upcomingSets.js';
 
@@ -220,8 +221,9 @@ seriesRouter.get(
           printedCount: official,
           secretCount: Math.max(0, total - official),
           cardCountTotal: total,
-          logoUrl: s.logo_url,
-          symbolUrl: s.symbol_url,
+          // Catalog column, else the approved crosswalk — see setChrome.ts.
+          logoUrl: setChromeUrl(s.tcgdex_id, 'logo', s.logo_url),
+          symbolUrl: setChromeUrl(s.tcgdex_id, 'symbol', s.symbol_url),
           // The three-goal completion summary is the caller's — omitted whole
           // when there is no caller (see the series list above).
           ...(userId === null

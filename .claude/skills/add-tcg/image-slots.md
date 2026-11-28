@@ -78,7 +78,16 @@ new `kind` outside the migration-006 CHECK list needs an additive migration.
 - Format: webp; single.
 - Sourcing: the catalog source's set-level logo URL (Pokémon: `card_set` base URLs from TCGdex); enumerate from `card_set`. **Fallback** when `card_set.logo_url` is NULL: the approved crosswalk in `packages/storage/src/setImageFallback.ts` (`setImageFallbackUrl(setId, 'logo')` — 15 approved pairs sourced from pokemontcg.io `.png` files and Bulbagarden) — `apps/images/src/setWarmer.ts` consults it; the catalog column always takes precedence. See `apps/images/src/setWarmer.ts`.
 - Optimization: single small asset; graceful client fallback to a text card on 404 (no broken image).
-- Verify: `curl /deckpal/images/sets/<setId>/logo.webp` → 200; series index renders the base-set logo.
+- Client: the series row and set header ask for the logo only when the API's `logoUrl` is non-null, and
+  the API reports the catalog column **else the crosswalk URL** (`setChromeUrl`,
+  `apps/api/src/images/setChrome.ts`). Reporting the bare `card_set.logo_url` — NULL for exactly the sets
+  the crosswalk fills — is how 15 approved logos (Temporal Forces, the Trainer/Galarian Galleries, …) went
+  unseen until 2026-11-27 while the tier served them. Do not "fix" that by attempting the logo for every
+  set the way `SetSymbolTile` does: the logo slot is not a fixed box, so a failed attempt swaps in the
+  name late and reflows the set header on a phone (caught by CI's Deck-E scroll test).
+- Verify: `curl /deckpal/images/sets/<setId>/logo.webp` → 302 to real bytes, **and** the rendered series
+  page shows an `<img>` in that set's row (a tier that serves an asset the UI never asks for is still a
+  gap); series index renders the base-set logo.
 - Game-specific: no (most TCGs have set/expansion logos).
 - Known residue (2026-08-29): 38 logo pairs stay blank — **20 Trainer Kit logos** (`tk-*`/`tk-ex-*` sets
   share one byte-identical generic wordmark; owner decision 2026-08-29, reads as a bug across sets) and
@@ -101,6 +110,14 @@ new `kind` outside the migration-006 CHECK list needs an additive migration.
   `xya` logo, `exu` logo, `ex5.5` logo) — promo aggregates, energy subsets and
   variant groupings, all of which returned nothing across TCGdex in every
   language, Bulbagarden and Wikimedia Commons.
+- **2026-11-27 full audit (203 sets, live tier + rendered pages).** Logo residue: `me06` Delta Reign
+  (new set; TCGdex has no logo/symbol in any language yet, pokemontcg.io 404s — only Bulbagarden has
+  `File:ME6 Logo EN.png` + `File:SetSymbolDelta Reign.png`, put to the owner as a scoped question
+  because Bulbagarden files enter the crosswalk only per-file), plus the families above and `2026me`.
+  Symbol residue: `me06`, `2026me` (Bulbagarden `SetSymbolMcDonalds Collection 2026.png`, same
+  question), `30th-c`, `mfb`, `miscp`. Subset rows show the parent's wordmark (that is what their
+  approved crosswalk file is); per-family logo templates are with the owner for review. See
+  `decisions/2026/2026-11-27-set-logos-are-attempted-for-every-set-*.md`.
 - **Two lessons for the next sweep of this slot.** (1) TCGdex does NOT 404 for a
   missing asset — the request HANGS, so probe with a short deadline and treat a
   timeout as absent, or a sweep stalls and returns nothing. (2) Bulbagarden names

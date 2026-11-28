@@ -65,8 +65,12 @@ omit the host.
   changed is only which URL the browser ends up fetching. A card the image tier
   cannot source answers a ~1 KB placeholder WebP with `200` and `X-Placeholder: 1` —
   **a valid image, not an error**, so a client cannot detect it via `onError`.
-  Set chrome (`logoUrl`, `symbolUrl`, `backgroundUrl`) are stored upstream URLs and
-  may be `null`.
+  Set chrome (`logoUrl`, `symbolUrl`, `backgroundUrl`) are upstream URLs and may be
+  `null`. `logoUrl` and `symbolUrl` are the URL the image tier fills that image
+  from: the catalog's stored URL, else the approved set-image crosswalk's
+  (`setChromeUrl`, 2026-11-27), so non-null means the tier can source it. Clients
+  load set imagery from `/deckpal/images/sets/<setId>/{logo,symbol}.webp`, never
+  from these URLs.
 - **PDF routes.** `GET /decks/:id/pdf`, `GET /lists/:id/pdf`, and
   `GET /sets/:setId/checklist.pdf` stream `application/pdf` with a
   `Content-Disposition: attachment` filename. They are mounted at the `/deckpal/api`

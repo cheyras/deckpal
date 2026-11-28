@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { cardImages, dbHandle, q, q1, shapePrice, tcgplayerUrl, toMajor, type PriceRow } from '../db.js';
 import { asyncHandler, catalogOrUserCache, notFound, oneOf, userCache } from '../http.js';
 import { optionalUserId } from '../identity.js';
+import { setChromeUrl } from '../images/setChrome.js';
 import { cardLegality, formatConfig, loadByTcgdexId, buildReprintOracle } from '../deck/index.js';
 
 export const cardsRouter: Router = Router();
@@ -237,8 +238,9 @@ cardsRouter.get(
           setId: card.set_tcgdex_id,
           name: card.set_name,
           slug: card.set_slug,
-          logoUrl: card.set_logo_url,
-          symbolUrl: card.set_symbol_url,
+          // Catalog column, else the approved crosswalk — see setChrome.ts.
+          logoUrl: setChromeUrl(card.set_tcgdex_id, 'logo', card.set_logo_url),
+          symbolUrl: setChromeUrl(card.set_tcgdex_id, 'symbol', card.set_symbol_url),
         },
         series: { slug: card.series_slug, name: card.series_name, tcgdexId: card.series_tcgdex_id },
         images: cardImages(card.series_tcgdex_id, card.set_tcgdex_id, card.local_id),

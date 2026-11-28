@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { cardImages, q, q1, toMajor } from '../db.js';
 import { asyncHandler, catalogOrUserCache, clampInt, notFound, oneOf, str, strList } from '../http.js';
 import { optionalUserId } from '../identity.js';
+import { setChromeUrl } from '../images/setChrome.js';
 import { pct } from '../insights/trainerLevel.js';
 import { GOALS, type Goal } from '../missing.js';
 import { raritySortSql } from '../rarity.js';
@@ -283,7 +284,12 @@ setsRouter.get(
         printedCount: official,
         secretCount: Math.max(0, total - official),
         cardCountTotal: total,
-        images: { logoUrl: set.logo_url, symbolUrl: set.symbol_url, backgroundUrl: set.background_url },
+        // Catalog column, else the approved crosswalk — see setChrome.ts.
+        images: {
+          logoUrl: setChromeUrl(set.tcgdex_id, 'logo', set.logo_url),
+          symbolUrl: setChromeUrl(set.tcgdex_id, 'symbol', set.symbol_url),
+          backgroundUrl: set.background_url,
+        },
         marketValueUsd: toMajor(agg?.sum_minor ? Number(agg.sum_minor) : null, 'USD'),
         mostExpensiveCard: agg?.max_card
           ? { cardId: agg.max_card, name: agg.max_name, number: agg.max_number, marketUsd: toMajor(agg.max_minor, 'USD') }
