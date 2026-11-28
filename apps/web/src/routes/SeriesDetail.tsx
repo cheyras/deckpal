@@ -83,6 +83,7 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
         {set.logoUrl || bundledSetLogo(set.setId) ? (
           <SetLogo
             setId={set.setId}
+            logoUrl={set.logoUrl}
             imgClassName="max-h-[64px] max-w-[112px]"
             platedImgClassName="max-h-[54px] max-w-[96px]"
           />

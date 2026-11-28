@@ -1,0 +1,288 @@
+{
+ "logos": {
+  "30th": {
+   "tier": "https://deckpal.app/deckpal/images/sets/30th/logo.webp",
+   "upstream": null,
+   "sha256": "eb4d9e440c6fc6ca5be482a57e1d1d56432a27990b314c7f7d312318ce43ac09",
+   "bytes": 33014
+  },
+  "30th-c": {
+   "tier": "https://deckpal.app/deckpal/images/sets/30th-c/logo.webp",
+   "upstream": null,
+   "sha256": "15119a32b5e137776c85e70cf903ff0262ea811a609f37e120de21250308d98d",
+   "bytes": 219227
+  },
+  "base1": {
+   "tier": "https://deckpal.app/deckpal/images/sets/base1/logo.webp",
+   "upstream": "https://assets.tcgdex.net/en/base/base1/logo",
+   "sha256": "a3ff12f700a2649b1b3aaf6246338287fad6676adb4d4c287114e2a0b7c9529e",
+   "bytes": 102580
+  },
+  "bw1": {
+   "tier": "https://deckpal.app/deckpal/images/sets/bw1/logo.webp",
+   "upstream": "https://assets.tcgdex.net/en/bw/bw1/logo",
+   "sha256": "a557c2940f0102d0df41b0aabc0e80437fcf64d44859d5882812be3a840f6f74",
+   "bytes": 9100
+  },
+  "cel25": {
+   "tier": "https://deckpal.app/deckpal/images/sets/cel25/logo.webp",
+   "upstream": "https://assets.tcgdex.net/en/swsh/cel25/logo",
+   "sha256": "79500e3429e54090ab05e1ed2881cca7f4abbcf8c91dd8bf52dbe74f8dbb33ba",
+   "bytes": 61306
+  },
+  "cel25cc": {
+   "tier": "https://deckpal.app/deckpal/images/sets/cel25cc/logo.webp",
+   "upstream": "https://images.pokemontcg.io/cel25c/logo.png",
+   "sha256": "2ed5ef5b3fc742830dca5ae52a87b87528c4599373a9a54511a6424658a9df25",
+   "bytes": 242485
+  },
+  "dp1": {
+   "tier": "https://deckpal.app/deckpal/images/sets/dp1/logo.webp",
+   "upstream": "https://assets.tcgdex.net/en/dp/dp1/logo",
+   "sha256": "cff94493d074ce3188220771900fa6936f5789952842ab4db38c924619af76fa",
+   "bytes": 6226
+  },
+  "ex10": {
+   "tier": "https://deckpal.app/deckpal/images/sets/ex10/logo.webp",
+   "upstream": "https://assets.tcgdex.net/en/ex/ex10/logo",
+   "sha256": "c0f8e156329a1b98e8e46bad6d515290bea3d6e4be3dfa7d1508f49e21223f85",
+   "bytes": 25246
+  },
+  "hgss1": {
+   "tier": "https://deckpal.app/deckpal/images/sets/hgss1/logo.webp",
+   "upstream": "https://assets.tcgdex.net/en/hgss/hgss1/logo",
+   "sha256": "0ee1b38b0688705e27264b57075074bf76aaa8423bb1c245d8dc93a3df1f41ff",
+   "bytes": 24598
+  },
+  "me01": {
+   "tier": "https://deckpal.app/deckpal/images/sets/me01/logo.webp",
+   "upstream": "https://assets.tcgdex.net/en/me/me01/logo",
+   "sha256": "7715a2ff7a79371ba40611a900e5b666beafc5e6ae9122e2b9b53bf5b6dbdf02",
+   "bytes": 23790
+  },
+  "sm1": {
+   "tier": "https://deckpal.app/deckpal/images/sets/sm1/logo.webp",
+   "upstream": "https://assets.tcgdex.net/en/sm/sm1/logo",
+   "sha256": "9f42adbb3438896d2ee71cb3c10d063ec547071a2d8a8130e390e3344b747055",
+   "bytes": 14092
+  },
+  "sm115": {
+   "tier": "https://deckpal.app/deckpal/images/sets/sm115/logo.webp",
+   "upstream": "https://assets.tcgdex.net/en/sm/sm115/logo",
+   "sha256": "5d9c95ad5bd48b06aa84c18451ad46c42a096611e708a600cab6bcc9314bc78f",
+   "bytes": 20892
+  },
+  "sma": {
+   "tier": "https://deckpal.app/deckpal/images/sets/sma/logo.webp",
+   "upstream": "https://images.pokemontcg.io/sma/logo.png",
+   "sha256": "d1c49ff42f097de0f7650705863b881f21aac9997cf78d04633a82bd2f446beb",
+   "bytes": 70470
+  },
+  "sv01": {
+   "tier": "https://deckpal.app/deckpal/images/sets/sv01/logo.webp",
+   "upstream": "https://assets.tcgdex.net/en/sv/sv01/logo",
+   "sha256": "d9bf2f5769032eac3a453896897fe5d94ccc0f5081124f736bb023719d38347b",
+   "bytes": 24294
+  },
+  "svp": {
+   "tier": "https://deckpal.app/deckpal/images/sets/svp/logo.webp",
+   "upstream": "https://images.pokemontcg.io/svp/logo.png",
+   "sha256": "feedeb0bba7952ce90f70115df5ece0399be0d4b8ea8d3fa7e2f96401fe4da69",
+   "bytes": 18271
+  },
+  "swsh1": {
+   "tier": "https://deckpal.app/deckpal/images/sets/swsh1/logo.webp",
+   "upstream": "https://assets.tcgdex.net/en/swsh/swsh1/logo",
+   "sha256": "1252ce31b0befdaddd916476e2228ed1cb3fb76ca080337d8899e0ec85b58b82",
+   "bytes": 16144
+  },
+  "swsh10": {
+   "tier": "https://deckpal.app/deckpal/images/sets/swsh10/logo.webp",
+   "upstream": "https://assets.tcgdex.net/en/swsh/swsh10/logo",
+   "sha256": "a8c60e08d83dc582d6877cf530b117ee02513ca56d85e7a48470b37f3ff4e144",
+   "bytes": 15776
+  },
+  "swsh10tg": {
+   "tier": "https://deckpal.app/deckpal/images/sets/swsh10tg/logo.webp",
+   "upstream": "https://images.pokemontcg.io/swsh10tg/logo.png",
+   "sha256": "f89463d3739578f998922a78a5a09b8f7544ebf7e0238033f0c3078d2df52f3d",
+   "bytes": 216558
+  },
+  "swsh11": {
+   "tier": "https://deckpal.app/deckpal/images/sets/swsh11/logo.webp",
+   "upstream": "https://assets.tcgdex.net/en/swsh/swsh11/logo",
+   "sha256": "5606ec3365a6198d21e942d35c5918dc3eb73c245645d883c47b95789e01f07a",
+   "bytes": 13236
+  },
+  "swsh11tg": {
+   "tier": "https://deckpal.app/deckpal/images/sets/swsh11tg/logo.webp",
+   "upstream": "https://images.pokemontcg.io/swsh11tg/logo.png",
+   "sha256": "33139f89cf0dd8d804822ba999c0bdc5ae91ffefafcfb92773751dd1c43a88f5",
+   "bytes": 128410
+  },
+  "swsh12": {
+   "tier": "https://deckpal.app/deckpal/images/sets/swsh12/logo.webp",
+   "upstream": "https://assets.tcgdex.net/en/swsh/swsh12/logo",
+   "sha256": "e6ab3c30617d22cfae282d1f97a586fedaf17fe0d29c2e34d528c0baf3116484",
+   "bytes": 19706
+  },
+  "swsh12.5": {
+   "tier": "https://deckpal.app/deckpal/images/sets/swsh12.5/logo.webp",
+   "upstream": "https://assets.tcgdex.net/en/swsh/swsh12.5/logo",
+   "sha256": "b35ffb0f3c6dd6b227da6e02ed098a6ea3adcf36315df706e29a6ac365b2e732",
+   "bytes": 10548
+  },
+  "swsh12.5gg": {
+   "tier": "https://deckpal.app/deckpal/images/sets/swsh12.5gg/logo.webp",
+   "upstream": "https://images.pokemontcg.io/swsh12pt5gg/logo.png",
+   "sha256": "50794a1569b76c7aa1eb0059d1958148329fad8cb3c26ed688f3d87462a1c8fb",
+   "bytes": 117516
+  },
+  "swsh12tg": {
+   "tier": "https://deckpal.app/deckpal/images/sets/swsh12tg/logo.webp",
+   "upstream": "https://images.pokemontcg.io/swsh12tg/logo.png",
+   "sha256": "bfb84d5e77835d5d7327da26a8dfdbe3ca3bf8ab4e8c3c6a59862e3ad1c752ed",
+   "bytes": 394850
+  },
+  "swsh4.5": {
+   "tier": "https://deckpal.app/deckpal/images/sets/swsh4.5/logo.webp",
+   "upstream": "https://assets.tcgdex.net/en/swsh/swsh4.5/logo",
+   "sha256": "73057a1874f912b5503acccb2b1130b1a737b79a21d40fb2566dc17332c26c37",
+   "bytes": 18616
+  },
+  "swsh4.5sv": {
+   "tier": "https://deckpal.app/deckpal/images/sets/swsh4.5sv/logo.webp",
+   "upstream": "https://images.pokemontcg.io/swsh45sv/logo.png",
+   "sha256": "aa8f8eaf57b2a5b45cfeac27746e8ab5f69b023b1b2fa84316b42b0a136e2b78",
+   "bytes": 31376
+  },
+  "swsh9": {
+   "tier": "https://deckpal.app/deckpal/images/sets/swsh9/logo.webp",
+   "upstream": "https://assets.tcgdex.net/en/swsh/swsh9/logo",
+   "sha256": "97f8442344985e3041bca55ac11b8023c3d561ec07e672a857f9d0bfd1b98497",
+   "bytes": 33628
+  },
+  "swsh9tg": {
+   "tier": "https://deckpal.app/deckpal/images/sets/swsh9tg/logo.webp",
+   "upstream": "https://images.pokemontcg.io/swsh9tg/logo.png",
+   "sha256": "bb8a6c45a9b6cab8ed9d22c6599f129b6649fd907dda9c217a79bffa8e5f40ac",
+   "bytes": 193079
+  },
+  "xy1": {
+   "tier": "https://deckpal.app/deckpal/images/sets/xy1/logo.webp",
+   "upstream": "https://assets.tcgdex.net/en/xy/xy1/logo",
+   "sha256": "2fd5a6227f02b57ccb8ceb25a563bdc4b2a5fd128884279a1ce49841b49e123c",
+   "bytes": 13974
+  }
+ },
+ "sprites": {
+  "10084": {
+   "tier": "https://deckpal.app/deckpal/images/sprites/art/10084.png",
+   "upstream": "https://raw.githubusercontent.com/PokeAPI/sprites/bf4c47ac82c33b330e33d98b8882d1cedb2f53e7/sprites/pokemon/other/official-artwork/10084.png",
+   "sha256": "069e23176cddb83a9f30763754091f1a6f0d0737c29c2f4910b391c20e079b8c",
+   "bytes": 128499
+  },
+  "10100": {
+   "tier": "https://deckpal.app/deckpal/images/sprites/art/10100.png",
+   "upstream": "https://raw.githubusercontent.com/PokeAPI/sprites/bf4c47ac82c33b330e33d98b8882d1cedb2f53e7/sprites/pokemon/other/official-artwork/10100.png",
+   "sha256": "0cc06daa4c80f2277ae50cb722099ec6f1d4327dfd59012ad868a01a1bad8a4e",
+   "bytes": 119545
+  },
+  "130": {
+   "tier": "https://deckpal.app/deckpal/images/sprites/art/130.png",
+   "upstream": "https://raw.githubusercontent.com/PokeAPI/sprites/bf4c47ac82c33b330e33d98b8882d1cedb2f53e7/sprites/pokemon/other/official-artwork/130.png",
+   "sha256": "41d17760b81321cc7a3fb2cb1568d3c33010e892b687eeacb3738ba307071f8b",
+   "bytes": 146784
+  },
+  "245": {
+   "tier": "https://deckpal.app/deckpal/images/sprites/art/245.png",
+   "upstream": "https://raw.githubusercontent.com/PokeAPI/sprites/bf4c47ac82c33b330e33d98b8882d1cedb2f53e7/sprites/pokemon/other/official-artwork/245.png",
+   "sha256": "e72657f300c9b1db690f61a08b0cafc3ccbbd31548a081b931adf0679bd9f8a6",
+   "bytes": 191503
+  },
+  "26": {
+   "tier": "https://deckpal.app/deckpal/images/sprites/art/26.png",
+   "upstream": "https://raw.githubusercontent.com/PokeAPI/sprites/bf4c47ac82c33b330e33d98b8882d1cedb2f53e7/sprites/pokemon/other/official-artwork/26.png",
+   "sha256": "e5671c5f00695fa6f6a3fc08a70d0b53a34e14f5dafcccc66316bdee90d076ac",
+   "bytes": 94288
+  },
+  "311": {
+   "tier": "https://deckpal.app/deckpal/images/sprites/art/311.png",
+   "upstream": "https://raw.githubusercontent.com/PokeAPI/sprites/bf4c47ac82c33b330e33d98b8882d1cedb2f53e7/sprites/pokemon/other/official-artwork/311.png",
+   "sha256": "758059e4a0e491baa747d58fe6395dc51eba691304721060737cedc9a4e07e2f",
+   "bytes": 104030
+  },
+  "312": {
+   "tier": "https://deckpal.app/deckpal/images/sprites/art/312.png",
+   "upstream": "https://raw.githubusercontent.com/PokeAPI/sprites/bf4c47ac82c33b330e33d98b8882d1cedb2f53e7/sprites/pokemon/other/official-artwork/312.png",
+   "sha256": "c59842a7a185c6f18c360fe79cc375253239bf6295c5bd0c4b55edf488d01c92",
+   "bytes": 87575
+  },
+  "380": {
+   "tier": "https://deckpal.app/deckpal/images/sprites/art/380.png",
+   "upstream": "https://raw.githubusercontent.com/PokeAPI/sprites/bf4c47ac82c33b330e33d98b8882d1cedb2f53e7/sprites/pokemon/other/official-artwork/380.png",
+   "sha256": "2c184ea362a6c65ee6fabe756067f97f62a99aa374a69075856a0c29768b4911",
+   "bytes": 85417
+  },
+  "381": {
+   "tier": "https://deckpal.app/deckpal/images/sprites/art/381.png",
+   "upstream": "https://raw.githubusercontent.com/PokeAPI/sprites/bf4c47ac82c33b330e33d98b8882d1cedb2f53e7/sprites/pokemon/other/official-artwork/381.png",
+   "sha256": "36410fb32ec67d3e55b80cdf957cf2a9aa2c1d829bd2618d2cdc062b70b93add",
+   "bytes": 84078
+  },
+  "40": {
+   "tier": "https://deckpal.app/deckpal/images/sprites/art/40.png",
+   "upstream": "https://raw.githubusercontent.com/PokeAPI/sprites/bf4c47ac82c33b330e33d98b8882d1cedb2f53e7/sprites/pokemon/other/official-artwork/40.png",
+   "sha256": "8150678a4be49542717ac2cdc6c18ecf80e6910172b045d15e79f239a8678a5e",
+   "bytes": 133899
+  },
+  "448": {
+   "tier": "https://deckpal.app/deckpal/images/sprites/art/448.png",
+   "upstream": "https://raw.githubusercontent.com/PokeAPI/sprites/bf4c47ac82c33b330e33d98b8882d1cedb2f53e7/sprites/pokemon/other/official-artwork/448.png",
+   "sha256": "8c5064f1d4a37c8b554d7ad83d77970b02d6875750f934c782493c83f8943127",
+   "bytes": 91289
+  },
+  "490": {
+   "tier": "https://deckpal.app/deckpal/images/sprites/art/490.png",
+   "upstream": "https://raw.githubusercontent.com/PokeAPI/sprites/bf4c47ac82c33b330e33d98b8882d1cedb2f53e7/sprites/pokemon/other/official-artwork/490.png",
+   "sha256": "6329b52580a6baa5b20ed096f515b7b86251257c71019f48f59c3529a66ed59b",
+   "bytes": 78428
+  },
+  "530": {
+   "tier": "https://deckpal.app/deckpal/images/sprites/art/530.png",
+   "upstream": "https://raw.githubusercontent.com/PokeAPI/sprites/bf4c47ac82c33b330e33d98b8882d1cedb2f53e7/sprites/pokemon/other/official-artwork/530.png",
+   "sha256": "3f0376151a774ee61cb39fe8ef968e999555cb9ae3cca1fd45a531acb73ebe73",
+   "bytes": 134799
+  },
+  "571": {
+   "tier": "https://deckpal.app/deckpal/images/sprites/art/571.png",
+   "upstream": "https://raw.githubusercontent.com/PokeAPI/sprites/bf4c47ac82c33b330e33d98b8882d1cedb2f53e7/sprites/pokemon/other/official-artwork/571.png",
+   "sha256": "b9dc530c88c2baee1026f03eb4b57bd7db94289d9811bafbe961ae49150938cd",
+   "bytes": 131159
+  },
+  "625": {
+   "tier": "https://deckpal.app/deckpal/images/sprites/art/625.png",
+   "upstream": "https://raw.githubusercontent.com/PokeAPI/sprites/bf4c47ac82c33b330e33d98b8882d1cedb2f53e7/sprites/pokemon/other/official-artwork/625.png",
+   "sha256": "8132688fd2359a79dc8814803a0ed2ef7a5265b9476865026a1585fcc4be952b",
+   "bytes": 112635
+  },
+  "700": {
+   "tier": "https://deckpal.app/deckpal/images/sprites/art/700.png",
+   "upstream": "https://raw.githubusercontent.com/PokeAPI/sprites/bf4c47ac82c33b330e33d98b8882d1cedb2f53e7/sprites/pokemon/other/official-artwork/700.png",
+   "sha256": "193777db6d89cdace234fe3198dca4e955a7a5a18011cd0105178b436f6199a7",
+   "bytes": 136613
+  },
+  "715": {
+   "tier": "https://deckpal.app/deckpal/images/sprites/art/715.png",
+   "upstream": "https://raw.githubusercontent.com/PokeAPI/sprites/bf4c47ac82c33b330e33d98b8882d1cedb2f53e7/sprites/pokemon/other/official-artwork/715.png",
+   "sha256": "05ff4bc3bd6bbff5f1eb3b975787cbefea7102ca238d8a16d0713c9fd6ee2bc6",
+   "bytes": 123570
+  },
+  "745": {
+   "tier": "https://deckpal.app/deckpal/images/sprites/art/745.png",
+   "upstream": "https://raw.githubusercontent.com/PokeAPI/sprites/bf4c47ac82c33b330e33d98b8882d1cedb2f53e7/sprites/pokemon/other/official-artwork/745.png",
+   "sha256": "bbf9857260d2b19f6a7e3a7f2b34cab13e65dd977583badc01255a41b30b0a50",
+   "bytes": 104716
+  }
+ }
+}

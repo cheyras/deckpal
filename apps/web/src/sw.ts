@@ -8,6 +8,7 @@
 //   Tier 0 — app shell (precache, self.__WB_MANIFEST): index.html + hashed JS/CSS
 //            + fonts + icons. Always available offline.
 //   Tier 1 — visited card/set art: CacheFirst, LRU-capped at 2000 entries.
+//   Tier 1b — DeckPal's template set logos (public/set-logos/): StaleWhileRevalidate.
 //   Tier 2 — the Deck-E character assets: StaleWhileRevalidate, so a repeat
 //            chat-open is instant and costs a 304 rather than ~600 KB.
 //   Anonymous cloud catalog GETs — NetworkFirst; private APIs stay NetworkOnly.
@@ -217,6 +218,37 @@ registerRoute(
         // The directory is a known, small, fixed set — this is a ceiling
         // against a typo'd URL filling the cache, not a working limit.
         maxEntries: 20,
+        maxAgeSeconds: 90 * 24 * 60 * 60,
+        purgeOnQuotaError: true,
+      }),
+    ],
+  }),
+)
+
+// ── Tier 1b: DeckPal's template set logos, StaleWhileRevalidate ───────────────
+//
+// `public/set-logos/<setId>.webp` — the logos `tools/set-logo-templates` makes
+// for sets with no official logo (promo pools, energy sets, subsets, trainer
+// kits, McDonald's collections). They REPLACE image-tier logos that Tier 1 used
+// to cache, so without a route of their own a series page that worked offline
+// would lose its promo and subset logos the day these shipped.
+//
+// Same shape as Tier 2 and for the same reason: the filenames are not content-
+// hashed (`releasedSetAssets.ts` names them literally so the build can prove
+// they exist), so CacheFirst would pin a re-rendered logo until expiry. SWR
+// serves the cached copy at once and revalidates with a 304 in the background.
+//
+// NOT PRECACHED: `globPatterns` does not match `.webp`, and should not — about
+// 2.4 MB across 59 files, most of which any one visitor never looks at.
+registerRoute(
+  ({ url, sameOrigin }) => sameOrigin && url.pathname.startsWith(`${BASE}set-logos/`),
+  new StaleWhileRevalidate({
+    cacheName: 'deckpal-set-logos-v1',
+    plugins: [
+      new CacheableResponsePlugin({ statuses: [200] }),
+      new ExpirationPlugin({
+        // 59 files today. A ceiling against a runaway, not a working limit.
+        maxEntries: 200,
         maxAgeSeconds: 90 * 24 * 60 * 60,
         purgeOnQuotaError: true,
       }),

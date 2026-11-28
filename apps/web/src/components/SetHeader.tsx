@@ -277,6 +277,7 @@ export function SetHeader({
             {(set.images.logoUrl || bundledSetLogo(set.setId)) && !logoError ? (
               <SetLogo
                 setId={set.setId}
+                logoUrl={set.images.logoUrl}
                 alt={set.name}
                 imgClassName="max-h-[132px] max-w-[290px]"
                 platedImgClassName="max-h-[114px] max-w-[290px]"

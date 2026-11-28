@@ -34,6 +34,19 @@ bytes, reject tiny/placeholder bodies), WebP where sensible, polite rate limit, 
 idempotent. Crosswalk on multiple keys. If it feeds the scanner, `scan:index` + **restart the
 service**. **Never invent an asset** — leave genuine gaps and report them.
 
+**Set logos are the one exception, and it is a rule, not a judgement call** (owner, 2026-11-27). A set
+with **no official logo anywhere** — a promo pool, an energy set, a subset, a trainer kit, a McDonald's
+collection, a one-off pack — gets a **template logo**, never a blank: DeckPal's own declared design,
+not a fake of the real thing. Follow `tools/set-logo-templates/README.md` ("Adding a set"): add the
+set's row in `build/config.py`, run the build, register the shipped
+`apps/web/public/set-logos/<setId>.webp` in `TEMPLATE_SET_LOGOS`, commit the render. The same goes for
+a set that shows a generic stand-in (the shared PROMO star, the generic Pokémon TCG wordmark, a
+parent's bare wordmark): list that placeholder's `logoUrl` in `replaces`. Two things stay true:
+exhaust the approved sources first, because an official logo that exists must be sourced, not
+templated (`me06` Delta Reign); and the template is a bundled file, so none of the image-store
+choke-point steps below apply to it. Every other slot (card art, symbols, sprites) still leaves an
+honest gap.
+
 **Every byte you add to the image store must record where it came from.** Never
 `writeFile`/`curl -o`/`cp`/direct Storage upload outside the choke point.
 **Cloud:** use `packages/storage/src/put-asset.ts` (Supabase Storage + `image_asset` upsert).

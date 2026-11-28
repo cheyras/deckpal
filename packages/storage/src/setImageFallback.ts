@@ -41,6 +41,15 @@ import type { SetImageKind } from './paths.js';
  * no confirmed image upstream, or the only candidate is one of the excluded
  * classes above. These stay blank; the UI's derived acronym tag is the correct
  * rendering for them.
+ *
+ * ── 2026-11-27: the UI no longer shows those blanks ──────────────────────────
+ * The sets above with no logo (and the ones whose entry here is a generic or
+ * parent-set placeholder) now draw DeckPal's own template logos, bundled with
+ * the web app (`apps/web/src/lib/releasedSetAssets.ts`, made by
+ * `tools/set-logo-templates/`). That changes nothing in this file: the table is
+ * still what the IMAGE TIER fetches, its exclusions still stand (the corporate
+ * McDonald's mark and the shared Trainer Kit wordmark are still never fetched),
+ * and it stays frozen.
  */
 
 export interface SetImageFallbackEntry {
