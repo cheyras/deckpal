@@ -1,9 +1,9 @@
 import { useDesktopTable } from '../lib/useDesktopTable'
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query'
-import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
+import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { api, ApiError, type ListDetailResponse, type ListItem } from '../lib/api'
-import { Content, Spinner, ErrorState, BackPill, ProgressBar, EmptyState, Button } from '../components/ui'
+import { Content, Spinner, ErrorState, BackPill, ProgressBar, EmptyState, Button, buttonClass } from '../components/ui'
 import { GridView } from '../components/GridView'
 import { TableView } from '../components/TableView'
 import { BinderView } from '../components/BinderView'
@@ -108,7 +108,7 @@ export function ListDetail() {
 
   const patch = (p: Partial<ListSearch>) => navigate({ search: { ...search, ...p } as never, resetScroll: false })
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: key,
     queryFn: ({ signal }) => api.list(id, signal),
     placeholderData: keepPreviousData,
@@ -338,7 +338,17 @@ export function ListDetail() {
       </div>
 
       {isLoading && !data && <Spinner label="Loading list…" />}
-      {error && <ErrorState message={(error as Error).message} className={enter} />}
+      {/* A list that is not there is not "Something went wrong": it was
+          deleted (and can be restored from My Lists), or the link is wrong. */}
+      {error && !data && error instanceof ApiError && error.status === 404 ? (
+        <EmptyState className={`mt-[24px] ${enter}`} icon="lists" title="List not found" body="It may have been deleted, or the link is wrong. Deleted lists can be restored from My Lists.">
+          <Link to="/lists" className={buttonClass('secondary')}>
+            Go to My Lists
+          </Link>
+        </EmptyState>
+      ) : (
+        error && <ErrorState message={(error as Error).message} className={enter} onRetry={() => void refetch()} />
+      )}
 
       {list && (
         <>
