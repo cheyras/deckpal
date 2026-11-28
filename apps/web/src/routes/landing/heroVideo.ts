@@ -46,11 +46,12 @@ export type HeroVideoConfig = {
 export const HERO_POSTER_SIZES = '(min-width: 1100px) 1040px, 100vw'
 
 export const HERO_VIDEO: HeroVideoConfig = {
-  sources: [],
-  // e.g. once approved:
-  // sources: [
-  //   { src: '/marketing/landing/hero.webm', type: 'video/webm' },
-  //   { src: '/marketing/landing/hero.mp4', type: 'video/mp4' },
-  // ],
+  // The 28 s anime-style film, approved by the owner 2026-11-28. Silent (it
+  // autoplays muted); made in the separate deckpal-marketing workspace, see
+  // public/marketing/landing/CREDITS.md and the decision of the same date.
+  sources: [
+    { src: '/marketing/landing/hero.webm', type: 'video/webm' },
+    { src: '/marketing/landing/hero.mp4', type: 'video/mp4' },
+  ],
   poster: { name: 'hero', widths: [2560, 1600, 960] },
 }

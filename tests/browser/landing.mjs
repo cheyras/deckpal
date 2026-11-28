@@ -6,9 +6,9 @@
  *   1. Both pages render for a visitor with NO session, with one h1 each, and
  *      fit the phone: no sideways scroll at 390px.
  *   2. axe finds nothing at WCAG 2.2 AA (the same tags as `a11y.mjs`).
- *   3. The hero video slot holds its 16:9 box and, while no film is configured
- *      (landing/heroVideo.ts), asks for no media at all: a missing file would
- *      otherwise be a request this strict server rejects.
+ *   3. The hero video slot holds its 16:9 box. While no film is configured
+ *      (landing/heroVideo.ts) it asks for no media at all; once one is, it
+ *      fetches only the configured same-origin files and plays muted inline.
  *   4. The card orbit is paused while off screen and runs while on it (it is
  *      the page's one continuous animation, and must cost nothing scrolled
  *      away). Under reduced motion it has no animation and every looping mock
@@ -25,6 +25,7 @@ import path from 'node:path'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { buildWeb, serve, contextFor } from './support.mjs'
+import { HERO_VIDEO } from '../../apps/web/src/routes/landing/heroVideo.ts'
 
 const AXE_SRC = readFileSync(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8')
 const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']
@@ -104,7 +105,15 @@ export async function checkLanding(browser, server, out) {
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
       assert.ok(overflow <= 0, `${width}: the home page scrolls sideways by ${overflow}px`)
       await axe(page, `${width} home`)
-      assert.deepEqual(media, [], `${width}: no film is configured, so no media may be requested`)
+      if (HERO_VIDEO.sources.length === 0) assert.deepEqual(media, [], `${width}: no film is configured, so no media may be requested`)
+      else {
+        // The film is same-origin (the CSP's media-src is 'self'), and only the configured files are fetched.
+        const allowed = new Set(HERO_VIDEO.sources.map((s) => s.src))
+        for (const url of media) assert.ok(allowed.has(new URL(url).pathname), `${width}: unexpected media request ${url}`)
+        // It is attached after load and plays muted and inline, so a visitor sees it without pressing play.
+        await page.locator('.hm-video').scrollIntoViewIfNeeded()
+        await page.waitForFunction(() => { const v = document.querySelector('.hm-video-film'); return v && v.muted && !v.paused }, null, { timeout: 15000 })
+      }
       await page.screenshot({ path: path.join(out, `landing-home-${width}.png`), fullPage: true })
 
       await page.getByRole('link', { name: 'See each step in detail' }).click()
