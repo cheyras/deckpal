@@ -218,6 +218,11 @@ DB liveness + latest run per sync job. Never cached.
                "sourceStamp": "2026-07-24T20:11:00+0000" } ] }
 ```
 `503 { "status": "degraded", "db": "down", "error": … }` if the DB is unreachable.
+Configuration reports ride alongside (B11). Among them, added 2026-11-27:
+`"aiRoute": "anthropic-direct" | "gateway-only" | "gateway-only-malformed-key"`
+— which road Anthropic models take (`apps/api/src/decke/aiRoute.ts`; never the
+key) — and `deckeModels.priceDrift`, present only when the AI Gateway's price for
+a directly-served Anthropic model no longer matches the direct road's rate table.
 
 ## GET /deckpal/api/playbooks
 Added 2026-10-14. Public (no auth) and cacheable (`Cache-Control: public, max-age=300`). The agent playbooks: DeckPal's

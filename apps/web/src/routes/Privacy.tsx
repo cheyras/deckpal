@@ -10,7 +10,9 @@
  *
  *   • Deck-E's models: `apps/api/src/decke/models.ts`, and `jev.ts` for the
  *     only request that asks for zero data retention. Every model call goes
- *     through the Vercel AI Gateway.
+ *     through the Vercel AI Gateway, except that Anthropic models go to
+ *     Anthropic's API directly when ANTHROPIC_API_KEY is set
+ *     (`apps/api/src/decke/aiRoute.ts`), falling back to the Gateway.
  *   • What the browser may talk to: the CSP in `vercel.json`. "No third-party
  *     analytics or tracking scripts" is true BECAUSE that allow-list is
  *     DeckPal, Supabase and Stripe (with Stripe's Link) and nothing else.
@@ -190,7 +192,8 @@ const INFRASTRUCTURE: Processor[] = [
   },
 ]
 
-// Deck-E's models, all reached through the Vercel AI Gateway.
+// Deck-E's models: through the Vercel AI Gateway, except Anthropic, which may
+// be reached directly (apps/api/src/decke/aiRoute.ts).
 const AI_MODELS: Processor[] = [
   {
     name: 'Anthropic (Claude)',
@@ -313,7 +316,7 @@ export function Privacy() {
             against <A href={SOURCE}>the code</A>.
           </p>
           <p className="mt-[16px] text-[14px] leading-[1.6] text-text-muted">
-            Last updated: November 23, 2026
+            Last updated: November 27, 2026
           </p>
           <p className="mt-[8px] text-[14px] leading-[1.6] text-text-muted">
             This page is about deckpal.app. If you use a copy of DeckPal that someone else runs, that copy is theirs,
@@ -429,12 +432,13 @@ export function Privacy() {
               These are the outside services that receive data about you when you use deckpal.app. Supabase,
               Resend, Stripe and Vercel each process data for DeckPal under their standard data-processing
               agreements, which are part of their terms of service. GitHub and DuckDuckGo work under their own terms.
-              DeckPal reaches Deck-E’s AI model providers only through the Vercel AI Gateway, so its agreement for
-              them is with Vercel.
+              DeckPal reaches Deck-E’s AI model providers through the Vercel AI Gateway, so its agreement for them is
+              with Vercel. The one exception is Anthropic: DeckPal may send Claude requests straight to Anthropic’s
+              own API under Anthropic’s commercial terms, and uses the Gateway for them when it does not.
             </P>
             <H3>Running DeckPal</H3>
             <ProcessorList label="Services that run DeckPal" items={INFRASTRUCTURE} />
-            <H3>Deck-E’s AI models, through the Vercel AI Gateway</H3>
+            <H3>Deck-E’s AI models</H3>
             <ProcessorList label="Deck-E’s AI model providers" items={AI_MODELS} />
             <H3>Places you choose to send it</H3>
             <Bullets>
@@ -461,8 +465,8 @@ export function Privacy() {
             <Bullets>
               <li>
                 Your messages, and the parts of your collection, decks, lists and battle logs he looks up to answer,
-                are sent through the Vercel AI Gateway to the AI providers listed above. Your email address and
-                account ID are not.
+                are sent to the AI providers listed above: to Anthropic directly or through the Vercel AI Gateway,
+                and to the others through the Gateway. Your email address and account ID are not.
               </li>
               <li>
                 Requests to TypeSafe’s Jev require zero data retention: TypeSafe keeps nothing once it has answered,

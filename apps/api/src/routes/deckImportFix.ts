@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Router } from 'express';
-import { createGateway } from '@ai-sdk/gateway';
+import { createModelProvider } from '../decke/aiRoute.js';
 import { generateText } from 'ai';
 import { dbHandle, withUserSession } from '../db.js';
 import { currentUserId } from '../identity.js';
@@ -76,7 +76,9 @@ export function registerDeckImportFix(router: Router): void {
     await res.locals.commitAndReleaseRls();
     let result: Awaited<ReturnType<typeof generateText>>;
     try {
-      const gateway = createGateway({ apiKey: key });
+      // Anthropic direct first when ANTHROPIC_API_KEY is set; the Gateway otherwise
+      // or on a credit refusal. Same metered row either way (`decke/aiRoute.ts`).
+      const gateway = createModelProvider({ gatewayKey: key });
       result = await generateText({
         model: gateway(MODELS.chat.id),
         prompt: importFixPrompt(text, prepared.options),

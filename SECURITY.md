@@ -446,7 +446,7 @@ address.
 bounded deck input. The live chat request's current turn is capped at 240,000
 characters in addition to the SEC-04 history window.
 
-**Triage sends Anthropic a clipped copy of the reader's message.** Before Deck-E answers, Claude Haiku 5.5 classifies each new reader message through the Vercel AI Gateway (`apps/api/src/decke/triage.ts`). That is the same provider that writes the reply. It receives:
+**Triage sends Anthropic a clipped copy of the reader's message.** Before Deck-E answers, Claude Haiku 5.5 classifies each new reader message (`apps/api/src/decke/triage.ts`), on Anthropic's API directly when `ANTHROPIC_API_KEY` is set and otherwise, or on a credit refusal, through the Vercel AI Gateway (`apps/api/src/decke/aiRoute.ts`). That is the same provider that writes the reply. It receives:
 - the reader's latest message, clipped to 2,000 characters (its opening and its end);
 - Deck-E's previous reply (last 800 characters);
 - the page path;
@@ -1497,7 +1497,11 @@ select revoked policy; legitimate reserved and bounded nested work use frozen
 snapshots. Since migration 081 charges are metered, not flat: each paid reply
 holds whole credits before provider work, settles at the Gateway-reported cost
 plus markup (an operation with no reported cost is not charged), and returns the
-unused hold in the same transaction. A reply that costs more than the wallet
+unused hold in the same transaction. An Anthropic call served directly on
+`ANTHROPIC_API_KEY` reports no dollar cost, so `aiRoute.ts` prices Anthropic's
+token report at the Gateway's published per-token rates; the operation row and
+the credits are the same on either road, and `decke_ai_operation.route` (092)
+records which road it was. A reply that costs more than the wallet
 holds still finishes, and DeckPal's overage buffer covers the difference rather
 than recording debt. Idempotent recovery of stale reservations, nonnegative
 spendable balances, debt repayment and Stripe reconciliation remain unchanged.

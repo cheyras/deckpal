@@ -34,6 +34,7 @@
     "test:admin-credits": "node --import tsx --test src/credits/__tests__/*.test.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "4.0.63",
     "@ai-sdk/gateway": "^4.0.91",
     "@deckpal/agent-tools": "workspace:*",
     "@deckpal/db": "workspace:*",

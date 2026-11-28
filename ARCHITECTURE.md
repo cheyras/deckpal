@@ -77,8 +77,11 @@ Supabase Auth        Vercel Serverless       Supabase Storage
 catalog and price data from Postgres, not from upstream. Some requests do leave
 the Vercel + Supabase perimeter, for example the cloud image tier's lazy fill of
 an image the bucket does not hold yet (section 7), Deck-E's model calls through
-the Vercel AI Gateway, Stripe for the pay-what-you-want tier, and the bug
-reporter's GitHub issue.
+the Vercel AI Gateway (Anthropic models go to Anthropic's API directly when
+`ANTHROPIC_API_KEY` is set, and back to the Gateway when that account is out of
+credit — `apps/api/src/decke/aiRoute.ts`, with metering identical on both
+roads), Stripe for the pay-what-you-want tier, and the bug reporter's GitHub
+issue.
 
 ## 4. Repo and deployment shape
 

@@ -117,6 +117,11 @@ jobs:
       - name: Analysis eval cases + harness (pure, no network)
         run: node --test scripts/__tests__/analysis-eval.test.mjs
 
+      # `pnpm ai:set-anthropic-key`: a fake key, a stubbed `vercel`, a temp
+      # .env. Proves the key never reaches an argument or a printed line.
+      - name: Anthropic key setup script (pure, no network, no Vercel)
+        run: node --test scripts/__tests__/set-anthropic-key.test.mjs
+
       - name: Image path parsing + traversal rejection tests (pure, no DB)
         run: pnpm --filter deckpal-api test:images
 

@@ -46,6 +46,7 @@ import { exportRouter } from './export/router.js';
 import { scanRouter } from './scan/router.js';
 import { warnOnPrintedSetCodeDivergence } from './scan/catalogPort.js';
 import { scanEmbedGate, scanEmbedWarning } from './scan/embedGate.js';
+import { aiRouteBootLine, aiRouteStatus } from './decke/aiRoute.js';
 import { scanFlagsRouter } from './dev/scanFlags.js';
 import { scanQueueRouter } from './dev/scanQueue.js';
 import { bugReportsPublic, bugsRouter } from './routes/bugs.js';
@@ -86,6 +87,13 @@ export function createApp(): express.Express {
   // configured and costs a support ticket when it is not.
   const deckeWarning = deckeGateWarning();
   if (deckeWarning) console.warn(deckeWarning);
+
+  // Which road Anthropic model calls take. Always one line: unset is a normal
+  // state (gateway-only, exactly as before), but it is still the answer to
+  // "why are we still paying the Gateway for Claude?". Never prints the key.
+  const routeLine = aiRouteBootLine();
+  if (aiRouteStatus() === 'gateway-only-malformed-key') console.warn(routeLine);
+  else console.log(routeLine);
 
   // And once more for the gate that decides WHO, as distinct from the gate that
   // decides WHETHER. A configured key with an empty entitlement list is a
@@ -565,6 +573,11 @@ export function createApp(): express.Express {
         // and never any part of its value. `unset` means POST /api/chat 503s
         // for everybody, which is otherwise invisible from outside. B11 again.
         deckeGate: deckeGateStatus(),
+        // Which road Anthropic models take: `anthropic-direct` (owner's
+        // ANTHROPIC_API_KEY, Gateway on a credit refusal), `gateway-only`
+        // (unset — the pre-2026-11-27 behaviour), or
+        // `gateway-only-malformed-key` (set but ignored). Never the key. B11.
+        aiRoute: aiRouteStatus(),
         // Whether a crafted client could forge a write approval. B11: a
         // security control that is off must be visible from outside.
         deckeApprovals: deckeApprovalSigning(),

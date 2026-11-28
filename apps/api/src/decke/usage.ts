@@ -5,7 +5,7 @@ import type { Queryable } from '@deckpal/db';
 import { ApiError, UUID_RE } from '../http.js';
 import { isMetered, type CreditPolicy } from '../credits/policy.js';
 import { buildStamp } from './build.js';
-import { decimalUsd, extractUsage, safeUsageCode, usageCategory, type UsageCategory } from './usageMetadata.js';
+import { decimalUsd, extractUsage, safeUsageCode, usageCategory, type AiRoute, type UsageCategory } from './usageMetadata.js';
 export interface AiRequest {id:string;db:Queryable;pending:Set<Promise<unknown>>;failed:boolean;metered:boolean;meteredStarted:boolean;capReached:boolean;signal?:AbortSignal;spendId?:string}
 const context=new AsyncLocalStorage<{request:AiRequest;tool:string;operationKey:string;advisory?:boolean}>();
 export function runAiUsage<T>(request:AiRequest,fn:()=>T):T {return context.run({request,tool:'chat_turn',operationKey:'chat_turn'},fn)}
@@ -110,6 +110,27 @@ export async function meteredCapReached(request:AiRequest):Promise<boolean> {
   console.error('[deck-e] metered status unavailable',request.id);return false;
  }
 }
+const FINALIZE_SQL="UPDATE public.decke_ai_operation SET status=$2,finished_at=now(),input_tokens=$3,output_tokens=$4,cache_read_tokens=$5,cache_write_tokens=$6,reasoning_tokens=$7,cost_usd=$8,cost_source=$9,generation_id=$10,error_code=$11";
+/**
+ * Whether `decke_ai_operation.route` (migration 092) exists. Assumed until the
+ * database says otherwise (42703, undefined column) — then this process writes
+ * the pre-092 row for the rest of its life, so a deploy that lands before the
+ * migration still meters every call; it only loses the route, and says so once.
+ */
+let routeColumn=true;
+/** Test seam: reset the migration-092 detection. */
+export function resetRouteColumnForTest():void {routeColumn=true}
+async function finalizeOperation(request:AiRequest,args:unknown[],route:AiRoute|null):Promise<void> {
+ if(routeColumn){
+  try{await tracked(request,request.db.query(`${FINALIZE_SQL},route=$12 WHERE id=$1 AND status='started'`,[...args,route]));return;}
+  catch(error){
+   if((error as {code?:string}).code!=='42703')throw error;
+   routeColumn=false;
+   console.warn('[deck-e] decke_ai_operation.route is missing — apply migration 092. Usage is still metered; only the route is not recorded.');
+  }
+ }
+ await tracked(request,request.db.query(`${FINALIZE_SQL} WHERE id=$1 AND status='started'`,args));
+}
 export interface ProviderCreditWork {spendId?:string;prepareRefund?:(recover:()=>Promise<void>)=>void;invoke?:<T>(provider:()=>T)=>T}
 export function observeUsageModel(model:LanguageModel,credit?:ProviderCreditWork):LanguageModel {
  const ctx=context.getStore(); if(typeof model==='string') return model;
@@ -141,8 +162,7 @@ export function observeUsageModel(model:LanguageModel,credit?:ProviderCreditWork
   const data=extractUsage(usage,metadata);
   if(status==='failed'&&!advisory) request.failed=true;
   try {
-   await tracked(request,request.db.query("UPDATE public.decke_ai_operation SET status=$2,finished_at=now(),input_tokens=$3,output_tokens=$4,cache_read_tokens=$5,cache_write_tokens=$6,reasoning_tokens=$7,cost_usd=$8,cost_source=$9,generation_id=$10,error_code=$11 WHERE id=$1 AND status='started'",
-    [id,status,data.tokens.inputTokens,data.tokens.outputTokens,data.tokens.cacheReadTokens,data.tokens.cacheWriteTokens,data.tokens.reasoningTokens,data.cost.usd,data.cost.source,data.generationId,status==='failed'?'provider_error':null]));
+   await finalizeOperation(request,[id,status,data.tokens.inputTokens,data.tokens.outputTokens,data.tokens.cacheReadTokens,data.tokens.cacheWriteTokens,data.tokens.reasoningTokens,data.cost.usd,data.cost.source,data.generationId,status==='failed'?'provider_error':null],data.route);
   }catch{console.error('[deck-e] usage operation finalization unavailable',request.id);}
  };
  const middleware:LanguageModelMiddleware={
