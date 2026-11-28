@@ -438,6 +438,10 @@ export interface ScanResolveFields {
 export interface ScanResolveMatch extends Omit<ScanMatch, 'distance' | 'confidence'> {
   distance: number | null
   confidence: number | null
+  /** The image vector's cosine for this card, when the deployment runs the
+   *  embedding matcher and the vector nominated it. ABSENT when the matcher is
+   *  off (the server leaves the key out), null when it never nominated the card. */
+  similarity?: number | null
 }
 
 /**

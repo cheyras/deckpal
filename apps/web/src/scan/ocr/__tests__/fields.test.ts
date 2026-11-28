@@ -526,6 +526,23 @@ describe('the name rules — REPORT.md §3.5', () => {
     assert.equal(cleanNameLine("Evolves from Team Rocket'sNidoran"), null)
   })
 
+  it('drops the evolution line when the recogniser MISSPELT it (2026-11-27)', () => {
+    // Read off real and synthetic captures: what is left is the PRE-evolution's
+    // name, and it out-lettered the title — a Herdier's read became "Lillipup".
+    for (const line of ['EvohvesfromLiiipuy', 'Evolvas from Gothita', "EvoiwesfromTeamRocket'sDottier"]) {
+      assert.equal(cleanNameLine(line), null, line)
+    }
+    const got = extractFields([
+      { roi: 'name', lines: ['STAGE1', 'Herdier 90', 'EvohvesfromLiiipuy'] },
+      { roi: 'strip', lines: [] },
+    ])
+    assert.equal(got.name, 'Herdier')
+    // And no title is near enough to "evolves from" to be mistaken for it.
+    for (const title of ['Herdier', "Team Rocket's Tyranitar", 'Energy Retrieval', 'Professor’s Research', 'Eevee ex']) {
+      assert.equal(cleanNameLine(title), title, title)
+    }
+  })
+
   it('strips the HP block and the misreads of it this run recorded', () => {
     assert.equal(cleanNameLine('Misty’s Gyarados HP 180'), 'Misty’s Gyarados')
     assert.equal(cleanNameLine('Barraskewda H130'), 'Barraskewda')

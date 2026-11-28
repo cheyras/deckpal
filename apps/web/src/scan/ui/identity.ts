@@ -174,6 +174,15 @@ export interface Identity {
   images: { low: string; high: string }
   distance: number | null
   confidence: number | null
+  /**
+   * The image vector's cosine for this card, when the LADDER named it and the
+   * vector had nominated it. Null for a hash-named card and wherever the vector
+   * was silent. Since 2026-11-27 this, not the hash's bit-similarity, is what a
+   * ladder-named row's match meter shows: the hash did not name that card, and
+   * on a real camera capture it sits 10-13 bits from the right one, which read
+   * "Match 81% · dist 12" on almost every row of the owner's session.
+   */
+  similarity: number | null
 }
 
 export interface IdentityState {
@@ -466,6 +475,7 @@ export function identityFromMatch(m: ScanMatch): Identity {
     images: m.images,
     distance: m.distance,
     confidence: m.confidence,
+    similarity: null,
   }
 }
 
@@ -504,7 +514,36 @@ export function identityFromResolve(m: ScanResolveMatch): Identity {
     images: m.images,
     distance: m.distance,
     confidence: m.confidence,
+    similarity: m.similarity ?? null,
   }
+}
+
+/**
+ * THE ROW'S MATCH METER, by who named the card (2026-11-27).
+ *
+ * The meter used to be the hash's bit-similarity on every row, whoever named
+ * it. The hash was demoted on 2026-09-06 and now names a card alone only at
+ * distance <= 7 (`tieGate.PHASH_SOLO_MAX`); every other row is named by the
+ * ladder (the printed key, the picture, or the two together), and the hash's
+ * distance on it is a bystander's. On a real camera capture that bystander sits
+ * 10-13 bits from the right card (median 12 on the 2026-11-25/26 field
+ * captures), so the meter read 80-84 % on nearly every row and said nothing
+ * about the card. So:
+ *
+ *   named by the hash     its distance and bit-similarity, as before;
+ *   named by the ladder   the picture's cosine when the vector nominated the
+ *                         card (`similarity`), and otherwise no meter at all:
+ *                         the row says it was matched from the print.
+ *
+ * `distance: -1` is the row's existing "no hash opinion" encoding, so a
+ * ladder-named row never draws "· dist N".
+ */
+export function rowMeter(
+  match: Pick<Identity, 'distance' | 'confidence' | 'similarity'>,
+  by: IdentitySource | null,
+): { confidence: number; distance: number; similarity: number | null } {
+  if (by === 'printing') return { confidence: match.similarity ?? 0, distance: -1, similarity: match.similarity }
+  return { confidence: match.confidence ?? 0, distance: match.distance ?? -1, similarity: null }
 }
 
 /**

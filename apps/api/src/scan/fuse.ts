@@ -254,6 +254,68 @@ export function corroborate(
   return v.cardId;
 }
 
+/**
+ * THE PRINT PICKS THE PRINTING, THE PICTURE PICKS THE CARD (2026-11-27).
+ *
+ * `corroborate` reads the vector's top-1 as ONE card, and for a card with
+ * same-art reprints that is a coin toss: White Flare's Energy Retrieval
+ * (sv10.5w-082) is Scarlet & Violet's (sv01-171) picture for picture, the
+ * catalogue images hash to dHash distance 0, and the vector puts them 0.001 to
+ * 0.005 apart, in either order. So when the strip read `082/086`, the printed
+ * key narrowed the world to sv10.5w-082, sv10.5b-082 and me04-082 (three
+ * different pictures), and the vector's top-1 was sv01-171 half the time: not
+ * in the list, no corroboration, and the reader was asked about a card both
+ * signals had between them already decided. When the top-1 was sv10.5w-082 it
+ * still failed, because "separated" is measured against the runner-up, and
+ * the runner-up was the twin.
+ *
+ * Read the vector as what it actually identifies, a PICTURE: the top-1 and its
+ * same-art siblings (`familyOf`). It agrees with a printed key's list when
+ *
+ *   - exactly ONE card of that picture is in the list (the key already ruled
+ *     the other printings of it out: a different denominator, a different
+ *     number, a different set), and
+ *   - the picture stands clear of every card outside it by the model's own
+ *     `marginMin` (the same bar `separated` applies to a runner-up), so the
+ *     other cards in the list, which are different pictures, really are
+ *     further away.
+ *
+ * The hash keeps its veto: a near-exact hash on a card outside the picture is
+ * a disagreement. A picture with no siblings returns null, because plain
+ * `corroborate` already asked the only question there is.
+ *
+ * The CALLER restricts this to lists a PRINTED key built (`resolve.ts`
+ * `PRINTED_KEYS`). A name-family list holds every printing of the name, so it
+ * cannot have ruled a sibling out, and this returns null for it anyway (two
+ * members of the picture in the list).
+ */
+export function corroborateByPicture(
+  candidateIds: readonly string[],
+  signals: Corroborators,
+  vectorMatches: readonly VectorMatch[],
+  familyOf: (cardId: string) => readonly string[],
+  modelId: string,
+): string | null {
+  const v = signals.vector;
+  if (!v || !v.showable || !v.cardId) return null;
+  const top = vectorMatches[0];
+  if (!top || top.cardId !== v.cardId) return null;
+  const picture = new Set([v.cardId, ...familyOf(v.cardId)]);
+  if (picture.size < 2) return null;
+  const inList = candidateIds.filter((id) => picture.has(id));
+  if (inList.length !== 1) return null;
+  const t = THRESHOLDS[modelId];
+  if (!t) return null;
+  // The nearest card that is NOT this picture. None in a list of several means
+  // the whole list is the picture, which is as separated as it can get; a list
+  // of one has nothing to be separated from, and is not evidence of that.
+  const rival = vectorMatches.find((m) => !picture.has(m.cardId));
+  if (!rival && vectorMatches.length < 2) return null;
+  if (rival && top.similarity - rival.similarity < t.marginMin) return null;
+  if (signals.phashNearExact && !picture.has(signals.phashNearExact)) return null;
+  return inList[0]!;
+}
+
 /** The vector's candidates as `identityConfidence` wants them — the same
  *  shape, so the endpoint and the ladder cannot drift about what a candidate
  *  is. */

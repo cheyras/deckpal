@@ -181,7 +181,12 @@ export function addArrival(feed: readonly FeedEntry[], arrival: FeedEntry): Feed
  * `FeedEntry.verified`'s contract: verified means confirmed BY SWIPE, not merely
  * edited. The list's own pickers leave it false.
  */
-export function resolveRow(feed: FeedEntry[], rowId: string, match: ScanMatch, markVerified = false): FeedEntry[] {
+export function resolveRow(
+  feed: FeedEntry[],
+  rowId: string,
+  match: ScanMatch & { similarity?: number | null },
+  markVerified = false,
+): FeedEntry[] {
   // The SAME array back, not a copy, when there is nothing to change: the reader
   // can pick from a popover on a row that was removed a frame ago, and
   // re-rendering the whole list to say "nothing happened" would replay every
@@ -202,6 +207,9 @@ export function resolveRow(feed: FeedEntry[], rowId: string, match: ScanMatch, m
           images: match.images,
           confidence: match.confidence,
           distance: match.distance,
+          // A ladder correction's picture match (`identity.rowMeter`); a pick
+          // or a hash answer carries none.
+          similarity: match.similarity ?? null,
           variantId: null,
           variants: [],
           // A different card has different printings, so the previous row's

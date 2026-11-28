@@ -56,6 +56,7 @@ import {
   readCandidates,
   reduceIdentity,
   resolvedIdentity,
+  rowMeter,
   toPickedMatch,
   type IdentityEvent,
   type IdentityState,
@@ -275,6 +276,26 @@ describe('the identity race', () => {
     // was never in flight.
     const s = run([{ type: 'phash', res: TIED }, { type: 'read', read: null }, { type: 'resolve', resolved: null }])
     assert.equal(s.phase, 'needs-you')
+  })
+
+  it('THE ROW METER IS WHAT NAMED THE CARD (2026-11-27): the picture for the ladder, the hash for the hash', () => {
+    // The owner's White Flare session read "Match 81% · dist 12" on nearly every
+    // row: the hash's distance, on cards the ladder had named. A ladder-named row
+    // now shows the picture's cosine and no distance.
+    const vectorRes = resolveRes({
+      resolvedBy: 'corroborated',
+      matches: [{ ...resolveRes().matches[0]!, distance: 12, confidence: 0.8125, similarity: 0.91 }],
+    })
+    const ladder = run([{ type: 'phash', res: TIED }, { type: 'resolve', resolved: vectorRes }])
+    assert.equal(ladder.by, 'printing')
+    assert.equal(ladder.match?.similarity, 0.91)
+    assert.deepEqual(rowMeter(ladder.match!, ladder.by), { confidence: 0.91, distance: -1, similarity: 0.91 })
+    // The printed key with no picture: no meter at all (-1), never the hash's.
+    const keyed = run([{ type: 'phash', res: TIED }, { type: 'resolve', resolved: resolveRes() }])
+    assert.deepEqual(rowMeter(keyed.match!, keyed.by), { confidence: 0, distance: -1, similarity: null })
+    // The hash named it: its own distance, as before.
+    const hashed = run([{ type: 'phash', res: CLEAR }])
+    assert.deepEqual(rowMeter(hashed.match!, hashed.by), { confidence: hashed.match!.confidence, distance: 4, similarity: null })
   })
 
   it('one answer alone is not enough — it waits', () => {

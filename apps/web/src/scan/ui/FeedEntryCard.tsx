@@ -153,7 +153,10 @@ export function FeedEntryCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const pct = Math.round(entry.confidence * 100)
+  // The picture's cosine on a row the ladder named, else the hash's
+  // bit-similarity (`identity.rowMeter`): the meter shows what named the card.
+  const pictureMatch = entry.similarity ?? null
+  const pct = Math.round((pictureMatch ?? entry.confidence) * 100)
   const selectedVariant = entry.variants.find((v) => v.variantId === entry.variantId)
   // THE PRINTING SLOT (printing.ts). Three states, one policy, and the one the
   // row is in is decided there rather than by a `variants.length > 1` buried in
@@ -337,18 +340,19 @@ export function FeedEntryCard({
           <VoicePendingChips entry={entry} actions={voicePending} onCancel={onVoiceCancel} />
         ) : null}
 
-        {entry.matched && hasPhashOpinion && (
+        {entry.matched && (hasPhashOpinion || pictureMatch != null) && (
           <div className={`fe-conf mt-[4px] ${fade}`}>
             <div className="flex items-center justify-between text-[11px]">
               <span className="text-text-muted">Match</span>
               <span className="font-extrabold text-text-primary">
-                {pct}% <span className="font-normal text-text-muted">· dist {entry.distance}</span>
+                {pct}%
+                {pictureMatch == null && <span className="font-normal text-text-muted"> · dist {entry.distance}</span>}
               </span>
             </div>
             <ProgressBar pct={pct} height={5} fill={pct >= 95 ? 'var(--color-change-positive)' : 'var(--color-action-brand)'} />
           </div>
         )}
-        {entry.matched && !hasPhashOpinion && (
+        {entry.matched && !hasPhashOpinion && pictureMatch == null && (
           <div className={`fe-conf mt-[4px] text-[11px] text-text-muted ${fade}`}>Matched from the printed number</div>
         )}
 
