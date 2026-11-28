@@ -239,7 +239,12 @@
 :root[data-skin='premium'] .decke-composer-card input:not([type='checkbox']):not([type='radio']),
 :root[data-skin='premium'] .decke-composer-card input:not([type='checkbox']):not([type='radio']):focus,
 :root[data-skin='premium'] .decke-composer-card textarea,
-:root[data-skin='premium'] .decke-composer-card textarea:focus {
+:root[data-skin='premium'] .decke-composer-card textarea:focus,
+/* The profile's showcase search is the same shape — a rounded box with an
+   icon that IS the field (theme.css keeps its ring on the box) — and drew the
+   same well-inside-a-box, lit separately on focus. */
+:root[data-skin='premium'] .showcase-search input:not([type='checkbox']):not([type='radio']),
+:root[data-skin='premium'] .showcase-search input:not([type='checkbox']):not([type='radio']):focus {
   box-shadow: none;
   border-color: transparent;
   background: transparent;

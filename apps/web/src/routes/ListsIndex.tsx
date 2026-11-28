@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type CreateListBody, type ListKind, type ListSummary } from '../lib/api'
-import { Content, Spinner, ErrorState, ProgressBar } from '../components/ui'
+import { Button, Content, EmptyState, Spinner, ErrorState, ProgressBar } from '../components/ui'
 import { ListFormModal } from '../components/ListModals'
 import { RecycleBin } from '../components/RecycleBin'
 import { Icon } from '../components/Icon'
@@ -81,7 +81,9 @@ function ListCard({ list }: { list: ListSummary }) {
       {/* body */}
       <div className="flex flex-1 flex-col gap-[8px] p-[16px]">
         <div className="flex items-start justify-between gap-[8px]">
-          <span className="font-display truncate text-[16px] font-bold text-text-primary">{list.name}</span>
+          {/* Two lines before it gives up, not one: "Trade binder with a rather
+              long name t…" told you less than the name does. */}
+          <span className="font-display line-clamp-2 break-words text-[16px] font-bold text-text-primary">{list.name}</span>
           {list.isFavorite && <Icon name="star-filled" size={16} className="shrink-0 text-action-primary" />}
         </div>
         {list.description && <p className="line-clamp-2 text-[14px] text-text-muted">{list.description}</p>}
@@ -102,12 +104,12 @@ function ListCard({ list }: { list: ListSummary }) {
             // whole story, and "to get" says which story it is.
             <div className="flex items-center justify-between text-[14px]">
               <span className="font-semibold text-text-secondary">{list.itemCount} to get</span>
-              <span className="text-change-positive">{fmtUsd(list.marketValueUsd)}</span>
+              <span className={list.marketValueUsd == null ? 'text-text-muted' : 'text-change-positive'}>{fmtUsd(list.marketValueUsd)}</span>
             </div>
           ) : (
             <div className="flex items-center justify-between text-[14px]">
               <span className="font-semibold text-text-secondary">{list.itemCount} cards</span>
-              <span className="text-change-positive">{fmtUsd(list.marketValueUsd)}</span>
+              <span className={list.marketValueUsd == null ? 'text-text-muted' : 'text-change-positive'}>{fmtUsd(list.marketValueUsd)}</span>
             </div>
           )}
         </div>
@@ -120,7 +122,7 @@ export function ListsIndex() {
   const qc = useQueryClient()
   const [showCreate, setShowCreate] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
-  const { data, isLoading, error } = useQuery({ queryKey: ['lists'], queryFn: ({ signal }) => api.lists(signal) })
+  const { data, isLoading, error, refetch } = useQuery({ queryKey: ['lists'], queryFn: ({ signal }) => api.lists(signal) })
   const enter = useLateEntrance(isLoading)
 
   const create = useMutation({
@@ -140,7 +142,8 @@ export function ListsIndex() {
       <div className="mb-[24px] mt-[8px] flex items-center justify-between">
         <div>
           <h1 className="text-[32px] font-bold leading-[40px] text-text-primary">My Lists</h1>
-          <p className="text-[14px] text-text-muted">{lists.length} list{lists.length === 1 ? '' : 's'}</p>
+          {/* No count until there is one to give: "0 lists" over a load error is a claim. */}
+          {data && <p className="text-[14px] text-text-muted">{lists.length} list{lists.length === 1 ? '' : 's'}</p>}
         </div>
         <button
           onClick={() => {
@@ -154,20 +157,21 @@ export function ListsIndex() {
       </div>
 
       {isLoading && <Spinner label="Loading lists…" />}
-      {error && <ErrorState message={(error as Error).message} className={enter} />}
+      {error && <ErrorState message={(error as Error).message} className={enter} onRetry={() => void refetch()} />}
 
+      {/* The shared empty state, as "No Decks Yet" uses: this one was a hand-
+          built copy whose title was in the text face, not the display face. */}
       {data && lists.length === 0 && (
-        <div className={`flex flex-col items-center justify-center gap-[12px] rounded-xl border border-dashed border-border-default py-[80px] text-center ${enter}`}>
-          <Icon name="lists" size={44} className="text-icon-muted" />
-          <div className="text-[20px] font-bold text-text-primary">No Lists Yet</div>
-          <p className="text-[14px] text-text-muted">Create your first Pokémon TCG list.</p>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="mt-[4px] flex h-[44px] items-center gap-[8px] rounded-full bg-action-primary px-[20px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover"
+        <EmptyState className={enter} icon="lists" title="No Lists Yet" body="Create your first Pokémon TCG list.">
+          <Button
+            onClick={() => {
+              setCreateError(null)
+              setShowCreate(true)
+            }}
           >
             <Icon name="plus" size={18} /> New List
-          </button>
-        </div>
+          </Button>
+        </EmptyState>
       )}
 
       {lists.length > 0 && (

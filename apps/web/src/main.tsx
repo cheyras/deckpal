@@ -11,6 +11,7 @@ import {
   stripSearchParams,
   RouterProvider,
   Outlet,
+  Link,
   useRouterState,
 } from '@tanstack/react-router'
 import './theme.css'
@@ -33,6 +34,9 @@ import { isPublicPathname, safeNextPath } from './lib/landingRoute'
 import { getAccess, hasPermission, useAccess, IDENTITY_CHANGED, ACCESS_CHANGED } from './lib/access'
 import { requireVerifiedCapability } from './lib/capabilities'
 import { Content, EmptyState } from './components/ui'
+import { buttonClass } from './components/ui/Button'
+import { ApiError } from './lib/api'
+import { Icon } from './components/Icon'
 import { isCloudMode } from './lib/supabase'
 import { readSession } from './lib/authSession'
 import { Auth } from './routes/Auth'
@@ -237,12 +241,21 @@ function RoutePending() {
   )
 }
 
+/** A 4xx other than a timeout or a rate limit: the server has decided, so asking again changes nothing. */
+function isSettledAnswer(error: unknown): boolean {
+  return error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 5 * 60_000,
       gcTime: 24 * 60 * 60_000,
-      retry: 1,
+      // One retry for what might be a blip — but not for an answer. A 404 or
+      // 403 will say the same thing a second time, and retrying it held a
+      // missing list on a blank page for a further second or more before the
+      // page could say so.
+      retry: (failures, error) => failures < 1 && !isSettledAnswer(error),
       refetchOnWindowFocus: false,
     },
   },
@@ -905,7 +918,22 @@ const router = createRouter({
  */
 function RouteNotFound() {
   usePageMeta({ title: 'Page not found', noindex: true })
-  return <p>Not Found</p>
+  // Was TanStack's bare `<p>Not Found</p>`: unstyled text jammed into the top
+  // corner under the header, with no way on but the back button.
+  return (
+    <Content>
+      <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
+        <Icon name="search" size={44} className="text-icon-muted" />
+        <h1 className="text-[24px] font-bold text-text-primary">Page not found</h1>
+        <p className="max-w-[420px] text-[14px] text-text-muted">
+          Nothing lives at this address. The link may be mistyped, or the page may have moved.
+        </p>
+        <Link to="/series" className={`mt-1 ${buttonClass('primary')}`}>
+          Browse cards
+        </Link>
+      </div>
+    </Content>
+  )
 }
 
 declare module '@tanstack/react-router' {

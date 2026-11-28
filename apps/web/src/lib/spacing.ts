@@ -43,7 +43,7 @@ export const SPACING_STEPS: readonly SpacingStep[] = [
  */
 export const SPACING_ROLES: readonly { token: string; px: number; utility: string; use: string }[] = [
   { token: '--spacing-gutter', px: 16, utility: 'px-gutter', use: 'A phone page’s side gutter' },
-  { token: '--spacing-hit', px: 44, utility: 'size-hit', use: 'The minimum touch target, on every control' },
+  { token: '--spacing-hit', px: 44, utility: 'size-hit', use: 'The minimum touch target, on every control. A control drawn smaller adds the touch-hit utility, which grows its hit box to this on a touch screen' },
   {
     token: '--spacing-corner',
     px: 8,

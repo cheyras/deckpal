@@ -74,7 +74,7 @@ export function ChangePassword() {
 
   return (
     <section id="account" className="scroll-mt-[90px] rounded-2xl bg-surface-secondary p-[20px]">
-      <div className="text-[14px] font-bold uppercase tracking-wide text-text-muted">Account</div>
+      <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Account</div>
       <div className="mt-[10px] flex flex-wrap items-center justify-between gap-[12px]">
         <div className="flex min-w-0 items-center gap-[10px]">
           <span className="flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-full bg-surface-tertiary text-action-primary">

@@ -22,7 +22,7 @@ import { Sheet } from '../components/ui/Sheet'
 import { ConfirmModal } from '../components/ListModals'
 import { fmtUsd } from '../lib/format'
 import { useLateEntrance } from '../lib/lateEntrance'
-import { signOutBounded } from '../lib/authSession'
+import { readSession, signOutBounded } from '../lib/authSession'
 import { CARD_ASPECT_RATIO_CSS, CARD_RADIUS_CSS } from '../lib/cardGeometry'
 
 // The showcase's offline cache. The durable copy moved to the ACCOUNT — the
@@ -98,6 +98,21 @@ export function Profile() {
   const me = useQuery({ queryKey: ['me'], queryFn: ({ signal }) => api.me(signal), enabled: isCloudMode })
   const username = isCloudMode ? (me.data?.username ?? 'Trainer') : 'Trainer'
   const [signingOut, setSigningOut] = useState(false)
+  // "Joined" was the literal "Jul 2026" for every account. The real date is
+  // on the signed-in session (as ChangePassword reads the address from it);
+  // where there is none — self-host has no account — the line is left out.
+  const [joined, setJoined] = useState<string | null>(null)
+  useEffect(() => {
+    if (!isCloudMode) return
+    let alive = true
+    void readSession().then(({ session }) => {
+      const at = session?.user.created_at ? new Date(session.user.created_at) : null
+      if (alive && at && !Number.isNaN(at.getTime())) setJoined(at.toLocaleDateString(undefined, { month: 'short', year: 'numeric' }))
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
   const photo = useAvatarEditor()
 
   // Cache-first render, account-truth follow-up: paint from localStorage
@@ -266,16 +281,19 @@ export function Profile() {
               </button>
             )}
           </div>
-          <div className="flex items-center gap-[8px] pb-[10px]">
-            <span className="text-[24px] font-extrabold text-text-primary">{username}</span>
+          <div className="flex min-w-0 items-center gap-[8px] pb-[10px]">
+            {/* `min-w-0 break-words`: a long name wraps inside the row instead of
+                squeezing Sign out until its own label broke in two. */}
+            <span className="min-w-0 break-words text-[24px] font-extrabold text-text-primary">{username}</span>
             {isCloudMode ? (
               // Was a dead decorative glyph; now the shortcut to the Account
-              // card further down (password, signed-in address).
+              // card further down (password, signed-in address). An 18px
+              // glyph, so `touch-hit` gives a thumb the full 44px.
               <a
                 href="#account"
                 title="Account settings"
                 aria-label="Account settings"
-                className="rounded-full text-icon-muted hover:text-icon-hover"
+                className="touch-hit shrink-0 rounded-full text-icon-muted hover:text-icon-hover"
               >
                 <Icon name="gear" size={18} />
               </a>
@@ -295,7 +313,7 @@ export function Profile() {
                   // cannot race each other to different pages.
                   navigate({ to: '/signed-out' })
                 }}
-                className="ml-[4px] flex items-center gap-[6px] rounded-full bg-surface-tertiary px-[12px] py-[5px] text-[14px] font-semibold text-text-muted hover:bg-action-default-hover hover:text-text-body disabled:opacity-50"
+                className="ml-[4px] flex shrink-0 items-center gap-[6px] whitespace-nowrap rounded-full bg-surface-tertiary px-[12px] py-[5px] text-[14px] font-semibold text-text-muted hover:bg-action-default-hover hover:text-text-body disabled:opacity-50"
                 title="Sign out"
               >
                 <Icon name="logout" size={16} />
@@ -312,10 +330,14 @@ export function Profile() {
             The camera badge on the ring is the shortcut; these are the labelled
             path, and the only place "Remove" can be reached. */}
         <div className="mt-[10px] flex flex-wrap items-center gap-x-[16px] gap-y-[8px] text-[14px]">
-          <span className="text-text-muted">
-            Joined <span className="font-semibold text-text-body">Jul 2026</span>
-          </span>
-          <span className="hidden h-[14px] w-px bg-divider-subtle sm:block" />
+          {joined && (
+            <>
+              <span className="text-text-muted">
+                Joined <span className="font-semibold text-text-body">{joined}</span>
+              </span>
+              <span className="hidden h-[14px] w-px bg-divider-subtle sm:block" />
+            </>
+          )}
           <span className="text-text-muted">
             Friends <span className="font-semibold text-text-body">0</span>
           </span>
@@ -362,7 +384,7 @@ export function Profile() {
         <Tabs items={TABS} value="profile" className="mt-[16px]" />
 
         {overview.isLoading && <Spinner label="Loading profile…" />}
-        {overview.error && <ErrorState message={(overview.error as Error).message} className={enter} />}
+        {overview.error && <ErrorState message={(overview.error as Error).message} className={enter} onRetry={() => void overview.refetch()} />}
 
         {ov && (
           <div className={`mt-[20px] flex flex-col gap-[16px] ${enter}`}>

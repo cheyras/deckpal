@@ -299,7 +299,12 @@ export function Sheet({
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const edgeHostRef = useRef<HTMLDivElement>(null)
   const scrimDownRef = useRef(false)
-  const returnFocusRef = useRef<HTMLElement | null>(null)
+  // Where focus goes back to on close, read during the FIRST RENDER. By the
+  // time any effect runs, a child's `autoFocus` (React applies it at commit,
+  // before effects) has already moved focus into the sheet — which made the
+  // sheet "return" focus to its own unmounted field, i.e. to <body>.
+  const [openedFrom] = useState(() => (typeof document === 'undefined' ? null : (document.activeElement as HTMLElement | null)))
+  const returnFocusRef = useRef<HTMLElement | null>(openedFrom)
   const [closing, setClosing] = useState(false)
   const closeTimer = useRef<number | null>(null)
   const onCloseRef = useRef(onClose)
@@ -672,8 +677,8 @@ export function Sheet({
   // Lock the page, then move focus in. On the way out, put focus back where the
   // user left it — otherwise the next Tab starts from the top of the document.
   useEffect(() => {
-    returnFocusRef.current = document.activeElement as HTMLElement | null
     lockScroll()
+    const mounted = panelRef.current
     const id = requestAnimationFrame(() => {
       const panel = panelRef.current
       if (!panel) return
@@ -689,7 +694,13 @@ export function Sheet({
     return () => {
       cancelAnimationFrame(id)
       unlockScroll()
-      returnFocusRef.current?.focus?.({ preventScroll: true })
+      // Only when the sheet has really gone (its panel is out of the document;
+      // StrictMode's rehearsal unmount leaves it in, and refocusing then would
+      // pull focus off the field `autoFocus` chose), and only to something
+      // still on the page — focusing a detached node is a silent no-op that
+      // leaves focus on <body>.
+      const back = returnFocusRef.current
+      if (!mounted?.isConnected && back?.isConnected) back.focus({ preventScroll: true })
     }
   }, [])
 
