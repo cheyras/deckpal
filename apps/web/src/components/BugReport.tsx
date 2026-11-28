@@ -468,9 +468,17 @@ export function BugButton({ initialText, trigger }: BugButtonProps = {}) {
                   member's). Your description and the page path will still be included.
                 </p>
               ) : capturing ? (
-                <div className="flex items-center gap-[8px] rounded-lg border border-dashed border-border-default bg-surface-primary px-[12px] py-[16px] text-[14px] text-text-muted">
-                  <Icon name="bug" size={16} className="animate-pulse" />
-                  Capturing a screenshot of this page…
+                // The preview's own footprint (a 220px image over a caption bar),
+                // so the sheet does not grow 200px under the reader's typing the
+                // moment the capture lands, a couple of seconds after opening.
+                <div className="overflow-hidden rounded-lg border border-dashed border-border-default">
+                  <div className="flex h-[220px] items-center justify-center gap-[8px] bg-surface-primary px-[12px] text-[14px] text-text-muted">
+                    <Icon name="bug" size={16} className="animate-pulse" />
+                    Capturing a screenshot of this page…
+                  </div>
+                  <div aria-hidden className="bg-surface-tertiary px-[10px] py-[6px] text-[14px] text-text-muted">
+                    Screenshot to save · {window.location.pathname}
+                  </div>
                 </div>
               ) : shot ? (
                 <figure className="overflow-hidden rounded-lg border border-border-default">

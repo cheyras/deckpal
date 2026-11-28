@@ -164,7 +164,9 @@ export function ListFormModal({
                   <SelectableCard key={k} active={active} onClick={() => setChoice(k)}>
                     <div className="flex items-center justify-between">
                       <span className="text-[14px] font-bold text-text-primary">{KIND_LABEL[k].title}</span>
-                      {active && <Icon name="star-filled" size={16} className="text-action-primary" />}
+                      {/* A check, not a star: a star is how a list is marked a FAVOURITE
+                          everywhere else, so it read as "the recommended kind". */}
+                      {active && <Icon name="check" size={16} className="text-action-primary" />}
                     </div>
                     <div className="text-[14px] text-text-muted">{KIND_LABEL[k].blurb}</div>
                   </SelectableCard>
@@ -272,21 +274,26 @@ export function AddCardModal({
         </label>
 
         {listKind === 'static' && (
-          <label className="flex items-center gap-[10px] text-[14px] font-semibold text-text-secondary">
+          // A group, not a <label>: a label with no `for` activates the first
+          // button inside it, so a tap on "Quantity per add" took one off.
+          <div role="group" aria-label="Quantity per add" className="flex items-center gap-[10px] text-[14px] font-semibold text-text-secondary">
             Quantity per add
             <div className="flex items-center gap-[6px]">
-              <button type="button" onClick={() => setQty((q) => Math.max(1, q - 1))} className="flex h-[30px] w-[30px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary">
+              <button type="button" aria-label="One fewer per add" onClick={() => setQty((q) => Math.max(1, q - 1))} className="touch-hit flex h-[30px] w-[30px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary">
                 <Icon name="minus" size={14} />
               </button>
               <span className="w-[24px] text-center text-[15px] font-bold text-text-primary">{qty}</span>
-              <button type="button" onClick={() => setQty((q) => q + 1)} className="flex h-[30px] w-[30px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary">
+              <button type="button" aria-label="One more per add" onClick={() => setQty((q) => q + 1)} className="touch-hit flex h-[30px] w-[30px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary">
                 <Icon name="plus" size={14} />
               </button>
             </div>
-          </label>
+          </div>
         )}
 
-        <div className="min-h-[200px]">
+        {/* Opens at the height results will need. Sized to its empty prompt,
+            the sheet sat a third of the way up the screen and then leapt to
+            the top the moment the first search answered. */}
+        <div className="min-h-[70dvh] nav:min-h-[min(56dvh,480px)]">
           {!debounced && <div className="py-[40px] text-center text-[14px] text-text-muted">Start typing to find cards.</div>}
           {debounced && isFetching && !data && <div className="py-[40px] text-center text-[14px] text-text-muted">Searching…</div>}
           {data && data.cards.length === 0 && <div className="py-[40px] text-center text-[14px] text-text-muted">No cards match “{debounced}”.</div>}

@@ -18,6 +18,8 @@ export function SelectableCard({ active, onClick, className, children }: Selecta
   return (
     <button
       type="button"
+      // The border says which one is chosen; this says it to a screen reader.
+      aria-pressed={active}
       onClick={onClick}
       className={`rounded-lg border-2 px-3.5 py-2.5 text-left ${
         active

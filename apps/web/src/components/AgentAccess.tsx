@@ -280,7 +280,7 @@ export function AgentAccess() {
 
   return (
     <section id="agent-access" className="scroll-mt-[90px] rounded-2xl bg-surface-secondary p-[20px]">
-      <div className="text-[14px] font-bold uppercase tracking-wide text-text-muted">Agent access</div>
+      <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Agent access</div>
 
       <div className="mt-[10px] flex flex-wrap items-center justify-between gap-[12px]">
         <div className="flex min-w-0 items-center gap-[10px]">

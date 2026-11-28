@@ -55,7 +55,7 @@ export function Insights() {
       <h1 className="text-[32px] font-extrabold leading-[40px] text-text-primary">Insights</h1>
 
       {overview.isLoading && <Spinner label="Loading insights…" />}
-      {overview.error && <ErrorState message={(overview.error as Error).message} className={enter} />}
+      {overview.error && <ErrorState message={(overview.error as Error).message} className={enter} onRetry={() => void overview.refetch()} />}
 
       {ov && (
         <>
@@ -75,7 +75,7 @@ export function Insights() {
                 <AvatarDisc url={avatar.data?.avatarUrl} iconSize={40} />
               </LevelRing>
               <div className="min-w-0">
-                <div className="text-[14px] font-bold uppercase tracking-wide text-text-muted">Trainer Level</div>
+                <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Trainer Level</div>
                 <div className="text-[32px] font-extrabold leading-[40px] text-text-primary">
                   LVL {ov.trainer.level}
                 </div>
@@ -126,9 +126,9 @@ export function Insights() {
           <div className="mt-[24px] rounded-2xl bg-surface-secondary p-[20px]">
             <div className="flex flex-wrap items-center justify-between gap-[12px]">
               <div>
-                <div className="text-[14px] font-bold uppercase tracking-wide text-text-muted">
-                  Total Estimated Collection Value
-                </div>
+                {/* Not "Total Estimated Collection Value" again: the tile right
+                    above already says that, with the same number under it. */}
+                <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">Value over time</div>
                 <div className="text-[28px] font-extrabold leading-[36px] text-text-primary">
                   {val ? fmtMoney(val.current.total, val.currency) : '—'}
                 </div>
@@ -217,8 +217,8 @@ export function Insights() {
                   {valueRangeLabel} Change
                 </div>
                 <div className="mt-[6px] text-[15px] text-text-body">
-                  Not enough history yet. The daily snapshot started at cold start, so there is no first→last change
-                  to report. Check back tomorrow.
+                  Not enough history yet to show a change — your collection's value is recorded once a day. Check
+                  back tomorrow.
                 </div>
               </div>
             )}
@@ -249,8 +249,8 @@ export function Insights() {
               </ul>
             ) : (
               <div className="mt-[8px] text-[14px] text-text-muted">
-                No movers yet — a mover needs both a current market price and a 30-day average on an owned variant.
-                The price feed hasn't accumulated a 30-day window at this cold start.
+                No movers yet. A card shows up here once it has both a current market price and 30 days of price
+                history to compare it with.
               </div>
             )}
           </div>

@@ -300,7 +300,8 @@ export function DeckeOpeners({
               // above, so three of them read as three more cards. A chip is a
               // suggestion; it should sit BELOW the surface it offers to fill,
               // not level with it.
-              'rounded-full border border-surface-tertiary bg-transparent',
+              // `touch-hit`: drawn 34px tall, a full 44px under a thumb.
+              'touch-hit rounded-full border border-surface-tertiary bg-transparent',
               'px-[13px] py-[7px] text-[13px] leading-[18px] text-text-secondary',
               'motion-safe:transition-colors hover:border-border-default hover:bg-surface-secondary',
               'hover:text-text-primary focus-visible:outline focus-visible:outline-2',
@@ -2022,11 +2023,24 @@ export function DeckeChat({
           return false
         }
       }
-      if (focus(el)) return
-      requestAnimationFrame(() => {
+      // <body> is not somewhere to go back TO: it is what focus is when it is
+      // nowhere — which is what it was when a tap on the launcher opened him on
+      // a phone (no composer focus there), and "restoring" it ended the restore.
+      if (el !== document.body && focus(el)) return
+      // NOT "after a frame": he says goodbye first, and on a phone the launcher
+      // came back the better part of a second later, by which time the single
+      // frame had looked, found nothing and left focus on <body>. So it keeps
+      // looking for up to ~1.5s — and stops the moment focus has gone anywhere
+      // real on its own, or a dialog has taken it.
+      let frames = 0
+      const settle = () => {
         if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
-        focus(document.querySelector<HTMLElement>('button[aria-label="Chat with Deck-E"]'))
-      })
+        const active = document.activeElement
+        if (active && active !== document.body) return
+        if (focus(document.querySelector<HTMLElement>('button[aria-label="Chat with Deck-E"]'))) return
+        if (++frames < 90) requestAnimationFrame(settle)
+      }
+      requestAnimationFrame(settle)
     }
     // `visible`, so the restore lands when the panel is actually gone. On `open`
     // it would fire a frame into the exit, and the rAF fallback would then race
