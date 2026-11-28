@@ -8,7 +8,7 @@ import { CardImage } from '../components/CardImage'
 import { Icon } from '../components/Icon'
 import { EnergyIcon } from '../components/EnergyIcon'
 import { RarityMark } from '../components/RarityMark'
-import { fmtPrice, fmtCalendarDate, fmtNumber, fmtRelative, fmtMoney } from '../lib/format'
+import { fmtPrice, fmtCalendarDate, fmtNumber, fmtPrintedTotal, fmtRelative, fmtMoney } from '../lib/format'
 import { useOnline } from '../lib/useOnline'
 import { useOwnedCounts } from '../lib/collectionWrites'
 import { useCurrentPathAsNext } from '../lib/landingRoute'
@@ -181,15 +181,23 @@ function VariantRow({
           </div>
         </div>
 
-        {/* Market Price column — spans full width on mobile (row 2), col 2 on gap+ */}
-        <div className="col-[1/-1] row-[2] min-w-0 gap:col-[auto] gap:row-[auto] gap:text-right">
+        {/* Market Price column — spans full width on mobile (row 2), col 2 on gap+.
+            On mobile it is indented past the swatch (12px + the 8px gap), so
+            the price lines up under the variant's name and "Found in…" line
+            instead of under the swatch. In the 84px desktop column "as of 5
+            hours ago" broke over three lines; there the column header already
+            says what the time is, so it drops the "as of" and fits on one. */}
+        <div className="col-[1/-1] row-[2] min-w-0 pl-[20px] gap:col-[auto] gap:row-[auto] gap:pl-0 gap:text-right">
           {price && price.market != null ? (
             <div className="text-[16px] font-medium text-change-positive">{fmtPrice(price)}</div>
           ) : (
             <div className="text-[14px] text-text-muted">No price</div>
           )}
           {price?.pricedAt && (
-            <div className="text-[14px] leading-[14px] text-text-muted">as of {fmtRelative(price.pricedAt)}</div>
+            <div className="text-[12px] leading-[16px] text-text-muted gap:whitespace-nowrap">
+              <span className="gap:hidden">as of </span>
+              {fmtRelative(price.pricedAt)}
+            </div>
           )}
         </div>
 
@@ -641,12 +649,14 @@ function CardDetailBody({
             <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-[16px]">
                 <h1 data-route-announcement={`${data.card.name} — ${data.card.set.name} ${fmtNumber(data.card.number)}`} className="text-[40px] font-bold leading-[44px] text-text-primary">{data.card.name}</h1>
+                {/* The disc stays 36px; the `before:` box gives it the 44px
+                    hit target a thumb needs, without moving the title. */}
                 <button
                   type="button"
                   onClick={copyCardLink}
                   aria-label={linkCopied ? 'Link copied' : 'Copy link to this card'}
                   aria-live="polite"
-                  className="flex h-[36px] w-[36px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default hover:bg-action-default-hover"
+                  className="relative flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-full bg-surface-tertiary text-icon-default before:absolute before:-inset-1 before:content-[''] hover:bg-action-default-hover"
                 >
                   <Icon name={linkCopied ? 'check' : 'link'} size={16} />
                 </button>
@@ -664,7 +674,7 @@ function CardDetailBody({
               </div>
               <div className="mt-[6px] text-[14px] text-text-muted">
                 {fmtNumber(data.card.number)}
-                {data.card.printedTotal ? `/${data.card.printedTotal}` : ''}
+                {data.card.printedTotal ? `/${fmtPrintedTotal(data.card.number, data.card.printedTotal)}` : ''}
               </div>
 
               {/* The tabbed panel: the strip is the panel's header and each
