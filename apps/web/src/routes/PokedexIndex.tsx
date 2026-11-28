@@ -319,13 +319,17 @@ export function PokedexIndex() {
       <div className="mt-[20px] flex flex-col gap-[12px]">
         {/* All + Gen 1–9 is wider than a phone; the edge fade says the row
             scrolls instead of cutting "Gen 5" in half at the gutter. */}
-        <div ref={genEdge} className={`scroll-x scroll-edge-x flex gap-[8px] ${CHIP_STRIP_BLEED}`}>
+        {/* The pills stay 32px; each carries a `before:` box 6px taller each
+            way, for a 44px thumb target. The row pads by the same 6px (and
+            gives it back with `-my-1.5`) because a scroll-x row clips whatever
+            overflows it — hit area included. */}
+        <div ref={genEdge} className={`scroll-x scroll-edge-x -my-1.5 flex gap-[8px] py-1.5 ${CHIP_STRIP_BLEED}`}>
           {GENS.map((g) => (
             <button
               key={g}
               onClick={() => setGen(g)}
               className={[
-                'h-[32px] shrink-0 rounded-full px-[14px] text-[14px] font-semibold',
+                "relative h-[32px] shrink-0 rounded-full px-[14px] text-[14px] font-semibold before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-['']",
                 gen === g ? 'bg-action-primary text-action-primary-text' : 'bg-surface-tertiary text-text-body hover:bg-action-default-hover',
               ].join(' ')}
             >
