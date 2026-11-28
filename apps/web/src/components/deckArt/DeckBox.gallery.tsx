@@ -9,9 +9,29 @@ import { BACKDROP_VARIANTS, BOX_ART_VARIANTS, DECK_STYLES, ENERGY_TYPES, STUDIO_
 import { TREATMENTS, type TreatmentId } from './title'
 import type { GalleryMeta } from '../../routes/design/galleryTypes'
 
+// Stand-in card faces, drawn inline. Like the other galleries (CardImage,
+// CardTile, TableView), this one makes no card-art requests: /design is also
+// rendered by the browser suites against a fixture server that has no card
+// art, and every request it cannot serve fails the run. Live tiles show the
+// real art; these only need to read as "a card standing in front of the box".
+function standInCard(art: [string, string]): string {
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 63 88">' +
+    `<defs><linearGradient id="a" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${art[0]}"/><stop offset="1" stop-color="${art[1]}"/></linearGradient></defs>` +
+    '<rect width="63" height="88" rx="3" fill="#d9c56e"/>' +
+    '<rect x="2.5" y="2.5" width="58" height="83" rx="2" fill="#eeebe3"/>' +
+    '<rect x="5" y="8" width="53" height="37" fill="url(#a)"/>' +
+    '<rect x="5" y="4.2" width="30" height="2.2" rx="1" fill="#57534a"/>' +
+    '<g fill="#b9b3a6"><rect x="6" y="50" width="51" height="2" rx="1"/><rect x="6" y="55" width="44" height="2" rx="1"/><rect x="6" y="63" width="51" height="2" rx="1"/><rect x="6" y="68" width="38" height="2" rx="1"/></g>' +
+    '</svg>'
+  return 'data:image/svg+xml,' + encodeURIComponent(svg)
+}
+
+const ATTACKER = standInCard(['#f08a3c', '#9c2f1c'])
+const PARTNER = standInCard(['#5fb3a8', '#5a3a8c'])
 const CARDS = [
-  { cardId: 'sv03-125', name: 'Charizard ex', low: '/deckpal/images/en/sv/sv03/125/low.webp', high: '/deckpal/images/en/sv/sv03/125/high.webp' },
-  { cardId: 'sv06-130', name: 'Dragapult ex', low: '/deckpal/images/en/sv/sv06/130/low.webp', high: '/deckpal/images/en/sv/sv06/130/high.webp' },
+  { cardId: 'gallery-1', name: 'Stand-in attacker', low: ATTACKER, high: ATTACKER },
+  { cardId: 'gallery-2', name: 'Stand-in partner', low: PARTNER, high: PARTNER },
 ]
 
 interface PreviewProps {
@@ -51,7 +71,7 @@ export default {
   source: 'apps/web/src/components/deckArt/DeckBox.tsx',
   section: 'component',
   description:
-    "The /decks tile art: a studio-lit deck box with generated panel art in its leading energy type (recoloured by gradient map), the deck's name in one of seven title treatments, its energy types on the label band, and the main attackers in front, in a generated studio chosen by how the deck plays. Live tiles also take colour from the attacker's art, which this preview skips.",
+    "The /decks tile art: a studio-lit deck box with generated panel art in its leading energy type (recoloured by gradient map), the deck's name in one of seven title treatments, its energy types on the label band, and the main attackers in front, in a generated studio chosen by how the deck plays. Live tiles show the real card art and take colour from it; this preview draws stand-in cards and skips that sampling.",
   component: DeckBoxPreview,
   defaults: base,
   variants: [
