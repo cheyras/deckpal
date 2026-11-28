@@ -244,9 +244,14 @@ export function SetDetail() {
 
   return (
     <Content cap={1165}>
-      <div className="mb-[16px]">
-        <BackPill to="/series/$series" params={{ series }} label={data?.set.series.name ?? 'Series'} />
-      </div>
+      {/* Once the set has loaded the back link moves INTO the header's first
+          row, beside the set mark and the actions (SetHeader). Until then it
+          stands alone, in a row the same 40px tall so it does not jump. */}
+      {!data && (
+        <div className="mb-[20px] flex min-h-[40px] items-center">
+          <BackPill to="/series/$series" params={{ series }} label="Series" />
+        </div>
+      )}
 
       {isLoading && !data && <Spinner label="Loading set…" />}
       {error && <ErrorState message={(error as Error).message} className={enter} />}
@@ -265,7 +270,12 @@ export function SetDetail() {
             data-decke-label="the set header"
             data-decke-rank="container"
           >
-            <SetHeader data={data} goal={search.goal} onGoalChange={(goal) => patch({ goal })} />
+            <SetHeader
+              data={data}
+              goal={search.goal}
+              onGoalChange={(goal) => patch({ goal })}
+              back={<BackPill to="/series/$series" params={{ series }} label={data.set.series.name} />}
+            />
           </div>
 
           {/* filter bar */}

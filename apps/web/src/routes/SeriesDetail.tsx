@@ -95,7 +95,14 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
             below to run the full width of the card. */}
         <div className="flex items-start gap-[10px]">
           <div className="min-w-0 flex-1">
-            <div className="font-display truncate text-[16px] font-semibold text-text-primary">{set.name}</div>
+            {/* Two lines, then clamp. A single truncated line cut every subset
+                name at the word that says WHICH subset it is — "Crown Zenith
+                Galaria…", "Silver Tempest Traine…" (owner, 2026-11-27, 428px).
+                The longest set name in the catalog (31 characters) fits in two
+                lines at 390px; the clamp is only a backstop. */}
+            <div className="font-display line-clamp-2 break-words text-[16px] font-semibold leading-[21px] text-text-primary">
+              {set.name}
+            </div>
             <div className="text-[14px] text-text-muted">{fmtCalendarDate(set.releasedOn)}</div>
           </div>
           <SetSymbolTile setId={set.setId} name={set.name} size={36} />

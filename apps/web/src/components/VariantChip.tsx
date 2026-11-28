@@ -15,8 +15,9 @@ import { variantMeta } from '../lib/variantStyle'
  * had.
  *
  * So on a list the badge becomes the variant itself, and the catalogue count
- * steps aside (see `CardTile`). On the set page nothing changes: there, every
- * printing is on screen anyway and `+N Variants` is the useful fact.
+ * steps aside (see `CardTile`, which shows this chip in the tile's footer
+ * strip). On the set page nothing changes: there, every printing is on screen
+ * anyway and `+N Variants` is the useful fact.
  *
  * Colour comes from `lib/variantStyle.ts`, the same source the count boxes and
  * the card modal's variant table use, so one printing is one colour everywhere
@@ -49,29 +50,8 @@ export function VariantChip({
   )
 }
 
-/**
- * The same chip as an overlay on card art, for the grid tile.
- *
- * Separate because the badge sits on ARBITRARY card art and cannot rely on the
- * page's surface colours — the note `CardTile` already carries about
- * `+N Variants` applies unchanged: a half-transparent grey disappears over the
- * bright half of a card. Dark scrim, body-weight text, backdrop blur.
- */
-export function VariantBadge({ variant }: { variant: NonNullable<CardRow['variant']> }) {
-  const label = variant.displayName ?? variant.kind
-  if (!label) return null
-  const meta = variantMeta({ kind: variant.kind ?? '', tier: variant.tier })
-  return (
-    <span
-      className="absolute bottom-[8px] left-[8px] flex max-w-[calc(100%-16px)] items-center gap-[6px] rounded-md bg-overlay-scrim-strong px-[8px] py-[3px] text-[12px] font-medium leading-[18px] text-text-body backdrop-blur-sm"
-      title={label}
-    >
-      <span
-        className="h-[8px] w-[8px] shrink-0 rounded-sm"
-        style={{ background: meta.fill }}
-        aria-hidden="true"
-      />
-      <span className="truncate text-text-primary">{label}</span>
-    </span>
-  )
-}
+// There was a second export here, `VariantBadge`: this chip as a dark-scrim
+// overlay on the bottom-left of the card art, for the grid tile. Removed
+// 2026-11-27 — it sat on the card's printed collector number and rarity. The
+// grid tile now shows this same chip in its footer strip (see `CardTile`), on
+// the page's own surface, where the scrim was never needed.
