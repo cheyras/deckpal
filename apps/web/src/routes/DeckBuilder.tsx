@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useInfiniteQuery, useQuery, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query'
-import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
+import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import {
   api, ApiError, type DeckDetail, type DeckCard, type DeckFormat, type Violation, type CardRef, type RevertResult,
 } from '../lib/api'
-import { Content, Spinner, ErrorState, BackPill, Button, Tabs } from '../components/ui'
+import { Content, Spinner, ErrorState, BackPill, Button, Tabs, EmptyState, buttonClass } from '../components/ui'
 import { Modal, ConfirmModal } from '../components/ListModals'
 import { Icon } from '../components/Icon'
 import { KebabMenu } from '../components/KebabMenu'
@@ -334,22 +334,25 @@ function DeckRow({ card, offending, showVariant, onSet, onRemove, onOpen, onPin 
           </div>
         </div>
       </button>
-      <div className="flex shrink-0 self-end items-center gap-[5px] sm:self-auto">
+      {/* Drawn small so the row stays a row; under a thumb each control gets a
+          44px box (`touch-hit`) and the gaps open up enough that neighbouring
+          boxes barely meet, so a tap on − cannot land on Pin. */}
+      <div className="flex shrink-0 self-end items-center gap-[5px] pointer-coarse:gap-3 sm:self-auto">
         <button
           onClick={onPin}
           aria-label={card.pinExact ? `Allow equivalent printings for ${card.name}` : `Count only this exact printing of ${card.name}`}
           aria-pressed={card.pinExact}
           title={card.pinExact ? 'Only this printing counts' : 'Only count this printing'}
-          className={`rounded-md border px-[6px] py-[4px] text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action-primary ${card.pinExact ? 'border-action-primary text-action-primary' : 'border-border-default text-text-secondary hover:bg-action-default-hover'}`}
+          className={`touch-hit rounded-md border px-[6px] py-[4px] text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action-primary ${card.pinExact ? 'border-action-primary text-action-primary' : 'border-border-default text-text-secondary hover:bg-action-default-hover'}`}
         >{card.pinExact ? 'Pinned' : 'Pin'}</button>
-        <button onClick={() => onSet(card.quantity - 1)} aria-label="Decrease" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
+        <button onClick={() => onSet(card.quantity - 1)} aria-label={`Decrease ${card.name}`} className="touch-hit flex h-[26px] w-[26px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
           <Icon name="minus" size={13} />
         </button>
         <span className="w-[20px] text-center text-[14px] font-bold text-text-primary">{card.quantity}</span>
-        <button onClick={() => onSet(card.quantity + 1)} aria-label="Increase" className="flex h-[26px] w-[26px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
+        <button onClick={() => onSet(card.quantity + 1)} aria-label={`Increase ${card.name}`} className="touch-hit flex h-[26px] w-[26px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary hover:bg-action-default-hover">
           <Icon name="plus" size={13} />
         </button>
-        <button onClick={onRemove} aria-label={`Remove ${card.name}`} className="ml-[2px] flex h-[26px] w-[26px] items-center justify-center rounded-md text-icon-default hover:bg-action-danger-fill hover:text-action-danger-text">
+        <button onClick={onRemove} aria-label={`Remove ${card.name}`} className="touch-hit ml-[2px] flex h-[26px] w-[26px] items-center justify-center rounded-md text-icon-default hover:bg-action-danger-fill hover:text-action-danger-text">
           <Icon name="close" size={14} />
         </button>
       </div>
@@ -409,14 +412,16 @@ function DeckAddModal({ format, onClose, onAdd, isAdding, wasAdded }: {
             <input autoFocus value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Search cards by name or number…"
               className="h-[46px] w-full rounded-lg border border-border-default bg-surface-primary pl-[44px] pr-[12px] text-[15px] text-text-primary placeholder:text-text-muted" />
           </label>
-          <label className="flex items-center gap-[8px] text-[14px] font-semibold text-text-secondary">
+          {/* A group, not a <label>: a label with no `for` activates the first
+              button inside it, so a tap on the words "per add" took one off. */}
+          <div role="group" aria-label="Copies per add" className="flex items-center gap-[8px] text-[14px] font-semibold text-text-secondary">
             <div className="flex items-center gap-[6px]">
-              <button type="button" onClick={() => setQty((q) => Math.max(1, q - 1))} className="flex h-[30px] w-[30px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary"><Icon name="minus" size={14} /></button>
+              <button type="button" aria-label="One fewer per add" onClick={() => setQty((q) => Math.max(1, q - 1))} className="touch-hit flex h-[30px] w-[30px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary"><Icon name="minus" size={14} /></button>
               <span className="w-[20px] text-center text-[15px] font-bold text-text-primary">{qty}</span>
-              <button type="button" onClick={() => setQty((q) => q + 1)} className="flex h-[30px] w-[30px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary"><Icon name="plus" size={14} /></button>
+              <button type="button" aria-label="One more per add" onClick={() => setQty((q) => q + 1)} className="touch-hit flex h-[30px] w-[30px] items-center justify-center rounded-md bg-surface-tertiary text-text-primary"><Icon name="plus" size={14} /></button>
             </div>
             per add
-          </label>
+          </div>
         </div>
         {canFilter && (
           <div className="flex flex-col gap-[2px]">
@@ -430,7 +435,9 @@ function DeckAddModal({ format, onClose, onAdd, isAdding, wasAdded }: {
           </div>
         )}
 
-        <div className="min-h-[220px]">
+        {/* Opens at the height results will need, so the first answer does
+            not throw the sheet up the screen (as in ListModals' picker). */}
+        <div className="min-h-[60dvh] nav:min-h-[min(56dvh,480px)]">
           {!debounced && <div className="py-[40px] text-center text-[14px] text-text-muted">Start typing to find cards to add.</div>}
           {debounced && search.isFetching && !data && <div className="py-[40px] text-center text-[14px] text-text-muted">Searching…</div>}
           {data && results.length === 0 && <div className="py-[40px] text-center text-[14px] text-text-muted">No cards match “{debounced}”{legal ? ` in ${poolName}` : ''}.</div>}
@@ -664,7 +671,7 @@ export function DeckBuilder() {
   const key = ['deck', id] as const
   const patchSearch = (p: Partial<DeckSearch>) => navigate({ search: { ...search, ...p } as never, resetScroll: false })
 
-  const { data, isLoading, error } = useQuery({ queryKey: key, queryFn: ({ signal }) => api.deck(id, signal), placeholderData: keepPreviousData })
+  const { data, isLoading, error, refetch } = useQuery({ queryKey: key, queryFn: ({ signal }) => api.deck(id, signal), placeholderData: keepPreviousData })
   // Issue #49: the wrapper entrance fires while this is still a spinner.
   const enter = useLateEntrance(isLoading && !data)
 
@@ -915,7 +922,17 @@ export function DeckBuilder() {
     <Content cap={1240}>
       <div className="mb-[16px]"><BackPill to="/decks" label="Deck Builder" /></div>
       {isLoading && !data && <Spinner label="Loading deck…" />}
-      {error && <ErrorState message={(error as Error).message} className={enter} />}
+      {/* A deck that is not there was deleted (restorable from the Deck
+          Builder) or the link is wrong — not "Something went wrong". */}
+      {error && !data && error instanceof ApiError && error.status === 404 ? (
+        <EmptyState className={`mt-[24px] ${enter}`} icon="deck" title="Deck not found" body="It may have been deleted, or the link is wrong. Deleted decks can be restored from the Deck Builder.">
+          <Link to="/decks" className={buttonClass('secondary')}>
+            Go to Deck Builder
+          </Link>
+        </EmptyState>
+      ) : (
+        error && <ErrorState message={(error as Error).message} className={enter} onRetry={() => void refetch()} />
+      )}
 
       {detail && deck && (
         <div className={`flex flex-col gap-[20px] lg:flex-row lg:items-start ${enter}`}>

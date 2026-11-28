@@ -436,7 +436,7 @@ export function DecksIndex() {
   const [showNew, setShowNew] = useState(false)
   const [showImport, setShowImport] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const { data, isLoading, error } = useQuery({ queryKey: ['decks'], queryFn: ({ signal }) => api.decks(signal) })
+  const { data, isLoading, error, refetch } = useQuery({ queryKey: ['decks'], queryFn: ({ signal }) => api.decks(signal) })
   // Issue #49: on a cold cache the wrapper's entrance is over ~6s before the
   // first deck card exists, so the content itself has to introduce it.
   const enter = useLateEntrance(isLoading)
@@ -467,11 +467,15 @@ export function DecksIndex() {
       <div className="mb-[24px] mt-[8px] flex flex-wrap items-center justify-between gap-[12px]">
         <div>
           <h1 className="text-[32px] font-bold leading-[40px] text-text-primary">Deck Builder</h1>
-          <p className="text-[14px] text-text-muted">{decks.length} deck{decks.length === 1 ? '' : 's'}</p>
+          {data && <p className="text-[14px] text-text-muted">{decks.length} deck{decks.length === 1 ? '' : 's'}</p>}
         </div>
-        <div className="flex items-center gap-[10px]">
+        {/* On a phone the pair shares one row, and the long label broke both
+            pills onto two lines ("New / Deck"). Below `sm` it reads "Import"
+            — what the empty state already calls it — and the rest stays in
+            the accessible name. Labels never wrap inside a pill. */}
+        <div className="flex items-center gap-[10px] whitespace-nowrap">
           <Button variant="secondary" onClick={() => { setErr(null); setShowImport(true) }}>
-            <Icon name="download" size={18} /> Import from PTCG Live
+            <Icon name="download" size={18} /> Import<span className="max-sm:sr-only"> from PTCG Live</span>
           </Button>
           <Button onClick={() => { setErr(null); setShowNew(true) }}>
             <Icon name="plus" size={18} /> New Deck
@@ -480,7 +484,7 @@ export function DecksIndex() {
       </div>
 
       {isLoading && <Spinner label="Loading decks…" />}
-      {error && <ErrorState message={(error as Error).message} className={enter} />}
+      {error && <ErrorState message={(error as Error).message} className={enter} onRetry={() => void refetch()} />}
 
       {data && decks.length === 0 && (
         <EmptyState

@@ -406,7 +406,7 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
 
       // ── Deck quantity ──────────────────────────────────────────────────────
       await go('/decks/' + DECK)
-      const plus = page.getByRole('button', { name: 'Increase', exact: true }).first()
+      const plus = page.getByRole('button', { name: /^Increase / }).first()
       const copies = async () => Number(await plus.locator('xpath=preceding-sibling::span[1]').innerText())
       // QUAL-06: each later request answers FASTER, so unserialised writes would
       // land out of order and an older count would overwrite a newer one.
@@ -485,7 +485,7 @@ export async function checkWrites(browser, server, mount, label, out, fixture, a
       })
       await lying.page.goto(server.origin + mount + '/decks/' + DECK, { waitUntil: 'networkidle' })
       await lying.page.getByRole('status').filter({ hasText: 'Browsing cached data' }).waitFor({ state: 'hidden' })
-      const plus = lying.page.getByRole('button', { name: 'Increase', exact: true }).first()
+      const plus = lying.page.getByRole('button', { name: /^Increase / }).first()
       await plus.click()
       for (let i = 0; i < 40 && state.deck[0].quantity !== 2; i++) await sleep(50)
       assert.equal(state.deck[0].quantity, 2, 'deck save reached the server despite navigator.onLine=false')
