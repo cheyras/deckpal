@@ -143,8 +143,13 @@ deck rows carry no types or attacks. These steps keep that cost off the page:
    page and card sheet use. Opening a deck afterwards is instant, and a card shared
    between decks is fetched once.
 4. **While it waits**, the tile shows the box in neutral stock with two blank card backs.
-   When the spec lands, the cards rise in. That is opacity plus translate: compositor
-   only, and off under reduced motion.
+5. **A finished spec waits for the scroll to rest** (160 ms of quiet, capped at 3 s)
+   before it renders, so a tile never repaints its scene under a moving finger. Then
+   the cards rise in. That is opacity plus translate: compositor only, and off under
+   reduced motion.
+6. **A degraded spec is shown but not cached.** That is one built after a card lookup
+   failed or the art could not be read, which would pin this device to colours another
+   device would not derive. It is retried on the next visit.
 
 ## Measured (2026-11-27)
 

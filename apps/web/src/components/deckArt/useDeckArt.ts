@@ -65,7 +65,13 @@ function toFacts(r: CardDetailResponse): ArtCardFacts {
 const DETAIL_STALE_MS = 5 * 60_000
 const CARD_STALE_MS = 60 * 60_000
 
-export async function buildDeckArt(qc: QueryClient, deck: DeckSummary): Promise<DeckArtSpec> {
+/**
+ * `complete` is false when a card lookup or the art sample failed. Such a spec
+ * is still shown, but it is not written to the device cache: it is a
+ * degraded answer, and caching it would pin this device to colours another
+ * device (or a later visit here) would not derive. It is retried next visit.
+ */
+export async function buildDeckArt(qc: QueryClient, deck: DeckSummary): Promise<{ spec: DeckArtSpec; complete: boolean }> {
   return withSlot(async () => {
     const detail = await qc.fetchQuery<DeckDetail>({
       queryKey: ['deck', deck.id],
@@ -92,8 +98,37 @@ export async function buildDeckArt(qc: QueryClient, deck: DeckSummary): Promise<
     )
     const base = { deckId: deck.id, glcType: deck.glcType, rows, strategyMd, facts }
     const first = deriveDeckArt(base).featured[0]
-    const artSwatch = first ? await sampleArtSwatch(first.low) : null
-    return deriveDeckArt({ ...base, artSwatch })
+    // A grey artwork legitimately has no colour; only a failed READ is incomplete.
+    const sample = first ? await sampleArtSwatch(first.low) : { read: true, color: null }
+    return {
+      spec: deriveDeckArt({ ...base, artSwatch: sample.color }),
+      complete: facts.size === top.length && sample.read,
+    }
+  })
+}
+
+// ── Never paint new art mid-scroll ───────────────────────────────────────────
+// A tile whose art arrives re-renders and re-rasterises its whole scene. Doing
+// that while a finger is moving the page is the one thing in this feature that
+// could cost a frame, so a finished spec waits for the scroll to rest (160 ms
+// of quiet; a capture listener hears the app's inner scroll containers too).
+// The wait is capped so a long continuous scroll still fills in.
+
+let lastScroll = 0
+if (typeof window !== 'undefined') {
+  window.addEventListener('scroll', () => { lastScroll = performance.now() }, { passive: true, capture: true })
+}
+
+function scrollRest(quietMs = 160, maxWaitMs = 3000): Promise<void> {
+  const start = performance.now()
+  return new Promise((resolve) => {
+    const check = () => {
+      const now = performance.now()
+      const quietFor = now - lastScroll
+      if (quietFor >= quietMs || now - start >= maxWaitMs) resolve()
+      else setTimeout(check, Math.max(16, quietMs - quietFor))
+    }
+    check()
   })
 }
 
@@ -165,8 +200,9 @@ export function useDeckArt(deck: DeckSummary, ref: RefObject<Element | null>): D
   const q = useQuery({
     queryKey: ['deck-art', deck.id, key],
     queryFn: async () => {
-      const spec = await buildDeckArt(qc, deck)
-      writeSpec(deck.id, key, spec)
+      const { spec, complete } = await buildDeckArt(qc, deck)
+      if (complete) writeSpec(deck.id, key, spec)
+      await scrollRest()
       return spec
     },
     enabled: near && !cached && !empty,

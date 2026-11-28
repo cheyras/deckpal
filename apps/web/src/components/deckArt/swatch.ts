@@ -82,9 +82,13 @@ export function dominantColor(data: Uint8ClampedArray | readonly number[]): Oklc
  * Sample the art of the card at `low` (a `/deckpal/images/…` path). Tries the
  * direct Storage URL first — the same one the tile's <img> uses — and the
  * image tier second, exactly like CardImage.
+ *
+ * `read` says whether the pixels could be read at all. `{ read: true, color:
+ * null }` is a real answer (a grey artwork); `{ read: false }` is a failure
+ * the caller should not cache.
  */
-export async function sampleArtSwatch(low: string): Promise<Oklch | null> {
-  if (typeof document === 'undefined') return null
+export async function sampleArtSwatch(low: string): Promise<{ read: boolean; color: Oklch | null }> {
+  if (typeof document === 'undefined') return { read: false, color: null }
   const sources = [directArtUrl(low), low].filter((s): s is string => !!s)
   for (const src of sources) {
     try {
@@ -96,15 +100,15 @@ export async function sampleArtSwatch(low: string): Promise<Oklch | null> {
       canvas.width = W
       canvas.height = H
       const ctx = canvas.getContext('2d', { willReadFrequently: true })
-      if (!ctx) return null
+      if (!ctx) return { read: false, color: null }
       const iw = img.naturalWidth
       const ih = img.naturalHeight
       if (!iw || !ih) continue
       ctx.drawImage(img, iw * ART.x, ih * ART.y, iw * ART.w, ih * ART.h, 0, 0, W, H)
-      return dominantColor(ctx.getImageData(0, 0, W, H).data)
+      return { read: true, color: dominantColor(ctx.getImageData(0, 0, W, H).data) }
     } catch {
       // next source; a SecurityError (tainted canvas) lands here too
     }
   }
-  return null
+  return { read: false, color: null }
 }
