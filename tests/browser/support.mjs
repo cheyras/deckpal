@@ -58,6 +58,9 @@ export async function serve(dist, mount, respondApi, html = 'index.html', option
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1')
     requests.push(url.pathname)
+    // A caller modelling "the network is gone" drops the connection outright:
+    // no status, no body, nothing a fetch could read.
+    if (options.unreachable?.(url.pathname)) { req.socket.destroy(); return }
     const reject = (why, status = 404) => { unexpected.push(why); res.writeHead(status); res.end(why) }
     const mutation = !['GET', 'HEAD'].includes(req.method)
     if (mutation && !options.allowMutation?.(url.pathname, req.method)) return reject('Unexpected method ' + req.method + ' ' + url.pathname, 405)

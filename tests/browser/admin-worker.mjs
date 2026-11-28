@@ -9,6 +9,15 @@ import { serve } from './support.mjs'
 export async function checkServiceWorkerPrivacy(browser, dist, mount, label) {
   fs.writeFileSync(path.join(dist,'privacy.html'), '<!doctype html><title>Worker privacy boundary</title><p>Worker test</p>')
   let actor='owner'
+  // OFFLINE MEANS THE NETWORK IS GONE, at the fixture server as well as in the
+  // browser. `context.setOffline` is emulation, applied to the page and then to
+  // each service worker in turn, and once in CI (PR #417, shard 4/8) a request
+  // in the offline phase still reached this server and came back with the
+  // live `signed-out` answer. That is not a replay, but it reads as one. With
+  // the server unreachable too, anything the page reads offline can only have
+  // come from a cache — the replay this check exists to catch — and a request
+  // that slips past the emulation is counted instead of being mistaken for one.
+  let networkGone=false, reachedWhileOffline=0
   const server=await serve(dist,mount,(rel,url)=>{
     if(rel.startsWith('/api/')) return {body:{actor,path:rel},headers:{'Cache-Control':url.searchParams.has('private')?'private, no-store':'public, max-age=60'}}
     return null
@@ -25,6 +34,7 @@ export async function checkServiceWorkerPrivacy(browser, dist, mount, label) {
     // meant to survive — allow the one POST it makes rather than either
     // silencing the boundary or expanding this fixture into a full app stub.
     allowMutation:(pathname)=>pathname.endsWith('/client-errors'),
+    unreachable:()=>{if(networkGone)reachedWhileOffline++;return networkGone},
   })
   const context=await browser.newContext({serviceWorkers:'allow'})
   try{
@@ -53,6 +63,7 @@ export async function checkServiceWorkerPrivacy(browser, dist, mount, label) {
     actor='another-user'
     assert.equal(await page.evaluate(async mount=>(await fetch(mount+'/api/me').then(r=>r.json())).actor,mount),'another-user')
     actor='signed-out'
+    networkGone=true
     await context.setOffline(true)
     const offline=await page.evaluate(async({mount,privatePaths})=>{
       const result={}
@@ -63,6 +74,6 @@ export async function checkServiceWorkerPrivacy(browser, dist, mount, label) {
     for(const p of privatePaths)assert.equal(offline[p],null,'Private data replayed offline after identity change: '+p)
     if(label==='cloud')assert.equal(offline.public.actor,'owner','Anonymous catalog cache remains available')
     assert.deepEqual(server.unexpected,[],'Worker fixture must use only served assets and loopback API')
-    return {case:'real-service-worker-privacy',label,privatePaths:privatePaths.length,retiredCacheDeleted:true,offlinePrivateReplay:false,anonymousCatalogOffline:label==='cloud'}
+    return {case:'real-service-worker-privacy',label,privatePaths:privatePaths.length,retiredCacheDeleted:true,offlinePrivateReplay:false,anonymousCatalogOffline:label==='cloud',requestsPastOfflineEmulation:reachedWhileOffline}
   }finally{await context.close();await server.close()}
 }
