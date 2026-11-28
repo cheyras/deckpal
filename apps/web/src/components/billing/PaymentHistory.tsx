@@ -50,7 +50,7 @@ export function PaymentHistory() {
       <h2 id="payment-history-heading" className="font-text text-[12px] font-bold uppercase tracking-wide text-text-muted">Payment history</h2>
       <div role="radiogroup" aria-label="Payment type" className="mt-[12px] grid grid-cols-2 gap-[8px]">
         {KINDS.map(([value, label], index) => (
-          <button key={value} ref={node => { radioRefs.current[index] = node }} type="button" role="radio" aria-checked={kind === value} tabIndex={kind === value ? 0 : -1} onClick={() => selectKind(value)} onKeyDown={event => selectFromKeyboard(event, index)} className={`min-h-[44px] rounded-xl px-[12px] text-[14px] font-semibold ${kind === value ? 'bg-action-primary text-white' : 'bg-surface-tertiary text-text-primary'}`}>{label}</button>
+          <button key={value} ref={node => { radioRefs.current[index] = node }} type="button" role="radio" aria-checked={kind === value} tabIndex={kind === value ? 0 : -1} onClick={() => selectKind(value)} onKeyDown={event => selectFromKeyboard(event, index)} className={`min-h-[44px] rounded-xl px-[12px] text-[14px] font-semibold ${kind === value ? 'bg-action-primary text-action-primary-text' : 'bg-surface-tertiary text-text-primary'}`}>{label}</button>
         ))}
       </div>
       <p className="mt-[12px] text-[13px] leading-[1.5] text-text-muted">{first?.coverage ?? 'Shows the current billing account only. Payments on older replaced or deleted billing accounts may be missing.'}</p>
