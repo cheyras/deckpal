@@ -1,3 +1,7 @@
+/* The home page's own rules ride in this sheet's chunk: one stylesheet request
+ * for the landing instead of two (each is a round trip before first paint). */
+@import './home/home.css';
+
 /* The landing page (logged-out `/`). Scoped under `.lp`; the shared bits
  * (.ls-wrap, .ls-cta, the FAQ grid-rows trick, reveals) live in landing.css,
  * which the auth pages and Profile also use.
@@ -2672,4 +2676,27 @@
 .lp-phone-bar .lp-example {
   padding: 1px 6px;
   font-size: 9.5px;
+}
+
+/* ── /features intro: the page's title beside the example conversation ───── */
+.lp-features-intro {
+  padding-top: calc(var(--lp-nav-h) + 48px);
+}
+.lp-features-grid {
+  display: grid;
+  gap: 48px;
+  align-items: center;
+}
+.lp-features-grid > * {
+  min-width: 0;
+}
+.lp-features-grid .lp-phone {
+  position: relative;
+  width: min(300px, 78vw);
+  margin-inline: auto;
+}
+@media (min-width: 900px) {
+  .lp-features-grid {
+    grid-template-columns: 1.1fr 0.9fr;
+  }
 }

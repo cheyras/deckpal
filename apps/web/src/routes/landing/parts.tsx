@@ -67,6 +67,34 @@ export function useOnScreen<T extends Element>(ref: RefObject<T | null>): boolea
   return on
 }
 
+/**
+ * Stamps `data-play` on the element while it is on screen and removes it when
+ * it leaves. CSS keys `animation-play-state` off it, so a looping demo or the
+ * card orbit costs nothing while scrolled away, and toggling it never
+ * re-renders React. Without IntersectionObserver it simply plays.
+ */
+export function usePlayWhenVisible<T extends Element>(ref: RefObject<T | null>, rootMargin = '80px 0px'): void {
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    if (typeof IntersectionObserver === 'undefined') {
+      el.setAttribute('data-play', '')
+      return
+    }
+    const io = new IntersectionObserver(
+      (es) => {
+        for (const e of es) {
+          if (e.isIntersecting) e.target.setAttribute('data-play', '')
+          else e.target.removeAttribute('data-play')
+        }
+      },
+      { rootMargin },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [ref, rootMargin])
+}
+
 /** Stamps `data-revealed` on every `[data-reveal]` as it enters the viewport. */
 export function useScrollReveal(): void {
   useEffect(() => {
@@ -217,7 +245,7 @@ export function SectionHead({
 }) {
   return (
     <div className={`lp-head ${center ? 'lp-head-center' : ''}`}>
-      <Eyebrow>{eyebrow}</Eyebrow>
+      {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
       <h2 className="lp-h2" id={id}>
         {title}
       </h2>
@@ -239,7 +267,31 @@ export function GitHubGlyph({ size = 20 }: { size?: number }) {
   )
 }
 
-export function Nav({ scrolled }: { scrolled: boolean }) {
+export type NavLink = { href: string; label: string }
+
+/** An in-page anchor stays an <a>; a path is a router link (preloads on intent). */
+function NavItem({ link, onClick }: { link: NavLink; onClick?: () => void }) {
+  return link.href.startsWith('/') ? (
+    <Link to={link.href} onClick={onClick}>
+      {link.label}
+    </Link>
+  ) : (
+    <a href={link.href} onClick={onClick}>
+      {link.label}
+    </a>
+  )
+}
+
+export function Nav({
+  scrolled,
+  links = COPY.nav.links,
+  home = true,
+}: {
+  scrolled: boolean
+  links?: readonly NavLink[]
+  /** On the home page the logo scrolls to the top; elsewhere it goes home. */
+  home?: boolean
+}) {
   const [open, setOpen] = useState(false)
   useEffect(() => {
     if (!open) return
@@ -250,13 +302,19 @@ export function Nav({ scrolled }: { scrolled: boolean }) {
   return (
     <header className={`lp-nav ${scrolled || open ? 'is-solid' : ''}`}>
       <nav className="ls-wrap lp-nav-row" aria-label="Primary">
-        <a href="#top" className="lp-nav-logo" aria-label="DeckPal, back to top">
-          <BrandLogo height={26} />
-        </a>
+        {home ? (
+          <a href="#top" className="lp-nav-logo" aria-label="DeckPal, back to top">
+            <BrandLogo height={26} />
+          </a>
+        ) : (
+          <Link to="/" className="lp-nav-logo" aria-label="DeckPal home">
+            <BrandLogo height={26} />
+          </Link>
+        )}
         <ul className="lp-nav-links">
-          {COPY.nav.links.map((l) => (
+          {links.map((l) => (
             <li key={l.href}>
-              <a href={l.href}>{l.label}</a>
+              <NavItem link={l} />
             </li>
           ))}
         </ul>
@@ -283,11 +341,9 @@ export function Nav({ scrolled }: { scrolled: boolean }) {
       </nav>
       <div id="lp-nav-sheet" className="lp-nav-sheet" hidden={!open}>
         <ul className="ls-wrap">
-          {COPY.nav.links.map((l) => (
+          {links.map((l) => (
             <li key={l.href}>
-              <a href={l.href} onClick={() => setOpen(false)}>
-                {l.label}
-              </a>
+              <NavItem link={l} onClick={() => setOpen(false)} />
             </li>
           ))}
           <li>

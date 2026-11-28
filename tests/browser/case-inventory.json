@@ -342,5 +342,8 @@
   "{\"case\":\"skill-page\",\"label\":\"cloud\",\"width\":1280}",
   "{\"case\":\"skill-page\",\"label\":\"cloud\",\"width\":390}",
   "{\"case\":\"skill-page-from-connect\",\"label\":\"cloud\",\"width\":1280}",
-  "{\"case\":\"skill-page-from-connect\",\"label\":\"cloud\",\"width\":390}"
+  "{\"case\":\"skill-page-from-connect\",\"label\":\"cloud\",\"width\":390}",
+  "{\"case\":\"landing-home-features\",\"label\":\"cloud\",\"width\":390}",
+  "{\"case\":\"landing-home-features\",\"label\":\"cloud\",\"width\":1440}",
+  "{\"case\":\"landing-reduced-motion\",\"label\":\"cloud\",\"width\":390}"
 ]

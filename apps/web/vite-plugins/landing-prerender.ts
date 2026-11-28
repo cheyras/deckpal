@@ -8,6 +8,7 @@
  *
  *   dist/landing.html   served for `/`
  *   dist/connect.html   served for `/connect`
+ *   dist/features.html  served for `/features`
  *
  * Each is `index.html` with that page's words as semantic HTML inside `#root`,
  * plus its own title, description, canonical and og:url. The landing also
@@ -29,13 +30,14 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { Plugin } from 'vite'
-import { appJsonLd, faqJsonLd, renderConnectStatic, renderLandingStatic, renderLlmsFull } from '../src/routes/landing/staticHtml'
+import { appJsonLd, faqJsonLd, renderConnectStatic, renderFeaturesStatic, renderLandingStatic, renderLlmsFull } from '../src/routes/landing/staticHtml'
 import { COPY } from '../src/routes/landing/copy'
+import { HERO_POSTER_SIZES, HERO_VIDEO } from '../src/routes/landing/heroVideo'
 
 const ORIGIN = 'https://deckpal.app'
 
 const VISUALLY_HIDDEN =
-  '<style>#seo-landing,#seo-connect{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}</style>'
+  '<style>#seo-landing,#seo-connect,#seo-features{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}</style>'
 
 const attr = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
@@ -78,6 +80,13 @@ function prerender(shell: string, page: Page): string {
   return html.replace(marker, () => `${marker}${page.body}`)
 }
 
+/** Preload for the hero poster, AVIF (every browser the CSP and the build target support decodes it). */
+export function posterPreload(): string {
+  const { name, widths } = HERO_VIDEO.poster
+  const set = widths.map((w) => `/marketing/landing/${name}-${w}.avif ${w}w`).join(', ')
+  return `<link rel="preload" as="image" type="image/avif" imagesrcset="${set}" imagesizes="${HERO_POSTER_SIZES}" />`
+}
+
 export function landingPrerender(): Plugin {
   let outDir = 'dist'
   return {
@@ -103,7 +112,13 @@ export function landingPrerender(): Plugin {
           ogTitle: COPY.meta.ogTitle,
           ogDescription: COPY.meta.ogDescription,
           body: renderLandingStatic(),
-          head: `${faqJsonLd()}\n`,
+          // The hero video slot's poster is the home page's LCP on a phone. React
+          // draws it only once the route chunk has run, so without this hint the
+          // browser would not ask for it until then; with it, the still downloads
+          // alongside the scripts. Same srcset and sizes as HeroVideo's <picture>.
+          // Measured 2026-11-27 on the throttled mobile profile: with it, LCP
+          // 3.10 s and FCP 2.50 s; without it, LCP 3.31 s and FCP 2.32 s. LCP wins.
+          head: `${faqJsonLd()}\n${posterPreload()}\n`,
         },
         {
           file: 'connect.html',
@@ -111,6 +126,13 @@ export function landingPrerender(): Plugin {
           title: COPY.connectPage.metaTitle,
           description: COPY.connectPage.metaDescription,
           body: renderConnectStatic(),
+        },
+        {
+          file: 'features.html',
+          path: '/features',
+          title: COPY.featuresPage.metaTitle,
+          description: COPY.featuresPage.metaDescription,
+          body: renderFeaturesStatic(),
         },
       ]
       for (const page of pages) writeFileSync(join(outDir, page.file), prerender(shell, page))

@@ -47,6 +47,7 @@ test('the privacy page renders chrome-free and signed-out, on either base path',
     const route = (path: string) => base.replace(/\/$/, '') + path
     assert.equal(isChromelessPathname(route('/privacy'), base), true)
     assert.equal(isChromelessPathname(route('/connect'), base), true)
+    assert.equal(isChromelessPathname(route('/features'), base), true)
     assert.equal(isChromelessPathname(route('/privacy/'), base), true)
     assert.equal(isChromelessPathname(route('/privacyx'), base), false)
   }

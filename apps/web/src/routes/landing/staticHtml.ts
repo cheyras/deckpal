@@ -23,18 +23,61 @@ const list = (items: readonly string[]): string => `<ul>${items.map((i) => `<li>
 const section = (id: string, eyebrow: string, h: string, body: string): string =>
   `<section id="${id}"><p>${esc(eyebrow)}</p><h2>${esc(h)}</h2>${body}</section>`
 
-export function renderLandingStatic(): string {
+const fmtN = (n: number): string => new Intl.NumberFormat('en-US').format(n)
+
+/** The home page (`/`): its short story, the FAQ and the closing call. Catalog
+ *  totals are the fallback figures the page shows before the live ones load. */
+export function renderLandingStatic(catalog: { cards: number; sets: number } = { cards: 21290, sets: 205 }): string {
   const c = COPY
+  const h = c.home
   const parts: string[] = []
+  const signup = `<a href="/auth?mode=signup">${esc(h.hero.cta)}</a>`
+
+  parts.push(`<header><h1>${esc(h.hero.headline)}</h1>${p(h.hero.sub)}<p>${signup}</p>${p(h.hero.price)}</header>`)
 
   parts.push(
-    `<header><p>${esc(c.hero.eyebrow)}</p><h1>${esc(c.hero.headlineA)} ${esc(c.hero.headlineB)}</h1>${ps(c.hero.body)}` +
-      `<nav aria-label="Primary"><a href="/auth?mode=signup">${esc(c.hero.ctaPrimary)}</a> ` +
-      `<a href="/series">${esc(c.hero.ctaBrowse)}, ${esc(c.hero.ctaBrowseNote)}</a> ` +
-      `<a href="https://github.com/cheyras/deckpal">${esc(c.nav.github)}</a></nav>` +
-      `${p(c.hero.price)}<p>${esc(c.works.lead)}: ${esc(c.works.apps.join(', '))}.</p></header>`,
+    `<section id="how"><h2>${esc(h.loop.headline)}</h2>${p(h.loop.sub)}` +
+      `<ol>${h.loop.steps.map((s) => `<li><strong>${esc(s.title)}.</strong> ${esc(s.body)}</li>`).join('')}</ol>` +
+      `${p(h.loop.again)}<p><a href="/features">${esc(h.loop.more)}</a></p></section>`,
+  )
+  for (const id of ['plan', 'playtest', 'tune', 'build'] as const) {
+    const b = h.beats[id]
+    parts.push(`<section id="${id}"><h2>${esc(b.headline)}</h2>${p(b.body)}</section>`)
+  }
+  const orbit = h.orbit.body.replace('{cards}', fmtN(catalog.cards)).replace('{sets}', fmtN(catalog.sets))
+  parts.push(
+    `<section id="catalog"><h2>${esc(h.orbit.headline)}</h2>${p(orbit)}` +
+      `<p><a href="/series">${esc(h.orbit.cta)}, ${esc(h.orbit.note)}</a></p></section>`,
+  )
+  parts.push(
+    `<section id="works"><h2>${esc(h.works.headline)}</h2>${p(h.works.body)}${list(c.works.apps)}` +
+      `<p><a href="/connect#compat">${esc(h.works.link)}</a></p>${p(c.works.disclaimer)}</section>`,
+  )
+  const f = h.fair
+  parts.push(
+    `<section><h3>${esc(f.priceTitle)}</h3>${p(f.priceBody)}<h3>${esc(f.privateTitle)}</h3>${p(f.privateBody)}` +
+      `<h3>${esc(f.codeTitle)}</h3>${p(f.codeBody)}<p><a href="https://github.com/cheyras/deckpal">${esc(f.codeLink)}</a></p></section>`,
+  )
+  parts.push(
+    `<section id="faq"><h2>${esc(c.faq.headline)}</h2>` +
+      `<dl>${c.faq.items.map((x) => `<dt id="faq-${x.id}">${esc(x.q)}</dt><dd>${esc(x.a)}</dd>`).join('')}</dl></section>`,
+  )
+  parts.push(
+    `<footer><h2>${esc(c.closing.headline)}</h2>${p(c.closing.body)}` +
+      `<p><a href="/auth?mode=signup">${esc(c.closing.primary)}</a> <a href="/series">${esc(c.closing.secondary)}</a></p>` +
+      `${p(c.closing.microline)}<p><a href="/features">${esc(h.loop.more)}</a> <a href="/connect">Connect</a> <a href="/privacy">Privacy</a></p></footer>`,
   )
 
+  return `<div id="seo-landing">${parts.join('')}</div>`
+}
+
+/** The /features page as plain HTML, for `dist/features.html`: every stage in
+ *  full, the example questions, the jobs, everything else, and the open-source facts. */
+export function renderFeaturesStatic(): string {
+  const c = COPY
+  const fp = c.featuresPage
+  const parts: string[] = []
+  parts.push(`<header><h1>${esc(fp.title)}</h1>${p(fp.lead)}<p><a href="/auth?mode=signup">${esc(c.nav.cta)}</a></p></header>`)
   parts.push(
     section(
       'loop',
@@ -47,11 +90,8 @@ export function renderLandingStatic(): string {
   parts.push(section('playtest', c.playtest.eyebrow, c.playtest.headline, ps(c.playtest.body)))
   parts.push(section('tune', c.tune.eyebrow, c.tune.headline, `<blockquote>${esc(c.tune.quote)}</blockquote>${ps(c.tune.body)}`))
   parts.push(section('build', c.build.eyebrow, c.build.headline, ps(c.build.body)))
-  parts.push(
-    section('ask', c.ask.eyebrow, c.ask.headline, `${p(c.ask.body)}${list(c.ask.prompts.map((x) => x.q))}`),
-  )
+  parts.push(section('ask', c.ask.eyebrow, c.ask.headline, `${p(c.ask.body)}${list(c.ask.prompts.map((x) => x.q))}`))
   parts.push(section('jobs', c.jobs.eyebrow, c.jobs.headline, `${p(c.jobs.body)}${list(c.jobs.items)}`))
-
   const cells = Object.values(c.more.cells)
   parts.push(
     section(
@@ -70,35 +110,12 @@ export function renderLandingStatic(): string {
         `${esc(c.founder.licenseLabel)}: ${esc(c.founder.license)}.</p>`,
     ),
   )
-
-  const t = c.connect
-  parts.push(
-    section(
-      'connect',
-      t.eyebrow,
-      t.headline,
-      `${p(t.body)}<ol>${t.steps.map((s) => `<li><strong>${esc(s.title)}.</strong> ${esc(s.body)}</li>`).join('')}</ol>` +
-        `${list(t.trust)}<table><caption>${esc(t.summaryLabel)}</caption><thead><tr><th scope="col">${esc(t.columns.app)}</th>` +
-        `<th scope="col">${esc(t.summaryFree)}</th><th scope="col">${esc(t.summaryChange)}</th></tr></thead><tbody>` +
-        t.table.map((r) => `<tr><th scope="row">${esc(r.app)}</th><td>${esc(r.freeShort)}</td><td>${esc(r.changeShort)}</td></tr>`).join('') +
-        `</tbody></table>${p(t.summaryNote + ' ' + t.disclaimer)}<p><a href="/connect">${esc(t.learnMore)}</a></p>`,
-    ),
-  )
-  parts.push(
-    section(
-      'faq',
-      c.faq.eyebrow,
-      c.faq.headline,
-      `<dl>${c.faq.items.map((f) => `<dt id="faq-${f.id}">${esc(f.q)}</dt><dd>${esc(f.a)}</dd>`).join('')}</dl>`,
-    ),
-  )
   parts.push(
     `<footer><h2>${esc(c.closing.headline)}</h2>${p(c.closing.body)}` +
       `<p><a href="/auth?mode=signup">${esc(c.closing.primary)}</a> <a href="/series">${esc(c.closing.secondary)}</a></p>` +
-      `${p(c.closing.microline)}<p><a href="/privacy">Privacy</a></p></footer>`,
+      `<p><a href="/">${esc(fp.back)}</a> <a href="/connect">Connect</a> <a href="/privacy">Privacy</a></p></footer>`,
   )
-
-  return `<div id="seo-landing">${parts.join('')}</div>`
+  return `<div id="seo-features">${parts.join('')}</div>`
 }
 
 /** The /connect help page as plain HTML, for `dist/connect.html`. Same rules as the landing's. */
@@ -187,6 +204,7 @@ export function landingJsonLd(): string {
 export function renderLlmsFull(): string {
   const c = COPY
   const md: string[] = [c.seo.llmsTxt, '', '---', '']
+  md.push(`## ${c.home.hero.headline}`, '', c.home.hero.sub, '', c.home.hero.price, '')
   const block = (title: string, paras: readonly string[], points: readonly string[] = []) =>
     md.push(`## ${title}`, '', ...paras.flatMap((x) => [x, '']), ...points.map((x) => `- ${x}`), '')
   block(c.loop.headline, [c.loop.body], c.loop.steps.map((s) => `${s.title}: ${s.body}`))

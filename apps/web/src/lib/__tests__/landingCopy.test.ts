@@ -21,9 +21,11 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { COPY } from '../../routes/landing/copy'
 import { SITE_DEFAULTS } from '../siteMeta'
-import { landingJsonLd, renderConnectStatic, renderLandingStatic, renderLlmsFull } from '../../routes/landing/staticHtml'
+import { HERO_VIDEO } from '../../routes/landing/heroVideo'
+import { landingJsonLd, renderConnectStatic, renderFeaturesStatic, renderLandingStatic, renderLlmsFull } from '../../routes/landing/staticHtml'
 
-const everything = JSON.stringify(COPY) + renderLandingStatic() + renderConnectStatic() + renderLlmsFull() + landingJsonLd()
+const everything =
+  JSON.stringify(COPY) + renderLandingStatic() + renderFeaturesStatic() + renderConnectStatic() + renderLlmsFull() + landingJsonLd()
 
 test('the landing mentions nothing that is not generally released', () => {
   for (const banned of [/scanner/i, /deck-e/i, /\breplay\b/i]) {
@@ -82,8 +84,42 @@ test('compatibility claims: owner order, dated, and only Claude marked tested', 
   assert.deepEqual(t.filter((r) => r.tested).map((r) => r.app), ['Claude'])
   assert.match(COPY.connect.checked, /\d{4}$/)
   assert.ok(COPY.connect.finePrint.includes(COPY.connect.checked.replace('Last checked ', '')), 'fine print and badge disagree on the date')
-  const static_ = renderLandingStatic()
-  for (const r of t) assert.ok(static_.includes(r.app.replace(/&/g, '&amp;')), `prerender is missing ${r.app}`)
+  // The full chart lives on /connect (since the 2026-11-27 redesign); the home
+  // page names the same apps and links there.
+  const home = renderLandingStatic()
+  for (const r of t) assert.ok(home.includes(r.app.split(' ')[0]), `home prerender does not name ${r.app}`)
+  assert.ok(home.includes('/connect#compat'), 'home must link to the comparison on /connect')
+})
+
+test('the home page is short: its story (FAQ aside) stays under 450 words', () => {
+  // The owner's brief: "an overwhelm of information" was the old page's
+  // problem. Detail belongs on /features and /connect, not back here.
+  const story = renderLandingStatic()
+    .replace(/<section id="faq">[\s\S]*?<\/section>/, '')
+    .replace(/<[^>]+>/g, ' ')
+  const words = story.split(/\s+/).filter(Boolean).length
+  assert.ok(words <= 450, `home story is ${words} words`)
+})
+
+test('nothing the old home page said was lost: /features carries every deep dive', () => {
+  const html = renderFeaturesStatic()
+  assert.equal((html.match(/<h1>/g) ?? []).length, 1)
+  const esc = (x: string) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  const c = COPY
+  for (const h of [c.loop.headline, c.plan.headline, c.playtest.headline, c.tune.headline, c.build.headline, c.ask.headline, c.jobs.headline, c.more.headline, c.founder.headline]) {
+    assert.ok(html.includes(esc(h)), `features prerender is missing "${h}"`)
+  }
+  for (const para of [...c.plan.body, ...c.playtest.body, ...c.tune.body, ...c.build.body, ...c.jobs.items]) {
+    assert.ok(html.includes(esc(para)), `features prerender is missing: ${para.slice(0, 50)}`)
+  }
+  for (const x of c.ask.prompts) assert.ok(html.includes(esc(x.q)), `features prerender is missing the question: ${x.q}`)
+  assert.ok(c.featuresPage.metaTitle.length <= 60, 'features title fits a results page')
+  assert.ok(c.featuresPage.metaDescription.length <= 160, 'features description fits a results page')
+})
+
+test('the hero film, once configured, is same-origin (CSP media-src is self)', () => {
+  for (const s of HERO_VIDEO.sources) assert.match(s.src, /^\/marketing\/landing\//)
+  if (HERO_VIDEO.captions) assert.match(HERO_VIDEO.captions, /^\/marketing\/landing\//)
 })
 
 test('the prerender has one h1 and every FAQ answer, and FAQ ids are unique', () => {
