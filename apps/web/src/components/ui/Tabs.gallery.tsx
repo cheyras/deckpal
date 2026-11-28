@@ -52,7 +52,7 @@ export default {
         fill: true,
         items: SECTION_ITEMS as unknown as TabsProps['items'],
         value: 'card',
-        className: 'px-[6px] pt-[4px] rounded-t-xl border-x border-t border-border-default bg-surface-secondary',
+        className: 'px-1.5 pt-1 rounded-t-xl border-x border-t border-border-default bg-surface-secondary',
       },
     },
     {

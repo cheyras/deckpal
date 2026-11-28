@@ -32,7 +32,7 @@ export const PENDING_ITEMS: PendingItem[] = [
     label: 'Spacing call sites still off the token scale',
     kind: 'off-theme',
     description:
-      'The scale exists: a 4px grid (--spacing: 4px) whose sanctioned steps are listed under Tokens → Foundations, plus the roles px-gutter, size-hit and top-corner. The shared primitives in components/ui, the app shell and this page are on it. As of 2026-11-27, 2,257 bracketed pixel spacing utilities remain elsewhere: 1,964 are on the scale and rewrite mechanically (px-[16px] → px-4, the same pixels), and 293 are off it (3px ×61, 7px ×57, 5px ×53, 18px ×35, 9px ×20, …) and each needs a person to choose the step it was meant to be. Recount with: node apps/web/scripts/spacing-audit.mjs --files',
+      'The scale exists: a 4px grid (--spacing: 4px) whose sanctioned steps are listed under Tokens → Foundations, plus the roles px-gutter, size-hit and top-corner. The shared primitives in components/ui, the app shell and this page are on it. As of 2026-11-27, 2,254 bracketed pixel spacing utilities remain elsewhere: 1,964 are on the scale and rewrite mechanically (px-[16px] → px-4, the same pixels), and 290 are off it (3px ×58, 7px ×57, 5px ×53, 18px ×35, 9px ×20, …) and each needs a person to choose the step it was meant to be. Recount with: node apps/web/scripts/spacing-audit.mjs --files',
     auditRef: '§1.4',
     steps: [
       'One file per change, by whoever owns the file, never a repo-wide codemod: the rewrite touches thousands of lines other work is editing.',
