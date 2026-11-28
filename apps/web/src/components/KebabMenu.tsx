@@ -87,6 +87,10 @@ export function KebabMenu({
               role="menuitem"
               onClick={() => {
                 setOpen(false)
+                // Back on the ⋮ first: an item that opens a sheet hands the sheet
+                // a focus to return to that will still exist when it closes (this
+                // row unmounts with the menu).
+                triggerRef.current?.focus()
                 item.onSelect()
               }}
               className={[
