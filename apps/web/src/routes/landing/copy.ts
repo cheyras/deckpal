@@ -122,7 +122,7 @@ export const COPY = {
       sub: 'DeckPal connects the AI you already use to your cards, decks and PTCG Live games. Then you plan, playtest and tune together.',
       cta: 'Start free',
       price: 'Pay what you want. $0 a month is an option.',
-      videoLabel: 'DeckPal at a league-night table',
+      videoLabel: 'A short animated film: a player scans cards, plans a deck with DeckPal, playtests, tunes and wins at league night',
     },
     loop: {
       headline: 'How it works',
@@ -226,7 +226,7 @@ export const COPY = {
   // The example conversation on /features (HeroPhone) and the hero poster's alt text.
   hero: {
     photoAlt:
-      "A league-night table from the player's seat: Mega Chandelure ex in the active spot, Litwick, Lampent, Duskull and Dusclops on the bench.",
+      'An anime-style illustration of a teen at his desk at dusk, sliding a card into a binder of Pokémon cards, his phone glowing beside it.',
     demoLabel: 'An example chat with an AI connected to DeckPal',
     connected: 'DeckPal connected',
     pause: 'Pause the example chat',

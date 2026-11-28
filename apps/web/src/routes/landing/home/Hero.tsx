@@ -7,7 +7,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { Icon } from '../../../components/Icon'
 import { COPY } from '../copy'
-import { HERO_POSTER_SIZES, HERO_VIDEO, type HeroVideoConfig } from '../heroVideo'
+import {
+  HERO_PHONE_MEDIA,
+  HERO_PHONE_POSTER_SIZES,
+  HERO_POSTER_SIZES,
+  HERO_VIDEO,
+  heroSourcesFor,
+  type HeroVideoConfig,
+} from '../heroVideo'
 import { Photo, PrimaryCta, usePrefersReducedMotion } from '../parts'
 
 export function HomeHero() {
@@ -63,15 +70,30 @@ function useAfterLoadIdle(enabled: boolean): boolean {
   return ready
 }
 
+/** Whether HERO_PHONE_MEDIA matches now, kept current (a phone rotated, a window resized). */
+function usePhoneMedia(): boolean {
+  const [phone, setPhone] = useState(() => typeof window !== 'undefined' && window.matchMedia(HERO_PHONE_MEDIA).matches)
+  useEffect(() => {
+    const mq = window.matchMedia(HERO_PHONE_MEDIA)
+    const on = () => setPhone(mq.matches)
+    on()
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
+  return phone
+}
+
 /**
- * The 16:9 slot. Its box is sized by `aspect-ratio` before anything loads, so
+ * The 16:9 slot (1:1 on a phone when the config has a phone cut). Its box is sized by `aspect-ratio` before anything loads, so
  * neither the poster nor the film can shift the page. With no film configured
  * (or on Save-Data, or if the file fails) it is the poster and nothing else:
  * no play button that would do nothing.
  */
 export function HeroVideo({ config, label }: { config: HeroVideoConfig; label: string }) {
   const reduced = usePrefersReducedMotion()
-  const hasFilm = config.sources.length > 0
+  const phone = usePhoneMedia() && !!config.phone
+  const sources = heroSourcesFor(config, phone)
+  const hasFilm = sources.length > 0
   const [failed, setFailed] = useState(false)
   const [lite] = useState(() => typeof navigator !== 'undefined' && saveData())
   const want = hasFilm && !failed && !lite
@@ -82,6 +104,8 @@ export function HeroVideo({ config, label }: { config: HeroVideoConfig; label: s
   const [userPaused, setUserPaused] = useState(false)
   const [playing, setPlaying] = useState(false)
   const autoplay = !reduced && !userPaused
+  // a new cut (the phone turned, the window resized) stays hidden until it plays
+  useEffect(() => setPlaying(false), [phone])
 
   useEffect(() => {
     const v = ref.current
@@ -100,7 +124,7 @@ export function HeroVideo({ config, label }: { config: HeroVideoConfig; label: s
     )
     io.observe(el)
     return () => io.disconnect()
-  }, [ready, autoplay])
+  }, [ready, autoplay, phone])
 
   const toggle = () => {
     const v = ref.current
@@ -116,9 +140,18 @@ export function HeroVideo({ config, label }: { config: HeroVideoConfig; label: s
 
   return (
     <div ref={box} className={`hm-video ${playing ? 'is-playing' : ''}`}>
-      <Photo name={config.poster.name} alt={COPY.hero.photoAlt} sizes={HERO_POSTER_SIZES} eager className="hm-video-poster" />
+      <Photo
+        name={config.poster.name}
+        alt={COPY.hero.photoAlt}
+        sizes={HERO_POSTER_SIZES}
+        eager
+        className="hm-video-poster"
+        art={config.phone && { name: config.phone.poster.name, media: HERO_PHONE_MEDIA, sizes: HERO_PHONE_POSTER_SIZES }}
+      />
       {want && ready && (
         <video
+          // a new element per cut: swapping <source>s in place would not reload the film
+          key={phone ? 'phone' : 'wide'}
           ref={ref}
           className="hm-video-film"
           muted
@@ -132,12 +165,12 @@ export function HeroVideo({ config, label }: { config: HeroVideoConfig; label: s
         >
           {/* A missing file errors on its <source>, not the <video>; when the
               last one fails there is nothing left to try, so drop to the poster. */}
-          {config.sources.map((s, i) => (
+          {sources.map((s, i) => (
             <source
               key={s.src}
               src={s.src}
               type={s.type}
-              onError={i === config.sources.length - 1 ? () => setFailed(true) : undefined}
+              onError={i === sources.length - 1 ? () => setFailed(true) : undefined}
             />
           ))}
           {config.captions && <track kind="captions" src={config.captions} srcLang="en" label="English" default />}
