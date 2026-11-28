@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import { ENERGY_GLYPHS, type EnergyType } from './energyGlyphs'
+import { ENERGY_GLYPHS, ENERGY_GLYPHS_SMALL, SMALL_GLYPH_MAX, type EnergyType } from './energyGlyphs'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pokémon TCG energy TOKEN: a small raised disc in the type's colour, carrying
@@ -13,7 +13,9 @@ import { ENERGY_GLYPHS, type EnergyType } from './energyGlyphs'
 //     scaled to a 13–40px object. Colours are the `--color-energy-*` tokens,
 //     tuned to read like the energy symbols printed on the cards.
 //   - THE GLYPH (`energyGlyphs.tsx`) — the symbol alone. Swapping the artwork
-//     is an edit to that one file; nothing here changes.
+//     is an edit to that one file; nothing here changes. That file also says
+//     which glyphs simplify at the smallest sizes; this one only passes the
+//     size along.
 //
 // Every caller passes a type name and a pixel size, so the token's API did not
 // change when it stopped being a flat SVG disc.
@@ -94,7 +96,7 @@ export function EnergyIcon({
     >
       {meta ? (
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          {ENERGY_GLYPHS[key as EnergyType]}
+          {(size <= SMALL_GLYPH_MAX && ENERGY_GLYPHS_SMALL[key as EnergyType]) || ENERGY_GLYPHS[key as EnergyType]}
         </svg>
       ) : (
         // Graceful fallback: the neutral token + first letter.

@@ -25,6 +25,22 @@ test('glyphs never hard-code an ink colour', () => {
   }
 })
 
+test('glyph cut-outs are holes, so they show the disc', () => {
+  // The traced glyphs (2026-11-27) cut their veins, inner flame, highlights
+  // and eye out of one path. Without evenodd those subpaths fill solid and the
+  // glyph turns into a blob.
+  const paths = [...GLYPHS.matchAll(/<path\b[^>]*>/g)].map((m) => m[0])
+  assert.ok(paths.length >= 11, 'expected a path per glyph')
+  for (const p of paths) assert.match(p, /fillRule="evenodd"/, `glyph path must be fillRule="evenodd": ${p.slice(0, 60)}…`)
+})
+
+test('colorless keeps an edge on a light ground', () => {
+  // Its disc is paler than deck art and light panels; the rim is what keeps it
+  // from dissolving there (owner review 2026-11-27).
+  assert.match(THEME, /\.energy-token\[data-energy='colorless'\] \{\s*--energy-rim:/)
+  assert.match(THEME, /inset 0 0 0 1px var\(--energy-rim, transparent\)/)
+})
+
 test('the token file carries no glyph artwork', () => {
   // If path data creeps back into EnergyIcon.tsx, swapping glyphs stops being
   // a one-file change.
