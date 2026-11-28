@@ -22,7 +22,7 @@ import { Sheet } from '../components/ui/Sheet'
 import { ConfirmModal } from '../components/ListModals'
 import { fmtUsd } from '../lib/format'
 import { useLateEntrance } from '../lib/lateEntrance'
-import { signOutBounded } from '../lib/authSession'
+import { readSession, signOutBounded } from '../lib/authSession'
 import { CARD_ASPECT_RATIO_CSS, CARD_RADIUS_CSS } from '../lib/cardGeometry'
 
 // The showcase's offline cache. The durable copy moved to the ACCOUNT — the
@@ -98,6 +98,21 @@ export function Profile() {
   const me = useQuery({ queryKey: ['me'], queryFn: ({ signal }) => api.me(signal), enabled: isCloudMode })
   const username = isCloudMode ? (me.data?.username ?? 'Trainer') : 'Trainer'
   const [signingOut, setSigningOut] = useState(false)
+  // "Joined" was the literal "Jul 2026" for every account. The real date is
+  // on the signed-in session (as ChangePassword reads the address from it);
+  // where there is none — self-host has no account — the line is left out.
+  const [joined, setJoined] = useState<string | null>(null)
+  useEffect(() => {
+    if (!isCloudMode) return
+    let alive = true
+    void readSession().then(({ session }) => {
+      const at = session?.user.created_at ? new Date(session.user.created_at) : null
+      if (alive && at && !Number.isNaN(at.getTime())) setJoined(at.toLocaleDateString(undefined, { month: 'short', year: 'numeric' }))
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
   const photo = useAvatarEditor()
 
   // Cache-first render, account-truth follow-up: paint from localStorage
@@ -315,10 +330,14 @@ export function Profile() {
             The camera badge on the ring is the shortcut; these are the labelled
             path, and the only place "Remove" can be reached. */}
         <div className="mt-[10px] flex flex-wrap items-center gap-x-[16px] gap-y-[8px] text-[14px]">
-          <span className="text-text-muted">
-            Joined <span className="font-semibold text-text-body">Jul 2026</span>
-          </span>
-          <span className="hidden h-[14px] w-px bg-divider-subtle sm:block" />
+          {joined && (
+            <>
+              <span className="text-text-muted">
+                Joined <span className="font-semibold text-text-body">{joined}</span>
+              </span>
+              <span className="hidden h-[14px] w-px bg-divider-subtle sm:block" />
+            </>
+          )}
           <span className="text-text-muted">
             Friends <span className="font-semibold text-text-body">0</span>
           </span>
