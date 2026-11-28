@@ -72,6 +72,7 @@ function toCardRow(c: SpeciesDetailCard, seriesSlug: string | null): CardRow {
         }),
     seriesSlug: seriesSlug ?? undefined,
     setId: c.set.setId,
+    setName: c.set.name,
   }
 }
 
@@ -217,7 +218,7 @@ export function SpeciesDetail() {
                 {ownedOnly ? 'You own none of this species yet.' : 'No cards found for this species.'}
               </div>
             ) : (
-              <GridView cards={cards} seriesSlug="" setId="" ownership={sp.captured !== undefined} />
+              <GridView cards={cards} seriesSlug="" setId="" ownership={sp.captured !== undefined} showSet />
             )}
           </div>
         </>

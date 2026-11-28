@@ -46,6 +46,7 @@ export function GridView({
   onRemove,
   ownership,
   reveal,
+  showSet,
 }: {
   cards: CardRow[]
   seriesSlug: string
@@ -53,6 +54,8 @@ export function GridView({
   onRemove?: (card: CardRow) => void
   // When true, tiles render owned/dimmed state from card.ownership (species detail).
   ownership?: boolean
+  // When true, each tile names its set after its number (grids spanning sets).
+  showSet?: boolean
   // A card whose row must stay mounted, when the page that owns this grid has been asked for one.
   reveal?: GridReveal | null
 }) {
@@ -212,6 +215,7 @@ export function GridView({
                   eager={vRow.index === 0 && i < cols}
                   onRemove={onRemove ? () => setConfirmRemove(card) : undefined}
                   ownership={ownership}
+                  showSet={showSet}
                 />
               ))}
             </div>
