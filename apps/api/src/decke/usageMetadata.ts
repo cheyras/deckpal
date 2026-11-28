@@ -8,13 +8,28 @@ export function decimalUsd(value:unknown):string|null {
   if(!/^(0|[1-9]\d{0,11})(\.\d{1,12})?$/.test(s)) return null;
   return s;
 }
-export function extractUsage(usage:unknown,metadata:unknown):{tokens:UsageTokens;cost:UsageCost;generationId:string|null} {
+/** Which road served a call (see `aiRoute.ts`). Recorded on `decke_ai_operation.route`. */
+export type AiRoute='direct'|'gateway'|'gateway_fallback';
+export const AI_ROUTES:readonly AiRoute[]=['direct','gateway','gateway_fallback'];
+/**
+ * The meter's reading of one provider call.
+ *
+ * Cost comes from `providerMetadata.gateway.cost` on the Gateway road and from
+ * `providerMetadata.deckpal.cost` on the Anthropic-direct road, where
+ * `aiRoute.ts` prices Anthropic's own token report at the Gateway's published
+ * rates. Both are what the call cost DeckPal, so both are `provider_reported`:
+ * the same request settles the same row and the same credits on either road,
+ * and `route` is the one field that says which road it was.
+ */
+export function extractUsage(usage:unknown,metadata:unknown):{tokens:UsageTokens;cost:UsageCost;generationId:string|null;route:AiRoute|null} {
   const u=record(usage),input=record(u.inputTokens),output=record(u.outputTokens);
   const inDetails=record(u.inputTokenDetails),outDetails=record(u.outputTokenDetails);
-  const gateway=record(record(metadata).gateway);
-  const usd=decimalUsd(gateway.cost);
-  const id=gateway.generationId;
+  const meta=record(metadata),gateway=record(meta.gateway),deckpal=record(meta.deckpal);
+  const usd=decimalUsd(gateway.cost)??decimalUsd(deckpal.cost);
+  const id=gateway.generationId??deckpal.generationId;
+  const route:AiRoute|null=AI_ROUTES.includes(deckpal.route as AiRoute)?deckpal.route as AiRoute:Object.keys(gateway).length>0?'gateway':null;
   return {
+    route,
     tokens:{inputTokens:count(input.total??u.inputTokens),outputTokens:count(output.total??u.outputTokens),
       cacheReadTokens:count(input.cacheRead??inDetails.cacheReadTokens),cacheWriteTokens:count(input.cacheWrite??inDetails.cacheWriteTokens),
       reasoningTokens:count(output.reasoning??outDetails.reasoningTokens)},

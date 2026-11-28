@@ -6,7 +6,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { streamText, stepCountIs, type ToolSet } from 'ai';
 import { z } from 'zod';
-import type { GatewayProvider } from '@ai-sdk/gateway';
+import type { ModelProvider } from './aiRoute.js';
 import { MODELS, budgetFor, type ModelChoice } from './models.js';
 import { observeUsageModel, runUsageOperation, safeUsageCode, type ProviderCreditWork } from './usage.js';
 import { deepFailed, deepRefused, type MeterRefusalScope } from './deepOutcome.js';
@@ -41,7 +41,8 @@ export interface ResearchSource {
 
 export interface DeepToolOptions {
   ctx: AiSdkAdapterOptions;
-  gateway: GatewayProvider;
+  /** The Gateway, or the Anthropic-direct router in front of it (`aiRoute.ts`). */
+  gateway: ModelProvider;
   charge: (toolName: string, toolCallId?: string, args?: Record<string, unknown>) => Promise<{
     spendId?: string;
     prepareRefund?: (recover: () => Promise<void>) => void;
@@ -151,7 +152,8 @@ function isMeteredCapError(error: unknown): boolean {
 }
 
 async function runResearch(opts: {
-  gateway: GatewayProvider;
+  /** The Gateway, or the Anthropic-direct router in front of it (`aiRoute.ts`). */
+  gateway: ModelProvider;
   choice: ModelChoice;
   modelId: string;
   fallbackModelId?: string;

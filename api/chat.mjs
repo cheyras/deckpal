@@ -154,7 +154,11 @@ const SERVER_SET = new Set(SERVER_TOOLS.filter((name) => name !== 'consult'))
  */
 const REPAIRABLE = new Set(['showScreen', 'ask_user'])
 
-import { createGateway } from '@ai-sdk/gateway'
+// Anthropic models go to the Anthropic API first when ANTHROPIC_API_KEY is
+// set, and to the Gateway on a credit refusal; everything else (and everything,
+// when the key is unset) goes to the Gateway exactly as before. One metered
+// row either way. See `apps/api/src/decke/aiRoute.ts`.
+import { aiRouteBootLine, createModelProvider } from '../apps/api/dist/decke/aiRoute.js'
 
 // Everything imported here comes from `apps/api/dist` — COMPILED output, not
 // source. `apps/web` builds a browser bundle and its `.ts` files are never
@@ -272,6 +276,9 @@ function gatewayKey() {
   }
   return null
 }
+
+// B11: one line per cold start naming the road Anthropic calls take. Never the key.
+console.log(aiRouteBootLine())
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? ''
 const JWT_SECRET = process.env.SUPABASE_JWT_SECRET ?? ''
@@ -707,7 +714,7 @@ async function serve(request) {
   // LLM turn in front of every message. This is a typed evaluation — no
   // output tokens, ~$0.00004 and ~0.3 s measured — whose answers only ever act
   // above a threshold chosen on a labelled set. See `decke/jev.ts`.
-  const gateway = createGateway({ apiKey: key })
+  const gateway = createModelProvider({ gatewayKey: key })
   const latestUserMessageForTriage = messages.filter((message) => message?.role === 'user').at(-1)
   const pastedNow = extractPastedLog(latestUserMessageForTriage ? [latestUserMessageForTriage] : []) !== null
   // A paste the reader is still being asked about: their PREVIOUS message held
@@ -1536,9 +1543,13 @@ async function serve(request) {
           // on a credited team answered the same request normally.
           const message = String(error?.message ?? error)
           if (/rate.?limit/i.test(message)) {
+            // With ANTHROPIC_API_KEY set, an Anthropic model's plain 429 is
+            // Anthropic's own rate limit (a spend-cap 429 already fell back to
+            // the Gateway in `decke/aiRoute.ts`), so name both possibilities.
             console.error(
-              '[deck-e] gateway rate limit — DECKE_VERCEL_AI_GATEWAY_KEY has no paid credits. ' +
-                'This is a billing state, not a bug; retrying will not clear it.',
+              '[deck-e] rate limit — on the Gateway this means DECKE_VERCEL_AI_GATEWAY_KEY has no paid credits; ' +
+                "on the Anthropic-direct road it is the ANTHROPIC_API_KEY account's own rate limit. " +
+                'A billing state, not a bug; retrying will not clear it.',
             )
             return
           }

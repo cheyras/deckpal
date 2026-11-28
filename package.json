@@ -15,6 +15,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:local": "node scripts/dev.mjs --local",
+    "ai:set-anthropic-key": "node scripts/set-anthropic-key.mjs",
     "decisions": "node scripts/decisions.mjs",
     "decisions:check": "node scripts/check-decisions.mjs",
     "decisions:test": "node --test scripts/__tests__/decisions.test.mjs",
