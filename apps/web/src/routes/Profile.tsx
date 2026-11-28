@@ -266,16 +266,19 @@ export function Profile() {
               </button>
             )}
           </div>
-          <div className="flex items-center gap-[8px] pb-[10px]">
-            <span className="text-[24px] font-extrabold text-text-primary">{username}</span>
+          <div className="flex min-w-0 items-center gap-[8px] pb-[10px]">
+            {/* `min-w-0 break-words`: a long name wraps inside the row instead of
+                squeezing Sign out until its own label broke in two. */}
+            <span className="min-w-0 break-words text-[24px] font-extrabold text-text-primary">{username}</span>
             {isCloudMode ? (
               // Was a dead decorative glyph; now the shortcut to the Account
-              // card further down (password, signed-in address).
+              // card further down (password, signed-in address). An 18px
+              // glyph, so `touch-hit` gives a thumb the full 44px.
               <a
                 href="#account"
                 title="Account settings"
                 aria-label="Account settings"
-                className="rounded-full text-icon-muted hover:text-icon-hover"
+                className="touch-hit shrink-0 rounded-full text-icon-muted hover:text-icon-hover"
               >
                 <Icon name="gear" size={18} />
               </a>
@@ -295,7 +298,7 @@ export function Profile() {
                   // cannot race each other to different pages.
                   navigate({ to: '/signed-out' })
                 }}
-                className="ml-[4px] flex items-center gap-[6px] rounded-full bg-surface-tertiary px-[12px] py-[5px] text-[14px] font-semibold text-text-muted hover:bg-action-default-hover hover:text-text-body disabled:opacity-50"
+                className="touch-hit ml-[4px] flex shrink-0 items-center gap-[6px] whitespace-nowrap rounded-full bg-surface-tertiary px-[12px] py-[5px] text-[14px] font-semibold text-text-muted hover:bg-action-default-hover hover:text-text-body disabled:opacity-50"
                 title="Sign out"
               >
                 <Icon name="logout" size={16} />
@@ -362,7 +365,7 @@ export function Profile() {
         <Tabs items={TABS} value="profile" className="mt-[16px]" />
 
         {overview.isLoading && <Spinner label="Loading profile…" />}
-        {overview.error && <ErrorState message={(overview.error as Error).message} className={enter} />}
+        {overview.error && <ErrorState message={(overview.error as Error).message} className={enter} onRetry={() => void overview.refetch()} />}
 
         {ov && (
           <div className={`mt-[20px] flex flex-col gap-[16px] ${enter}`}>
