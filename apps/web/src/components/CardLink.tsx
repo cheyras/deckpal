@@ -79,12 +79,19 @@ export function CardLink({
   const address = { 'data-decke-card': card.cardId }
   const shared = { className, style, onFocus, ...address }
 
-  // Set page: sheet, keyed by number.
+  // Set page: sheet, keyed by number. The page's own params are the last
+  // fallback: the binder passes each pocket's row keys, and a set-page row
+  // carries none (it is implied by the page), so without them every pocket
+  // linked to "/series//" — which resolves to the series INDEX, and a tap on
+  // a binder card left the set altogether.
   if (leafId === '/series/$series/$set') {
     return (
       <Link
         to="/series/$series/$set"
-        params={{ series: card.seriesSlug ?? seriesSlug, set: card.setId ?? setId }}
+        params={{
+          series: card.seriesSlug || seriesSlug || params?.series || '',
+          set: card.setId || setId || params?.set || '',
+        }}
         search={((prev: CardSearch) => ({ ...prev, card: card.number })) as never}
         resetScroll={false}
         {...shared}
