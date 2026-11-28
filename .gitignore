@@ -62,6 +62,10 @@ assets/sprites/
 # Deck-E card back above: **/*.webp swallows it silently; the negation targets
 # only this one file and does not reopen blanket card-art tracking.
 !apps/web/public/brand/pokemon-30th-celebration-logo.webp
+# The generated deck-box art (tools/deck-art, provenance in its MANIFEST.json):
+# same silent-swallow failure, so the negation names this one directory.
+!apps/web/src/components/deckArt/art/
+!apps/web/src/components/deckArt/art/*.webp
 
 # DeckPal's template set logos (tools/set-logo-templates → ship.py), named by
 # literal path in apps/web/src/lib/releasedSetAssets.ts. Same failure mode again:
@@ -72,6 +76,8 @@ assets/sprites/
 # Raw, full-size generations from scripts/gen-marketing-images.mjs — originals and
 # rejected candidates. Only the optimised derivatives get committed.
 .marketing-raw/
+# Same for tools/deck-art/generate.mjs.
+.deck-art-raw/
 
 # ── transient catalog extract (docker save | tar output) ──────────────────
 extract/
