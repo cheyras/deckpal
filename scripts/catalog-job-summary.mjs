@@ -97,7 +97,16 @@ L.push(`| duplicate variants dropped | ${n(s.droppedDuplicates)} |`);
 L.push(`| variant kinds | ${n(s.variantKinds)} |`);
 L.push(`| **sets re-keyed by upstream** | **${n(s.renamedSets)}** |`);
 L.push(`| **cards re-keyed by upstream** | **${n(s.renamedCards)}** |`);
+// Older summaries predate the verified price-link overrides (apps/sync/src/catalog/priceLinkOverrides.ts).
+if (s.priceLinkOverrides != null) {
+  const refused = s.priceLinkOverridesRefused ?? [];
+  L.push(`| TCGplayer links from verified overrides | ${n(s.priceLinkOverrides)}${refused.length ? ` (**${refused.length} refused**)` : ''} |`);
+}
 L.push('');
+for (const r of s.priceLinkOverridesRefused ?? []) {
+  L.push(`* override refused, TCGdex's link kept: \`${r.card}\` ${r.kind} — ${r.reason}`);
+}
+if ((s.priceLinkOverridesRefused ?? []).length) L.push('');
 
 if (renames.length > 0) {
   L.push('### ⚠ Upstream re-keyed a set — its card art is now stranded');

@@ -561,6 +561,10 @@ ALTER TABLE card_variant
 --   (Normal <-> Holofoil only); 80 = a lone finish-descriptor product ("Cosmos Holo").
 --   'name_match' / 70 = a name unique on both sides, across different numbering schemes only.
 --   Stamped / event products and ambiguous matches stay 'none'. Nothing reads the confidence yet.
+-- UPDATE 2026-11-27: printings TCGdex links wrongly (or not at all) where the right product was
+--   checked by hand are listed in apps/sync/src/catalog/priceLinkOverrides.ts. The import and the
+--   link pass both write them as 'variant' / 100, over TCGdex's value, and the link pass clears
+--   tcgplayer_url when it does. Each entry pins the card's set, number and name.
 CHECK ((id_source = 'none') = (tcgplayer_product_id IS NULL AND cardmarket_product_id IS NULL));
 ```
 
