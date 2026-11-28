@@ -122,7 +122,7 @@ function SetRow({ set, seriesSlug }: { set: SetSummary; seriesSlug: string }) {
                   re-deriving one from the rounded display pct. */}
               LVL {setLevelLabel(c.setLevel ?? setLevelFromCounts(c.owned, c.total))}
             </span>
-            <span className="min-w-[56px] shrink-0 whitespace-nowrap text-right text-[14px] tabular-nums text-text-muted">
+            <span className="min-w-[58px] shrink-0 whitespace-nowrap text-right text-[14px] tabular-nums text-text-muted">
               {c.owned}/{c.total}
             </span>
           </div>
