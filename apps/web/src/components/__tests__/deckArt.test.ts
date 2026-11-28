@@ -113,7 +113,9 @@ test('Charizard ex / Pidgeot ex: the attacker is featured, not the engine that s
   // Charizard ex's 180+ is paid in the Fire the deck actually plays.
   assert.deepEqual(spec.featured.map((c) => c.name), ['Charizard ex'])
   assert.deepEqual(spec.types, ['Fire'], 'Tera Charizard is Darkness-typed but the deck plays and pays Fire')
-  assert.equal(spec.motif.kind, 'rays')
+  assert.equal(spec.style, 'power', 'a rule-box Stage 2 hitting for 180+ (225 scaled) is a power deck')
+  assert.match(spec.art.box!, /^box-fire-[abc]$/)
+  assert.match(spec.art.backdrop!, /^backdrop-spotlight-[abcd]$/)
 })
 
 test('two real attackers share the box', () => {
@@ -211,12 +213,12 @@ test('a deck with no Pokémon features nothing and still has a palette', () => {
   const spec = deriveDeckArt({ deckId: 'trainers', rows: [row('Nest Ball', 4, 'trainer')], facts: new Map() })
   assert.deepEqual(spec.featured, [])
   assert.deepEqual(spec.types, [])
-  for (const v of Object.values(spec.palette)) assert.match(v, /^#[0-9a-f]{6}$/)
+  for (const v of Object.values(spec.palette).flat()) assert.match(v, /^#[0-9a-f]{6}$/)
 })
 
 // ── determinism ──────────────────────────────────────────────────────────────
 
-test('the same deck always derives the same art; another deck id only moves the motif', () => {
+test('the same deck always derives the same art; another deck id only moves the variants', () => {
   const { rows, facts: f } = charizardDeck()
   const swatch = { l: 0.55, c: 0.14, h: 40 }
   const a = deriveDeckArt({ deckId: 'same', rows, facts: f, artSwatch: swatch })
@@ -225,7 +227,11 @@ test('the same deck always derives the same art; another deck id only moves the 
   const c = deriveDeckArt({ deckId: 'other', rows, facts: f, artSwatch: swatch })
   assert.deepEqual(c.featured, a.featured)
   assert.deepEqual(c.palette, a.palette)
-  assert.notEqual(c.motif.seed, a.motif.seed)
+  assert.equal(c.style, a.style)
+  assert.equal(c.art.box!.slice(0, -1), a.art.box!.slice(0, -1), 'same family')
+  // Across many ids every variant of the family turns up: decks of one type still differ.
+  const boxes = new Set(Array.from({ length: 40 }, (_, i) => deriveDeckArt({ deckId: `d${i}`, rows, facts: f, artSwatch: swatch }).art.box))
+  assert.equal(boxes.size, 3)
   assert.equal(a.v, DERIVE_VERSION)
   assert.equal(hashString('abc'), hashString('abc'))
 })
@@ -242,7 +248,10 @@ test('the provisional box: neutral for a plain deck, typed for a GLC deck, never
   assert.deepEqual(plain.featured, [])
   const glc = provisionalDeckArt('p', 'Water')
   assert.deepEqual(glc.types, ['Water'])
-  assert.equal(glc.motif.kind, 'waves')
+  assert.deepEqual(glc.art, { box: null, backdrop: null }, 'nothing is fetched for a deck about to be re-dressed')
+  const empty = provisionalDeckArt('e', null, true)
+  assert.match(empty.art.box!, /^box-colorless-/)
+  assert.match(empty.art.backdrop!, /^backdrop-sweep-/)
 })
 
 // ── palette ──────────────────────────────────────────────────────────────────
@@ -266,6 +275,20 @@ test('energy icons sit on a band dark enough to read every type colour against',
   for (const t of ['Fire', 'Water', 'Lightning', 'Darkness', 'Colorless', 'Metal'] as const) {
     const p = derivePalette([t], null)
     assert.ok(contrastRatio(hexToRgb(p.band), hexToRgb('#ffffff')) > 10, `${t} band too light`)
+  }
+})
+
+test('gradient maps climb in lightness for every type, or the artwork would solarise', () => {
+  const types = ['Grass', 'Fire', 'Water', 'Lightning', 'Psychic', 'Fighting', 'Darkness', 'Metal', 'Fairy', 'Dragon', 'Colorless'] as const
+  for (const t of types) {
+    for (const art of [null, { l: 0.6, c: 0.14, h: 300 }, { l: 0.6, c: 0.14, h: 60 }]) {
+      const p = derivePalette([t], art)
+      for (const map of [p.boxMap, p.backdropMap]) {
+        const ls = map.map((h) => hexToOklch(h).l)
+        for (let i = 1; i < ls.length; i++) assert.ok(ls[i] >= ls[i - 1] - 0.01, `${t} map not monotonic: ${map.join(' ')}`)
+        assert.ok(ls[0] < 0.35 && ls[ls.length - 1] > 0.6, `${t} map lacks range`)
+      }
+    }
   }
 })
 

@@ -24,6 +24,7 @@ import {
   type DeckArtSpec,
 } from './derive'
 import { sampleArtSwatch } from './swatch'
+import { artUrl, preloadArt, screenDensity } from './artAssets'
 import { artKey, clearSpecs, readSpec, writeSpec } from './store'
 import { isCloudMode, supabase } from '../../lib/supabase'
 
@@ -100,10 +101,12 @@ export async function buildDeckArt(qc: QueryClient, deck: DeckSummary): Promise<
     const first = deriveDeckArt(base).featured[0]
     // A grey artwork legitimately has no colour; only a failed READ is incomplete.
     const sample = first ? await sampleArtSwatch(first.low) : { read: true, color: null }
-    return {
-      spec: deriveDeckArt({ ...base, artSwatch: sample.color }),
-      complete: facts.size === top.length && sample.read,
-    }
+    const spec = deriveDeckArt({ ...base, artSwatch: sample.color })
+    // Fetch and decode the generated panel and studio before the spec lands,
+    // so the tile is dressed in one paint rather than piece by piece.
+    const d = screenDensity()
+    await preloadArt([artUrl(spec.art.box, d), artUrl(spec.art.backdrop, d)])
+    return { spec, complete: facts.size === top.length && sample.read }
   })
 }
 
@@ -185,6 +188,8 @@ export interface DeckArtState {
   pending: boolean
   /** the spec was derived while this tile was on screen (so its arrival may animate) */
   arrived: boolean
+  /** the tile has come near the viewport (its art images may load) */
+  near: boolean
 }
 
 export function useDeckArt(deck: DeckSummary, ref: RefObject<Element | null>): DeckArtState {
@@ -193,7 +198,7 @@ export function useDeckArt(deck: DeckSummary, ref: RefObject<Element | null>): D
   const cached = useMemo(() => readSpec(deck.id, key), [deck.id, key])
   const empty = deck.totalCount === 0
   const near = useNearViewport(ref)
-  const provisional = useMemo(() => provisionalDeckArt(deck.id, deck.glcType), [deck.id, deck.glcType])
+  const provisional = useMemo(() => provisionalDeckArt(deck.id, deck.glcType, empty), [deck.id, deck.glcType, empty])
   // Was this tile's art already known when it mounted? Then nothing "arrives".
   const knownAtMount = useRef(!!cached || empty)
 
@@ -214,5 +219,5 @@ export function useDeckArt(deck: DeckSummary, ref: RefObject<Element | null>): D
   // A failed derivation (detail 404, network) settles on the provisional box
   // rather than leaving placeholder cards up forever.
   const pending = !cached && !empty && !q.data && !q.isError
-  return { spec, pending, arrived: !knownAtMount.current && !!q.data }
+  return { spec, pending, arrived: !knownAtMount.current && !!q.data, near }
 }

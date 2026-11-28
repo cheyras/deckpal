@@ -64,7 +64,7 @@ function DeckCard({ deck }: { deck: DeckSummary }) {
       search={DECK_SEARCH_DEFAULTS}
       className="da-host flex flex-col overflow-hidden rounded-xl border border-border-default bg-surface-tertiary transition-colors hover:border-surface-quaternary"
     >
-      <DeckBoxArt spec={art.spec} pending={art.pending} arrived={art.arrived}>
+      <DeckBoxArt spec={art.spec} deckId={deck.id} name={deck.name} pending={art.pending} arrived={art.arrived} near={art.near}>
         <span className="absolute left-[10px] top-[10px]">
           <TileLegality legal={deck.legal} />
         </span>

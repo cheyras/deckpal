@@ -16,15 +16,18 @@
 // stage, rule box, best printed damage and whether that attack is paid for by
 // the energy the deck actually plays (which is what separates Charizard ex
 // from the Pidgeot ex that searches for it). The ENERGY TYPES come from the
-// energy cards and from the attack costs of those Pokémon. The BOX is coloured
-// by the leading energy type, its motif by the second type and the main
-// attacker's art, and the STUDIO BACKDROP by the art, so the scene around the
-// cards is lit in the cards' own colours.
+// energy cards and from the attack costs of those Pokémon. The deck's STYLE
+// (power, engine, control, swarm, balanced) is read off the same facts. The
+// box's generated PANEL ART is chosen by the leading energy type, the STUDIO
+// by the style, each variant by the deck's hash; both are recoloured by
+// gradient maps built from the palette — the box in its energy type's colour
+// with the second type or the main attacker's art as the highlight, the
+// studio lit in the art's own colour.
 
 import { hexToOklch, hueDelta, oklchToHex, type Oklch } from './color'
 
 /** Bump when a rule changes: every cached spec carries it and is re-derived on mismatch. */
-export const DERIVE_VERSION = 1
+export const DERIVE_VERSION = 2
 
 export const ENERGY_TYPES = [
   'Grass',
@@ -66,7 +69,18 @@ export interface FeaturedCard {
   high: string
 }
 
-export type MotifKind = 'rays' | 'waves' | 'orbits' | 'facets'
+/**
+ * How the deck plays, read off its list — it picks the studio the box is shot
+ * in and the title treatment its name is printed in:
+ *
+ *   power     the main attacker is a rule-box Pokémon hitting for 200+
+ *   engine    an evolution engine: the main attacker is a Stage 2
+ *   control   barely any energy (≤ 4 energy cards): stall, mill, lock
+ *   swarm     single-prize: nothing featured has a rule box
+ *   balanced  everything else
+ */
+export type DeckStyle = 'power' | 'engine' | 'control' | 'swarm' | 'balanced'
+export const DECK_STYLES: readonly DeckStyle[] = ['power', 'engine', 'control', 'swarm', 'balanced']
 
 export interface DeckArtPalette {
   /** studio wall, top → just above the sweep */
@@ -83,9 +97,16 @@ export interface DeckArtPalette {
   boxLight: string
   /** the label band the energy icons sit on */
   band: string
-  /** motif colours */
+  /** title and highlight colours */
   accent: string
   accent2: string
+  /**
+   * Gradient maps for the generated (grayscale) artwork, darkest stop first:
+   * the box panel's luminance runs shadow → box colour → highlight, the
+   * backdrop's runs near-black → tinted wall → the key light's colour.
+   */
+  boxMap: string[]
+  backdropMap: string[]
 }
 
 export interface DeckArtSpec {
@@ -95,7 +116,9 @@ export interface DeckArtSpec {
   /** 0–3 energy types, strongest first. */
   types: EnergyType[]
   palette: DeckArtPalette
-  motif: { kind: MotifKind; seed: number }
+  style: DeckStyle
+  /** ids into the generated art library (art/MANIFEST.json); null = paint the plain box/studio */
+  art: { box: string | null; backdrop: string | null }
   /** true when the spec was derived from the deck summary alone (no cards known yet). */
   provisional: boolean
 }
@@ -449,20 +472,6 @@ export const TYPE_COLORS: Record<EnergyType, string> = {
   Colorless: '#ebe9e3',
 }
 
-export const MOTIF_FOR_TYPE: Record<EnergyType, MotifKind> = {
-  Fire: 'rays',
-  Lightning: 'rays',
-  Water: 'waves',
-  Grass: 'waves',
-  Fairy: 'waves',
-  Psychic: 'orbits',
-  Darkness: 'orbits',
-  Fighting: 'facets',
-  Metal: 'facets',
-  Dragon: 'facets',
-  Colorless: 'orbits',
-}
-
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
 /**
@@ -475,6 +484,7 @@ export function quantizeSwatch(c: Oklch): Oklch {
   const snap = (x: number, step: number) => Number((Math.round(x / step) * step).toFixed(4))
   return { l: snap(c.l, 0.04), c: snap(c.c, 0.02), h: snap(c.h, 15) % 360 }
 }
+
 
 export function derivePalette(types: readonly EnergyType[], art: Oklch | null): DeckArtPalette {
   const t1 = hexToOklch(TYPE_COLORS[types[0] ?? 'Colorless'])
@@ -489,17 +499,17 @@ export function derivePalette(types: readonly EnergyType[], art: Oklch | null): 
   if (t1.c < 0.02) box = { ...box, c: 0.015, h: 250 }
   // Colorless has no hue of its own, so it borrows a whisper of the art's —
   // a Lugia box and a Snorlax box should not be the same grey. (Metal keeps
-  // its steel: that is a colour, and the art goes on the motif instead.)
+  // its steel: that is a colour, and the art goes on the highlights instead.)
   if (types[0] === 'Colorless' && artUsable) box = { ...box, c: 0.03, h: artUsable.h }
   // Only the genuinely pale boxes (Lightning, Colorless, Fairy) take dark ink.
   const light = box.l > 0.72
 
-  // MOTIF — printed in the deck's OTHER colours: the second energy type, then
-  // the main attacker's art. A candidate is skipped if it would vanish into
-  // the box (within 30° of its hue) or turn to mud: on a pale box the accents
-  // are printed dark, and a dark orange or yellow is brown. With no usable
-  // candidate the motif goes tonal — deeper shades on a pale box, a pale
-  // glow on a strong one (a sun on a Fire box).
+  // ACCENTS — the deck's OTHER colours: the second energy type, then the main
+  // attacker's art. A candidate is skipped if it would vanish into the box
+  // (within 30° of its hue) or turn to mud: on a pale box the accents are
+  // printed dark, and a dark orange or yellow is brown. With no usable
+  // candidate the accent goes tonal — deeper shades on a pale box, a pale
+  // glow on a strong one.
   const muddy = (h: number) => light && h >= 25 && h <= 115
   const usable = (h: number) => Math.abs(hueDelta(h, box.h)) >= 30 && !muddy(h)
   const candidates = [t2?.h, artUsable?.h].filter((h): h is number => h !== undefined && usable(h))
@@ -522,21 +532,96 @@ export function derivePalette(types: readonly EnergyType[], art: Oklch | null): 
   // light takes the art's hue (the cards are lit in their own colours); the
   // wall only a trace of it, because a dark wall with real chroma reads as
   // brown for every warm hue.
-  const hb = artUsable ? artUsable.h : t1.h
+  // (box.h, not t1.h: a neutral type's own hue is noise; the box has a chosen one.)
+  const hb = artUsable ? artUsable.h : box.h
   const cb = artUsable ? clamp(artUsable.c * 0.3, 0.015, 0.035) : clamp(t1.c * 0.25, 0.01, 0.03)
+  const keyC = artUsable ? clamp(artUsable.c * 1.1, 0.1, 0.16) : clamp(t1.c, 0.04, 0.13)
+
+  // GRADIENT MAPS for the generated artwork. Stops must climb in lightness or
+  // the map solarises; the box's run from a deep shadow through the box colour
+  // to its highlight (the accent when the accent is the lighter colour, the
+  // box's own light tint when it is not).
+  const shadow: Oklch = { l: clamp(box.l - 0.34, 0.1, 0.3), c: box.c * 0.85, h: box.h }
+  const highlight: Oklch = accent.l > box.l ? accent : { l: Math.min(0.92, box.l + 0.16), c: box.c * 0.7, h: box.h }
+  const shine: Oklch = { l: Math.min(0.97, Math.max(highlight.l + 0.06, 0.9)), c: Math.min(highlight.c, 0.05), h: highlight.h }
+  const boxMap = [shadow, { l: box.l - 0.15, c: box.c * 0.95, h: box.h }, box, highlight, shine]
+    .sort((a, b) => a.l - b.l)
+    .map(hex)
+  const backdropMap = [
+    { l: 0.1, c: cb * 0.5, h: hb },
+    { l: 0.24, c: cb, h: hb },
+    { l: 0.42, c: Math.min(0.09, keyC * 0.7), h: hb },
+    { l: 0.7, c: keyC, h: hb },
+    { l: 0.88, c: keyC * 0.4, h: hb },
+  ].map(hex)
+
   return {
     wall: hex({ l: 0.3, c: cb, h: hb }),
     wallLow: hex({ l: 0.25, c: cb * 0.9, h: hb }),
     floor: hex({ l: 0.23, c: cb * 0.8, h: hb }),
     floorLow: hex({ l: 0.16, c: cb * 0.6, h: hb }),
-    key: hex({ l: 0.64, c: artUsable ? clamp(artUsable.c * 1.1, 0.1, 0.16) : clamp(t1.c, 0.04, 0.13), h: hb }),
+    key: hex({ l: 0.64, c: keyC, h: hb }),
     box: hex(box),
     boxDeep: hex({ l: box.l - 0.16, c: box.c * 0.95, h: box.h }),
     boxLight: hex({ l: Math.min(0.93, box.l + 0.14), c: box.c * 0.7, h: box.h }),
     band: hex({ l: 0.2, c: Math.min(box.c, 0.035), h: box.h }),
     accent: hex(accent),
     accent2: hex(accent2),
+    boxMap,
+    backdropMap,
   }
+}
+
+// ── Style and art ────────────────────────────────────────────────────────────
+
+/**
+ * How the deck plays (see DeckStyle). Checked in this order, so a single-prize
+ * stall deck is control and a rule-box Stage 2 hitting for 200 is power.
+ */
+export function deckStyle(
+  rows: readonly ArtCardRow[],
+  featured: readonly Candidate[],
+  facts: ReadonlyMap<string, ArtCardFacts>,
+): DeckStyle {
+  const energyCards = rows.filter((r) => r.section === 'energy').reduce((n, r) => n + r.quantity, 0)
+  const pokemon = rows.some((r) => r.section === 'pokemon')
+  if (!pokemon || energyCards <= 4) return 'control'
+  if (featured.length === 0 || featured.every((c) => ruleBoxWeight(c.name) <= 1.15)) return 'swarm'
+  const main = featured[0]
+  const f = facts.get(main.cardId)
+  const best = f ? Math.max(0, ...f.attacks.map((a) => damageValue(a.damage))) : 0
+  if (ruleBoxWeight(main.name) > 1.15 && best >= 200) return 'power'
+  if (main.stage?.replace(/\s+/g, '').toLowerCase() === 'stage2') return 'engine'
+  return 'balanced'
+}
+
+/** Variants per family in the art library (tools/deck-art/library.mjs). */
+export const BOX_ART_VARIANTS = ['a', 'b', 'c'] as const
+export const BACKDROP_VARIANTS = ['a', 'b', 'c', 'd'] as const
+
+/**
+ * The studio each style is shot in: a spotlight for the heavy hitters,
+ * patterned (gobo) light for evolution engines, a calm painted canvas for
+ * control, a field of bokeh for single-prize swarms, a plain sweep otherwise.
+ */
+export const STUDIO_FOR_STYLE: Record<DeckStyle, string> = {
+  power: 'spotlight',
+  engine: 'gobo',
+  control: 'canvas',
+  swarm: 'bokeh',
+  balanced: 'sweep',
+}
+
+/**
+ * The deck's two pieces of generated art. The FAMILY comes from the deck (its
+ * leading energy type for the box, its style for the studio); the VARIANT from
+ * the deck id's hash, so two Fire decks print different Fire panels but each
+ * keeps its own for life.
+ */
+export function pickArt(deckId: string, type: EnergyType, style: DeckStyle): { box: string; backdrop: string } {
+  const bv = BOX_ART_VARIANTS[hashString(`${deckId}:box`) % BOX_ART_VARIANTS.length]
+  const sv = BACKDROP_VARIANTS[hashString(`${deckId}:studio`) % BACKDROP_VARIANTS.length]
+  return { box: `box-${type.toLowerCase()}-${bv}`, backdrop: `backdrop-${STUDIO_FOR_STYLE[style]}-${sv}` }
 }
 
 // ── The whole spec ───────────────────────────────────────────────────────────
@@ -552,10 +637,6 @@ export interface DeriveInput {
   artSwatch?: Oklch | null
 }
 
-export function motifFor(deckId: string, types: readonly EnergyType[]): DeckArtSpec['motif'] {
-  return { kind: MOTIF_FOR_TYPE[types[0] ?? 'Colorless'], seed: hashString(deckId) }
-}
-
 export function deriveDeckArt(input: DeriveInput): DeckArtSpec {
   const candidates = rankCandidates(input.rows, input.strategyMd)
   const deckEnergy = energyCardWeights(input.rows)
@@ -563,33 +644,31 @@ export function deriveDeckArt(input: DeriveInput): DeckArtSpec {
   const featured = pickFeatured(scored)
   const types = deriveTypes(deckEnergy, featured, input.facts, input.glcType)
   const swatch = input.artSwatch ? quantizeSwatch(input.artSwatch) : null
+  const style = deckStyle(input.rows, featured, input.facts)
   return {
     v: DERIVE_VERSION,
     featured: featured.map((c) => ({ cardId: c.cardId, name: c.name, low: c.images.low, high: c.images.high })),
     types,
     palette: derivePalette(types, swatch),
-    motif: motifFor(input.deckId, types),
+    style,
+    art: pickArt(input.deckId, types[0] ?? 'Colorless', style),
     provisional: false,
   }
 }
 
 /**
- * What a tile shows before anything about its cards is known — and what an
- * empty deck shows for good: the box in the GLC type's colours if the deck
- * declares one, else in a quiet neutral, with the deck's own motif layout.
+ * What a tile shows before anything about its cards is known: the plain box
+ * in the GLC type's colours if the deck declares one, else in a quiet
+ * neutral, with no artwork yet (so nothing is fetched for a deck that is
+ * about to be re-dressed). An EMPTY deck keeps this for good, but gets the
+ * Colorless panel and a plain sweep in neutral tones — finished, not blank.
  */
-export function provisionalDeckArt(deckId: string, glcType?: string | null): DeckArtSpec {
+export function provisionalDeckArt(deckId: string, glcType?: string | null, empty = false): DeckArtSpec {
   const t = normalizeType(glcType)
   const types: EnergyType[] = t ? [t] : []
   const palette = t ? derivePalette(types, null) : NEUTRAL_PALETTE
-  return {
-    v: DERIVE_VERSION,
-    featured: [],
-    types,
-    palette,
-    motif: t ? motifFor(deckId, types) : { kind: 'facets', seed: hashString(deckId) },
-    provisional: true,
-  }
+  const art = empty ? pickArt(deckId, t ?? 'Colorless', 'balanced') : { box: null, backdrop: null }
+  return { v: DERIVE_VERSION, featured: [], types, palette, style: 'balanced', art, provisional: true }
 }
 
 /** Unopened stock: warm stone, matching the app's surfaces. */
@@ -605,4 +684,6 @@ export const NEUTRAL_PALETTE: DeckArtPalette = {
   band: '#2a2624',
   accent: '#857c74',
   accent2: '#5f5752',
+  boxMap: ['#1f1c1a', '#4c4541', '#6f6760', '#8d847c', '#cfc8c0'],
+  backdropMap: ['#141211', '#2a2624', '#433d39', '#6b625b', '#a39890'],
 }
