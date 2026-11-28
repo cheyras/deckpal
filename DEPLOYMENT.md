@@ -1626,6 +1626,19 @@ stamp re-derives them. To run it now or read what it would do, dispatch
 price arrives with the next price ingest. See
 `decisions/2026/2026-10-01-tcgplayer-ids-tcgdex-lacks-are-now-derived-from-tcgcsv-so-those-cards-can-be-pri.md`.
 
+**TCGplayer links TCGdex gets wrong are corrected by a verified override table.**
+`apps/sync/src/catalog/priceLinkOverrides.ts` lists printings (TCGdex card id + variant kind) whose
+TCGdex id is wrong or missing, each with the TCGplayer group, product and printing checked against
+TCGplayer's own record of the product. Both writers honour it: the catalog import writes the
+override instead of TCGdex's value, and the link pass writes it first on every run (over whatever is
+there, clearing a stored `tcgplayer_url`) and never hands its product to another card. An entry
+pins the card's set, number and name; if TCGdex re-keys or renames the card the entry is refused and
+logged, never forced. An override whose product TCGplayer lists outside the set's group is priced by
+the ingest from that group, by product id. No new secret, variable or migration. A dry run of
+`prices link-tcgcsv` reports `overridesApplied` / `overridesRefused`, and the catalog refresh's job
+summary counts the overrides and lists any refused. See
+`decisions/2026/2026-11-27-wrong-or-missing-tcgplayer-links-are-corrected-by-a-verified-per-printing-overri.md`.
+
 **Play! Pokémon (Prize Pack) stamped printings come from the same link step.** On
 a full run (no `--sets`), after the link pass, `apps/sync/src/prices/prizePack.ts`
 reads TCGplayer group 22880 ("Prize Pack Series Cards") and adds each stamped

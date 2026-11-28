@@ -8,6 +8,7 @@
 import { fetchText, fetchJson, RateLimited } from './http.js';
 import { linkTcgcsvProducts } from './linkTcgcsv.js';
 import { fillPrizePack, PRIZE_PACK_GROUP, type PrizePackResult } from './prizePack.js';
+import { OVERRIDES, type OverrideIndex } from '../catalog/priceLinkOverrides.js';
 import { toMinor, type TcgcsvPriceEnvelope, type TcgcsvPriceRow, type Metrics } from './types.js';
 import {
   type Queryable, type PricePoint, appendObservations, upsertCurrent, ensureObservationPartition,
@@ -149,6 +150,36 @@ export async function writeProductGroupPrices(
   return { observations, matched: points.length, unmatched };
 }
 
+/**
+ * Products of the verified override table (catalog/priceLinkOverrides.ts) that are in place on
+ * their variant but listed in a TCGplayer group other than their set's, by group. The set walk
+ * never reaches them (it joins a set's own group), so the ingest prices exactly these products from
+ * their own group — an Alternate Art Promo of an expansion card, a jumbo card of a promo set.
+ */
+export async function overrideProductsOutsideSetGroups(
+  client: Queryable, index: OverrideIndex, filter: string[] | null,
+): Promise<Map<number, Set<number>>> {
+  const list = [...index.values()];
+  const out = new Map<number, Set<number>>();
+  if (list.length === 0) return out;
+  const { rows } = await client.query<{ g: number; pid: number }>(
+    `SELECT DISTINCT o.g, o.pid
+       FROM unnest($1::text[], $2::text[], $3::int[], $4::int[]) AS o(card, kind, g, pid)
+       JOIN card c ON c.tcgdex_id = o.card AND c.lang = 'en'
+       JOIN card_set s ON s.id = c.set_id
+       JOIN card_variant cv ON cv.card_id = c.id AND cv.variant_kind_code = o.kind
+                           AND cv.tcgplayer_product_id = o.pid
+      WHERE s.tcgplayer_group_id IS DISTINCT FROM o.g
+        AND ($5::text[] IS NULL OR s.tcgdex_id = ANY($5::text[]))`,
+    [list.map((o) => o.cardId), list.map((o) => o.kind), list.map((o) => o.groupId), list.map((o) => o.productId), filter],
+  );
+  for (const r of rows) {
+    const g = Number(r.g);
+    (out.get(g) ?? out.set(g, new Set()).get(g)!).add(Number(r.pid));
+  }
+  return out;
+}
+
 export interface IngestOpts {
   sets?: string[]; force?: boolean;
   /** Run the link pass (default true). Off only for tests and for isolating a price bug. */
@@ -162,6 +193,8 @@ export interface IngestDeps {
   linkProducts?: typeof linkTcgcsvProducts;
   /** The Prize Pack fill (prizePack.ts), run inside the link step on a full run. */
   fillPrizePack?: (client: Queryable) => Promise<PrizePackResult>;
+  /** The verified override table (default: catalog/priceLinkOverrides.ts). */
+  overrides?: OverrideIndex;
 }
 
 interface LinkStepResult { linked: number; assigned: number; prizePackAdded: number; failure: string | null }
@@ -203,16 +236,18 @@ async function runLinkStep(
       ...(ppFailure ? [ppFailure] : []),
     ];
     await finishRun(client, runId, errors.length ? 'failed' : 'ok', {
-      rowsWritten: r.variantsLinked + (pp ? pp.added + pp.linked : 0), itemsSeen: r.setsScanned,
+      rowsWritten: r.variantsLinked + r.overridesApplied + (pp ? pp.added + pp.linked : 0), itemsSeen: r.setsScanned,
       itemsFailed: failed + (ppFailure ? 1 : 0),
       cursor: {
         groupsAssigned: r.groupsAssigned, unresolvedSets: r.unresolvedSets,
+        overridesApplied: r.overridesApplied,
+        ...(r.overridesRefused.length ? { overridesRefused: r.overridesRefused } : {}),
         ...(pp ? { prizePack: { added: pp.added, linked: pp.linked, covered: pp.covered, skipped: pp.skipped } } : {}),
       },
       error: errors.length ? errors.join(' | ') : undefined,
     });
     return {
-      linked: r.variantsLinked + (pp?.linked ?? 0), assigned: r.groupsAssigned, prizePackAdded: pp?.added ?? 0,
+      linked: r.variantsLinked + r.overridesApplied + (pp?.linked ?? 0), assigned: r.groupsAssigned, prizePackAdded: pp?.added ?? 0,
       failure: failed
         ? `${failed} set(s) could not be linked (${r.failedSets[0]!.set}: ${r.failedSets[0]!.error})`
         : ppFailure,
@@ -312,6 +347,18 @@ export async function ingestTcgcsvPrices(
         await client.query('COMMIT');
         observations += r.observations; matched += r.matched; unmatched += r.unmatched;
         lastGroup = PRIZE_PACK_GROUP;
+      }
+      // Override products filed outside their set's group: priced from their own group, by id,
+      // and only those products (the rest of such a group belongs to other sets, or to none).
+      const outside = await overrideProductsOutsideSetGroups(client, deps.overrides ?? OVERRIDES, filter);
+      for (const [g, pids] of outside) {
+        const prices = (await walkPrices(g)).filter((p) => pids.has(p.productId));
+        groupsFetched++;
+        await client.query('BEGIN');
+        const r = await writeProductGroupPrices(client, prices, capturedAt, runId);
+        await client.query('COMMIT');
+        observations += r.observations; matched += r.matched; unmatched += r.unmatched;
+        lastGroup = g;
       }
     } catch (err) {
       try { await client.query('ROLLBACK'); } catch { /* ignore */ }

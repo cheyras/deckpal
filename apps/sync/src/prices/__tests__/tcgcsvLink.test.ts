@@ -56,7 +56,8 @@ function fakeClient() {
 
 const STAMP = '2026-10-01T20:05:00Z';
 const linkResult = (over: Partial<LinkResult> = {}): LinkResult => ({
-  dryRun: false, setsScanned: 3, groupsAssigned: 1, variantsLinked: 10, unresolvedSets: 0, failedSets: [], perSet: [], ...over,
+  dryRun: false, setsScanned: 3, groupsAssigned: 1, variantsLinked: 10, overridesApplied: 0, overridesRefused: [],
+  unresolvedSets: 0, failedSets: [], perSet: [], ...over,
 });
 const prizePackResult = (): PrizePackResult => ({
   dryRun: false, products: 0, added: 0, linked: 0, covered: 0, collapsed: 0, skipped: {}, addedBySet: {}, recomputedProgressRows: 0,

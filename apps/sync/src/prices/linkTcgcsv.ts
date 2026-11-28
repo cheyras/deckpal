@@ -12,11 +12,18 @@
 // whatever TCGdex says, which for the affected cards is NULL. The next price run puts them back.
 // Nothing is lost in between: `price_current` is keyed by variant id and is not touched by an import.
 //
-// IT NEVER OVERWRITES. Every UPDATE is guarded by `… IS NULL`: an id TCGdex (or the release
-// overlay) supplied is authoritative, and a link this pass wrote is simply re-derived next time.
-// It deliberately does NOT write `tcgplayer_url`: the API prefers a stored URL over the product id
-// (apps/api/src/db.ts `tcgplayerUrl`), and the importer never resets that column, so a stored URL
-// would outlive the link it was derived from and keep sending buyers to the old product.
+// IT NEVER OVERWRITES what it derives. Every UPDATE of a derived link is guarded by `… IS NULL`:
+// an id TCGdex (or the release overlay) supplied is authoritative, and a link this pass wrote is
+// simply re-derived next time. It deliberately does NOT write `tcgplayer_url`: the API prefers a
+// stored URL over the product id (apps/api/src/db.ts `tcgplayerUrl`), and the importer never resets
+// that column, so a stored URL would outlive the link it was derived from and keep sending buyers to
+// the old product.
+//
+// THE ONE EXCEPTION is the hand-verified override table (catalog/priceLinkOverrides.ts): printings
+// whose TCGdex id is wrong, or whose right product the rules above must refuse in general. Those are
+// written first, over whatever is there, by the same identity check the importer applies, and their
+// stored URL is cleared so the buy link follows the corrected product. The planner then sees them as
+// taken. The importer writes the same values, so neither undoes the other.
 //
 // B8: idempotent, one transaction per set, 1 connection. B9: touches catalog price-link columns only.
 
@@ -29,6 +36,7 @@ import {
   KNOWN_SET_GROUPS, acceptGroup, candidateGroups, planSetLinks,
   type GroupRef, type GroupScore, type LinkCard, type PlanResult, type SkipReason,
 } from './linkMatch.js';
+import { OVERRIDES, checkOverride, overrideCardIds, type OverrideIndex } from '../catalog/priceLinkOverrides.js';
 
 const BASE = 'https://tcgcsv.com/tcgplayer/3';
 
@@ -61,7 +69,11 @@ export interface LinkOpts {
   /** Test seams: replace the two network reads. */
   loadGroups?: () => Promise<GroupRef[]>;
   loadGroupData?: (groupId: number) => Promise<GroupData>;
+  /** Test seam: the verified override table (default: catalog/priceLinkOverrides.ts). */
+  overrides?: OverrideIndex;
 }
+
+export interface OverrideRefusal { card: string; kind: string; reason: string }
 
 export interface SetLinkReport {
   set: string;
@@ -78,6 +90,10 @@ export interface LinkResult {
   groupsAssigned: number;
   /** Rows actually updated (a dry run reports what it would update). */
   variantsLinked: number;
+  /** Rows the verified override table changed (a dry run reports what it would change). */
+  overridesApplied: number;
+  /** Overrides whose card no longer agrees with the pinned identity: upstream kept. */
+  overridesRefused: OverrideRefusal[];
   /** Sets we looked at and could not complete, by reason — the honest remainder. */
   unresolvedSets: number;
   /** Sets that ERRORED (network, SQL). One bad set does not stop the others; the caller must fail loudly. */
@@ -113,7 +129,78 @@ export async function setsWithGaps(client: Queryable, filter: string[] | null): 
   return rows;
 }
 
-async function loadCards(client: Queryable, setId: number): Promise<LinkCard[]> {
+/** An override's value for one variant row, as it is (or, in a dry run, would be) after the write. */
+type OverrideValues = Map<number, { productId: number; printing: string }>;
+
+/**
+ * Write the verified override table (catalog/priceLinkOverrides.ts) over whatever the variants
+ * carry. Every row is identity-checked exactly as the importer checks it, so an entry whose card
+ * TCGdex has since re-keyed or renamed is refused, never forced. A row already holding the override
+ * (and no stored URL) is left alone, so a re-run writes nothing (B8). Needs no network: the entries
+ * were verified against TCGplayer's record when they were added.
+ */
+export async function applyLinkOverrides(
+  client: Queryable, index: OverrideIndex, filter: string[] | null, dryRun: boolean,
+): Promise<{ applied: number; refused: OverrideRefusal[]; values: OverrideValues }> {
+  const values: OverrideValues = new Map();
+  const refused: OverrideRefusal[] = [];
+  const cardIds = overrideCardIds(index);
+  if (cardIds.length === 0) return { applied: 0, refused, values };
+  const { rows } = await client.query<{
+    vid: string; card: string; local_id: string; name: string; set_id: string; kind: string;
+    pid: number | null; printing: string | null; url: string | null;
+  }>(
+    `SELECT cv.id AS vid, c.tcgdex_id AS card, c.local_id, c.name, s.tcgdex_id AS set_id,
+            cv.variant_kind_code AS kind, cv.tcgplayer_product_id AS pid,
+            cv.tcgplayer_printing AS printing, cv.tcgplayer_url AS url
+       FROM card c
+       JOIN card_set s ON s.id = c.set_id
+       JOIN card_variant cv ON cv.card_id = c.id
+      WHERE c.lang = 'en' AND c.tcgdex_id = ANY($1::text[])
+        AND ($2::text[] IS NULL OR s.tcgdex_id = ANY($2::text[]))`,
+    [cardIds, filter],
+  );
+  const todo: { id: number; productId: number; printing: string }[] = [];
+  for (const r of rows) {
+    const check = checkOverride(index, {
+      language: 'en', setId: r.set_id, cardId: r.card, localId: r.local_id, name: r.name, kind: r.kind,
+    });
+    if (!check) continue;
+    if (!check.applies) { refused.push({ card: r.card, kind: r.kind, reason: check.refused }); continue; }
+    const { productId, printing } = check.override;
+    values.set(Number(r.vid), { productId, printing });
+    if (r.pid != null && Number(r.pid) === productId && r.printing === printing && r.url == null) continue;
+    todo.push({ id: Number(r.vid), productId, printing });
+  }
+  if (dryRun || todo.length === 0) return { applied: todo.length, refused, values };
+
+  await client.query('BEGIN');
+  try {
+    const upd = await client.query(
+      `UPDATE card_variant cv
+          SET tcgplayer_product_id = v.pid,
+              tcgplayer_printing   = v.printing,
+              tcgplayer_url        = NULL,
+              id_source            = 'variant',
+              id_confidence        = 100,
+              last_synced_at       = now()
+         FROM unnest($1::bigint[], $2::int[], $3::text[]) AS v(id, pid, printing)
+        WHERE cv.id = v.id
+          AND (cv.tcgplayer_product_id IS DISTINCT FROM v.pid
+               OR cv.tcgplayer_printing IS DISTINCT FROM v.printing
+               OR cv.tcgplayer_url IS NOT NULL)
+    RETURNING cv.id`,
+      [todo.map((t) => t.id), todo.map((t) => t.productId), todo.map((t) => t.printing)],
+    );
+    await client.query('COMMIT');
+    return { applied: upd.rows.length, refused, values };
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch { /* the original error is the one that matters */ }
+    throw err;
+  }
+}
+
+async function loadCards(client: Queryable, setId: number, overridden: OverrideValues): Promise<LinkCard[]> {
   const { rows } = await client.query<{
     card_id: string; local_id: string; name: string;
     vid: string; kind: string; pid: number | null; printing: string | null;
@@ -131,7 +218,12 @@ async function loadCards(client: Queryable, setId: number): Promise<LinkCard[]> 
     const id = Number(r.card_id);
     let c = byCard.get(id);
     if (!c) { c = { cardId: id, localId: r.local_id, name: r.name, variants: [] }; byCard.set(id, c); }
-    c.variants.push({ id: Number(r.vid), kind: r.kind, productId: r.pid, printing: r.printing });
+    // An override is what the row holds after applyLinkOverrides (already, or in a dry run, would),
+    // so the planner reserves its (product, printing) and never plans that row itself.
+    const o = overridden.get(Number(r.vid));
+    c.variants.push(o
+      ? { id: Number(r.vid), kind: r.kind, productId: o.productId, printing: o.printing }
+      : { id: Number(r.vid), kind: r.kind, productId: r.pid, printing: r.printing });
   }
   return [...byCard.values()];
 }
@@ -146,9 +238,18 @@ export async function linkTcgcsvProducts(client: Queryable, opts: LinkOpts = {})
   const filter = opts.sets && opts.sets.length ? opts.sets : null;
   const loadGroups = opts.loadGroups ?? fetchGroups;
   const loadGroupData = opts.loadGroupData ?? fetchGroupData;
+  // The verified overrides first: they need no network, and the planner must see them as taken.
+  const ov = await applyLinkOverrides(client, opts.overrides ?? OVERRIDES, filter, !!opts.dryRun);
+  if (ov.refused.length) {
+    console.warn(
+      `[prices] link pass: ${ov.refused.length} price-link override(s) refused, upstream kept: ` +
+        ov.refused.map((r) => `${r.card} ${r.kind} (${r.reason})`).join('; '),
+    );
+  }
   const sets = await setsWithGaps(client, filter);
   const result: LinkResult = {
     dryRun: !!opts.dryRun, setsScanned: sets.length, groupsAssigned: 0, variantsLinked: 0,
+    overridesApplied: ov.applied, overridesRefused: ov.refused,
     unresolvedSets: 0, failedSets: [], perSet: [],
   };
   if (sets.length === 0) return result;
@@ -164,7 +265,7 @@ export async function linkTcgcsvProducts(client: Queryable, opts: LinkOpts = {})
 
   const linkOne = async (s: SetRow): Promise<void> => {
     const setId = Number(s.id);
-    const cards = await loadCards(client, setId);
+    const cards = await loadCards(client, setId, ov.values);
     let groupId = s.g == null ? null : Number(s.g);
     let outcome: SetLinkReport['groupOutcome'] = 'kept';
     let plan: PlanResult;

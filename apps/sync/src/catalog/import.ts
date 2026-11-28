@@ -21,6 +21,7 @@ import {
   NON_ERROR_SUBTYPES, SYNTHESIZED_FACET, TIER_RULE_VERSION, type RawCard, type Facet,
 } from './transform.js';
 import { getOverlay, resolveReleasePriceLink } from './releasePriceLinks.js';
+import { OVERRIDES, overrideVariantLink } from './priceLinkOverrides.js';
 
 interface RawSet {
   id: string;
@@ -88,6 +89,12 @@ export interface ImportSummary {
    */
   renames: Array<{ from: string; to: string; name: string }>;
   /**
+   * Printings whose TCGplayer link came from the verified override table (priceLinkOverrides.ts)
+   * instead of TCGdex, and the overrides that exist but were refused (identity no longer agrees).
+   */
+  priceLinkOverrides: number;
+  priceLinkOverridesRefused: Array<{ card: string; kind: string; reason: string }>;
+  /**
    * Catalog row counts either side of the run, so "what did this change" is
    * answerable without a second connection or a diff against an extract that is
    * gitignored (a CI checkout has no previous snapshot to compare with). Measured
@@ -141,6 +148,7 @@ export async function importCatalog(dataDir: string): Promise<ImportSummary> {
   const summary: ImportSummary = {
     series: 0, sets: 0, cards: 0, variants: 0, synthesized: 0, droppedDuplicates: 0, variantKinds: 0,
     renamedSets: 0, renamedCards: 0, renames: [],
+    priceLinkOverrides: 0, priceLinkOverridesRefused: [],
     cardsBefore: 0, cardsAfter: 0, setsBefore: 0, setsAfter: 0,
   };
   try {
@@ -554,6 +562,18 @@ export async function importCatalog(dataDir: string): Promise<ImportSummary> {
               idConfidence = 100;
             }
           }
+          // A verified per-printing override (priceLinkOverrides.ts) wins over both: it exists
+          // because TCGdex's id for this printing is wrong or missing. The link pass writes the
+          // same value, so the two never undo each other.
+          const overridden = overrideVariantLink(
+            OVERRIDES, { language: CATALOGUE, setId: st.id, card: c, kind: v.code },
+            { productId, printing, idSource, idConfidence },
+          );
+          ({ productId, printing, idSource, idConfidence } = overridden.link);
+          if (overridden.check?.applies) summary.priceLinkOverrides++;
+          else if (overridden.check) {
+            summary.priceLinkOverridesRefused.push({ card: c.id, kind: v.code, reason: overridden.check.refused });
+          }
           varRows.push([
             cid, v.code, v.tcgdexVariantId, v.sortOrder, v.isPrimary, v.isSynthesized,
             productId, printing, v.cardmarketProductId, v.cardtraderProductId,
@@ -581,6 +601,14 @@ export async function importCatalog(dataDir: string): Promise<ImportSummary> {
         200,
       );
       await client.query('COMMIT');
+    }
+    if (summary.priceLinkOverridesRefused.length) {
+      // The upstream value was kept for these. An override only goes stale when TCGdex re-keys or
+      // renames the card, and the entry then needs re-verifying, not forcing.
+      console.warn(
+        `[catalog-import] ${summary.priceLinkOverridesRefused.length} price-link override(s) refused, upstream kept:\n` +
+          summary.priceLinkOverridesRefused.map((r) => `    ${r.card} ${r.kind}: ${r.reason}`).join('\n'),
+      );
     }
 
     // ── 4. catalog_variant_count baseline on user_set_progress (SCHEMA §9.3) ──

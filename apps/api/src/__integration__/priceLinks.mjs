@@ -42,7 +42,9 @@ try {
   const pool = new pg.Pool({ ...config, max: 1 });
   try { await migrateUp(pool); } finally { await pool.end(); }
   const { linkTcgcsvProducts } = await import('../../../sync/src/prices/linkTcgcsv.ts');
-  const { writeSetPrices } = await import('../../../sync/src/prices/tcgcsv.ts');
+  const { writeSetPrices, writeProductGroupPrices, overrideProductsOutsideSetGroups } =
+    await import('../../../sync/src/prices/tcgcsv.ts');
+  const { indexOverrides } = await import('../../../sync/src/catalog/priceLinkOverrides.ts');
   const { ensureObservationPartition } = await import('../../../sync/src/prices/db.ts');
 
   // ── fixtures ──────────────────────────────────────────────────────────────
@@ -255,6 +257,81 @@ try {
     assert.deepEqual(r.failedSets, [{ set: 'bad', error: 'HTTP 503' }]);
     assert.equal((await variant(felt)).pid, 518861, 'svp was processed after the failing set and still linked');
     assert.equal(r.variantsLinked, 2, 'rows actually updated: svp-085 plus sv99 Bar, which the previous case left unlinked');
+  });
+
+  // ── the verified override table (apps/sync/src/catalog/priceLinkOverrides.ts) ──────────────
+  // Its own set, so the cases above are untouched. The shapes are the real faults it repairs: a
+  // "b" card carrying its "a" twin's product on both printings (with a stored URL to the twin), a
+  // card upstream has no id for, an override whose card was since renamed, and a right product
+  // filed in another TCGplayer group than the set's, on the wrong printing.
+  const ovr = await mkSet('ovr', 'Override Fixture Set', 'OVR', 4242);
+  const [twinN] = await mkCard(ovr, '50a', 'Golduck', [{ kind: 'normal', pid: 85813, printing: 'Normal' }]);
+  const [bN, bR] = await mkCard(ovr, '50b', 'Golduck', [
+    { kind: 'normal', pid: 85813, printing: 'Normal' }, { kind: 'reverse', pid: 85813, printing: 'Reverse Holofoil' },
+  ]);
+  const bId = `fx-${n}`;
+  await db.query(`UPDATE card_variant SET tcgplayer_url = 'https://www.tcgplayer.com/product/85813/golduck-50a' WHERE id = $1`, [bN]);
+  const [gap] = await mkCard(ovr, '29', 'Switch', [{ kind: 'normal' }]);
+  const gapId = `fx-${n}`;
+  const [renamed] = await mkCard(ovr, '7', 'Psyduck', [{ kind: 'normal', pid: 5, printing: 'Normal' }]);
+  const renamedId = `fx-${n}`;
+  const [alt] = await mkCard(ovr, '195a', 'Dedenne GX', [{ kind: 'normal', pid: 216699, printing: 'Normal' }]);
+  const altId = `fx-${n}`;
+  const pin = (cardId, localId, cardName, kind, groupId, productId, printing) =>
+    ({ cardId, setId: 'ovr', localId, cardName, kind, groupId, productId, printing, was: null, evidence: 'fixture' });
+  const overrides = indexOverrides([
+    pin(bId, '50b', 'Golduck', 'normal', 4242, 85814, 'Normal'),
+    pin(bId, '50b', 'Golduck', 'reverse', 4242, 85814, 'Reverse Holofoil'),
+    pin(gapId, '29', 'Switch', 'normal', 4242, 98024, 'Normal'),
+    pin(renamedId, '7', 'Slowpoke', 'normal', 4242, 6, 'Normal'),
+    pin(altId, '195a', 'Dedenne GX', 'normal', 1938, 216699, 'Holofoil'),
+  ]);
+  DATA[4242] = { products: [], prices: [] };
+  const ovSeams = { ...seams, overrides, sets: ['ovr'] };
+
+  await test('an override replaces a wrong upstream id, fills a missing one, and clears a stale stored URL', async () => {
+    const r = await linkTcgcsvProducts(db, ovSeams);
+    assert.equal(r.overridesApplied, 4, 'both 50b printings, the gap and the printing fix');
+    const n1 = await variant(bN), r1 = await variant(bR);
+    assert.deepEqual([n1.pid, n1.printing, n1.id_source, n1.conf], [85814, 'Normal', 'variant', 100]);
+    assert.equal(n1.url, null, 'a stored URL to the twin no longer outranks the corrected product');
+    assert.deepEqual([r1.pid, r1.printing], [85814, 'Reverse Holofoil']);
+    const g = await variant(gap);
+    assert.deepEqual([g.pid, g.printing, g.id_source], [98024, 'Normal', 'variant']);
+    const a = await variant(alt);
+    assert.deepEqual([a.pid, a.printing], [216699, 'Holofoil']);
+  });
+
+  await test('an override never applies to another card, or to its own card once renamed', async () => {
+    const t = await variant(twinN);
+    assert.deepEqual([t.pid, t.printing], [85813, 'Normal'], 'the "a" twin keeps its own product');
+    const p = await variant(renamed);
+    assert.equal(p.pid, 5, 'renamed upstream: refused, the upstream id stands');
+    const r = await linkTcgcsvProducts(db, ovSeams);
+    assert.deepEqual(r.overridesRefused.map((x) => x.card), [renamedId]);
+  });
+
+  await test('overrides are idempotent (B8) and leave no (product, printing) with two owners', async () => {
+    const r = await linkTcgcsvProducts(db, ovSeams);
+    assert.equal(r.overridesApplied, 0);
+    const dup = await db.query(
+      `SELECT tcgplayer_product_id, tcgplayer_printing FROM card_variant
+        WHERE tcgplayer_product_id IS NOT NULL GROUP BY 1,2 HAVING count(*) > 1`);
+    assert.equal(dup.rowCount, 0);
+    const bad = await db.query(
+      `SELECT id FROM card_variant WHERE (id_source = 'none') <> (tcgplayer_product_id IS NULL AND cardmarket_product_id IS NULL)`);
+    assert.equal(bad.rowCount, 0);
+  });
+
+  await test('an override product outside its set\'s group is priced from its own group, by product id', async () => {
+    const outside = await overrideProductsOutsideSetGroups(db, overrides, null);
+    assert.deepEqual([...outside.entries()].map(([g, p]) => [g, [...p]]), [[1938, [216699]]],
+      'only the Alternate Art product: every other override is in the set\'s own group, and the refused one is not in place');
+    const at = new Date('2026-10-01T20:05:00Z');
+    await ensureObservationPartition(db, at);
+    await writeProductGroupPrices(db, [price(216699, 'Holofoil', 19.34)], at, null);
+    const cur = await one(`SELECT market_minor FROM price_current WHERE card_variant_id = $1 AND source_code = 'tcgcsv'`, [alt]);
+    assert.equal(Number(cur.market_minor), 1934);
   });
 
   results.status = 'passed';
