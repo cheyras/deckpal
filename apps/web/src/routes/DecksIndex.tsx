@@ -475,7 +475,8 @@ export function DecksIndex() {
             the accessible name. Labels never wrap inside a pill. */}
         <div className="flex items-center gap-[10px] whitespace-nowrap">
           <Button variant="secondary" onClick={() => { setErr(null); setShowImport(true) }}>
-            <Icon name="download" size={18} /> Import<span className="max-sm:sr-only"> from PTCG Live</span>
+            {/* One flex item: the button's gap must not open between the two halves. */}
+            <Icon name="download" size={18} /> <span>Import<span className="max-sm:sr-only"> from PTCG Live</span></span>
           </Button>
           <Button onClick={() => { setErr(null); setShowNew(true) }}>
             <Icon name="plus" size={18} /> New Deck
