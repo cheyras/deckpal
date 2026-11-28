@@ -1,8 +1,8 @@
 import { useDesktopTable } from '../lib/useDesktopTable'
 import { useEffect, useMemo, useState } from 'react'
-import { useQuery, keepPreviousData } from '@tanstack/react-query'
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useParams, useSearch, useNavigate } from '@tanstack/react-router'
-import { api, type SetDetailResponse } from '../lib/api'
+import { api, type SeriesDetailResponse, type SeriesIndexResponse, type SetDetailResponse } from '../lib/api'
 import { fmtCalendarDate } from '../lib/format'
 import { catalogPath, errorMeta, usePageMeta, type PageMeta } from '../lib/seo'
 import { Content, Spinner, ErrorState, BackPill } from '../components/ui'
@@ -123,6 +123,14 @@ function setMeta(data: SetDetailResponse): PageMeta {
 
 export function SetDetail() {
   const { series, set } = useParams({ from: '/series/$series/$set' })
+  // While the set loads, the back link is named from the series pages already
+  // in the cache (you usually came from one), so it does not say "Series" and
+  // then widen into "Mega Evolution" when the set lands. A cold deep link has
+  // nothing cached and keeps the generic word.
+  const qc = useQueryClient()
+  const cachedSeriesName =
+    qc.getQueryData<SeriesDetailResponse>(['series', series])?.series.name ??
+    qc.getQueryData<SeriesIndexResponse>(['series'])?.series.find((s) => s.slug === series)?.name
   const search = useSearch({ from: '/series/$series/$set' })
   const navigate = useNavigate({ from: '/series/$series/$set' })
   // Logged out, the API omits every card's `ownership` block, so the Have/Need/
@@ -249,7 +257,7 @@ export function SetDetail() {
           stands alone, in a row the same 40px tall so it does not jump. */}
       {!data && (
         <div className="mb-[20px] flex min-h-[40px] items-center">
-          <BackPill to="/series/$series" params={{ series }} label="Series" />
+          <BackPill to="/series/$series" params={{ series }} label={cachedSeriesName ?? 'Series'} />
         </div>
       )}
 

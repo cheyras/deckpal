@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
 import { api, type CardDetailResponse, type ValueRange, type Variant } from '../lib/api'
 import { catalogPath, errorMeta, usePageMeta, type PageMeta } from '../lib/seo'
@@ -20,6 +20,7 @@ import { rangeWindow } from '../lib/insightsCaption'
 import { bucketDayLabel, bucketRangeLabel, chartPoints, grainCaption } from '../lib/priceGrain'
 import { Sheet, SheetBar } from '../components/ui/Sheet'
 import { useLateEntrance } from '../lib/lateEntrance'
+import { CARD_ASPECT_RATIO_CSS, CARD_RADIUS_CSS } from '../lib/cardGeometry'
 
 function QtyStepper({
   v,
@@ -518,6 +519,42 @@ export function CardDetail() {
   )
 }
 
+/** The set's name, if any loaded view of that set is already in the cache. */
+function cachedSetName(qc: QueryClient, setId: string): string | undefined {
+  if (!setId) return undefined
+  for (const [, d] of qc.getQueriesData<{ set?: { name?: string } }>({ queryKey: ['set', setId] })) {
+    if (d?.set?.name) return d.set.name
+  }
+  return undefined
+}
+
+/**
+ * What the card body shows while its card is on the way: the art's own box,
+ * at the art's own size, with the spinner inside it.
+ *
+ * A bare spinner made the sheet open at about half height and then JUMP to
+ * full height when the card landed (and the standalone page reflow the same
+ * way). The art is the tallest thing in the body and its box is fixed by the
+ * card's proportions, so reserving it means the sheet opens at the size it is
+ * going to be. The detail column is left empty rather than faked.
+ */
+function CardDetailPlaceholder() {
+  return (
+    <div className="flex flex-col gap-[32px] nav:flex-row" role="status" aria-label="Loading card…">
+      <div
+        className="relative mx-auto flex w-full max-w-[396px] shrink-0 items-center justify-center bg-surface-tertiary nav:mx-0"
+        style={{ aspectRatio: CARD_ASPECT_RATIO_CSS, borderRadius: CARD_RADIUS_CSS }}
+      >
+        <Spinner inline size={32} className="text-action-primary" />
+      </div>
+      {/* Below nav the column stacks under the art; this holds the title
+          block's height (name, set, number) so the sheet does not grow again
+          when they arrive. */}
+      <div className="min-h-[160px] min-w-0 flex-1 nav:min-h-0" />
+    </div>
+  )
+}
+
 // The card-detail body (hero art + variant table on a shared grid). Reused by both
 // the standalone route above and the bottom-sheet below. It is keyed solely by
 // `cardId`; the authoritative series-slug + set-id come from the card fetch, so any
@@ -598,15 +635,21 @@ function CardDetailBody({
     if (data && variant) owned.set({ setId, card: { cardId, name: data.card.name }, variant }, newQty)
   }
 
+  // Until the card lands, name the set from any view of it already loaded (you
+  // usually came from it), so the back link does not read "Set" and then
+  // widen into the set's name a moment later.
+  const qc = useQueryClient()
+  const setLabel = data?.card.set.name ?? cachedSetName(qc, setId) ?? 'Set'
+
   return (
     <>
       {!inSheet && (
         <div className="mb-[16px]">
-          <BackPill to="/series/$series/$set" params={{ series: seriesSlug, set: setId }} label={data?.card.set.name ?? 'Set'} />
+          <BackPill to="/series/$series/$set" params={{ series: seriesSlug, set: setId }} label={setLabel} />
         </div>
       )}
 
-      {isLoading && <Spinner label="Loading card…" />}
+      {isLoading && <CardDetailPlaceholder />}
       {error && <ErrorState message={(error as Error).message} className={enter} />}
 
       {data && (
