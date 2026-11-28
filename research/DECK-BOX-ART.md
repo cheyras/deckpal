@@ -1,7 +1,15 @@
 # Deck-box art for /decks
 
 Design note for the deck tiles on `/decks` (owner feedback 2026-11-27, workstream D).
-Code: `apps/web/src/components/deckArt/`. Tests: `apps/web/src/components/__tests__/deckArt.test.ts`.
+Code: `apps/web/src/components/deckArt/`. Tests: `apps/web/src/components/__tests__/deckArt*.test.ts`.
+Art library: `tools/deck-art/` (prompts and pipeline) and `apps/web/src/components/deckArt/art/`
+(the shipped files and `MANIFEST.json`, their provenance).
+
+This note has two parts:
+- **Pass 1** (everything up to "Pass 2") chose the structure, the derivation rules and the
+  data path. All three still stand.
+- **Pass 2** (at the end) replaced pass 1's painted SVG motifs with generated artwork, and
+  added the deck's name on the box. Where pass 1 below describes motifs, read pass 2.
 
 ## The brief
 
@@ -211,3 +219,276 @@ phone; it is not one. iOS Safari was not measured on a device.
 them. Computing the spec there, by moving `derive.ts` server-side unchanged plus one
 `card_attack` query, would remove the client's per-deck fetches altogether. That needs
 `pnpm dev --local` to exercise, so it was left out of this change (scope: web only).
+
+---
+
+# Pass 2: generated artwork and the deck's name (2026-11-27)
+
+## The ask
+
+The owner reviewed pass 1 ("a good start") and asked for two things.
+
+**Generated treatments for the art and the backdrop.** These should be "more complex",
+with enough of them that decks "feel varied just based on what's in the deck, what type
+of deck it is", and with colour filters run over them. They were to be made with the
+Codex CLI.
+
+**The deck's own name on the box.** It should use "some canonical text treatments of
+different kinds… so it just looks super cool".
+
+## The art library: a system, not a pile of images
+
+The library has two layers. Each layer has families, and each family has several variants.
+
+| Layer | Family is chosen by | Families | Variants | Images |
+|---|---|---|---|---|
+| Box panel | the deck's leading **energy type** | 11 (one per type, in that type's shape language: flame, wave, leaf, bolt, op-art rings, rock strata, smoke, steel, lace, scales, tessellation) | 3 | 33 |
+| Studio | the deck's **style** (how it plays) | 5: `spotlight` (power), `gobo` (engine), `canvas` (control), `bokeh` (swarm), `sweep` (balanced) | 4 | 20 |
+
+**Choosing a deck's art.** The variant is picked by the deck id's hash, so two Fire decks
+print different Fire panels, and each deck keeps its own panel for life.
+
+**Deck style.** Style comes from `derive.ts` `deckStyle()`. The rules are checked in order:
+
+| Style | Rule |
+|---|---|
+| control | the deck runs at most 4 energy cards |
+| swarm | nothing featured has a rule box (a single-prize deck) |
+| power | the main attacker is a rule-box Pokémon hitting for 200 or more |
+| engine | the main attacker is a Stage 2 |
+| balanced | anything else |
+
+Style also picks the title treatment, and power decks get a holographic foil sheen on the
+panel.
+
+**Why 53 images is enough.** The count is set by what a grid needs.
+- Every energy type and every style has at least three choices. A user with four Fire
+  decks therefore sees at most one repeated panel, and the studio and title vary
+  independently of the panel.
+- Combined with 7 title treatments and a palette that varies continuously (from the energy
+  types and the attacker's art), two decks of the same type and style still differ in
+  2–3 of four visible dimensions.
+- More variants would add bytes to the library and to the asset map, but little visible
+  variety per user.
+
+**Recolouring.** Every image is generated and shipped **grayscale**, and the app recolours
+it per deck with a **gradient map**. That is an SVG `feComponentTransfer` whose tables run
+from the darkest palette stop to the lightest:
+- **Box panel:** shadow → box colour → highlight, where the highlight is the second
+  energy type or the attacker's art if lighter, else a light tint of the box.
+- **Studio:** near-black → tinted wall → the key light in the art's colour.
+
+This was chosen over the alternatives:
+- **CSS `hue-rotate`** cannot colourise gray.
+- **A blend-mode tint** (`luminosity`) gives a single hue, not a two-tone scheme.
+- **Baking tinted copies** cannot cover a continuous palette.
+
+The stops are tested to climb in lightness (a map that doesn't climb solarises the image).
+One image therefore serves every colour a deck can be.
+
+**Prompt approach.** Each prompt is a shared rule block for the layer plus a one-line
+subject (`tools/deck-art/library.mjs`).
+- **Box rule block:** grayscale; full tonal range for the map; packaging-print quality;
+  full-bleed with even density so any crop works.
+- **Studio rule block:** an empty product-photography set; floor in the lower third; key
+  light at upper right; mid-to-dark tones.
+- **Both:** no text, letters, numbers, logos, people, creatures, Pokémon or recognisable
+  characters. The tests check every shipped asset's prompt carries that rule.
+
+**Provenance.** Each shipped file is listed in
+`apps/web/src/components/deckArt/art/MANIFEST.json` with:
+- its prompt and subject;
+- the tool (Codex CLI 0.154.0, `codex exec`), the model (`gpt-6-astra`) and Codex's image
+  tool;
+- the generation time;
+- the source dimensions and SHA-256;
+- every processing step;
+- every output's real size in bytes.
+
+A test fails if a shipped file is missing from the manifest, or its bytes have drifted.
+Raw generations stay out of the repo (`.deck-art-raw/` is gitignored).
+
+**Processing** (`tools/deck-art/process.mjs`):
+
+| | Box panel | Studio |
+|---|---|---|
+| Crop | centre, to the face's 88:120 | centre, to 16:9 |
+| Colour | grayscale | grayscale |
+| Levels | normalised (0.5–99.5th percentile) | normalised (0.5–99.5th percentile) |
+| Blur | — | light blur (a defocused set, and noise costs bytes) |
+| Sizes | 104 / 208 / 312 px wide (1x/2x/3x of a phone tile's face) | 400 / 800 px (1x/2x) |
+| WebP quality | 76 / 70 / 60 (denser screens hide compression in smaller pixels) | 66 / 62 |
+
+3x screens use the studio's 2x file. The studio is soft by design, and 1200 px would cost
+about 70% more bytes for detail it does not have.
+
+**Weight budget**, and the actual figures:
+
+| | Budget | Actual |
+|---|---|---|
+| Whole library, all densities | ≤ 1.5 MB on disk | **1.36 MB** |
+| Box panel, 3x | — | median 19.5 kB, max 41.9 kB |
+| Box panel, 2x | — | median 11.2 kB |
+| Studio, 2x | — | median 3.8 kB |
+| Per tile, 3x phone | ≤ 30 kB | **about 25 kB** |
+| Per tile, 2x | — | about 17 kB |
+| Per tile, 1x | — | about 6.6 kB |
+
+A tile's two card images weigh more than its art.
+
+**How the art loads.**
+- The files are imported through Vite (`artAssets.ts`, `import.meta.glob` with
+  `?no-inline`), so they ship as hashed `/assets/` files with a year's immutable cache, and
+  a missing file fails the build.
+- WebP is outside the service worker's precache globs, so nothing is downloaded until a
+  tile within 400 px of the viewport asks for its two images.
+- For a freshly derived deck, the two images are fetched and decoded before the spec lands,
+  so the tile paints dressed in one go.
+
+## The deck's name on the box: seven title treatments
+
+**References.**
+- **Hot-foil stamped titles** on premium packaging: most printed card products foil-stamp
+  their title, sometimes with emboss. https://printninja.com/foil-stamping/
+- **Athletic jersey lettering**, for the condensed, heavy, outlined look.
+- **Eighties chrome logo lettering**: a gradient split hard at the horizon, a heavy
+  keyline, and extrusion. https://blog.spoongraphics.co.uk/tutorials/videos/video-tutorial-80s-style-chrome-text-effect-in-photoshop
+- **Stencilled crate and label-tape typography.**
+- **Editorial serif labels** between fine rules.
+- **The trading-card set logo lockup:** chunky letterforms with a coloured outer ring and a
+  dark keyline.
+
+| Treatment | Look | Legibility device |
+|---|---|---|
+| `foil` | Fraunces caps, metallic gradient, debossed shadow | dark printed plate with an inset keyline |
+| `varsity` | Figtree 900, condensed, slanted, a bar beneath | thick outline in the deck's darkest shade, drop shadow, soft scrim |
+| `outline` | screen-print: dark caps, light keyline, offset accent shadow | soft plate |
+| `stencil` | caps cut by a stencil bridge, on askew label tape | the tape is the plate |
+| `serif` | mixed-case Fraunces between rules ending in lozenges | soft plate |
+| `arcade` | slanted chrome caps, stepped extrusion | heavy keyline, scrim |
+| `crest` | chunky soft Fraunces, accent ring and dark keyline | outlines and drop shadow, scrim |
+
+**Choosing a treatment.** The treatment comes from the deck's style: power decks get
+arcade, varsity or crest; control decks get serif, foil or stencil; and so on. The deck's
+hash picks within that list, so a grid of same-style decks mixes two or three looks
+(`TREATMENTS_FOR_STYLE`, which is tested).
+
+**Fonts.** No new font files are loaded. The treatments use the app's own Fraunces and
+Figtree variable fonts, which are already on the page, plus SVG effects.
+
+**Fitting** (`title.ts`, pure and unit-tested):
+1. **One line** while it can print at 62% or more of the treatment's largest size.
+2. **Otherwise, wrap.** Binary-search the largest size at which a greedy wrap fits in 2 or
+   3 lines, and take the fewest lines within 15% of the best size.
+3. **Words stay whole** unless a single word cannot fit at all. "CHARIZAR / D PIDGEOT" is
+   the bug this rule exists to prevent; it is tested.
+4. **CJK** breaks between characters, and an emoji (even a ZWJ sequence) is one grapheme.
+5. **Over-long names** print at the minimum size, with the last line clamped by an
+   ellipsis. The maximum is 120 characters, and every length up to it is tested for every
+   treatment.
+
+**What fitting costs.** Nothing per frame:
+- Text is measured with a canvas `measureText` (no layout).
+- Each (name, treatment) pair is measured once and cached.
+- Lines are drawn with SVG `textLength`, so the printed width is exactly the measured
+  width. A glyph rendered a hair wider than the canvas predicted can never overflow.
+- If a font had not loaded when a name was measured, the title is re-fitted once
+  `document.fonts.load` resolves.
+
+**Accessibility.** The whole scene is `aria-hidden`, and the title is unselectable
+decoration. The tile's heading keeps the real name for screen readers and selection.
+
+**Loading state.** No title is printed while a deck's art is still being derived. The
+treatment depends on the deck's style, and a title that changed typeface on arrival would
+read as a glitch, so the blank neutral box with card backs is the loading state. An empty
+deck prints its name in the `balanced` treatment.
+
+## Quality pass
+
+- **The box** is slightly smaller and lower (face 88×120 at y 38), so the lid no longer
+  touches the Format chip on a phone.
+- **The cards** stop short of the title zone, so a name is never hidden behind a card.
+- **The side face:** the panel art wraps round onto it through an affine transform, under a
+  deeper shade, so the box reads as one printed object.
+- **Scrims:** title treatments without a printed plate get a soft scrim, so a light letter
+  never sits on a light patch of a busy panel. The `arcade` keyline is heavier, and the
+  `power` holo sheen is toned down.
+- **Neutral types** (Metal, Colorless without art): the studio uses the box's chosen steel
+  hue rather than the type colour's noise hue, which had tinted Metal studios green.
+- **Motion** now uses the design system's tokens (`--duration-*` and `--ease-*`, from #410).
+- **`content-visibility: auto` is gone.** In pass 1 it was free. With generated art and a
+  typeset title on every box, it made Chrome lay out and paint each tile in the very frame
+  it scrolled into view.
+  - **Measured on the throttled profile:** 3–7 dropped frames per scroll with it, against 0
+    once it was gone and idle dressing (next bullet) was in place.
+  - **What replaced it:** every tile is laid out and painted once, and scrolling is
+    compositor-only again. Only the images stay lazy, requested near the viewport.
+  - **What it costs:** the grid's first render is a little heavier (measured below as
+    load long tasks), in exchange for smooth scrolling.
+- **Idle dressing.** Only the first six tiles draw their title and artwork in the first
+  render. The rest are dressed two at a time in idle callbacks, never mid-scroll, nearest
+  first. Until a tile is dressed, it shows its colours, box and cards.
+
+## Measured (pass 2)
+
+The same protocol as pass 1:
+- **Builds:** production cloud builds of `main` (50c93eb), pass 1 and pass 2, run interleaved.
+- **Browser:** 390×844 @3x, CPU 4× slower, 1.6 Mbps with a 150 ms round trip.
+- **Data:** 20 decks.
+- **The scroll:** top → bottom → top over 6 s.
+
+**Frames over 20 ms** (each run had p50 16.7 ms and p95 16.7–16.8 ms):
+
+| | First visit (4 runs) | Repeat visit |
+|---|---|---|
+| `main` | 2, 1, 1, 2 | 0 |
+| pass 1 | 0, 0, 0, 1 | 0 |
+| pass 2 as first built (generated art + titles, still with `content-visibility`) | 14, 23, 12, 10 | 10 |
+| **pass 2, final** | **0, 0, 0, 0** | **0, 0** |
+
+**Long tasks during the scroll:**
+
+| | First visit | Repeat visit |
+|---|---|---|
+| `main` | 0–1 | 0 |
+| pass 1 | 0 | 0 |
+| pass 2 as first built | 1–6, max 83 ms | 1, 52 ms |
+| **pass 2, final** | **0** | **0** |
+
+**Longest task while the grid first renders:**
+
+| | First visit | Repeat visit |
+|---|---|---|
+| `main` | 166–207 ms | 60 ms |
+| pass 1 | 161–276 ms | 106 ms |
+| pass 2 as first built | 206–231 ms | 259 ms |
+| **pass 2, final** | 189–236 ms (one 360 ms outlier) | 134–162 ms |
+
+**Blocking time while the grid first renders** (repeat visit): `main` 10 ms, pass 1 56 ms, pass 2 as first built 263 ms, **pass 2 final 84–112 ms**.
+
+**Other measurements (pass 2, final):**
+- **Art fetched** while scrolling all 20 decks: about 340 kB on a first visit (25 files at 3x) and 388 kB on a repeat visit. In each case that is only the tiles that came near the viewport.
+- **Time to the first screen's finished art:** about 1.3–1.7 s after the tiles appear on a first visit. The panel and studio are preloaded with the spec.
+- **Layout shift:** CLS 0.
+- **Accessibility:** axe finds 0 violations.
+- **Reduced motion:** 0 animations, and no hover movement.
+
+**What got pass 2 back to pass 1's smoothness.** Three changes, each found with a Chrome trace of the throttled scroll:
+1. **`content-visibility` came off.** It made each tile's layout and paint happen in the frame the tile scrolled into view. Layout was 437–698 ms over a 6 s scroll, against 285 ms for pass 1.
+2. **Idle dressing.** Only the first six tiles draw their title and artwork in the first render. The rest are dressed two at a time in idle callbacks, never while the page is scrolling, nearest tiles first.
+3. **The arrival of freshly derived art waits for the scroll to rest.** The cap went from 3 s to 8 s, so even a long fling never commits a new tile mid-scroll.
+
+**Bundle** (lazy /decks route): DecksIndex 24.2 kB (8.5 kB gz) and the shared DeckBox chunk 37.4 kB (12.4 kB gz: renderer, title fitter and the 140-entry art URL map), CSS 2.6 kB (0.9 kB gz). That is +16 kB gz over main (pass 1 was +10 kB). The critical path is unchanged at 222.8 kB gz.
+
+## What Codex could not do
+
+- **Use its configured default model.** `gpt-6.2-sol` is not available to a ChatGPT
+  account. The generator passes `-m gpt-6-astra` and `--ignore-user-config`, which also
+  skips an unrelated MCP server that failed to authenticate.
+- **Write into the repo from its sandbox on Windows.** It saves under
+  `~/.codex/generated_images/<session>/`, reports the paths, and `generate.mjs` copies
+  them.
+- **Honour exact sizes.** Squares come back at 1254 × 1254, and 3:2 landscapes at
+  1536 × 1024. The processor crops to the app's own aspect ratios, so this costs nothing.
+- **Reproduce a result.** There is no seed, so re-running a prompt gives a different
+  image. The shipped files and their SHA-256 hashes in the manifest are the record.
