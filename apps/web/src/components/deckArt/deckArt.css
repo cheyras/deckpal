@@ -105,21 +105,24 @@
   pointer-events: none;
 }
 
+/* Durations and easings are the design system's motion tokens (theme.css). */
 @media (prefers-reduced-motion: no-preference) {
   .da-card img {
-    transition: opacity 0.25s ease;
+    transition: opacity var(--duration-base) var(--ease-standard);
   }
   .da-card {
-    transition: translate 0.22s cubic-bezier(0.2, 0.7, 0.2, 1), rotate 0.22s cubic-bezier(0.2, 0.7, 0.2, 1);
+    transition:
+      translate var(--duration-base) var(--ease-enter),
+      rotate var(--duration-base) var(--ease-enter);
   }
   .da-root[data-arrived] .da-card {
-    animation: da-rise 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+    animation: da-rise var(--duration-slower) var(--ease-enter) backwards;
   }
   .da-root[data-arrived] .da-card + .da-card {
-    animation-delay: 0.06s;
+    animation-delay: 60ms;
   }
   .da-root[data-arrived] .da-energy {
-    animation: da-fade 0.4s ease backwards;
+    animation: da-fade var(--duration-slower) var(--ease-standard) backwards;
   }
 }
 
