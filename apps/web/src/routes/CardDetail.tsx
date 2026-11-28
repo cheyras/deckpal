@@ -443,7 +443,9 @@ function TcgTab({ cardId }: { cardId: string }) {
         ))}
       </ul>
       <p className={`border-t ${PANEL_RULE} ${PANEL_X} py-[12px] text-[14px] text-text-muted`}>
-        Format rules verified {data.checkedAt.slice(0, 10)}.
+        {/* The app's own date style ("Jul 27, 2026"), not the raw ISO
+            "2026-07-27" this line was the only place to show. */}
+        Format rules verified {fmtCalendarDate(data.checkedAt.slice(0, 10))}.
       </p>
     </div>
   )
@@ -519,6 +521,16 @@ export function CardDetail() {
   )
 }
 
+/**
+ * Below `nav` the art and the details stack. On a tablet (640–1067px) the
+ * stack spanned the whole sheet or page: the art sat centred at 396px while
+ * the name hugged the left edge, the copy-link button the right, and a variant
+ * row put its price 700px from its name. Capped and centred, the column reads
+ * as one piece, the way it does on a phone. From `nav` the two-column layout
+ * takes over unchanged.
+ */
+const STACKED_CAP = 'mx-auto w-full max-w-[600px] nav:mx-0 nav:max-w-none'
+
 /** The set's name, if any loaded view of that set is already in the cache. */
 function cachedSetName(qc: QueryClient, setId: string): string | undefined {
   if (!setId) return undefined
@@ -540,7 +552,7 @@ function cachedSetName(qc: QueryClient, setId: string): string | undefined {
  */
 function CardDetailPlaceholder() {
   return (
-    <div className="flex flex-col gap-[32px] nav:flex-row" role="status" aria-label="Loading card…">
+    <div className={`flex flex-col gap-[32px] nav:flex-row ${STACKED_CAP}`} role="status" aria-label="Loading card…">
       <div
         className="relative mx-auto flex w-full max-w-[396px] shrink-0 items-center justify-center bg-surface-tertiary nav:mx-0"
         style={{ aspectRatio: CARD_ASPECT_RATIO_CSS, borderRadius: CARD_RADIUS_CSS }}
@@ -663,7 +675,7 @@ function CardDetailBody({
               opacity: 0.5,
             }}
           />
-          <div className="flex flex-col gap-[32px] nav:flex-row">
+          <div className={`flex flex-col gap-[32px] nav:flex-row ${STACKED_CAP}`}>
             {/* Hero image. On the two-column (desktop) layout it sticks to the
                 top while the detail column scrolls — `self-start` is required or
                 the flex row stretches the item and sticky has no slack to move
