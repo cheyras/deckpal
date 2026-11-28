@@ -1,7 +1,8 @@
 /**
- * Gallery for ui.tsx primitives: Content, BackPill, SetSymbolTile, Spinner, ErrorState.
+ * Gallery for ui.tsx primitives: Content, BackPill, Spinner, ErrorState.
+ * (SetSymbolTile has its own: SetSymbolTile.gallery.tsx.)
  */
-import { Content, BackPill, SetSymbolTile, Spinner, ErrorState } from './ui'
+import { Content, BackPill, Spinner, ErrorState } from './ui'
 import type { GalleryMeta } from '../routes/design/galleryTypes'
 
 // ── Content ─────────────────────────────────────────────────────────────
@@ -61,29 +62,6 @@ const backPillGallery = {
   },
 } satisfies GalleryMeta<{ to: string; params?: Record<string, string>; label: string }>
 
-// ── SetSymbolTile ───────────────────────────────────────────────────────
-
-const setSymbolTileGallery = {
-  name: 'SetSymbolTile',
-  source: 'apps/web/src/components/ui.tsx',
-  section: 'primitive',
-  description: 'White tile showing a set symbol — or, for sets that print a code (SV era on, energy sets included), that code as a vector badge — with fallback ladders (promo star, derived acronym).',
-  component: SetSymbolTile,
-  defaults: { setId: 'swsh1', name: 'Sword & Shield', size: 40 },
-  variants: [
-    { label: 'with symbol', props: { setId: 'swsh1', name: 'Sword & Shield', size: 40 } },
-    { label: 'printed code', props: { setId: 'me01', name: 'Mega Evolution', size: 40 } },
-    { label: 'energy set (printed code)', props: { setId: 'mee', name: 'Mega Evolution Energy', size: 40 } },
-    { label: 'acronym fallback (unknown set id)', props: { setId: 'no-such-set', name: 'Fates Collide', size: 40 } },
-    { label: 'promo set', props: { setId: 'swshp', name: 'SWSH Black Star Promos', size: 40 } },
-    { label: 'large', props: { setId: 'swsh1', name: 'Sword & Shield', size: 64 } },
-    { label: 'no data', props: { setId: null, name: null, size: 40 } },
-  ],
-  knobs: {
-    size: { kind: 'number', min: 20, max: 120, step: 4 },
-  },
-} satisfies GalleryMeta<{ setId?: string | null; name?: string | null; size?: number }>
-
 // ── Spinner ─────────────────────────────────────────────────────────────
 
 const spinnerGallery = {
@@ -132,4 +110,4 @@ const errorStateGallery = {
 // For multi-export files, we export them separately as named exports
 // and the CatalogSection renderer will handle all gallery exports.
 export default contentGallery
-export { backPillGallery, setSymbolTileGallery, spinnerGallery, errorStateGallery }
+export { backPillGallery, spinnerGallery, errorStateGallery }
