@@ -1,12 +1,12 @@
 ---
 date: "2026-11-27"
 title: "Deck boxes wear generated art recoloured per deck, and print the deck's name"
-decided_by: "Chey (via Claude Opus 5.5) — proposed in PR #411 for his review"
+decided_by: "Chey (via Claude Opus 5.5)"
 areas: ["frontend", "decks"]
 supersedes: []
 ---
 ## 2026-11-27 — Deck boxes wear generated art recoloured per deck, and print the deck's name
-**Decided by:** Chey (via Claude Opus 5.5) — proposed in PR #411 for his review
+**Decided by:** Chey (via Claude Opus 5.5). Approved after review on 2026-11-27: "Deck art looks freaking cool, let's finish that up and ship it."
 
 **Decision:**
 - **Two layers of generated art.** The /decks deck box's panel and its studio backdrop
