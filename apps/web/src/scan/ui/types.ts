@@ -129,11 +129,16 @@ export interface FeedEntry {
    */
   identity: IdentityState | null
   /** The PHASH opinion, and only ever that. `distance: -1` means there isn't
-   *  one — an unmatched capture, or a row the printed-number ladder named, which
-   *  phash never nominated. The row renders no match meter at -1 rather than a
-   *  meter reading 0 % of a number that was never measured. */
+   *  one — an unmatched capture, or a row the ladder named (printed key or
+   *  picture), on which the hash's distance is a bystander's and is not shown
+   *  (`identity.rowMeter`, 2026-11-27). The row renders no hash meter at -1
+   *  rather than a meter reading 0 % of a number that was never measured. */
   confidence: number
   distance: number
+  /** The image vector's cosine for a row the LADDER named, when the vector had
+   *  nominated the card: what that row's match meter shows instead of the hash.
+   *  Null or absent otherwise. */
+  similarity?: number | null
   quantity: number
   variantId: number | null
   variants: FeedVariant[]

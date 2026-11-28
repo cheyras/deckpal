@@ -59,8 +59,9 @@ export interface OcrFields {
 
 // ─────────────────────────────────────────────────────────────── distances ──
 
-/** Plain Levenshtein. Called with two ≤5-character strings per window, so the
- *  quadratic is 25 cells and the loop below is not worth optimising. */
+/** Plain Levenshtein. Called with two ≤5-character strings per badge window
+ *  and two ≤12-character ones per evolution-line window (`isEvolutionLine`), so
+ *  the quadratic is at most 144 cells and the loop below is not worth optimising. */
 export function levenshtein(a: string, b: string): number {
   if (a === b) return 0
   if (!a.length) return b.length
@@ -379,9 +380,31 @@ const FURNITURE_WORDS = [
   'specialenergy', 'evolvesfrom',
 ]
 
+/**
+ * THE EVOLUTION LINE, MISREAD (2026-11-27). `\bEvolves\s*from` below needs the
+ * two words spelled right, and the recogniser does not always: `Evohvesfrom
+ * Liiipuy` off a Herdier, `Evolvas from Gothita` off a Gothorita,
+ * `EvoiwesfromTeamRocket'sDottier` off a Rabsca. What survives is the
+ * PRE-EVOLUTION's name with a garbled prefix, and it out-letters the real title,
+ * so the ladder was handed "Lillipup" for a Herdier. A run within two edits of
+ * `evolvesfrom` (any 10-12 letters of the de-spaced line) is the evolution line.
+ * Two edits of eleven letters is no card's title.
+ */
+const EVOLVES_FROM = 'evolvesfrom'
+function isEvolutionLine(s: string): boolean {
+  const t = s.toLowerCase().replace(/[^a-z]/g, '')
+  for (let len = EVOLVES_FROM.length - 1; len <= EVOLVES_FROM.length + 1; len++) {
+    for (let i = 0; i + len <= t.length; i++) {
+      if (levenshtein(t.slice(i, i + len), EVOLVES_FROM) <= 2) return true
+    }
+  }
+  return false
+}
+
 /** Reduce one recognised line of the header band to the card TITLE, or null. */
 export function cleanNameLine(s: string | null | undefined): string | null {
   if (!s) return null
+  if (isEvolutionLine(s)) return null
   const t = s
     // Card-type / stage badge, wherever it sits on the line — not just at the
     // start: `STAGET 180`, `STAGE2 Tyranitar 180`, `BASIC Team Rocket's Porygon`.

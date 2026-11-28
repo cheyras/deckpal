@@ -125,6 +125,30 @@ SCAN_BENCH_DIR=~/deckpal-data/scan-bench-loso SCAN_BENCH_UNINDEXED=me06   node -
 The number to watch there is WRONG, which must be 0: an index that has not seen
 a set must make the scanner ask, never name the nearest older printing.
 
+## Synthetic captures: reproducing a mechanism (`synth.py`)
+
+When a field failure has no capture on record (the 2026-11-27 White Flare
+session: Energy Retrieval asked although the card prints `WHT 082/086`),
+`synth.py` makes camera-like 480x670 captures of named cards from their
+high-resolution catalogue art, so the shipping path can be replayed on them.
+They go in a SEPARATE root, never beside the real-crop datasets:
+
+```bash
+S=~/deckpal-data/scan-bench-synth            # catalog.json + phash-index.json copied from the main root,
+                                             # embed/deckpal-card-b32-v2.fp32/gallery.npz linked
+# high-res art, one <cardId>.webp each (the deployed /deckpal/images/en/<serie>/<set>/<n>/high.webp)
+$PY -I scripts/scan-bench/synth.py $S/art-high $S synth-wf-2026-11-27 --variants 8
+SCAN_BENCH_DIR=$S $PY -I scripts/scan-bench/embed.py queries --model deckpal-card-b32-v2.fp32.onnx --query-onnx <deckpal-card-b32-v2.int8.onnx>
+SCAN_BENCH_DIR=$S $PY -I scripts/scan-bench/embed.py score   --model deckpal-card-b32-v2.fp32.onnx --query-onnx <deckpal-card-b32-v2.int8.onnx>
+SCAN_BENCH_DIR=$S node --import tsx scripts/scan-bench/bench.ts --label <name>
+```
+
+(`--model` only names the gallery directory there; the query model is the int8
+ONNX file production embeds with.) The crops model blur, glare, exposure, a
+colour cast, noise and the quad detector's corner error. They do not model foil,
+sleeves, fingers, or a quad that lands inside the card, so their numbers show
+whether a mechanism exists, not how often it fires.
+
 ## The acceptance test: the owner's own session (`field-session.mjs`)
 
 Offline numbers are evidence, not the verdict. Every earlier round reported a

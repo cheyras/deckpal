@@ -285,3 +285,30 @@ describe('nothing in a row may push the list sideways', () => {
     assert.match(render(MANY_PRINTINGS), /inline-flex h-\[28px\] shrink-0 items-center overflow-hidden rounded-full/)
   })
 })
+
+// ── THE MATCH METER SHOWS WHAT NAMED THE CARD (2026-11-27) ──────────────────
+//
+// The owner's White Flare session: "Match 81% · dist 12" on almost every row.
+// Not a cap: the hash's own distance, which on a real camera capture sits 10-13
+// bits from the right card, on rows the LADDER named (`identity.rowMeter`).
+
+describe('the match meter', () => {
+  it('a hash-named row keeps its distance', () => {
+    const html = render(NAMED)
+    assert.match(html, /94%/)
+    assert.match(html, /· dist 4/)
+  })
+
+  it('a ladder-named row shows the picture match, and no hash distance', () => {
+    const html = render({ ...NAMED, confidence: 0.88, distance: -1, similarity: 0.88 })
+    assert.match(html, /88%/)
+    assert.equal(html.includes('· dist'), false)
+    assert.equal(html.includes('Matched from the printed number'), false)
+  })
+
+  it('a ladder-named row the picture never nominated says it was matched from the print', () => {
+    const html = render({ ...NAMED, confidence: 0, distance: -1, similarity: null })
+    assert.match(html, /Matched from the printed number/)
+    assert.equal(html.includes('· dist'), false)
+  })
+})

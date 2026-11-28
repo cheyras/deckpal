@@ -107,6 +107,7 @@ import {
 import {
   PHASH_NEAR_EXACT,
   corroborate,
+  corroborateByPicture,
   vectorVerdict,
   type Corroborators,
   type VectorMatch,
@@ -906,6 +907,19 @@ export async function resolveCard(
     cards.length <= MAX_MATCHES ? { keyedBy: resolvedBy } : {};
 
   /**
+   * The vector's agreement with a keyed list: its top-1 as a card
+   * (`corroborate`), or, for a list a PRINTED key built, its top-1 as a picture
+   * with one printing left in the list (`corroborateByPicture`, fuse.ts). The
+   * second needs the art families, so it is silent wherever the printing guard
+   * is off.
+   */
+  const agreement = (resolvedBy: ResolvedBy, ids: readonly string[]): string | null =>
+    corroborate(ids, signals) ??
+    (opts.fusion && opts.artSiblings && PRINTED_KEYS.has(resolvedBy)
+      ? corroborateByPicture(ids, signals, opts.fusion.vectorMatches, opts.artSiblings, opts.fusion.modelId)
+      : null);
+
+  /**
    * Finish a rung.
    *
    * `corroboratable` says whether the candidate list was narrowed by a KEY —
@@ -932,7 +946,7 @@ export async function resolveCard(
     // NAME to point elsewhere: `letTheNameQuestionTheKey`.)
     if (confident) return { matched: true, confident: true, resolvedBy, matches, badge };
     // RULE 2: corroboration. Two insufficient signals naming one card.
-    const winner = corroboratable ? corroborate(matches.map((m) => m.cardId), signals) : null;
+    const winner = corroboratable ? agreement(resolvedBy, matches.map((m) => m.cardId)) : null;
     if (winner) {
       const lead = matches.find((m) => m.cardId === winner)!;
       return {
@@ -982,7 +996,7 @@ export async function resolveCard(
     // the vector identifies the PICTURE, which no two printings share. "It is
     // one of these six Pikachus" plus "the closest image in the whole index is
     // that one" is two signals covering each other's exact blind spot.
-    const winner = corroborate(matches.map((m) => m.cardId), signals);
+    const winner = agreement(resolvedBy, matches.map((m) => m.cardId));
     if (winner) {
       const lead = matches.find((m) => m.cardId === winner)!;
       return {

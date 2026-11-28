@@ -39,6 +39,7 @@ import {
   initialIdentity,
   reduceIdentity,
   resolvedIdentity,
+  rowMeter,
   type IdentityEvent,
   type IdentityState,
 } from '../scan/ui/identity'
@@ -728,12 +729,11 @@ export function Scan() {
         // Held only while the row is still a question — the discard path uses it
         // to release the refractory hold so the same card can be re-scanned.
         captureTrackId: identity ? null : stackItem.trackId,
-        // `-1`/`0` when the PRINTED-NUMBER ladder named this card, and on an
-        // unresolved row: phash either never nominated it or was refused, so
-        // there is no distance and none is invented. FeedEntryCard reads the -1
-        // and shows provenance (or nothing) instead of a meter.
-        confidence: identity?.confidence ?? 0,
-        distance: identity?.distance ?? -1,
+        // The meter shows what NAMED the card (`rowMeter`): the hash's distance
+        // on a hash-named row, the picture's cosine on a ladder-named one, and
+        // `-1`/`0` on an unresolved row. FeedEntryCard reads the -1 and shows
+        // the picture's match, provenance, or nothing instead of a hash meter.
+        ...(identity ? rowMeter(identity, st.by) : { confidence: 0, distance: -1, similarity: null }),
         quantity: 1,
         variantId: null,
         variants: [],
@@ -1252,13 +1252,8 @@ export function Scan() {
             // pick and same as an arrival.
             const top = resolvedIdentity(outcome.resolved)
             if (!top) return prev
-            return resolveRow(prev, row.id, {
-              ...top,
-              // The arrival path's null mapping (line ~465): the printed-number
-              // ladder has no phash opinion, and none is invented.
-              confidence: top.confidence ?? 0,
-              distance: top.distance ?? -1,
-            })
+            // The ladder named it, so its meter is the ladder's (`rowMeter`).
+            return resolveRow(prev, row.id, { ...top, ...rowMeter({ ...top, similarity: top.similarity ?? null }, 'printing') })
           })
         } catch {
           // An enrichment that can break a capture is worse than no enrichment —
