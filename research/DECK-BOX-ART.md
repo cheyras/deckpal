@@ -165,16 +165,21 @@ deck rows carry no types or attacks. These steps keep that cost off the page:
 - **The scroll:** scripted top → bottom → top over 6 s, recording every frame interval
   with requestAnimationFrame.
 
+The final runs compare `main` at f65877a with this branch, interleaved:
+
 | | Frames | p50 / p95 | Frames > 20 ms | Long tasks | Extra API requests |
 |---|---|---|---|---|---|
-| `main`, first visit (3 runs) | 358–360 | 16.7 / 16.7–16.8 ms | 1, 0, 1 (one 33 ms frame each) | 0 | — |
-| branch, first visit: art derived *during* the scroll (3 runs) | 358–359 | 16.7 / 16.7–16.8 ms | 0, 0, 1 (one 33 ms frame) | 0 | 19 deck details + 61 card lookups |
-| `main`, repeat visit | 359 | 16.7 / 16.7 ms | 0 | 0 | — |
-| branch, repeat visit (specs cached) | 359 | 16.7 / 16.8 ms | 0 | 0 | 0 |
+| `main`, first visit (4 runs) | 357–360 | 16.7 / 16.7–16.8 ms | 1, 0, 1, 0 (one 33 ms and one 50 ms frame) | 0 | — |
+| branch, first visit: art derived *during* the scroll (4 runs) | 360 | 16.7 / 16.7 ms | **0, 0, 0, 0** | 0 | 19 deck details + 61 card lookups |
+| `main`, repeat visit | 360 | 16.7 / 16.8 ms | 0 | 0 | — |
+| branch, repeat visit (specs cached) | 360 | 16.7 / 16.7 ms | 0 | 0 | **0** |
+
+(Before the scroll-rest deferral, the branch's first visit dropped 0–3 single 33 ms
+frames per run. That is the same range as `main`, but it is why new art now waits.)
 
 **What else was measured.**
 
-- **Time to finished art on the first screen:** about 1.15 s after the tiles appear on a
+- **Time to finished art on the first screen:** about 1.1 s after the tiles appear on a
   first visit. On a repeat visit the spec is synchronous, and only the card images load.
 - **Layout shift:** CLS is 0 during load and while every tile derives.
 - **Accessibility:** axe finds 0 violations in the deck grid.
@@ -183,19 +188,19 @@ deck rows carry no types or attacks. These steps keep that cost off the page:
 
 **The bundle**, which loads lazily with the /decks route:
 
-- DecksIndex grew from 18.2 kB to 22.9 kB (5.8 kB to 7.9 kB gzipped).
+- DecksIndex grew from 18.2 kB to 23.4 kB (5.8 kB to 8.1 kB gzipped).
 - A new shared chunk holds the renderer and the rules: 16.6 kB (6.8 kB gzipped). The
   /design gallery shares it.
-- The new CSS is 2.5 kB (0.9 kB gzipped).
-- That is about **+9.8 kB gzipped for the route**, with no new dependencies.
+- The new CSS is 2.4 kB (0.9 kB gzipped).
+- That is about **+10 kB gzipped for the route**, with no new dependencies.
 - The critical path stays at 228.2 kB gzipped before and after.
 
 **What the measurements changed.** The first version cross-faded the palette, animating
 registered colour custom properties, and drew the art swatch from an undecoded image.
 Under the same profile that cost three frames over 33 ms, one of them 66 ms, and a 52 ms
 long task. An animated colour repaints every gradient on the tile on every frame, and
-drawImage decodes synchronously. Both are gone: the palette now swaps in one frame, and
-the swatch calls `img.decode()` first.
+drawImage decodes synchronously. Both are gone: the palette now swaps in one frame, the
+swatch calls `img.decode()` first, and new art waits for the scroll to rest.
 
 **Caveat.** Headless desktop Chromium with CPU throttling stands in for a mid-range
 phone; it is not one. iOS Safari was not measured on a device.

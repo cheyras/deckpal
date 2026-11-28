@@ -21,7 +21,7 @@
 // attacker's art, and the STUDIO BACKDROP by the art, so the scene around the
 // cards is lit in the cards' own colours.
 
-import { hexToOklch, hueDelta, mixHue, oklchToHex, type Oklch } from './color'
+import { hexToOklch, hueDelta, oklchToHex, type Oklch } from './color'
 
 /** Bump when a rule changes: every cached spec carries it and is re-derived on mismatch. */
 export const DERIVE_VERSION = 1
@@ -430,9 +430,10 @@ export function deriveTypes(
  * cards), so the box and the energy tokens on its band agree. They are
  * written out rather than read from CSS because the palette maths needs
  * numbers. Fighting is pulled a little towards earth, so a Fighting box is not
- * mistaken for a Fire one at a glance, and Darkness is a shade deeper, to
- * read as a dark box rather than a teal one. If the tokens are retuned, update
- * these with them.
+ * mistaken for a Fire one at a glance. Darkness is a shade deeper, to read as
+ * a dark box rather than a teal one. Metal is a shade deeper too, so it counts
+ * as a mid-tone and can carry a light accent: gold on steel, not mud on
+ * silver. If the tokens are retuned, update these with them.
  */
 export const TYPE_COLORS: Record<EnergyType, string> = {
   Grass: '#4fa83b',
@@ -442,7 +443,7 @@ export const TYPE_COLORS: Record<EnergyType, string> = {
   Psychic: '#a052b8',
   Fighting: '#b8642f',
   Darkness: '#1d5a6d',
-  Metal: '#a8a9a5',
+  Metal: '#959794',
   Fairy: '#dc4c8c',
   Dragon: '#b09a2c',
   Colorless: '#ebe9e3',
@@ -483,6 +484,9 @@ export function derivePalette(types: readonly EnergyType[], art: Oklch | null): 
 
   // BOX — the leading energy type, as a lit printed surface.
   let box: Oklch = { l: clamp(t1.l, 0.46, 0.74), c: clamp(t1.c, 0.02, 0.17), h: t1.h }
+  // A neutral grey's hue is rounding noise; give it a deliberate cool steel cast
+  // instead of whatever tint the noise points at.
+  if (t1.c < 0.02) box = { ...box, c: 0.015, h: 250 }
   // Colorless has no hue of its own, so it borrows a whisper of the art's —
   // a Lugia box and a Snorlax box should not be the same grey. (Metal keeps
   // its steel: that is a colour, and the art goes on the motif instead.)
@@ -512,7 +516,7 @@ export function derivePalette(types: readonly EnergyType[], art: Oklch | null): 
       ? { l: light ? 0.44 : 0.7, c: 0.14, h: second }
       : light
         ? { l: box.l - 0.12, c: Math.min(0.17, box.c * 1.25), h: box.h }
-        : { l: 0.7, c: 0.13, h: mixHue(box.h, accent.h, 0.5) }
+        : { l: 0.66, c: Math.min(0.12, Math.max(accent.c, 0.06)), h: accent.h }
 
   // STUDIO — a dark, nearly neutral sweep lit by a coloured key light. The
   // light takes the art's hue (the cards are lit in their own colours); the
