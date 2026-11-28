@@ -11,7 +11,7 @@ export default {
   defaults: {
     active: true,
     children: (
-      <div className="rounded-lg border border-border-default bg-surface-tertiary px-[16px] py-[12px] text-[13px]">
+      <div className="rounded-lg border border-border-default bg-surface-tertiary px-4 py-3 text-[13px]">
         Charizard · Base Set · #4
       </div>
     ),
@@ -27,7 +27,7 @@ export default {
       props: {
         active: true,
         children: (
-          <div className="rounded-lg border border-border-default bg-surface-tertiary px-[16px] py-[12px] text-[13px]">
+          <div className="rounded-lg border border-border-default bg-surface-tertiary px-4 py-3 text-[13px]">
             Charizard · Base Set · #4
           </div>
         ),
@@ -38,7 +38,7 @@ export default {
       props: {
         active: false,
         children: (
-          <div className="rounded-lg border border-border-default bg-surface-tertiary px-[16px] py-[12px] text-[13px]">
+          <div className="rounded-lg border border-border-default bg-surface-tertiary px-4 py-3 text-[13px]">
             Blastoise · Base Set · #2
           </div>
         ),

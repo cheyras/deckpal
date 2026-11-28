@@ -18,7 +18,7 @@ import { variantMeta, seriesColors } from '../lib/variantStyle'
 import { ValueChart } from '../components/ValueChart'
 import { rangeWindow } from '../lib/insightsCaption'
 import { bucketDayLabel, bucketRangeLabel, chartPoints, grainCaption } from '../lib/priceGrain'
-import { Sheet, useSheetClose } from '../components/ui/Sheet'
+import { Sheet, SheetBar } from '../components/ui/Sheet'
 import { useLateEntrance } from '../lib/lateEntrance'
 
 function QtyStepper({
@@ -726,43 +726,23 @@ export function CardSheet({
   contextSlot?: ReactNode
   ariaLabel?: string
 }) {
-  // Positioning, scroll-lock, focus, Escape and both animations all live in
-  // Sheet now. This component keeps only its own header (a grab handle plus a
-  // floating close button, which the shared header does not draw) and the body.
+  // Positioning, scroll-lock, focus, Escape, both animations, the drag and the
+  // close control all live in Sheet. The card art is the heading here, so the
+  // bar carries no title: just the grab handle and the shared ✕ (`SheetBar`).
+  // On the two-column layout the art is sticky, and the scroll edge is told
+  // to keep it whole while the detail column fades under the bar.
   return (
     <Sheet
       title="Card details"
       ariaLabel={ariaLabel}
       onClose={onClose}
       size="full"
-      headerSlot={<CardSheetHeader />}
-      contentClassName="!px-[16px] !pt-[4px] nav:!px-[24px]"
+      headerSlot={<SheetBar />}
+      contentClassName="!px-4 !pt-1 nav:!px-6"
+      scrollEdgePins="[data-decke-card-image]"
     >
       <CardDetailBody cardId={cardId ?? `${set}-${number}`} inSheet deckSlot={contextSlot} />
     </Sheet>
-  )
-}
-
-// Split out so it can call useSheetClose(), which only exists under a <Sheet>.
-// The card art is the heading here, so this row carries no title — just the
-// grab handle and a close button. Laid out with a matching-width spacer rather
-// than absolute positioning, so the handle stays optically centred without
-// depending on which skin's CSS happens to win on `position`.
-function CardSheetHeader() {
-  const close = useSheetClose()
-  return (
-    <div className="flex h-[44px] shrink-0 items-center justify-between px-[10px]">
-      <span aria-hidden className="h-[40px] w-[40px]" />
-      <span className="h-[4px] w-[40px] rounded-full bg-surface-tertiary nav:hidden" />
-      <button
-        type="button"
-        onClick={close}
-        aria-label="Close"
-        className="flex h-[40px] w-[40px] items-center justify-center rounded-full bg-surface-tertiary text-icon-default hover:bg-action-default-hover"
-      >
-        <Icon name="close" size={22} />
-      </button>
-    </div>
   )
 }
 

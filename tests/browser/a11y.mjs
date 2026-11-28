@@ -115,14 +115,21 @@ export async function checkA11y(browser, server, mount, label, out) {
             if (width === 390) {
               await page.getByRole('button', { name: 'Menu' }).click()
               const drawer = page.getByRole('dialog', { name: 'Navigation' })
-              await drawer.getByRole('button', { name: 'Close navigation' }).waitFor()
-              await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Close navigation')
+              await drawer.waitFor()
+              // The drawer has no visible ✕ of its own: the header's Menu
+              // button turns into it. A screen reader still finds a labelled
+              // dismiss INSIDE the modal (A11Y-05), visually hidden and out of
+              // the Tab order.
+              const dismiss = drawer.getByRole('button', { name: 'Close navigation' })
+              assert.equal(await dismiss.count(), 1, `${engine}: the dialog keeps its screen-reader dismiss`)
+              assert.equal(await dismiss.getAttribute('tabindex'), '-1', `${engine}: the dismiss is not a Tab stop`)
+              await page.waitForFunction(() => document.querySelector('#mobile-nav-drawer')?.contains(document.activeElement)
+                && document.activeElement?.tagName === 'A')
+              assert.equal(await page.locator('button[aria-label="Menu"]').getAttribute('aria-expanded'), 'true')
               for (let step = 0; step < 5; step++) {
                 await page.keyboard.press('Tab')
                 assert.equal(await page.evaluate(() => document.querySelector('#mobile-nav-drawer')?.contains(document.activeElement)),
                   true, `${engine}: forward Tab ${step + 1} must stay inside navigation`)
-                if (step === 0) assert.equal(await page.evaluate(() => document.activeElement?.tagName), 'A',
-                  `${engine}: the first forward Tab must reach the profile link`)
               }
               await page.keyboard.press('Shift+Tab')
               assert.equal(await page.evaluate(() => document.querySelector('#mobile-nav-drawer')?.contains(document.activeElement)),
@@ -170,14 +177,18 @@ export async function checkA11y(browser, server, mount, label, out) {
       const drawer = reverse.page.getByRole('dialog', { name: 'Navigation' })
       await drawer.waitFor()
       assert.equal(await chat.getAttribute('inert'), '', 'opening the menu must make the chat panel inert')
+      // "In the menu" is the drawer AND the header button that toggles it:
+      // that button is the drawer's one visible close control, so the Tab
+      // loop includes it. What must never happen is focus reaching the chat.
+      const inMenu = () => reverse.page.evaluate(() => !!document.querySelector('#mobile-nav-drawer')?.contains(document.activeElement)
+        || document.activeElement?.getAttribute('aria-controls') === 'mobile-nav-drawer')
       await reverse.page.keyboard.press('Shift+Tab')
-      assert.equal(await reverse.page.evaluate(() => document.querySelector('#mobile-nav-drawer')?.contains(document.activeElement)),
-        true, 'Shift+Tab must remain in the drawer after chat is minimised')
+      assert.equal(await inMenu(), true, 'Shift+Tab must remain in the menu after chat is minimised')
       await reverse.page.waitForTimeout(4200)
-      assert.equal(await reverse.page.evaluate(() => document.querySelector('#mobile-nav-drawer')?.contains(document.activeElement)),
-        true, 'focus must remain in the menu after Deck-E’s retirement deadline')
+      assert.equal(await inMenu(), true, 'focus must remain in the menu after Deck-E’s retirement deadline')
       assert.equal(await chat.getAttribute('inert'), '', 'the chat must remain open and inert past the retirement deadline')
-      await drawer.getByRole('button', { name: 'Close navigation' }).click()
+      // The single close control: the header button, now drawn as the ✕.
+      await reverse.page.locator('button[aria-label="Menu"]').click()
       await reverse.page.waitForFunction(() => !document.querySelector('#mobile-nav-drawer'))
       await reverse.page.waitForFunction(() =>
         document.querySelector('[role="dialog"][aria-label="Chat with Deck-E"]')?.hasAttribute('inert') === false)
@@ -220,7 +231,7 @@ export async function checkA11y(browser, server, mount, label, out) {
       await page.waitForFunction((selector) => document.querySelector(selector)?.textContent === 'Late fixture heading', live)
       results.push({ case: 'a11y-route-announcer', label, repeatedWrites, lateHeading: true })
       await page.getByRole('button', { name: 'Menu' }).click()
-      await page.getByRole('button', { name: 'Close navigation' }).waitFor()
+      await page.getByRole('dialog', { name: 'Navigation' }).waitFor()
       await page.waitForTimeout(50)
       await page.evaluate(() => {
         const dialog = document.createElement('div')

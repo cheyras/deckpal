@@ -607,6 +607,14 @@ Specific proofs, phase by phase:
 
 ### 8.2 Spacing tokens — explicitly out of scope (flagged, not silent)
 
+> **Update 2026-11-27:** the scale now exists — `--spacing: 4px` plus a
+> sanctioned step list and three role tokens in theme.css, with motion
+> tokens alongside (see
+> `decisions/2026/2026-11-27-spacing-and-motion-tokens-one-close-control-drag-to-dismiss-sheets.md`).
+> The shared primitives are migrated; the remaining call sites are tracked on
+> /design → Pending and counted by `apps/web/scripts/spacing-audit.mjs`. The
+> text below is the original scoping, kept as written.
+
 Audit §1.4: 2,441 arbitrary-pixel spacing utilities, zero spacing tokens.
 "Editable spacing tokens" would mean designing a scale, then a ~2,400-call-site
 migration — an initiative of comparable size to this entire plan. Proposal:

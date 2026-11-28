@@ -65,6 +65,7 @@ function validateValue(cat: TokenCategory, value: string): string | null {
 
     case 'radius':
     case 'breakpoint':
+    case 'spacing':
       if (/^\d+(\.\d+)?px$/.test(value)) return null
       if (value === '9999px') return null // radius-full
       return 'Must be a <number>px value'
@@ -76,6 +77,13 @@ function validateValue(cat: TokenCategory, value: string): string | null {
     case 'z':
       if (/^-?\d+$/.test(value)) return null
       return 'Must be an integer'
+
+    case 'motion':
+      // A duration (`220ms`) or a timing function (`ease`, `cubic-bezier(…)`).
+      if (/^\d+(\.\d+)?m?s$/.test(value)) return null
+      if (/^(ease|ease-in|ease-out|ease-in-out|linear)$/.test(value)) return null
+      if (/^cubic-bezier\(\s*-?[\d.]+\s*,\s*-?[\d.]+\s*,\s*-?[\d.]+\s*,\s*-?[\d.]+\s*\)$/.test(value)) return null
+      return 'Must be a duration (220ms) or a timing function (ease, cubic-bezier(…))'
 
     case 'font':
     case 'ease':

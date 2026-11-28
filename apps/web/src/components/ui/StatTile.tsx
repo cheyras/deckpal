@@ -30,10 +30,10 @@ export function StatTile({
 }: StatTileProps) {
   if (variant === 'card') {
     return (
-      <div className={`rounded-2xl bg-surface-secondary p-[20px]${className ? ` ${className}` : ''}`}>
+      <div className={`rounded-2xl bg-surface-secondary p-5${className ? ` ${className}` : ''}`}>
         <div className="text-[12px] font-bold uppercase tracking-wide text-text-muted">{label}</div>
         {children ?? (
-          <div className="mt-[6px] text-[32px] font-extrabold leading-[40px] text-text-primary">{value}</div>
+          <div className="mt-1.5 text-[32px] font-extrabold leading-[40px] text-text-primary">{value}</div>
         )}
       </div>
     )
@@ -41,7 +41,7 @@ export function StatTile({
 
   if (variant === 'boxed') {
     return (
-      <div className={`rounded-lg bg-surface-tertiary p-[12px] text-center${className ? ` ${className}` : ''}`}>
+      <div className={`rounded-lg bg-surface-tertiary p-3 text-center${className ? ` ${className}` : ''}`}>
         <div className="text-[22px] font-extrabold text-text-primary">{children ?? value}</div>
         <div className="text-[14px] text-text-muted">{label}</div>
       </div>

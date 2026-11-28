@@ -167,7 +167,7 @@ export function DataTable<T>({
   const columnCount = columns.length + (renderExpandedRow ? 1 : 0)
 
   return (
-    <section aria-label={label} className={`min-w-0 max-w-full space-y-[12px] ${className}`}>
+    <section aria-label={label} className={`min-w-0 max-w-full space-y-3 ${className}`}>
       {toolbar}
       {overflows && <p id={`${id}-scroll-hint`} className="text-[14px] text-text-muted">Scroll horizontally to see all columns.</p>}
       <div
@@ -186,11 +186,11 @@ export function DataTable<T>({
                 return (
                   <th key={column.id} scope="col"
                     aria-sort={sortable ? direction === 'asc' ? 'ascending' : direction === 'desc' ? 'descending' : 'none' : undefined}
-                    className={`px-[16px] py-[12px] font-bold ${column.align === 'right' ? 'text-right' : 'text-left'} ${column.headerClassName ?? ''}`}
+                    className={`px-4 py-3 font-bold ${column.align === 'right' ? 'text-right' : 'text-left'} ${column.headerClassName ?? ''}`}
                   >
                     {sortable ? (
                       <button type="button" disabled={hideRows}
-                        className="inline-flex min-h-[36px] items-center gap-[6px] rounded-[4px] text-text-primary disabled:opacity-50"
+                        className="inline-flex min-h-[36px] items-center gap-1.5 rounded-[4px] text-text-primary disabled:opacity-50"
                         aria-label={`${column.header}: sort ${next.direction === 'asc' ? 'ascending' : 'descending'}`}
                         onClick={() => onSortChange?.(next)}
                       >
@@ -200,13 +200,13 @@ export function DataTable<T>({
                   </th>
                 )
               })}
-              {renderExpandedRow && <th scope="col" className="px-[16px] py-[12px] text-left font-bold">Details</th>}
+              {renderExpandedRow && <th scope="col" className="px-4 py-3 text-left font-bold">Details</th>}
             </tr>
           </thead>
           <tbody ref={bodyRef}>
             {hideRows || rows.length === 0 ? (
-              <tr><td colSpan={columnCount} className="px-[16px] py-[24px] text-text-secondary">
-                {hasError ? <div role="alert" className="space-y-[12px] text-error">
+              <tr><td colSpan={columnCount} className="px-4 py-6 text-text-secondary">
+                {hasError ? <div role="alert" className="space-y-3 text-error">
                   <div>{error}</div>
                   {onRetry && <Button variant="secondary" size="sm" onClick={onRetry}>Retry</Button>}
                 </div> : busy || correctingPage ? status : empty}
@@ -233,9 +233,9 @@ export function DataTable<T>({
                     onAuxClick={onRowAuxClick ? event => onRowAuxClick(row, event) : undefined}
                     className={`border-t border-border-default align-top hover:bg-surface-tertiary-subtle focus-within:bg-surface-tertiary-subtle ${onRowClick ? 'cursor-pointer' : ''}`}>
                     {columns.map(column => <td key={column.id}
-                      className={`px-[16px] py-[12px] whitespace-normal [overflow-wrap:anywhere] ${column.align === 'right' ? 'text-right tabular-nums' : 'text-left'} ${column.className ?? 'min-w-[120px] max-w-[360px]'}`}
+                      className={`px-4 py-3 whitespace-normal [overflow-wrap:anywhere] ${column.align === 'right' ? 'text-right tabular-nums' : 'text-left'} ${column.className ?? 'min-w-[120px] max-w-[360px]'}`}
                     >{column.cell(row)}</td>)}
-                    {renderExpandedRow && <td className="px-[16px] py-[12px]">
+                    {renderExpandedRow && <td className="px-4 py-3">
                       <Button variant="ghost" size="sm" aria-label={`Details for ${rowLabel}`} aria-expanded={isExpanded}
                         aria-controls={isExpanded ? detailsId : undefined}
                         onClick={() => setExpanded(previous => {
@@ -248,7 +248,7 @@ export function DataTable<T>({
                     </td>}
                   </tr>
                   {renderExpandedRow && isExpanded && <tr id={detailsId} className="border-t border-border-default bg-surface-tertiary-subtle">
-                    <td colSpan={columnCount} className="px-[16px] py-[16px]">
+                    <td colSpan={columnCount} className="px-4 py-4">
                       <div role="region" aria-label={`Details for ${rowLabel}`} className="max-w-full [overflow-wrap:anywhere]">
                         {renderExpandedRow(row)}
                       </div>
@@ -262,22 +262,22 @@ export function DataTable<T>({
           </tbody>
         </table>
       </div>
-      <div className="flex min-w-0 flex-wrap items-center justify-between gap-[12px]">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
         <p role="status" aria-live="polite" aria-atomic="true" className="text-[14px] text-text-secondary">{status}</p>
-        {pagination && page && <div className="flex max-w-full flex-wrap items-center gap-[12px]">
-          {pagination.onPageSizeChange && <label className="flex items-center gap-[8px] text-[14px] text-text-secondary">
+        {pagination && page && <div className="flex max-w-full flex-wrap items-center gap-3">
+          {pagination.onPageSizeChange && <label className="flex items-center gap-2 text-[14px] text-text-secondary">
             Rows per page
             <select value={pagination.pageSize} disabled={hideRows}
               onChange={event => {
                 pagination.onPageSizeChange?.(Number(event.target.value))
                 pagination.onOffsetChange(0)
               }}
-              className="rounded-[8px] border border-action-ghost-border bg-surface-tertiary px-[10px] py-[8px] text-text-primary disabled:opacity-50"
+              className="rounded-[8px] border border-action-ghost-border bg-surface-tertiary px-2.5 py-2 text-text-primary disabled:opacity-50"
             >
               {DATA_TABLE_PAGE_SIZES.map(size => <option key={size} value={size}>{size}</option>)}
             </select>
           </label>}
-          <div className="flex items-center gap-[8px]">
+          <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" disabled={hideRows || !page.canPrevious}
               onClick={() => pagination.onOffsetChange(Math.max(0, page.offset - page.pageSize))}>Previous</Button>
             <Button variant="ghost" size="sm" disabled={hideRows || !page.canNext}
@@ -309,14 +309,14 @@ export function DataTableToolbar({
 }: DataTableToolbarProps) {
   return (
     <form aria-label={label} onSubmit={event => { event.preventDefault(); onSubmit?.() }}
-      className="flex min-w-0 flex-wrap items-end gap-[12px] rounded-[12px] border border-border-default bg-surface-secondary p-[16px]"
+      className="flex min-w-0 flex-wrap items-end gap-3 rounded-[12px] border border-border-default bg-surface-secondary p-4"
     >
       {search && <div className="min-w-0 basis-[240px] grow [&>div]:mb-0">
         <Field label={search.label} type="search" value={search.value} placeholder={search.placeholder} maxLength={search.maxLength}
           onChange={event => search.onChange(event.target.value)} />
       </div>}
-      <div className="flex min-w-0 flex-wrap items-end gap-[12px] [&>div]:mb-0 [&>div]:min-w-0 [&>label]:min-w-0">{children}</div>
-      <div className="flex min-w-0 flex-wrap items-center gap-[8px]">
+      <div className="flex min-w-0 flex-wrap items-end gap-3 [&>div]:mb-0 [&>div]:min-w-0 [&>label]:min-w-0">{children}</div>
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
         {onSubmit && <Button type="submit" variant="secondary" loading={busy}>{submitLabel}</Button>}
         {onReset && <Button variant="ghost" disabled={resetDisabled} onClick={onReset}>Clear filters</Button>}
         {actions}

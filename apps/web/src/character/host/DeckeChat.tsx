@@ -41,6 +41,7 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Icon } from '../../components/Icon'
+import { CloseButton } from '../../components/ui/CloseButton'
 import { api } from '../../lib/api'
 import type { DeckEInstance } from './runtime'
 import { DeckeScreen, type ScreenSpec } from './DeckeScreen'
@@ -2698,7 +2699,7 @@ export function DeckeChat({
           class exists for. `font-normal` because Fraunces at 400 already reads
           heavier than the sans at 600 beside it.
         */}
-        <header className="flex w-full shrink-0 items-center gap-[10px] px-[16px] py-[9px] nav:px-[22px]">
+        <header className="flex w-full shrink-0 items-center gap-[10px] px-[16px] py-2 nav:px-[22px]">
           {/*
             `shrink-0 whitespace-nowrap`, AND IT IS NOT DEFENSIVE PADDING.
 
@@ -2793,14 +2794,16 @@ export function DeckeChat({
             // does with it — reload, share, come back — finds nothing.
             onDeleted={(id) => setViewingId((cur) => (cur === id ? null : cur))}
           />
-          <button
-            type="button"
+          {/* The app's one close control (ui/CloseButton): a bare ✕ in a 44px
+              box. The negative margin puts that box `--spacing-corner` (8px)
+              from the panel's side, the same as the header's `py-2` puts it
+              from the top — so the glyph sits as far from the top as from the
+              side, as it does on every sheet. */}
+          <CloseButton
             onClick={onClose}
             aria-label="Close chat"
-            className="pointer-events-auto ml-auto flex h-[38px] w-[38px] items-center justify-center rounded-full text-icon-default motion-safe:transition-colors hover:bg-surface-secondary hover:text-icon-hover"
-          >
-            <Icon name="close" size={22} />
-          </button>
+            className="pointer-events-auto ml-auto -mr-2 nav:-mr-3.5"
+          />
         </header>
 
         {/*
