@@ -1,18 +1,14 @@
 ---
 date: "2026-11-27"
 title: "Delta Reign and McDonald's 2026 imagery from Bulbagarden Archives"
-decided_by: "PENDING @cheyras's per-file acceptance; prepared by Claude Opus 5.5"
+decided_by: "Chey (via Claude Opus 5.5)"
 areas: ["images","catalog"]
 supersedes: []
 ---
 ## 2026-11-27 — Delta Reign and McDonald's 2026 imagery from Bulbagarden Archives
-**Decided by:** PENDING @cheyras's per-file acceptance; prepared by Claude Opus 5.5
+**Decided by:** Chey (via Claude Opus 5.5)
 
-> **HOLD — do not merge until the owner has said yes to these three files, and
-> his words are recorded below** (the 2026-09-03 process note: consent lives
-> with whoever heard it; an agent's task prompt is not the owner's yes).
->
-> **Owner's words:** _(to be filled in by the session that asks him)_
+**Owner's acceptance, 2026-11-28.** Asked in this session, naming the three files below (`File:ME6 Logo EN.png`, `File:SetSymbolDelta Reign.png`, `File:SetSymbolMcDonalds Collection 2026.png`) and the Bulbagarden source: "May I use those three files and ship it?" Chey's answer, verbatim: "Yeah get delta reign up." This accepts these three files only; it is not a precedent for the slot.
 
 **Decision:** Three Bulbagarden Archives files join the set-image crosswalk
 (`packages/storage/src/setImageFallback.ts`):
@@ -50,7 +46,7 @@ owner already accepted (2026-08-29); its *logo* stays excluded under the
 
 **Implications:**
 
-- Needs `fix/set-logo-audit` (the API reports a crosswalk URL as the set's
+- Relies on #407 (merged: the API reports a crosswalk URL as the set's
   `logoUrl` / `symbolUrl`). Without it the API reports `card_set.logo_url`,
   which is NULL for `me06`, and the series row and set header never ask for
   the logo.
