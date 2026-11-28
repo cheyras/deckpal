@@ -1021,6 +1021,8 @@ export function DeckBuilder() {
               <button onClick={() => setShowAdd(true)} className="flex h-[42px] items-center gap-[8px] rounded-full bg-action-primary px-[18px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover">
                 <Icon name="plus" size={16} /> Add Cards
               </button>
+              {/* Filter, sort and Missing have nothing to act on in an empty deck. */}
+              {detail.cards.length > 0 && (<>
               <label className="relative flex h-[42px] flex-1 items-center" style={{ minWidth: 180, maxWidth: 320 }}>
                 <span className="pointer-events-none absolute left-[12px] text-icon-default"><Icon name="search" size={18} /></span>
                 <input value={search.q} onChange={(e) => patchSearch({ q: e.target.value })} placeholder="Filter deck…"
@@ -1038,6 +1040,7 @@ export function DeckBuilder() {
                 className={`h-[42px] rounded-lg border px-[14px] text-[14px] font-semibold ${search.missing ? 'border-action-primary bg-action-primary text-action-primary-text' : 'border-border-default bg-surface-primary text-text-secondary hover:bg-surface-tertiary'}`}>
                 Missing
               </button>
+              </>)}
             </div>
 
             {/* sections */}
@@ -1053,13 +1056,13 @@ export function DeckBuilder() {
               data-decke-rank="container"
             >
               {detail.cards.length === 0 ? (
-                <div className="flex flex-col items-center gap-[10px] rounded-xl border border-dashed border-border-default py-[60px] text-center">
-                  <Icon name="deck" size={40} className="text-icon-muted" />
-                  <div className="text-[16px] font-bold text-text-primary">This deck is empty</div>
-                  <button onClick={() => setShowAdd(true)} className="mt-[4px] flex h-[42px] items-center gap-[8px] rounded-full bg-action-primary px-[18px] text-[14px] font-bold text-action-primary-text hover:bg-action-primary-hover">
+                // The shared empty state, as "This list is empty" uses — this
+                // hand-built one set its title smaller and in the text face.
+                <EmptyState icon="deck" title="This deck is empty">
+                  <Button onClick={() => setShowAdd(true)}>
                     <Icon name="plus" size={16} /> Add Cards
-                  </button>
-                </div>
+                  </Button>
+                </EmptyState>
               ) : grouped.shown === 0 ? (
                 // Filters composed to nothing. Distinguish "deck fully owned"
                 // (Missing on, no text filter) from "no matches".

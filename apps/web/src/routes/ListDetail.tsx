@@ -488,7 +488,10 @@ export function ListDetail() {
             </div>
           </div>
 
-          {/* controls */}
+          {/* controls — not on an empty list, where a search box, seven sort
+              chips and Have (0) / Need (0) / Dupes (0) had nothing to act on and
+              pushed the empty state's own "Add Cards" below the fold. */}
+          {items.length > 0 && (
           <div className="mt-[20px] flex flex-col gap-[14px]">
             <div className="flex flex-wrap items-center gap-[16px]">
               <SearchBox value={search.q} onChange={(v) => patch({ q: v })} />
@@ -529,6 +532,7 @@ export function ListDetail() {
               </div>
             </div>
           </div>
+          )}
 
           {/* body */}
           {/* One landmark for the whole item region, not one per item. The

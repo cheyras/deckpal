@@ -70,8 +70,10 @@ export function StrategyTab({
   if (!strategyMd) {
     return (
       <div className="mt-[18px] flex flex-col items-center gap-[10px] rounded-xl border border-dashed border-border-default px-[20px] py-[60px] text-center">
-        <Icon name="book" size={40} className="text-icon-muted" />
-        <div className="text-[16px] font-bold text-text-primary">No strategy guide yet</div>
+        {/* Icon and title as the shared EmptyState sets them (display face,
+            20px), so the deck's empty tabs match the app's other empty states. */}
+        <Icon name="book" size={44} className="text-icon-muted" />
+        <div className="font-display text-[20px] font-bold text-text-primary">No strategy guide yet</div>
         <p className="max-w-[400px] text-[14px] leading-[19px] text-text-muted">
           Write one, or let an agent add it — the guide travels with the deck and is snapshotted into each version.
         </p>
